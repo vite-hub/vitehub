@@ -1,0 +1,22 @@
+{
+  "extends": "./.nuxt/tsconfig.json",
+  "compilerOptions": {
+    "strict": false,
+    "noImplicitAny": false
+  },
+  "include": [
+    "app/**/*.ts",
+    "app/**/*.vue",
+    "modules/**/*.ts",
+    "modules/**/*.vue",
+    "types/**/*.d.ts",
+    "content.config.ts",
+    "nuxt.config.ts",
+    ".generated/**/*.mjs"
+  ],
+  "exclude": [
+    "node_modules",
+    ".output",
+    "../node_modules/.pnpm/docus*/node_modules/docus/app/composables/**/*"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "dependencies": {
+    "@vitehub/dummy": "workspace:*",
+    "nitro": "catalog:frontend"
+  }
+}

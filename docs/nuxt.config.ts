@@ -1,0 +1,32 @@
+import { defineNuxtConfig } from "nuxt/config";
+
+export default defineNuxtConfig({
+  extends: ["docus"],
+  modules: ["./modules/vitehub-docs"],
+  site: {
+    name: "ViteHub",
+  },
+  app: {
+    head: {
+      link: [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+    },
+  },
+  css: ["~/assets/main.css"],
+  devtools: {
+    enabled: false,
+  },
+  nitro: {
+    prerender: {
+      crawlLinks: false,
+      routes: [],
+    },
+  },
+  experimental: {
+    payloadExtraction: false,
+    defaults: {
+      nuxtLink: {
+        trailingSlash: "append",
+      },
+    },
+  },
+} as any);

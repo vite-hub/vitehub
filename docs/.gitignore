@@ -1,0 +1,9 @@
+.nuxt
+.output
+.data
+.generated
+test-results
+dist
+node_modules
+types/auto-imports.d.ts
+types/mdc-runtime.d.ts

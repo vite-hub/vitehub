@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@vitehub/dummy": "workspace:*",
+    "h3": "catalog:frontend",
+    "tsx": "catalog:script"
+  }
+}

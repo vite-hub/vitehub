@@ -1,0 +1,32 @@
+{
+  "name": "vitehub-docs",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#vitehub-docs-manifest": "./.generated/docs-manifest.mjs"
+  },
+  "scripts": {
+    "clean": "rm -rf .nuxt .output node_modules/.cache .generated",
+    "postinstall": "nuxi prepare",
+    "pretest": "nuxi prepare",
+    "dev": "nuxi dev",
+    "build": "NODE_OPTIONS='--max-old-space-size=8192' nuxi build",
+    "test": "vitest run",
+    "typecheck": "nuxi prepare && vue-tsc --noEmit -p tsconfig.typecheck.json",
+    "generate": "NODE_OPTIONS='--max-old-space-size=8192' nuxi generate",
+    "preview": "nuxi preview"
+  },
+  "dependencies": {
+    "@nuxt/content": "^3.12.0",
+    "@valibot/to-json-schema": "^1.5.0",
+    "better-sqlite3": "catalog:backend",
+    "docus": "catalog:frontend",
+    "nuxt": "catalog:frontend",
+    "shiki": "^3.23.0",
+    "valibot": "^1.2.0",
+    "vitest": "catalog:test"
+  },
+  "devDependencies": {
+    "vue-tsc": "^3.1.1"
+  }
+}

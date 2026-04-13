@@ -1,0 +1,11 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="vitehub-yellow" x1="48" y1="8" x2="48" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDE047"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+  <path d="M48 88L18 52H78L48 88Z" fill="url(#vitehub-yellow)"/>
+  <path d="M48 58L23 28H73L48 58Z" fill="url(#vitehub-yellow)"/>
+  <path d="M48 36L28 8H68L48 36Z" fill="url(#vitehub-yellow)"/>
+</svg>

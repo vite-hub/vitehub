@@ -1,0 +1,14 @@
+{
+  "icon": "i-lucide-box",
+  "order": 0,
+  "providers": [
+    { "id": "cloudflare", "configOverride": "  dummy: {\n    provider: 'cloudflare',\n    binding: 'DUMMY',\n  }," },
+    { "id": "vercel", "configOverride": "  dummy: {\n    provider: 'vercel',\n    runtime: 'edge',\n  }," },
+    { "id": "netlify", "configOverride": "  dummy: {\n    provider: 'netlify',\n    adapter: 'server',\n  }," }
+  ],
+  "frameworks": {
+    "vite": { "run": "src/server.ts", "buildRun": "src/build.ts" },
+    "nitro": { "run": "server/api/dummy.get.ts", "buildRun": "server/api/dummy-build.get.ts" },
+    "nuxt": { "run": "server/api/dummy.get.ts", "buildRun": "server/api/dummy-build.get.ts" }
+  }
+}

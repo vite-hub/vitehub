@@ -1,14 +1,29 @@
+packages:
+  - "docs"
+  - "packages/*"
+  - "packages/*/examples/*"
 catalog:
-  vite: npm:@voidzero-dev/vite-plus-core@latest
-  vitest: npm:@voidzero-dev/vite-plus-test@latest
-  vite-plus: latest
-overrides:
-  vite: "catalog:"
-  vitest: "catalog:"
-peerDependencyRules:
-  allowAny:
-    - vite
-    - vitest
-  allowedVersions:
-    vite: "*"
-    vitest: "*"
+  '@oku-ui/motion': ^0.4.3
+  '@vueuse/nuxt': ^14.2.1
+  motion-v: ^2.2.1
+
+catalogMode: prefer
+
+catalogs:
+  backend:
+    better-sqlite3: ^12.6.2
+  build:
+    typescript: ^6.0.2
+  frontend:
+    docus: ^5.9.0
+    h3: ^2.0.1-rc.20
+    nitro: ^3.0.0
+    nuxt: ^4.4.2
+  lint:
+    oxlint: ^1.58.0
+  script:
+    tsx: ^4.20.3
+  test:
+    vitest: ^4.0.16
+  types:
+    "@types/node": ^25.6.0

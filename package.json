@@ -1,42 +1,25 @@
 {
-  "name": "vitehub-next",
+  "name": "vitehub-workspace",
+  "private": true,
   "version": "0.0.0",
-  "description": "A starter for creating a TypeScript package.",
-  "homepage": "https://github.com/author/library#readme",
-  "bugs": {
-    "url": "https://github.com/author/library/issues"
-  },
-  "license": "MIT",
-  "author": "Author Name <author.name@mail.com>",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/author/library.git"
-  },
-  "files": [
-    "dist"
-  ],
+  "description": "ViteHub monorepo workspace.",
+  "license": "Apache-2.0",
   "type": "module",
-  "exports": {
-    ".": "./dist/index.mjs",
-    "./package.json": "./package.json"
-  },
-  "publishConfig": {
-    "access": "public"
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "build": "vp pack",
-    "dev": "vp pack --watch",
-    "test": "vp test",
-    "check": "vp check",
-    "prepublishOnly": "vp run build",
-    "prepare": "vp config"
+    "lint": "pnpm exec oxlint . --ignore-path .gitignore",
+    "typecheck": "pnpm --dir docs typecheck && pnpm -r --filter './packages/*' --if-present run typecheck",
+    "test": "pnpm -r --filter './packages/*' --if-present run test",
+    "build": "pnpm -r --filter './packages/*' --if-present run build",
+    "docs:dev": "pnpm --dir docs dev",
+    "docs:build": "pnpm --dir docs build"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
-    "@typescript/native-preview": "7.0.0-dev.20260328.1",
-    "bumpp": "^11.0.1",
-    "typescript": "^6.0.2",
-    "vite-plus": "^0.1.14"
-  },
-  "packageManager": "pnpm@10.33.0"
+    "@types/node": "catalog:types",
+    "oxlint": "catalog:lint",
+    "typescript": "catalog:build"
+  }
 }
