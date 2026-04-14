@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { createError, definePageMeta, useAsyncData } from "#imports";
+import { createError, definePageMeta, queryCollection, useAsyncData } from "#imports";
 import { useDocsPage } from "~/composables/useDocsPage";
 import { useFrameworkPreference } from "~/composables/useFrameworkPreference";
 import { getDocsPage, getDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
@@ -14,7 +14,7 @@ const docsPage = getDocsPage("getting-started", "index");
 const sourcePath = computed(() => getDocsPath("getting-started", framework.value));
 const { data: rawDoc } = await useAsyncData(
   () => `docs:${sourcePath.value}`,
-  () => $fetch("/api/docs-page", { params: { path: sourcePath.value } }),
+  () => queryCollection("docs").path(sourcePath.value).first(),
   { watch: [sourcePath] },
 );
 

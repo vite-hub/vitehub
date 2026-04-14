@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { createError, definePageMeta, useAsyncData, useRoute } from "#imports";
+import { createError, definePageMeta, queryCollection, useAsyncData, useRoute } from "#imports";
 import { useDocsPage } from "~/composables/useDocsPage";
 import { getDocsPage, getDocsPath, getDocsPathMeta } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import type { Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
@@ -19,7 +19,7 @@ const docsPage = getDocsPage(routeMeta.section, routeMeta.page);
 const sourcePath = getDocsPath(routeMeta.section, routeMeta.framework as Framework, routeMeta.page);
 const { data: rawDoc } = await useAsyncData(
   `docs:${sourcePath}`,
-  () => $fetch("/api/docs-page", { params: { path: sourcePath } }),
+  () => queryCollection("docs").path(sourcePath).first(),
 );
 
 if (!docsPage || !docsPage.frameworks.includes(routeMeta.framework as Framework) || !rawDoc.value) {
