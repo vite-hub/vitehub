@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { useFrameworkPreference } from "../composables/useFrameworkPreference";
+import { useFrameworkPreference } from "~/composables/useFrameworkPreference";
 import {
   frameworkColorIcons,
   frameworkDescriptions,
   frameworkLabels,
   frameworks,
-} from "../utils/frameworks";
+} from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 
 const open = ref(false);
 const { current, switchTo } = useFrameworkPreference();

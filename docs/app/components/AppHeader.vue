@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { useFrameworkPreference } from "../../composables/useFrameworkPreference";
-import { docsManifest, getDocsPath } from "../../utils/docs";
-import { normalizeSitePath } from "../../utils/docs-routes";
+import { useFrameworkPreference } from "~/composables/useFrameworkPreference";
+import { docsManifest, getDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { normalizeSitePath } from "~~/modules/vitehub-docs/runtime/utils/docs-routes";
 
 const route = useRoute();
 const { current } = useFrameworkPreference();
@@ -22,7 +22,6 @@ type PackageLink = {
   to: string;
 };
 
-// Build-time package list, only framework prefix changes at runtime
 const packageLinks = computed(() => {
   const links: PackageLink[] = [];
 

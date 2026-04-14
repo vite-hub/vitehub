@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { Fragment, computed, provide, ref, watch, type VNode } from "vue";
-import type { AstNode } from "../../utils/framework-content";
-import { useFrameworkPreference } from "../../composables/useFrameworkPreference";
-import { useUsageModePreference } from "../../composables/useUsageModePreference";
+import type { AstNode } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
+import { useFrameworkPreference } from "~/composables/useFrameworkPreference";
+import { useUsageModePreference } from "~/composables/useUsageModePreference";
 import {
   fwGroupContextKey,
   getFwVariantTabScore,
   parseFwVariants,
   usageModeLabels,
-} from "../../utils/fw-variants";
+} from "~~/modules/vitehub-docs/runtime/utils/fw-variants";
 import {
   frameworkColorIcons,
   frameworkLabels,
-} from "../../utils/frameworks";
+} from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 
 type FrameworkTabItem = {
   id: string;

@@ -3,7 +3,7 @@ import { useSeoMeta } from "#imports";
 import { useDocsRenderMode } from "./useDocsRenderMode";
 import { useFrameworkPreference } from "./useFrameworkPreference";
 import { useUsageModePreference } from "./useUsageModePreference";
-import { normalizeFrameworkPage, type NormalizedPage } from "../utils/framework-content";
+import { normalizeFrameworkPage, type NormalizedPage } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
 
 export type ContentPage = NormalizedPage & {
   data?: Record<string, unknown>;

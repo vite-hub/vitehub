@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useFrameworkPreference as useFramework } from "../../composables/useFrameworkPreference";
-import { useHighlightedCode } from "../../composables/useHighlightedCode";
-import { frameworkColorIcons, frameworkLabels, type Framework } from "../../utils/frameworks";
-import { getShowcaseExamples, getShowcasePhasePaths, getShowcaseFiles, type ExampleFile, type ShowcasePhaseId } from "../../utils/showcase";
+import { useFrameworkPreference as useFramework } from "~/composables/useFrameworkPreference";
+import { useHighlightedCode } from "~/composables/useHighlightedCode";
+import { frameworkColorIcons, frameworkLabels, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
+import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 
 type TreeItem = { id: string; label: string; icon?: string; defaultExpanded?: boolean; children?: TreeItem[] };
 
@@ -156,10 +156,8 @@ const { data: highlightedCode } = useHighlightedCode(
           </div>
         </div>
 
-        <!-- Terminal showcase -->
         <div class="mx-auto mt-20 max-w-5xl">
           <div class="terminal-chrome overflow-hidden rounded-xl border border-black/10 dark:border-white/10 dark:shadow-none">
-            <!-- Title bar -->
             <div class="flex items-center gap-3 border-b border-black/5 bg-muted/50 px-4 py-2.5 dark:border-white/5">
               <div class="flex items-center gap-1.5">
                 <span class="size-3 rounded-full bg-[#ff5f56]/80" />
@@ -170,7 +168,6 @@ const { data: highlightedCode } = useHighlightedCode(
               <div class="w-12" />
             </div>
 
-            <!-- Tab bar -->
             <div role="tablist" class="flex overflow-x-auto border-b border-black/5 bg-default dark:border-white/5 hide-scrollbar">
               <UButton
                 v-for="(example, index) in examples" :key="example.pkg"
@@ -184,9 +181,7 @@ const { data: highlightedCode } = useHighlightedCode(
               />
             </div>
 
-            <!-- File tree + code -->
             <div class="flex bg-default">
-              <!-- File tree sidebar -->
               <div class="hidden w-52 shrink-0 border-r border-black/5 bg-muted/30 py-2 md:block dark:border-white/5">
                 <UTree
                   :items="fileTree"
@@ -198,7 +193,6 @@ const { data: highlightedCode } = useHighlightedCode(
                 />
               </div>
 
-              <!-- Code panel -->
               <div class="relative min-h-80 min-w-0 flex-1">
                 <div class="flex items-center gap-2 border-b border-black/5 px-3 py-2 dark:border-white/5">
                   <UIcon :name="fileIcon(activeFile?.path || '')" class="size-3.5 shrink-0 text-muted" />
@@ -213,7 +207,6 @@ const { data: highlightedCode } = useHighlightedCode(
               </div>
             </div>
 
-            <!-- Status bar -->
             <div class="flex items-center border-t border-black/5 bg-muted/30 px-3 py-1.5 dark:border-white/5">
               <div class="flex items-center gap-0.5 rounded-lg ring ring-black/5 p-0.5 dark:ring-white/10">
                 <UButton

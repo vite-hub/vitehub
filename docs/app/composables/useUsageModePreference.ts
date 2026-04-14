@@ -4,7 +4,7 @@ import {
   defaultUsageMode,
   usageModes,
   type UsageMode,
-} from "../utils/fw-variants";
+} from "~~/modules/vitehub-docs/runtime/utils/fw-variants";
 
 export function useUsageModePreference() {
   const cookie = useCookie<UsageMode>("vitehub-mode", {

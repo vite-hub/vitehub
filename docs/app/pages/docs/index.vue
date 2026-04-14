@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { createError, definePageMeta, useAsyncData } from "#imports";
-import { useDocsPage } from "~~/modules/vitehub-docs/runtime/composables/useDocsPage";
-import { useFrameworkPreference } from "~~/modules/vitehub-docs/runtime/composables/useFrameworkPreference";
+import { useDocsPage } from "~/composables/useDocsPage";
+import { useFrameworkPreference } from "~/composables/useFrameworkPreference";
 import { getDocsPage, getDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 
 definePageMeta({

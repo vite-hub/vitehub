@@ -2,9 +2,9 @@ import { computed } from "vue";
 import { useRoute } from "#imports";
 import type { ContentNavigationItem } from "@nuxt/content";
 import { useFrameworkPreference } from "./useFrameworkPreference";
-import { docsManifest, getDocsPath, getDocsPathMeta, isDocsPageSupported, type DocsPage, type DocsSection } from "../utils/docs";
-import type { Framework } from "../utils/frameworks";
-import { normalizeSitePath } from "../utils/docs-routes";
+import { docsManifest, getDocsPath, getDocsPathMeta, isDocsPageSupported, type DocsPage, type DocsSection } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import type { Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
+import { normalizeSitePath } from "~~/modules/vitehub-docs/runtime/utils/docs-routes";
 
 type DocsSectionLink = {
   label: string;
@@ -22,7 +22,6 @@ function createNavigationGroup(title: string, items: ContentNavigationItem[]) {
 }
 
 function isPathActive(itemPath: string, currentPath: string) {
-  // Strip trailing slashes for comparison to avoid trailingSlash: "append" mismatches
   const a = itemPath.replace(/\/+$/, "");
   const b = currentPath.replace(/\/+$/, "");
   return b === a || b.startsWith(a + "/");
@@ -33,8 +32,6 @@ function toNavigationItem(item: { title: string; path: string; icon?: string | n
     title: item.title,
     path: item.path,
     icon: item.icon || undefined,
-    // Explicitly set active to bypass ULink's Vue Router isActive check
-    // which breaks with trailingSlash: "append" on catch-all routes
     ...(currentPath !== undefined && { active: isPathActive(item.path, currentPath) }),
   } satisfies ContentNavigationItem;
 }
@@ -62,8 +59,8 @@ function getSectionLink(section: DocsSection, framework: Framework, currentPath:
   };
 }
 
-function buildDocsIndexSidebarNavigation(_sections: DocsSection[], _framework: Framework, currentPath: string) {
-  const gettingStartedSection = _sections.find(section => section.id === "getting-started");
+function buildDocsIndexSidebarNavigation(sections: DocsSection[], framework: Framework, currentPath: string) {
+  const gettingStartedSection = sections.find(section => section.id === "getting-started");
   if (!gettingStartedSection) return [];
 
   return [toNavigationItem({ title: gettingStartedSection.title, path: "/docs", icon: gettingStartedSection.icon }, currentPath)];

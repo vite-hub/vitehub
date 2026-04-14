@@ -1,7 +1,7 @@
 import { computed, toValue, type MaybeRefOrGetter } from "vue";
 import { useAsyncData } from "#imports";
 import { codeToHtml } from "shiki";
-import { getCodeLanguage } from "../utils/showcase";
+import { getCodeLanguage } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 
 function hashCode(value: string) {
   let hash = 0;

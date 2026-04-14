@@ -1,7 +1,7 @@
 import { computed, nextTick } from "vue";
 import { navigateTo, useCookie, useRoute } from "#imports";
-import { normalizeSitePath, resolveFrameworkSwitchPath } from "../utils/docs-routes";
-import { defaultFramework, frameworks, type Framework } from "../utils/frameworks";
+import { normalizeSitePath, resolveFrameworkSwitchPath } from "~~/modules/vitehub-docs/runtime/utils/docs-routes";
+import { defaultFramework, frameworks, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 
 export function useFrameworkPreference() {
   const route = useRoute();
