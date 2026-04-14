@@ -1,5 +1,4 @@
 import { computed } from "vue";
-import { useRoute } from "#imports";
 import type { ContentNavigationItem } from "@nuxt/content";
 import { useFrameworkPreference } from "./useFrameworkPreference";
 import { docsManifest, getDocsPath, getDocsPathMeta, isDocsPageSupported, type DocsPage, type DocsSection } from "~~/modules/vitehub-docs/runtime/utils/docs";

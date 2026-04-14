@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { createError, definePageMeta, queryCollection, useAsyncData, useRoute } from "#imports";
 import { useDocsPage } from "~/composables/useDocsPage";
 import { getDocsPage, getDocsPath, getDocsPathMeta } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import type { Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";

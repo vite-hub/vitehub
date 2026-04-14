@@ -1,5 +1,4 @@
 import { computed } from "vue";
-import { useRoute } from "#imports";
 import type { DocsRenderOptions } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
 
 export function useDocsRenderMode() {

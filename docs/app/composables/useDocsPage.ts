@@ -1,5 +1,4 @@
 import { computed, type ComputedRef, type Ref } from "vue";
-import { useSeoMeta } from "#imports";
 import { useDocsRenderMode } from "./useDocsRenderMode";
 import { useFrameworkPreference } from "./useFrameworkPreference";
 import { useUsageModePreference } from "./useUsageModePreference";

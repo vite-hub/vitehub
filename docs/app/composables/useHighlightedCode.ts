@@ -1,5 +1,4 @@
 import { computed, toValue, type MaybeRefOrGetter } from "vue";
-import { useAsyncData } from "#imports";
 import { codeToHtml } from "shiki";
 import { getCodeLanguage } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 

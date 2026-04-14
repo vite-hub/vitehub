@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { useHead, useSeoMeta } from "#imports";
-
 useHead({
   titleTemplate: title => !title || title === "ViteHub" ? "ViteHub" : `${title} · ViteHub`,
   meta: [

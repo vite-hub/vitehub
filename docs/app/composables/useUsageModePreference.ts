@@ -1,5 +1,4 @@
 import { computed, nextTick } from "vue";
-import { useCookie } from "#imports";
 import {
   defaultUsageMode,
   usageModes,
