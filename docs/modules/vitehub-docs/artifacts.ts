@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 const frameworkIds = ["vite", "nitro", "nuxt"] as const;
@@ -314,6 +314,7 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
   const examples = parsePackageExamples(packagesRoot);
   const exampleByPackage = new Map(examples.map(example => [example.pkg, example]));
   const documents: Record<string, string> = {};
+  const generatedPages: Array<{ filename: string; contents: string }> = [];
 
   const sections = [
     ...(existsSync(localDocsRoot)
@@ -327,6 +328,9 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
           for (const page of pages) {
             const docKey = page.pageId === "index" ? sectionId : `${sectionId}/${page.pageId}`;
             documents[docKey] = page.source;
+            for (const framework of page.frameworks) {
+              generatedPages.push({ filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`, contents: page.source });
+            }
           }
 
           return {
@@ -362,6 +366,9 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
         for (const page of pages) {
           const docKey = page.pageId === "index" ? sectionId : `${sectionId}/${page.pageId}`;
           documents[docKey] = page.source;
+          for (const framework of page.frameworks) {
+            generatedPages.push({ filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`, contents: page.source });
+          }
         }
 
         return {
@@ -412,6 +419,18 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
   };
 
   mkdirSync(outputDir, { recursive: true });
+  const docsContentDir = resolve(outputDir, "docs-content");
+  mkdirSync(docsContentDir, { recursive: true });
+
+  const expectedPagePaths = new Set(generatedPages.map(page => resolve(outputDir, page.filename)));
+  for (const existingPath of listFiles(docsContentDir, "")) {
+    if (!expectedPagePaths.has(existingPath)) rmSync(existingPath, { force: true });
+  }
+  for (const page of generatedPages) {
+    const absolutePath = resolve(outputDir, page.filename);
+    mkdirSync(resolve(absolutePath, ".."), { recursive: true });
+    if (!existsSync(absolutePath) || readFileSync(absolutePath, "utf8") !== page.contents) writeFileSync(absolutePath, page.contents);
+  }
 
   const manifestSource = `export const docsManifest = ${JSON.stringify(manifest, null, 2)};\n\nexport default docsManifest;\n`;
   const manifestPath = resolve(outputDir, "docs-manifest.mjs");

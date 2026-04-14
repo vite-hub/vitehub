@@ -1,5 +1,23 @@
-import { defineContentConfig } from "@nuxt/content";
+import { resolve } from "node:path";
+import { defineCollection, defineContentConfig } from "@nuxt/content";
+import { writeDocsArtifacts } from "./modules/vitehub-docs/artifacts";
+
+const docsRoot = import.meta.dirname;
+const repoRoot = resolve(docsRoot, "..");
+const outputDir = resolve(docsRoot, ".generated");
+
+// Nuxt Content reads collections at config parse time, before the module setup runs.
+writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
 
 export default defineContentConfig({
-  collections: {},
+  collections: {
+    docs: defineCollection({
+      type: "page",
+      source: {
+        cwd: resolve(import.meta.dirname, ".generated/docs-content"),
+        include: "**/*.md",
+        prefix: "/docs",
+      },
+    }),
+  },
 });
