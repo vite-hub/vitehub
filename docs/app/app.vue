@@ -1,8 +1,5 @@
 <script setup lang="ts">
-import { useAppConfig, useHead, useSeoMeta } from "#imports";
-
-const appConfig = useAppConfig();
-const seo = appConfig.seo as { title?: string; description?: string; siteName?: string } | undefined;
+import { useHead, useSeoMeta } from "#imports";
 
 useHead({
   titleTemplate: title => !title || title === "ViteHub" ? "ViteHub" : `${title} · ViteHub`,
@@ -19,9 +16,7 @@ useHead({
 });
 
 useSeoMeta({
-  title: seo?.title,
-  description: seo?.description,
-  ogSiteName: seo?.siteName || "ViteHub",
+  ogSiteName: "ViteHub",
   twitterCard: "summary_large_image",
 });
 </script>

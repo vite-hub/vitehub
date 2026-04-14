@@ -35,7 +35,11 @@ const { page } = useDocsPage(
 
 <template>
   <UPage v-if="page">
-    <UPageHeader :title="page.title" :description="page.description" />
+    <UPageHeader :title="page.title" :description="page.description">
+      <template #links>
+        <DocsPageHeaderLinks />
+      </template>
+    </UPageHeader>
 
     <UPageBody prose class="docs-content pb-0">
       <MDCRenderer v-if="page.body" :body="page.body" :data="page.data || {}" />
