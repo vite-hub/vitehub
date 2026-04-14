@@ -96,18 +96,6 @@
   display: block;
 }
 
-.hero-code-block .code-block-wrapper pre,
-.hero-code-block .code-block-wrapper code,
-.hero-code-block .code-block-wrapper .shiki,
-.hero-code-block .code-block-wrapper .shiki code,
-.hero-code-block .code-block-wrapper .shiki .line {
-  line-height: 0.8 !important;
-}
-
-.hero-code-block .code-block-wrapper .shiki .line {
-  min-height: 0.8em;
-}
-
 :is(.dark) .code-block-wrapper .shiki {
   background-color: transparent !important;
 }

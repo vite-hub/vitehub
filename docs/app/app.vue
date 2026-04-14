@@ -1,14 +1,4 @@
 <script setup lang="ts">
-import { provide, shallowRef } from "vue";
-import { useAppConfig, useHead, useSeoMeta } from "#imports";
-
-const appConfig = useAppConfig();
-const seo = appConfig.seo as { title?: string; description?: string; titleTemplate?: string; siteName?: string } | undefined;
-
-const lang = "en";
-const dir = "ltr" as const;
-const navigation = shallowRef([]);
-
 useHead({
   titleTemplate: title => !title || title === "ViteHub" ? "ViteHub" : `${title} · ViteHub`,
   meta: [
@@ -18,20 +8,15 @@ useHead({
     { rel: "icon", href: "/favicon.svg" },
   ],
   htmlAttrs: {
-    lang,
-    dir,
+    lang: "en",
+    dir: "ltr",
   },
 });
 
 useSeoMeta({
-  titleTemplate: seo?.titleTemplate,
-  title: seo?.title,
-  description: seo?.description,
-  ogSiteName: seo?.siteName || "ViteHub",
+  ogSiteName: "ViteHub",
   twitterCard: "summary_large_image",
 });
-
-provide("navigation", navigation);
 </script>
 
 <template>

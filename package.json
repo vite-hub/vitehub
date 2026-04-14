@@ -18,8 +18,8 @@
     "docs:build": "pnpm --dir docs build"
   },
   "devDependencies": {
-    "@types/node": "catalog:types",
-    "oxlint": "catalog:lint",
-    "typescript": "catalog:build"
+    "@types/node": "catalog:",
+    "oxlint": "catalog:",
+    "typescript": "catalog:"
   }
 }

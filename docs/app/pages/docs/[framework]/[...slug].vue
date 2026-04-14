@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { createError, definePageMeta, useAsyncData, useRoute } from "#imports";
-import { useDocsPage } from "~~/modules/vitehub-docs/runtime/composables/useDocsPage";
 import { getDocsPage, getDocsPath, getDocsPathMeta } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import type { Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 
@@ -19,7 +17,7 @@ const docsPage = getDocsPage(routeMeta.section, routeMeta.page);
 const sourcePath = getDocsPath(routeMeta.section, routeMeta.framework as Framework, routeMeta.page);
 const { data: rawDoc } = await useAsyncData(
   `docs:${sourcePath}`,
-  () => $fetch("/api/docs-page", { params: { path: sourcePath } }),
+  () => queryCollection("docs").path(sourcePath).first(),
 );
 
 if (!docsPage || !docsPage.frameworks.includes(routeMeta.framework as Framework) || !rawDoc.value) {
@@ -35,7 +33,11 @@ const { page } = useDocsPage(
 
 <template>
   <UPage v-if="page">
-    <UPageHeader :title="page.title" :description="page.description" />
+    <UPageHeader :title="page.title" :description="page.description">
+      <template #links>
+        <DocsPageHeaderLinks />
+      </template>
+    </UPageHeader>
 
     <UPageBody prose class="docs-content pb-0">
       <MDCRenderer v-if="page.body" :body="page.body" :data="page.data || {}" />

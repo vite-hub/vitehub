@@ -3,7 +3,7 @@ import {
   getShowcaseFiles,
   getShowcaseExamples,
   getShowcasePhasePaths,
-} from "../utils/showcase";
+} from "~~/modules/vitehub-docs/runtime/utils/showcase";
 import { useFrameworkPreference } from "./useFrameworkPreference";
 import { useUsageModePreference } from "./useUsageModePreference";
 

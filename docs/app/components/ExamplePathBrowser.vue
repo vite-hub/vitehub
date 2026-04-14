@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useHighlightedCode } from "../../composables/useHighlightedCode";
-import { useShowcaseExamples } from "../../composables/useShowcaseExamples";
-import { showcasePhaseIds, type ExampleFile, type ShowcasePhaseId } from "../../utils/showcase";
+import { showcasePhaseIds, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 
 const props = defineProps<{
   docsPath: string;

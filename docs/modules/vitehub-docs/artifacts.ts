@@ -94,12 +94,6 @@ function pageTitleFromMeta(pageId: string, meta: Record<string, unknown>) {
   return String(meta["navigation.title"] || meta.title || titleCase(pageId === "index" ? "overview" : pageId));
 }
 
-function getDocsPath(sectionId: string, framework: Framework, pageId = "index") {
-  return pageId === "index"
-    ? `/docs/${framework}/${sectionId}`
-    : `/docs/${framework}/${sectionId}/${pageId}`;
-}
-
 function getSupportedFrameworks(meta: Record<string, unknown>) {
   const frameworks = Array.isArray(meta.frameworks)
     ? meta.frameworks
@@ -314,7 +308,6 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
   const examples = parsePackageExamples(packagesRoot);
   const exampleByPackage = new Map(examples.map(example => [example.pkg, example]));
   const generatedPages: Array<{ filename: string; contents: string }> = [];
-  const documents: Record<string, string> = {};
 
   const sections = [
     ...(existsSync(localDocsRoot)
@@ -327,11 +320,7 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
 
           for (const page of pages) {
             for (const framework of page.frameworks) {
-              documents[getDocsPath(sectionId, framework, page.pageId)] = page.source;
-              generatedPages.push({
-                filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
-                contents: page.source,
-              });
+              generatedPages.push({ filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`, contents: page.source });
             }
           }
 
@@ -367,11 +356,7 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
 
         for (const page of pages) {
           for (const framework of page.frameworks) {
-            documents[getDocsPath(sectionId, framework, page.pageId)] = page.source;
-            generatedPages.push({
-              filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
-              contents: page.source,
-            });
+            generatedPages.push({ filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`, contents: page.source });
           }
         }
 
@@ -409,12 +394,6 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
     sections,
     packageSections,
     examples,
-    documents,
-    prerenderRoutes: [
-      "/",
-      "/docs",
-      ...Object.keys(documents),
-    ],
   };
 
   mkdirSync(outputDir, { recursive: true });
@@ -423,17 +402,12 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
 
   const expectedPagePaths = new Set(generatedPages.map(page => resolve(outputDir, page.filename)));
   for (const existingPath of listFiles(docsContentDir, "")) {
-    if (!expectedPagePaths.has(existingPath)) {
-      rmSync(existingPath, { force: true });
-    }
+    if (!expectedPagePaths.has(existingPath)) rmSync(existingPath, { force: true });
   }
-
   for (const page of generatedPages) {
     const absolutePath = resolve(outputDir, page.filename);
     mkdirSync(resolve(absolutePath, ".."), { recursive: true });
-    if (!existsSync(absolutePath) || readFileSync(absolutePath, "utf8") !== page.contents) {
-      writeFileSync(absolutePath, page.contents);
-    }
+    if (!existsSync(absolutePath) || readFileSync(absolutePath, "utf8") !== page.contents) writeFileSync(absolutePath, page.contents);
   }
 
   const manifestSource = `export const docsManifest = ${JSON.stringify(manifest, null, 2)};\n\nexport default docsManifest;\n`;

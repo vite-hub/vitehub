@@ -6,6 +6,7 @@ const docsRoot = import.meta.dirname;
 const repoRoot = resolve(docsRoot, "..");
 const outputDir = resolve(docsRoot, ".generated");
 
+// Nuxt Content reads collections at config parse time, before the module setup runs.
 writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
 
 export default defineContentConfig({
@@ -17,14 +18,6 @@ export default defineContentConfig({
         include: "**/*.md",
         prefix: "/docs",
       },
-    }),
-    landing: defineCollection({
-      type: "page",
-      source: "index.md",
-    }),
-    pages: defineCollection({
-      type: "page",
-      source: "*.md",
     }),
   },
 });

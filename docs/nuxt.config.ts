@@ -5,11 +5,12 @@ export default defineNuxtConfig({
   modules: ["./modules/vitehub-docs"],
   site: {
     name: "ViteHub",
+    url: "https://vitehub.dev",
   },
-  app: {
-    head: {
-      link: [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
-    },
+  llms: {
+    domain: "https://vitehub.dev",
+    title: "ViteHub",
+    description: "Server primitives for Vite.",
   },
   css: ["~/assets/main.css"],
   devtools: {
@@ -17,8 +18,7 @@ export default defineNuxtConfig({
   },
   nitro: {
     prerender: {
-      crawlLinks: false,
-      routes: [],
+      crawlLinks: true,
     },
   },
   experimental: {

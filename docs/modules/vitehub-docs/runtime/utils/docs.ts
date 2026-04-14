@@ -64,8 +64,6 @@ export type DocsManifest = {
   sections: DocsSection[];
   packageSections: PackageSectionMeta[];
   examples: DocsExample[];
-  documents: Record<string, string>;
-  prerenderRoutes: string[];
 };
 
 export const docsManifest = docsManifestRaw as DocsManifest;
@@ -101,13 +99,6 @@ export function getDocsSection(sectionId: string) {
 
 export function getDocsPage(sectionId: string, pageId = "index") {
   return getDocsSection(sectionId)?.pages.find(page => page.id === pageId) || null;
-}
-
-export function getDocsDocument(path: string) {
-  const normalizedPath = path.replace(/\/$/, "") || "/";
-  return docsManifest.documents[normalizedPath]
-    || docsManifest.documents[`${normalizedPath}/index`]
-    || null;
 }
 
 export function isDocsPageSupported(sectionId: string, pageId: string, framework: Framework) {

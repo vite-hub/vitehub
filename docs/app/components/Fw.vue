@@ -1,8 +1,5 @@
 <script setup lang="ts">
 import { computed, inject, useAttrs } from "vue";
-import { useDocsRenderMode } from "../../composables/useDocsRenderMode";
-import { useFrameworkPreference } from "../../composables/useFrameworkPreference";
-import { useUsageModePreference } from "../../composables/useUsageModePreference";
 import {
   createFwVariant,
   fwGroupContextKey,
@@ -10,7 +7,7 @@ import {
   getFwVariantIdFromProps,
   getFwVariantsFromProps,
   matchesFwVariant,
-} from "../../utils/fw-variants";
+} from "~~/modules/vitehub-docs/runtime/utils/fw-variants";
 
 const props = defineProps<{ id?: string }>();
 
