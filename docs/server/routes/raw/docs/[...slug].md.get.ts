@@ -2,7 +2,7 @@ import { getDocsDocument } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { resolveRawDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs-routes";
 
 export default defineEventHandler((event) => {
-  const slug = getRouterParam(event, "slug");
+  const slug = (getRouterParam(event, "slug") || "").replace(/\/+$/, "");
   const rawPath = `/raw/docs/${slug}.md`;
   const docsPath = resolveRawDocsPath(rawPath);
 
