@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { Fragment, computed, provide, ref, watch, type VNode } from "vue";
 import type { AstNode } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
-import { useFrameworkPreference } from "~/composables/useFrameworkPreference";
-import { useUsageModePreference } from "~/composables/useUsageModePreference";
 import {
   fwGroupContextKey,
   getFwVariantTabScore,

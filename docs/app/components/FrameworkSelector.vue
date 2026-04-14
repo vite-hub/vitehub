@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useFrameworkPreference } from "~/composables/useFrameworkPreference";
 import {
   frameworkColorIcons,
   frameworkDescriptions,

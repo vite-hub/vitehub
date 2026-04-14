@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useFrameworkPreference } from "~/composables/useFrameworkPreference";
 import { docsManifest, getDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { normalizeSitePath } from "~~/modules/vitehub-docs/runtime/utils/docs-routes";
 

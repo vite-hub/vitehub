@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useDocsNavigation } from "~/composables/useDocsNavigation";
-import { useFrameworkPreference } from "~/composables/useFrameworkPreference";
 
 type ContentTocLink = {
   id: string;

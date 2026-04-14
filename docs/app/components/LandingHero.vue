@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useFrameworkPreference as useFramework } from "~/composables/useFrameworkPreference";
-import { useHighlightedCode } from "~/composables/useHighlightedCode";
 import { frameworkColorIcons, frameworkLabels, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 

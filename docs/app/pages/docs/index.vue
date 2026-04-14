@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { useDocsPage } from "~/composables/useDocsPage";
-import { useFrameworkPreference } from "~/composables/useFrameworkPreference";
 import { getDocsPage, getDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 
 definePageMeta({
