@@ -1,10 +1,18 @@
 import { defineNuxtConfig } from "nuxt/config";
 
+const nitroPreset = process.env.NITRO_PRESET || (process.env.VERCEL ? "vercel" : undefined);
+
 export default defineNuxtConfig({
   extends: ["docus"],
   modules: ["./modules/vitehub-docs"],
   site: {
     name: "ViteHub",
+    url: "https://vitehub.dev",
+  },
+  llms: {
+    domain: "https://vitehub.dev",
+    title: "ViteHub",
+    description: "Server primitives for Vite.",
   },
   app: {
     head: {
@@ -16,6 +24,7 @@ export default defineNuxtConfig({
     enabled: false,
   },
   nitro: {
+    preset: nitroPreset,
     prerender: {
       crawlLinks: false,
       routes: [],
