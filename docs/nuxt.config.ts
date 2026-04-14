@@ -12,11 +12,6 @@ export default defineNuxtConfig({
     title: "ViteHub",
     description: "Server primitives for Vite.",
   },
-  app: {
-    head: {
-      link: [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
-    },
-  },
   css: ["~/assets/main.css"],
   devtools: {
     enabled: false,

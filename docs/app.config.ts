@@ -13,17 +13,6 @@ export default defineAppConfig({
     siteName: "ViteHub",
     title: "ViteHub",
     description: "Server primitives for Vite.",
-    titleTemplate: "%s · ViteHub",
-  },
-  header: {
-    title: "ViteHub",
-    logo: {
-      light: "/favicon.svg",
-      dark: "/favicon.svg",
-      alt: "ViteHub",
-      favicon: "/favicon.svg",
-      class: "h-8 w-auto",
-    },
   },
   ui: {
     colors: {

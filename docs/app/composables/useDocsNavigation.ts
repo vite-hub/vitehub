@@ -14,8 +14,6 @@ type DocsSectionLink = {
   active: boolean;
 };
 
-const startHerePageIds = new Set(["index"]);
-
 function createNavigationGroup(title: string, items: ContentNavigationItem[]) {
   if (!items.length) return null;
   return { title, path: items[0]?.path || "/docs", children: items } satisfies ContentNavigationItem;
@@ -69,11 +67,8 @@ function buildDocsIndexSidebarNavigation(sections: DocsSection[], framework: Fra
 function buildSectionSidebarNavigation(section: DocsSection, framework: Framework, currentPath: string) {
   const pages = getSupportedPages(section, framework);
   const overviewItem = toNavigationItem({ title: "Overview", path: getDocsPath(section.id, framework), icon: section.icon }, currentPath);
-  const startHere = pages
-    .filter(page => page.id !== "index" && startHerePageIds.has(page.id))
-    .map(page => toNavigationItem({ title: page.title, path: getDocsPath(section.id, framework, page.id), icon: page.icon }, currentPath));
   const guides = pages
-    .filter(page => !startHerePageIds.has(page.id) && !page.group)
+    .filter(page => page.id !== "index" && !page.group)
     .map(page => toNavigationItem({ title: page.title, path: getDocsPath(section.id, framework, page.id), icon: page.icon }, currentPath));
   const groupedPages = new Map<string, DocsPage[]>();
 
@@ -83,7 +78,7 @@ function buildSectionSidebarNavigation(section: DocsSection, framework: Framewor
   }
 
   const groups = [
-    createNavigationGroup("Start Here", [overviewItem, ...startHere]),
+    createNavigationGroup("Start Here", [overviewItem]),
     createNavigationGroup("Guides", guides),
     ...[...groupedPages.entries()].map(([group, items]) => createNavigationGroup(
       group,

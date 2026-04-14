@@ -23,10 +23,10 @@
     "docus": "catalog:frontend",
     "nuxt": "catalog:frontend",
     "shiki": "^3.23.0",
-    "valibot": "^1.2.0",
-    "vitest": "catalog:test"
+    "valibot": "^1.2.0"
   },
   "devDependencies": {
+    "vitest": "catalog:test",
     "vue-tsc": "^3.1.1"
   }
 }

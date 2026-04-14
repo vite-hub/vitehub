@@ -1,4 +1,3 @@
-import { parseMarkdown } from "../../../node_modules/.pnpm/node_modules/@nuxtjs/mdc/dist/runtime/index.js";
 import { getDocsDocument } from "~~/modules/vitehub-docs/runtime/utils/docs";
 
 export default defineEventHandler(async (event) => {

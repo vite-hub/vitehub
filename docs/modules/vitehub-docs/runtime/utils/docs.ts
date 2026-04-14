@@ -104,10 +104,10 @@ export function getDocsPage(sectionId: string, pageId = "index") {
 }
 
 export function getDocsDocument(path: string) {
-  const normalizedPath = path.replace(/\/$/, "") || "/";
-  return docsManifest.documents[normalizedPath]
-    || docsManifest.documents[`${normalizedPath}/index`]
-    || null;
+  const meta = getDocsPathMeta(path);
+  if (!meta) return null;
+  const docKey = meta.page === "index" ? meta.section : `${meta.section}/${meta.page}`;
+  return docsManifest.documents[docKey] || null;
 }
 
 export function isDocsPageSupported(sectionId: string, pageId: string, framework: Framework) {

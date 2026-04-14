@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 const frameworkIds = ["vite", "nitro", "nuxt"] as const;
@@ -313,7 +313,6 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
   const localDocsRoot = resolve(docsRoot, "content", "docs");
   const examples = parsePackageExamples(packagesRoot);
   const exampleByPackage = new Map(examples.map(example => [example.pkg, example]));
-  const generatedPages: Array<{ filename: string; contents: string }> = [];
   const documents: Record<string, string> = {};
 
   const sections = [
@@ -326,13 +325,8 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
           const overview = pages.find(page => page.pageId === "index");
 
           for (const page of pages) {
-            for (const framework of page.frameworks) {
-              documents[getDocsPath(sectionId, framework, page.pageId)] = page.source;
-              generatedPages.push({
-                filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
-                contents: page.source,
-              });
-            }
+            const docKey = page.pageId === "index" ? sectionId : `${sectionId}/${page.pageId}`;
+            documents[docKey] = page.source;
           }
 
           return {
@@ -366,13 +360,8 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
         const overview = pages.find(page => page.pageId === "index");
 
         for (const page of pages) {
-          for (const framework of page.frameworks) {
-            documents[getDocsPath(sectionId, framework, page.pageId)] = page.source;
-            generatedPages.push({
-              filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
-              contents: page.source,
-            });
-          }
+          const docKey = page.pageId === "index" ? sectionId : `${sectionId}/${page.pageId}`;
+          documents[docKey] = page.source;
         }
 
         return {
@@ -401,6 +390,15 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
     .filter(s => s.source === "package")
     .map(s => ({ id: s.id, title: s.title, icon: s.icon }));
 
+  const prerenderRoutes = ["/", "/docs"];
+  for (const section of sections) {
+    for (const page of section.pages) {
+      for (const framework of page.frameworks) {
+        prerenderRoutes.push(getDocsPath(section.id, framework, page.id));
+      }
+    }
+  }
+
   const manifest = {
     frameworks: [...frameworkIds],
     defaultFramework: "nuxt",
@@ -410,31 +408,10 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
     packageSections,
     examples,
     documents,
-    prerenderRoutes: [
-      "/",
-      "/docs",
-      ...Object.keys(documents),
-    ],
+    prerenderRoutes,
   };
 
   mkdirSync(outputDir, { recursive: true });
-  const docsContentDir = resolve(outputDir, "docs-content");
-  mkdirSync(docsContentDir, { recursive: true });
-
-  const expectedPagePaths = new Set(generatedPages.map(page => resolve(outputDir, page.filename)));
-  for (const existingPath of listFiles(docsContentDir, "")) {
-    if (!expectedPagePaths.has(existingPath)) {
-      rmSync(existingPath, { force: true });
-    }
-  }
-
-  for (const page of generatedPages) {
-    const absolutePath = resolve(outputDir, page.filename);
-    mkdirSync(resolve(absolutePath, ".."), { recursive: true });
-    if (!existsSync(absolutePath) || readFileSync(absolutePath, "utf8") !== page.contents) {
-      writeFileSync(absolutePath, page.contents);
-    }
-  }
 
   const manifestSource = `export const docsManifest = ${JSON.stringify(manifest, null, 2)};\n\nexport default docsManifest;\n`;
   const manifestPath = resolve(outputDir, "docs-manifest.mjs");
