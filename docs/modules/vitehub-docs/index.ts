@@ -2,10 +2,7 @@ import { resolve } from "node:path";
 import { defineNuxtModule } from "nuxt/kit";
 import { readDocsArtifactsManifest, writeDocsArtifacts } from "./artifacts";
 
-function isDocsSourcePath(path: string) {
-  return path.includes("/content/docs/")
-    || path.includes("/packages/");
-}
+const frameworkIds = ["vite", "nitro", "nuxt"] as const;
 
 export default defineNuxtModule({
   meta: {
@@ -15,45 +12,39 @@ export default defineNuxtModule({
     const docsRoot = nuxt.options.rootDir;
     const repoRoot = resolve(docsRoot, "..");
     const outputDir = resolve(docsRoot, ".generated");
-    const nitroOptions = nuxt.options as typeof nuxt.options & {
-      nitro?: {
-        prerender?: {
-          routes?: string[];
-        };
-      };
-    };
-    const basePrerenderRoutes = [...(nitroOptions.nitro?.prerender?.routes || [])];
 
-    let manifest = readDocsArtifactsManifest(outputDir) || writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
+    const manifest = readDocsArtifactsManifest(outputDir) || writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
     nuxt.options.alias["#vitehub-docs-manifest"] = resolve(outputDir, "docs-manifest.mjs");
 
+    // Prerender all framework variants (only nuxt is link-crawlable, vite/nitro are client-switched)
+    const prerenderRoutes: string[] = [];
+    for (const section of manifest.sections) {
+      for (const page of section.pages) {
+        for (const fw of frameworkIds) {
+          if (page.frameworks.includes(fw)) {
+            const path = page.id === "index" ? `/docs/${fw}/${section.id}` : `/docs/${fw}/${section.id}/${page.id}`;
+            prerenderRoutes.push(path);
+          }
+        }
+      }
+    }
+    nuxt.options.nitro ||= {};
+    nuxt.options.nitro.prerender ||= {};
+    nuxt.options.nitro.prerender.routes = [...new Set([
+      ...(nuxt.options.nitro.prerender.routes || []),
+      ...prerenderRoutes,
+    ])];
+
+    // Remove Docus catch-all page — ViteHub uses /docs/[framework]/[...slug] routing
     nuxt.hook("pages:extend", (pages) => {
       const catchAllIndex = pages.findIndex(page => page.path === "/:lang?/:slug(.*)*" || page.file?.includes("[[lang]]"));
       if (catchAllIndex !== -1) pages.splice(catchAllIndex, 1);
     });
 
-    function syncPrerenderRoutes() {
-      nitroOptions.nitro ||= {};
-      nitroOptions.nitro.prerender ||= {};
-      nitroOptions.nitro.prerender.routes = [...new Set([
-        ...basePrerenderRoutes,
-        ...manifest.prerenderRoutes,
-      ])];
-    }
-
-    function generateArtifacts() {
-      manifest = writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
-      syncPrerenderRoutes();
-    }
-
-    syncPrerenderRoutes();
-
+    // Regenerate artifacts when showcase examples change (Content handles markdown HMR)
     nuxt.hook("builder:watch", async (_event, path) => {
-      if (!isDocsSourcePath(path)) {
-        return;
-      }
-
-      generateArtifacts();
+      if (!path.includes("/packages/") || !path.includes("/examples/")) return;
+      writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
     });
   },
 });

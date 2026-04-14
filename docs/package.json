@@ -17,16 +17,16 @@
     "preview": "nuxi preview"
   },
   "dependencies": {
-    "@nuxt/content": "^3.12.0",
-    "@valibot/to-json-schema": "^1.5.0",
-    "better-sqlite3": "catalog:backend",
-    "docus": "catalog:frontend",
-    "nuxt": "catalog:frontend",
-    "shiki": "^3.23.0",
-    "valibot": "^1.2.0"
+    "@nuxt/content": "catalog:",
+    "@valibot/to-json-schema": "catalog:",
+    "better-sqlite3": "catalog:",
+    "docus": "catalog:",
+    "nuxt": "catalog:",
+    "shiki": "catalog:",
+    "valibot": "catalog:"
   },
   "devDependencies": {
-    "vitest": "catalog:test",
-    "vue-tsc": "^3.1.1"
+    "vitest": "catalog:",
+    "vue-tsc": "catalog:"
   }
 }

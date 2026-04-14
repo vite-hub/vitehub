@@ -94,12 +94,6 @@ function pageTitleFromMeta(pageId: string, meta: Record<string, unknown>) {
   return String(meta["navigation.title"] || meta.title || titleCase(pageId === "index" ? "overview" : pageId));
 }
 
-function getDocsPath(sectionId: string, framework: Framework, pageId = "index") {
-  return pageId === "index"
-    ? `/docs/${framework}/${sectionId}`
-    : `/docs/${framework}/${sectionId}/${pageId}`;
-}
-
 function getSupportedFrameworks(meta: Record<string, unknown>) {
   const frameworks = Array.isArray(meta.frameworks)
     ? meta.frameworks
@@ -313,7 +307,6 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
   const localDocsRoot = resolve(docsRoot, "content", "docs");
   const examples = parsePackageExamples(packagesRoot);
   const exampleByPackage = new Map(examples.map(example => [example.pkg, example]));
-  const documents: Record<string, string> = {};
   const generatedPages: Array<{ filename: string; contents: string }> = [];
 
   const sections = [
@@ -326,8 +319,6 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
           const overview = pages.find(page => page.pageId === "index");
 
           for (const page of pages) {
-            const docKey = page.pageId === "index" ? sectionId : `${sectionId}/${page.pageId}`;
-            documents[docKey] = page.source;
             for (const framework of page.frameworks) {
               generatedPages.push({ filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`, contents: page.source });
             }
@@ -364,8 +355,6 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
         const overview = pages.find(page => page.pageId === "index");
 
         for (const page of pages) {
-          const docKey = page.pageId === "index" ? sectionId : `${sectionId}/${page.pageId}`;
-          documents[docKey] = page.source;
           for (const framework of page.frameworks) {
             generatedPages.push({ filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`, contents: page.source });
           }
@@ -397,15 +386,6 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
     .filter(s => s.source === "package")
     .map(s => ({ id: s.id, title: s.title, icon: s.icon }));
 
-  const prerenderRoutes = ["/", "/docs"];
-  for (const section of sections) {
-    for (const page of section.pages) {
-      for (const framework of page.frameworks) {
-        prerenderRoutes.push(getDocsPath(section.id, framework, page.id));
-      }
-    }
-  }
-
   const manifest = {
     frameworks: [...frameworkIds],
     defaultFramework: "nuxt",
@@ -414,8 +394,6 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
     sections,
     packageSections,
     examples,
-    documents,
-    prerenderRoutes,
   };
 
   mkdirSync(outputDir, { recursive: true });

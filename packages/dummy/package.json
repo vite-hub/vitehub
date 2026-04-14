@@ -53,7 +53,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "catalog:build",
-    "vitest": "catalog:test"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

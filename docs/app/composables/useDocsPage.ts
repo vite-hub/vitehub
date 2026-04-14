@@ -20,17 +20,19 @@ export function useDocsPage(sourcePath: string | ComputedRef<string>, rawDoc: Re
 
   const path = typeof sourcePath === "string" ? computed(() => sourcePath) : sourcePath;
 
-  const sourcePage = computed<ContentPage>(() => ({
-    path: path.value,
-    title: String(rawDoc.value?.title || fallback.sourceTitle || fallback.title),
-    description: rawDoc.value?.description || fallback.description || undefined,
-    seo: {
-      title: rawDoc.value?.seo?.title || rawDoc.value?.title || fallback.sourceTitle || fallback.title,
-      description: rawDoc.value?.seo?.description || rawDoc.value?.description || fallback.description || undefined,
-    },
-    data: rawDoc.value?.data || {},
-    body: rawDoc.value?.body ? { ...rawDoc.value.body, toc: rawDoc.value.toc || null } : null,
-  }));
+  const sourcePage = computed<ContentPage>(() => {
+    const doc = rawDoc.value;
+    const title = String(doc?.title || fallback.sourceTitle || fallback.title);
+    const description = doc?.description || fallback.description || undefined;
+    return {
+      path: path.value,
+      title,
+      description,
+      seo: { title: doc?.seo?.title || title, description: doc?.seo?.description || description },
+      data: doc?.meta || {},
+      body: doc?.body ? { ...doc.body, toc: doc.body?.toc || null } : null,
+    };
+  });
 
   const page = computed(() => normalizeFrameworkPage(sourcePage.value, {
     framework: framework.value,

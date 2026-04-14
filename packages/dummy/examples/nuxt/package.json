@@ -2,6 +2,6 @@
   "private": true,
   "dependencies": {
     "@vitehub/dummy": "workspace:*",
-    "nuxt": "catalog:frontend"
+    "nuxt": "catalog:"
   }
 }
