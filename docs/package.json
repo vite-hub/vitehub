@@ -10,7 +10,7 @@
     "postinstall": "nuxi prepare",
     "pretest": "nuxi prepare",
     "dev": "nuxi dev",
-    "build": "NODE_OPTIONS='--max-old-space-size=8192' nuxi build",
+    "build": "NODE_OPTIONS='--max-old-space-size=8192' NITRO_PRESET=vercel nuxi build",
     "test": "vitest run",
     "typecheck": "nuxi prepare && vue-tsc --noEmit -p tsconfig.typecheck.json",
     "generate": "NODE_OPTIONS='--max-old-space-size=8192' nuxi generate",

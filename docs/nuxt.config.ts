@@ -1,7 +1,5 @@
 import { defineNuxtConfig } from "nuxt/config";
 
-const nitroPreset = process.env.NITRO_PRESET || (process.env.VERCEL ? "vercel" : undefined);
-
 export default defineNuxtConfig({
   extends: ["docus"],
   modules: ["./modules/vitehub-docs"],
@@ -24,7 +22,6 @@ export default defineNuxtConfig({
     enabled: false,
   },
   nitro: {
-    preset: nitroPreset,
     prerender: {
       crawlLinks: false,
       routes: [],
