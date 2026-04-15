@@ -44,6 +44,7 @@ function parseScalar(value: string) {
     return trimmed.slice(1, -1);
   if (trimmed === "true") return true;
   if (trimmed === "false") return false;
+  if (/^-?\d+$/.test(trimmed)) return Number(trimmed);
   // Handle arrays: [a, b] or bare comma-separated values
   const inner = trimmed.startsWith("[") && trimmed.endsWith("]") ? trimmed.slice(1, -1) : trimmed.includes(",") ? trimmed : null;
   if (inner !== null)
@@ -287,6 +288,7 @@ function collectPages(rootDir: string) {
       description: typeof meta.description === "string" ? meta.description : null,
       icon: typeof meta.icon === "string" ? meta.icon : null,
       group: typeof meta["navigation.group"] === "string" ? meta["navigation.group"] : null,
+      order: typeof meta["navigation.order"] === "number" ? meta["navigation.order"] : Number.MAX_SAFE_INTEGER,
       frameworks: getSupportedFrameworks(meta),
     };
   }).sort((left, right) => {
@@ -296,6 +298,10 @@ function collectPages(rootDir: string) {
 
     if (right.pageId === "index") {
       return 1;
+    }
+
+    if (left.order !== right.order) {
+      return left.order - right.order;
     }
 
     return left.pageId.localeCompare(right.pageId);
