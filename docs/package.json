@@ -21,6 +21,7 @@
     "@valibot/to-json-schema": "catalog:",
     "better-sqlite3": "catalog:",
     "docus": "catalog:",
+    "h3": "catalog:h3v1",
     "nuxt": "catalog:",
     "shiki": "catalog:",
     "valibot": "catalog:"

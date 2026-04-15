@@ -6,7 +6,7 @@
   },
   "dependencies": {
     "@vitehub/dummy": "workspace:*",
-    "h3": "catalog:",
+    "h3": "catalog:h3v2",
     "tsx": "catalog:"
   }
 }
