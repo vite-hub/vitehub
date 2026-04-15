@@ -1,0 +1,14 @@
+diff --git a/dist/h3-Bz4OPZv_.mjs b/dist/h3-Bz4OPZv_.mjs
+index 6892915a02f6fcd79a0806e04562d34ddbc337a3..658b194fb03dad2138ea2c757f5cd90f1fe0a467 100644
+--- a/dist/h3-Bz4OPZv_.mjs
++++ b/dist/h3-Bz4OPZv_.mjs
+@@ -2613,7 +2613,8 @@ function getRequestHeader(event, name) {
+ }
+ const getHeader = getRequestHeader;
+ function getRequestHeaders(event) {
+-	return Object.fromEntries(event.req.headers.entries());
++	const headers = event.req.headers;
++	return Object.fromEntries(typeof headers.entries === "function" ? headers.entries() : Object.entries(headers));
+ }
+ const getHeaders = getRequestHeaders;
+ function getMethod(event, defaultMethod = "GET") {
