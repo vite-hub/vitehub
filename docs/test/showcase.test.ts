@@ -26,4 +26,10 @@ describe("showcase examples", () => {
     const files = getShowcaseFiles(dummy!, "vite", "build");
     expect(files.slice(0, 2).map(file => file.path)).toEqual(["vite.config.ts", "src/build.ts"]);
   });
+
+  it("includes a providers overview page in the docs manifest", () => {
+    const providers = docsManifest.sections.find(section => section.id === "providers");
+
+    expect(providers?.pages.some(page => page.id === "index")).toBe(true);
+  });
 });

@@ -9,4 +9,8 @@ describe("resolveFrameworkSwitchPath", () => {
   it("falls back to the section overview when the target page is unsupported", () => {
     expect(resolveFrameworkSwitchPath("/docs/nuxt/dummy/missing-page", "vite")).toBe("/docs/vite/dummy");
   });
+
+  it("keeps section landing pages when switching frameworks", () => {
+    expect(resolveFrameworkSwitchPath("/docs/nuxt/providers", "vite")).toBe("/docs/vite/providers");
+  });
 });

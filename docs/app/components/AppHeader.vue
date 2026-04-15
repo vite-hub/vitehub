@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useRoute } from "#app/composables/router";
+import { computed } from "vue";
+import { useFrameworkPreference } from "../composables/useFrameworkPreference";
 import { docsManifest, getDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { normalizeSitePath } from "~~/modules/vitehub-docs/runtime/utils/docs-routes";
 

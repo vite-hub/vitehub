@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { Fragment, computed, provide, ref, watch, type VNode } from "vue";
-import type { AstNode } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
+import { useFrameworkPreference } from "../composables/useFrameworkPreference";
+import { useUsageModePreference } from "../composables/useUsageModePreference";
+import type {
+  AstNode,
+  FrameworkGroupBody,
+} from "~~/modules/vitehub-docs/runtime/utils/framework-content";
 import {
   fwGroupContextKey,
   getFwVariantTabScore,
@@ -15,19 +20,13 @@ import {
 type FrameworkTabItem = {
   id: string;
   variants: ReturnType<typeof parseFwVariants>;
-  body?: {
-    type: "root";
-    children: AstNode[];
-  };
+  body?: FrameworkGroupBody;
 };
 
 const props = defineProps<{
   items?: Array<{
     id: string;
-    body?: {
-      type: "root";
-      children: AstNode[];
-    };
+    body?: FrameworkGroupBody;
   }>;
 }>();
 

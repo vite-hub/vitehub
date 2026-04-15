@@ -1,3 +1,4 @@
+import { useRoute } from "#app/composables/router";
 import { computed } from "vue";
 import type { DocsRenderOptions } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
 
