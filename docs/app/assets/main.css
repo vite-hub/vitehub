@@ -83,12 +83,7 @@
 
 .code-block-wrapper .shiki {
   min-height: 100%;
-  line-height: 1.35;
   background-color: transparent !important;
-}
-
-.code-block-wrapper .shiki .line {
-  display: block;
 }
 
 :is(.dark) .code-block-wrapper .shiki {
