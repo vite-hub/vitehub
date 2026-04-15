@@ -31,6 +31,7 @@ const { page } = useDocsPage(
   rawDoc,
   { title: docsPage.title, sourceTitle: docsPage.sourceTitle, description: docsPage.description },
 );
+const asidePage = computed(() => page.value as any);
 
 const rendererBody = computed<FrameworkGroupBody | null>(() => {
   return page.value?.body && Array.isArray(page.value.body.children)
@@ -50,6 +51,10 @@ const rendererBody = computed<FrameworkGroupBody | null>(() => {
     <UPageBody prose class="docs-content docs-root-content pb-0">
       <MDCRenderer v-if="rendererBody" :body="rendererBody" :data="page.data || {}" />
     </UPageBody>
+
+    <template #right>
+      <DocsAsideRight :page="asidePage" />
+    </template>
   </UPage>
 </template>
 

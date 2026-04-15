@@ -6,6 +6,8 @@
   },
   "include": [
     ".nuxt/content/types.d.ts",
+    ".nuxt/types/**/*.d.ts",
+    ".nuxt/imports.d.ts",
     "app/**/*.ts",
     "app/**/*.vue",
     "modules/**/*.ts",
@@ -17,6 +19,7 @@
   ],
   "exclude": [
     "node_modules",
-    ".output"
+    ".output",
+    "../node_modules/.pnpm/docus@*/node_modules/docus/modules/assistant/runtime/server/api/search.ts"
   ]
 }
