@@ -18,6 +18,42 @@ const activePhasePaths = computed(() => getShowcasePhasePaths(activeExample.valu
 const activeFiles = computed(() => getShowcaseFiles(activeExample.value, current.value, activeProvider.value));
 const activeFile = computed(() => activeFiles.value.find(f => f.path === activeFilePath.value) || activeFiles.value[0]);
 
+const exactFileIcons = new Map<string, string>([
+  ["nuxt.config.ts", "i-vscode-icons-file-type-nuxt"],
+  ["nitro.config.ts", "i-brand-nitro"],
+  ["vite.config.ts", "i-vscode-icons-file-type-vite"],
+  ["package.json", "i-vscode-icons-file-type-package"],
+  ["tsconfig.json", "i-vscode-icons-file-type-tsconfig-official"],
+  ["pnpm-lock.yaml", "i-vscode-icons-file-type-pnpm"],
+  ["pnpm-workspace.yaml", "i-vscode-icons-file-type-pnpm"],
+  ["package-lock.json", "i-vscode-icons-file-type-npm"],
+  ["env.example", "i-vscode-icons-file-type-dotenv"],
+  [".env", "i-vscode-icons-file-type-dotenv"],
+  ["readme.md", "i-vscode-icons-file-type-markdown"],
+]);
+
+const prefixFileIcons = new Map<string, string>([
+  ["tsconfig.", "i-vscode-icons-file-type-tsconfig-official"],
+  [".env.", "i-vscode-icons-file-type-dotenv"],
+]);
+
+const suffixFileIcons = new Map<string, string>([
+  [".ts", "i-vscode-icons-file-type-typescript-official"],
+  [".tsx", "i-vscode-icons-file-type-typescript-official"],
+  [".js", "i-vscode-icons-file-type-js-official"],
+  [".jsx", "i-vscode-icons-file-type-js-official"],
+  [".mjs", "i-vscode-icons-file-type-js-official"],
+  [".cjs", "i-vscode-icons-file-type-js-official"],
+  [".vue", "i-vscode-icons-file-type-vue"],
+  [".json", "i-vscode-icons-file-type-json-official"],
+  [".md", "i-vscode-icons-file-type-markdown"],
+  [".mdx", "i-vscode-icons-file-type-markdown"],
+  [".yaml", "i-vscode-icons-file-type-yaml-official"],
+  [".yml", "i-vscode-icons-file-type-yaml-official"],
+  [".toml", "i-vscode-icons-file-type-toml"],
+  [".html", "i-vscode-icons-file-type-html"],
+]);
+
 function applyFrameworkSelection(framework: Framework, options: { phase?: ShowcasePhaseId; provider?: string } = {}) {
   const provider = options.provider && activeExample.value.providers.some(p => p.id === options.provider)
     ? options.provider
@@ -49,25 +85,16 @@ watch(activeFiles, () => {
 
 function fileIcon(path: string) {
   const fileName = path.split("/").pop()?.toLowerCase() || path.toLowerCase();
+  const exactMatch = exactFileIcons.get(fileName);
+  if (exactMatch) return exactMatch;
 
-  if (fileName === "nuxt.config.ts") return "i-vscode-icons-file-type-nuxt";
-  if (fileName === "nitro.config.ts") return "i-brand-nitro";
-  if (fileName === "vite.config.ts") return "i-vscode-icons-file-type-vite";
-  if (fileName === "package.json") return "i-vscode-icons-file-type-package";
-  if (fileName === "tsconfig.json" || fileName.startsWith("tsconfig.")) return "i-vscode-icons-file-type-tsconfig-official";
-  if (fileName === "pnpm-lock.yaml" || fileName === "pnpm-workspace.yaml") return "i-vscode-icons-file-type-pnpm";
-  if (fileName === "package-lock.json") return "i-vscode-icons-file-type-npm";
-  if (fileName === "env.example" || fileName === ".env" || fileName.startsWith(".env.")) return "i-vscode-icons-file-type-dotenv";
-  if (fileName === "readme.md") return "i-vscode-icons-file-type-markdown";
+  for (const [prefix, icon] of prefixFileIcons) {
+    if (fileName.startsWith(prefix)) return icon;
+  }
 
-  if (fileName.endsWith(".ts") || fileName.endsWith(".tsx")) return "i-vscode-icons-file-type-typescript-official";
-  if (fileName.endsWith(".js") || fileName.endsWith(".jsx") || fileName.endsWith(".mjs") || fileName.endsWith(".cjs")) return "i-vscode-icons-file-type-js-official";
-  if (fileName.endsWith(".vue")) return "i-vscode-icons-file-type-vue";
-  if (fileName.endsWith(".json")) return "i-vscode-icons-file-type-json-official";
-  if (fileName.endsWith(".md") || fileName.endsWith(".mdx")) return "i-vscode-icons-file-type-markdown";
-  if (fileName.endsWith(".yaml") || fileName.endsWith(".yml")) return "i-vscode-icons-file-type-yaml-official";
-  if (fileName.endsWith(".toml")) return "i-vscode-icons-file-type-toml";
-  if (fileName.endsWith(".html")) return "i-vscode-icons-file-type-html";
+  for (const [suffix, icon] of suffixFileIcons) {
+    if (fileName.endsWith(suffix)) return icon;
+  }
 
   return "i-lucide-file-code";
 }
