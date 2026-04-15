@@ -19,10 +19,16 @@ function createNavigationGroup(title: string, items: ContentNavigationItem[]) {
   return { title, path: items[0]?.path || "/docs", children: items } satisfies ContentNavigationItem;
 }
 
+function isPathExact(itemPath: string, currentPath: string) {
+  const a = itemPath.replace(/\/+$/, "");
+  const b = currentPath.replace(/\/+$/, "");
+  return b === a;
+}
+
 function isPathActive(itemPath: string, currentPath: string) {
   const a = itemPath.replace(/\/+$/, "");
   const b = currentPath.replace(/\/+$/, "");
-  return b === a || b.startsWith(a + "/");
+  return b === a || b.startsWith(`${a}/`);
 }
 
 function toNavigationItem(item: { title: string; path: string; icon?: string | null }, currentPath?: string) {
@@ -30,7 +36,7 @@ function toNavigationItem(item: { title: string; path: string; icon?: string | n
     title: item.title,
     path: item.path,
     icon: item.icon || undefined,
-    ...(currentPath !== undefined && { active: isPathActive(item.path, currentPath) }),
+    ...(currentPath !== undefined && { active: isPathExact(item.path, currentPath) }),
   } satisfies ContentNavigationItem;
 }
 

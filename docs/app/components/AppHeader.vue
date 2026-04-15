@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useHead } from "#app/composables/head";
 import { useRoute } from "#app/composables/router";
 import { computed } from "vue";
 import { useFrameworkPreference } from "../composables/useFrameworkPreference";
@@ -12,6 +13,12 @@ const isDocsRoute = computed(() => {
   const p = normalizeSitePath(route.path);
   return p === "/docs" || p.startsWith("/docs/");
 });
+
+useHead(() => ({
+  bodyAttrs: {
+    "data-vitehub-docs-route": isDocsRoute.value ? "true" : undefined,
+  },
+}));
 
 const primaryLinks = computed(() => [
   { label: "Home", to: "/" },
@@ -74,9 +81,9 @@ const packageLinks = computed(() => {
       </template>
     </UHeader>
 
-    <div v-if="isDocsRoute && packageLinks.length" class="border-b border-default bg-default/75 backdrop-blur">
-      <UContainer class="hidden overflow-x-auto lg:flex">
-        <nav class="flex items-center gap-1 py-2">
+    <div v-if="isDocsRoute && packageLinks.length" class="border-b border-default bg-default/75 backdrop-blur lg:h-11">
+      <UContainer class="hidden overflow-x-auto lg:flex lg:h-full">
+        <nav class="flex h-full items-center gap-1">
           <NuxtLink
             v-for="link in packageLinks" :key="link.to" :to="link.to"
             class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors"

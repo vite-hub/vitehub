@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { useAppConfig } from "#imports";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useFramework } from "../composables/useFrameworkPreference";
 import { useHighlightedCode } from "../composables/useHighlightedCode";
-import { frameworkColorIcons, frameworkLabels, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
-import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
+import { defaultFramework, frameworkColorIcons, frameworkLabels, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
+import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths, showcasePhaseIds, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 
 type TreeItem = { id: string; label: string; icon?: string; defaultExpanded?: boolean; children?: TreeItem[] };
 
@@ -12,17 +13,21 @@ const activeTab = ref(0);
 const activeFilePath = ref("");
 const activePhase = ref<ShowcasePhaseId>("run");
 const activeProvider = ref("");
+const mounted = ref(false);
+const selectionMemory = new Map<string, string>();
 
 const examples = getShowcaseExamples().map(e => ({ ...e, icon: e.icon || "i-lucide-box", defaultPhase: e.defaultPhase || "configure", providers: e.providers || [] }));
 const activeExample = computed(() => examples[activeTab.value]!);
-const activeDocsLink = computed(() => `/docs/${current.value}/${activeExample.value.docsPath}`);
-const activePhasePaths = computed(() => getShowcasePhasePaths(activeExample.value, current.value));
-const activeFiles = computed(() => getShowcaseFiles(activeExample.value, current.value, activeProvider.value));
+const displayedFramework = computed<Framework>(() => mounted.value ? current.value : defaultFramework);
+const getStartedLink = computed(() => `/docs/${displayedFramework.value}/getting-started/`);
+const activeDocsLink = computed(() => `/docs/${displayedFramework.value}/${activeExample.value.docsPath}`);
+const activePhasePaths = computed(() => getShowcasePhasePaths(activeExample.value, displayedFramework.value));
+const activeFiles = computed(() => getShowcaseFiles(activeExample.value, displayedFramework.value, activeProvider.value));
 const activeFile = computed(() => activeFiles.value.find(f => f.path === activeFilePath.value) || activeFiles.value[0]);
 
 const fileIconMatchers = new Map<string, RegExp[]>([
   ["i-vscode-icons-file-type-nuxt", [/^nuxt\.config\.ts$/]],
-  ["i-brand-nitro", [/^nitro\.config\.ts$/]],
+  ["i-unjs-nitro", [/^nitro\.config\.ts$/]],
   ["i-vscode-icons-file-type-vite", [/^vite\.config\.ts$/]],
   ["i-vscode-icons-file-type-package", [/^package\.json$/]],
   ["i-vscode-icons-file-type-tsconfig-official", [/^tsconfig\.json$/, /^tsconfig\..+/]],
@@ -39,6 +44,39 @@ const fileIconMatchers = new Map<string, RegExp[]>([
   ["i-vscode-icons-file-type-html", [/\.html$/]],
 ]);
 
+function getSelectionMemoryKey(examplePkg: string, framework: Framework, provider: string) {
+  return `${examplePkg}:${framework}:${provider}`;
+}
+
+function getPhaseForPath(phasePaths: Partial<Record<ShowcasePhaseId, string>>, path: string) {
+  return showcasePhaseIds.find(phaseId => phasePaths[phaseId] === path);
+}
+
+function resolvePreferredFilePath(
+  framework: Framework,
+  provider: string,
+  phase: ShowcasePhaseId,
+  files: ExampleFile[],
+  phasePaths: Partial<Record<ShowcasePhaseId, string>>,
+) {
+  if (files.some(file => file.path === activeFilePath.value)) {
+    return activeFilePath.value;
+  }
+
+  const currentPhase = getPhaseForPath(activePhasePaths.value, activeFilePath.value);
+  const mappedPhasePath = currentPhase ? phasePaths[currentPhase] : undefined;
+  if (mappedPhasePath && files.some(file => file.path === mappedPhasePath)) {
+    return mappedPhasePath;
+  }
+
+  const rememberedPath = selectionMemory.get(getSelectionMemoryKey(activeExample.value.pkg, framework, provider));
+  if (rememberedPath && files.some(file => file.path === rememberedPath)) {
+    return rememberedPath;
+  }
+
+  return phasePaths[phase] || files[0]?.path || "";
+}
+
 function applyFrameworkSelection(framework: Framework, options: { phase?: ShowcasePhaseId; provider?: string } = {}) {
   const provider = options.provider && activeExample.value.providers.some(p => p.id === options.provider)
     ? options.provider
@@ -46,14 +84,16 @@ function applyFrameworkSelection(framework: Framework, options: { phase?: Showca
   const phasePaths = getShowcasePhasePaths(activeExample.value, framework);
   const phase = options.phase && phasePaths[options.phase] ? options.phase : activeExample.value.defaultPhase;
   const files = getShowcaseFiles(activeExample.value, framework, provider);
+  const nextFilePath = resolvePreferredFilePath(framework, provider, phase, files, phasePaths);
+
   activeProvider.value = provider;
-  activePhase.value = phase;
-  activeFilePath.value = phasePaths[phase] || files[0]?.path || "";
+  activePhase.value = getPhaseForPath(phasePaths, nextFilePath) || phase;
+  activeFilePath.value = nextFilePath;
 }
 
 function resetSelection() {
   const phase = activePhasePaths.value[activePhase.value] ? activePhase.value : activeExample.value.defaultPhase;
-  applyFrameworkSelection(current.value, { phase, provider: activeProvider.value });
+  applyFrameworkSelection(displayedFramework.value, { phase, provider: activeProvider.value });
 }
 
 function onFrameworkSelect(framework: Framework) {
@@ -61,7 +101,16 @@ function onFrameworkSelect(framework: Framework) {
   switchTo(framework);
 }
 
-watch([activeTab, current], resetSelection, { immediate: true });
+watch([activeTab, displayedFramework], resetSelection, { immediate: true });
+
+watch(
+  () => [activeExample.value.pkg, displayedFramework.value, activeProvider.value, activeFilePath.value] as const,
+  ([examplePkg, framework, provider, path]) => {
+    if (path) {
+      selectionMemory.set(getSelectionMemoryKey(examplePkg, framework, provider), path);
+    }
+  },
+);
 
 watch(activeFiles, () => {
   if (!activeFiles.value.some(f => f.path === activeFilePath.value))
@@ -93,7 +142,7 @@ function buildFileTree(files: ExampleFile[]): TreeItem[] {
       const node: TreeItem = {
         id: pathSoFar,
         label: displayName,
-        icon: isFile ? fileIcon(name) : "i-lucide-folder",
+        icon: isFile ? fileIcon(pathSoFar) : "i-lucide-folder",
         defaultExpanded: !isFile,
         ...(!isFile && { children: [] }),
       };
@@ -132,17 +181,53 @@ const treeExpanded = computed(() => {
 
 function onTreeSelect(_e: Event, item: { id: string }) {
   activeFilePath.value = item.id;
-  const nextPhase = (["configure", "define", "run"] as ShowcasePhaseId[]).find(p => activePhasePaths.value[p] === item.id);
+  const nextPhase = getPhaseForPath(activePhasePaths.value, item.id);
   if (nextPhase) activePhase.value = nextPhase;
 }
 
+function treeItemIcon(item: TreeItem, expanded: boolean) {
+  const isFile = activeFiles.value.some(file => file.path === item.id || file.path === item.label || file.path.endsWith(`/${item.label}`));
+  if (!isFile) {
+    return expanded ? "i-lucide-folder-open" : "i-lucide-folder";
+  }
+
+  return fileIcon(item.id || item.label);
+}
+
 const frameworkOptions = (["vite", "nitro", "nuxt"] as const).map(id => ({ id, label: frameworkLabels[id], icon: frameworkColorIcons[id] }));
-const activeProviderEntry = computed(() => activeExample.value.providers.find(p => p.id === activeProvider.value));
+const appConfig = useAppConfig() as { ui: { icons: { copy: string; copyCheck: string } } };
+const copied = ref(false);
+let copiedTimeout: ReturnType<typeof setTimeout> | undefined;
 
 const { data: highlightedCode } = useHighlightedCode(
   () => activeFile.value?.path || "hero",
   () => activeFile.value?.code || "",
 );
+
+async function copyActiveFile() {
+  if (!activeFile.value?.code || typeof navigator === "undefined") {
+    return;
+  }
+
+  await navigator.clipboard.writeText(activeFile.value.code);
+  copied.value = true;
+  if (copiedTimeout) {
+    clearTimeout(copiedTimeout);
+  }
+  copiedTimeout = setTimeout(() => {
+    copied.value = false;
+  }, 2000);
+}
+
+onMounted(() => {
+  mounted.value = true;
+});
+
+onBeforeUnmount(() => {
+  if (copiedTimeout) {
+    clearTimeout(copiedTimeout);
+  }
+});
 </script>
 
 <template>
@@ -159,13 +244,13 @@ const { data: highlightedCode } = useHighlightedCode(
             One API surface across every provider and framework.
           </p>
           <div class="relative z-10 mt-10 flex items-center justify-center gap-4">
-            <a
-              :href="`/docs/${current}/getting-started/`"
+            <NuxtLink
+              :to="getStartedLink"
               class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-inverted transition-colors hover:bg-primary/75 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <span>Get started</span>
               <UIcon name="i-lucide-arrow-right" class="size-5 shrink-0" />
-            </a>
+            </NuxtLink>
             <a
               href="https://github.com/vite-hub/vitehub"
               target="_blank"
@@ -206,19 +291,38 @@ const { data: highlightedCode } = useHighlightedCode(
             <div class="flex bg-default">
               <div class="hidden w-52 shrink-0 border-r border-black/5 bg-muted/30 py-2 md:block dark:border-white/5">
                 <UTree
+                  class="landing-file-tree"
                   :items="fileTree"
                   :model-value="activeTreeItem"
                   :expanded="treeExpanded"
                   :get-key="getTreeItemKey"
                   size="xs"
+                  :ui="{ linkTrailing: 'hidden', linkTrailingIcon: 'hidden' }"
                   @select="onTreeSelect"
-                />
+                >
+                  <template #item-leading="{ item, expanded }">
+                    <UIcon
+                      :name="treeItemIcon(item, expanded)"
+                      class="size-3.5 shrink-0"
+                    />
+                  </template>
+                </UTree>
               </div>
 
               <div class="relative min-h-80 min-w-0 flex-1">
                 <div class="flex items-center gap-2 border-b border-black/5 px-3 py-2 dark:border-white/5">
                   <UIcon :name="fileIcon(activeFile?.path || '')" class="size-3.5 shrink-0 text-muted" />
-                  <p class="text-xs font-medium text-default">{{ (activeFile?.path.split('/').pop() || '').replace('env.example', '.env') }}</p>
+                  <p class="min-w-0 truncate text-xs font-medium text-default">{{ (activeFile?.path.split('/').pop() || '').replace('env.example', '.env') }}</p>
+                  <UButton
+                    :icon="copied ? appConfig.ui.icons.copyCheck : appConfig.ui.icons.copy"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    aria-label="Copy code"
+                    class="ml-auto shrink-0"
+                    tabindex="-1"
+                    @click="copyActiveFile"
+                  />
                 </div>
                 <div v-if="activeFile" class="landing-code-block hero-code-block">
                   <div class="code-block-wrapper">
@@ -229,29 +333,42 @@ const { data: highlightedCode } = useHighlightedCode(
               </div>
             </div>
 
-            <div class="flex items-center border-t border-black/5 bg-muted/30 px-3 py-1.5 dark:border-white/5">
+            <div class="grid grid-cols-[auto_1fr_auto] items-center border-t border-black/5 bg-muted/30 px-3 py-1.5 dark:border-white/5">
               <div class="flex items-center gap-0.5 rounded-lg ring ring-black/5 p-0.5 dark:ring-white/10">
-                <UButton
-                  v-for="fw in frameworkOptions" :key="fw.id"
-                  :icon="fw.icon" :label="fw.label"
-                  :color="current === fw.id ? 'primary' : 'neutral'"
-                  :variant="current === fw.id ? 'soft' : 'ghost'"
-                  size="xs" @click="onFrameworkSelect(fw.id as Framework)"
-                />
+                <button
+                  v-for="fw in frameworkOptions"
+                  :key="fw.id"
+                  type="button"
+                  :data-framework="fw.id"
+                  data-framework-switch="landing"
+                  class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors focus:outline-none"
+                  :class="displayedFramework === fw.id
+                    ? 'bg-primary/10 text-primary hover:bg-primary/15'
+                    : 'text-default hover:bg-elevated'"
+                  :aria-pressed="displayedFramework === fw.id"
+                  @click="onFrameworkSelect(fw.id)"
+                >
+                  <UIcon :name="fw.icon" class="size-4 shrink-0" />
+                  <span>{{ fw.label }}</span>
+                </button>
               </div>
-              <div class="mx-auto flex items-center gap-2">
+              <div class="flex items-center justify-self-center gap-2">
                 <p class="text-[0.625rem] font-medium tracking-wider text-muted uppercase">Works with</p>
                 <UTooltip v-for="provider in activeExample.providers" :key="provider.id" :text="provider.label">
                   <UButton
                     :icon="provider.icon" variant="ghost" size="xs" :padded="false"
                     class="provider-icon transition-all"
-                    :class="provider.darkInvert && 'provider-icon-invert'"
-                    @click="activeProvider = provider.id"
+                    :class="[
+                      provider.darkInvert && 'provider-icon-invert',
+                      activeProvider === provider.id && 'provider-icon--active',
+                    ]"
+                    :aria-pressed="activeProvider === provider.id"
+                    @click="applyFrameworkSelection(displayedFramework, { provider: provider.id })"
                   />
                 </UTooltip>
               </div>
-              <NuxtLink :to="activeDocsLink" class="flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-primary transition-colors hover:text-primary/75">
-                {{ activeProviderEntry?.label || activeExample.label }} docs
+              <NuxtLink :to="activeDocsLink" class="flex min-w-[7rem] shrink-0 items-center justify-end gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-primary transition-colors hover:text-primary/75">
+                Read docs
                 <UIcon name="i-lucide-arrow-right" class="size-3" />
               </NuxtLink>
             </div>
