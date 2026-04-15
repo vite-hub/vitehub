@@ -1,3 +1,4 @@
+import { useRoute } from "#app/composables/router";
 import { computed } from "vue";
 import type { ContentNavigationItem } from "@nuxt/content";
 import { useFrameworkPreference } from "./useFrameworkPreference";

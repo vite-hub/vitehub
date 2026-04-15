@@ -5,6 +5,7 @@
     "noImplicitAny": false
   },
   "include": [
+    ".nuxt/content/types.d.ts",
     "app/**/*.ts",
     "app/**/*.vue",
     "modules/**/*.ts",
@@ -16,7 +17,6 @@
   ],
   "exclude": [
     "node_modules",
-    ".output",
-    "../node_modules/.pnpm/docus*/node_modules/docus/app/composables/**/*"
+    ".output"
   ]
 }

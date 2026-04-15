@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useHead, useSeoMeta } from "#app/composables/head";
+
 useHead({
   titleTemplate: title => !title || title === "ViteHub" ? "ViteHub" : `${title} · ViteHub`,
   meta: [

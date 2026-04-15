@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { defineNuxtModule } from "nuxt/kit";
+import type { NitroConfig } from "nitropack/types";
 import { readDocsArtifactsManifest, writeDocsArtifacts } from "./artifacts";
 
 const frameworkIds = ["vite", "nitro", "nuxt"] as const;
@@ -28,10 +29,10 @@ export default defineNuxtModule({
         }
       }
     }
-    nuxt.options.nitro ||= {};
-    nuxt.options.nitro.prerender ||= {};
-    nuxt.options.nitro.prerender.routes = [...new Set([
-      ...(nuxt.options.nitro.prerender.routes || []),
+    const nitroOptions = ((nuxt.options as typeof nuxt.options & { nitro?: NitroConfig }).nitro ??= {});
+    nitroOptions.prerender ??= {};
+    nitroOptions.prerender.routes = [...new Set([
+      ...(nitroOptions.prerender.routes || []),
       ...prerenderRoutes,
     ])];
 

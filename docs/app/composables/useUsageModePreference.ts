@@ -1,3 +1,4 @@
+import { useCookie } from "#app/composables/cookie";
 import { computed, nextTick } from "vue";
 import {
   defaultUsageMode,

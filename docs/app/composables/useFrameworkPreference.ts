@@ -1,3 +1,5 @@
+import { useCookie } from "#app/composables/cookie";
+import { navigateTo, useRoute } from "#app/composables/router";
 import { computed, nextTick } from "vue";
 import { normalizeSitePath, resolveFrameworkSwitchPath } from "~~/modules/vitehub-docs/runtime/utils/docs-routes";
 import { defaultFramework, frameworks, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";

@@ -1,4 +1,11 @@
 <script setup lang="ts">
+import { useAsyncData } from "#app/composables/asyncData";
+import { createError } from "#app/composables/error";
+import { definePageMeta } from "#app/composables/pages";
+import { computed } from "vue";
+import { useDocsPage } from "../../composables/useDocsPage";
+import { useFrameworkPreference } from "../../composables/useFrameworkPreference";
+import type { FrameworkGroupBody } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
 import { getDocsPage, getDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 
 definePageMeta({
@@ -24,6 +31,12 @@ const { page } = useDocsPage(
   rawDoc,
   { title: docsPage.title, sourceTitle: docsPage.sourceTitle, description: docsPage.description },
 );
+
+const rendererBody = computed<FrameworkGroupBody | null>(() => {
+  return page.value?.body && Array.isArray(page.value.body.children)
+    ? page.value.body as FrameworkGroupBody
+    : null;
+});
 </script>
 
 <template>
@@ -35,7 +48,7 @@ const { page } = useDocsPage(
     </UPageHeader>
 
     <UPageBody prose class="docs-content docs-root-content pb-0">
-      <MDCRenderer v-if="page.body" :body="page.body" :data="page.data || {}" />
+      <MDCRenderer v-if="rendererBody" :body="rendererBody" :data="page.data || {}" />
     </UPageBody>
   </UPage>
 </template>

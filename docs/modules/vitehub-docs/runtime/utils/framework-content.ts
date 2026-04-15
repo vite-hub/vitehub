@@ -5,17 +5,24 @@ import {
   matchesFwVariant,
   type UsageMode,
 } from "./fw-variants";
+import type { MDCComment, MDCElement, MDCNode, MDCRoot, MDCText } from "@nuxtjs/mdc";
 import { frameworkPattern, type Framework } from "./frameworks";
 
 export type NodeProps = Record<string, unknown>;
 export type ContentNode = string | [string, NodeProps?, ...ContentNode[]];
-export type AstTextNode = { type: "text"; value: string };
-export type AstElementNode = { type: "element"; tag: string; props?: NodeProps; children?: AstNode[] };
-export type AstNode = AstTextNode | AstElementNode;
+export type AstTextNode = MDCText;
+export type AstCommentNode = MDCComment;
+export type AstElementNode = MDCElement;
+export type AstNode = MDCNode;
+export type MdcAstTextNode = MDCText;
+export type MdcAstCommentNode = MDCComment;
+export type MdcAstElementNode = MDCElement;
+export type MdcAstNode = MDCNode;
+export type FrameworkGroupBody = MDCRoot;
 
 export type TocLink = { id: string; depth: number; text: string; children?: TocLink[] };
 export type BodyToc = { depth?: number; links?: TocLink[]; searchDepth?: number; title?: string; [key: string]: unknown };
-export type PageBody = { toc?: BodyToc; type?: string; value?: ContentNode[]; children?: AstNode[]; [key: string]: unknown };
+export type PageBody = { toc?: BodyToc; type: "root"; value?: ContentNode[]; children?: MdcAstNode[]; [key: string]: unknown };
 export type NormalizedPage = { path: string; body: PageBody | null; [key: string]: unknown };
 export type DocsRenderOptions = { framework: Framework; mode: UsageMode; renderMode: "single" | "all"; tocMode: "current-selection" };
 
@@ -87,6 +94,35 @@ function isAstText(node: unknown): node is AstTextNode {
     && typeof (node as AstTextNode).value === "string";
 }
 
+function toMdcAstNode(node: AstNode): MdcAstNode {
+  if (isAstText(node) || node.type === "comment") {
+    return node;
+  }
+
+  return {
+    ...node,
+    props: node.props || {},
+    children: node.children?.map(toMdcAstNode) || [],
+  };
+}
+
+export function toFrameworkGroupBody(children: AstNode[]): FrameworkGroupBody {
+  return {
+    type: "root",
+    children: children.map(toMdcAstNode),
+  };
+}
+
+export function toMdcRootBody(body: Omit<PageBody, "children"> & { children?: AstNode[] | MdcAstNode[] }): PageBody {
+  const children = body.children?.map(node => toMdcAstNode(node as AstNode));
+
+  return {
+    ...body,
+    type: "root",
+    ...(children ? { children } : {}),
+  };
+}
+
 const astAccessor: NodeAccessor<AstNode> = {
   isText: (node) => isAstText(node),
   isElement: (node) => isAstElement(node),
@@ -104,7 +140,7 @@ const astAccessor: NodeAccessor<AstNode> = {
       tag: "fw-group",
       props: {
         items: items
-          .filter((item): item is { id: string; body: { type: "root"; children: AstNode[] } } => Boolean(item?.id)),
+          .filter((item): item is { id: string; body: FrameworkGroupBody } => Boolean(item?.id)),
       },
       children: [],
     } as AstNode;
@@ -128,7 +164,7 @@ function flushGroup<N>(buffer: N[], output: N[], acc: NodeAccessor<N>) {
         if (!id) return null;
         // For AST nodes, include body for MDCRenderer
         if (acc === astAccessor as unknown) {
-          return { id, body: { type: "root" as const, children: acc.getChildren(node) } };
+          return { id, body: toFrameworkGroupBody(acc.getChildren(node) as AstNode[]) };
         }
         return { id };
       })
@@ -246,13 +282,13 @@ export function normalizeFrameworkPage(page: NormalizedPage | null, options?: Do
 
     return {
       ...page,
-      body: {
+      body: toMdcRootBody({
         ...page.body,
         value,
         toc: page.body.toc
           ? { ...page.body.toc, links: buildTocTree(collectHeadings(tocNodes, tupleAccessor)) }
           : page.body.toc,
-      },
+      }),
     };
   }
 
@@ -265,12 +301,12 @@ export function normalizeFrameworkPage(page: NormalizedPage | null, options?: Do
 
   return {
     ...page,
-    body: {
+    body: toMdcRootBody({
       ...page.body,
       children,
       toc: page.body.toc
         ? { ...page.body.toc, links: buildTocTree(collectHeadings(tocNodes, astAccessor)) }
         : page.body.toc,
-    },
+    }),
   };
 }

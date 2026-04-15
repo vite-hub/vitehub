@@ -37,4 +37,16 @@ jobs:
         run: pnpm lint
 
       - name: Typecheck
-        run: pnpm -r --filter './packages/*' --if-present run typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Docs Test
+        run: pnpm --dir docs test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Docs Build
+        run: pnpm docs:build
