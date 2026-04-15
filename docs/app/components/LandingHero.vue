@@ -18,40 +18,23 @@ const activePhasePaths = computed(() => getShowcasePhasePaths(activeExample.valu
 const activeFiles = computed(() => getShowcaseFiles(activeExample.value, current.value, activeProvider.value));
 const activeFile = computed(() => activeFiles.value.find(f => f.path === activeFilePath.value) || activeFiles.value[0]);
 
-const exactFileIcons = new Map<string, string>([
-  ["nuxt.config.ts", "i-vscode-icons-file-type-nuxt"],
-  ["nitro.config.ts", "i-brand-nitro"],
-  ["vite.config.ts", "i-vscode-icons-file-type-vite"],
-  ["package.json", "i-vscode-icons-file-type-package"],
-  ["tsconfig.json", "i-vscode-icons-file-type-tsconfig-official"],
-  ["pnpm-lock.yaml", "i-vscode-icons-file-type-pnpm"],
-  ["pnpm-workspace.yaml", "i-vscode-icons-file-type-pnpm"],
-  ["package-lock.json", "i-vscode-icons-file-type-npm"],
-  ["env.example", "i-vscode-icons-file-type-dotenv"],
-  [".env", "i-vscode-icons-file-type-dotenv"],
-  ["readme.md", "i-vscode-icons-file-type-markdown"],
-]);
-
-const prefixFileIcons = new Map<string, string>([
-  ["tsconfig.", "i-vscode-icons-file-type-tsconfig-official"],
-  [".env.", "i-vscode-icons-file-type-dotenv"],
-]);
-
-const suffixFileIcons = new Map<string, string>([
-  [".ts", "i-vscode-icons-file-type-typescript-official"],
-  [".tsx", "i-vscode-icons-file-type-typescript-official"],
-  [".js", "i-vscode-icons-file-type-js-official"],
-  [".jsx", "i-vscode-icons-file-type-js-official"],
-  [".mjs", "i-vscode-icons-file-type-js-official"],
-  [".cjs", "i-vscode-icons-file-type-js-official"],
-  [".vue", "i-vscode-icons-file-type-vue"],
-  [".json", "i-vscode-icons-file-type-json-official"],
-  [".md", "i-vscode-icons-file-type-markdown"],
-  [".mdx", "i-vscode-icons-file-type-markdown"],
-  [".yaml", "i-vscode-icons-file-type-yaml-official"],
-  [".yml", "i-vscode-icons-file-type-yaml-official"],
-  [".toml", "i-vscode-icons-file-type-toml"],
-  [".html", "i-vscode-icons-file-type-html"],
+const fileIconMatchers = new Map<string, RegExp[]>([
+  ["i-vscode-icons-file-type-nuxt", [/^nuxt\.config\.ts$/]],
+  ["i-brand-nitro", [/^nitro\.config\.ts$/]],
+  ["i-vscode-icons-file-type-vite", [/^vite\.config\.ts$/]],
+  ["i-vscode-icons-file-type-package", [/^package\.json$/]],
+  ["i-vscode-icons-file-type-tsconfig-official", [/^tsconfig\.json$/, /^tsconfig\..+/]],
+  ["i-vscode-icons-file-type-pnpm", [/^pnpm-lock\.yaml$/, /^pnpm-workspace\.yaml$/]],
+  ["i-vscode-icons-file-type-npm", [/^package-lock\.json$/]],
+  ["i-vscode-icons-file-type-dotenv", [/^env\.example$/, /^\.env$/, /^\.env\..+/]],
+  ["i-vscode-icons-file-type-markdown", [/^readme\.md$/, /\.mdx?$/]],
+  ["i-vscode-icons-file-type-typescript-official", [/\.tsx?$/]],
+  ["i-vscode-icons-file-type-js-official", [/\.(?:[cm]?js|jsx)$/]],
+  ["i-vscode-icons-file-type-vue", [/\.vue$/]],
+  ["i-vscode-icons-file-type-json-official", [/\.json$/]],
+  ["i-vscode-icons-file-type-yaml-official", [/\.ya?ml$/]],
+  ["i-vscode-icons-file-type-toml", [/\.toml$/]],
+  ["i-vscode-icons-file-type-html", [/\.html$/]],
 ]);
 
 function applyFrameworkSelection(framework: Framework, options: { phase?: ShowcasePhaseId; provider?: string } = {}) {
@@ -85,15 +68,8 @@ watch(activeFiles, () => {
 
 function fileIcon(path: string) {
   const fileName = path.split("/").pop()?.toLowerCase() || path.toLowerCase();
-  const exactMatch = exactFileIcons.get(fileName);
-  if (exactMatch) return exactMatch;
-
-  for (const [prefix, icon] of prefixFileIcons) {
-    if (fileName.startsWith(prefix)) return icon;
-  }
-
-  for (const [suffix, icon] of suffixFileIcons) {
-    if (fileName.endsWith(suffix)) return icon;
+  for (const [icon, patterns] of fileIconMatchers) {
+    if (patterns.some(pattern => pattern.test(fileName))) return icon;
   }
 
   return "i-lucide-file-code";
