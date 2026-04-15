@@ -1,6 +1,5 @@
 :root {
   --theme-hue: 95;
-  --vitehub-docs-secondary-header-height: 0px;
   --vitehub-docs-sticky-offset: var(--ui-header-height);
   --ui-color-primary-50: var(--color-yellow-50);
   --ui-color-primary-100: var(--color-yellow-100);
@@ -24,13 +23,6 @@
   --ui-color-neutral-800: var(--color-stone-800);
   --ui-color-neutral-900: var(--color-stone-900);
   --ui-color-neutral-950: var(--color-stone-950);
-}
-
-@media (min-width: 1024px) {
-  body[data-vitehub-docs-route="true"] {
-    --vitehub-docs-secondary-header-height: 44px;
-    --vitehub-docs-sticky-offset: calc(var(--ui-header-height) + var(--vitehub-docs-secondary-header-height));
-  }
 }
 
 .landing-hero-gradient {

@@ -1,57 +1,10 @@
 <script setup lang="ts">
-import { useHead } from "#app/composables/head";
-import { useRoute } from "#app/composables/router";
 import { computed } from "vue";
-import { useFrameworkPreference } from "../composables/useFrameworkPreference";
-import { docsManifest, getDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import { normalizeSitePath } from "~~/modules/vitehub-docs/runtime/utils/docs-routes";
-
-const route = useRoute();
-const { current } = useFrameworkPreference();
-
-const isDocsRoute = computed(() => {
-  const p = normalizeSitePath(route.path);
-  return p === "/docs" || p.startsWith("/docs/");
-});
-
-useHead(() => ({
-  bodyAttrs: {
-    "data-vitehub-docs-route": isDocsRoute.value ? "true" : undefined,
-  },
-}));
 
 const primaryLinks = computed(() => [
   { label: "Home", to: "/" },
   { label: "Docs", to: "/docs" },
 ]);
-
-type PackageLink = {
-  label: string;
-  icon?: string;
-  to: string;
-};
-
-const packageLinks = computed(() => {
-  const links: PackageLink[] = [];
-
-  for (const sectionMeta of docsManifest.packageSections) {
-    const section = docsManifest.sections.find(item => item.id === sectionMeta.id);
-    const primaryPage = section?.pages.find(page => page.id === "index")
-      || section?.pages[0];
-
-    if (!section || !primaryPage) {
-      continue;
-    }
-
-    links.push({
-      label: sectionMeta.title,
-      icon: sectionMeta.icon || undefined,
-      to: getDocsPath(sectionMeta.id, current.value, primaryPage.id),
-    });
-  }
-
-  return links;
-});
 </script>
 
 <template>
@@ -63,6 +16,7 @@ const packageLinks = computed(() => {
       </template>
 
       <template #right>
+        <PackageSelector />
         <UContentSearchButton class="hidden lg:inline-flex" />
         <ClientOnly>
           <UColorModeButton />
@@ -80,22 +34,5 @@ const packageLinks = computed(() => {
         />
       </template>
     </UHeader>
-
-    <div v-if="isDocsRoute && packageLinks.length" class="border-b border-default bg-default/75 backdrop-blur lg:h-11">
-      <UContainer class="hidden overflow-x-auto lg:flex lg:h-full">
-        <nav class="flex h-full items-center gap-1">
-          <NuxtLink
-            v-for="link in packageLinks" :key="link.to" :to="link.to"
-            class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors"
-            :class="route.path.includes(`/${link.to.split('/').pop()}/`) || route.path.endsWith(`/${link.to.split('/').pop()}`)
-              ? 'text-primary'
-              : 'text-muted hover:text-highlighted'"
-          >
-            <UIcon v-if="link.icon" :name="link.icon" class="size-4 shrink-0" />
-            {{ link.label }}
-          </NuxtLink>
-        </nav>
-      </UContainer>
-    </div>
   </div>
 </template>
