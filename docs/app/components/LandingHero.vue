@@ -48,8 +48,27 @@ watch(activeFiles, () => {
 });
 
 function fileIcon(path: string) {
-  if (path.endsWith(".json")) return "i-lucide-file-json";
-  if (path === "env.example") return "i-lucide-file-key";
+  const fileName = path.split("/").pop()?.toLowerCase() || path.toLowerCase();
+
+  if (fileName === "nuxt.config.ts") return "i-vscode-icons-file-type-nuxt";
+  if (fileName === "nitro.config.ts") return "i-brand-nitro";
+  if (fileName === "vite.config.ts") return "i-vscode-icons-file-type-vite";
+  if (fileName === "package.json") return "i-vscode-icons-file-type-package";
+  if (fileName === "tsconfig.json" || fileName.startsWith("tsconfig.")) return "i-vscode-icons-file-type-tsconfig-official";
+  if (fileName === "pnpm-lock.yaml" || fileName === "pnpm-workspace.yaml") return "i-vscode-icons-file-type-pnpm";
+  if (fileName === "package-lock.json") return "i-vscode-icons-file-type-npm";
+  if (fileName === "env.example" || fileName === ".env" || fileName.startsWith(".env.")) return "i-vscode-icons-file-type-dotenv";
+  if (fileName === "readme.md") return "i-vscode-icons-file-type-markdown";
+
+  if (fileName.endsWith(".ts") || fileName.endsWith(".tsx")) return "i-vscode-icons-file-type-typescript-official";
+  if (fileName.endsWith(".js") || fileName.endsWith(".jsx") || fileName.endsWith(".mjs") || fileName.endsWith(".cjs")) return "i-vscode-icons-file-type-js-official";
+  if (fileName.endsWith(".vue")) return "i-vscode-icons-file-type-vue";
+  if (fileName.endsWith(".json")) return "i-vscode-icons-file-type-json-official";
+  if (fileName.endsWith(".md") || fileName.endsWith(".mdx")) return "i-vscode-icons-file-type-markdown";
+  if (fileName.endsWith(".yaml") || fileName.endsWith(".yml")) return "i-vscode-icons-file-type-yaml-official";
+  if (fileName.endsWith(".toml")) return "i-vscode-icons-file-type-toml";
+  if (fileName.endsWith(".html")) return "i-vscode-icons-file-type-html";
+
   return "i-lucide-file-code";
 }
 
