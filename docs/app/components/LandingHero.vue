@@ -20,6 +20,25 @@ const activePhasePaths = computed(() => getShowcasePhasePaths(activeExample.valu
 const activeFiles = computed(() => getShowcaseFiles(activeExample.value, current.value, activeProvider.value));
 const activeFile = computed(() => activeFiles.value.find(f => f.path === activeFilePath.value) || activeFiles.value[0]);
 
+const fileIconMatchers = new Map<string, RegExp[]>([
+  ["i-vscode-icons-file-type-nuxt", [/^nuxt\.config\.ts$/]],
+  ["i-brand-nitro", [/^nitro\.config\.ts$/]],
+  ["i-vscode-icons-file-type-vite", [/^vite\.config\.ts$/]],
+  ["i-vscode-icons-file-type-package", [/^package\.json$/]],
+  ["i-vscode-icons-file-type-tsconfig-official", [/^tsconfig\.json$/, /^tsconfig\..+/]],
+  ["i-vscode-icons-file-type-pnpm", [/^pnpm-lock\.yaml$/, /^pnpm-workspace\.yaml$/]],
+  ["i-vscode-icons-file-type-npm", [/^package-lock\.json$/]],
+  ["i-vscode-icons-file-type-dotenv", [/^env\.example$/, /^\.env$/, /^\.env\..+/]],
+  ["i-vscode-icons-file-type-markdown", [/^readme\.md$/, /\.mdx?$/]],
+  ["i-vscode-icons-file-type-typescript-official", [/\.tsx?$/]],
+  ["i-vscode-icons-file-type-js-official", [/\.(?:[cm]?js|jsx)$/]],
+  ["i-vscode-icons-file-type-vue", [/\.vue$/]],
+  ["i-vscode-icons-file-type-json-official", [/\.json$/]],
+  ["i-vscode-icons-file-type-yaml-official", [/\.ya?ml$/]],
+  ["i-vscode-icons-file-type-toml", [/\.toml$/]],
+  ["i-vscode-icons-file-type-html", [/\.html$/]],
+]);
+
 function applyFrameworkSelection(framework: Framework, options: { phase?: ShowcasePhaseId; provider?: string } = {}) {
   const provider = options.provider && activeExample.value.providers.some(p => p.id === options.provider)
     ? options.provider
@@ -50,8 +69,11 @@ watch(activeFiles, () => {
 });
 
 function fileIcon(path: string) {
-  if (path.endsWith(".json")) return "i-lucide-file-json";
-  if (path === "env.example") return "i-lucide-file-key";
+  const fileName = path.split("/").pop()?.toLowerCase() || path.toLowerCase();
+  for (const [icon, patterns] of fileIconMatchers) {
+    if (patterns.some(pattern => pattern.test(fileName))) return icon;
+  }
+
   return "i-lucide-file-code";
 }
 
