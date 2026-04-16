@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalizeFrameworkPage, type NormalizedPage } from "../modules/vitehub-docs/runtime/utils/framework-content";
+import { normalizeFrameworkPage } from "../modules/vitehub-docs/runtime/utils/framework-content";
 import { getFwVariantIdFromProps, getFwVariantsFromProps } from "../modules/vitehub-docs/runtime/utils/fw-variants";
 
 describe("normalizeFrameworkPage", () => {
   it("filters non-matching framework and mode blocks in single render mode", () => {
-    const page: NormalizedPage = {
+    const page = {
       path: "/docs/nuxt/dummy",
       body: {
         toc: { links: [] },
@@ -31,7 +31,7 @@ describe("normalizeFrameworkPage", () => {
   });
 
   it("groups adjacent fw blocks in all render mode", () => {
-    const page: NormalizedPage = {
+    const page = {
       path: "/docs/nuxt/dummy",
       body: {
         toc: { links: [] },
@@ -62,7 +62,7 @@ describe("normalizeFrameworkPage", () => {
   });
 
   it("keeps shorthand fw blocks for the active framework", () => {
-    const page: NormalizedPage = {
+    const page = {
       path: "/docs/nuxt/providers/cloudflare",
       body: {
         toc: { links: [] },
