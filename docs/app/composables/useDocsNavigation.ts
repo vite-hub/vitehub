@@ -127,24 +127,9 @@ export function useDocsNavigation() {
     return buildSectionSidebarNavigation(activeSection.value, current.value, normalizedRoutePath.value);
   });
 
-  const docsCards = computed(() => {
-    return sections.value
-      .filter(section => section.id !== "getting-started")
-      .map(section => getSectionLink(section, current.value, normalizedRoutePath.value))
-      .filter((item): item is DocsSectionLink => Boolean(item));
-  });
-
-  const sectionLinks = computed(() => {
-    return sections.value
-      .map(section => getSectionLink(section, current.value, normalizedRoutePath.value))
-      .filter((item): item is DocsSectionLink => Boolean(item));
-  });
-
   return {
     sections,
     activeSection,
     sidebarNavigation,
-    sectionLinks,
-    docsCards,
   };
 }

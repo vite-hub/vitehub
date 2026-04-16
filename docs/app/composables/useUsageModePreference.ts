@@ -32,9 +32,6 @@ export function useUsageModePreference() {
 
   return {
     current,
-    cookie,
     switchTo,
   };
 }
-
-export const useUsageMode = useUsageModePreference;
