@@ -11,10 +11,10 @@ export type NodeProps = Record<string, unknown>;
 export type ContentNode = string | [string, NodeProps?, ...ContentNode[]];
 
 export type TocLink = { id: string; depth: number; text: string; children?: TocLink[] };
-export type BodyToc = { depth?: number; links?: TocLink[]; searchDepth?: number; title?: string; [key: string]: unknown };
-export type PageBody = { toc?: BodyToc; value?: ContentNode[]; [key: string]: unknown };
-export type NormalizedPage = { path: string; body: PageBody | null; [key: string]: unknown };
 export type DocsRenderOptions = { framework: Framework; mode: UsageMode; renderMode: "single" | "all"; tocMode: "current-selection" };
+
+type NormalizableBody = { value?: unknown[]; toc?: { links?: unknown[] } | null };
+type NormalizablePage = { body?: NormalizableBody | null };
 
 // --- Tuple helpers ---
 
@@ -164,12 +164,13 @@ export function getFrameworkFromContentPath(path: string): Framework | null {
   return (match?.[1] as Framework | undefined) || null;
 }
 
-export function normalizeFrameworkPage(page: NormalizedPage | null, options?: DocsRenderOptions) {
+export function normalizeFrameworkPage<T extends NormalizablePage>(page: T | null, options?: DocsRenderOptions): T | null {
   if (!page || !options || !page.body || !Array.isArray(page.body.value)) return page;
 
-  const value = normalizeNodes(page.body.value, options);
+  const nodes = page.body.value as ContentNode[];
+  const value = normalizeNodes(nodes, options);
   const tocNodes = options.tocMode === "current-selection"
-    ? normalizeNodes(page.body.value, { ...options, renderMode: "single" })
+    ? normalizeNodes(nodes, { ...options, renderMode: "single" })
     : value;
 
   return {
@@ -181,5 +182,5 @@ export function normalizeFrameworkPage(page: NormalizedPage | null, options?: Do
         ? { ...page.body.toc, links: buildTocTree(collectHeadings(tocNodes)) }
         : page.body.toc,
     },
-  };
+  } as T;
 }

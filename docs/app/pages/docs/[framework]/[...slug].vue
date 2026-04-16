@@ -49,7 +49,7 @@ const { page } = useDocsPage(
     </UPageBody>
 
     <template #right>
-      <DocsAsideRight :page="page as any" />
+      <DocsAsideRight :page="page" />
     </template>
   </UPage>
 </template>
