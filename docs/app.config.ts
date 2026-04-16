@@ -2,17 +2,8 @@ export default defineAppConfig({
   github: {
     url: "https://github.com/vite-hub/vitehub",
   },
-  docus: {
-    locale: "en",
-    colorMode: "",
-  },
   navigation: {
     sub: "header",
-  },
-  seo: {
-    siteName: "ViteHub",
-    title: "ViteHub",
-    description: "Server primitives for Vite.",
   },
   ui: {
     colors: {
@@ -48,12 +39,6 @@ export default defineAppConfig({
       tabsItem: {
         base: "p-4",
       },
-    },
-  },
-  toc: {
-    title: "On this page",
-    bottom: {
-      links: [],
     },
   },
 });
