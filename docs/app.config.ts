@@ -10,7 +10,6 @@ export default defineAppConfig({
       primary: "yellow",
       neutral: "stone",
       warning: "amber",
-      important: "violet",
     },
     contentNavigation: {
       defaultVariants: {

@@ -110,9 +110,7 @@ function modeLabelForItem(item: FrameworkTabItem) {
 }
 
 function frameworksForItem(item: FrameworkTabItem) {
-  return item.variants
-    .map(variant => variant.framework)
-    .filter((framework, index, items) => items.indexOf(framework) === index);
+  return [...new Set(item.variants.map(variant => variant.framework))];
 }
 </script>
 
