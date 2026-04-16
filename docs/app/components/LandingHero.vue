@@ -195,7 +195,7 @@ function treeItemIcon(item: TreeItem, expanded: boolean) {
 }
 
 const frameworkOptions = (["vite", "nitro", "nuxt"] as const).map(id => ({ id, label: frameworkLabels[id], icon: frameworkColorIcons[id] }));
-const appConfig = useAppConfig() as { ui: { icons: { copy: string; copyCheck: string } } };
+const copyIcons = { copy: "i-lucide-copy", copyCheck: "i-lucide-check" };
 const copied = ref(false);
 let copiedTimeout: ReturnType<typeof setTimeout> | undefined;
 
@@ -314,7 +314,7 @@ onBeforeUnmount(() => {
                   <UIcon :name="fileIcon(activeFile?.path || '')" class="size-3.5 shrink-0 text-muted" />
                   <p class="min-w-0 truncate text-xs font-medium text-default">{{ (activeFile?.path.split('/').pop() || '').replace('env.example', '.env') }}</p>
                   <UButton
-                    :icon="copied ? appConfig.ui.icons.copyCheck : appConfig.ui.icons.copy"
+                    :icon="copied ? copyIcons.copyCheck : copyIcons.copy"
                     color="neutral"
                     variant="ghost"
                     size="xs"
