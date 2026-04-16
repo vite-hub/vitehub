@@ -94,7 +94,9 @@ export function getShowcaseFiles(
   const mode = isUsageMode(modeOrProviderId) ? modeOrProviderId : defaultUsageMode;
   const providerId = isUsageMode(modeOrProviderId) ? maybeProviderId : modeOrProviderId;
   const modeConfig = getShowcaseModeConfig(example, framework, mode);
-  const supplementalFiles = new Set(modeConfig.supplementalFiles || []);
+  const supplementalFileOrder = new Map((modeConfig.supplementalFiles || []).map((path, index) => [path, index]));
+  const supplementalFiles = new Set(supplementalFileOrder.keys());
+  const excludedFiles = modeConfig.excludedFiles || [];
   const provider = example.providers?.find(item => item.id === providerId);
 
   let files = example.files[framework].map((file) => {
@@ -122,6 +124,14 @@ export function getShowcaseFiles(
     files = files.filter(file => !hiddenFiles.has(file.path));
   }
 
+  if (excludedFiles.length) {
+    files = files.filter((file) => {
+      return !excludedFiles.some(pattern => pattern.endsWith("/")
+        ? file.path.startsWith(pattern)
+        : file.path === pattern);
+    });
+  }
+
   if (provider?.envOverride && !files.some(file => file.path === "env.example")) {
     files = [...files, { path: "env.example", code: provider.envOverride }];
   }
@@ -137,6 +147,11 @@ export function getShowcaseFiles(
     const supplementalB = supplementalFiles.has(right.path) ? 0 : 1;
     if (supplementalA !== supplementalB) {
       return supplementalA - supplementalB;
+    }
+
+    if (supplementalA === 0 && supplementalB === 0) {
+      return (supplementalFileOrder.get(left.path) ?? Number.POSITIVE_INFINITY)
+        - (supplementalFileOrder.get(right.path) ?? Number.POSITIVE_INFINITY);
     }
 
     const envA = left.path === "env.example" ? 1 : 0;

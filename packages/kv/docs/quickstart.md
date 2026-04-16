@@ -1,0 +1,90 @@
+---
+title: KV quickstart
+description: Read and write a first key with the local filesystem driver.
+navigation.title: Quickstart
+navigation.order: 1
+icon: i-lucide-rocket
+---
+
+This quickstart uses the local filesystem driver so you can get KV working locally with the least setup.
+
+## Configure KV
+
+::fw{id="vite:dev vite:build"}
+The Vite entrypoint registers the KV bridge for ViteHub environments. Runtime reads and writes currently require Nitro or Nuxt.
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { hubKv } from '@vitehub/kv/vite'
+
+export default defineConfig({
+  plugins: [hubKv()],
+  kv: {
+    driver: 'fs-lite',
+    base: '.data/kv',
+  },
+})
+```
+::
+
+::fw{id="nitro:dev nitro:build"}
+```ts [nitro.config.ts]
+import { defineNitroConfig } from 'nitro/config'
+
+export default defineNitroConfig({
+  modules: ['@vitehub/kv/nitro'],
+  kv: {
+    driver: 'fs-lite',
+    base: '.data/kv',
+  },
+})
+```
+::
+
+::fw{id="nuxt:dev nuxt:build"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vitehub/kv/nuxt'],
+  kv: {
+    driver: 'fs-lite',
+    base: '.data/kv',
+  },
+})
+```
+::
+
+## Write and read a value
+
+::fw{id="vite:dev vite:build"}
+Use the Nitro or Nuxt setup when you need the runtime `kv` handle. Plain Vite processes do not mount Nitro storage by themselves.
+::
+
+::fw{id="nitro:dev nitro:build nuxt:dev nuxt:build"}
+```ts [server/api/settings.get.ts]
+export default defineEventHandler(() => {
+  return kv.get('settings')
+})
+```
+
+```ts [server/api/settings.put.ts]
+export default defineEventHandler(async () => {
+  await kv.set('settings', { enabled: true })
+})
+```
+
+```ts [server/api/settings.delete.ts]
+export default defineEventHandler(async () => {
+  await kv.del('settings')
+})
+```
+::
+
+## Hosted providers
+
+- For Cloudflare setup, see [Cloudflare](./providers/cloudflare).
+- For Vercel setup, see [Vercel](./providers/vercel).
+
+## Next steps
+
+- Use [Usage](./usage) for the common runtime methods.
+- Use [Runtime API](./runtime-api) to review the shared config and handle types.

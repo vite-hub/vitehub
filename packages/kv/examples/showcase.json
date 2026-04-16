@@ -1,0 +1,102 @@
+{
+  "label": "KV",
+  "icon": "i-lucide-database-zap",
+  "order": 0,
+  "providers": [
+    {
+      "id": "cloudflare-kv-binding",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  kv: {\n    driver: 'cloudflare-kv-binding',\n    binding: 'KV',\n    namespaceId: '<kv-namespace-id>',\n  },"
+    },
+    {
+      "id": "upstash",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "configOverride": "  kv: {\n    driver: 'upstash',\n  },",
+      "envOverride": "KV_REST_API_URL=https://example.upstash.io\nKV_REST_API_TOKEN=<upstash-rest-token>"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nitro": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "run": "server/api/settings.get.ts"
+          },
+          "excludedFiles": [
+            "server/api/tests/"
+          ],
+          "supplementalFiles": [
+            "server/api/settings.put.ts",
+            "server/api/settings.delete.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "run": "server/api/settings.get.ts"
+          },
+          "excludedFiles": [
+            "server/api/tests/"
+          ],
+          "supplementalFiles": [
+            "server/api/settings.put.ts",
+            "server/api/settings.delete.ts",
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nuxt": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nuxt.config.ts",
+            "run": "server/api/settings.get.ts"
+          },
+          "supplementalFiles": [
+            "server/api/settings.put.ts",
+            "server/api/settings.delete.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nuxt.config.ts",
+            "run": "server/api/settings.get.ts"
+          },
+          "supplementalFiles": [
+            "server/api/settings.put.ts",
+            "server/api/settings.delete.ts",
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}
