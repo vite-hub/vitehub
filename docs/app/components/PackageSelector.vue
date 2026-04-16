@@ -50,30 +50,30 @@ const activePackage = computed(() => {
 });
 
 const items = computed(() => [
-  packageLinks.value.map(link => ({
-    label: link.label,
-    icon: link.icon,
-    to: link.to,
-    type: "checkbox" as const,
-    checked: link.active,
-  })),
+  {
+    label: activePackage.value?.label || "Packages",
+    icon: activePackage.value?.icon || "i-lucide-box",
+    value: "packages",
+    children: packageLinks.value.map(link => ({
+      label: link.label,
+      icon: link.icon,
+      to: link.to,
+      active: link.active,
+    })),
+  },
 ]);
 </script>
 
 <template>
-  <UDropdownMenu
+  <UNavigationMenu
     v-if="isDocsRoute && packageLinks.length"
     :items="items"
-    :content="{ align: 'start', sideOffset: 8 }"
-    :ui="{ content: 'min-w-56' }"
-  >
-    <UButton
-      color="neutral"
-      variant="ghost"
-      :icon="activePackage?.icon || 'i-lucide-box'"
-      :label="activePackage?.label || 'Packages'"
-      trailing-icon="i-lucide-chevron-down"
-      class="hidden lg:inline-flex"
-    />
-  </UDropdownMenu>
+    disable-hover-trigger
+    class="hidden lg:flex"
+    :ui="{
+      content: 'min-w-56 w-max',
+      childLink: 'min-w-full w-max whitespace-nowrap',
+      childLinkLabel: 'overflow-visible text-clip whitespace-nowrap',
+    }"
+  />
 </template>

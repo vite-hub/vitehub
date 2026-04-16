@@ -107,6 +107,60 @@ function getSupportedFrameworks(meta: Record<string, unknown>) {
     : [...frameworkIds];
 }
 
+function fwBlockMatchesFramework(meta: string | undefined, framework: Framework) {
+  if (!meta) {
+    return false;
+  }
+
+  const id = meta.match(/\bid\s*=\s*["']([^"']*)/)?.[1] || meta;
+
+  return id
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .some(item => {
+      const token = item.replace(/^:/, "");
+      return token === framework || token.startsWith(`${framework}:`);
+    });
+}
+
+export function filterFwBlocksForFramework(source: string, framework: Framework) {
+  const lines = source.split("\n");
+  const output: string[] = [];
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!;
+    const match = line.match(/^\s*::fw(?:\{([^}]*)\})?\s*$/);
+
+    if (!match) {
+      output.push(line);
+      continue;
+    }
+
+    const body: string[] = [];
+    let closed = false;
+
+    for (index++; index < lines.length; index++) {
+      if (/^\s*::\s*$/.test(lines[index]!)) {
+        closed = true;
+        break;
+      }
+
+      body.push(lines[index]!);
+    }
+
+    if (!closed) {
+      output.push(line, ...body);
+      break;
+    }
+
+    if (fwBlockMatchesFramework(match[1], framework)) {
+      output.push(...body);
+    }
+  }
+
+  return output.join("\n");
+}
+
 function getPhasePriority(modeConfig: { phases: Partial<Record<typeof phaseOrder[number], string>>; supplementalFiles?: string[] }, path: string) {
   const index = phaseOrder.findIndex(phaseId => modeConfig.phases[phaseId] === path);
   return index === -1 ? Number.POSITIVE_INFINITY : index;
@@ -326,7 +380,10 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
 
           for (const page of pages) {
             for (const framework of page.frameworks) {
-              generatedPages.push({ filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`, contents: page.source });
+              generatedPages.push({
+                filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
+                contents: filterFwBlocksForFramework(page.source, framework),
+              });
             }
           }
 
@@ -362,7 +419,10 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
 
         for (const page of pages) {
           for (const framework of page.frameworks) {
-            generatedPages.push({ filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`, contents: page.source });
+            generatedPages.push({
+              filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
+              contents: filterFwBlocksForFramework(page.source, framework),
+            });
           }
         }
 
