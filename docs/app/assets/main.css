@@ -1,27 +1,5 @@
 :root {
   --theme-hue: 95;
-  --ui-color-primary-50: var(--color-yellow-50);
-  --ui-color-primary-100: var(--color-yellow-100);
-  --ui-color-primary-200: var(--color-yellow-200);
-  --ui-color-primary-300: var(--color-yellow-300);
-  --ui-color-primary-400: var(--color-yellow-400);
-  --ui-color-primary-500: var(--color-yellow-500);
-  --ui-color-primary-600: var(--color-yellow-600);
-  --ui-color-primary-700: var(--color-yellow-700);
-  --ui-color-primary-800: var(--color-yellow-800);
-  --ui-color-primary-900: var(--color-yellow-900);
-  --ui-color-primary-950: var(--color-yellow-950);
-  --ui-color-neutral-50: var(--color-stone-50);
-  --ui-color-neutral-100: var(--color-stone-100);
-  --ui-color-neutral-200: var(--color-stone-200);
-  --ui-color-neutral-300: var(--color-stone-300);
-  --ui-color-neutral-400: var(--color-stone-400);
-  --ui-color-neutral-500: var(--color-stone-500);
-  --ui-color-neutral-600: var(--color-stone-600);
-  --ui-color-neutral-700: var(--color-stone-700);
-  --ui-color-neutral-800: var(--color-stone-800);
-  --ui-color-neutral-900: var(--color-stone-900);
-  --ui-color-neutral-950: var(--color-stone-950);
 }
 
 .landing-hero-gradient {

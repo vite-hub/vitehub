@@ -16,7 +16,7 @@ const { current: framework } = useFrameworkPreference();
 const docsPage = getDocsPage("getting-started", "index");
 const sourcePath = computed(() => getDocsPath("getting-started", framework.value));
 const { data: rawDoc } = await useAsyncData(
-  () => `docs:${sourcePath.value}`,
+  "docs:index",
   () => queryCollection("docs").path(sourcePath.value).first(),
   { watch: [sourcePath] },
 );
