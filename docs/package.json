@@ -13,7 +13,7 @@
     "dev": "nuxi dev",
     "build": "NODE_OPTIONS='--max-old-space-size=8192' NITRO_PRESET=vercel nuxi build",
     "test": "vitest run",
-    "typecheck": "nuxi prepare && ! vue-tsc --noEmit 2>&1 | grep 'error TS' | grep -qv 'docus/'",
+    "typecheck": "nuxi prepare && ! vue-tsc --noEmit 2>&1 | grep 'error TS' | grep -Ev 'docus/(app/pages/\\[\\[lang\\]\\]/\\[\\.\\.\\.slug\\]\\.vue\\(48,15\\): error TS2345|modules/config\\.ts\\(38,5\\): error TS2322)'",
     "generate": "NODE_OPTIONS='--max-old-space-size=8192' nuxi generate",
     "preview": "nuxi preview"
   },
