@@ -3,7 +3,7 @@ import { computed, type ComputedRef, type Ref } from "vue";
 import { useDocsRenderMode } from "./useDocsRenderMode";
 import { useFrameworkPreference } from "./useFrameworkPreference";
 import { useUsageModePreference } from "./useUsageModePreference";
-import { normalizeFrameworkPage, toMdcRootBody, type NormalizedPage } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
+import { normalizeFrameworkPage, type NormalizedPage } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
 
 export type ContentPage = NormalizedPage & {
   data?: Record<string, unknown>;
@@ -30,7 +30,7 @@ export function useDocsPage(sourcePath: string | ComputedRef<string>, rawDoc: Re
       description,
       seo: { title: doc?.seo?.title || title, description: doc?.seo?.description || description },
       data: doc?.meta || {},
-      body: doc?.body ? toMdcRootBody({ ...doc.body, toc: doc.body?.toc || null }) : null,
+      body: doc?.body ? { ...doc.body, toc: doc.body?.toc || null } : null,
     };
   });
 

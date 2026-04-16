@@ -5,234 +5,127 @@ import {
   matchesFwVariant,
   type UsageMode,
 } from "./fw-variants";
-import type { MDCComment, MDCElement, MDCNode, MDCRoot, MDCText } from "@nuxtjs/mdc";
 import { frameworkPattern, type Framework } from "./frameworks";
 
 export type NodeProps = Record<string, unknown>;
 export type ContentNode = string | [string, NodeProps?, ...ContentNode[]];
-export type AstTextNode = MDCText;
-export type AstCommentNode = MDCComment;
-export type AstElementNode = MDCElement;
-export type AstNode = MDCNode;
-export type MdcAstTextNode = MDCText;
-export type MdcAstCommentNode = MDCComment;
-export type MdcAstElementNode = MDCElement;
-export type MdcAstNode = MDCNode;
-export type FrameworkGroupBody = MDCRoot;
 
 export type TocLink = { id: string; depth: number; text: string; children?: TocLink[] };
 export type BodyToc = { depth?: number; links?: TocLink[]; searchDepth?: number; title?: string; [key: string]: unknown };
-export type PageBody = { toc?: BodyToc; type: "root"; value?: ContentNode[]; children?: MdcAstNode[]; [key: string]: unknown };
+export type PageBody = { toc?: BodyToc; value?: ContentNode[]; [key: string]: unknown };
 export type NormalizedPage = { path: string; body: PageBody | null; [key: string]: unknown };
 export type DocsRenderOptions = { framework: Framework; mode: UsageMode; renderMode: "single" | "all"; tocMode: "current-selection" };
 
-// --- Generic node accessor interface ---
+// --- Tuple helpers ---
 
-type NodeAccessor<N> = {
-  isText(node: N): boolean;
-  isElement(node: N): boolean;
-  getText(node: N): string;
-  getTag(node: N): string;
-  getProps(node: N): NodeProps;
-  getChildren(node: N): N[];
-  withChildren(node: N, children: N[]): N;
-  createGroup(items: Array<{ id: string; body?: unknown }>, buffer: N[]): N;
-};
-
-// --- ContentNode (tuple) accessor ---
-
-function isNodeTuple(node: ContentNode): node is [string, NodeProps?, ...ContentNode[]] {
+function isTuple(node: ContentNode): node is [string, NodeProps?, ...ContentNode[]] {
   return Array.isArray(node) && typeof node[0] === "string";
 }
 
-function hasNodeProps(node: [string, NodeProps?, ...ContentNode[]]) {
+function hasProps(node: [string, NodeProps?, ...ContentNode[]]) {
   const props = node[1];
   return Boolean(props && typeof props === "object" && !Array.isArray(props));
 }
 
-const tupleAccessor: NodeAccessor<ContentNode> = {
-  isText: (node) => typeof node === "string",
-  isElement: (node) => isNodeTuple(node),
-  getText: (node) => typeof node === "string" ? node : "",
-  getTag: (node) => isNodeTuple(node) ? node[0] : "",
-  getProps(node) {
-    if (!isNodeTuple(node) || !hasNodeProps(node)) return {};
-    return node[1] || {};
-  },
-  getChildren(node) {
-    if (!isNodeTuple(node)) return [];
-    return (hasNodeProps(node) ? node.slice(2) : node.slice(1)) as ContentNode[];
-  },
-  withChildren(node, children) {
-    if (!isNodeTuple(node)) return node;
-    const [tag] = node;
-    return (hasNodeProps(node) ? [tag, node[1], ...children] : [tag, ...children]) as ContentNode;
-  },
-  createGroup(items, buffer) {
-    return [
-      "fw-group",
-      {
-        items: items
-          .filter((item): item is { id: string } => Boolean(item?.id)),
-      },
-      ...buffer,
-    ] as ContentNode;
-  },
-};
+function getTag(node: ContentNode) { return isTuple(node) ? node[0] : ""; }
 
-// --- AstNode accessor ---
-
-function isAstElement(node: unknown): node is AstElementNode {
-  return Boolean(node) && typeof node === "object" && !Array.isArray(node)
-    && (node as AstElementNode).type === "element"
-    && typeof (node as AstElementNode).tag === "string";
+function getProps(node: ContentNode): NodeProps {
+  if (!isTuple(node) || !hasProps(node)) return {};
+  return node[1] || {};
 }
 
-function isAstText(node: unknown): node is AstTextNode {
-  return Boolean(node) && typeof node === "object" && !Array.isArray(node)
-    && (node as AstTextNode).type === "text"
-    && typeof (node as AstTextNode).value === "string";
+function getChildren(node: ContentNode): ContentNode[] {
+  if (!isTuple(node)) return [];
+  return (hasProps(node) ? node.slice(2) : node.slice(1)) as ContentNode[];
 }
 
-function toMdcAstNode(node: AstNode): MdcAstNode {
-  if (isAstText(node) || node.type === "comment") {
-    return node;
-  }
-
-  return {
-    ...node,
-    props: node.props || {},
-    children: node.children?.map(toMdcAstNode) || [],
-  };
+function withChildren(node: ContentNode, children: ContentNode[]): ContentNode {
+  if (!isTuple(node)) return node;
+  const [tag] = node;
+  return (hasProps(node) ? [tag, node[1], ...children] : [tag, ...children]) as ContentNode;
 }
 
-export function toFrameworkGroupBody(children: AstNode[]): FrameworkGroupBody {
-  return {
-    type: "root",
-    children: children.map(toMdcAstNode),
-  };
-}
+// --- Node operations ---
 
-export function toMdcRootBody(body: Omit<PageBody, "children"> & { children?: AstNode[] | MdcAstNode[] }): PageBody {
-  const children = body.children?.map(node => toMdcAstNode(node as AstNode));
-
-  if (children) {
-    return { ...body, type: "root", children };
-  }
-
-  return { ...body } as PageBody;
-}
-
-const astAccessor: NodeAccessor<AstNode> = {
-  isText: (node) => isAstText(node),
-  isElement: (node) => isAstElement(node),
-  getText: (node) => isAstText(node) ? node.value : "",
-  getTag: (node) => isAstElement(node) ? node.tag : "",
-  getProps: (node) => isAstElement(node) ? (node.props || {}) : {},
-  getChildren: (node) => isAstElement(node) ? (node.children || []) : [],
-  withChildren(node, children) {
-    if (!isAstElement(node)) return node;
-    return { ...node, props: node.props || {}, children };
-  },
-  createGroup(items, _buffer) {
-    return {
-      type: "element",
-      tag: "fw-group",
-      props: {
-        items: items
-          .filter((item): item is { id: string; body: FrameworkGroupBody } => Boolean(item?.id)),
-      },
-      children: [],
-    } as AstNode;
-  },
-};
-
-// --- Generic implementations ---
-
-function extractText<N>(nodes: N[], acc: NodeAccessor<N>): string {
+function extractText(nodes: ContentNode[]): string {
   return nodes
-    .map(node => acc.isText(node) ? acc.getText(node) : acc.isElement(node) ? extractText(acc.getChildren(node), acc) : "")
+    .map(node => typeof node === "string" ? node : isTuple(node) ? extractText(getChildren(node)) : "")
     .join("").replace(/\s+/g, " ").trim();
 }
 
-function flushGroup<N>(buffer: N[], output: N[], acc: NodeAccessor<N>) {
+function flushGroup(buffer: ContentNode[], output: ContentNode[]) {
   if (buffer.length >= 2) {
     const items = buffer
-      .filter(node => acc.isElement(node))
+      .filter(node => isTuple(node))
       .map((node) => {
-        const id = getFwVariantIdFromProps(acc.getProps(node));
-        if (!id) return null;
-        // For AST nodes, include body for MDCRenderer
-        if (acc === astAccessor as unknown) {
-          return { id, body: toFrameworkGroupBody(acc.getChildren(node) as AstNode[]) };
-        }
-        return { id };
+        const id = getFwVariantIdFromProps(getProps(node));
+        return id ? { id } : null;
       })
-      .filter(Boolean) as Array<{ id: string; body?: unknown }>;
-    output.push(acc.createGroup(items, buffer));
+      .filter(Boolean) as Array<{ id: string }>;
+    output.push(["fw-group", { items }, ...buffer] as ContentNode);
     return;
   }
-  if (buffer.length === 1) output.push(buffer[0] as N);
+  if (buffer.length === 1) output.push(buffer[0] as ContentNode);
 }
 
-function groupNodes<N>(nodes: N[], acc: NodeAccessor<N>) {
-  const grouped: N[] = [];
-  const buffer: N[] = [];
+function groupNodes(nodes: ContentNode[]) {
+  const grouped: ContentNode[] = [];
+  const buffer: ContentNode[] = [];
 
   for (const node of nodes) {
-    if (acc.isText(node)) {
-      if (buffer.length > 0 && acc.getText(node).trim() === "") continue;
-      flushGroup(buffer, grouped, acc);
+    if (typeof node === "string") {
+      if (buffer.length > 0 && node.trim() === "") continue;
+      flushGroup(buffer, grouped);
       buffer.length = 0;
       grouped.push(node);
       continue;
     }
-    if (acc.isElement(node) && acc.getTag(node) === "fw") {
+    if (isTuple(node) && getTag(node) === "fw") {
       buffer.push(node);
       continue;
     }
-    flushGroup(buffer, grouped, acc);
+    flushGroup(buffer, grouped);
     buffer.length = 0;
     grouped.push(node);
   }
 
-  flushGroup(buffer, grouped, acc);
+  flushGroup(buffer, grouped);
   return grouped;
 }
 
-function normalizeNodes<N>(nodes: N[], options: Pick<DocsRenderOptions, "framework" | "mode" | "renderMode">, acc: NodeAccessor<N>): N[] {
-  const normalized: N[] = [];
+function normalizeNodes(nodes: ContentNode[], options: Pick<DocsRenderOptions, "framework" | "mode" | "renderMode">): ContentNode[] {
+  const normalized: ContentNode[] = [];
   const currentVariant = createFwVariant(options.framework, options.mode);
 
   for (const node of nodes) {
-    if (acc.isText(node)) { normalized.push(node); continue; }
-    if (!acc.isElement(node)) continue;
+    if (typeof node === "string") { normalized.push(node); continue; }
+    if (!isTuple(node)) continue;
 
-    const children = normalizeNodes(acc.getChildren(node), options, acc);
+    const children = normalizeNodes(getChildren(node), options);
 
-    if (acc.getTag(node) === "fw") {
-      const variants = getFwVariantsFromProps(acc.getProps(node));
+    if (getTag(node) === "fw") {
+      const variants = getFwVariantsFromProps(getProps(node));
       if (options.renderMode === "single" && !matchesFwVariant(variants, currentVariant)) continue;
     }
 
-    normalized.push(acc.withChildren(node, children));
+    normalized.push(withChildren(node, children));
   }
 
-  return options.renderMode === "all" ? groupNodes(normalized, acc) : normalized;
+  return options.renderMode === "all" ? groupNodes(normalized) : normalized;
 }
 
-function collectHeadings<N>(nodes: N[], acc: NodeAccessor<N>, headings: TocLink[] = []) {
+function collectHeadings(nodes: ContentNode[], headings: TocLink[] = []) {
   for (const node of nodes) {
-    if (!acc.isElement(node)) continue;
-    const tag = acc.getTag(node);
-    const props = acc.getProps(node);
+    if (!isTuple(node)) continue;
+    const tag = getTag(node);
+    const props = getProps(node);
     const headingId = typeof props.id === "string" ? props.id : null;
 
     if (/^h[2-6]$/.test(tag) && headingId) {
-      headings.push({ id: headingId, depth: Number(tag.slice(1)), text: extractText(acc.getChildren(node), acc) });
+      headings.push({ id: headingId, depth: Number(tag.slice(1)), text: extractText(getChildren(node)) });
       continue;
     }
-    collectHeadings(acc.getChildren(node), acc, headings);
+    collectHeadings(getChildren(node), headings);
   }
   return headings;
 }
@@ -272,41 +165,21 @@ export function getFrameworkFromContentPath(path: string): Framework | null {
 }
 
 export function normalizeFrameworkPage(page: NormalizedPage | null, options?: DocsRenderOptions) {
-  if (!page || !options || !page.body) return page;
+  if (!page || !options || !page.body || !Array.isArray(page.body.value)) return page;
 
-  if (Array.isArray(page.body.value)) {
-    const value = normalizeNodes(page.body.value, options, tupleAccessor);
-    const tocNodes = options.tocMode === "current-selection"
-      ? normalizeNodes(page.body.value, { ...options, renderMode: "single" }, tupleAccessor)
-      : value;
-
-    return {
-      ...page,
-      body: toMdcRootBody({
-        ...page.body,
-        value,
-        toc: page.body.toc
-          ? { ...page.body.toc, links: buildTocTree(collectHeadings(tocNodes, tupleAccessor)) }
-          : page.body.toc,
-      }),
-    };
-  }
-
-  if (!Array.isArray(page.body.children)) return page;
-
-  const children = normalizeNodes(page.body.children, options, astAccessor);
+  const value = normalizeNodes(page.body.value, options);
   const tocNodes = options.tocMode === "current-selection"
-    ? normalizeNodes(page.body.children, { ...options, renderMode: "single" }, astAccessor)
-    : children;
+    ? normalizeNodes(page.body.value, { ...options, renderMode: "single" })
+    : value;
 
   return {
     ...page,
-    body: toMdcRootBody({
+    body: {
       ...page.body,
-      children,
+      value,
       toc: page.body.toc
-        ? { ...page.body.toc, links: buildTocTree(collectHeadings(tocNodes, astAccessor)) }
+        ? { ...page.body.toc, links: buildTocTree(collectHeadings(tocNodes)) }
         : page.body.toc,
-    }),
+    },
   };
 }

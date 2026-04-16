@@ -1,5 +1,6 @@
 {
   "name": "vitehub-docs",
+  "description": "Server primitives for Vite.",
   "private": true,
   "type": "module",
   "imports": {

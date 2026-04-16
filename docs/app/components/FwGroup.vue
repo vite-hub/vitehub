@@ -2,10 +2,6 @@
 import { Fragment, computed, provide, ref, watch, type VNode } from "vue";
 import { useFrameworkPreference } from "../composables/useFrameworkPreference";
 import { useUsageModePreference } from "../composables/useUsageModePreference";
-import type {
-  AstNode,
-  FrameworkGroupBody,
-} from "~~/modules/vitehub-docs/runtime/utils/framework-content";
 import {
   fwGroupContextKey,
   getFwVariantTabScore,
@@ -20,14 +16,10 @@ import {
 type FrameworkTabItem = {
   id: string;
   variants: ReturnType<typeof parseFwVariants>;
-  body?: FrameworkGroupBody;
 };
 
 const props = defineProps<{
-  items?: Array<{
-    id: string;
-    body?: FrameworkGroupBody;
-  }>;
+  items?: Array<{ id: string }>;
 }>();
 
 const { current: framework } = useFrameworkPreference();
@@ -51,13 +43,7 @@ const items = computed<FrameworkTabItem[]>(() => {
   if (props.items?.length) {
     return props.items
       .filter(item => item.id)
-      .map((item) => {
-        return {
-          id: item.id,
-          body: item.body,
-          variants: parseFwVariants(item.id),
-        };
-      })
+      .map(item => ({ id: item.id, variants: parseFwVariants(item.id) }))
       .filter(item => item.variants.length > 0);
   }
 
@@ -153,11 +139,6 @@ function frameworksForItem(item: FrameworkTabItem) {
       </button>
     </div>
 
-    <MDCRenderer
-      v-if="selectedItem?.body"
-      :body="selectedItem.body"
-      :data="{}"
-    />
-    <slot v-else />
+    <slot />
   </div>
 </template>

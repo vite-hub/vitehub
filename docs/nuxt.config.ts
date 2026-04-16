@@ -7,10 +7,11 @@ export default defineNuxtConfig({
     name: "ViteHub",
     url: "https://vitehub.dev",
   },
-  llms: {
-    domain: "https://vitehub.dev",
-    title: "ViteHub",
-    description: "Server primitives for Vite.",
+  llms: { domain: "https://vitehub.dev" },
+  app: {
+    head: {
+      link: [{ rel: "icon", href: "/favicon.svg" }],
+    },
   },
   css: ["~/assets/main.css"],
   devtools: {
