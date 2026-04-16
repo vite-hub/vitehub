@@ -335,22 +335,15 @@ onBeforeUnmount(() => {
 
             <div class="grid grid-cols-[auto_1fr_auto] items-center border-t border-black/5 bg-muted/30 px-3 py-1.5 dark:border-white/5">
               <div class="flex items-center gap-0.5 rounded-lg ring ring-black/5 p-0.5 dark:ring-white/10">
-                <button
-                  v-for="fw in frameworkOptions"
-                  :key="fw.id"
-                  type="button"
-                  :data-framework="fw.id"
-                  data-framework-switch="landing"
-                  class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors focus:outline-none"
-                  :class="displayedFramework === fw.id
-                    ? 'bg-primary/10 text-primary hover:bg-primary/15'
-                    : 'text-default hover:bg-elevated'"
+                <UButton
+                  v-for="fw in frameworkOptions" :key="fw.id"
+                  :icon="fw.icon" :label="fw.label"
+                  :color="displayedFramework === fw.id ? 'primary' : 'neutral'"
+                  :variant="displayedFramework === fw.id ? 'soft' : 'ghost'"
+                  size="xs"
                   :aria-pressed="displayedFramework === fw.id"
                   @click="onFrameworkSelect(fw.id)"
-                >
-                  <UIcon :name="fw.icon" class="size-4 shrink-0" />
-                  <span>{{ fw.label }}</span>
-                </button>
+                />
               </div>
               <div class="flex items-center justify-self-center gap-2">
                 <p class="text-[0.625rem] font-medium tracking-wider text-muted uppercase">Works with</p>

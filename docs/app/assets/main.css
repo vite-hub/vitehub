@@ -1,6 +1,5 @@
 :root {
   --theme-hue: 95;
-  --vitehub-docs-sticky-offset: var(--ui-header-height);
   --ui-color-primary-50: var(--color-yellow-50);
   --ui-color-primary-100: var(--color-yellow-100);
   --ui-color-primary-200: var(--color-yellow-200);

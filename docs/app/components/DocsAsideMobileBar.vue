@@ -24,7 +24,7 @@ const tocDrawerOpen = ref(false);
 </script>
 
 <template>
-  <div class="sticky top-(--vitehub-docs-sticky-offset) z-10 -mx-4 flex justify-between border-b border-dashed border-default bg-default/75 p-2 backdrop-blur lg:hidden">
+  <div class="sticky top-(--ui-header-height) z-10 -mx-4 flex justify-between border-b border-dashed border-default bg-default/75 p-2 backdrop-blur lg:hidden">
     <UDrawer
       v-model:open="menuDrawerOpen"
       direction="left"
