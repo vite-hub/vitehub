@@ -2,6 +2,8 @@
   "extends": "./.nuxt/tsconfig.json",
   "exclude": [
     "node_modules",
-    ".output"
+    ".output",
+    "../node_modules/.pnpm/docus@*/node_modules/docus/app/pages",
+    "../node_modules/.pnpm/docus@*/node_modules/docus/modules/config.ts"
   ]
 }
