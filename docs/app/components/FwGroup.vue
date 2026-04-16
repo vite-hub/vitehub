@@ -48,20 +48,8 @@ const items = computed<FrameworkTabItem[]>(() => {
   }
 
   return flattenVNodes(slots.default?.())
-    .map((node) => {
-      const id = String(node.props?.id || "");
-      return {
-        id,
-      };
-    })
-    .filter(item => item.id)
-    .map((item) => {
-      return {
-        id: item.id,
-        variants: parseFwVariants(item.id),
-      };
-    })
-    .filter(item => item.variants.length > 0);
+    .map(node => ({ id: String(node.props?.id || ""), variants: parseFwVariants(String(node.props?.id || "")) }))
+    .filter(item => item.id && item.variants.length > 0);
 });
 
 function getDefaultTabId() {

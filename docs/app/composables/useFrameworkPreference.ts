@@ -93,9 +93,6 @@ export function useFrameworkPreference() {
 
   return {
     current,
-    cookie,
     switchTo,
   };
 }
-
-export const useFramework = useFrameworkPreference;

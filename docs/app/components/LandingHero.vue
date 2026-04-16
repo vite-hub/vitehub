@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { useAppConfig } from "#imports";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useFramework } from "../composables/useFrameworkPreference";
+import { useFrameworkPreference } from "../composables/useFrameworkPreference";
 import { useHighlightedCode } from "../composables/useHighlightedCode";
 import { defaultFramework, frameworkColorIcons, frameworkLabels, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths, showcasePhaseIds, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 
 type TreeItem = { id: string; label: string; icon?: string; defaultExpanded?: boolean; children?: TreeItem[] };
 
-const { current, switchTo } = useFramework();
+const { current, switchTo } = useFrameworkPreference();
 const activeTab = ref(0);
 const activeFilePath = ref("");
 const activePhase = ref<ShowcasePhaseId>("run");
@@ -297,7 +296,7 @@ onBeforeUnmount(() => {
                   :expanded="treeExpanded"
                   :get-key="getTreeItemKey"
                   size="xs"
-                  :ui="{ linkTrailing: 'hidden', linkTrailingIcon: 'hidden' }"
+                  :ui="{ link: '!rounded-none', linkTrailing: 'hidden', linkTrailingIcon: 'hidden' }"
                   @select="onTreeSelect"
                 >
                   <template #item-leading="{ item, expanded }">

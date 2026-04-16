@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
-
-const primaryLinks = computed(() => [
+const primaryLinks = [
   { label: "Home", to: "/" },
   { label: "Docs", to: "/docs" },
-]);
+];
 </script>
 
 <template>
