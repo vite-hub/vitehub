@@ -3,9 +3,7 @@ import { useAsyncData } from "#app/composables/asyncData";
 import { createError } from "#app/composables/error";
 import { definePageMeta } from "#app/composables/pages";
 import { useRoute } from "#app/composables/router";
-import { computed } from "vue";
 import { useDocsPage } from "../../../composables/useDocsPage";
-import type { FrameworkGroupBody } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
 import { getDocsPage, getDocsPath, getDocsPathMeta } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import type { Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 
@@ -36,13 +34,6 @@ const { page } = useDocsPage(
   rawDoc,
   { title: docsPage.title, sourceTitle: docsPage.sourceTitle, description: docsPage.description },
 );
-const asidePage = computed(() => page.value as any);
-
-const rendererBody = computed<FrameworkGroupBody | null>(() => {
-  return page.value?.body && Array.isArray(page.value.body.children)
-    ? page.value.body as FrameworkGroupBody
-    : null;
-});
 </script>
 
 <template>
@@ -54,11 +45,11 @@ const rendererBody = computed<FrameworkGroupBody | null>(() => {
     </UPageHeader>
 
     <UPageBody prose class="docs-content pb-0">
-      <MDCRenderer v-if="rendererBody" :body="rendererBody" :data="page.data || {}" />
+      <ContentRenderer :value="page" />
     </UPageBody>
 
     <template #right>
-      <DocsAsideRight :page="asidePage" />
+      <DocsAsideRight :page="page as any" />
     </template>
   </UPage>
 </template>

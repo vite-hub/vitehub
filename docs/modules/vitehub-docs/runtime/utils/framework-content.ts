@@ -116,11 +116,11 @@ export function toFrameworkGroupBody(children: AstNode[]): FrameworkGroupBody {
 export function toMdcRootBody(body: Omit<PageBody, "children"> & { children?: AstNode[] | MdcAstNode[] }): PageBody {
   const children = body.children?.map(node => toMdcAstNode(node as AstNode));
 
-  return {
-    ...body,
-    type: "root",
-    ...(children ? { children } : {}),
-  };
+  if (children) {
+    return { ...body, type: "root", children };
+  }
+
+  return { ...body } as PageBody;
 }
 
 const astAccessor: NodeAccessor<AstNode> = {
