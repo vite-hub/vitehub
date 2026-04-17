@@ -27,17 +27,10 @@
     ".": "./dist/index.js",
     "./nitro": "./dist/nitro.js",
     "./nuxt": "./dist/nuxt.js",
-    "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
-  },
-  "imports": {
-    "#vitehub-queue-registry": {
-      "types": "./dist/runtime/empty-registry.d.ts",
-      "default": "./dist/runtime/empty-registry.js"
-    }
   },
   "files": [
     "dist",

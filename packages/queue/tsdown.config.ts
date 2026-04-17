@@ -13,7 +13,6 @@ export default defineConfig({
     "src/nuxt.ts",
     "src/runtime/hosted.ts",
     "src/runtime/nitro-plugin.ts",
-    "src/runtime/empty-registry.ts",
   ],
   exports: true,
   format: ["esm"],

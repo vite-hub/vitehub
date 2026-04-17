@@ -336,7 +336,7 @@ describe("Vercel provider", () => {
     })
   })
 
-  it("resolves named Vercel clients through getQueue", async () => {
+  it("injects topic from queue name through getQueue", async () => {
     const send = vi.fn(async () => ({ messageId: "msg_vercel" }))
     mockVercelQueueSDK(send)
     setQueueRuntimeConfig({

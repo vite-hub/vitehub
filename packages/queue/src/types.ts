@@ -66,6 +66,7 @@ export interface VercelQueueSendOptions {
   delaySeconds?: number
   headers?: Record<string, string>
   idempotencyKey?: string
+  region?: string
   retentionSeconds?: number
 }
 
@@ -105,7 +106,8 @@ export interface MemoryQueueStore {
   messages: MemoryQueueStoreItem[]
 }
 
-export interface MemoryQueueProviderOptions extends QueueSharedOptions {
+export interface MemoryQueueProviderOptions {
+  cache?: boolean
   provider: "memory"
   store?: MemoryQueueStore
 }
@@ -116,6 +118,7 @@ export interface MemoryQueueModuleProviderOptions extends QueueSharedOptions {
 
 export interface CloudflareQueueProviderOptions extends QueueSharedOptions {
   binding?: string | CloudflareQueueBinding
+  cache?: boolean
   provider: "cloudflare"
 }
 
@@ -128,6 +131,7 @@ export interface VercelQueueProviderOptions extends QueueSharedOptions {
   client?: VercelQueueSDK
   provider: "vercel"
   region?: string
+  topic?: string
 }
 
 export interface VercelQueueModuleProviderOptions extends QueueSharedOptions {
@@ -201,7 +205,8 @@ export interface QueueJob<TPayload = unknown> {
 export type QueueHandler<TPayload = unknown, TResult = unknown> =
   (job: QueueJob<TPayload>) => TResult | Promise<TResult>
 
-export interface QueueDefinitionOptions extends QueueSharedOptions {
+export interface QueueDefinitionOptions {
+  cache?: boolean
   callbackOptions?: VercelQueueCallbackOptions
   concurrency?: number
   onError?: CloudflareQueueBatchHandlerOptions["onError"]
@@ -221,6 +226,7 @@ export interface QueueEnqueueOptions {
   contentType?: CloudflareQueueContentType
   delaySeconds?: number
   idempotencyKey?: string
+  region?: string
   retentionSeconds?: number
 }
 
@@ -237,12 +243,6 @@ export type QueueEnqueueEnvelope<TPayload = unknown> =
 export type QueueEnqueueInput<TPayload = unknown> =
   | TPayload
   | QueueEnqueueEnvelope<TPayload>
-
-export interface NormalizedQueueEnqueueInput<TPayload = unknown> {
-  id: string
-  options: QueueEnqueueOptions
-  payload: TPayload
-}
 
 export type QueueSendResult = { messageId?: string, status: "queued" }
 
@@ -287,13 +287,7 @@ export interface VercelQueueClient extends QueueClientBase<"vercel"> {
   ) => VercelQueueNodeCallbackReturn
 }
 
-export interface QueueClientMap {
-  cloudflare: CloudflareQueueClient
-  memory: MemoryQueueClient
-  vercel: VercelQueueClient
-}
-
-export type QueueClient<P extends QueueProvider = QueueProvider> = QueueClientMap[P]
+export type QueueClient = CloudflareQueueClient | MemoryQueueClient | VercelQueueClient
 
 export interface QueueDefinitionRegistry {
   [name: string]: () => Promise<{ default?: QueueDefinition } | QueueDefinition>

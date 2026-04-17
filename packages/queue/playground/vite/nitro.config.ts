@@ -1,4 +1,6 @@
+import { hubQueue } from "../../src/vite.ts"
+
 export default {
-  modules: ["../../src/nitro/module.ts"],
+  modules: [hubQueue().nitro],
   srcDir: "server",
 }
