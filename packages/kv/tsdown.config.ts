@@ -10,7 +10,9 @@ export default defineConfig({
     "src/nuxt.ts",
     "src/runtime/nitro-plugin.ts",
   ],
-  exports: true,
+  exports: {
+    inlinedDependencies: false,
+  },
   format: ["esm"],
   outExtensions: () => ({
     dts: ".d.ts",
