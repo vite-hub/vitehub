@@ -6,11 +6,7 @@ import type {
 } from "../types.ts"
 
 function isMaskedValue(value: string | undefined) {
-  if (!value) {
-    return true
-  }
-
-  return /^\*+$/.test(value) || value.includes("********")
+  return !value || /^\*+$/.test(value)
 }
 
 function assertRuntimeValue(value: string | undefined, envName: string) {

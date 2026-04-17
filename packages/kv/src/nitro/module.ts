@@ -1,5 +1,5 @@
 import { resolveModulePath } from "exsolve"
-import type { NitroModule } from "nitro/types"
+import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { normalizeKVOptions, warnVercelKVFallback } from "../config.ts"
 import { configureCloudflareKV } from "../integrations/cloudflare.ts"
@@ -23,7 +23,7 @@ const kvNitroModule: NitroModule = {
     const hosting = (nitro.options.preset || process.env.NITRO_PRESET || "").trim() || undefined
     const resolved = normalizeKVOptions(nitro.options.kv, { env: process.env, hosting })
 
-    const runtimeConfig = (nitro.options.runtimeConfig ||= {} as never)
+    const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
     if (hosting) {
       runtimeConfig.hosting ||= hosting
     }
@@ -43,7 +43,7 @@ const kvNitroModule: NitroModule = {
     }
 
     nitro.options.storage ||= {}
-    nitro.options.storage.kv = resolved.store as never
+    nitro.options.storage.kv = resolved.store
 
     configureCloudflareKV(nitro.options, resolved)
     warnVercelKVFallback(nitro, resolved, hosting)
