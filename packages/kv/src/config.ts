@@ -41,6 +41,7 @@ function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string |
     case "cloudflare-kv-binding": return resolveCloudflareStore(store, env)
     case "upstash": return resolveUpstashStore(store)
     case "fs-lite": return resolveFsLiteStore(store)
+    default: throw new TypeError(`Unknown \`kv.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}. Expected "cloudflare-kv-binding", "upstash", or "fs-lite".`)
   }
 }
 
