@@ -13,6 +13,19 @@ import type {
   QueueSendResult,
 } from "../types.ts"
 
+export const defaultCloudflareQueueBindingPrefix = "QUEUE"
+
+export function getCloudflareQueueBindingName(name: string): string {
+  const normalized = (name.match(/[a-z0-9]+/gi) || [])
+    .join("_")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase()
+
+  return normalized ? `${defaultCloudflareQueueBindingPrefix}_${normalized}` : defaultCloudflareQueueBindingPrefix
+}
+
 function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueBinding {
   return Boolean(binding)
     && typeof binding === "object"
@@ -127,10 +140,7 @@ export function createCloudflareQueueClient(provider: CloudflareQueueProviderOpt
         }),
       })))
 
-      return items.map((_, index): QueueSendResult => ({
-        status: "queued",
-        messageId: `cloudflare_${index + 1}`,
-      }))
+      return items.map((): QueueSendResult => ({ status: "queued" }))
     },
     createBatchHandler: createCloudflareQueueBatchHandler,
   }

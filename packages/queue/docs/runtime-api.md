@@ -8,32 +8,17 @@ icon: i-lucide-braces
 
 Use this page when you need the Queue surface area, signatures, or option names.
 
-## Definition APIs
+## Definition API
 
 ### `defineQueue(handler, options?)`
 
-Use `defineQueue()` for handler-first syntax.
+Define a queue handler.
 
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from '@vitehub/queue'
 
 export default defineQueue<{ email: string }>(async (job) => {
   return { email: job.payload.email }
-})
-```
-
-### `createQueue({ handler, ...options })`
-
-Use `createQueue()` when you want the object form.
-
-```ts [server/queues/welcome-email.ts]
-import { createQueue } from '@vitehub/queue'
-
-export default createQueue({
-  handler: async (job) => {
-    return { id: job.id }
-  },
-  cache: false,
 })
 ```
 

@@ -49,7 +49,7 @@ These pieces stay stable when you change providers:
 
 - the top-level `queue` config key
 - discovered queue definition files
-- `defineQueue()` and `createQueue()`
+- `defineQueue()`
 - `runQueue()`, `deferQueue()`, and `getQueue()`
 
 ## Next steps

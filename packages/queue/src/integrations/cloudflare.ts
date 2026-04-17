@@ -1,21 +1,9 @@
+import { getCloudflareQueueBindingName } from "../providers/cloudflare.ts"
 import type { DiscoveredQueueDefinition, QueueProviderOptions } from "../types.ts"
-
-export const defaultCloudflareQueueBindingPrefix = "QUEUE"
 
 function pushUnique<T>(array: T[], item: T, getKey: (item: T) => string): void {
   const key = getKey(item)
   if (!array.some(entry => getKey(entry) === key)) array.push(item)
-}
-
-export function getCloudflareQueueBindingName(name: string): string {
-  const normalized = (name.match(/[a-z0-9]+/gi) || [])
-    .join("_")
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .toUpperCase()
-
-  return normalized ? `${defaultCloudflareQueueBindingPrefix}_${normalized}` : defaultCloudflareQueueBindingPrefix
 }
 
 export function configureCloudflareQueues(

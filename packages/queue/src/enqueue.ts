@@ -1,23 +1,19 @@
-import type { NormalizedQueueEnqueueInput, QueueEnqueueInput, QueueEnqueueOptions } from "./types.ts"
+import type { QueueEnqueueInput, QueueEnqueueOptions } from "./types.ts"
 
-let queueMessageCounter = 0
+export interface NormalizedQueueEnqueueInput<TPayload = unknown> {
+  id: string
+  options: QueueEnqueueOptions
+  payload: TPayload
+}
 
 export function createQueueMessageId(prefix = "queue"): string {
-  const random = globalThis.crypto?.randomUUID?.()
-  if (typeof random === "string" && random.length > 0) return `${prefix}_${random}`
-
-  queueMessageCounter += 1
-  return `${prefix}_${Date.now()}_${queueMessageCounter}`
+  return `${prefix}_${globalThis.crypto.randomUUID()}`
 }
 
 function isQueueEnqueueInput<TPayload>(
   input: QueueEnqueueInput<TPayload>,
 ): input is QueueEnqueueOptions & { id?: string, payload: TPayload } {
-  return Boolean(input)
-    && typeof input === "object"
-    && !Array.isArray(input)
-    && input !== null
-    && "payload" in input
+  return typeof input === "object" && input !== null && !Array.isArray(input) && "payload" in input
 }
 
 export function normalizeQueueEnqueueInput<TPayload = unknown>(

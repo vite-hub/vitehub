@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
 
 import { normalizeQueueOptions } from "../src/config.ts"
-import { configureCloudflareQueues, getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
+import { configureCloudflareQueues } from "../src/integrations/cloudflare.ts"
 import { shouldConfigureVercelQueueBuildOutput } from "../src/integrations/vercel.ts"
+import { getCloudflareQueueBindingName } from "../src/providers/cloudflare.ts"
 
 describe("normalizeQueueOptions", () => {
   it("falls back to memory locally", () => {
