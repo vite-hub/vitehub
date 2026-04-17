@@ -2,6 +2,7 @@ import { normalizeQueueOptions } from "./config.ts"
 import { defineQueue, createQueue } from "./definition.ts"
 import { normalizeQueueEnqueueInput } from "./enqueue.ts"
 import { getCloudflareQueueBindingName } from "./integrations/cloudflare.ts"
+import { getVercelQueueTopicName } from "./integrations/vercel-topic.ts"
 import { createCloudflareQueueClient } from "./providers/cloudflare.ts"
 import { createMemoryQueueClient } from "./providers/memory.ts"
 import { createVercelQueueClient } from "./providers/vercel.ts"
@@ -30,6 +31,7 @@ export { createQueue, defineQueue } from "./definition.ts"
 export { createQueueMessageId } from "./enqueue.ts"
 export { QueueError } from "./errors.ts"
 export { getCloudflareQueueBindingName } from "./integrations/cloudflare.ts"
+export { getVercelQueueTopicName } from "./integrations/vercel-topic.ts"
 export { createCloudflareQueueBatchHandler } from "./providers/cloudflare.ts"
 export type {
   CloudflareQueueBatchErrorAction,
@@ -121,7 +123,7 @@ function applyNamedProviderDefaults(
   if (provider.provider === "vercel") {
     return {
       ...provider,
-      topic: name,
+      topic: getVercelQueueTopicName(name),
     }
   }
 

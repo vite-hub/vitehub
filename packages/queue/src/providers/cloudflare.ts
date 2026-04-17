@@ -23,7 +23,6 @@ function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueB
 function toSendOptions(options: QueueEnqueueOptions = {}): CloudflareQueueSendOptions {
   const unsupported = [
     options.idempotencyKey !== undefined ? "idempotencyKey" : undefined,
-    options.region !== undefined ? "region" : undefined,
     options.retentionSeconds !== undefined ? "retentionSeconds" : undefined,
   ].filter((item): item is string => Boolean(item))
 

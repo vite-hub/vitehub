@@ -66,7 +66,6 @@ export interface VercelQueueSendOptions {
   delaySeconds?: number
   headers?: Record<string, string>
   idempotencyKey?: string
-  region?: string
   retentionSeconds?: number
 }
 
@@ -185,16 +184,22 @@ export interface QueueEnqueueOptions {
   contentType?: CloudflareQueueContentType
   delaySeconds?: number
   idempotencyKey?: string
-  region?: string
   retentionSeconds?: number
 }
 
+export type QueueEnqueueEnvelope<TPayload = unknown> =
+  & { payload: TPayload }
+  & (
+    | { contentType: CloudflareQueueContentType }
+    | { delaySeconds: number }
+    | { id: string }
+    | { idempotencyKey: string }
+    | { retentionSeconds: number }
+  )
+
 export type QueueEnqueueInput<TPayload = unknown> =
   | TPayload
-  | (QueueEnqueueOptions & {
-    id?: string
-    payload: TPayload
-  })
+  | QueueEnqueueEnvelope<TPayload>
 
 export interface NormalizedQueueEnqueueInput<TPayload = unknown> {
   id: string

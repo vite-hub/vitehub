@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createQueueClient, defineQueue, getQueue, runQueue } from "../src/index.ts"
+import { createQueueClient, defineQueue, getQueue, getVercelQueueTopicName, runQueue } from "../src/index.ts"
 import { createCloudflareQueueBatchHandler } from "../src/providers/cloudflare.ts"
 import { resetQueueRuntimeState, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
 import type { VercelQueueSDK } from "../src/types.ts"
@@ -13,18 +13,32 @@ describe("memory provider", () => {
   it("stores, peeks, and drains messages", async () => {
     const queue = await createQueueClient({ provider: "memory" })
 
-    await queue.send({ id: "job-1", payload: { ok: true } })
+    const result = await queue.send({ id: "job-1", payload: { ok: true } })
 
     expect(queue.provider).toBe("memory")
     if (queue.provider !== "memory") throw new Error("expected memory")
+    expect(result.messageId).toBe("job-1")
     expect(queue.size()).toBe(1)
-    expect(queue.peek(1)[0]!.payload).toEqual({ ok: true })
+    expect(queue.peek(1)[0]).toMatchObject({
+      messageId: "job-1",
+      payload: { ok: true },
+    })
 
     const drained: unknown[] = []
     await queue.drain(payload => drained.push(payload))
 
     expect(drained).toEqual([{ ok: true }])
     expect(queue.size()).toBe(0)
+  })
+
+  it("treats payload-only objects as bare payloads", async () => {
+    const queue = await createQueueClient({ provider: "memory" })
+
+    await queue.send<{ other: boolean, payload: string }>({ other: true, payload: "kept" })
+
+    expect(queue.provider).toBe("memory")
+    if (queue.provider !== "memory") throw new Error("expected memory")
+    expect(queue.peek(1)[0]!.payload).toEqual({ other: true, payload: "kept" })
   })
 
   it("runs discovered handlers after enqueue", async () => {
@@ -137,7 +151,6 @@ describe("Vercel provider", () => {
     expect(send).toHaveBeenCalledWith("welcome-email", { email: "ava@example.com" }, {
       delaySeconds: 10,
       idempotencyKey: "welcome-ava",
-      region: undefined,
       retentionSeconds: 3600,
     })
   })
@@ -178,11 +191,35 @@ describe("Vercel provider", () => {
     })
 
     const queue = await getQueue("welcome-email")
-    await queue.send({ payload: { ok: true } })
+    await queue.send({ ok: true })
 
     expect(queue.provider).toBe("vercel")
     expect(send).toHaveBeenCalledWith("welcome-email", { ok: true }, expect.objectContaining({
       idempotencyKey: expect.any(String),
     }))
+  })
+
+  it("uses Vercel-safe topics for nested queue definitions", async () => {
+    const send = vi.fn(async () => ({ messageId: "msg_nested" }))
+    setQueueRuntimeConfig({
+      provider: {
+        client: {
+          handleCallback: vi.fn(),
+          send,
+        },
+        provider: "vercel",
+      },
+    })
+    setQueueRuntimeRegistry({
+      "email/welcome": async () => ({ default: defineQueue(async () => undefined) }),
+    })
+
+    const queue = await getQueue("email/welcome")
+    await queue.send({ id: "welcome-ava", payload: { ok: true } })
+
+    expect(queue.provider).toBe("vercel")
+    if (queue.provider !== "vercel") throw new Error("expected vercel")
+    expect(queue.topic).toBe(getVercelQueueTopicName("email/welcome"))
+    expect(send).toHaveBeenCalledWith(getVercelQueueTopicName("email/welcome"), { ok: true }, expect.any(Object))
   })
 })

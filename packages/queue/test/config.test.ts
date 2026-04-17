@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { normalizeQueueOptions } from "../src/config.ts"
 import { configureCloudflareQueues, getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
 import { shouldConfigureVercelQueueBuildOutput } from "../src/integrations/vercel.ts"
+import { getVercelQueueTopicName } from "../src/integrations/vercel-topic.ts"
 
 describe("normalizeQueueOptions", () => {
   it("falls back to memory locally", () => {
@@ -85,6 +86,11 @@ describe("Cloudflare integration", () => {
 })
 
 describe("Vercel integration", () => {
+  it("keeps valid topic names readable and encodes nested names", () => {
+    expect(getVercelQueueTopicName("welcome-email")).toBe("welcome-email")
+    expect(getVercelQueueTopicName("email/welcome")).toBe("queue_656d61696c2f77656c636f6d65")
+  })
+
   it("configures build output when Vercel is inferred from the Nitro preset", () => {
     const nitro = {
       options: {

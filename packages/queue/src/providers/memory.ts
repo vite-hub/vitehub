@@ -1,4 +1,4 @@
-import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
+import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import type {
   MemoryQueueClient,
   MemoryQueueProviderOptions,
@@ -21,7 +21,7 @@ export function createMemoryQueueClient(provider: MemoryQueueProviderOptions = {
       const normalized = normalizeQueueEnqueueInput(input)
       const item: MemoryQueueStoreItem = {
         enqueuedAt: new Date(),
-        messageId: createQueueMessageId("mem"),
+        messageId: normalized.id,
         payload: normalized.payload,
       }
       store.messages.push(item)

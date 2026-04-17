@@ -1,6 +1,13 @@
 import type { NormalizedQueueEnqueueInput, QueueEnqueueInput, QueueEnqueueOptions } from "./types.ts"
 
 let queueMessageCounter = 0
+const enqueueOptionKeys = new Set([
+  "contentType",
+  "delaySeconds",
+  "id",
+  "idempotencyKey",
+  "retentionSeconds",
+])
 
 export function createQueueMessageId(prefix = "queue"): string {
   const random = globalThis.crypto?.randomUUID?.()
@@ -11,19 +18,20 @@ export function createQueueMessageId(prefix = "queue"): string {
 }
 
 function isQueueEnqueueInput<TPayload>(
-  input: QueueEnqueueInput<TPayload>,
+  input: unknown,
 ): input is QueueEnqueueOptions & { id?: string, payload: TPayload } {
   return Boolean(input)
     && typeof input === "object"
     && !Array.isArray(input)
     && input !== null
     && "payload" in input
+    && Object.keys(input).some(key => enqueueOptionKeys.has(key))
 }
 
 export function normalizeQueueEnqueueInput<TPayload = unknown>(
   input: QueueEnqueueInput<TPayload>,
 ): NormalizedQueueEnqueueInput<TPayload> {
-  if (!isQueueEnqueueInput(input)) {
+  if (!isQueueEnqueueInput<TPayload>(input)) {
     return {
       id: createQueueMessageId(),
       options: {},
