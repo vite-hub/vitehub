@@ -16,7 +16,7 @@ Use the canonical portable import:
 import { kv } from '@vitehub/kv'
 ```
 
-This is the supported import path for Nitro and Nuxt runtime code that targets ViteHub KV. The Vite entrypoint registers bridge config only and does not mount storage in a plain Vite process.
+This is the supported import path for Nitro and Nuxt runtime code that targets ViteHub KV. The Vite plugin owns config resolution; the runtime handle is mounted by the Nitro adapter.
 
 ## Set an item
 

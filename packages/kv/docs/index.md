@@ -5,11 +5,11 @@ navigation.title: Overview
 icon: i-lucide-database-zap
 ---
 
-`@vitehub/kv` configures [Nitro storage](https://nitro.build/guide/storage) through one shared runtime handle backed by [unstorage](https://unstorage.unjs.io/).
+`@vitehub/kv` starts with a Vite plugin that resolves KV config for Vite environments. Nitro installs that Vite primitive and mounts the runtime storage handle; Nuxt installs the Nitro adapter.
 
 ## Getting started
 
-Start with [Quickstart](./quickstart) to get KV working locally first. It uses `fs-lite`, so you can read and write a key in Nitro or Nuxt before choosing a hosted provider. The Vite entrypoint currently registers a bridge for ViteHub environments; it does not mount Nitro storage in a plain Vite process.
+Start with [Quickstart](./quickstart) to get KV working locally first. It uses `fs-lite`, so you can verify config through Vite and read or write keys through the Nitro or Nuxt runtime adapters before choosing a hosted provider.
 
 ## Automatic configuration
 

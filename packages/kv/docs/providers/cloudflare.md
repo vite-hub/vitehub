@@ -19,7 +19,7 @@ Use this path when you deploy KV-backed code to Cloudflare or when you want to c
 Set `kv.driver` to `cloudflare-kv-binding`. The binding name defaults to `KV`, and `namespaceId` should match your Cloudflare KV namespace.
 
 ::fw{id="vite:dev vite:build"}
-The Vite entrypoint only registers the bridge config. Use Nitro or Nuxt for runtime access to the `kv` handle.
+The Vite plugin owns KV config resolution. Use Nitro or Nuxt for runtime access to the `kv` handle.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'

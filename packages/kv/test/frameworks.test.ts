@@ -4,6 +4,7 @@ interface NitroHarnessOptions {
   imports?: boolean
   kv?: unknown
   modules?: string[]
+  vite?: { plugins?: unknown[] }
 }
 
 interface NuxtHarnessOptions {
@@ -31,6 +32,7 @@ interface NitroStub {
     cloudflare?: unknown
     kv?: unknown
     preset?: string
+    vite?: { plugins?: unknown[] }
   }
 }
 
@@ -97,11 +99,52 @@ describe("package surface", () => {
 })
 
 describe("hubKv", () => {
-  it("attaches the Nitro bridge", async () => {
+  it("resolves KV config from the Vite layer", async () => {
     const { hubKv } = await import("../src/vite.ts")
-    const plugin = hubKv()
+    const plugin = hubKv({ driver: "fs-lite", base: ".cache/kv" })
 
-    expect(plugin.nitro.name).toBe("@vitehub/kv")
+    expect(plugin.api.getConfig()).toEqual({
+      kv: {
+        store: {
+          base: ".cache/kv",
+          driver: "fs-lite",
+        },
+      },
+    })
+  })
+
+  it("lets top-level Vite config override inline plugin options", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv({ driver: "fs-lite", base: ".inline/kv" })
+    const configResolved = plugin.configResolved as unknown as (config: unknown) => void | Promise<void>
+
+    await configResolved({
+      kv: {
+        base: ".top-level/kv",
+        driver: "fs-lite",
+      },
+    } as never)
+
+    expect(plugin.api.getConfig()).toEqual({
+      kv: {
+        store: {
+          base: ".top-level/kv",
+          driver: "fs-lite",
+        },
+      },
+    })
+  })
+
+  it("exposes resolved config through a Vite virtual module", async () => {
+    const { KV_VIRTUAL_CONFIG_ID, hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv({ driver: "fs-lite", base: ".virtual/kv" })
+    const resolveId = plugin.resolveId as unknown as (id: string) => string | undefined | Promise<string | undefined>
+    const load = plugin.load as unknown as (id: string) => string | undefined | Promise<string | undefined>
+    const resolvedId = await resolveId(KV_VIRTUAL_CONFIG_ID)
+    const code = await load(resolvedId!)
+
+    expect(code).toContain("export const kv =")
+    expect(code).toContain(".virtual/kv")
   })
 })
 
@@ -137,6 +180,10 @@ describe("Nitro module", () => {
     })
     expect(nitro.options.alias["@vitehub/kv"]).toContain("/packages/kv/src/index.ts")
     expect(nitro.options.plugins).toHaveLength(1)
+    expect(nitro.options.vite?.plugins).toHaveLength(1)
+    expect(nitro.options.vite?.plugins?.[0]).toMatchObject({
+      name: "@vitehub/kv/vite",
+    })
     expect(nitro.options.cloudflare).toMatchObject({
       wrangler: {
         kv_namespaces: [{

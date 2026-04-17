@@ -61,8 +61,6 @@ describe("kv runtime", () => {
   afterEach(() => {
     delete process.env.KV_REST_API_URL
     delete process.env.KV_REST_API_TOKEN
-    delete process.env.UPSTASH_REDIS_REST_URL
-    delete process.env.UPSTASH_REDIS_REST_TOKEN
   })
 
   it("mounts fs-lite storage when the local fallback is active", async () => {

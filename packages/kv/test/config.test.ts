@@ -64,22 +64,6 @@ describe("normalizeKVOptions", () => {
     })
   })
 
-  it("accepts legacy Upstash env var aliases", () => {
-    expect(normalizeKVOptions(undefined, {
-      env: {
-        UPSTASH_REDIS_REST_TOKEN: "token",
-        UPSTASH_REDIS_REST_URL: "https://upstash.example.com",
-      },
-      hosting: "vercel",
-    })).toEqual({
-      store: {
-        driver: "upstash",
-        token: "********",
-        url: "********",
-      },
-    })
-  })
-
   it("preserves explicit Upstash credentials", () => {
     expect(normalizeKVOptions({
       driver: "upstash",

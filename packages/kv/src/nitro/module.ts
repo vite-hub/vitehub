@@ -1,8 +1,9 @@
 import { resolveModulePath } from "exsolve"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
-import { normalizeKVOptions, warnVercelKVFallback } from "../config.ts"
+import { warnVercelKVFallback } from "../config.ts"
 import { configureCloudflareKV } from "../integrations/cloudflare.ts"
+import { hubKv, KV_VITE_PLUGIN_NAME, resolveKVViteConfig } from "../vite.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "../types.ts"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
@@ -20,18 +21,27 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
 const kvNitroModule: NitroModule = {
   name: "@vitehub/kv",
   setup(nitro) {
-    const hosting = (nitro.options.preset || process.env.NITRO_PRESET || "").trim() || undefined
-    const resolved = normalizeKVOptions(nitro.options.kv, { env: process.env, hosting })
+    const viteConfig = resolveKVViteConfig(nitro.options.kv, {
+      env: process.env,
+      hosting: nitro.options.preset,
+    })
+    const { hosting } = viteConfig
 
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
-    if (hosting) {
-      runtimeConfig.hosting ||= hosting
-    }
-    runtimeConfig.kv = resolved ?? false
+    if (hosting) runtimeConfig.hosting ||= hosting
+    runtimeConfig.kv = viteConfig.kv
 
-    if (!resolved) {
-      return
+    nitro.options.vite ||= {}
+    nitro.options.vite.plugins ||= []
+    const hasKVVitePlugin = nitro.options.vite.plugins.some(plugin =>
+      typeof plugin === "object" && plugin !== null && "name" in plugin && plugin.name === KV_VITE_PLUGIN_NAME,
+    )
+    if (!hasKVVitePlugin) {
+      nitro.options.vite.plugins.push(hubKv(nitro.options.kv))
     }
+
+    if (!viteConfig.kv) return
+    const resolved = viteConfig.kv
 
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/kv"] = resolveRuntimeEntry("../index", "@vitehub/kv")
@@ -56,6 +66,7 @@ declare module "nitro/types" {
   interface NitroOptions {
     cloudflare?: { wrangler?: { kv_namespaces?: { binding: string, id: string }[] } }
     kv?: KVModuleOptions
+    vite?: { plugins?: unknown[] }
   }
 
   interface NitroConfig {

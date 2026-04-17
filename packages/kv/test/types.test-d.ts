@@ -1,4 +1,5 @@
 import type { UserConfig } from "vite"
+import virtualConfig, { hosting as virtualHosting, kv as virtualKV } from "virtual:@vitehub/kv/config"
 
 import { describe, expectTypeOf, it } from "vitest"
 
@@ -43,9 +44,15 @@ describe("types", () => {
     expectTypeOf(kv.set<string>).returns.toEqualTypeOf<Promise<void>>()
   })
 
-  it("returns a vite plugin with a nitro bridge", () => {
+  it("returns a vite plugin with runtime config access", () => {
     const plugin = hubKv()
 
-    expectTypeOf(plugin.nitro).toMatchTypeOf<{ name?: string }>()
+    expectTypeOf(plugin.api.getConfig().kv).toMatchTypeOf<false | ResolvedKVModuleOptions>()
+  })
+
+  it("exposes the Vite virtual module config types", () => {
+    expectTypeOf(virtualHosting).toMatchTypeOf<string | undefined>()
+    expectTypeOf(virtualKV).toMatchTypeOf<false | ResolvedKVModuleOptions>()
+    expectTypeOf(virtualConfig.kv).toMatchTypeOf<false | ResolvedKVModuleOptions>()
   })
 })

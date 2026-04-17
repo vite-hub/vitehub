@@ -5,8 +5,8 @@ import type { ResolvedUpstashKVStoreConfig, UpstashKVStoreConfig } from "../type
 export const maskedUpstashRuntimeValue = "********"
 
 export function hasUpstashEnv(env: Record<string, string | undefined>): boolean {
-  const url = readEnv(env, "KV_REST_API_URL", "UPSTASH_REDIS_REST_URL")
-  const token = readEnv(env, "KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN")
+  const url = readEnv(env, "KV_REST_API_URL")
+  const token = readEnv(env, "KV_REST_API_TOKEN")
   return Boolean(url && token)
 }
 

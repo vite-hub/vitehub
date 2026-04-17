@@ -19,12 +19,8 @@ function resolveRuntimeUpstashStore(
   config: ResolvedUpstashKVStoreConfig,
   env: Record<string, string | undefined>,
 ): ResolvedUpstashKVStoreConfig {
-  const envUrl = readEnv(env, "KV_REST_API_URL", "UPSTASH_REDIS_REST_URL")
-  const envToken = readEnv(
-    env,
-    "KV_REST_API_TOKEN",
-    "UPSTASH_REDIS_REST_TOKEN",
-  )
+  const envUrl = readEnv(env, "KV_REST_API_URL")
+  const envToken = readEnv(env, "KV_REST_API_TOKEN")
 
   const resolved = {
     ...config,
