@@ -129,9 +129,8 @@ export function createCloudflareQueueClient(provider: CloudflareQueueProviderOpt
         }),
       })))
 
-      return items.map((_, index): QueueSendResult => ({
+      return items.map((): QueueSendResult => ({
         status: "queued",
-        messageId: `cloudflare_${index + 1}`,
       }))
     },
     createBatchHandler: createCloudflareQueueBatchHandler,

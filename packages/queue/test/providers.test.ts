@@ -160,8 +160,9 @@ describe("Cloudflare provider", () => {
     })
 
     if (queue.provider !== "cloudflare") throw new Error("expected cloudflare")
-    await queue.sendBatch([{ body: { hello: "batch" }, contentType: "json" }])
+    const batchResult = await queue.sendBatch([{ body: { hello: "batch" }, contentType: "json" }])
     expect(sendBatch).toHaveBeenCalledWith([{ body: { hello: "batch" }, contentType: "json" }])
+    expect(batchResult).toEqual([{ status: "queued" }])
   })
 
   it("rejects unsupported enqueue options", async () => {
