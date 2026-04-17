@@ -1,66 +1,45 @@
 import { defineNuxtModule } from "@nuxt/kit"
 
+import { pushUnique } from "../internal/arrays.ts"
+
+import type { NitroConfig } from "nitro/types"
 import type { KVModuleOptions } from "../types.ts"
 
-interface NitroOptionsLike {
-  imports?: boolean
-  kv?: Exclude<KVModuleOptions, false>
-  modules?: string[]
-}
+type KVConfig = Exclude<KVModuleOptions, false>
 
-interface NuxtLike {
-  hook(
-    name: "nitro:config",
-    fn: (nitroConfig: NitroOptionsLike) => void | Promise<void>,
-  ): void
-  options: {
-    kv?: KVModuleOptions
-    nitro?: NitroOptionsLike
-  }
-}
+export type KVNuxtModule = (
+  resolvedOptions: KVConfig | undefined,
+  nuxt: unknown,
+) => void | Promise<void>
 
-type KVNuxtModule = {
-  bivarianceHack(
-    resolvedOptions: Exclude<KVModuleOptions, false> | undefined,
-    nuxt: unknown,
-  ): void | Promise<void>
-}["bivarianceHack"]
-
-function applyNitroConfig(
-  nitro: NitroOptionsLike,
-  config: Exclude<KVModuleOptions, false> | undefined,
-) {
+function applyNitroConfig(nitro: NitroConfig, config: KVConfig | undefined) {
   nitro.modules ||= []
-
-  if (!nitro.modules.includes("@vitehub/kv/nitro")) {
-    nitro.modules.push("@vitehub/kv/nitro")
-  }
+  pushUnique(nitro.modules as string[], "@vitehub/kv/nitro")
 
   if (typeof config !== "undefined") {
     nitro.kv = config
   }
 }
 
-const kvNuxtModule: KVNuxtModule = defineNuxtModule<Exclude<KVModuleOptions, false>>({
+const kvNuxtModule: KVNuxtModule = defineNuxtModule<KVConfig>({
   meta: {
     configKey: "kv",
     name: "@vitehub/kv/nuxt",
   },
   setup(inlineOptions, nuxt) {
-    const currentNuxt = nuxt as NuxtLike
-    const topLevelOptions = currentNuxt.options.kv
+    const nuxtOptions = nuxt.options as typeof nuxt.options & { kv?: KVModuleOptions, nitro?: NitroConfig }
+    const topLevelOptions = nuxtOptions.kv
 
-    if (topLevelOptions === false) {
-      return
-    }
+    if (topLevelOptions === false) return
 
     const kvConfig = topLevelOptions ?? inlineOptions
-    const nitro = (currentNuxt.options.nitro ||= {})
+    const nitro = (nuxtOptions.nitro ||= {})
 
     applyNitroConfig(nitro, kvConfig)
-    currentNuxt.hook("nitro:config", (nitroConfig) => {
-      applyNitroConfig(nitroConfig, kvConfig)
-    })
+    ;(nuxt.hook as (name: string, fn: (nitroConfig: NitroConfig) => void) => void)(
+      "nitro:config",
+      nitroConfig => applyNitroConfig(nitroConfig, kvConfig),
+    )
   },
 }) as unknown as KVNuxtModule
 

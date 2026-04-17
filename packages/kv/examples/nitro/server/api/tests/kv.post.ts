@@ -1,5 +1,4 @@
 import { defineEventHandler, readBody } from "h3"
-import { kv } from "@vitehub/kv"
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ key?: string }>(event).catch(() => ({}))

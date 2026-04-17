@@ -1,4 +1,5 @@
 import { readEnv } from "./internal/env.ts"
+import { trimmed } from "./internal/strings.ts"
 import { hasUpstashEnv, resolveUpstashStore } from "./integrations/upstash.ts"
 
 import type {
@@ -9,6 +10,7 @@ import type {
   ResolvedCloudflareKVStoreConfig,
   ResolvedFsLiteKVStoreConfig,
   ResolvedKVModuleOptions,
+  UpstashKVStoreConfig,
 } from "./types.ts"
 
 export interface KVResolutionInput {
@@ -25,9 +27,7 @@ function resolveFsLiteStore(
 ): ResolvedFsLiteKVStoreConfig {
   return {
     driver: "fs-lite",
-    base: typeof config.base === "string" && config.base.trim()
-      ? config.base.trim()
-      : ".data/kv",
+    base: trimmed(config.base) ?? ".data/kv",
   }
 }
 
@@ -37,44 +37,35 @@ function resolveCloudflareStore(
 ): ResolvedCloudflareKVStoreConfig {
   return {
     driver: "cloudflare-kv-binding",
-    binding: typeof config.binding === "string" && config.binding.trim()
-      ? config.binding.trim()
-      : "KV",
-    namespaceId: typeof config.namespaceId === "string" && config.namespaceId.trim()
-      ? config.namespaceId.trim()
-      : readEnv(env, "KV_NAMESPACE_ID"),
+    binding: trimmed(config.binding) ?? "KV",
+    namespaceId: trimmed(config.namespaceId) ?? readEnv(env, "KV_NAMESPACE_ID"),
   }
 }
 
-function resolveExplicitStore(
-  store: KVStoreConfig,
-  env: Record<string, string | undefined>,
-) {
-  switch (store.driver) {
-    case "cloudflare-kv-binding":
-      return resolveCloudflareStore(store, env)
-    case "upstash":
-      return resolveUpstashStore(store)
-    case "fs-lite":
-      return resolveFsLiteStore(store)
-  }
+const storeResolvers = {
+  "cloudflare-kv-binding": (store: KVStoreConfig, env: Record<string, string | undefined>) =>
+    resolveCloudflareStore(store as CloudflareKVStoreConfig, env),
+  "upstash": (store: KVStoreConfig) => resolveUpstashStore(store as UpstashKVStoreConfig),
+  "fs-lite": (store: KVStoreConfig) => resolveFsLiteStore(store as FsLiteKVStoreConfig),
+} as const
+
+function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>) {
+  return storeResolvers[store.driver](store, env)
 }
 
 function isCloudflareHosting(hosting: string | undefined) {
-  return Boolean(hosting && hosting.includes("cloudflare"))
+  return Boolean(hosting?.includes("cloudflare"))
 }
 
 function isVercelHosting(hosting: string | undefined) {
-  return Boolean(hosting && hosting.includes("vercel"))
+  return Boolean(hosting?.includes("vercel"))
 }
 
 export function normalizeKVOptions(
   options: KVModuleOptions | undefined,
   input: KVResolutionInput = {},
 ): ResolvedKVModuleOptions | undefined {
-  if (options === false) {
-    return undefined
-  }
+  if (options === false) return undefined
 
   if (typeof options !== "undefined" && !isPlainObject(options)) {
     throw new TypeError("`kv` must be a plain object.")
@@ -85,26 +76,18 @@ export function normalizeKVOptions(
   const explicitStore = options as KVStoreConfig | undefined
 
   if (explicitStore?.driver) {
-    return {
-      store: resolveExplicitStore(explicitStore, env),
-    }
+    return { store: resolveExplicitStore(explicitStore, env) }
   }
 
   if (hasUpstashEnv(env)) {
-    return {
-      store: resolveUpstashStore(),
-    }
+    return { store: resolveUpstashStore() }
   }
 
   if (isCloudflareHosting(hosting)) {
-    return {
-      store: resolveCloudflareStore({}, env),
-    }
+    return { store: resolveCloudflareStore({}, env) }
   }
 
-  return {
-    store: resolveFsLiteStore(),
-  }
+  return { store: resolveFsLiteStore() }
 }
 
 export function warnVercelKVFallback(
@@ -112,9 +95,7 @@ export function warnVercelKVFallback(
   config: ResolvedKVModuleOptions | undefined,
   hosting?: string,
 ): void {
-  if (!config || !isVercelHosting(hosting) || config.store.driver !== "fs-lite") {
-    return
-  }
+  if (!config || !isVercelHosting(hosting) || config.store.driver !== "fs-lite") return
 
   target.logger?.error?.(
     "Vercel hosting requires Upstash-backed KV. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN`.",

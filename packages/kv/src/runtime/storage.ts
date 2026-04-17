@@ -1,12 +1,5 @@
 import type { KVStorage } from "../types.ts"
 
-let runtimeStore: KVStorage | undefined
-
-export function resetKVRuntimeState(): void {
-  runtimeStore = undefined
-  storagePromise = undefined
-}
-
 interface RuntimeStorage {
   clear(base?: string, options?: unknown): Promise<void>
   getItem<T = unknown>(key: string, options?: unknown): Promise<T | null>
@@ -17,21 +10,26 @@ interface RuntimeStorage {
 }
 
 let storagePromise: Promise<RuntimeStorage> | undefined
+let runtimeStore: KVStorage | undefined
 
-async function resolveStorage() {
-  storagePromise ||= import("nitro/runtime")
+export function resetKVRuntimeState(): void {
+  runtimeStore = undefined
+  storagePromise = undefined
+}
+
+function resolveStorage(): Promise<RuntimeStorage> {
+  return storagePromise ||= import("nitro/runtime")
     .then(module => module.useStorage("kv") as RuntimeStorage)
-  return await storagePromise
 }
 
 function createKVStorage(): KVStorage {
   return {
-    async clear(base, options) { await (await resolveStorage()).clear(base, options) },
-    async del(key, options) { await (await resolveStorage()).removeItem(key, options) },
-    async get(key, options) { return await (await resolveStorage()).getItem(key, options) },
-    async has(key, options) { return await (await resolveStorage()).hasItem(key, options) },
-    async keys(base, options) { return await (await resolveStorage()).getKeys(base, options) },
-    async set(key, value, options) { await (await resolveStorage()).setItem(key, value, options) },
+    clear: async (base, options) => void await (await resolveStorage()).clear(base, options),
+    del: async (key, options) => void await (await resolveStorage()).removeItem(key, options),
+    get: async (key, options) => (await resolveStorage()).getItem(key, options),
+    has: async (key, options) => (await resolveStorage()).hasItem(key, options),
+    keys: async (base, options) => (await resolveStorage()).getKeys(base, options),
+    set: async (key, value, options) => void await (await resolveStorage()).setItem(key, value, options),
   }
 }
 
