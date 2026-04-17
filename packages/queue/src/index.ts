@@ -8,6 +8,7 @@ import { createMemoryQueueClient } from "./providers/memory.ts"
 import { createVercelQueueClient } from "./providers/vercel.ts"
 import {
   getQueueClientCache,
+  getQueueRuntimeEvent,
   getQueueRuntimeConfig,
   loadQueueDefinition,
 } from "./runtime/state.ts"
@@ -178,7 +179,7 @@ async function createNamedQueueClient(name: string, event?: unknown): Promise<Qu
   }
 
   const request = config.provider.provider === "cloudflare"
-    ? event ?? await getNitroRequest()
+    ? event ?? getQueueRuntimeEvent() ?? await getNitroRequest()
     : undefined
 
   return await createQueueClient(applyNamedProviderDefaults(name, config.provider, request))

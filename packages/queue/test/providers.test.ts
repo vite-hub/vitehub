@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createQueueClient, defineQueue, getQueue, getVercelQueueTopicName, runQueue } from "../src/index.ts"
 import { createCloudflareQueueBatchHandler } from "../src/providers/cloudflare.ts"
-import { resetQueueRuntimeState, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
+import { resetQueueRuntimeState, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
 import type { VercelQueueSDK } from "../src/types.ts"
 
 afterEach(() => {
@@ -156,6 +156,25 @@ describe("Cloudflare provider", () => {
 
     expect(sendA).toHaveBeenCalledWith({ id: "a" }, { contentType: undefined, delaySeconds: undefined })
     expect(sendB).toHaveBeenCalledWith({ id: "b" }, { contentType: undefined, delaySeconds: undefined })
+  })
+
+  it("resolves Cloudflare bindings from scoped queue runtime context", async () => {
+    const send = vi.fn(async () => ({}))
+    const sendBatch = vi.fn(async () => ({}))
+    setQueueRuntimeConfig({ provider: { provider: "cloudflare" } })
+    setQueueRuntimeRegistry({
+      child: async () => ({ default: defineQueue(async () => undefined) }),
+    })
+
+    await runWithQueueRuntimeEvent({
+      env: {
+        QUEUE_6368696C64: { send, sendBatch },
+      },
+    }, async () => {
+      await runQueue("child", { ok: true })
+    })
+
+    expect(send).toHaveBeenCalledWith({ ok: true }, { contentType: undefined, delaySeconds: undefined })
   })
 
   it("acks successes and retries failures in batch handlers", async () => {

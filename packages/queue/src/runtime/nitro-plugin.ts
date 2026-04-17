@@ -4,6 +4,7 @@ import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { createCloudflareQueueBatchHandler } from "../providers/cloudflare.ts"
 import {
   loadQueueDefinition,
+  runWithQueueRuntimeEvent,
   setQueueRuntimeConfig,
 } from "./state.ts"
 
@@ -61,7 +62,9 @@ const queueNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin
       concurrency: definition.options?.concurrency,
       onError: definition.options?.onError,
       onMessage: async (message, currentBatch) => {
-        await definition.handler(createCloudflareQueueJob(message, currentBatch))
+        await runWithQueueRuntimeEvent(payload, async () => {
+          await definition.handler(createCloudflareQueueJob(message, currentBatch))
+        })
       },
     })
 

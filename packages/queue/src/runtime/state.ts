@@ -5,8 +5,14 @@ import type {
   ResolvedQueueModuleOptions,
 } from "../types.ts"
 
+type QueueRuntimeEventStorage = {
+  getStore: () => unknown
+  run: <T>(event: unknown, callback: () => T) => T
+}
+
 let runtimeConfig: false | ResolvedQueueModuleOptions | undefined
-let runtimeEvent: unknown
+let runtimeEventFallback: unknown
+let runtimeEventStorage: false | QueueRuntimeEventStorage | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
 const queueClientCache = new Map<string, Promise<QueueClient>>()
 
@@ -19,12 +25,38 @@ export function getQueueRuntimeConfig(): false | ResolvedQueueModuleOptions | un
   return runtimeConfig
 }
 
-export function setQueueRuntimeEvent(event: unknown): void {
-  runtimeEvent = event
+async function getRuntimeEventStorage(): Promise<false | QueueRuntimeEventStorage> {
+  if (typeof runtimeEventStorage !== "undefined") return runtimeEventStorage
+
+  try {
+    const { AsyncLocalStorage } = await import("node:async_hooks")
+    runtimeEventStorage = new AsyncLocalStorage<unknown>()
+  }
+  catch {
+    runtimeEventStorage = false
+  }
+  return runtimeEventStorage
+}
+
+export async function runWithQueueRuntimeEvent<T>(
+  event: unknown,
+  callback: () => T | Promise<T>,
+): Promise<T> {
+  const storage = await getRuntimeEventStorage()
+  if (storage) return await storage.run(event, callback)
+
+  const previous = runtimeEventFallback
+  runtimeEventFallback = event
+  try {
+    return await callback()
+  }
+  finally {
+    runtimeEventFallback = previous
+  }
 }
 
 export function getQueueRuntimeEvent(): unknown {
-  return runtimeEvent
+  return runtimeEventStorage ? runtimeEventStorage.getStore() : runtimeEventFallback
 }
 
 export function setQueueRuntimeRegistry(registry: QueueDefinitionRegistry | undefined): void {
@@ -38,7 +70,7 @@ export function getQueueClientCache(): Map<string, Promise<QueueClient>> {
 
 export function resetQueueRuntimeState(): void {
   runtimeConfig = undefined
-  runtimeEvent = undefined
+  runtimeEventFallback = undefined
   registryOverride = undefined
   queueClientCache.clear()
 }
