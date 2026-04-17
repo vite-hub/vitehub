@@ -115,7 +115,7 @@ describe("Nitro module", () => {
     rmSync(root, { force: true, recursive: true })
   })
 
-  it("wires runtime config, aliases, plugin, registry, handlers, and Cloudflare bindings", async () => {
+  it("wires runtime config, aliases, plugin, registry, and Cloudflare bindings", async () => {
     const { root } = createTempProject()
     const nitro = createNitroStub({
       preset: "cloudflare-module",
@@ -143,13 +143,11 @@ describe("Nitro module", () => {
       },
     })
     expect(nitroOptions.alias["@vitehub/queue"]).toContain("/packages/queue/src/index.ts")
+    expect(nitroOptions.alias["@vitehub/queue/runtime/hosted"]).toBeUndefined()
     expect(nitroOptions.alias["#vitehub-queue-registry"]).toContain("registry.mjs")
     expect(nitroOptions.alias["#vitehub-queue-definition/welcome-email"]).toBe(join(root, "server", "queues", "welcome-email.ts"))
     expect(nitro.options.plugins).toHaveLength(1)
-    expect(nitro.options.handlers).toEqual([expect.objectContaining({
-      method: "POST",
-      route: "/_vitehub/queues/vercel/welcome-email",
-    })])
+    expect(nitro.options.handlers).toEqual([])
     expect(nitroOptions.cloudflare).toMatchObject({
       wrangler: {
         queues: {
@@ -158,6 +156,29 @@ describe("Nitro module", () => {
         },
       },
     })
+
+    rmSync(root, { force: true, recursive: true })
+  })
+
+  it("registers hosted callback handlers only for Vercel queues", async () => {
+    const { root } = createTempProject()
+    const nitro = createNitroStub({
+      preset: "vercel",
+      queue: {
+        provider: "vercel",
+      },
+      rootDir: root,
+      srcDir: root,
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.alias["@vitehub/queue/runtime/hosted"]).toContain("/packages/queue/src/runtime/hosted.ts")
+    expect(nitro.options.handlers).toEqual([expect.objectContaining({
+      method: "POST",
+      route: "/_vitehub/queues/vercel/welcome-email",
+    })])
 
     rmSync(root, { force: true, recursive: true })
   })

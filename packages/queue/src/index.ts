@@ -21,7 +21,7 @@ import type {
   QueueJob,
   QueueProviderOptions,
   QueueSendResult,
-  ResolvedQueueProviderOptions,
+  ResolvedQueueModuleProviderOptions,
 } from "./types.ts"
 
 export { normalizeQueueOptions } from "./config.ts"
@@ -39,11 +39,13 @@ export type {
   CloudflareQueueContentType,
   CloudflareQueueMessage,
   CloudflareQueueMessageBatch,
+  CloudflareQueueModuleProviderOptions,
   CloudflareQueueProviderOptions,
   CloudflareQueueRetryOptions,
   CreateQueueDefinitionInput,
   DiscoveredQueueDefinition,
   MemoryQueueClient,
+  MemoryQueueModuleProviderOptions,
   MemoryQueueProviderOptions,
   MemoryQueueStore,
   MemoryQueueStoreItem,
@@ -55,18 +57,24 @@ export type {
   QueueHandler,
   QueueJob,
   QueueModuleOptions,
+  QueueModuleProviderOptions,
   QueueProvider,
   QueueProviderOptions,
   QueueSendResult,
   QueueSharedOptions,
+  ResolvedCloudflareQueueModuleProviderOptions,
   ResolvedCloudflareQueueProviderOptions,
+  ResolvedMemoryQueueModuleProviderOptions,
   ResolvedMemoryQueueProviderOptions,
   ResolvedQueueModuleOptions,
+  ResolvedQueueModuleProviderOptions,
   ResolvedQueueProviderOptions,
+  ResolvedVercelQueueModuleProviderOptions,
   ResolvedVercelQueueProviderOptions,
   VercelQueueCallbackOptions,
   VercelQueueClient,
   VercelQueueMessageHandler,
+  VercelQueueModuleProviderOptions,
   VercelQueueProviderOptions,
   VercelQueueSDK,
   VercelQueueSendOptions,
@@ -113,7 +121,7 @@ function resolveCloudflareBinding(
 
 function applyNamedProviderDefaults(
   name: string,
-  provider: ResolvedQueueProviderOptions,
+  provider: ResolvedQueueModuleProviderOptions,
   event?: unknown,
 ): QueueProviderOptions & { topic?: string } {
   if (provider.provider === "cloudflare") {
@@ -201,6 +209,7 @@ export async function getQueue(name: string, event?: unknown): Promise<QueueClie
   const cache = getQueueClientCache()
   const cacheEnabled = definition.options?.cache !== false
     && config !== false
+    && config?.provider.cache !== false
     && config?.provider.provider !== "cloudflare"
   if (!cacheEnabled) return await createNamedQueueClient(name, event)
 

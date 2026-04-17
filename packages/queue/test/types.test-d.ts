@@ -40,6 +40,35 @@ describe("types", () => {
     expectTypeOf(config.queue).toMatchTypeOf<QueueModuleOptions | undefined>()
   })
 
+  it("keeps module config serializable", () => {
+    const validConfig: QueueModuleOptions = {
+      binding: "QUEUE_EMAIL",
+      provider: "cloudflare",
+    }
+    expectTypeOf(validConfig).toMatchTypeOf<QueueModuleOptions>()
+
+    const invalidCloudflareConfig: QueueModuleOptions = {
+      // @ts-expect-error Nitro module config must not contain runtime binding objects.
+      binding: { send: async () => undefined, sendBatch: async () => undefined },
+      provider: "cloudflare",
+    }
+    expectTypeOf(invalidCloudflareConfig).toMatchTypeOf<QueueModuleOptions>()
+
+    const invalidVercelConfig: QueueModuleOptions = {
+      // @ts-expect-error Nitro module config must not contain runtime queue clients.
+      client: { handleCallback: () => async () => undefined, send: async () => ({}) },
+      provider: "vercel",
+    }
+    expectTypeOf(invalidVercelConfig).toMatchTypeOf<QueueModuleOptions>()
+
+    const invalidMemoryConfig: QueueModuleOptions = {
+      provider: "memory",
+      // @ts-expect-error Nitro module config must not contain in-memory stores.
+      store: { messages: [] },
+    }
+    expectTypeOf(invalidMemoryConfig).toMatchTypeOf<QueueModuleOptions>()
+  })
+
   it("returns a Vite plugin with a Nitro bridge", () => {
     const plugin = hubQueue()
 

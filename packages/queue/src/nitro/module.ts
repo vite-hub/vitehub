@@ -44,7 +44,7 @@ function createHostedHandlerContents(name: string): string {
   ].join("\n")
 }
 
-function writeQueueRuntimeFiles(buildDir: string, definitions: DiscoveredQueueDefinition[]) {
+function writeQueueRuntimeFiles(buildDir: string, definitions: DiscoveredQueueDefinition[], includeHostedHandlers = false) {
   const queueBuildDir = resolve(buildDir, "vitehub", "queue")
   mkdirSync(queueBuildDir, { recursive: true })
 
@@ -52,10 +52,12 @@ function writeQueueRuntimeFiles(buildDir: string, definitions: DiscoveredQueueDe
   writeFileSync(registryFile, createQueueRegistryContents(registryFile, definitions), "utf8")
 
   const hostedHandlers = new Map<string, string>()
-  for (const definition of definitions) {
-    const hostedFile = resolve(queueBuildDir, `vercel-${toSafeFileSegment(definition.name)}.mjs`)
-    writeFileSync(hostedFile, createHostedHandlerContents(definition.name), "utf8")
-    hostedHandlers.set(definition.name, hostedFile)
+  if (includeHostedHandlers) {
+    for (const definition of definitions) {
+      const hostedFile = resolve(queueBuildDir, `vercel-${toSafeFileSegment(definition.name)}.mjs`)
+      writeFileSync(hostedFile, createHostedHandlerContents(definition.name), "utf8")
+      hostedHandlers.set(definition.name, hostedFile)
+    }
   }
 
   return { hostedHandlers, registryFile }
@@ -79,14 +81,17 @@ const queueNitroModule: NitroModule = {
     if (!resolved) return
 
     const definitions = discoverQueueDefinitions(nitro.options)
-    const { hostedHandlers, registryFile } = writeQueueRuntimeFiles(nitro.options.buildDir, definitions)
+    const isVercelProvider = resolved.provider.provider === "vercel"
+    const { hostedHandlers, registryFile } = writeQueueRuntimeFiles(nitro.options.buildDir, definitions, isVercelProvider)
     nitro.hooks.hook("build:before", () => {
-      writeQueueRuntimeFiles(nitro.options.buildDir, definitions)
+      writeQueueRuntimeFiles(nitro.options.buildDir, definitions, isVercelProvider)
     })
 
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/queue"] = resolveRuntimeEntry("../index", "@vitehub/queue")
-    nitro.options.alias["@vitehub/queue/runtime/hosted"] = resolveRuntimeEntry("../runtime/hosted", "@vitehub/queue/runtime/hosted")
+    if (isVercelProvider) {
+      nitro.options.alias["@vitehub/queue/runtime/hosted"] = resolveRuntimeEntry("../runtime/hosted", "@vitehub/queue/runtime/hosted")
+    }
     nitro.options.alias["#vitehub-queue-registry"] = registryFile
     for (const definition of definitions) {
       nitro.options.alias[`#vitehub-queue-definition/${definition.name}`] = definition.handler
@@ -96,15 +101,17 @@ const queueNitroModule: NitroModule = {
     const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/queue/runtime/nitro-plugin")
     if (!nitro.options.plugins.includes(plugin)) nitro.options.plugins.push(plugin)
 
-    nitro.options.handlers ||= []
-    for (const definition of definitions) {
-      const handler = hostedHandlers.get(definition.name)
-      if (!handler) continue
-      pushUniqueHandler(nitro.options.handlers, {
-        handler,
-        method: "POST",
-        route: `/_vitehub/queues/vercel/${definition.name}`,
-      })
+    if (isVercelProvider) {
+      nitro.options.handlers ||= []
+      for (const definition of definitions) {
+        const handler = hostedHandlers.get(definition.name)
+        if (!handler) continue
+        pushUniqueHandler(nitro.options.handlers, {
+          handler,
+          method: "POST",
+          route: `/_vitehub/queues/vercel/${definition.name}`,
+        })
+      }
     }
 
     configureCloudflareQueues(nitro.options, definitions, resolved.provider)

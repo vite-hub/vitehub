@@ -110,8 +110,17 @@ export interface MemoryQueueProviderOptions extends QueueSharedOptions {
   store?: MemoryQueueStore
 }
 
+export interface MemoryQueueModuleProviderOptions extends QueueSharedOptions {
+  provider: "memory"
+}
+
 export interface CloudflareQueueProviderOptions extends QueueSharedOptions {
   binding?: string | CloudflareQueueBinding
+  provider: "cloudflare"
+}
+
+export interface CloudflareQueueModuleProviderOptions extends QueueSharedOptions {
+  binding?: string
   provider: "cloudflare"
 }
 
@@ -121,17 +130,31 @@ export interface VercelQueueProviderOptions extends QueueSharedOptions {
   region?: string
 }
 
+export interface VercelQueueModuleProviderOptions extends QueueSharedOptions {
+  provider: "vercel"
+  region?: string
+}
+
 export type QueueProviderOptions =
   | CloudflareQueueProviderOptions
   | MemoryQueueProviderOptions
   | VercelQueueProviderOptions
 
+export type QueueModuleProviderOptions =
+  | CloudflareQueueModuleProviderOptions
+  | MemoryQueueModuleProviderOptions
+  | VercelQueueModuleProviderOptions
+
 export type QueueModuleOptions =
   | false
   | (QueueSharedOptions & { provider?: undefined })
-  | QueueProviderOptions
+  | QueueModuleProviderOptions
 
 export interface ResolvedMemoryQueueProviderOptions extends MemoryQueueProviderOptions {
+  provider: "memory"
+}
+
+export interface ResolvedMemoryQueueModuleProviderOptions extends MemoryQueueModuleProviderOptions {
   provider: "memory"
 }
 
@@ -140,7 +163,16 @@ export interface ResolvedCloudflareQueueProviderOptions extends CloudflareQueueP
   provider: "cloudflare"
 }
 
+export interface ResolvedCloudflareQueueModuleProviderOptions extends CloudflareQueueModuleProviderOptions {
+  binding?: string
+  provider: "cloudflare"
+}
+
 export interface ResolvedVercelQueueProviderOptions extends VercelQueueProviderOptions {
+  provider: "vercel"
+}
+
+export interface ResolvedVercelQueueModuleProviderOptions extends VercelQueueModuleProviderOptions {
   provider: "vercel"
 }
 
@@ -149,8 +181,13 @@ export type ResolvedQueueProviderOptions =
   | ResolvedMemoryQueueProviderOptions
   | ResolvedVercelQueueProviderOptions
 
+export type ResolvedQueueModuleProviderOptions =
+  | ResolvedCloudflareQueueModuleProviderOptions
+  | ResolvedMemoryQueueModuleProviderOptions
+  | ResolvedVercelQueueModuleProviderOptions
+
 export interface ResolvedQueueModuleOptions {
-  provider: ResolvedQueueProviderOptions
+  provider: ResolvedQueueModuleProviderOptions
 }
 
 export interface QueueJob<TPayload = unknown> {

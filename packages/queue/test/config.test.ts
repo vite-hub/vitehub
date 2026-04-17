@@ -74,8 +74,17 @@ describe("Cloudflare integration", () => {
 
   it("keeps valid queue names readable and encodes nested names", () => {
     expect(getCloudflareQueueName("welcome-email")).toBe("welcome-email")
-    expect(getCloudflareQueueName("email/welcome")).toBe("queue-656d61696c2f77656c636f6d65")
-    expect(getCloudflareQueueDefinitionName("queue-656d61696c2f77656c636f6d65")).toBe("email/welcome")
+    expect(getCloudflareQueueName("email/welcome")).toBe("queue--656d61696c2f77656c636f6d65")
+    expect(getCloudflareQueueDefinitionName("queue--656d61696c2f77656c636f6d65")).toBe("email/welcome")
+  })
+
+  it("does not decode valid user queue names matching the old encoded format", () => {
+    expect(getCloudflareQueueName("queue-6162")).toBe("queue-6162")
+    expect(getCloudflareQueueDefinitionName("queue-6162")).toBe("queue-6162")
+  })
+
+  it("rejects user queue names matching the reserved encoded format", () => {
+    expect(() => getCloudflareQueueName("queue--6162")).toThrow("reserved by @vitehub/queue")
   })
 
   it("registers queue producers and consumers only once", () => {
@@ -101,7 +110,7 @@ describe("Cloudflare integration", () => {
     })
   })
 
-  it("deduplicates explicit producers by queue name", () => {
+  it("rejects shared explicit Cloudflare bindings for multiple definitions", () => {
     const target: {
       cloudflare?: {
         wrangler?: {
@@ -118,16 +127,9 @@ describe("Cloudflare integration", () => {
     ]
     const provider = { binding: "QUEUE", provider: "cloudflare" as const }
 
-    configureCloudflareQueues(target, definitions, provider)
-    configureCloudflareQueues(target, definitions, provider)
-
-    expect(target.cloudflare!.wrangler!.queues).toEqual({
-      consumers: [{ queue: "email" }, { queue: "report" }],
-      producers: [
-        { binding: "QUEUE", queue: "email" },
-        { binding: "QUEUE", queue: "report" },
-      ],
-    })
+    expect(() => configureCloudflareQueues(target, definitions, provider)).toThrow(
+      "`queue.provider.binding` can only be used with one Cloudflare queue definition.",
+    )
   })
 
   it("writes Cloudflare-safe queue names for nested definitions", () => {
@@ -146,8 +148,8 @@ describe("Cloudflare integration", () => {
     configureCloudflareQueues(target, definitions, { provider: "cloudflare" })
 
     expect(target.cloudflare!.wrangler!.queues).toEqual({
-      consumers: [{ queue: "queue-656d61696c2f77656c636f6d65" }],
-      producers: [{ binding: "QUEUE_EMAIL_WELCOME", queue: "queue-656d61696c2f77656c636f6d65" }],
+      consumers: [{ queue: "queue--656d61696c2f77656c636f6d65" }],
+      producers: [{ binding: "QUEUE_EMAIL_WELCOME", queue: "queue--656d61696c2f77656c636f6d65" }],
     })
   })
 })

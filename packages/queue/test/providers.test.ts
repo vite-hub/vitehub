@@ -6,8 +6,18 @@ import { resetQueueRuntimeState, setQueueRuntimeConfig, setQueueRuntimeRegistry 
 import type { VercelQueueSDK } from "../src/types.ts"
 
 afterEach(() => {
+  vi.doUnmock("@vercel/queue")
   resetQueueRuntimeState()
 })
+
+function mockVercelQueueSDK(send: VercelQueueSDK["send"]) {
+  vi.resetModules()
+  vi.doMock("@vercel/queue", () => ({
+    handleCallback: vi.fn(),
+    QueueClient: undefined,
+    send,
+  }))
+}
 
 describe("memory provider", () => {
   it("stores, peeks, and drains messages", async () => {
@@ -56,6 +66,18 @@ describe("memory provider", () => {
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(handled).toHaveBeenCalledWith("ava@example.com")
+  })
+
+  it("respects provider-level cache disablement", async () => {
+    setQueueRuntimeConfig({ provider: { cache: false, provider: "memory" } })
+    setQueueRuntimeRegistry({
+      "welcome-email": async () => ({ default: defineQueue(async () => undefined) }),
+    })
+
+    const first = await getQueue("welcome-email")
+    const second = await getQueue("welcome-email")
+
+    expect(first).not.toBe(second)
   })
 })
 
@@ -236,12 +258,9 @@ describe("Vercel provider", () => {
 
   it("resolves named Vercel clients through getQueue", async () => {
     const send = vi.fn(async () => ({ messageId: "msg_vercel" }))
+    mockVercelQueueSDK(send)
     setQueueRuntimeConfig({
       provider: {
-        client: {
-          handleCallback: vi.fn(),
-          send,
-        },
         provider: "vercel",
       },
     })
@@ -260,12 +279,9 @@ describe("Vercel provider", () => {
 
   it("uses Vercel-safe topics for nested queue definitions", async () => {
     const send = vi.fn(async () => ({ messageId: "msg_nested" }))
+    mockVercelQueueSDK(send)
     setQueueRuntimeConfig({
       provider: {
-        client: {
-          handleCallback: vi.fn(),
-          send,
-        },
         provider: "vercel",
       },
     })
