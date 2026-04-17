@@ -23,7 +23,7 @@ const dir = (fw: Framework) => resolve(root, "playground", fw)
 const log = (msg: string) => console.log(`[e2e] ${msg}`)
 
 const assertProbe = async (f: Fetcher, expected: Record<string, unknown>) =>
-  assert.deepEqual(await f("/api/tests/probe"), { feature: "kv", hasWaitUntil: true, ok: true, ...expected })
+  assert.deepEqual(await f("/api/tests/probe"), { feature: "kv", ok: true, ...expected })
 
 const assertKvWrite = async (f: Fetcher) =>
   assert.deepEqual(
@@ -43,7 +43,9 @@ async function upstashStub() {
     set: ([k, v]) => { store.set(String(k), v); return { result: "OK" } },
     get: ([k]) => ({ result: store.get(String(k)) ?? null }),
     scan: ([, , pattern]) => {
-      const re = typeof pattern === "string" ? new RegExp(`^${pattern.replace(/\*/g, ".*")}$`) : null
+      const re = typeof pattern === "string"
+        ? new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`)
+        : null
       return { result: ["0", [...store.keys()].filter(k => !re || re.test(k))] }
     },
     unlink: ([k]) => { store.delete(String(k)); return { result: 1 } },
@@ -78,8 +80,8 @@ async function build(fw: Framework, preset: string, extra?: Record<string, strin
 }
 
 const providerProbe: Record<Provider, Record<string, unknown>> = {
-  cloudflare: { hosting: "cloudflare-module", provider: "cloudflare-kv-binding", runtime: "cloudflare" },
-  vercel: { hosting: "vercel", provider: "upstash", runtime: "node" },
+  cloudflare: { hasWaitUntil: true, hosting: "cloudflare-module", provider: "cloudflare-kv-binding", runtime: "cloudflare" },
+  vercel: { hasWaitUntil: true, hosting: "vercel", provider: "upstash", runtime: "node" },
 }
 
 async function runCloudflare(fw: Framework) {

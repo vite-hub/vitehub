@@ -1,4 +1,6 @@
+import { hubKv } from "../../src/vite.ts"
+
 export default {
   srcDir: "server",
-  modules: ["../../src/nitro/module.ts"],
+  modules: [hubKv().nitro],
 }

@@ -1,5 +1,5 @@
 name: Setup
-description: Checkout, install pnpm + Node, install deps
+description: Install pnpm + Node and project dependencies
 runs:
   using: composite
   steps:

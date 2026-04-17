@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@vitehub/kv": "workspace:*",
-    "nitro": "catalog:"
+    "nitro": "catalog:",
+    "vite": "catalog:"
   }
 }
