@@ -11,6 +11,15 @@ function createStore(store?: MemoryQueueStore): MemoryQueueStore {
   return store || { messages: [] }
 }
 
+function findMessageIndex(store: MemoryQueueStore, messageId: string, latest = false): number {
+  if (!latest) return store.messages.findIndex(item => item.messageId === messageId)
+
+  for (let index = store.messages.length - 1; index >= 0; index -= 1) {
+    if (store.messages[index]?.messageId === messageId) return index
+  }
+  return -1
+}
+
 export function createMemoryQueueClient(provider: MemoryQueueProviderOptions = { provider: "memory" }): MemoryQueueClient {
   const store = createStore(provider.store)
   const send: MemoryQueueClient["send"] = async (input) => {
@@ -40,8 +49,8 @@ export function createMemoryQueueClient(provider: MemoryQueueProviderOptions = {
     },
     size: () => store.messages.length,
     peek: (limit = 10) => store.messages.slice(0, Math.max(0, limit)),
-    consume(messageId) {
-      const index = store.messages.findIndex(item => item.messageId === messageId)
+    consume(messageId, options) {
+      const index = findMessageIndex(store, messageId, options?.latest)
       if (index === -1) return
       return store.messages.splice(index, 1)[0]
     },

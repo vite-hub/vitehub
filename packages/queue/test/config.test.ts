@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeQueueOptions } from "../src/config.ts"
 import {
@@ -9,6 +9,10 @@ import {
 } from "../src/integrations/cloudflare.ts"
 import { shouldConfigureVercelQueueBuildOutput } from "../src/integrations/vercel.ts"
 import { getVercelQueueTopicName } from "../src/integrations/vercel-topic.ts"
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 describe("normalizeQueueOptions", () => {
   it("falls back to memory locally", () => {
@@ -211,6 +215,18 @@ describe("Vercel integration", () => {
   })
 
   it("configures build output when Vercel is inferred from a Vercel-like Nitro preset", () => {
+    const nitro = {
+      options: {
+        dev: false,
+        preset: "vercel-edge",
+      },
+    }
+
+    expect(shouldConfigureVercelQueueBuildOutput(nitro as never, undefined)).toBe(true)
+  })
+
+  it("prefers Nitro preset over NITRO_PRESET when configuring build output", () => {
+    vi.stubEnv("NITRO_PRESET", "cloudflare-module")
     const nitro = {
       options: {
         dev: false,

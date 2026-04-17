@@ -81,7 +81,7 @@ export function shouldConfigureVercelQueueBuildOutput(
 ): boolean {
   if (queueConfig === false || nitro.options.dev) return false
 
-  const hosting = process.env.NITRO_PRESET || nitro.options.preset || ""
+  const hosting = nitro.options.preset || process.env.NITRO_PRESET || ""
   if (!hosting.includes("vercel")) return false
 
   return normalizeQueueOptions(queueConfig, { hosting })?.provider.provider === "vercel"

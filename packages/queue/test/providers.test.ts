@@ -99,6 +99,32 @@ describe("memory provider", () => {
     await expect(queue.drain(() => undefined)).resolves.toBe(0)
   })
 
+  it("does not consume older memory jobs with duplicate IDs when auto-dispatching", async () => {
+    const handled = vi.fn()
+    setQueueRuntimeConfig({ provider: { provider: "memory" } })
+    setQueueRuntimeRegistry({
+      "welcome-email": async () => ({
+        default: defineQueue<{ email: string }>(async (job) => {
+          handled(job.payload.email)
+        }) as never,
+      }),
+    })
+
+    const queue = await getQueue("welcome-email")
+    expect(queue.provider).toBe("memory")
+    if (queue.provider !== "memory") throw new Error("expected memory")
+
+    await queue.send({ id: "welcome-ava", payload: { email: "old@example.com" } })
+    await runQueue("welcome-email", { id: "welcome-ava", payload: { email: "new@example.com" } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(handled).toHaveBeenCalledWith("new@example.com")
+    expect(queue.peek(1)[0]).toMatchObject({
+      messageId: "welcome-ava",
+      payload: { email: "old@example.com" },
+    })
+  })
+
   it("respects provider-level cache disablement", async () => {
     setQueueRuntimeConfig({ provider: { cache: false, provider: "memory" } })
     setQueueRuntimeRegistry({
