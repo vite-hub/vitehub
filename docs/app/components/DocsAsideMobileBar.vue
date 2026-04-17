@@ -47,7 +47,6 @@ const tocDrawerOpen = ref(false);
         <UContentNavigation
           :key="current"
           :navigation="sidebarNavigation"
-          default-open
           trailing-icon="i-lucide-chevron-right"
           :ui="{ linkTrailingIcon: 'group-data-[state=open]:rotate-90' }"
           highlight

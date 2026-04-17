@@ -26,6 +26,7 @@ export type DocsSection = {
 export type DocsExampleMode = {
   phases: Partial<Record<"configure" | "define" | "run", string>>;
   supplementalFiles?: string[];
+  excludedFiles?: string[];
 };
 
 export type DocsExampleProvider = {

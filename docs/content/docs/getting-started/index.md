@@ -1,37 +1,98 @@
 ---
 title: Getting started
-description: Pick your framework and open a package page.
+description: Set up your first ViteHub package and continue with the KV quickstart.
 navigation.title: Getting started
+icon: i-lucide-rocket
 ---
 
-# Getting started
+ViteHub currently ships [`@vitehub/kv`](/docs/nuxt/kv), a Nitro-backed key-value API with Nitro and Nuxt runtime usage plus a Vite bridge entrypoint.
+
+This page gives you the first framework-specific setup step, then points you to the KV docs where the full examples live.
+
+## Start with KV
+
+Install the package:
+
+```bash
+pnpm add @vitehub/kv
+```
 
 ::fw{id="vite:dev vite:build"}
 
-Docs adapt to your Vite setup. Use the switcher in the sidebar to compare the plugin flow with Nitro and Nuxt.
+Then register the Vite bridge plugin:
 
-Add the plugin to your `vite.config.ts` and you're ready to go.
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { hubKv } from '@vitehub/kv/vite'
 
-Pick a package from the sidebar to inspect its Vite plugin entrypoint and example files.
+export default defineConfig({
+  plugins: [hubKv()],
+})
+```
+
+After that, continue with the [KV quickstart](/docs/vite/kv/quickstart). Use the Nitro or Nuxt path when you need runtime reads and writes.
 
 ::
 
 ::fw{id="nitro:dev nitro:build"}
 
-Docs adapt to your Nitro runtime. Use the switcher in the sidebar to compare the server-first flow with Vite and Nuxt.
+Then register the Nitro module:
 
-Register the module in your Nitro config and use the server runtime helpers.
+```ts [nitro.config.ts]
+import { defineNitroConfig } from 'nitro/config'
 
-Pick a package from the sidebar to inspect its Nitro runtime entrypoint and server example files.
+export default defineNitroConfig({
+  modules: ['@vitehub/kv/nitro'],
+})
+```
+
+After that, continue with the [KV quickstart](/docs/nitro/kv/quickstart).
 
 ::
 
 ::fw{id="nuxt:dev nuxt:build"}
 
-Docs adapt to your Nuxt app. Use the switcher in the sidebar to compare the full-stack module flow with Vite and Nitro.
+Then register the Nuxt module:
 
-Drop the Nuxt module into `nuxt.config.ts` and Nuxt wires the composables and server utils into the app flow.
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vitehub/kv/nuxt'],
+})
+```
 
-Pick a package from the sidebar to inspect its Nuxt module entrypoint and app example files.
+After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
 
+::
+
+## What to read next
+
+::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: KV overview
+  description: Understand what the KV package provides and how it resolves drivers.
+  to: /docs/nuxt/kv
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: KV quickstart
+  description: Read, write, and delete a first key locally.
+  to: /docs/nuxt/kv/quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Cloudflare provider
+  description: Configure the Cloudflare KV path.
+  to: /docs/nuxt/kv/providers/cloudflare
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Vercel provider
+  description: Configure the Upstash-backed Vercel path.
+  to: /docs/nuxt/kv/providers/vercel
+  ---
+  :::
 ::

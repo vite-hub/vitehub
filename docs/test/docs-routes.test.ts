@@ -3,11 +3,11 @@ import { resolveFrameworkSwitchPath } from "../modules/vitehub-docs/runtime/util
 
 describe("resolveFrameworkSwitchPath", () => {
   it("rewrites docs paths to the requested framework", () => {
-    expect(resolveFrameworkSwitchPath("/docs/nuxt/dummy", "vite")).toBe("/docs/vite/dummy");
+    expect(resolveFrameworkSwitchPath("/docs/nuxt/kv", "vite")).toBe("/docs/vite/kv");
   });
 
   it("falls back to the section overview when the target page is unsupported", () => {
-    expect(resolveFrameworkSwitchPath("/docs/nuxt/dummy/missing-page", "vite")).toBe("/docs/vite/dummy");
+    expect(resolveFrameworkSwitchPath("/docs/nuxt/kv/missing-page", "vite")).toBe("/docs/vite/kv");
   });
 
   it("keeps section landing pages when switching frameworks", () => {

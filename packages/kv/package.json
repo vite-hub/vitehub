@@ -1,0 +1,143 @@
+{
+  "name": "@vitehub/kv",
+  "version": "0.0.0",
+  "description": "Key-value storage primitives and Nitro/Nuxt integration for ViteHub.",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/kv"
+  },
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "keywords": [
+    "vitehub",
+    "vite",
+    "nitro",
+    "nuxt",
+    "kv",
+    "cloudflare",
+    "vercel"
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./nitro": "./dist/nitro.js",
+    "./nuxt": "./dist/nuxt.js",
+    "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
+    "./vite": "./dist/vite.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsdown --tsconfig tsconfig.build.json",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vitest run",
+    "test:e2e": "tsx ./test/e2e.ts"
+  },
+  "dependencies": {
+    "@nuxt/kit": "catalog:",
+    "defu": "catalog:",
+    "exsolve": "catalog:",
+    "unstorage": "catalog:"
+  },
+  "peerDependencies": {
+    "@upstash/redis": "^1.37.0",
+    "nitro": "^3.0.0-0",
+    "vite": ">=6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@upstash/redis": {
+      "optional": true
+    },
+    "nitro": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@nuxt/schema": "catalog:",
+    "@upstash/redis": "catalog:",
+    "get-port-please": "catalog:",
+    "miniflare": "catalog:",
+    "ofetch": "catalog:",
+    "publint": "^0.3.15",
+    "tinyexec": "catalog:",
+    "tsdown": "^0.21.8",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  },
+  "inlinedDependencies": {
+    "@babel/parser": "7.29.2",
+    "@babel/types": "7.29.0",
+    "@nuxt/schema": "4.4.2",
+    "@rollup/plugin-commonjs": "29.0.2",
+    "@types/estree": "1.0.8",
+    "@unhead/vue": "2.1.13",
+    "@vercel/nft": "1.5.0",
+    "@vitejs/plugin-vue": "6.0.6",
+    "@vitejs/plugin-vue-jsx": "5.1.5",
+    "@volar/language-core": "2.4.28",
+    "@volar/source-map": "2.4.28",
+    "@vue/babel-plugin-jsx": "2.0.1",
+    "@vue/compiler-core": "3.5.32",
+    "@vue/compiler-dom": "3.5.32",
+    "@vue/compiler-sfc": "3.5.32",
+    "@vue/language-core": "3.2.6",
+    "@vue/reactivity": "3.5.32",
+    "@vue/runtime-core": "3.5.32",
+    "@vue/runtime-dom": "3.5.32",
+    "@vue/shared": "3.5.32",
+    "autoprefixer": "10.5.0",
+    "browserslist": "4.28.2",
+    "c12": "3.3.4",
+    "chokidar": "5.0.0",
+    "compatx": "0.2.0",
+    "consola": "3.4.2",
+    "crossws": "0.3.5",
+    "csstype": "3.2.3",
+    "db0": "0.3.4",
+    "esbuild": "0.27.7",
+    "giget": "3.2.0",
+    "h3": "1.15.11",
+    "hookable": "6.1.0",
+    "httpxy": "0.5.0",
+    "magic-string": "0.30.21",
+    "mlly": "1.8.2",
+    "muggle-string": "0.4.1",
+    "nitropack": "2.13.3",
+    "nuxt": "4.4.2",
+    "ofetch": "1.5.1",
+    "open": "11.0.0",
+    "oxc-transform": "0.117.0",
+    "pkg-types": "2.3.0",
+    "rollup": "4.60.1",
+    "rollup-plugin-visualizer": "7.0.1",
+    "scule": "1.3.0",
+    "typescript": "6.0.2",
+    "ufo": "1.6.3",
+    "unctx": "2.5.0",
+    "undici": "7.24.8",
+    "unenv": "2.0.0-rc.24",
+    "unhead": "2.1.13",
+    "unimport": "6.1.0",
+    "unplugin": "3.0.0",
+    "unplugin-utils": "0.3.1",
+    "untyped": "2.0.0",
+    "unwasm": "0.5.3",
+    "vue": "3.5.32",
+    "vue-bundle-renderer": "2.2.0",
+    "vue-router": "5.0.4"
+  }
+}

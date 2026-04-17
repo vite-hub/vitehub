@@ -5,7 +5,7 @@ import { getFwVariantIdFromProps, getFwVariantsFromProps } from "../modules/vite
 describe("normalizeFrameworkPage", () => {
   it("filters non-matching framework and mode blocks in single render mode", () => {
     const page = {
-      path: "/docs/nuxt/dummy",
+      path: "/docs/nuxt/kv",
       body: {
         toc: { links: [] },
         value: [
@@ -32,7 +32,7 @@ describe("normalizeFrameworkPage", () => {
 
   it("groups adjacent fw blocks in all render mode", () => {
     const page = {
-      path: "/docs/nuxt/dummy",
+      path: "/docs/nuxt/kv",
       body: {
         toc: { links: [] },
         value: [
@@ -63,7 +63,7 @@ describe("normalizeFrameworkPage", () => {
 
   it("keeps shorthand fw blocks for the active framework", () => {
     const page = {
-      path: "/docs/nuxt/providers/cloudflare",
+      path: "/docs/nuxt/kv/providers/cloudflare",
       body: {
         toc: { links: [] },
         value: [

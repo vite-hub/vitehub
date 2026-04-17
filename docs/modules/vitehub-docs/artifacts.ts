@@ -12,6 +12,12 @@ type DocsArtifactOptions = {
   outputDir: string;
 };
 
+type PackageManifest = {
+  name?: string;
+  version?: string;
+  [key: string]: unknown;
+};
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
@@ -167,7 +173,8 @@ function getPhasePriority(modeConfig: { phases: Partial<Record<typeof phaseOrder
 }
 
 function sortExampleFiles(files: Array<{ path: string; code: string }>, modeConfig: { phases: Partial<Record<typeof phaseOrder[number], string>>; supplementalFiles?: string[] }) {
-  const supplementalFiles = new Set(modeConfig.supplementalFiles || []);
+  const supplementalFileOrder = new Map((modeConfig.supplementalFiles || []).map((path, index) => [path, index]));
+  const supplementalFiles = new Set(supplementalFileOrder.keys());
 
   return [...files].sort((left, right) => {
     const phaseA = getPhasePriority(modeConfig, left.path);
@@ -182,12 +189,105 @@ function sortExampleFiles(files: Array<{ path: string; code: string }>, modeConf
       return supplementalA - supplementalB;
     }
 
+    if (supplementalA === 0 && supplementalB === 0) {
+      return (supplementalFileOrder.get(left.path) ?? Number.POSITIVE_INFINITY)
+        - (supplementalFileOrder.get(right.path) ?? Number.POSITIVE_INFINITY);
+    }
+
     return left.path.localeCompare(right.path);
   });
 }
 
-function parseExampleFiles(packagesRoot: string) {
+function readWorkspaceCatalogVersions(repoRoot: string) {
+  const workspaceConfig = readFileSync(resolve(repoRoot, "pnpm-workspace.yaml"), "utf8");
+  const versions = new Map<string, string>();
+  const lines = workspaceConfig.split("\n");
+  let inCatalog = false;
+
+  for (const line of lines) {
+    if (!inCatalog) {
+      if (line.trim() === "catalog:") {
+        inCatalog = true;
+      }
+      continue;
+    }
+
+    if (/^\S/.test(line)) {
+      break;
+    }
+
+    const match = line.match(/^\s{2,}['"]?([^'":]+)['"]?:\s*(.+)$/);
+    if (!match) {
+      continue;
+    }
+
+    const [, name = "", version = ""] = match;
+    versions.set(name, String(parseScalar(version)));
+  }
+
+  return versions;
+}
+
+function readWorkspacePackageVersions(packagesRoot: string) {
+  const versions = new Map<string, string>();
+
+  for (const packageName of readdirSync(packagesRoot, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
+    const packageJsonPath = resolve(packagesRoot, packageName, "package.json");
+    if (!existsSync(packageJsonPath)) {
+      continue;
+    }
+
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as PackageManifest;
+    if (typeof packageJson.name === "string" && typeof packageJson.version === "string") {
+      versions.set(packageJson.name, packageJson.version);
+    }
+  }
+
+  return versions;
+}
+
+function normalizeExamplePackageJson(
+  code: string,
+  catalogVersions: Map<string, string>,
+  workspacePackageVersions: Map<string, string>,
+) {
+  const packageJson = JSON.parse(code) as PackageManifest;
+
+  if (packageJson.private === true) {
+    delete packageJson.private;
+  }
+
+  for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const) {
+    const deps = packageJson[field];
+    if (!deps || typeof deps !== "object") {
+      continue;
+    }
+
+    for (const [name, rawVersion] of Object.entries(deps as Record<string, unknown>)) {
+      if (rawVersion === "catalog:") {
+        const resolvedVersion = catalogVersions.get(name);
+        if (resolvedVersion) {
+          (deps as Record<string, unknown>)[name] = resolvedVersion;
+        }
+        continue;
+      }
+
+      if (rawVersion === "workspace:*") {
+        const resolvedVersion = workspacePackageVersions.get(name);
+        if (resolvedVersion) {
+          (deps as Record<string, unknown>)[name] = resolvedVersion;
+        }
+      }
+    }
+  }
+
+  return `${JSON.stringify(packageJson, null, 2)}\n`;
+}
+
+function parseExampleFiles(packagesRoot: string, repoRoot: string) {
   const result: Record<string, Record<Framework, Array<{ path: string; code: string }>>> = {};
+  const catalogVersions = readWorkspaceCatalogVersions(repoRoot);
+  const workspacePackageVersions = readWorkspacePackageVersions(packagesRoot);
 
   for (const packageName of readdirSync(packagesRoot, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
     for (const framework of frameworkIds) {
@@ -200,7 +300,13 @@ function parseExampleFiles(packagesRoot: string) {
         const relativePath = relative(frameworkRoot, absolutePath).replace(/\\/g, "/");
         return {
           path: relativePath,
-          code: readFileSync(absolutePath, "utf8").trimEnd(),
+          code: relativePath === "package.json"
+            ? normalizeExamplePackageJson(
+                readFileSync(absolutePath, "utf8"),
+                catalogVersions,
+                workspacePackageVersions,
+              ).trimEnd()
+            : readFileSync(absolutePath, "utf8").trimEnd(),
         };
       }).filter((file) => {
         return ![
@@ -269,7 +375,7 @@ function normalizeFrameworks(manifest: Record<string, any>) {
 }
 
 function parsePackageExamples(packagesRoot: string) {
-  const filesByPackage = parseExampleFiles(packagesRoot);
+  const filesByPackage = parseExampleFiles(packagesRoot, resolve(packagesRoot, ".."));
   const manifests = listFiles(packagesRoot, "showcase.json");
   const examples: any[] = [];
 
@@ -294,7 +400,6 @@ function parsePackageExamples(packagesRoot: string) {
       for (const mode of usageModes) {
         const modeConfig = frameworkConfig.modes[mode];
         assert(modeConfig?.phases, `[showcase] Missing ${framework}:${mode} phases in ${manifestPath}`);
-        assert(typeof modeConfig.phases.run === "string", `[showcase] Missing run phase for ${framework}:${mode} in ${manifestPath}`);
 
         for (const phaseId of phaseOrder) {
           const filePath = modeConfig.phases[phaseId];
