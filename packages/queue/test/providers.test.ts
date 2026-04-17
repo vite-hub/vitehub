@@ -139,7 +139,7 @@ describe("Cloudflare provider", () => {
     })
   })
 
-  it("resolves Cloudflare bindings from the provided event without reusing cached clients", async () => {
+  it("resolves Cloudflare bindings from the scoped runtime event without reusing cached clients", async () => {
     const sendA = vi.fn(async () => ({}))
     const sendB = vi.fn(async () => ({}))
     const sendBatch = vi.fn(async () => ({}))
@@ -148,24 +148,11 @@ describe("Cloudflare provider", () => {
       "welcome-email": async () => ({ default: defineQueue(async () => undefined) }),
     })
 
-    const queueA = await getQueue("welcome-email", {
-      context: {
-        cloudflare: {
-          env: {
-            QUEUE_77656C636F6D652D656D61696C: { send: sendA, sendBatch },
-          },
-        },
-      },
+    const eventFor = (send: typeof sendA) => ({
+      context: { cloudflare: { env: { QUEUE_77656C636F6D652D656D61696C: { send, sendBatch } } } },
     })
-    const queueB = await getQueue("welcome-email", {
-      context: {
-        cloudflare: {
-          env: {
-            QUEUE_77656C636F6D652D656D61696C: { send: sendB, sendBatch },
-          },
-        },
-      },
-    })
+    const queueA = await runWithQueueRuntimeEvent(eventFor(sendA), () => getQueue("welcome-email"))
+    const queueB = await runWithQueueRuntimeEvent(eventFor(sendB), () => getQueue("welcome-email"))
 
     await queueA.send({ id: "a", payload: { id: "a" } })
     await queueB.send({ id: "b", payload: { id: "b" } })

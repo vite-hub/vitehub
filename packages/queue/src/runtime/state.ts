@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks"
+
 import type {
   QueueClient,
   QueueDefinition,
@@ -5,15 +7,9 @@ import type {
   ResolvedQueueModuleOptions,
 } from "../types.ts"
 
-type QueueRuntimeEventStorage = {
-  getStore: () => unknown
-  run: <T>(event: unknown, callback: () => T) => T
-}
-
 let runtimeConfig: false | ResolvedQueueModuleOptions | undefined
-let runtimeEventFallback: unknown
-let runtimeEventStorage: false | QueueRuntimeEventStorage | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
+const queueEventStorage = new AsyncLocalStorage<unknown>()
 const queueClientCache = new Map<string, Promise<QueueClient>>()
 
 export function setQueueRuntimeConfig(config: false | ResolvedQueueModuleOptions | undefined): void {
@@ -25,38 +21,12 @@ export function getQueueRuntimeConfig(): false | ResolvedQueueModuleOptions | un
   return runtimeConfig
 }
 
-async function getRuntimeEventStorage(): Promise<false | QueueRuntimeEventStorage> {
-  if (typeof runtimeEventStorage !== "undefined") return runtimeEventStorage
-
-  try {
-    const { AsyncLocalStorage } = await import("node:async_hooks")
-    runtimeEventStorage = new AsyncLocalStorage<unknown>()
-  }
-  catch {
-    runtimeEventStorage = false
-  }
-  return runtimeEventStorage
-}
-
-export async function runWithQueueRuntimeEvent<T>(
-  event: unknown,
-  callback: () => T | Promise<T>,
-): Promise<T> {
-  const storage = await getRuntimeEventStorage()
-  if (storage) return await storage.run(event, callback)
-
-  const previous = runtimeEventFallback
-  runtimeEventFallback = event
-  try {
-    return await callback()
-  }
-  finally {
-    runtimeEventFallback = previous
-  }
+export function runWithQueueRuntimeEvent<T>(event: unknown, callback: () => T): T {
+  return queueEventStorage.run(event, callback)
 }
 
 export function getQueueRuntimeEvent(): unknown {
-  return runtimeEventStorage ? runtimeEventStorage.getStore() : runtimeEventFallback
+  return queueEventStorage.getStore()
 }
 
 export function setQueueRuntimeRegistry(registry: QueueDefinitionRegistry | undefined): void {
@@ -70,7 +40,6 @@ export function getQueueClientCache(): Map<string, Promise<QueueClient>> {
 
 export function resetQueueRuntimeState(): void {
   runtimeConfig = undefined
-  runtimeEventFallback = undefined
   registryOverride = undefined
   queueClientCache.clear()
 }

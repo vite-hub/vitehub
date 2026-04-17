@@ -1,3 +1,4 @@
+import { decodeQueueNameHex, encodeQueueNameHex } from "./encoding.ts"
 import type { DiscoveredQueueDefinition, QueueModuleProviderOptions } from "../types.ts"
 
 export const defaultCloudflareQueueBindingPrefix = "QUEUE"
@@ -9,23 +10,8 @@ function pushUnique<T>(array: T[], item: T, getKey: (item: T) => string): void {
   if (!array.some(entry => getKey(entry) === key)) array.push(item)
 }
 
-function encodeQueueName(name: string): string {
-  return [...new TextEncoder().encode(name)]
-    .map(byte => byte.toString(16).padStart(2, "0"))
-    .join("")
-}
-
-function decodeQueueName(name: string): string | undefined {
-  if (!encodedCloudflareQueueNamePattern.test(name)) return
-
-  const encoded = name.slice("queue--".length)
-  const bytes = encoded.match(/.{2}/g)?.map(byte => Number.parseInt(byte, 16)) ?? []
-  if (!bytes.length || bytes.some(byte => !Number.isFinite(byte))) return
-  return new TextDecoder().decode(new Uint8Array(bytes))
-}
-
 export function getCloudflareQueueBindingName(name: string): string {
-  const encoded = encodeQueueName(name).toUpperCase()
+  const encoded = encodeQueueNameHex(name).toUpperCase()
   return encoded ? `${defaultCloudflareQueueBindingPrefix}_${encoded}` : defaultCloudflareQueueBindingPrefix
 }
 
@@ -34,12 +20,13 @@ export function getCloudflareQueueName(name: string): string {
     throw new TypeError("Cloudflare queue names matching `queue--<hex>` are reserved by @vitehub/queue.")
   }
   if (cloudflareQueueNamePattern.test(name)) return name
-  const encoded = encodeQueueName(name)
+  const encoded = encodeQueueNameHex(name)
   return encoded ? `queue--${encoded}` : "queue"
 }
 
 export function getCloudflareQueueDefinitionName(name: string): string {
-  return decodeQueueName(name) || name
+  if (!encodedCloudflareQueueNamePattern.test(name)) return name
+  return decodeQueueNameHex(name.slice("queue--".length)) || name
 }
 
 export function configureCloudflareQueues(

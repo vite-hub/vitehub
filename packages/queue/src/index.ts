@@ -8,9 +8,10 @@ import { createMemoryQueueClient } from "./providers/memory.ts"
 import { createVercelQueueClient } from "./providers/vercel.ts"
 import {
   getQueueClientCache,
-  getQueueRuntimeEvent,
   getQueueRuntimeConfig,
+  getQueueRuntimeEvent,
   loadQueueDefinition,
+  runWithQueueRuntimeEvent,
 } from "./runtime/state.ts"
 import { QueueError } from "./errors.ts"
 
@@ -108,13 +109,11 @@ function getCloudflareEnv(event: unknown): Record<string, unknown> | undefined {
 function resolveCloudflareBinding(
   binding: string | CloudflareQueueBinding | undefined,
   name: string,
-  event?: unknown,
 ): string | CloudflareQueueBinding {
   if (binding && typeof binding !== "string") return binding
 
   const bindingName = binding || getCloudflareQueueBindingName(name)
-  const env = getCloudflareEnv(event)
-  const resolved = env?.[bindingName]
+  const resolved = getCloudflareEnv(getQueueRuntimeEvent())?.[bindingName]
 
   if (!resolved) return bindingName
   return resolved as CloudflareQueueBinding
@@ -123,12 +122,11 @@ function resolveCloudflareBinding(
 function applyNamedProviderDefaults(
   name: string,
   provider: ResolvedQueueModuleProviderOptions,
-  event?: unknown,
 ): QueueProviderOptions & { topic?: string } {
   if (provider.provider === "cloudflare") {
     return {
       ...provider,
-      binding: resolveCloudflareBinding(provider.binding, name, event),
+      binding: resolveCloudflareBinding(provider.binding, name),
     }
   }
 
@@ -169,7 +167,7 @@ export async function createQueueClient(options?: QueueProviderOptions & { topic
   return createMemoryQueueClient(provider)
 }
 
-async function createNamedQueueClient(name: string, event?: unknown): Promise<QueueClient> {
+async function createNamedQueueClient(name: string): Promise<QueueClient> {
   const config = getActiveQueueConfig()
   if (!config) {
     throw new QueueError("Queue is disabled.", {
@@ -178,25 +176,28 @@ async function createNamedQueueClient(name: string, event?: unknown): Promise<Qu
     })
   }
 
-  const request = config.provider.provider === "cloudflare"
-    ? event ?? getQueueRuntimeEvent() ?? await getNitroRequest()
-    : undefined
-
-  return await createQueueClient(applyNamedProviderDefaults(name, config.provider, request))
-    .then(async (queue) => {
-      if (queue.provider === "memory") return queue
-      return queue
-    })
-    .catch((error) => {
+  const build = async () => {
+    try {
+      return await createQueueClient(applyNamedProviderDefaults(name, config.provider))
+    }
+    catch (error) {
       if (error instanceof QueueError) throw error
       throw new QueueError(error instanceof Error ? error.message : String(error), {
         cause: error,
         provider: config.provider.provider,
       })
-    })
+    }
+  }
+
+  if (config.provider.provider === "cloudflare" && !getQueueRuntimeEvent()) {
+    const request = await getNitroRequest()
+    if (request) return await runWithQueueRuntimeEvent(request, build)
+  }
+
+  return await build()
 }
 
-export async function getQueue(name: string, event?: unknown): Promise<QueueClient> {
+export async function getQueue(name: string): Promise<QueueClient> {
   const definition = await loadQueueDefinition(name)
   if (!definition) {
     throw new QueueError(`Unknown queue definition: ${name}`, {
@@ -212,12 +213,12 @@ export async function getQueue(name: string, event?: unknown): Promise<QueueClie
     && config !== false
     && config?.provider.cache !== false
     && config?.provider.provider !== "cloudflare"
-  if (!cacheEnabled) return await createNamedQueueClient(name, event)
+  if (!cacheEnabled) return await createNamedQueueClient(name)
 
   const existing = cache.get(name)
   if (existing) return await existing
 
-  const pending = createNamedQueueClient(name, event).catch((error: unknown) => {
+  const pending = createNamedQueueClient(name).catch((error: unknown) => {
     cache.delete(name)
     throw error
   })
@@ -228,7 +229,6 @@ export async function getQueue(name: string, event?: unknown): Promise<QueueClie
 export async function runQueue<TPayload = unknown>(
   name: string,
   input: QueueEnqueueInput<TPayload>,
-  event?: unknown,
 ): Promise<QueueSendResult> {
   const definition = await loadQueueDefinition(name)
   if (!definition) {
@@ -240,7 +240,7 @@ export async function runQueue<TPayload = unknown>(
   }
 
   const normalized = normalizeQueueEnqueueInput(input)
-  const queue = await getQueue(name, event)
+  const queue = await getQueue(name)
   const result = await queue.send({
     ...normalized.options,
     id: normalized.id,
@@ -272,18 +272,15 @@ export function deferQueue<TPayload = unknown>(
   name: string,
   input: QueueEnqueueInput<TPayload>,
 ): void {
-  const task = async (request?: unknown) => {
-    await runQueue(name, input, request)
-  }
-
   void getNitroRequest().then((request) => {
+    const task = () => runWithQueueRuntimeEvent(request, () => runQueue(name, input))
     const waitUntil = (request as { waitUntil?: (promise: Promise<unknown>) => void } | undefined)?.waitUntil
     if (waitUntil) {
-      waitUntil(task(request))
+      waitUntil(task())
       return
     }
 
-    task(request).catch((error) => {
+    task().catch((error) => {
       console.error(`[vitehub] Deferred queue dispatch failed for "${name}"`, error)
     })
   })
