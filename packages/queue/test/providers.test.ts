@@ -41,6 +41,21 @@ describe("memory provider", () => {
     expect(queue.size()).toBe(0)
   })
 
+  it("supports destructured batch sending", async () => {
+    const queue = await createQueueClient({ provider: "memory" })
+
+    expect(queue.provider).toBe("memory")
+    if (queue.provider !== "memory") throw new Error("expected memory")
+
+    const { sendBatch } = queue
+    await sendBatch([{ id: "job-1", payload: { ok: true } }])
+
+    expect(queue.peek(1)[0]).toMatchObject({
+      messageId: "job-1",
+      payload: { ok: true },
+    })
+  })
+
   it("treats payload-only objects as bare payloads", async () => {
     const queue = await createQueueClient({ provider: "memory" })
 
@@ -255,6 +270,22 @@ describe("Vercel provider", () => {
       delaySeconds: 10,
       idempotencyKey: "welcome-ava",
       retentionSeconds: 3600,
+    })
+  })
+
+  it("normalizes Vercel null message IDs to undefined", async () => {
+    const queue = await createQueueClient({
+      client: {
+        handleCallback: vi.fn(),
+        send: vi.fn(async () => ({ messageId: null })),
+      },
+      provider: "vercel",
+      topic: "welcome-email",
+    })
+
+    await expect(queue.send({ ok: true })).resolves.toEqual({
+      status: "queued",
+      messageId: undefined,
     })
   })
 

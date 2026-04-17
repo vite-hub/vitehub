@@ -13,24 +13,25 @@ function createStore(store?: MemoryQueueStore): MemoryQueueStore {
 
 export function createMemoryQueueClient(provider: MemoryQueueProviderOptions = { provider: "memory" }): MemoryQueueClient {
   const store = createStore(provider.store)
+  const send: MemoryQueueClient["send"] = async (input) => {
+    const normalized = normalizeQueueEnqueueInput(input)
+    const item: MemoryQueueStoreItem = {
+      enqueuedAt: new Date(),
+      messageId: normalized.id,
+      payload: normalized.payload,
+    }
+    store.messages.push(item)
+    return { status: "queued", messageId: item.messageId }
+  }
 
   return {
     provider: "memory",
     native: store,
-    async send(input) {
-      const normalized = normalizeQueueEnqueueInput(input)
-      const item: MemoryQueueStoreItem = {
-        enqueuedAt: new Date(),
-        messageId: normalized.id,
-        payload: normalized.payload,
-      }
-      store.messages.push(item)
-      return { status: "queued", messageId: item.messageId }
-    },
+    send,
     async sendBatch(items) {
       const results: QueueSendResult[] = []
       for (const item of items) {
-        results.push(await this.send({
+        results.push(await send({
           id: item.id,
           payload: item.payload,
         }))

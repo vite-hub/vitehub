@@ -70,7 +70,7 @@ export function configureCloudflareQueues(
     pushUnique(
       target.cloudflare.wrangler.queues.producers,
       { binding, queue },
-      entry => String(entry.queue),
+      entry => `${String(entry.binding)}:${String(entry.queue)}`,
     )
   }
 }

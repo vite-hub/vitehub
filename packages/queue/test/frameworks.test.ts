@@ -96,11 +96,31 @@ function createNitroStub(options: NitroHarnessOptions = {}) {
 }
 
 describe("hubQueue", () => {
-  it("attaches the Nitro bridge", async () => {
+  it("returns a Vite environment-aware plugin", async () => {
     const { hubQueue } = await import("../src/vite.ts")
     const plugin = hubQueue()
 
-    expect(plugin.nitro.name).toBe("@vitehub/queue")
+    expect(plugin.name).toBe("@vitehub/queue/vite")
+    expect("nitro" in plugin).toBe(false)
+  })
+
+  it("uses Vite environment config for server runtimes", async () => {
+    const { hubQueue } = await import("../src/vite.ts")
+    const plugin = hubQueue()
+
+    if (typeof plugin.configEnvironment !== "function") throw new Error("expected configEnvironment")
+
+    const nitro = await plugin.configEnvironment.call({} as never, "nitro", {
+      resolve: { noExternal: ["existing-package"] },
+    } as never, {} as never)
+    const client = await plugin.configEnvironment.call({} as never, "client", {} as never, {} as never)
+
+    expect(nitro).toEqual({
+      resolve: {
+        noExternal: ["existing-package", "@vitehub/queue"],
+      },
+    })
+    expect(client).toBeUndefined()
   })
 })
 

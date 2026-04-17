@@ -111,6 +111,39 @@ describe("Cloudflare integration", () => {
     })
   })
 
+  it("preserves existing Cloudflare producers while adding generated bindings", () => {
+    const target: {
+      cloudflare?: {
+        wrangler?: {
+          queues?: {
+            consumers?: Array<Record<string, unknown>>
+            producers?: Array<Record<string, unknown>>
+          }
+        }
+      }
+    } = {
+      cloudflare: {
+        wrangler: {
+          queues: {
+            consumers: [],
+            producers: [{ binding: "EXISTING", queue: "welcome-email" }],
+          },
+        },
+      },
+    }
+    const definitions = [{ handler: "/server/queues/welcome-email.ts", name: "welcome-email" }]
+
+    configureCloudflareQueues(target, definitions, { provider: "cloudflare" })
+
+    expect(target.cloudflare!.wrangler!.queues).toEqual({
+      consumers: [{ queue: "welcome-email" }],
+      producers: [
+        { binding: "EXISTING", queue: "welcome-email" },
+        { binding: "QUEUE_77656C636F6D652D656D61696C", queue: "welcome-email" },
+      ],
+    })
+  })
+
   it("rejects shared explicit Cloudflare bindings for multiple definitions", () => {
     const target: {
       cloudflare?: {

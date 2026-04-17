@@ -85,7 +85,7 @@ export async function createVercelQueueClient(
 
       return {
         status: "queued",
-        messageId: result.messageId,
+        messageId: result.messageId || undefined,
       }
     },
     callback: client.handleCallback,

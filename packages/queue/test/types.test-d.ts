@@ -69,10 +69,10 @@ describe("types", () => {
     expectTypeOf(invalidMemoryConfig).toMatchTypeOf<QueueModuleOptions>()
   })
 
-  it("returns a Vite plugin with a Nitro bridge", () => {
+  it("returns a Vite plugin", () => {
     const plugin = hubQueue()
 
-    expectTypeOf(plugin.nitro).toMatchTypeOf<{ name?: string }>()
+    expectTypeOf(plugin).toMatchTypeOf<{ name?: string }>()
   })
 
   it("narrows provider-specific clients", async () => {

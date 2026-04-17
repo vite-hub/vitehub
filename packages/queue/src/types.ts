@@ -70,7 +70,7 @@ export interface VercelQueueSendOptions {
 }
 
 export interface VercelQueueSendResult {
-  messageId?: string
+  messageId?: string | null
 }
 
 export type VercelQueueMessageHandler<T = unknown> =
