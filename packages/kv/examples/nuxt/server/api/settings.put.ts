@@ -1,3 +1,3 @@
-export default defineEventHandler(async () => {
-  await kv.set("settings", { enabled: true })
-})
+import { kv } from "@vitehub/kv"
+
+export default defineEventHandler(() => kv.set("settings", { enabled: true }))

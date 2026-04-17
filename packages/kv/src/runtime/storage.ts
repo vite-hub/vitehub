@@ -10,27 +10,21 @@ interface RuntimeStorage {
 }
 
 let storagePromise: Promise<RuntimeStorage> | undefined
-let runtimeStore: KVStorage | undefined
 
 export function resetKVRuntimeState(): void {
-  runtimeStore = undefined
   storagePromise = undefined
 }
 
-function resolveStorage(): Promise<RuntimeStorage> {
-  return storagePromise ||= import("nitro/runtime")
-    .then(module => module.useStorage("kv") as RuntimeStorage)
+async function resolveStorage() {
+  storagePromise ||= import("nitro/runtime").then(module => module.useStorage("kv") as RuntimeStorage)
+  return storagePromise
 }
 
-function createKVStorage(): KVStorage {
-  return {
-    clear: async (base, options) => void await (await resolveStorage()).clear(base, options),
-    del: async (key, options) => void await (await resolveStorage()).removeItem(key, options),
-    get: async (key, options) => (await resolveStorage()).getItem(key, options),
-    has: async (key, options) => (await resolveStorage()).hasItem(key, options),
-    keys: async (base, options) => (await resolveStorage()).getKeys(base, options),
-    set: async (key, value, options) => void await (await resolveStorage()).setItem(key, value, options),
-  }
+export const kv: KVStorage = {
+  async clear(base, options) { await (await resolveStorage()).clear(base, options) },
+  async del(key, options) { await (await resolveStorage()).removeItem(key, options) },
+  async get(key, options) { return (await resolveStorage()).getItem(key, options) },
+  async has(key, options) { return (await resolveStorage()).hasItem(key, options) },
+  async keys(base, options) { return (await resolveStorage()).getKeys(base, options) },
+  async set(key, value, options) { await (await resolveStorage()).setItem(key, value, options) },
 }
-
-export const kv: KVStorage = runtimeStore ?? (runtimeStore = createKVStorage())

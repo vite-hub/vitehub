@@ -1,47 +1,51 @@
-import { normalizeKVOptions, warnVercelKVFallback } from "../config.ts"
-import { pushUnique } from "../internal/arrays.ts"
-import { resolveRuntimePath } from "../internal/resolve-runtime-path.ts"
-import { configureCloudflareKV } from "../integrations/cloudflare.ts"
-
+import { resolveModulePath } from "exsolve"
 import type { NitroModule } from "nitro/types"
+
+import { normalizeKVOptions, warnVercelKVFallback } from "../config.ts"
+import { configureCloudflareKV } from "../integrations/cloudflare.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "../types.ts"
+
+function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
+  const fromSource = resolveModulePath(srcRelative, {
+    from: import.meta.url,
+    extensions: [".ts", ".mts"],
+    try: true,
+  })
+  return fromSource ?? resolveModulePath(packageSubpath, {
+    from: import.meta.url,
+    extensions: [".js", ".mjs"],
+  })
+}
 
 const kvNitroModule: NitroModule = {
   name: "@vitehub/kv",
   setup(nitro) {
-    const options = nitro.options
-    const hosting = (options.preset || process.env.NITRO_PRESET || "").trim() || undefined
-    const resolved = normalizeKVOptions(options.kv, { env: process.env, hosting })
+    const hosting = (nitro.options.preset || process.env.NITRO_PRESET || "").trim() || undefined
+    const resolved = normalizeKVOptions(nitro.options.kv, { env: process.env, hosting })
 
-    const runtimeConfig = (options.runtimeConfig ||= {} as typeof options.runtimeConfig)
-    if (hosting) runtimeConfig.hosting ||= hosting
+    const runtimeConfig = (nitro.options.runtimeConfig ||= {} as never)
+    if (hosting) {
+      runtimeConfig.hosting ||= hosting
+    }
     runtimeConfig.kv = resolved ?? false
 
-    if (!resolved) return
-
-    options.alias ||= {}
-    options.alias["@vitehub/kv"] = resolveRuntimePath(import.meta.url, "../index.ts", "@vitehub/kv")
-
-    options.plugins ||= []
-    pushUnique(
-      options.plugins,
-      resolveRuntimePath(import.meta.url, "../runtime/nitro-plugin.ts", "@vitehub/kv/runtime/nitro-plugin"),
-    )
-
-    if (options.imports !== false) {
-      const imports = (options.imports ||= {} as Exclude<typeof options.imports, false>)
-      imports.presets ||= []
-      pushUnique(
-        imports.presets,
-        { from: "@vitehub/kv", imports: ["kv"] },
-        preset => typeof preset === "object" && preset && "from" in preset ? preset.from : preset,
-      )
+    if (!resolved) {
+      return
     }
 
-    options.storage ||= {} as typeof options.storage
-    options.storage.kv = resolved.store
+    nitro.options.alias ||= {}
+    nitro.options.alias["@vitehub/kv"] = resolveRuntimeEntry("../index", "@vitehub/kv")
 
-    configureCloudflareKV(options, resolved)
+    nitro.options.plugins ||= []
+    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/kv/runtime/nitro-plugin")
+    if (!nitro.options.plugins.includes(plugin)) {
+      nitro.options.plugins.push(plugin)
+    }
+
+    nitro.options.storage ||= {}
+    nitro.options.storage.kv = resolved.store as never
+
+    configureCloudflareKV(nitro.options, resolved)
     warnVercelKVFallback(nitro, resolved, hosting)
   },
 }
@@ -50,12 +54,12 @@ export default kvNitroModule
 
 declare module "nitro/types" {
   interface NitroOptions {
+    cloudflare?: { wrangler?: { kv_namespaces?: { binding: string, id: string }[] } }
     kv?: KVModuleOptions
-    cloudflare?: {
-      wrangler?: {
-        kv_namespaces?: Array<{ binding: string, id: string }>
-      }
-    }
+  }
+
+  interface NitroConfig {
+    kv?: KVModuleOptions
   }
 
   interface NitroRuntimeConfig {

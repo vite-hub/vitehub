@@ -1,12 +1,10 @@
-export function readEnv(
-  env: Record<string, string | undefined>,
-  ...keys: string[]
-) {
+export function readEnv(env: Record<string, string | undefined>, ...keys: string[]) {
   for (const key of keys) {
     const value = env[key]?.trim()
-    if (value) {
-      return value
-    }
+    if (value) return value
   }
-  return undefined
+}
+
+export function trimmed(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
