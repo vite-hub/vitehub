@@ -152,7 +152,7 @@ describe("Nitro module", () => {
       wrangler: {
         queues: {
           consumers: [{ queue: "welcome-email" }],
-          producers: [{ binding: "QUEUE_WELCOME_EMAIL", queue: "welcome-email" }],
+          producers: [{ binding: "QUEUE_77656C636F6D652D656D61696C", queue: "welcome-email" }],
         },
       },
     })

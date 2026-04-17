@@ -68,8 +68,9 @@ describe("normalizeQueueOptions", () => {
 
 describe("Cloudflare integration", () => {
   it("derives stable binding names", () => {
-    expect(getCloudflareQueueBindingName("welcome-email")).toBe("QUEUE_WELCOME_EMAIL")
-    expect(getCloudflareQueueBindingName("email/welcome")).toBe("QUEUE_EMAIL_WELCOME")
+    expect(getCloudflareQueueBindingName("welcome-email")).toBe("QUEUE_77656C636F6D652D656D61696C")
+    expect(getCloudflareQueueBindingName("email/welcome")).toBe("QUEUE_656D61696C2F77656C636F6D65")
+    expect(getCloudflareQueueBindingName("email_welcome")).toBe("QUEUE_656D61696C5F77656C636F6D65")
   })
 
   it("keeps valid queue names readable and encodes nested names", () => {
@@ -106,7 +107,7 @@ describe("Cloudflare integration", () => {
 
     expect(target.cloudflare!.wrangler!.queues).toEqual({
       consumers: [{ queue: "welcome-email" }],
-      producers: [{ binding: "QUEUE_WELCOME_EMAIL", queue: "welcome-email" }],
+      producers: [{ binding: "QUEUE_77656C636F6D652D656D61696C", queue: "welcome-email" }],
     })
   })
 
@@ -149,7 +150,7 @@ describe("Cloudflare integration", () => {
 
     expect(target.cloudflare!.wrangler!.queues).toEqual({
       consumers: [{ queue: "queue--656d61696c2f77656c636f6d65" }],
-      producers: [{ binding: "QUEUE_EMAIL_WELCOME", queue: "queue--656d61696c2f77656c636f6d65" }],
+      producers: [{ binding: "QUEUE_656D61696C2F77656C636F6D65", queue: "queue--656d61696c2f77656c636f6d65" }],
     })
   })
 })
@@ -157,7 +158,12 @@ describe("Cloudflare integration", () => {
 describe("Vercel integration", () => {
   it("keeps valid topic names readable and encodes nested names", () => {
     expect(getVercelQueueTopicName("welcome-email")).toBe("welcome-email")
-    expect(getVercelQueueTopicName("email/welcome")).toBe("queue_656d61696c2f77656c636f6d65")
+    expect(getVercelQueueTopicName("email/welcome")).toBe("queue__656d61696c2f77656c636f6d65")
+    expect(getVercelQueueTopicName("queue_656d61696c2f77656c636f6d65")).toBe("queue_656d61696c2f77656c636f6d65")
+  })
+
+  it("rejects user topic names matching the reserved encoded format", () => {
+    expect(() => getVercelQueueTopicName("queue__656d61696c2f77656c636f6d65")).toThrow("reserved by @vitehub/queue")
   })
 
   it("configures build output when Vercel is inferred from the Nitro preset", () => {

@@ -136,7 +136,7 @@ describe("Cloudflare provider", () => {
       context: {
         cloudflare: {
           env: {
-            QUEUE_WELCOME_EMAIL: { send: sendA, sendBatch },
+            QUEUE_77656C636F6D652D656D61696C: { send: sendA, sendBatch },
           },
         },
       },
@@ -145,7 +145,7 @@ describe("Cloudflare provider", () => {
       context: {
         cloudflare: {
           env: {
-            QUEUE_WELCOME_EMAIL: { send: sendB, sendBatch },
+            QUEUE_77656C636F6D652D656D61696C: { send: sendB, sendBatch },
           },
         },
       },

@@ -25,14 +25,8 @@ function decodeQueueName(name: string): string | undefined {
 }
 
 export function getCloudflareQueueBindingName(name: string): string {
-  const normalized = (name.match(/[a-z0-9]+/gi) || [])
-    .join("_")
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .toUpperCase()
-
-  return normalized ? `${defaultCloudflareQueueBindingPrefix}_${normalized}` : defaultCloudflareQueueBindingPrefix
+  const encoded = encodeQueueName(name).toUpperCase()
+  return encoded ? `${defaultCloudflareQueueBindingPrefix}_${encoded}` : defaultCloudflareQueueBindingPrefix
 }
 
 export function getCloudflareQueueName(name: string): string {
