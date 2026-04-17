@@ -1,0 +1,109 @@
+{
+  "label": "Queue",
+  "icon": "i-lucide-list-restart",
+  "order": 1,
+  "providers": [
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  queue: {\n    provider: 'cloudflare',\n  },"
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "configOverride": "  queue: {\n    provider: 'vercel',\n  },"
+    },
+    {
+      "id": "memory",
+      "label": "Memory",
+      "icon": "i-lucide-memory-stick",
+      "configOverride": "  queue: {\n    provider: 'memory',\n  },"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/welcome-email.queue.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/welcome-email.queue.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nitro": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/queues/welcome-email.ts",
+            "run": "server/api/queues/welcome.post.ts"
+          },
+          "excludedFiles": [
+            "server/api/tests/"
+          ],
+          "supplementalFiles": [
+            "server/api/queues/welcome-defer.post.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/queues/welcome-email.ts",
+            "run": "server/api/queues/welcome.post.ts"
+          },
+          "excludedFiles": [
+            "server/api/tests/"
+          ],
+          "supplementalFiles": [
+            "server/api/queues/welcome-defer.post.ts",
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nuxt": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nuxt.config.ts",
+            "define": "server/queues/welcome-email.ts",
+            "run": "server/api/queues/welcome.post.ts"
+          },
+          "supplementalFiles": [
+            "server/api/queues/welcome-defer.post.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nuxt.config.ts",
+            "define": "server/queues/welcome-email.ts",
+            "run": "server/api/queues/welcome.post.ts"
+          },
+          "supplementalFiles": [
+            "server/api/queues/welcome-defer.post.ts",
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}
