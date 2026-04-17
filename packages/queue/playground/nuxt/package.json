@@ -1,0 +1,13 @@
+{
+  "name": "playground-queue-nuxt",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build"
+  },
+  "dependencies": {
+    "@vitehub/queue": "workspace:*",
+    "nuxt": "catalog:"
+  }
+}
