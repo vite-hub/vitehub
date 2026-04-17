@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "vitehub-queue-nitro-playground",
+  "main": "./.output/server/index.mjs",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "queues": {
+    "producers": [
+      {
+        "binding": "QUEUE_WELCOME_EMAIL",
+        "queue": "welcome-email"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "welcome-email"
+      }
+    ]
+  }
+}
