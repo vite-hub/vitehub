@@ -17,6 +17,13 @@ Use this page to find package-specific Cloudflare guidance in ViteHub.
 - Setup overview: [KV overview](../kv)
 - Provider details: [KV on Cloudflare](../kv/providers/cloudflare)
 
+### Queue
+
+`@vitehub/queue` supports Cloudflare Queues through discovered queue definitions and Wrangler queue bindings.
+
+- Setup overview: [Queue overview](../queue)
+- Provider details: [Queue on Cloudflare](../queue/providers/cloudflare)
+
 ## What stays package-specific
 
-Bindings, namespace IDs, and exact config examples live with the package docs. Use this section as a routing page, not as the source of truth for package setup.
+Bindings, namespace IDs, queue names, and exact config examples live with the package docs. Use this section as a routing page, not as the source of truth for package setup.

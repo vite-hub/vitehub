@@ -1,13 +1,13 @@
 ---
 title: Getting started
-description: Set up your first ViteHub package and continue with the KV quickstart.
+description: Set up your first ViteHub package and continue with package quickstarts.
 navigation.title: Getting started
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](/docs/nuxt/kv), a Vite-first key-value package with Nitro and Nuxt runtime adapters.
+ViteHub currently ships [`@vitehub/kv`](/docs/nuxt/kv), a Vite-first key-value package with Nitro and Nuxt runtime adapters, and [`@vitehub/queue`](/docs/nuxt/queue), a discovered background job API for Cloudflare and Vercel queues.
 
-This page gives you the first framework-specific setup step, then points you to the KV docs where the full examples live.
+This page gives you the first framework-specific setup step, then points you to package docs where the full examples live.
 
 ## Start with KV
 
@@ -83,16 +83,30 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
   :::
   :::u-page-card
   ---
+  title: Queue overview
+  description: Understand discovered queue handlers and provider resolution.
+  to: /docs/nuxt/queue
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Queue quickstart
+  description: Define and enqueue a first queue job locally.
+  to: /docs/nuxt/queue/quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
   title: Cloudflare provider
-  description: Configure the Cloudflare KV path.
-  to: /docs/nuxt/kv/providers/cloudflare
+  description: Configure Cloudflare-backed package paths.
+  to: /docs/nuxt/providers/cloudflare
   ---
   :::
   :::u-page-card
   ---
   title: Vercel provider
-  description: Configure the Upstash-backed Vercel path.
-  to: /docs/nuxt/kv/providers/vercel
+  description: Configure Vercel-backed package paths.
+  to: /docs/nuxt/providers/vercel
   ---
   :::
 ::

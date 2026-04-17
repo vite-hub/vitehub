@@ -537,10 +537,11 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
 
           for (const page of pages) {
             for (const framework of page.frameworks) {
+              const source = filterFwBlocksForFramework(page.source, framework);
               generatedPages.push({
                 filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
                 contents: rewriteFrameworkDocLinks(
-                  filterFwBlocksForFramework(page.source, framework),
+                  source,
                   framework,
                   sectionId,
                   page.relativeFile,
@@ -581,10 +582,11 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
 
         for (const page of pages) {
           for (const framework of page.frameworks) {
+            const source = filterFwBlocksForFramework(page.source, framework);
             generatedPages.push({
               filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
               contents: rewriteFrameworkDocLinks(
-                filterFwBlocksForFramework(page.source, framework),
+                source,
                 framework,
                 sectionId,
                 page.relativeFile,
