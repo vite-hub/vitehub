@@ -4,6 +4,7 @@ import { relative, resolve } from "node:path"
 import type { DiscoveredQueueDefinition } from "./types.ts"
 
 const queueFilePattern = /\.(?:c|m)?[jt]s$/i
+const declarationFilePattern = /\.d\.(?:c|m)?ts$/i
 
 function listQueueFiles(root: string): string[] {
   if (!existsSync(root)) return []
@@ -14,7 +15,7 @@ function listQueueFiles(root: string): string[] {
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
       files.push(...listQueueFiles(absolute))
     }
-    else if (entry.isFile() && queueFilePattern.test(entry.name)) {
+    else if (entry.isFile() && queueFilePattern.test(entry.name) && !declarationFilePattern.test(entry.name)) {
       files.push(absolute)
     }
   }

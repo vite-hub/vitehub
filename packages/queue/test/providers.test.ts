@@ -101,6 +101,41 @@ describe("Cloudflare provider", () => {
     })
   })
 
+  it("resolves Cloudflare bindings from the provided event without reusing cached clients", async () => {
+    const sendA = vi.fn(async () => ({}))
+    const sendB = vi.fn(async () => ({}))
+    const sendBatch = vi.fn(async () => ({}))
+    setQueueRuntimeConfig({ provider: { provider: "cloudflare" } })
+    setQueueRuntimeRegistry({
+      "welcome-email": async () => ({ default: defineQueue(async () => undefined) }),
+    })
+
+    const queueA = await getQueue("welcome-email", {
+      context: {
+        cloudflare: {
+          env: {
+            QUEUE_WELCOME_EMAIL: { send: sendA, sendBatch },
+          },
+        },
+      },
+    })
+    const queueB = await getQueue("welcome-email", {
+      context: {
+        cloudflare: {
+          env: {
+            QUEUE_WELCOME_EMAIL: { send: sendB, sendBatch },
+          },
+        },
+      },
+    })
+
+    await queueA.send({ id: "a", payload: { id: "a" } })
+    await queueB.send({ id: "b", payload: { id: "b" } })
+
+    expect(sendA).toHaveBeenCalledWith({ id: "a" }, { contentType: undefined, delaySeconds: undefined })
+    expect(sendB).toHaveBeenCalledWith({ id: "b" }, { contentType: undefined, delaySeconds: undefined })
+  })
+
   it("acks successes and retries failures in batch handlers", async () => {
     const ack = vi.fn()
     const retry = vi.fn()

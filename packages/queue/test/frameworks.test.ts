@@ -4,6 +4,8 @@ import { join } from "node:path"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { discoverQueueDefinitions } from "../src/discovery.ts"
+
 interface NitroHarnessOptions {
   buildDir?: string
   handlers?: unknown[]
@@ -103,6 +105,16 @@ describe("hubQueue", () => {
 })
 
 describe("Nitro module", () => {
+  it("excludes declaration files from queue discovery", () => {
+    const { root } = createTempProject()
+    writeFileSync(join(root, "server", "queues", "ignored.d.ts"), "export interface Ignored {}\n", "utf8")
+    writeFileSync(join(root, "server", "queues", "also-ignored.d.mts"), "export interface Ignored {}\n", "utf8")
+
+    expect(discoverQueueDefinitions({ rootDir: root }).map(definition => definition.name)).toEqual(["welcome-email"])
+
+    rmSync(root, { force: true, recursive: true })
+  })
+
   it("wires runtime config, aliases, plugin, registry, handlers, and Cloudflare bindings", async () => {
     const { root } = createTempProject()
     const nitro = createNitroStub({
