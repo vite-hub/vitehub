@@ -124,6 +124,30 @@ describe("Cloudflare provider", () => {
     expect(ack).toHaveBeenCalledTimes(1)
     expect(retry).toHaveBeenCalledTimes(1)
   })
+
+  it("falls back to one worker when concurrency is NaN", async () => {
+    const ack = vi.fn()
+    const retry = vi.fn()
+    const onMessage = vi.fn()
+    const handler = createCloudflareQueueBatchHandler({
+      concurrency: Number.NaN,
+      onMessage,
+    })
+
+    await handler({
+      ackAll: vi.fn(),
+      messages: [
+        { ack, attempts: 1, body: "first", id: "m1", retry, timestamp: new Date() },
+        { ack, attempts: 1, body: "second", id: "m2", retry, timestamp: new Date() },
+      ],
+      queue: "jobs",
+      retryAll: vi.fn(),
+    })
+
+    expect(onMessage).toHaveBeenCalledTimes(2)
+    expect(ack).toHaveBeenCalledTimes(2)
+    expect(retry).not.toHaveBeenCalled()
+  })
 })
 
 describe("Vercel provider", () => {

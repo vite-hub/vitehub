@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import { normalizeQueueOptions } from "../src/config.ts"
-import { configureCloudflareQueues, getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
+import {
+  configureCloudflareQueues,
+  getCloudflareQueueBindingName,
+  getCloudflareQueueDefinitionName,
+  getCloudflareQueueName,
+} from "../src/integrations/cloudflare.ts"
 import { shouldConfigureVercelQueueBuildOutput } from "../src/integrations/vercel.ts"
 import { getVercelQueueTopicName } from "../src/integrations/vercel-topic.ts"
 
@@ -67,6 +72,12 @@ describe("Cloudflare integration", () => {
     expect(getCloudflareQueueBindingName("email/welcome")).toBe("QUEUE_EMAIL_WELCOME")
   })
 
+  it("keeps valid queue names readable and encodes nested names", () => {
+    expect(getCloudflareQueueName("welcome-email")).toBe("welcome-email")
+    expect(getCloudflareQueueName("email/welcome")).toBe("queue-656d61696c2f77656c636f6d65")
+    expect(getCloudflareQueueDefinitionName("queue-656d61696c2f77656c636f6d65")).toBe("email/welcome")
+  })
+
   it("registers queue producers and consumers only once", () => {
     const target: {
       cloudflare?: {
@@ -116,6 +127,27 @@ describe("Cloudflare integration", () => {
         { binding: "QUEUE", queue: "email" },
         { binding: "QUEUE", queue: "report" },
       ],
+    })
+  })
+
+  it("writes Cloudflare-safe queue names for nested definitions", () => {
+    const target: {
+      cloudflare?: {
+        wrangler?: {
+          queues?: {
+            consumers?: Array<Record<string, unknown>>
+            producers?: Array<Record<string, unknown>>
+          }
+        }
+      }
+    } = {}
+    const definitions = [{ handler: "/server/queues/email/welcome.ts", name: "email/welcome" }]
+
+    configureCloudflareQueues(target, definitions, { provider: "cloudflare" })
+
+    expect(target.cloudflare!.wrangler!.queues).toEqual({
+      consumers: [{ queue: "queue-656d61696c2f77656c636f6d65" }],
+      producers: [{ binding: "QUEUE_EMAIL_WELCOME", queue: "queue-656d61696c2f77656c636f6d65" }],
     })
   })
 })

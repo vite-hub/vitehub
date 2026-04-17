@@ -59,7 +59,10 @@ function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: 
 export function createCloudflareQueueBatchHandler<TPayload = unknown>(
   options: CloudflareQueueBatchHandlerOptions<TPayload>,
 ): (batch: CloudflareQueueMessageBatch<TPayload>) => Promise<void> {
-  const concurrency = Math.max(1, Number(options.concurrency ?? 1))
+  const requestedConcurrency = Number(options.concurrency ?? 1)
+  const concurrency = Number.isFinite(requestedConcurrency) && requestedConcurrency > 0
+    ? Math.floor(requestedConcurrency)
+    : 1
 
   return async (batch) => {
     const messages = Array.isArray(batch?.messages) ? batch.messages : []

@@ -1,5 +1,6 @@
 import { defineNitroPlugin, useRuntimeConfig } from "nitro/runtime"
 
+import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { createCloudflareQueueBatchHandler } from "../providers/cloudflare.ts"
 import {
   loadQueueDefinition,
@@ -59,7 +60,7 @@ const queueNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin
     const name = batch?.queue
     if (!batch || typeof name !== "string") return
 
-    const definition = await loadQueueDefinition(name)
+    const definition = await loadQueueDefinition(getCloudflareQueueDefinitionName(name))
     if (!definition) return
 
     const handler = createCloudflareQueueBatchHandler({
