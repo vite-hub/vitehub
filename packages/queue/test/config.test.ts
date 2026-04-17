@@ -210,6 +210,17 @@ describe("Vercel integration", () => {
     expect(shouldConfigureVercelQueueBuildOutput(nitro as never, undefined)).toBe(true)
   })
 
+  it("configures build output when Vercel is inferred from a Vercel-like Nitro preset", () => {
+    const nitro = {
+      options: {
+        dev: false,
+        preset: "vercel-edge",
+      },
+    }
+
+    expect(shouldConfigureVercelQueueBuildOutput(nitro as never, undefined)).toBe(true)
+  })
+
   it("skips build output outside Vercel", () => {
     const nitro = {
       options: {
