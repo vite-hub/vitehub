@@ -21,7 +21,7 @@ function resolveProvider(
   if (provider.provider === "vercel") return { ...provider, provider: "vercel" }
   if (provider.provider === "memory") return { ...provider, provider: "memory" }
   const unknownProvider = (provider as { provider?: unknown }).provider
-  if (unknownProvider) {
+  if (typeof unknownProvider !== "undefined") {
     throw new TypeError(`Unknown \`queue.provider\`: ${JSON.stringify(unknownProvider)}. Expected "cloudflare", "vercel", or "memory".`)
   }
 

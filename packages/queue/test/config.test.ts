@@ -53,6 +53,12 @@ describe("normalizeQueueOptions", () => {
   it("rejects non-object config", () => {
     expect(() => normalizeQueueOptions(true as never)).toThrow("`queue` must be a plain object.")
   })
+
+  it("rejects invalid provider values even when they are falsy", () => {
+    for (const provider of ["", 0, false, null]) {
+      expect(() => normalizeQueueOptions({ provider } as never)).toThrow("Unknown `queue.provider`")
+    }
+  })
 })
 
 describe("Cloudflare integration", () => {
@@ -81,6 +87,35 @@ describe("Cloudflare integration", () => {
     expect(target.cloudflare!.wrangler!.queues).toEqual({
       consumers: [{ queue: "welcome-email" }],
       producers: [{ binding: "QUEUE_WELCOME_EMAIL", queue: "welcome-email" }],
+    })
+  })
+
+  it("deduplicates explicit producers by queue name", () => {
+    const target: {
+      cloudflare?: {
+        wrangler?: {
+          queues?: {
+            consumers?: Array<Record<string, unknown>>
+            producers?: Array<Record<string, unknown>>
+          }
+        }
+      }
+    } = {}
+    const definitions = [
+      { handler: "/server/queues/email.ts", name: "email" },
+      { handler: "/server/queues/report.ts", name: "report" },
+    ]
+    const provider = { binding: "QUEUE", provider: "cloudflare" as const }
+
+    configureCloudflareQueues(target, definitions, provider)
+    configureCloudflareQueues(target, definitions, provider)
+
+    expect(target.cloudflare!.wrangler!.queues).toEqual({
+      consumers: [{ queue: "email" }, { queue: "report" }],
+      producers: [
+        { binding: "QUEUE", queue: "email" },
+        { binding: "QUEUE", queue: "report" },
+      ],
     })
   })
 })
