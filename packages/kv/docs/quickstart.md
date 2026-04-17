@@ -11,7 +11,7 @@ This quickstart uses the local filesystem driver so you can get KV working local
 ## Configure KV
 
 ::fw{id="vite:dev vite:build"}
-The Vite entrypoint registers the KV bridge for ViteHub environments. Runtime reads and writes currently require Nitro or Nuxt.
+The Vite plugin is the KV config primitive. Nitro and Nuxt build on this same resolver for runtime storage.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -56,7 +56,7 @@ export default defineNuxtConfig({
 ## Write and read a value
 
 ::fw{id="vite:dev vite:build"}
-Use the Nitro or Nuxt setup when you need the runtime `kv` handle. Plain Vite processes do not mount Nitro storage by themselves.
+Use the Nitro or Nuxt setup when you need the runtime `kv` handle. The Vite plugin resolves and exposes KV config for Vite environments.
 ::
 
 ::fw{id="nitro:dev nitro:build nuxt:dev nuxt:build"}

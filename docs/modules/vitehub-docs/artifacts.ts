@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, posix as pathPosix, relative, resolve } from "node:path";
 
 const frameworkIds = ["vite", "nitro", "nuxt"] as const;
 const usageModes = ["dev", "build"] as const;
@@ -165,6 +165,58 @@ export function filterFwBlocksForFramework(source: string, framework: Framework)
   }
 
   return output.join("\n");
+}
+
+function splitLinkTarget(target: string) {
+  const suffixIndex = target.search(/[?#]/);
+
+  return suffixIndex === -1
+    ? { path: target, suffix: "" }
+    : { path: target.slice(0, suffixIndex), suffix: target.slice(suffixIndex) };
+}
+
+function resolveFrameworkDocLink(framework: Framework, sectionId: string, relativeFile: string, target: string) {
+  if (
+    !target
+    || target.startsWith("/")
+    || target.startsWith("#")
+    || /^[a-z][a-z0-9+.-]*:/i.test(target)
+  ) {
+    return target;
+  }
+
+  const { path, suffix } = splitLinkTarget(target);
+  if (!path.startsWith("./") && !path.startsWith("../")) {
+    return target;
+  }
+
+  const sourceRouteFile = pathPosix.join(sectionId, relativeFile);
+  const targetRouteFile = pathPosix.normalize(pathPosix.join(pathPosix.dirname(sourceRouteFile), path));
+  let pageId = targetRouteFile.replace(/\.md$/, "");
+
+  if (pageId === "." || pageId === "index") {
+    return `/docs/${framework}${suffix}`;
+  }
+
+  if (pageId.endsWith("/index")) {
+    pageId = pageId.slice(0, -"/index".length);
+  }
+
+  return `/docs/${framework}/${pageId}${suffix}`;
+}
+
+export function rewriteFrameworkDocLinks(source: string, framework: Framework, sectionId: string, relativeFile: string) {
+  return source
+    .replace(/(!?\[[^\]\n]+\]\()([^)]+)(\))/g, (match: string, prefix: string, target: string, suffix: string) => {
+      if (prefix.startsWith("![")) {
+        return match;
+      }
+
+      return `${prefix}${resolveFrameworkDocLink(framework, sectionId, relativeFile, target)}${suffix}`;
+    })
+    .replace(/^(\s*to:\s*)(["']?)([^'"\n]+)\2\s*$/gm, (_match: string, prefix: string, quote: string, target: string) => {
+      return `${prefix}${quote}${resolveFrameworkDocLink(framework, sectionId, relativeFile, target)}${quote}`;
+    });
 }
 
 function getPhasePriority(modeConfig: { phases: Partial<Record<typeof phaseOrder[number], string>>; supplementalFiles?: string[] }, path: string) {
@@ -487,7 +539,12 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
             for (const framework of page.frameworks) {
               generatedPages.push({
                 filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
-                contents: filterFwBlocksForFramework(page.source, framework),
+                contents: rewriteFrameworkDocLinks(
+                  filterFwBlocksForFramework(page.source, framework),
+                  framework,
+                  sectionId,
+                  page.relativeFile,
+                ),
               });
             }
           }
@@ -526,7 +583,12 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
           for (const framework of page.frameworks) {
             generatedPages.push({
               filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
-              contents: filterFwBlocksForFramework(page.source, framework),
+              contents: rewriteFrameworkDocLinks(
+                filterFwBlocksForFramework(page.source, framework),
+                framework,
+                sectionId,
+                page.relativeFile,
+              ),
             });
           }
         }

@@ -5,7 +5,7 @@ navigation.title: Getting started
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](/docs/nuxt/kv), a Nitro-backed key-value API with Nitro and Nuxt runtime usage plus a Vite bridge entrypoint.
+ViteHub currently ships [`@vitehub/kv`](/docs/nuxt/kv), a Vite-first key-value package with Nitro and Nuxt runtime adapters.
 
 This page gives you the first framework-specific setup step, then points you to the KV docs where the full examples live.
 
@@ -19,7 +19,7 @@ pnpm add @vitehub/kv
 
 ::fw{id="vite:dev vite:build"}
 
-Then register the Vite bridge plugin:
+Then register the Vite plugin:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'

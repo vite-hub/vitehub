@@ -12,7 +12,25 @@ icon: i-lucide-braces
 | --- | --- |
 | `kv` | The active key-value storage handle. |
 
-The `kv` handle is mounted by the Nitro runtime plugin. Nuxt uses that Nitro path under the hood. The Vite entrypoint registers bridge config only and does not mount storage in a plain Vite process.
+The Vite plugin resolves KV config and exposes it to Vite environments. The `kv` handle is mounted by the Nitro runtime adapter; Nuxt uses that Nitro path under the hood.
+
+## Vite virtual config
+
+Vite code can import the resolved setup config from `virtual:@vitehub/kv/config`.
+
+```ts
+import config, { hosting, kv } from 'virtual:@vitehub/kv/config'
+```
+
+If TypeScript cannot find the virtual module, add the package's ambient type entry to your app config.
+
+```json [tsconfig.json]
+{
+  "compilerOptions": {
+    "types": ["@vitehub/kv/virtual"]
+  }
+}
+```
 
 ## Common methods
 

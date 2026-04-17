@@ -115,6 +115,29 @@ describe("kv runtime", () => {
     })
   })
 
+  it("accepts legacy Upstash runtime env var aliases", async () => {
+    process.env.UPSTASH_REDIS_REST_URL = "https://legacy-upstash.example.com"
+    process.env.UPSTASH_REDIS_REST_TOKEN = "legacy-upstash-token"
+    runtimeState.config = {
+      kv: {
+        store: {
+          driver: "upstash",
+          token: "************",
+          url: "************",
+        },
+      },
+    }
+
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
+    await plugin()
+
+    expect(mountedDrivers.upstash).toMatchObject({
+      driver: "upstash",
+      token: "legacy-upstash-token",
+      url: "https://legacy-upstash.example.com",
+    })
+  })
+
   it("fails clearly when masked Upstash values have no runtime env vars", async () => {
     runtimeState.config = {
       kv: {

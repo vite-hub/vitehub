@@ -2,6 +2,13 @@ import { defineConfig } from "tsdown"
 
 export default defineConfig({
   clean: true,
+  deps: {
+    onlyBundle: false,
+    skipNodeModulesBundle: true,
+  },
+  copy: [
+    { from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" },
+  ],
   dts: true,
   entry: [
     "src/index.ts",
@@ -9,6 +16,7 @@ export default defineConfig({
     "src/nitro.ts",
     "src/nuxt.ts",
     "src/runtime/nitro-plugin.ts",
+    "src/virtual.ts",
   ],
   exports: {
     inlinedDependencies: false,

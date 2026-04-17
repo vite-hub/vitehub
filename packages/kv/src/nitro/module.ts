@@ -1,8 +1,9 @@
 import { resolveModulePath } from "exsolve"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
-import { normalizeKVOptions, warnVercelKVFallback } from "../config.ts"
+import { warnVercelKVFallback } from "../config.ts"
 import { configureCloudflareKV } from "../integrations/cloudflare.ts"
+import { resolveKVViteConfig } from "../vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "../types.ts"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
@@ -20,18 +21,18 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
 const kvNitroModule: NitroModule = {
   name: "@vitehub/kv",
   setup(nitro) {
-    const hosting = (nitro.options.preset || process.env.NITRO_PRESET || "").trim() || undefined
-    const resolved = normalizeKVOptions(nitro.options.kv, { env: process.env, hosting })
+    const viteConfig = resolveKVViteConfig(nitro.options.kv, {
+      env: process.env,
+      hosting: nitro.options.preset,
+    })
+    const { hosting } = viteConfig
 
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
-    if (hosting) {
-      runtimeConfig.hosting ||= hosting
-    }
-    runtimeConfig.kv = resolved ?? false
+    if (hosting) runtimeConfig.hosting ||= hosting
+    runtimeConfig.kv = viteConfig.kv
 
-    if (!resolved) {
-      return
-    }
+    if (!viteConfig.kv) return
+    const resolved = viteConfig.kv
 
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/kv"] = resolveRuntimeEntry("../index", "@vitehub/kv")
