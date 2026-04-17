@@ -68,6 +68,22 @@ describe("memory provider", () => {
     expect(handled).toHaveBeenCalledWith("ava@example.com")
   })
 
+  it("does not retain auto-dispatched memory jobs", async () => {
+    setQueueRuntimeConfig({ provider: { provider: "memory" } })
+    setQueueRuntimeRegistry({
+      "welcome-email": async () => ({ default: defineQueue(async () => undefined) }),
+    })
+
+    await runQueue("welcome-email", { id: "welcome-ava", payload: { email: "ava@example.com" } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    const queue = await getQueue("welcome-email")
+    expect(queue.provider).toBe("memory")
+    if (queue.provider !== "memory") throw new Error("expected memory")
+    expect(queue.size()).toBe(0)
+    await expect(queue.drain(() => undefined)).resolves.toBe(0)
+  })
+
   it("respects provider-level cache disablement", async () => {
     setQueueRuntimeConfig({ provider: { cache: false, provider: "memory" } })
     setQueueRuntimeRegistry({

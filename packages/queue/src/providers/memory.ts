@@ -39,6 +39,11 @@ export function createMemoryQueueClient(provider: MemoryQueueProviderOptions = {
     },
     size: () => store.messages.length,
     peek: (limit = 10) => store.messages.slice(0, Math.max(0, limit)),
+    consume(messageId) {
+      const index = store.messages.findIndex(item => item.messageId === messageId)
+      if (index === -1) return
+      return store.messages.splice(index, 1)[0]
+    },
     async drain(handler) {
       let count = 0
       while (store.messages.length) {

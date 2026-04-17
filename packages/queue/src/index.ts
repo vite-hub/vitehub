@@ -248,6 +248,7 @@ export async function runQueue<TPayload = unknown>(
   })
 
   if (queue.provider === "memory") {
+    queue.consume(normalized.id)
     Promise.resolve().then(() => definition.handler(createQueueJob(normalized)))
       .catch((error) => {
         console.error(`[vitehub] Memory queue handler failed for "${name}"`, error)

@@ -253,6 +253,7 @@ export interface QueueClientBase<P extends QueueProvider = QueueProvider> {
 }
 
 export interface MemoryQueueClient extends QueueClientBase<"memory"> {
+  consume: (messageId: string) => MemoryQueueStoreItem | undefined
   drain: (handler: (payload: unknown, meta: { enqueuedAt: Date, messageId: string }) => unknown | Promise<unknown>) => Promise<number>
   peek: (limit?: number) => MemoryQueueStoreItem[]
   sendBatch: (items: Array<{ id?: string, payload: unknown }>) => Promise<QueueSendResult[]>
