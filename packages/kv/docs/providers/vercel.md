@@ -62,6 +62,13 @@ KV_REST_API_URL=https://example.upstash.io
 KV_REST_API_TOKEN=<upstash-rest-token>
 ```
 
+It also accepts the Upstash REST aliases:
+
+```bash
+UPSTASH_REDIS_REST_URL=https://example.upstash.io
+UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>
+```
+
 ## Related
 
 - [Overview](../index)

@@ -1,39 +1,25 @@
-import { normalizeKVOptions } from "./config.ts"
-import { readEnv, trimmed } from "./internal/env.ts"
+import kvNitroModule from "./nitro/module.ts"
+import {
+  KV_VIRTUAL_CONFIG_ID,
+  KV_VITE_PLUGIN_NAME,
+  resolveKVViteConfig,
+} from "./vite-config.ts"
 
-import type { KVResolutionInput } from "./config.ts"
-import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
+import type { KVViteRuntimeConfig } from "./vite-config.ts"
+import type { KVModuleOptions } from "./types.ts"
+import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
 
-export const KV_VITE_PLUGIN_NAME = "@vitehub/kv/vite"
-export const KV_VIRTUAL_CONFIG_ID = "virtual:@vitehub/kv/config"
 const RESOLVED_KV_VIRTUAL_CONFIG_ID = `\0${KV_VIRTUAL_CONFIG_ID}`
 
-export interface KVViteRuntimeConfig {
-  hosting?: string
-  kv: false | ResolvedKVModuleOptions
-}
+export { KV_VIRTUAL_CONFIG_ID, KV_VITE_PLUGIN_NAME, resolveKVViteConfig }
+export type { KVViteRuntimeConfig } from "./vite-config.ts"
 
 export interface KVVitePluginAPI {
   getConfig: () => KVViteRuntimeConfig
 }
 
-export type KVVitePlugin = Plugin & { api: KVVitePluginAPI }
-
-function resolveHosting(input: KVResolutionInput): string | undefined {
-  const env = input.env || process.env
-  return trimmed(input.hosting) ?? readEnv(env, "NITRO_PRESET", "VITEHUB_HOSTING")
-}
-
-export function resolveKVViteConfig(
-  kv: KVModuleOptions | undefined,
-  input: KVResolutionInput = {},
-): KVViteRuntimeConfig {
-  const env = input.env || process.env
-  const hosting = resolveHosting(input)
-  const resolved = normalizeKVOptions(kv, { env, hosting })
-  return { hosting, kv: resolved ?? false }
-}
+export type KVVitePlugin = Plugin & { api: KVVitePluginAPI, nitro: NitroModule }
 
 function serializeVirtualConfig(config: KVViteRuntimeConfig): string {
   return [
@@ -50,6 +36,7 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
   return {
     name: KV_VITE_PLUGIN_NAME,
     api: { getConfig },
+    nitro: kvNitroModule,
     configResolved(config) {
       runtimeConfig = resolveKVViteConfig(config.kv ?? options)
     },

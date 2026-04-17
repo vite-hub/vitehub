@@ -3,7 +3,7 @@ import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { warnVercelKVFallback } from "../config.ts"
 import { configureCloudflareKV } from "../integrations/cloudflare.ts"
-import { hubKv, KV_VITE_PLUGIN_NAME, resolveKVViteConfig } from "../vite.ts"
+import { resolveKVViteConfig } from "../vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "../types.ts"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
@@ -31,15 +31,6 @@ const kvNitroModule: NitroModule = {
     if (hosting) runtimeConfig.hosting ||= hosting
     runtimeConfig.kv = viteConfig.kv
 
-    nitro.options.vite ||= {}
-    nitro.options.vite.plugins ||= []
-    const hasKVVitePlugin = nitro.options.vite.plugins.some(plugin =>
-      typeof plugin === "object" && plugin !== null && "name" in plugin && plugin.name === KV_VITE_PLUGIN_NAME,
-    )
-    if (!hasKVVitePlugin) {
-      nitro.options.vite.plugins.push(hubKv(nitro.options.kv))
-    }
-
     if (!viteConfig.kv) return
     const resolved = viteConfig.kv
 
@@ -66,7 +57,6 @@ declare module "nitro/types" {
   interface NitroOptions {
     cloudflare?: { wrangler?: { kv_namespaces?: { binding: string, id: string }[] } }
     kv?: KVModuleOptions
-    vite?: { plugins?: unknown[] }
   }
 
   interface NitroConfig {

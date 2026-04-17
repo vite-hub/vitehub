@@ -4,7 +4,6 @@ interface NitroHarnessOptions {
   imports?: boolean
   kv?: unknown
   modules?: string[]
-  vite?: { plugins?: unknown[] }
 }
 
 interface NuxtHarnessOptions {
@@ -32,7 +31,6 @@ interface NitroStub {
     cloudflare?: unknown
     kv?: unknown
     preset?: string
-    vite?: { plugins?: unknown[] }
   }
 }
 
@@ -103,6 +101,7 @@ describe("hubKv", () => {
     const { hubKv } = await import("../src/vite.ts")
     const plugin = hubKv({ driver: "fs-lite", base: ".cache/kv" })
 
+    expect(plugin.nitro.name).toBe("@vitehub/kv")
     expect(plugin.api.getConfig()).toEqual({
       kv: {
         store: {
@@ -180,10 +179,6 @@ describe("Nitro module", () => {
     })
     expect(nitro.options.alias["@vitehub/kv"]).toContain("/packages/kv/src/index.ts")
     expect(nitro.options.plugins).toHaveLength(1)
-    expect(nitro.options.vite?.plugins).toHaveLength(1)
-    expect(nitro.options.vite?.plugins?.[0]).toMatchObject({
-      name: "@vitehub/kv/vite",
-    })
     expect(nitro.options.cloudflare).toMatchObject({
       wrangler: {
         kv_namespaces: [{

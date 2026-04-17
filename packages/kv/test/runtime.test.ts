@@ -61,6 +61,8 @@ describe("kv runtime", () => {
   afterEach(() => {
     delete process.env.KV_REST_API_URL
     delete process.env.KV_REST_API_TOKEN
+    delete process.env.UPSTASH_REDIS_REST_URL
+    delete process.env.UPSTASH_REDIS_REST_TOKEN
   })
 
   it("mounts fs-lite storage when the local fallback is active", async () => {
@@ -110,6 +112,29 @@ describe("kv runtime", () => {
       driver: "upstash",
       token: "upstash-token",
       url: "https://upstash.example.com",
+    })
+  })
+
+  it("accepts legacy Upstash runtime env var aliases", async () => {
+    process.env.UPSTASH_REDIS_REST_URL = "https://legacy-upstash.example.com"
+    process.env.UPSTASH_REDIS_REST_TOKEN = "legacy-upstash-token"
+    runtimeState.config = {
+      kv: {
+        store: {
+          driver: "upstash",
+          token: "************",
+          url: "************",
+        },
+      },
+    }
+
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
+    await plugin()
+
+    expect(mountedDrivers.upstash).toMatchObject({
+      driver: "upstash",
+      token: "legacy-upstash-token",
+      url: "https://legacy-upstash.example.com",
     })
   })
 
