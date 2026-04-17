@@ -1,0 +1,13 @@
+{
+  "name": "playground-kv-nuxt",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxi dev",
+    "build": "nuxi build"
+  },
+  "dependencies": {
+    "@vitehub/kv": "workspace:*",
+    "nuxt": "catalog:"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "playground-kv-nitro",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nitro dev",
+    "build": "nitro build"
+  },
+  "dependencies": {
+    "@vitehub/kv": "workspace:*",
+    "nitro": "catalog:"
+  }
+}

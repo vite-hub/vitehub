@@ -1,0 +1,7 @@
+{
+  "name": "vitehub-playground-vite",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "server/index.mjs",
+  "kv_namespaces": [{ "binding": "KV", "id": "$KV_NAMESPACE_ID" }]
+}
