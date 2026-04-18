@@ -88,6 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         provider: [cloudflare, vercel]
         framework: [nitro, nuxt, vite]
@@ -132,32 +133,44 @@ jobs:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
         run: |
           cd packages/$VITEHUB_PACKAGE/playground/${{ matrix.framework }}
+          TARGET_DIR=""
+          TARGET_CONFIG=""
           if [ "$VITEHUB_PACKAGE" = "kv" ]; then
             APP_NAME=${{ matrix.framework }} envsubst < ../_shared/wrangler.template.jsonc > .output/wrangler.json
+            TARGET_DIR=".output"
+            TARGET_CONFIG="wrangler.json"
           else
-            TARGET=""
             if [ -f .output/server/wrangler.json ]; then
-              TARGET=".output/server/wrangler.json"
+              TARGET_DIR=".output/server"
+              TARGET_CONFIG="wrangler.json"
             elif [ -f .output/server/wrangler.jsonc ]; then
-              TARGET=".output/server/wrangler.jsonc"
+              TARGET_DIR=".output/server"
+              TARGET_CONFIG="wrangler.jsonc"
             elif [ -f .output/wrangler.json ]; then
-              TARGET=".output/wrangler.json"
+              TARGET_DIR=".output"
+              TARGET_CONFIG="wrangler.json"
             elif [ -f .output/wrangler.jsonc ]; then
-              TARGET=".output/wrangler.jsonc"
-            fi
-
-            if [ -n "$TARGET" ]; then
-              case "$TARGET" in
-                *.json)
-                  node -e "const fs=require('node:fs');const p=process.argv[1];const c=JSON.parse(fs.readFileSync(p,'utf8'));c.name='vitehub-sandbox-playground-${{ matrix.framework }}';fs.writeFileSync(p, JSON.stringify(c, null, 2))" "$TARGET"
-                  ;;
-                *.jsonc)
-                  perl -0pi -e 's/"name"\s*:\s*"[^"]+"/"name": "vitehub-sandbox-playground-${{ matrix.framework }}"/' "$TARGET"
-                  ;;
-              esac
+              TARGET_DIR=".output"
+              TARGET_CONFIG="wrangler.jsonc"
             fi
           fi
-          npx wrangler --cwd .output/ deploy
+
+          if [ -z "$TARGET_DIR" ] || [ -z "$TARGET_CONFIG" ]; then
+            echo "Unable to locate generated Wrangler config for $VITEHUB_PACKAGE/${{ matrix.framework }}" >&2
+            exit 1
+          fi
+
+          TARGET="$TARGET_DIR/$TARGET_CONFIG"
+          case "$TARGET" in
+            *.json)
+              node -e "const fs=require('node:fs');const p=process.argv[1];const c=JSON.parse(fs.readFileSync(p,'utf8'));c.name='vitehub-sandbox-playground-${{ matrix.framework }}';fs.writeFileSync(p, JSON.stringify(c, null, 2))" "$TARGET"
+              ;;
+            *.jsonc)
+              perl -0pi -e 's/"name"\s*:\s*"[^"]+"/"name": "vitehub-sandbox-playground-${{ matrix.framework }}"/' "$TARGET"
+              ;;
+          esac
+
+          npx wrangler --cwd "$TARGET_DIR" deploy --config "$TARGET_CONFIG"
 
       - name: Deploy Vercel
         if: ${{ matrix.provider == 'vercel' && (github.event_name != 'workflow_dispatch' || ((inputs.provider == 'all' || inputs.provider == matrix.provider) && (inputs.framework == 'all' || inputs.framework == matrix.framework))) }}

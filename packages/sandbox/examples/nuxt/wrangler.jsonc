@@ -9,30 +9,6 @@
     "directory": ".output/public",
     "binding": "ASSETS"
   },
-  "containers": [
-    {
-      "class_name": "Sandbox",
-      "image": "./.output/server/Dockerfile",
-      "instance_type": "lite",
-      "max_instances": 12
-    }
-  ],
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "SANDBOX",
-        "class_name": "Sandbox"
-      }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "Sandbox"
-      ]
-    }
-  ],
   "no_bundle": true,
   "rules": [
     {
