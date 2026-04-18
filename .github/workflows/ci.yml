@@ -6,6 +6,12 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      run-live-e2e:
+        description: Deploy playgrounds and run live e2e
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -45,7 +51,7 @@ jobs:
 
   deploy:
     needs: quality
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || inputs.run-live-e2e
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -96,7 +102,7 @@ jobs:
 
   e2e-live:
     needs: deploy
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || inputs.run-live-e2e
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
