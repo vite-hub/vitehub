@@ -85,8 +85,8 @@ export function applyRuntimeConfig<TConfig>(runtimeConfig: Record<string, unknow
 export async function readWorkspaceDeps(rootDir: string) {
   const packageJson = await readPackageJSON(rootDir)
   return {
-    ...(packageJson.dependencies ?? {}),
-    ...(packageJson.devDependencies ?? {}),
+    ...packageJson.dependencies,
+    ...packageJson.devDependencies,
   }
 }
 

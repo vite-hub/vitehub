@@ -9,6 +9,7 @@ const DEFAULT_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 60_000
 const MAX_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 120_000
 const EXEC_OUTPUT_RECOVERY_POLL_MS = 1_000
 const EXEC_STDIO_OUTPUT_MARKER = '__VITEHUB_OUTPUT__'
+const EXEC_OUTPUT_PREVIEW_LENGTH = 500
 const CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE = /network connection lost|durable object reset|code was updated|container is starting|currently provisioning|retry in a moment|aborterror|aborted|maximum number of running container instances exceeded|there is no container instance that can be provided to this durable object/i
 const DEFAULT_DEFINITION_ENTRY = 'definition.js'
 
@@ -211,7 +212,7 @@ function previewExecutionStream(stream?: string) {
   if (!stream)
     return undefined
 
-  return stream.slice(0, 500)
+  return stream.slice(0, EXEC_OUTPUT_PREVIEW_LENGTH)
 }
 
 function getExecutionDiagnostics(execution?: { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }) {
@@ -262,6 +263,57 @@ function isRecoverableCloudflareExecError(error: unknown) {
   return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(messages)
 }
 
+function createExecOutputFailure(
+  sandbox: SandboxClient,
+  outputPath: string,
+  error: unknown,
+  recoveryTimeout: number,
+  execution?: { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> },
+  details?: Record<string, unknown>,
+) {
+  return createHandlerError('Sandbox definition execution failed before producing an output file.', sandbox.provider, {
+    outputPath,
+    cause: getErrorMessage(error),
+    recoveryTimeout,
+    ...details,
+    ...getErrorDiagnostics(error),
+    ...getExecutionDiagnostics(execution),
+  })
+}
+
+async function waitForExecOutput(
+  sandbox: SandboxClient,
+  outputPath: string,
+  error: unknown,
+  timeout: number | undefined,
+  execution: { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> } | undefined,
+  shouldAccept: (output: string) => boolean,
+) {
+  const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
+  const deadline = Date.now() + recoveryTimeout
+  let lastError: unknown = error
+  let lastOutput = ''
+
+  while (Date.now() < deadline) {
+    try {
+      const output = await sandbox.readFile(outputPath)
+      lastOutput = output
+      if (shouldAccept(output))
+        return output
+    }
+    catch (readError) {
+      lastError = readError
+    }
+
+    await sleep(EXEC_OUTPUT_RECOVERY_POLL_MS)
+  }
+
+  throw createExecOutputFailure(sandbox, outputPath, error, recoveryTimeout, execution, {
+    lastReadError: getErrorMessage(lastError),
+    outputPreview: lastOutput.slice(0, EXEC_OUTPUT_PREVIEW_LENGTH) || undefined,
+  })
+}
+
 async function recoverExecOutput(
   sandbox: SandboxClient,
   outputPath: string,
@@ -272,28 +324,7 @@ async function recoverExecOutput(
   if (sandbox.provider !== 'cloudflare' || !isRecoverableCloudflareExecError(error))
     return null
 
-  const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
-  const deadline = Date.now() + recoveryTimeout
-  let lastError: unknown
-
-  while (Date.now() < deadline) {
-    try {
-      return await sandbox.readFile(outputPath)
-    }
-    catch (readError) {
-      lastError = readError
-      await sleep(EXEC_OUTPUT_RECOVERY_POLL_MS)
-    }
-  }
-
-  throw createHandlerError('Sandbox definition execution failed before producing an output file.', sandbox.provider, {
-    outputPath,
-    cause: getErrorMessage(error),
-    lastReadError: getErrorMessage(lastError),
-    recoveryTimeout,
-    ...getErrorDiagnostics(error),
-    ...getExecutionDiagnostics(execution),
-  })
+  return await waitForExecOutput(sandbox, outputPath, error, timeout, execution, () => true)
 }
 
 async function waitForCloudflareOutput(
@@ -306,34 +337,14 @@ async function waitForCloudflareOutput(
   if (sandbox.provider !== 'cloudflare')
     throw error
 
-  const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
-  const deadline = Date.now() + recoveryTimeout
-  let lastError: unknown = error
-  let lastOutput = ''
-
-  while (Date.now() < deadline) {
-    try {
-      const output = await sandbox.readFile(outputPath)
-      if (tryParseSandboxOutput(output))
-        return output
-      lastOutput = output
-    }
-    catch (readError) {
-      lastError = readError
-    }
-
-    await sleep(EXEC_OUTPUT_RECOVERY_POLL_MS)
-  }
-
-  throw createHandlerError('Sandbox definition execution failed before producing an output file.', sandbox.provider, {
+  return await waitForExecOutput(
+    sandbox,
     outputPath,
-    cause: getErrorMessage(error),
-    lastReadError: getErrorMessage(lastError),
-    recoveryTimeout,
-    outputPreview: lastOutput.slice(0, 500),
-    ...getErrorDiagnostics(error),
-    ...getExecutionDiagnostics(execution),
-  })
+    error,
+    timeout,
+    execution,
+    output => !!tryParseSandboxOutput(output),
+  )
 }
 
 async function readExecOutputWithRecovery(
