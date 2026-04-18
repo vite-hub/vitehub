@@ -33,9 +33,6 @@ catalogs:
     better-sqlite3:
       specifier: ^12.9.0
       version: 12.9.0
-    consola:
-      specifier: ^3.4.2
-      version: 3.4.2
     defu:
       specifier: ^6.1.4
       version: 6.1.7
@@ -301,9 +298,6 @@ importers:
       '@nuxt/kit':
         specifier: 'catalog:'
         version: 4.4.2(magicast@0.5.2)
-      consola:
-        specifier: 'catalog:'
-        version: 3.4.2
       esbuild:
         specifier: 'catalog:'
         version: 0.28.0
