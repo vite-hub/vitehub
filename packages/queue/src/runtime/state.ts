@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import runtimeRegistry from "#vitehub-queue-registry"
 
 import type {
-  QueueClient,
+  InternalQueueClient,
   QueueDefinition,
   QueueDefinitionRegistry,
   ResolvedQueueModuleOptions,
@@ -11,7 +11,7 @@ import type {
 let runtimeConfig: false | ResolvedQueueModuleOptions | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
 const queueEventStorage = new AsyncLocalStorage<unknown>()
-const queueClientCache = new Map<string, Promise<QueueClient>>()
+const queueClientCache = new Map<string, Promise<InternalQueueClient>>()
 
 export function setQueueRuntimeConfig(config: false | ResolvedQueueModuleOptions | undefined): void {
   runtimeConfig = config
@@ -39,7 +39,7 @@ export function setQueueRuntimeRegistry(registry: QueueDefinitionRegistry | unde
   queueClientCache.clear()
 }
 
-export function getQueueClientCache(): Map<string, Promise<QueueClient>> {
+export function getQueueClientCache(): Map<string, Promise<InternalQueueClient>> {
   return queueClientCache
 }
 

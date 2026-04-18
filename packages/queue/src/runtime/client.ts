@@ -15,13 +15,15 @@ import {
 
 import type {
   CloudflareQueueBinding,
+  InternalQueueClient,
+  InternalQueueProviderOptions,
   QueueClient,
   QueueEnqueueInput,
   QueueJob,
   QueueProviderOptions,
   QueueSendResult,
   ResolvedQueueModuleOptions,
-  ResolvedQueueModuleProviderOptions,
+  InternalResolvedQueueModuleProviderOptions,
 } from "../types.ts"
 
 type VercelProviderModule = {
@@ -81,8 +83,8 @@ function resolveCloudflareBinding(
 
 function applyNamedProviderDefaults(
   name: string,
-  provider: ResolvedQueueModuleProviderOptions,
-): QueueProviderOptions {
+  provider: InternalResolvedQueueModuleProviderOptions,
+): InternalQueueProviderOptions {
   if (provider.provider === "cloudflare") {
     return {
       ...provider,
@@ -116,6 +118,18 @@ function createQueueJob<TPayload>(
  * Prefer {@link getQueue} when the queue is declared via `defineQueue`.
  */
 export async function createQueueClient(options?: QueueProviderOptions): Promise<QueueClient> {
+  if (!options) {
+    throw new QueueError("Queue provider options are required.", {
+      code: "QUEUE_PROVIDER_REQUIRED",
+      httpStatus: 400,
+    })
+  }
+
+  if (options.provider === "cloudflare") return createCloudflareQueueClient(options)
+  return await createVercelQueueClient(options)
+}
+
+async function createInternalQueueClient(options?: InternalQueueProviderOptions): Promise<InternalQueueClient> {
   const provider = options || { provider: "memory" as const }
 
   if (provider.provider === "cloudflare") return createCloudflareQueueClient(provider)
@@ -146,7 +160,7 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
 
   const build = async () => {
     try {
-      return await createQueueClient(applyNamedProviderDefaults(name, config.provider))
+      return await createInternalQueueClient(applyNamedProviderDefaults(name, config.provider))
     }
     catch (error) {
       if (error instanceof QueueError) throw error
@@ -169,7 +183,7 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
  * Resolve a queue client by declared name, caching when the provider allows it.
  * Throws `QUEUE_DEFINITION_NOT_FOUND` if no `defineQueue` registered `name`.
  */
-export async function getQueue(name: string): Promise<QueueClient> {
+async function getInternalQueue(name: string): Promise<InternalQueueClient> {
   const definition = await loadQueueDefinition(name)
   if (!definition) {
     throw new QueueError(`Unknown queue definition: ${name}`, {
@@ -198,6 +212,10 @@ export async function getQueue(name: string): Promise<QueueClient> {
   return await pending
 }
 
+export async function getQueue(name: string): Promise<QueueClient> {
+  return await getInternalQueue(name) as QueueClient
+}
+
 /**
  * Enqueue a message on a named queue and, for the memory provider, run the
  * declared handler in the background.
@@ -216,7 +234,7 @@ export async function runQueue<TPayload = unknown>(
   }
 
   const normalized = normalizeQueueEnqueueInput(input)
-  const queue = await getQueue(name)
+  const queue = await getInternalQueue(name)
   const result = await queue.send({
     ...normalized.options,
     id: normalized.id,

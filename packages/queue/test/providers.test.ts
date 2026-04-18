@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createQueue, createQueueClient, defineQueue, getQueue, getVercelQueueTopicName, runQueue } from "../src/index.ts"
 import { createCloudflareQueueBatchHandler } from "../src/providers/cloudflare.ts"
+import { createMemoryQueueClient } from "../src/providers/memory.ts"
 import { resetQueueRuntimeState, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
-import type { VercelQueueSDK } from "../src/types.ts"
+import type { MemoryQueueClient, VercelQueueSDK } from "../src/types.ts"
 
 afterEach(() => {
   vi.doUnmock("@vercel/queue")
@@ -45,7 +46,7 @@ describe("queue definition helpers", () => {
 
 describe("memory provider", () => {
   it("stores, peeks, and drains messages", async () => {
-    const queue = await createQueueClient({ provider: "memory" })
+    const queue = createMemoryQueueClient()
 
     const result = await queue.send({ id: "job-1", payload: { ok: true } })
 
@@ -66,7 +67,7 @@ describe("memory provider", () => {
   })
 
   it("supports destructured batch sending", async () => {
-    const queue = await createQueueClient({ provider: "memory" })
+    const queue = createMemoryQueueClient()
 
     expect(queue.provider).toBe("memory")
     if (queue.provider !== "memory") throw new Error("expected memory")
@@ -81,7 +82,7 @@ describe("memory provider", () => {
   })
 
   it("treats payload-only objects as bare payloads", async () => {
-    const queue = await createQueueClient({ provider: "memory" })
+    const queue = createMemoryQueueClient()
 
     await queue.send<{ other: boolean, payload: string }>({ other: true, payload: "kept" })
 
@@ -116,7 +117,7 @@ describe("memory provider", () => {
     await runQueue("welcome-email", { id: "welcome-ava", payload: { email: "ava@example.com" } })
     await new Promise(resolve => setTimeout(resolve, 0))
 
-    const queue = await getQueue("welcome-email")
+    const queue = await getQueue("welcome-email") as unknown as MemoryQueueClient
     expect(queue.provider).toBe("memory")
     if (queue.provider !== "memory") throw new Error("expected memory")
     expect(queue.size()).toBe(0)
@@ -134,7 +135,7 @@ describe("memory provider", () => {
       }),
     })
 
-    const queue = await getQueue("welcome-email")
+    const queue = await getQueue("welcome-email") as unknown as MemoryQueueClient
     expect(queue.provider).toBe("memory")
     if (queue.provider !== "memory") throw new Error("expected memory")
 

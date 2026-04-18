@@ -51,7 +51,7 @@ describe("types", () => {
   it("augments Vite user config with queue options", () => {
     const config: UserConfig = {
       queue: {
-        provider: "memory",
+        provider: "cloudflare",
       },
     }
 
@@ -80,8 +80,8 @@ describe("types", () => {
     expectTypeOf(invalidVercelConfig).toMatchTypeOf<QueueModuleOptions>()
 
     const invalidMemoryConfig: QueueModuleOptions = {
+      // @ts-expect-error Memory is internal test/dev support, not public module config.
       provider: "memory",
-      // @ts-expect-error Nitro module config must not contain in-memory stores.
       store: { messages: [] },
     }
     expectTypeOf(invalidMemoryConfig).toMatchTypeOf<QueueModuleOptions>()
