@@ -36,6 +36,23 @@ const expectedReleaseNotes = {
   },
 }
 
+async function retry<T>(run: () => Promise<T>, options: { retries: number, delayMs: number, label: string }) {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= options.retries; attempt++) {
+    try {
+      return await run()
+    }
+    catch (error) {
+      lastError = error
+      if (attempt === options.retries)
+        break
+      log(`${options.label} retry ${attempt}/${options.retries - 1}`)
+      await new Promise(resolve => setTimeout(resolve, options.delayMs))
+    }
+  }
+  throw lastError
+}
+
 async function assertProbe(f: Fetcher, expected: Record<string, unknown | unknown[]>) {
   const actual = await f("/api/tests/probe")
   assert.equal(actual.feature, "sandbox")
@@ -151,8 +168,16 @@ async function runVercel(fw: Framework) {
 async function runLive(url: string, provider: Provider) {
   log(`live ${provider} -> ${url}`)
   const f: Fetcher = (p, i) => ofetch(p, { baseURL: url, ...i })
-  await assertProbe(f, providerProbe[provider])
-  await assertSandboxRun(f)
+  await retry(() => assertProbe(f, providerProbe[provider]), {
+    retries: 10,
+    delayMs: 3000,
+    label: `live ${provider} probe`,
+  })
+  await retry(() => assertSandboxRun(f), {
+    retries: 10,
+    delayMs: 3000,
+    label: `live ${provider} sandbox`,
+  })
   log(`live ${provider} ✓`)
 }
 
