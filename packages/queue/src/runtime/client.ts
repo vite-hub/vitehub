@@ -105,18 +105,8 @@ export async function createQueueClient(options?: QueueProviderOptions): Promise
   return createMemoryQueueClient(provider)
 }
 
-let nitroModulePromise: Promise<typeof import("nitro/runtime") | undefined> | undefined
-
 async function getNitroRequest(): Promise<unknown> {
-  nitroModulePromise ||= import("nitro/runtime").catch(() => undefined)
-  const nitro = await nitroModulePromise
-  const useEvent = (nitro as Record<string, unknown> | undefined)?.useEvent as (() => unknown) | undefined
-  try {
-    return useEvent?.()
-  }
-  catch {
-    return undefined
-  }
+  return getQueueRuntimeEvent()
 }
 
 function getActiveQueueConfig(): ResolvedQueueModuleOptions | false {
