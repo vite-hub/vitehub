@@ -1,0 +1,29 @@
+{
+  "name": "@vitehub/blob",
+  "version": "0.0.0",
+  "description": "Blob storage primitives and Nitro/Nuxt integration for ViteHub.",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/blob"
+  },
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "keywords": [
+    "vitehub",
+    "vite",
+    "nitro",
+    "nuxt",
+    "blob",
+    "cloudflare",
+    "vercel"
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "files": [
+    "dist",
+    "package.json"
+  ]
+}
