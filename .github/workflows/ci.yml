@@ -135,10 +135,26 @@ jobs:
           if [ "$VITEHUB_PACKAGE" = "kv" ]; then
             APP_NAME=${{ matrix.framework }} envsubst < ../_shared/wrangler.template.jsonc > .output/wrangler.json
           else
-            if [ -f .output/wrangler.json ]; then
-              node -e "const fs=require('node:fs');const p='.output/wrangler.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.name='vitehub-sandbox-playground-${{ matrix.framework }}';fs.writeFileSync(p, JSON.stringify(c, null, 2))"
+            TARGET=""
+            if [ -f .output/server/wrangler.json ]; then
+              TARGET=".output/server/wrangler.json"
+            elif [ -f .output/server/wrangler.jsonc ]; then
+              TARGET=".output/server/wrangler.jsonc"
+            elif [ -f .output/wrangler.json ]; then
+              TARGET=".output/wrangler.json"
             elif [ -f .output/wrangler.jsonc ]; then
-              perl -0pi -e 's/"name"\s*:\s*"[^"]+"/"name": "vitehub-sandbox-playground-${{ matrix.framework }}"/' .output/wrangler.jsonc
+              TARGET=".output/wrangler.jsonc"
+            fi
+
+            if [ -n "$TARGET" ]; then
+              case "$TARGET" in
+                *.json)
+                  node -e "const fs=require('node:fs');const p=process.argv[1];const c=JSON.parse(fs.readFileSync(p,'utf8'));c.name='vitehub-sandbox-playground-${{ matrix.framework }}';fs.writeFileSync(p, JSON.stringify(c, null, 2))" "$TARGET"
+                  ;;
+                *.jsonc)
+                  perl -0pi -e 's/"name"\s*:\s*"[^"]+"/"name": "vitehub-sandbox-playground-${{ matrix.framework }}"/' "$TARGET"
+                  ;;
+              esac
             fi
           fi
           npx wrangler --cwd .output/ deploy
