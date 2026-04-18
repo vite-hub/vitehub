@@ -23,7 +23,11 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
 }
 
 function toSafeFileSegment(name: string): string {
-  return encodeURIComponent(name) || "index"
+  return name
+    .split("/")
+    .filter(Boolean)
+    .map(segment => encodeURIComponent(segment))
+    .join("__") || "index"
 }
 
 function createHostedHandlerContents(name: string): string {
