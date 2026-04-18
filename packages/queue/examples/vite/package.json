@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vitehub/queue": "workspace:*",
+    "vite": "catalog:"
+  }
+}
