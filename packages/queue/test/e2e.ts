@@ -162,12 +162,12 @@ async function runVercel(fw: Framework) {
   }
 }
 
-async function assertVercelQueueProcessedFromLogs(url: string, f: Fetcher, marker: string) {
+async function assertVercelQueueProcessedFromLogs(url: string, f: Fetcher, marker: string, fw: Framework) {
   const token = process.env.VERCEL_TOKEN
   assert.ok(token, "VERCEL_TOKEN is required for Vercel queue live e2e log verification.")
 
   const logs = await startCommand("npx", ["--yes", "vercel", "logs", url, "--json", "--token", token], {
-    cwd: root,
+    cwd: dir(fw),
     env: process.env,
   })
 
@@ -196,7 +196,7 @@ async function assertVercelQueueProcessedFromLogs(url: string, f: Fetcher, marke
   }
 }
 
-async function runLive(url: string, provider: Provider) {
+async function runLive(url: string, provider: Provider, fw: Framework) {
   log(`live ${provider} -> ${url}`)
   const f: Fetcher = (p, i) => ofetch(p, { baseURL: url, ...i })
   await assertProbe(f, providerProbe[provider])
@@ -205,7 +205,7 @@ async function runLive(url: string, provider: Provider) {
     await assertQueueProcessed(f, marker)
   }
   else {
-    await assertVercelQueueProcessedFromLogs(url, f, marker)
+    await assertVercelQueueProcessedFromLogs(url, f, marker, fw)
   }
   log(`live ${provider} ok`)
 }
@@ -231,7 +231,8 @@ if (framework) assert.ok(FRAMEWORKS.includes(framework), `invalid --framework: $
 if (mode === "live") {
   assert.ok(values.url, "--url required for live mode")
   assert.ok(provider, "--provider required for live mode")
-  await runLive(values.url, provider)
+  assert.ok(framework, "--framework required for live mode")
+  await runLive(values.url, provider, framework)
 }
 else {
   const providers = provider ? [provider] : PROVIDERS

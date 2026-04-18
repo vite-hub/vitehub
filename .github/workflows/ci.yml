@@ -95,12 +95,24 @@ jobs:
           APP_NAME: ${{ matrix.appName }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
+          FRAMEWORK: ${{ matrix.framework }}
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
           PACKAGE_NAME: ${{ matrix.packageName }}
         run: |
           cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
           node <<'NODE'
           const fs = require("node:fs")
+
+          function pushUnique(array, item, getKey) {
+            const key = getKey(item)
+            if (!array.some(entry => getKey(entry) === key)) array.push(item)
+          }
+
+          function queueBindingName(queue) {
+            const encoded = Buffer.from(queue).toString("hex").toUpperCase()
+            return encoded ? `QUEUE_${encoded}` : "QUEUE"
+          }
 
           const generatedConfig = ".output/server/wrangler.json"
           const fallbackConfig = {
@@ -121,6 +133,19 @@ jobs:
             config.kv_namespaces = [{ binding: "KV", id: process.env.KV_NAMESPACE_ID }]
           }
 
+          if (process.env.PACKAGE_NAME === "queue") {
+            const queue = `welcome-email-${process.env.FRAMEWORK}`
+            config.queues ||= {}
+            config.queues.consumers ||= []
+            config.queues.producers ||= []
+            pushUnique(config.queues.consumers, { queue }, entry => String(entry.queue))
+            pushUnique(
+              config.queues.producers,
+              { binding: queueBindingName(queue), queue },
+              entry => `${String(entry.binding)}:${String(entry.queue)}`,
+            )
+          }
+
           const queues = new Set()
           for (const consumer of config.queues?.consumers || []) {
             if (consumer.queue) queues.add(String(consumer.queue))
@@ -139,6 +164,13 @@ jobs:
             done < .output/server/cloudflare-queues.txt
           fi
           npx wrangler deploy --config .output/server/wrangler.deploy.json
+          printf 'https://%s.%s.workers.dev\n' "${{ matrix.appName }}" "$CLOUDFLARE_WORKERS_SUBDOMAIN" > "$GITHUB_WORKSPACE/live-url.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.provider == 'cloudflare'
+        with:
+          name: live-url-${{ matrix.packageName }}-${{ matrix.provider }}-${{ matrix.framework }}
+          path: live-url.txt
 
       - name: Deploy Vercel
         if: matrix.provider == 'vercel'
@@ -147,7 +179,26 @@ jobs:
         run: |
           cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
           npx vercel link --yes --project ${{ matrix.appName }} --token "$VERCEL_TOKEN"
-          npx vercel deploy --prod --prebuilt --yes --token "$VERCEL_TOKEN"
+          set -o pipefail
+          npx vercel deploy --prod --prebuilt --yes --token "$VERCEL_TOKEN" 2>&1 | tee "$RUNNER_TEMP/vercel-deploy.log"
+          node <<'NODE'
+          const fs = require("node:fs")
+          const output = fs.readFileSync(`${process.env.RUNNER_TEMP}/vercel-deploy.log`, "utf8")
+          const production = [...output.matchAll(/Production:\s+(https:\/\/[^\s]+)/g)].at(-1)?.[1]
+          const fallback = [...output.matchAll(/https:\/\/[^\s]+\.vercel\.app/g)].at(-1)?.[0]
+          const url = production ?? fallback
+          if (!url) {
+            console.error(output)
+            throw new Error("Could not determine Vercel deployment URL.")
+          }
+          fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/live-url.txt`, `${url}\n`)
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.provider == 'vercel'
+        with:
+          name: live-url-${{ matrix.packageName }}-${{ matrix.provider }}-${{ matrix.framework }}
+          path: live-url.txt
 
   e2e-live:
     needs: [deploy, e2e_matrix]
@@ -160,15 +211,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: live-url-${{ matrix.packageName }}-${{ matrix.provider }}-${{ matrix.framework }}
+          path: .live-url
 
       - name: E2E Live (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
         env:
-          CF_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            URL="https://${{ matrix.appName }}.$CF_SUBDOMAIN.workers.dev"
-          else
-            URL="https://${{ matrix.appName }}.vercel.app"
+          URL="$(cat .live-url/live-url.txt)"
+          if [ "${{ matrix.provider }}" = "vercel" ]; then
+            cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
+            npx vercel link --yes --project ${{ matrix.appName }} --token "$VERCEL_TOKEN"
+            cd "$GITHUB_WORKSPACE"
           fi
           pnpm --dir ${{ matrix.packageDir }} test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "$URL"
