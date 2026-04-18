@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createQueueClient, defineQueue, getQueue, getVercelQueueTopicName, runQueue } from "../src/index.ts"
+import { createQueue, createQueueClient, defineQueue, getQueue, getVercelQueueTopicName, runQueue } from "../src/index.ts"
 import { createCloudflareQueueBatchHandler } from "../src/providers/cloudflare.ts"
 import { resetQueueRuntimeState, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
 import type { VercelQueueSDK } from "../src/types.ts"
@@ -18,6 +18,30 @@ function mockVercelQueueSDK(send: VercelQueueSDK["send"]) {
     send,
   }))
 }
+
+describe("queue definition helpers", () => {
+  it("keeps createQueue as a compatibility wrapper", async () => {
+    const definition = createQueue<{ email: string }>({
+      cache: false,
+      handler: async job => ({ email: job.payload.email }),
+    })
+
+    expect(definition.options).toEqual({ cache: false })
+    await expect(definition.handler({
+      attempts: 1,
+      id: "job-1",
+      payload: { email: "ava@example.com" },
+      signal: new AbortController().signal,
+    })).resolves.toEqual({ email: "ava@example.com" })
+  })
+
+  it("validates unknown createQueue options", () => {
+    expect(() => createQueue({
+      handler: async () => undefined,
+      unknown: true,
+    } as never)).toThrow("Unknown queue definition option `unknown`.")
+  })
+})
 
 describe("memory provider", () => {
   it("stores, peeks, and drains messages", async () => {
@@ -286,17 +310,16 @@ describe("Vercel provider", () => {
     })
 
     const result = await queue.send({
-      delaySeconds: 10,
-      id: "welcome-ava",
       payload: { email: "ava@example.com" },
-      retentionSeconds: 3600,
+      region: "iad1",
     })
 
     expect(result).toEqual({ status: "queued", messageId: "msg_vercel" })
     expect(send).toHaveBeenCalledWith("welcome-email", { email: "ava@example.com" }, {
-      delaySeconds: 10,
-      idempotencyKey: "welcome-ava",
-      retentionSeconds: 3600,
+      delaySeconds: undefined,
+      idempotencyKey: expect.any(String),
+      region: "iad1",
+      retentionSeconds: undefined,
     })
   })
 
@@ -336,7 +359,7 @@ describe("Vercel provider", () => {
     })
   })
 
-  it("resolves named Vercel clients through getQueue", async () => {
+  it("injects topic from queue name through getQueue", async () => {
     const send = vi.fn(async () => ({ messageId: "msg_vercel" }))
     mockVercelQueueSDK(send)
     setQueueRuntimeConfig({

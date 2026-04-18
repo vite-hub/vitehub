@@ -42,6 +42,16 @@
     "test": "vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
+  "vitehub": {
+    "ci": {
+      "e2e": {
+        "live": {
+          "appPrefix": "vitehub-playground",
+          "enabled": true
+        }
+      }
+    }
+  },
   "dependencies": {
     "@nuxt/kit": "catalog:",
     "defu": "catalog:",

@@ -25,6 +25,10 @@ export function runWithQueueRuntimeEvent<T>(event: unknown, callback: () => T): 
   return queueEventStorage.run(event, callback)
 }
 
+export function enterQueueRuntimeEvent(event: unknown): void {
+  queueEventStorage.enterWith(event)
+}
+
 export function getQueueRuntimeEvent(): unknown {
   return queueEventStorage.getStore()
 }
@@ -44,6 +48,10 @@ export function resetQueueRuntimeState(): void {
   queueClientCache.clear()
 }
 
+// `#vitehub-queue-registry` is aliased by `src/nitro/module.ts` to the
+// build-emitted registry (`writeQueueRuntimeFiles`). In non-Nitro builds the
+// specifier doesn't resolve; tests and non-Nitro consumers should call
+// `setQueueRuntimeRegistry()` instead of relying on the catch-swallow below.
 async function loadRuntimeRegistry(): Promise<QueueDefinitionRegistry> {
   if (registryOverride) return registryOverride
 
