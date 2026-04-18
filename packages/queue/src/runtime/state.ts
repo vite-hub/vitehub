@@ -1,5 +1,5 @@
 import type {
-  QueueClient,
+  InternalQueueClient,
   QueueDefinition,
   QueueDefinitionRegistry,
   ResolvedQueueModuleOptions,
@@ -8,7 +8,7 @@ import type {
 let runtimeConfig: false | ResolvedQueueModuleOptions | undefined
 let runtimeEvent: unknown
 let registryOverride: QueueDefinitionRegistry | undefined
-const queueClientCache = new Map<string, Promise<QueueClient>>()
+const queueClientCache = new Map<string, Promise<InternalQueueClient>>()
 
 export function setQueueRuntimeConfig(config: false | ResolvedQueueModuleOptions | undefined): void {
   runtimeConfig = config
@@ -32,7 +32,7 @@ export function setQueueRuntimeRegistry(registry: QueueDefinitionRegistry | unde
   queueClientCache.clear()
 }
 
-export function getQueueClientCache(): Map<string, Promise<QueueClient>> {
+export function getQueueClientCache(): Map<string, Promise<InternalQueueClient>> {
   return queueClientCache
 }
 

@@ -70,11 +70,11 @@ export default defineEventHandler(() => {
 
 Portable options are intentionally small.
 
-| Option | Memory | Cloudflare | Vercel |
-| --- | --- | --- | --- |
-| `delaySeconds` | accepted | supported | supported |
-| `contentType` | accepted | supported | unsupported |
-| `idempotencyKey` | accepted | unsupported | supported |
-| `retentionSeconds` | accepted | unsupported | supported |
+| Option | Cloudflare | Vercel |
+| --- | --- | --- |
+| `delaySeconds` | supported | supported |
+| `contentType` | supported | unsupported |
+| `idempotencyKey` | unsupported | supported |
+| `retentionSeconds` | unsupported | supported |
 
 Unsupported hosted-provider options throw `QueueError`.

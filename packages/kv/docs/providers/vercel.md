@@ -1,17 +1,17 @@
 ---
 title: Vercel KV
-description: Configure @vitehub/kv for Vercel using the Upstash-backed driver.
+description: Configure @vitehub/kv for Vercel KV REST credentials.
 navigation.title: Vercel
 navigation.group: Providers
 navigation.order: 11
 icon: i-simple-icons-vercel
 ---
 
-Use this path when your Vercel deployment should resolve KV through Upstash.
+Use this path when your Vercel deployment should resolve KV through Vercel KV REST credentials.
 
 ## Configuration
 
-The Vercel story in `@vitehub/kv` is Upstash-backed. Set `kv.driver` to `upstash` when you want to configure it explicitly. Prefer environment variables for credentials so runtime adapters resolve secrets without serializing them into build output.
+Set `kv.driver` to `vercel` when you want to configure Vercel KV explicitly. Prefer environment variables for credentials so runtime adapters resolve secrets without serializing them into build output.
 
 ::fw{id="vite:dev vite:build"}
 The Vite plugin owns KV config resolution. Use Nitro or Nuxt for runtime access to the `kv` handle.
@@ -23,7 +23,7 @@ import { hubKv } from '@vitehub/kv/vite'
 export default defineConfig({
   plugins: [hubKv()],
   kv: {
-    driver: 'upstash',
+    driver: 'vercel',
   },
 })
 ```
@@ -36,7 +36,7 @@ import { defineNitroConfig } from 'nitro/config'
 export default defineNitroConfig({
   modules: ['@vitehub/kv/nitro'],
   kv: {
-    driver: 'upstash',
+    driver: 'vercel',
   },
 })
 ```
@@ -47,7 +47,7 @@ export default defineNitroConfig({
 export default defineNuxtConfig({
   modules: ['@vitehub/kv/nuxt'],
   kv: {
-    driver: 'upstash',
+    driver: 'vercel',
   },
 })
 ```
@@ -58,15 +58,15 @@ export default defineNuxtConfig({
 The resolver supports these env vars:
 
 ```bash
-KV_REST_API_URL=https://example.upstash.io
-KV_REST_API_TOKEN=<upstash-rest-token>
+KV_REST_API_URL=https://example.vercel-storage.local
+KV_REST_API_TOKEN=<kv-rest-token>
 ```
 
-It also accepts the Upstash REST aliases:
+It also accepts the legacy aliases:
 
 ```bash
-UPSTASH_REDIS_REST_URL=https://example.upstash.io
-UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>
+UPSTASH_REDIS_REST_URL=https://example.vercel-storage.local
+UPSTASH_REDIS_REST_TOKEN=<kv-rest-token>
 ```
 
 ## Related

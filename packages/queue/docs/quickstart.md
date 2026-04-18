@@ -6,7 +6,7 @@ navigation.order: 1
 icon: i-lucide-rocket
 ---
 
-This quickstart uses the Memory provider so you can verify the queue flow locally with minimal setup.
+This quickstart uses the Cloudflare provider. Use the Vercel provider page when your deployment target is Vercel Queues.
 
 ## Configure Queue
 
@@ -20,7 +20,7 @@ import { hubQueue } from '@vitehub/queue/vite'
 export default defineConfig({
   plugins: [hubQueue()],
   queue: {
-    provider: 'memory',
+    provider: 'cloudflare',
   },
 })
 ```
@@ -33,7 +33,7 @@ import { defineNitroConfig } from 'nitro/config'
 export default defineNitroConfig({
   modules: ['@vitehub/queue/nitro'],
   queue: {
-    provider: 'memory',
+    provider: 'cloudflare',
   },
 })
 ```
@@ -44,7 +44,7 @@ export default defineNitroConfig({
 export default defineNuxtConfig({
   modules: ['@vitehub/queue/nuxt'],
   queue: {
-    provider: 'memory',
+    provider: 'cloudflare',
   },
 })
 ```
@@ -96,7 +96,7 @@ Start the app and send one request:
 curl -X POST http://localhost:3000/api/queues/welcome
 ```
 
-With the Memory provider, the route returns a queued result and the handler logs the email payload.
+With the Cloudflare provider, the route returns a queued result and Cloudflare dispatches the handler through its queue consumer.
 
 ## Next steps
 

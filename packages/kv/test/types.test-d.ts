@@ -9,11 +9,11 @@ import { hubKv } from "../src/vite.ts"
 describe("types", () => {
   it("narrows kv store configs by driver", () => {
     const store = {
-      base: ".data/kv",
-      driver: "fs-lite",
+      driver: "vercel",
+      token: "token",
     } satisfies KVStoreConfig
 
-    expectTypeOf(store.base).toEqualTypeOf<string>()
+    expectTypeOf(store.token).toEqualTypeOf<string>()
   })
 
   it("exposes the resolved module options shape", () => {
@@ -30,7 +30,7 @@ describe("types", () => {
   it("augments vite user config with kv options", () => {
     const config: UserConfig = {
       kv: {
-        driver: "fs-lite",
+        driver: "vercel",
       },
     }
 

@@ -14,7 +14,7 @@ Use Queue when a request can return now and the work can happen later.
 - retry work that can fail transiently
 - delay delivery
 - smooth spikes in downstream load
-- keep one app-level API while moving between Memory, Cloudflare, and Vercel
+- keep one app-level API while moving between Cloudflare and Vercel
 
 ## Poor fits
 
@@ -27,7 +27,6 @@ Use Queue when a request can return now and the work can happen later.
 
 | Need | Provider |
 | --- | --- |
-| Local development and tests | Memory |
 | Worker-native batch delivery | Cloudflare |
 | Vercel deployment-integrated callbacks | Vercel |
 

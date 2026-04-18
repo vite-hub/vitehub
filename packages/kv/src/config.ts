@@ -6,11 +6,12 @@ import { hasUpstashEnv, resolveUpstashStore } from "./integrations/upstash.ts"
 import type {
   CloudflareKVStoreConfig,
   FsLiteKVStoreConfig,
-  KVModuleOptions,
-  KVStoreConfig,
+  InternalKVModuleOptions,
+  InternalKVStoreConfig,
   ResolvedCloudflareKVStoreConfig,
   ResolvedFsLiteKVStoreConfig,
   ResolvedKVModuleOptions,
+  VercelKVStoreConfig,
 } from "./types.ts"
 
 export interface KVResolutionInput {
@@ -36,17 +37,22 @@ function resolveCloudflareStore(
   )
 }
 
-function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>) {
+function resolveVercelStore(store: VercelKVStoreConfig) {
+  return resolveUpstashStore({ ...store, driver: "upstash" })
+}
+
+function resolveExplicitStore(store: InternalKVStoreConfig, env: Record<string, string | undefined>) {
   switch (store.driver) {
     case "cloudflare-kv-binding": return resolveCloudflareStore(store, env)
+    case "vercel": return resolveVercelStore(store)
     case "upstash": return resolveUpstashStore(store)
     case "fs-lite": return resolveFsLiteStore(store)
-    default: throw new TypeError(`Unknown \`kv.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}. Expected "cloudflare-kv-binding", "upstash", or "fs-lite".`)
+    default: throw new TypeError(`Unknown \`kv.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}. Expected "cloudflare-kv-binding" or "vercel".`)
   }
 }
 
 export function normalizeKVOptions(
-  options: KVModuleOptions | undefined,
+  options: InternalKVModuleOptions | undefined,
   input: KVResolutionInput = {},
 ): ResolvedKVModuleOptions | undefined {
   if (options === false) return
@@ -57,7 +63,7 @@ export function normalizeKVOptions(
 
   const env = input.env || process.env
   const hosting = input.hosting || ""
-  const explicit = options as KVStoreConfig | undefined
+  const explicit = options as InternalKVStoreConfig | undefined
 
   if (explicit?.driver) return { store: resolveExplicitStore(explicit, env) }
   if (hasUpstashEnv(env)) return { store: resolveUpstashStore() }

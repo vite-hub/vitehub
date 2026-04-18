@@ -1,5 +1,5 @@
 import { getCloudflareQueueBindingName } from "../providers/cloudflare.ts"
-import type { DiscoveredQueueDefinition, QueueProviderOptions } from "../types.ts"
+import type { DiscoveredQueueDefinition, InternalQueueProviderOptions } from "../types.ts"
 
 function pushUnique<T>(array: T[], item: T, getKey: (item: T) => string): void {
   const key = getKey(item)
@@ -18,7 +18,7 @@ export function configureCloudflareQueues(
     }
   },
   definitions: DiscoveredQueueDefinition[],
-  provider?: QueueProviderOptions,
+  provider?: InternalQueueProviderOptions,
 ): void {
   if (!provider || provider.provider !== "cloudflare") return
 

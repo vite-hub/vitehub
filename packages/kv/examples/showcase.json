@@ -10,11 +10,11 @@
       "configOverride": "  kv: {\n    driver: 'cloudflare-kv-binding',\n    binding: 'KV',\n    namespaceId: '<kv-namespace-id>',\n  },"
     },
     {
-      "id": "upstash",
+      "id": "vercel",
       "label": "Vercel",
       "icon": "i-simple-icons-vercel",
-      "configOverride": "  kv: {\n    driver: 'upstash',\n  },",
-      "envOverride": "KV_REST_API_URL=https://example.upstash.io\nKV_REST_API_TOKEN=<upstash-rest-token>"
+      "configOverride": "  kv: {\n    driver: 'vercel',\n  },",
+      "envOverride": "KV_REST_API_URL=https://example.vercel-storage.local\nKV_REST_API_TOKEN=<kv-rest-token>"
     }
   ],
   "frameworks": {

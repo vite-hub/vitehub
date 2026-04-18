@@ -33,7 +33,7 @@ describe("types", () => {
   it("augments Vite user config with queue options", () => {
     const config: UserConfig = {
       queue: {
-        provider: "memory",
+        provider: "cloudflare",
       },
     }
 

@@ -99,14 +99,15 @@ describe("package surface", () => {
 describe("hubKv", () => {
   it("resolves KV config from the Vite layer", async () => {
     const { hubKv } = await import("../src/vite.ts")
-    const plugin = hubKv({ driver: "fs-lite", base: ".cache/kv" })
+    const plugin = hubKv({ driver: "cloudflare-kv-binding", namespaceId: "inline-namespace" })
 
     expect(plugin.nitro.name).toBe("@vitehub/kv")
     expect(plugin.api.getConfig()).toEqual({
       kv: {
         store: {
-          base: ".cache/kv",
-          driver: "fs-lite",
+          binding: "KV",
+          driver: "cloudflare-kv-binding",
+          namespaceId: "inline-namespace",
         },
       },
     })
@@ -114,21 +115,22 @@ describe("hubKv", () => {
 
   it("lets top-level Vite config override inline plugin options", async () => {
     const { hubKv } = await import("../src/vite.ts")
-    const plugin = hubKv({ driver: "fs-lite", base: ".inline/kv" })
+    const plugin = hubKv({ driver: "cloudflare-kv-binding", namespaceId: "inline-namespace" })
     const configResolved = plugin.configResolved as unknown as (config: unknown) => void | Promise<void>
 
     await configResolved({
       kv: {
-        base: ".top-level/kv",
-        driver: "fs-lite",
+        driver: "cloudflare-kv-binding",
+        namespaceId: "top-level-namespace",
       },
     } as never)
 
     expect(plugin.api.getConfig()).toEqual({
       kv: {
         store: {
-          base: ".top-level/kv",
-          driver: "fs-lite",
+          binding: "KV",
+          driver: "cloudflare-kv-binding",
+          namespaceId: "top-level-namespace",
         },
       },
     })
@@ -136,14 +138,14 @@ describe("hubKv", () => {
 
   it("exposes resolved config through a Vite virtual module", async () => {
     const { KV_VIRTUAL_CONFIG_ID, hubKv } = await import("../src/vite.ts")
-    const plugin = hubKv({ driver: "fs-lite", base: ".virtual/kv" })
+    const plugin = hubKv({ driver: "cloudflare-kv-binding", namespaceId: "virtual-namespace" })
     const resolveId = plugin.resolveId as unknown as (id: string) => string | undefined | Promise<string | undefined>
     const load = plugin.load as unknown as (id: string) => string | undefined | Promise<string | undefined>
     const resolvedId = await resolveId(KV_VIRTUAL_CONFIG_ID)
     const code = await load(resolvedId!)
 
     expect(code).toContain("export const kv =")
-    expect(code).toContain(".virtual/kv")
+    expect(code).toContain("virtual-namespace")
   })
 })
 

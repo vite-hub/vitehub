@@ -14,6 +14,8 @@ import {
 
 import type {
   CloudflareQueueBinding,
+  InternalQueueClient,
+  InternalQueueProviderOptions,
   QueueClient,
   QueueEnqueueInput,
   QueueProviderOptions,
@@ -31,13 +33,13 @@ function resolveCloudflareBinding(binding: string | CloudflareQueueBinding | und
   return resolved as CloudflareQueueBinding
 }
 
-function applyNamedProviderDefaults(name: string, provider: QueueProviderOptions): QueueProviderOptions {
+function applyNamedProviderDefaults(name: string, provider: InternalQueueProviderOptions): InternalQueueProviderOptions {
   if (provider.provider === "cloudflare") return { ...provider, binding: resolveCloudflareBinding(provider.binding, name) }
   if (provider.provider === "vercel") return { ...provider, topic: name }
   return provider
 }
 
-export async function createQueueClient(options?: QueueProviderOptions): Promise<QueueClient> {
+async function createInternalQueueClient(options?: InternalQueueProviderOptions): Promise<InternalQueueClient> {
   const provider = options || { provider: "memory" as const }
 
   if (provider.provider === "cloudflare") return createCloudflareQueueClient(provider)
@@ -45,7 +47,12 @@ export async function createQueueClient(options?: QueueProviderOptions): Promise
   return createMemoryQueueClient(provider)
 }
 
-async function createNamedQueueClient(name: string): Promise<QueueClient> {
+export async function createQueueClient(options: QueueProviderOptions): Promise<QueueClient> {
+  if (options.provider === "cloudflare") return createCloudflareQueueClient(options)
+  return await createVercelQueueClient(options)
+}
+
+async function createNamedQueueClient(name: string): Promise<InternalQueueClient> {
   const config = getQueueRuntimeConfig() ?? { provider: { provider: "memory" as const } }
   if (config === false) {
     throw new QueueError("Queue is disabled.", {
@@ -55,7 +62,7 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
   }
 
   try {
-    return await createQueueClient(applyNamedProviderDefaults(name, config.provider))
+    return await createInternalQueueClient(applyNamedProviderDefaults(name, config.provider))
   }
   catch (error) {
     if (error instanceof QueueError) throw error
@@ -66,7 +73,7 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
   }
 }
 
-export async function getQueue(name: string): Promise<QueueClient> {
+async function getInternalQueue(name: string): Promise<InternalQueueClient> {
   const definition = await loadQueueDefinition(name)
   if (!definition) {
     throw new QueueError(`Unknown queue definition: ${name}`, {
@@ -91,6 +98,10 @@ export async function getQueue(name: string): Promise<QueueClient> {
   return await pending
 }
 
+export async function getQueue(name: string): Promise<QueueClient> {
+  return await getInternalQueue(name) as QueueClient
+}
+
 export async function runQueue<TPayload = unknown>(
   name: string,
   input: QueueEnqueueInput<TPayload>,
@@ -105,7 +116,7 @@ export async function runQueue<TPayload = unknown>(
   }
 
   const normalized = normalizeQueueEnqueueInput(input)
-  const queue = await getQueue(name)
+  const queue = await getInternalQueue(name)
   const result = await queue.send({
     ...normalized.options,
     id: normalized.id,

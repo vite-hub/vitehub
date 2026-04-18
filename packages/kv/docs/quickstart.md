@@ -1,12 +1,12 @@
 ---
 title: KV quickstart
-description: Read and write a first key with the local filesystem driver.
+description: Read and write a first key with Cloudflare KV.
 navigation.title: Quickstart
 navigation.order: 1
 icon: i-lucide-rocket
 ---
 
-This quickstart uses the local filesystem driver so you can get KV working locally with the least setup.
+This quickstart configures the Cloudflare KV provider.
 
 ## Configure KV
 
@@ -20,8 +20,9 @@ import { hubKv } from '@vitehub/kv/vite'
 export default defineConfig({
   plugins: [hubKv()],
   kv: {
-    driver: 'fs-lite',
-    base: '.data/kv',
+    driver: 'cloudflare-kv-binding',
+    binding: 'KV',
+    namespaceId: '<kv-namespace-id>',
   },
 })
 ```
@@ -34,8 +35,9 @@ import { defineNitroConfig } from 'nitro/config'
 export default defineNitroConfig({
   modules: ['@vitehub/kv/nitro'],
   kv: {
-    driver: 'fs-lite',
-    base: '.data/kv',
+    driver: 'cloudflare-kv-binding',
+    binding: 'KV',
+    namespaceId: '<kv-namespace-id>',
   },
 })
 ```
@@ -46,8 +48,9 @@ export default defineNitroConfig({
 export default defineNuxtConfig({
   modules: ['@vitehub/kv/nuxt'],
   kv: {
-    driver: 'fs-lite',
-    base: '.data/kv',
+    driver: 'cloudflare-kv-binding',
+    binding: 'KV',
+    namespaceId: '<kv-namespace-id>',
   },
 })
 ```

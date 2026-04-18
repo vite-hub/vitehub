@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createQueueClient, defineQueue, getQueue, runQueue } from "../src/index.ts"
 import { createCloudflareQueueBatchHandler } from "../src/providers/cloudflare.ts"
+import { createMemoryQueueClient } from "../src/providers/memory.ts"
 import { resetQueueRuntimeState, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
 import type { VercelQueueSDK } from "../src/types.ts"
 
@@ -11,7 +12,7 @@ afterEach(() => {
 
 describe("memory provider", () => {
   it("stores, peeks, and drains messages", async () => {
-    const queue = await createQueueClient({ provider: "memory" })
+    const queue = createMemoryQueueClient()
 
     await queue.send({ id: "job-1", payload: { ok: true } })
 

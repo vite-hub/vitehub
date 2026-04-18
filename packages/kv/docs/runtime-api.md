@@ -46,7 +46,7 @@ If TypeScript cannot find the virtual module, add the package's ambient type ent
 ## Supported driver union
 
 ```ts
-type KVDriver = 'cloudflare-kv-binding' | 'upstash' | 'fs-lite'
+type KVDriver = 'cloudflare-kv-binding' | 'vercel'
 ```
 
 ## Config types
@@ -54,8 +54,7 @@ type KVDriver = 'cloudflare-kv-binding' | 'upstash' | 'fs-lite'
 | Type | Description |
 | --- | --- |
 | `CloudflareKVStoreConfig` | Config for the Cloudflare KV binding driver. |
-| `UpstashKVStoreConfig` | Config for the Upstash driver. |
-| `FsLiteKVStoreConfig` | Config for the local filesystem driver. |
+| `VercelKVStoreConfig` | Config for the Vercel KV REST driver. |
 | `KVStorage` | The runtime storage handle type. |
 | `KVModuleOptions` | Module-level KV config. |
 | `KVStoreConfig` | One supported KV driver config. |
@@ -74,26 +73,17 @@ type KVDriver = 'cloudflare-kv-binding' | 'upstash' | 'fs-lite'
 }
 ```
 
-### `UpstashKVStoreConfig`
+### `VercelKVStoreConfig`
 
 ```ts
 {
-  driver: 'upstash'
+  driver: 'vercel'
   url?: string
   token?: string
 }
 ```
 
-When Upstash credentials come from env vars, setup stores masked placeholders and the runtime plugin reads the real values from `KV_REST_API_URL` and `KV_REST_API_TOKEN`. Inline `url` and `token` values are treated as explicit config, but env vars are preferred for hosted deployments.
-
-### `FsLiteKVStoreConfig`
-
-```ts
-{
-  driver: 'fs-lite'
-  base?: string
-}
-```
+When Vercel KV credentials come from env vars, setup stores masked placeholders and the runtime plugin reads the real values from `KV_REST_API_URL` and `KV_REST_API_TOKEN`. Inline `url` and `token` values are treated as explicit config, but env vars are preferred for hosted deployments.
 
 ## Method options
 

@@ -1,4 +1,5 @@
-export type KVDriver = "cloudflare-kv-binding" | "upstash" | "fs-lite"
+export type KVDriver = "cloudflare-kv-binding" | "vercel"
+export type InternalKVDriver = KVDriver | "upstash" | "fs-lite"
 
 export interface CloudflareKVStoreConfig {
   driver: "cloudflare-kv-binding"
@@ -12,6 +13,12 @@ export interface UpstashKVStoreConfig {
   url?: string
 }
 
+export interface VercelKVStoreConfig {
+  driver: "vercel"
+  token?: string
+  url?: string
+}
+
 export interface FsLiteKVStoreConfig {
   driver: "fs-lite"
   base?: string
@@ -19,6 +26,10 @@ export interface FsLiteKVStoreConfig {
 
 export type KVStoreConfig =
   | CloudflareKVStoreConfig
+  | VercelKVStoreConfig
+
+export type InternalKVStoreConfig =
+  | KVStoreConfig
   | UpstashKVStoreConfig
   | FsLiteKVStoreConfig
 
@@ -38,6 +49,7 @@ export type ResolvedKVStoreConfig =
   | ResolvedFsLiteKVStoreConfig
 
 export type KVModuleOptions = KVStoreConfig | false
+export type InternalKVModuleOptions = InternalKVStoreConfig | false
 
 export interface ResolvedKVModuleOptions {
   store: ResolvedKVStoreConfig

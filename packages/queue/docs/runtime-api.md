@@ -56,14 +56,13 @@ console.log(queue.provider)
 ## Config type
 
 ```ts
-type QueueProvider = 'cloudflare' | 'vercel' | 'memory'
+type QueueProvider = 'cloudflare' | 'vercel'
 ```
 
 ```ts
 type QueueModuleOptions =
   | false
   | { provider?: undefined, cache?: boolean }
-  | { provider: 'memory', cache?: boolean }
   | { provider: 'cloudflare', binding?: string, cache?: boolean }
   | { provider: 'vercel', region?: string, cache?: boolean }
 ```

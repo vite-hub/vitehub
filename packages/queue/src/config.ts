@@ -1,4 +1,5 @@
 import type {
+  InternalQueueProviderOptions,
   QueueModuleOptions,
   QueueProviderOptions,
   ResolvedQueueModuleOptions,
@@ -8,7 +9,7 @@ export interface QueueResolutionInput {
   hosting?: string
 }
 
-const KNOWN_PROVIDERS = new Set(["cloudflare", "memory", "vercel"])
+const KNOWN_PROVIDERS = new Set(["cloudflare", "vercel"])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
@@ -17,10 +18,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function resolveProvider(
   provider: QueueProviderOptions | (Record<string, unknown> & { provider?: undefined }),
   hosting = "",
-): QueueProviderOptions {
+): InternalQueueProviderOptions {
   if (provider.provider) {
     if (!KNOWN_PROVIDERS.has(provider.provider)) {
-      throw new TypeError(`Unknown \`queue.provider\`: ${JSON.stringify(provider.provider)}. Expected "cloudflare", "vercel", or "memory".`)
+      throw new TypeError(`Unknown \`queue.provider\`: ${JSON.stringify(provider.provider)}. Expected "cloudflare" or "vercel".`)
     }
     return { ...provider } as QueueProviderOptions
   }

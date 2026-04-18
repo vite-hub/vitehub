@@ -9,26 +9,26 @@ icon: i-lucide-database-zap
 
 ## Getting started
 
-Start with [Quickstart](./quickstart) to get KV working locally first. It uses `fs-lite`, so you can verify config through Vite and read or write keys through the Nitro or Nuxt runtime adapters before choosing a hosted provider.
+Start with [Quickstart](./quickstart) to configure Cloudflare KV. Use the Vercel provider path when your deployment should resolve KV through REST credentials.
 
 ## Automatic configuration
 
 ViteHub resolves the KV driver in this order:
 
 1. Explicit `kv.driver` config wins.
-2. Upstash env vars win if present.
+2. Vercel KV REST env vars win if present.
 3. Cloudflare hosting defaults to `cloudflare-kv-binding`.
-4. Everything else falls back to `fs-lite`.
+4. Local development uses an internal filesystem fallback.
 
 This mirrors the actual resolution logic in `normalizeKVOptions`, so the docs match the runtime behavior.
 
 ## Supported provider paths
 
-### Vercel / Upstash
+### Vercel
 
-Use this path when your app has Upstash REST credentials available, including the Vercel `KV_REST_API_*` env vars. The resolved driver is `upstash`.
+Use this path when your app has Vercel KV REST credentials available through `KV_REST_API_*` env vars. The public driver is `vercel`.
 
-Read [Vercel](./providers/vercel) for the full setup, supported env vars, and fallback behavior.
+Read [Vercel](./providers/vercel) for the full setup and supported env vars.
 
 ### Cloudflare KV
 
@@ -36,15 +36,9 @@ Use this path when Cloudflare hosting is detected or when you explicitly set `kv
 
 Read [Cloudflare](./providers/cloudflare) for bindings, `namespaceId`, and framework-specific examples.
 
-### Local / other
-
-Use this path when no higher-priority config is found. The resolved driver is `fs-lite`, and data is stored locally in `.data/kv`.
-
-If you want to stay local or use the simplest development path, start with [Quickstart](./quickstart).
-
 ## Manual configuration
 
-Set `kv.driver` explicitly to bypass auto-resolution. See [Cloudflare](./providers/cloudflare), [Vercel](./providers/vercel), or [Quickstart](./quickstart) for per-driver config examples.
+Set `kv.driver` explicitly to bypass auto-resolution. See [Cloudflare](./providers/cloudflare) or [Vercel](./providers/vercel) for per-driver config examples.
 
 ## What stays portable
 
@@ -56,7 +50,7 @@ These pieces stay stable when you change providers:
 
 ## Fallback behavior
 
-If no explicit config, supported env vars, or Cloudflare hosting signal is found, KV falls back to `fs-lite` and stores data in `.data/kv`.
+If no explicit config, supported env vars, or Cloudflare hosting signal is found, KV uses an internal local fallback for development.
 
 ## Next steps
 
@@ -92,7 +86,7 @@ If no explicit config, supported env vars, or Cloudflare hosting signal is found
   :::u-page-card
   ---
   title: Vercel
-  description: Configure the Upstash-backed Vercel path.
+  description: Configure the Vercel KV REST path.
   to: ./providers/vercel
   ---
   :::

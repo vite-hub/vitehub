@@ -18,16 +18,12 @@ describe("normalizeQueueOptions", () => {
     expect(normalizeQueueOptions(false, { hosting: "vercel" })).toBeUndefined()
   })
 
-  it("lets explicit config beat hosting defaults", () => {
-    expect(normalizeQueueOptions({
+  it("rejects the internal memory provider as explicit public config", () => {
+    expect(() => normalizeQueueOptions({
       provider: "memory",
-    }, {
+    } as never, {
       hosting: "cloudflare-module",
-    })).toEqual({
-      provider: {
-        provider: "memory",
-      },
-    })
+    })).toThrow('Expected "cloudflare" or "vercel"')
   })
 
   it("uses Cloudflare defaults when hosting resolves to Cloudflare", () => {

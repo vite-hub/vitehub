@@ -67,10 +67,6 @@ The discovered queue name becomes the Vercel topic. For `server/queues/welcome-e
 
 During Vercel builds, ViteHub generates hidden queue consumer functions in `.vercel/output/functions/api/vitehub/queues/vercel/**` and adds the `queue/v2beta` trigger metadata.
 
-## Local development
-
-ViteHub does not manage a local Vercel queue emulator. Use `queue.provider = 'memory'` for local contract testing, then deploy with the Vercel provider.
-
 ## Related
 
 - [Overview](../index)
