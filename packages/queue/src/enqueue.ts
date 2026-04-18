@@ -1,12 +1,14 @@
 import type { QueueEnqueueInput, QueueEnqueueOptions } from "./types.ts"
 
-const enqueueOptionKeys = new Set([
+const envelopeDiscriminatorKeys = new Set([
   "contentType",
   "delaySeconds",
   "id",
   "idempotencyKey",
   "retentionSeconds",
 ])
+
+let fallbackCounter = 0
 
 export interface NormalizedQueueEnqueueInput<TPayload = unknown> {
   id: string
@@ -15,7 +17,10 @@ export interface NormalizedQueueEnqueueInput<TPayload = unknown> {
 }
 
 export function createQueueMessageId(prefix = "queue"): string {
-  return `${prefix}_${globalThis.crypto.randomUUID()}`
+  const uuid = globalThis.crypto?.randomUUID?.()
+  if (uuid) return `${prefix}_${uuid}`
+  fallbackCounter = (fallbackCounter + 1) >>> 0
+  return `${prefix}_${Date.now().toString(36)}_${fallbackCounter.toString(36)}`
 }
 
 function isQueueEnqueueInput<TPayload>(
@@ -26,7 +31,7 @@ function isQueueEnqueueInput<TPayload>(
     && !Array.isArray(input)
     && input !== null
     && "payload" in input
-    && Object.keys(input).some(key => enqueueOptionKeys.has(key))
+    && Object.keys(input).some(key => envelopeDiscriminatorKeys.has(key))
 }
 
 export function normalizeQueueEnqueueInput<TPayload = unknown>(
