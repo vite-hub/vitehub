@@ -7,6 +7,13 @@ const port = Number(process.env.PORT || 3000)
 
 const mod = await import(pathToFileURL(entry).href)
 const handler = mod.default
+const pending = new Set<Promise<unknown>>()
+
+function track(promise: Promise<unknown>): void {
+  const settled = Promise.resolve(promise).catch(() => {})
+  pending.add(settled)
+  settled.finally(() => pending.delete(settled))
+}
 
 // nuxt/nitro-v2 vercel preset exports a Node listener (req, res)
 // nitro-v3 standalone vercel preset exports { fetch(request, context) }
@@ -36,7 +43,7 @@ const server = isNodeListener
 
         const response = await handler.fetch(request, {
           waitUntil(promise: Promise<unknown>) {
-            void Promise.resolve(promise).catch(() => {})
+            track(promise)
           },
         })
 
@@ -54,4 +61,9 @@ const server = isNodeListener
     })
 
 server.listen(port, host)
-process.on("SIGTERM", () => server.close(() => process.exit(0)))
+process.on("SIGTERM", () => {
+  server.close(async () => {
+    await Promise.allSettled(pending)
+    process.exit(0)
+  })
+})
