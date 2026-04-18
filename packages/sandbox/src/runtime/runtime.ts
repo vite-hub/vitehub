@@ -175,7 +175,7 @@ export async function createSandboxWithConfig(
   const resolvedProviderConfig = getSandboxFeatureProvider(config)
   const provider = resolveRuntimeProvider(resolvedProviderConfig, context.event)
   const { createSandboxClient, resolvedProvider } = await resolveSandboxProvider(provider, {
-    ...(resolvedProviderConfig || {}),
+    ...(resolvedProviderConfig ?? {}),
     provider,
   } as SandboxDefinitionProviderOptions & { provider: SandboxProvider }, local, context)
 
@@ -202,9 +202,9 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
     const provider = resolveRuntimeProvider(config, context.event)
 
     return (await resolveSandboxProvider(provider, {
-      ...(config || {}),
+      ...(config ?? {}),
       provider,
-    } as SandboxDefinitionProviderOptions & { provider: SandboxProvider }, context.definition.options || {}, { event: context.event })).resolvedProvider
+    } as SandboxDefinitionProviderOptions & { provider: SandboxProvider }, context.definition.options ?? {}, { event: context.event })).resolvedProvider
   },
   async create(provider, context) {
     const runtimeProvider = await loadSandboxRuntimeProvider(provider.provider)

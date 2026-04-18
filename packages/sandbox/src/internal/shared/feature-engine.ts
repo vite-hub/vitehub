@@ -85,8 +85,8 @@ export function applyRuntimeConfig<TConfig>(runtimeConfig: Record<string, unknow
 export async function readWorkspaceDeps(rootDir: string) {
   const packageJson = await readPackageJSON(rootDir)
   return {
-    ...(packageJson.dependencies || {}),
-    ...(packageJson.devDependencies || {}),
+    ...(packageJson.dependencies ?? {}),
+    ...(packageJson.devDependencies ?? {}),
   }
 }
 
@@ -143,9 +143,10 @@ export async function buildFeatureResolvedState<TOptions, TInput, TConfig>(
   if (resolved.hosting)
     runtimeConfig.hosting ||= resolved.hosting
 
-  engine.assignRuntimeConfig
-    ? engine.assignRuntimeConfig(runtimeConfig, resolved.config)
-    : applyRuntimeConfig(runtimeConfig, engine.configKey, resolved.config)
+  if (engine.assignRuntimeConfig)
+    engine.assignRuntimeConfig(runtimeConfig, resolved.config)
+  else
+    applyRuntimeConfig(runtimeConfig, engine.configKey, resolved.config)
 
   const deps = engine.loadDeps ? await readWorkspaceDeps(rootDir) : {}
 

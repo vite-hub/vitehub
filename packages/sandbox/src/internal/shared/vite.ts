@@ -85,12 +85,12 @@ function mergeUserConfigs(base: UserConfig, extra?: UserConfig) {
     ...extra,
     ...base,
     define: {
-      ...(extra.define || {}),
-      ...(base.define || {}),
+      ...(extra.define ?? {}),
+      ...(base.define ?? {}),
     },
     resolve: {
-      ...(extra.resolve || {}),
-      ...(base.resolve || {}),
+      ...(extra.resolve ?? {}),
+      ...(base.resolve ?? {}),
       alias: {
         ...(typeof extra.resolve?.alias === 'object' && !Array.isArray(extra.resolve.alias) ? extra.resolve.alias : {}),
         ...(typeof base.resolve?.alias === 'object' && !Array.isArray(base.resolve.alias) ? base.resolve.alias : {}),
@@ -126,7 +126,7 @@ function resolveNitroOptions(
   const handlers = Array.isArray(nitro?.handlers) ? nitro.handlers : []
   const modules = [
     ...(featureNitroModule ? [featureNitroModule] : []),
-    ...((nitro?.modules || []).filter(Boolean)),
+    ...((nitro?.modules ?? []).filter(Boolean)),
   ]
 
   return {
@@ -146,14 +146,14 @@ function resolveNitroOptions(
         fallthrough: true,
         maxAge: 0,
       },
-      ...(nitro?.publicAssets || []).map(asset => ({
+      ...(nitro?.publicAssets ?? []).map(asset => ({
         ...asset,
         maxAge: asset.maxAge ?? 0,
       })),
     ],
     rootDir,
     runtimeConfig: {
-      ...(nitro?.runtimeConfig || {}),
+      ...(nitro?.runtimeConfig ?? {}),
       ...state.runtimeConfig,
     },
     srcDir,
