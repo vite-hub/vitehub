@@ -82,10 +82,11 @@ jobs:
           VITEHUB_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'kv' }}
         run: pnpm --dir packages/$VITEHUB_PACKAGE test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}
 
-  deploy:
+  live:
     needs: quality
     if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.live)
     runs-on: ubuntu-latest
+    name: live (${{ matrix.provider }}, ${{ matrix.framework }})
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -190,19 +191,6 @@ jobs:
           fi
           npx vercel link --yes --project "$PROJECT" --token "$VERCEL_TOKEN"
           npx vercel deploy --prod --prebuilt --yes --token "$VERCEL_TOKEN"
-
-  e2e-live:
-    needs: deploy
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.live)
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        provider: [cloudflare, vercel]
-        framework: [nitro, nuxt, vite]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
 
       - name: E2E Live (${{ matrix.provider }} × ${{ matrix.framework }})
         if: ${{ github.event_name != 'workflow_dispatch' || ((inputs.provider == 'all' || inputs.provider == matrix.provider) && (inputs.framework == 'all' || inputs.framework == matrix.framework)) }}
