@@ -1,11 +1,1 @@
-<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="vitehub-yellow" x1="48" y1="8" x2="48" y2="88" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FDE047"/>
-      <stop offset="1" stop-color="#F59E0B"/>
-    </linearGradient>
-  </defs>
-  <path d="M48 88L18 52H78L48 88Z" fill="url(#vitehub-yellow)"/>
-  <path d="M48 58L23 28H73L48 58Z" fill="url(#vitehub-yellow)"/>
-  <path d="M48 36L28 8H68L48 36Z" fill="url(#vitehub-yellow)"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 20 18" fill="none"><defs><mask id="m"><rect width="20" height="18" fill="white"/><path transform="translate(4 3.6) scale(0.6)" fill="black" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/></mask></defs><path fill="#facc15" mask="url(#m)" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688"/></svg>

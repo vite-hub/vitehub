@@ -10,7 +10,10 @@ export default defineNuxtConfig({
   llms: { domain: "https://vitehub.dev" },
   app: {
     head: {
-      link: [{ rel: "icon", href: "/favicon.svg" }],
+      link: [
+        { rel: "icon", href: "/favicon.svg" },
+        { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
+      ],
     },
   },
   css: ["~/assets/main.css"],
