@@ -122,7 +122,7 @@ async function assertCloudflareQueueProcessedFromLogs(url: string, marker: strin
     "trap cleanup EXIT",
     `npx wrangler tail ${shellQuote(workerName)} --format json > "$tail_log" 2>&1 &`,
     "tail_pid=$!",
-    "sleep 3",
+    "sleep 8",
     `curl -fsS -X POST ${shellQuote(`${url}/api/queues/welcome`)} -H 'content-type: application/json' -H ${shellQuote(`x-vitehub-e2e-marker: ${marker}`)} --data ${shellQuote(payload)} >/dev/null`,
     "attempt=0",
     "while [ \"$attempt\" -lt 120 ]; do",
