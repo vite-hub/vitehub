@@ -41,7 +41,21 @@
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "vitest run",
-    "test:e2e": "tsx ./test/e2e.ts"
+    "test:e2e": "pnpm build && tsx ./test/e2e.ts"
+  },
+  "vitehub": {
+    "ci": {
+      "e2e": {
+        "live": {
+          "appPrefix": "vitehub-queue-playground",
+          "enabled": true,
+          "providers": [
+            "cloudflare",
+            "vercel"
+          ]
+        }
+      }
+    }
   },
   "dependencies": {
     "@nuxt/kit": "catalog:",

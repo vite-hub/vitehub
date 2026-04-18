@@ -51,11 +51,11 @@ for (const packageDir of discoverPackages()) {
   const liveProviders = e2e.live.providers ?? providers
   const liveFrameworks = e2e.live.frameworks ?? frameworks
   const appPrefix = e2e.live.appPrefix ?? `vitehub-${packageName}-playground`
-  const cloudflareWranglerTemplate = e2e.live.cloudflare?.wranglerTemplate ?? "playground/_shared/wrangler.template.jsonc"
+  const cloudflareWranglerTemplate = e2e.live.cloudflare?.wranglerTemplate
 
   for (const framework of liveFrameworks) {
     for (const provider of liveProviders) {
-      if (provider === "cloudflare" && !existsSync(join(packageDir, cloudflareWranglerTemplate))) continue
+      if (provider === "cloudflare" && cloudflareWranglerTemplate && !existsSync(join(packageDir, cloudflareWranglerTemplate))) continue
       live.push({
         appName: `${appPrefix}-${framework}`,
         cloudflareWranglerTemplate,

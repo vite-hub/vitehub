@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs"
 import { readFile, rm } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import assert from "node:assert/strict"
@@ -28,6 +29,8 @@ const buildScript = resolve(import.meta.dirname, "helpers/build-nitro.ts")
 const vercelServer = resolve(import.meta.dirname, "helpers/vercel-server.ts")
 const dir = (fw: Framework) => resolve(root, "playground", fw)
 const log = (msg: string) => console.log(`[e2e] ${msg}`)
+const queueName = (fw: Framework) => `welcome-email-${fw}`
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 async function dumpChild(child: Awaited<ReturnType<typeof startCommand>>, label: string, error: unknown) {
   const code = await Promise.race([child.exit, new Promise<number>(resolve => setTimeout(() => resolve(-1), 100))])
@@ -49,9 +52,15 @@ async function assertProbe(f: Fetcher, expected: Record<string, unknown>) {
   assert.deepEqual({ hosting: probe.hosting, provider: probe.provider, runtime: probe.runtime }, expected)
 }
 
-async function eventually<T>(fn: () => Promise<T>, assertFn: (value: T) => void | Promise<void>) {
+async function eventually<T>(
+  fn: () => Promise<T>,
+  assertFn: (value: T) => void | Promise<void>,
+  options: { attempts?: number, delayMs?: number } = {},
+) {
+  const attempts = options.attempts ?? 80
+  const delayMs = options.delayMs ?? 250
   let lastError: unknown
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < attempts; i++) {
     try {
       const value = await fn()
       await assertFn(value)
@@ -59,26 +68,31 @@ async function eventually<T>(fn: () => Promise<T>, assertFn: (value: T) => void 
     }
     catch (error) {
       lastError = error
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await delay(delayMs)
     }
   }
   throw lastError
 }
 
-async function assertQueueProcessed(f: Fetcher) {
-  await f("/api/tests/queue-state", { method: "DELETE" })
+async function enqueueWelcome(f: Fetcher, marker = `queue-e2e-${randomUUID()}`) {
   const queued = await f("/api/queues/welcome", {
-    body: JSON.stringify({ email: "ava@example.com" }),
-    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "ava@example.com", marker }),
+    headers: { "content-type": "application/json", "x-vitehub-e2e-marker": marker },
     method: "POST",
   })
   assert.equal(queued.ok, true)
   assert.equal(queued.result.status, "queued")
   assert.ok(["string", "undefined"].includes(typeof queued.result.messageId), `messageId type: ${typeof queued.result.messageId}`)
+  return { marker, queued }
+}
+
+async function assertQueueProcessed(f: Fetcher, marker = `queue-e2e-${randomUUID()}`) {
+  await f("/api/tests/queue-state", { method: "DELETE" })
+  await enqueueWelcome(f, marker)
   await eventually(() => f("/api/tests/queue-state"), (state) => {
     assert.equal(state.ok, true)
     assert.equal(state.jobs.length, 1)
-    assert.deepEqual(state.jobs[0].payload, { email: "ava@example.com" })
+    assert.deepEqual(state.jobs[0].payload, { email: "ava@example.com", marker })
   })
 }
 
@@ -90,8 +104,8 @@ async function runCloudflare(fw: Framework) {
     compatibilityFlags: ["nodejs_compat"],
     modules: true,
     modulesRoot: ".output/server",
-    queueConsumers: ["welcome-email"],
-    queueProducers: { [getCloudflareQueueBindingName("welcome-email")]: { queueName: "welcome-email" } },
+    queueConsumers: [queueName(fw)],
+    queueProducers: { [getCloudflareQueueBindingName(queueName(fw))]: { queueName: queueName(fw) } },
     rootPath: dir(fw),
     scriptPath: ".output/server/index.mjs",
   })
@@ -108,14 +122,14 @@ async function runCloudflare(fw: Framework) {
 }
 
 function vercelFunctionConfigPath(fw: Framework) {
-  return resolve(dir(fw), ".vercel/output/functions/api/vitehub/queues/vercel/welcome-email.func/.vc-config.json")
+  return resolve(dir(fw), `.vercel/output/functions/api/vitehub/queues/vercel/${queueName(fw)}.func/.vc-config.json`)
 }
 
 async function assertVercelFunctionConfig(fw: Framework) {
   const file = vercelFunctionConfigPath(fw)
   assert.equal(existsSync(file), true, `missing generated Vercel queue function config: ${file}`)
   const config = JSON.parse(await readFile(file, "utf8"))
-  assert.deepEqual(config.experimentalTriggers, [{ topic: "welcome-email", type: "queue/v2beta" }])
+  assert.deepEqual(config.experimentalTriggers, [{ topic: queueName(fw), type: "queue/v2beta" }])
   assert.equal(JSON.stringify(config).includes("consumer"), false)
 }
 
@@ -149,11 +163,51 @@ async function runVercel(fw: Framework) {
   }
 }
 
+async function assertVercelQueueProcessedFromLogs(url: string, f: Fetcher, marker: string) {
+  const token = process.env.VERCEL_TOKEN
+  assert.ok(token, "VERCEL_TOKEN is required for Vercel queue live e2e log verification.")
+
+  const logs = await startCommand("npx", ["--yes", "vercel", "logs", url, "--json", "--token", token], {
+    cwd: root,
+    env: process.env,
+  })
+
+  try {
+    await delay(1000)
+    await enqueueWelcome(f, marker)
+    await eventually(
+      async () => `${logs.stdout.join("")}\n${logs.stderr.join("")}`,
+      (output) => {
+        assert.match(output, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+      },
+      { attempts: 120, delayMs: 1000 },
+    )
+  }
+  catch (error) {
+    throw new Error([
+      `Vercel queue marker ${marker} was not observed in runtime logs.`,
+      String(error),
+      `stdout:\n${logs.stdout.join("")}`,
+      `stderr:\n${logs.stderr.join("")}`,
+    ].join("\n\n"))
+  }
+  finally {
+    logs.kill("SIGTERM")
+    await Promise.race([logs.exit, delay(1000)])
+  }
+}
+
 async function runLive(url: string, provider: Provider) {
   log(`live ${provider} -> ${url}`)
   const f: Fetcher = (p, i) => ofetch(p, { baseURL: url, ...i })
   await assertProbe(f, providerProbe[provider])
-  if (provider === "cloudflare") await assertQueueProcessed(f)
+  const marker = `queue-live-${provider}-${randomUUID()}`
+  if (provider === "cloudflare") {
+    await assertQueueProcessed(f, marker)
+  }
+  else {
+    await assertVercelQueueProcessedFromLogs(url, f, marker)
+  }
   log(`live ${provider} ok`)
 }
 
