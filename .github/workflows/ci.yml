@@ -67,9 +67,8 @@ jobs:
       - name: Build (${{ matrix.provider }} × ${{ matrix.framework }})
         env:
           NITRO_PRESET: ${{ matrix.provider == 'cloudflare' && 'cloudflare-module' || 'vercel' }}
-          # Presence forces upstash resolution at build; runtime swaps with real Vercel env.
-          KV_REST_API_URL: ${{ matrix.provider == 'vercel' && '********' || '' }}
-          KV_REST_API_TOKEN: ${{ matrix.provider == 'vercel' && '********' || '' }}
+          KV_REST_API_URL: ${{ matrix.provider == 'vercel' && secrets.KV_REST_API_URL || '' }}
+          KV_REST_API_TOKEN: ${{ matrix.provider == 'vercel' && secrets.KV_REST_API_TOKEN || '' }}
         run: |
           cd packages/kv/playground/${{ matrix.framework }}
           if [ "${{ matrix.framework }}" = "nuxt" ]; then
