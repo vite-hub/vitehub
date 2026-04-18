@@ -171,7 +171,7 @@ describe("Nitro module", () => {
       },
       hosting: "cloudflare-module",
     })
-    expect(nitro.options.alias["@vitehub/blob"]).toContain("/packages/blob/src/index.ts")
+    expect(nitro.options.alias["@vitehub/blob"]).toContain("/packages/blob/src/runtime/cloudflare-r2.ts")
     expect(nitro.options.plugins).toHaveLength(1)
     expect(nitro.options.cloudflare).toMatchObject({
       wrangler: {
@@ -258,7 +258,8 @@ describe("Nuxt module", () => {
     await module(undefined, nuxt as never)
     await module(undefined, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vitehub/blob/nitro"])
+    expect(nuxt.options.nitro!.modules).toHaveLength(1)
+    expect(nuxt.options.nitro!.modules![0]).toMatchObject({ name: "@vitehub/blob" })
     expect(nuxt.options.nitro!.blob).toEqual({
       driver: "vercel-blob",
     })
@@ -269,7 +270,8 @@ describe("Nuxt module", () => {
 
     await nuxt.runHook("nitro:config", nitroConfig)
 
-    expect(nitroConfig.modules).toEqual(["@vitehub/blob/nitro"])
+    expect(nitroConfig.modules).toHaveLength(1)
+    expect(nitroConfig.modules![0]).toMatchObject({ name: "@vitehub/blob" })
     expect(nitroConfig.blob).toEqual({
       driver: "vercel-blob",
     })
@@ -288,7 +290,8 @@ describe("Nuxt module", () => {
 
     await module({ binding: "ASSETS", driver: "cloudflare-r2" }, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vitehub/blob/nitro"])
+    expect(nuxt.options.nitro!.modules).toHaveLength(1)
+    expect(nuxt.options.nitro!.modules![0]).toMatchObject({ name: "@vitehub/blob" })
     expect(nuxt.options.nitro!.blob).toEqual({
       binding: "ASSETS",
       driver: "cloudflare-r2",

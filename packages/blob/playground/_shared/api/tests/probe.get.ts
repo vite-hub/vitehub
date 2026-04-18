@@ -1,25 +1,26 @@
 import { defineEventHandler } from "h3"
-import { useRuntimeConfig } from "nitro/runtime"
+import type { ResolvedBlobModuleOptions } from "../../../src/types.ts"
+
+type BlobGlobals = typeof globalThis & {
+  __vitehubBlobConfig?: false | ResolvedBlobModuleOptions
+  __vitehubBlobHosting?: string
+}
+
+function detectRuntime(hosting: string | undefined, event: { context?: { cloudflare?: unknown, _platform?: { cloudflare?: unknown } } }): string {
+  if (hosting === "cloudflare-module" || event.context?.cloudflare || event.context?._platform?.cloudflare) return "cloudflare"
+  if (process.env.VERCEL) return "vercel"
+  return "node"
+}
 
 export default defineEventHandler((event) => {
-  const config = useRuntimeConfig(event) as {
-    blob?: {
-      provider?: {
-        driver?: string
-      }
-    }
-    hosting?: string
-  }
-  const runtime = config.hosting === "cloudflare-module" || event.context?.cloudflare || event.context?._platform?.cloudflare
-    ? "cloudflare"
-    : process.env.VERCEL ? "vercel" : "node"
+  const { __vitehubBlobConfig: blob, __vitehubBlobHosting: hosting } = globalThis as BlobGlobals
 
   return {
     feature: "blob",
     hasWaitUntil: typeof event.waitUntil === "function",
-    hosting: config.hosting,
+    hosting,
     ok: true,
-    provider: config.blob?.provider?.driver,
-    runtime,
+    provider: blob && blob.provider.driver,
+    runtime: detectRuntime(hosting, event),
   }
 })

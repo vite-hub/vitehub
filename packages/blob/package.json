@@ -28,7 +28,9 @@
     "./client": "./dist/client.js",
     "./nitro": "./dist/nitro.js",
     "./nuxt": "./dist/nuxt.js",
+    "./runtime/cloudflare-r2": "./dist/runtime/cloudflare-r2.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
+    "./runtime/vercel-blob": "./dist/runtime/vercel-blob.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
@@ -41,7 +43,8 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {
     "@nuxt/kit": "catalog:",
@@ -70,9 +73,14 @@
     "@cloudflare/workers-types": "catalog:",
     "@nuxt/schema": "catalog:",
     "@vercel/blob": "catalog:",
+    "get-port-please": "catalog:",
+    "miniflare": "catalog:",
     "nitro": "catalog:",
+    "ofetch": "catalog:",
     "publint": "^0.3.15",
+    "tinyexec": "catalog:",
     "tsdown": "^0.21.8",
+    "tsx": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

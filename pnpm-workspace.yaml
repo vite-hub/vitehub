@@ -8,11 +8,11 @@ catalog:
   '@nuxt/content': ^3.13.0
   '@nuxt/kit': ^4.4.2
   '@nuxt/schema': ^4.4.2
-  '@vercel/blob': ^2.3.3
   '@oku-ui/motion': ^0.4.3
   '@types/node': ^25.6.0
   '@upstash/redis': ^1.37.0
   '@valibot/to-json-schema': ^1.6.0
+  '@vercel/blob': ^2.3.3
   '@vueuse/nuxt': ^14.2.1
   better-sqlite3: ^12.9.0
   defu: ^6.1.4
@@ -24,6 +24,7 @@ catalog:
   miniflare: ^4.20260317.3
   motion-v: ^2.2.1
   nitro: 3.0.260311-beta
+  nitropack: ^2.13.3
   nuxt: ^4.4.2
   ofetch: ^1.5.1
   oxlint: ^1.60.0

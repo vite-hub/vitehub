@@ -29,7 +29,7 @@ icon: i-lucide-braces
 | `blob.get(pathname)` | Reads a blob body or returns `null`. |
 | `blob.head(pathname)` | Reads metadata or throws 404. |
 | `blob.list(options?)` | Lists metadata. |
-| `blob.serve(event, pathname)` | Streams the body and sets response headers. |
+| `blob.serve(event, pathname)` | Returns a `Response` with the body and blob headers. |
 | `blob.del(pathnameOrPathnames)` | Deletes one or more blobs. |
 | `blob.handleUpload(event, options?)` | Reads `FormData`, validates files, and stores them. |
 

@@ -16,7 +16,9 @@ export default defineConfig({
     "src/vite.ts",
     "src/nitro.ts",
     "src/nuxt.ts",
+    "src/runtime/cloudflare-r2.ts",
     "src/runtime/nitro-plugin.ts",
+    "src/runtime/vercel-blob.ts",
     "src/virtual.ts",
   ],
   exports: {

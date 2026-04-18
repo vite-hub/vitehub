@@ -1,14 +1,17 @@
 import { defineNuxtModule } from "@nuxt/kit"
+import blobNitroModule from "../nitro/module.ts"
 import type { BlobModuleOptions } from "../types.ts"
 import type { NitroConfig } from "nitro/types"
 import type { NuxtModule } from "@nuxt/schema"
 
-const NITRO_MODULE_ID = "@vitehub/blob/nitro"
 type BlobNuxtOptions = Exclude<BlobModuleOptions, false>
+
+const NITRO_MODULE_ID = "@vitehub/blob/nitro"
 
 function installBlobNitroModule(nitro: NitroConfig, blob: BlobModuleOptions | undefined): void {
   nitro.modules ||= []
-  if (!nitro.modules.includes(NITRO_MODULE_ID)) nitro.modules.push(NITRO_MODULE_ID)
+  const alreadyRegistered = nitro.modules.some(entry => entry === blobNitroModule || entry === NITRO_MODULE_ID)
+  if (!alreadyRegistered) nitro.modules.push(blobNitroModule)
   if (blob !== undefined) nitro.blob = blob
 }
 

@@ -6,6 +6,11 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      package:
+        description: Package to deploy and live-test manually.
+        required: true
+        default: blob
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -43,9 +48,9 @@ jobs:
       - name: E2E (${{ matrix.provider }} × ${{ matrix.framework }})
         run: pnpm --dir packages/kv test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}
 
-  deploy:
+  e2e-local-blob:
     needs: quality
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -56,16 +61,44 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
-      - run: pnpm --dir packages/kv build
+      - run: pnpm --dir packages/blob build
+
+      - name: Blob E2E (${{ matrix.provider }} × ${{ matrix.framework }})
+        run: pnpm --dir packages/blob test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}
+
+  deploy:
+    needs: quality
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.package == 'blob')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [cloudflare, vercel]
+        framework: [nitro, nuxt, vite]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Select package
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "E2E_PACKAGE=${{ inputs.package }}" >> "$GITHUB_ENV"
+            echo "APP_PREFIX=vitehub-${{ inputs.package }}" >> "$GITHUB_ENV"
+          else
+            echo "E2E_PACKAGE=kv" >> "$GITHUB_ENV"
+            echo "APP_PREFIX=vitehub-playground" >> "$GITHUB_ENV"
+          fi
+
+      - run: pnpm --dir packages/$E2E_PACKAGE build
 
       - name: Build (${{ matrix.provider }} × ${{ matrix.framework }})
         env:
           NITRO_PRESET: ${{ matrix.provider == 'cloudflare' && 'cloudflare-module' || 'vercel' }}
           # Presence forces upstash resolution at build; runtime swaps with real Vercel env.
-          KV_REST_API_URL: ${{ matrix.provider == 'vercel' && '********' || '' }}
-          KV_REST_API_TOKEN: ${{ matrix.provider == 'vercel' && '********' || '' }}
+          KV_REST_API_URL: ${{ matrix.provider == 'vercel' && github.event_name != 'workflow_dispatch' && '********' || '' }}
+          KV_REST_API_TOKEN: ${{ matrix.provider == 'vercel' && github.event_name != 'workflow_dispatch' && '********' || '' }}
         run: |
-          cd packages/kv/playground/${{ matrix.framework }}
+          cd packages/$E2E_PACKAGE/playground/${{ matrix.framework }}
           if [ "${{ matrix.framework }}" = "nuxt" ]; then
             npx nuxi build
           else
@@ -78,24 +111,35 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
         run: |
-          cd packages/kv/playground/${{ matrix.framework }}
+          cd packages/$E2E_PACKAGE/playground/${{ matrix.framework }}
+          if [ "$E2E_PACKAGE" = "blob" ]; then
+            export BLOB_BUCKET_NAME="${BLOB_BUCKET_NAME:-vitehub-blob-e2e}"
+            npx wrangler r2 bucket create "$BLOB_BUCKET_NAME" || true
+          fi
           APP_NAME=${{ matrix.framework }} envsubst < ../_shared/wrangler.template.jsonc > .output/wrangler.json
-          npx wrangler --cwd .output/ deploy
+          npx wrangler deploy --config .output/wrangler.json
 
       - name: Deploy Vercel
         if: matrix.provider == 'vercel'
         env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN || secrets.VERCEL_BLOB_READ_WRITE_TOKEN }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         run: |
-          cd packages/kv/playground/${{ matrix.framework }}
-          npx vercel link --yes --project vitehub-playground-${{ matrix.framework }} --token "$VERCEL_TOKEN"
-          npx vercel deploy --prod --prebuilt --yes --token "$VERCEL_TOKEN"
+          cd packages/$E2E_PACKAGE/playground/${{ matrix.framework }}
+          npx vercel link --yes --project $APP_PREFIX-${{ matrix.framework }} --token "$VERCEL_TOKEN"
+          export VERCEL_PROJECT_ID="$(node -e "console.log(JSON.parse(require('node:fs').readFileSync('.vercel/project.json', 'utf8')).projectId)")"
+          deploy_args=(--prod --prebuilt --yes --token "$VERCEL_TOKEN")
+          if [ "$E2E_PACKAGE" = "blob" ] && [ -n "$BLOB_READ_WRITE_TOKEN" ]; then
+            deploy_args+=(--env "BLOB_READ_WRITE_TOKEN=$BLOB_READ_WRITE_TOKEN")
+          fi
+          npx vercel deploy "${deploy_args[@]}"
 
   e2e-live:
     needs: deploy
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.package == 'blob')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -106,13 +150,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
+      - name: Select package
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "E2E_PACKAGE=${{ inputs.package }}" >> "$GITHUB_ENV"
+            echo "APP_PREFIX=vitehub-${{ inputs.package }}" >> "$GITHUB_ENV"
+          else
+            echo "E2E_PACKAGE=kv" >> "$GITHUB_ENV"
+            echo "APP_PREFIX=vitehub-playground" >> "$GITHUB_ENV"
+          fi
+
       - name: E2E Live (${{ matrix.provider }} × ${{ matrix.framework }})
         env:
           CF_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
         run: |
           if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            URL="https://vitehub-playground-${{ matrix.framework }}.$CF_SUBDOMAIN.workers.dev"
+            URL="https://$APP_PREFIX-${{ matrix.framework }}.$CF_SUBDOMAIN.workers.dev"
           else
-            URL="https://vitehub-playground-${{ matrix.framework }}.vercel.app"
+            URL="https://$APP_PREFIX-${{ matrix.framework }}.vercel.app"
           fi
-          pnpm --dir packages/kv test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "$URL"
+          pnpm --dir packages/$E2E_PACKAGE test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "$URL"

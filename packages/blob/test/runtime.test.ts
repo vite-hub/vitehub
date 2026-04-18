@@ -5,7 +5,6 @@ import type { BlobListOptions, BlobListResult, BlobObject, BlobPutOptions } from
 const h3Mocks = vi.hoisted(() => ({
   assertMethod: vi.fn(),
   readFormData: vi.fn(),
-  setHeader: vi.fn(),
 }))
 
 vi.mock("h3", async () => {
@@ -14,7 +13,6 @@ vi.mock("h3", async () => {
     ...actual,
     assertMethod: h3Mocks.assertMethod,
     readFormData: h3Mocks.readFormData,
-    setHeader: h3Mocks.setHeader,
   }
 })
 
@@ -79,7 +77,6 @@ describe("createBlobStorage", () => {
   beforeEach(() => {
     h3Mocks.readFormData.mockReset()
     h3Mocks.assertMethod.mockReset()
-    h3Mocks.setHeader.mockReset()
   })
 
   it("writes, reads, lists, heads, serves, and deletes blobs", async () => {
@@ -101,12 +98,12 @@ describe("createBlobStorage", () => {
       hasMore: false,
     })
 
-    const stream = await storage.serve({} as never, "notes/hello.txt")
+    const response = await storage.serve({} as never, "notes/hello.txt")
 
-    expect(await new Response(stream).text()).toBe("hello world")
-    expect(h3Mocks.setHeader).toHaveBeenCalledWith({}, "Content-Type", "text/plain")
-    expect(h3Mocks.setHeader).toHaveBeenCalledWith({}, "Content-Length", "11")
-    expect(h3Mocks.setHeader).toHaveBeenCalledWith({}, "etag", "\"notes/hello.txt\"")
+    expect(await response.text()).toBe("hello world")
+    expect(response.headers.get("Content-Type")).toBe("text/plain")
+    expect(response.headers.get("Content-Length")).toBe("11")
+    expect(response.headers.get("etag")).toBe("\"notes/hello.txt\"")
 
     await storage.del("notes/hello.txt")
     await expect(storage.get("notes/hello.txt")).resolves.toBeNull()
