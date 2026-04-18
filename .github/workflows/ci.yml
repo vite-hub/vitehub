@@ -75,13 +75,14 @@ jobs:
       - name: Deploy Cloudflare
         if: matrix.provider == 'cloudflare'
         env:
+          APP_NAME: ${{ matrix.framework }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
         run: |
           cd packages/kv/playground/${{ matrix.framework }}
-          APP_NAME=${{ matrix.framework }} envsubst < ../_shared/wrangler.template.jsonc > .output/wrangler.json
-          npx wrangler --cwd .output/ deploy
+          node -e 'const fs = require("node:fs"); const config = JSON.parse(fs.readFileSync(".output/server/wrangler.json", "utf8")); config.name = `vitehub-playground-${process.env.APP_NAME}`; config.kv_namespaces = [{ binding: "KV", id: process.env.KV_NAMESPACE_ID }]; fs.writeFileSync(".output/server/wrangler.deploy.json", JSON.stringify(config, null, 2));'
+          npx wrangler deploy --config .output/server/wrangler.deploy.json
 
       - name: Deploy Vercel
         if: matrix.provider == 'vercel'
