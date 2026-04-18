@@ -1,8 +1,5 @@
 import { H3, serve } from "h3"
 import { blob } from "@vitehub/blob"
-import blobConfig from "virtual:@vitehub/blob/config"
-
-;(globalThis as typeof globalThis & { __vitehubBlobConfig?: typeof blobConfig.blob }).__vitehubBlobConfig = blobConfig.blob
 
 const app = new H3()
   .post("/files", async () => {
@@ -10,7 +7,7 @@ const app = new H3()
       contentType: "text/plain",
     })
   })
-  .get("/files/**:pathname", async (event) => {
+  .get("/files/:pathname", async (event) => {
     return await blob.serve(event, event.context.params.pathname)
   })
 

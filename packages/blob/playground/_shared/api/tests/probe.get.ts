@@ -2,22 +2,24 @@ import { defineEventHandler } from "h3"
 import { useRuntimeConfig } from "nitro/runtime"
 
 export default defineEventHandler((event) => {
-  const { blob, hosting } = useRuntimeConfig(event) as {
-    blob?: { provider?: { driver?: string } }
+  const config = useRuntimeConfig(event) as {
+    blob?: {
+      provider?: {
+        driver?: string
+      }
+    }
     hosting?: string
   }
-
-  const isCloudflare = hosting === "cloudflare-module" || event.context?.cloudflare || event.context?._platform?.cloudflare
-  let runtime = "node"
-  if (isCloudflare) runtime = "cloudflare"
-  else if (process.env.VERCEL) runtime = "vercel"
+  const runtime = config.hosting === "cloudflare-module" || event.context?.cloudflare || event.context?._platform?.cloudflare
+    ? "cloudflare"
+    : process.env.VERCEL ? "vercel" : "node"
 
   return {
     feature: "blob",
     hasWaitUntil: typeof event.waitUntil === "function",
-    hosting,
+    hosting: config.hosting,
     ok: true,
-    provider: blob?.provider?.driver,
+    provider: config.blob?.provider?.driver,
     runtime,
   }
 })
