@@ -153,35 +153,7 @@ jobs:
               TARGET_DIR=".output"
               TARGET_CONFIG="wrangler.jsonc"
             elif [ -f .output/nitro.json ]; then
-              node <<'EOF'
-              const fs = require('node:fs')
-              const path = require('node:path')
-
-              const nitro = JSON.parse(fs.readFileSync('.output/nitro.json', 'utf8'))
-              const serverDir = path.resolve('.output/server')
-              const outputPath = path.join(serverDir, 'wrangler.json')
-              const cloudflare = nitro.config?.cloudflare || {}
-              const wrangler = cloudflare.wrangler || {}
-
-              fs.mkdirSync(serverDir, { recursive: true })
-              fs.writeFileSync(outputPath, JSON.stringify({
-                compatibility_date: '2025-07-15',
-                main: 'index.mjs',
-                compatibility_flags: cloudflare.nodeCompat ? ['nodejs_compat'] : [],
-                assets: {
-                  directory: '../public',
-                  binding: 'ASSETS',
-                },
-                no_bundle: true,
-                rules: [
-                  {
-                    type: 'ESModule',
-                    globs: ['**/*.mjs', '**/*.js'],
-                  },
-                ],
-                ...wrangler,
-              }, null, 2))
-              EOF
+              node -e "const fs=require('node:fs');const path=require('node:path');const nitro=JSON.parse(fs.readFileSync('.output/nitro.json','utf8'));const serverDir=path.resolve('.output/server');const outputPath=path.join(serverDir,'wrangler.json');const cloudflare=nitro.config?.cloudflare||{};const wrangler=cloudflare.wrangler||{};fs.mkdirSync(serverDir,{recursive:true});fs.writeFileSync(outputPath, JSON.stringify({ compatibility_date:'2025-07-15', main:'index.mjs', compatibility_flags: cloudflare.nodeCompat ? ['nodejs_compat'] : [], assets:{ directory:'../public', binding:'ASSETS' }, no_bundle:true, rules:[{ type:'ESModule', globs:['**/*.mjs','**/*.js'] }], ...wrangler }, null, 2))"
               TARGET_DIR=".output/server"
               TARGET_CONFIG="wrangler.json"
             fi
