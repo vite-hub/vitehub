@@ -61,14 +61,14 @@ jobs:
       - name: E2E (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
         run: pnpm --dir ${{ matrix.packageDir }} test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}
 
-  deploy:
+  live:
     needs: [quality, e2e_matrix]
     if: (github.ref == 'refs/heads/main' || inputs.run-live-e2e) && needs.e2e_matrix.outputs.has_live == 'true'
     runs-on: ubuntu-latest
-    name: deploy (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
+    name: live (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 3
       matrix: ${{ fromJSON(needs.e2e_matrix.outputs.live) }}
     steps:
       - uses: actions/checkout@v4
@@ -166,12 +166,6 @@ jobs:
           npx wrangler deploy --config .output/server/wrangler.deploy.json
           printf 'https://%s.%s.workers.dev\n' "${{ matrix.appName }}" "$CLOUDFLARE_WORKERS_SUBDOMAIN" > "$GITHUB_WORKSPACE/live-url.txt"
 
-      - uses: actions/upload-artifact@v4
-        if: matrix.provider == 'cloudflare'
-        with:
-          name: live-url-${{ matrix.packageName }}-${{ matrix.provider }}-${{ matrix.framework }}
-          path: live-url.txt
-
       - name: Deploy Vercel
         if: matrix.provider == 'vercel'
         env:
@@ -194,35 +188,13 @@ jobs:
           fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/live-url.txt`, `${url}\n`)
           NODE
 
-      - uses: actions/upload-artifact@v4
-        if: matrix.provider == 'vercel'
-        with:
-          name: live-url-${{ matrix.packageName }}-${{ matrix.provider }}-${{ matrix.framework }}
-          path: live-url.txt
-
-  e2e-live:
-    needs: [deploy, e2e_matrix]
-    if: (github.ref == 'refs/heads/main' || inputs.run-live-e2e) && needs.e2e_matrix.outputs.has_live == 'true'
-    runs-on: ubuntu-latest
-    name: e2e-live (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.e2e_matrix.outputs.live) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-      - uses: actions/download-artifact@v4
-        with:
-          name: live-url-${{ matrix.packageName }}-${{ matrix.provider }}-${{ matrix.framework }}
-          path: .live-url
-
       - name: E2E Live (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ matrix.provider == 'cloudflare' && secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
           CLOUDFLARE_API_TOKEN: ${{ matrix.provider == 'cloudflare' && secrets.CLOUDFLARE_API_TOKEN || '' }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          URL="$(cat .live-url/live-url.txt)"
+          URL="$(cat "$GITHUB_WORKSPACE/live-url.txt")"
           if [ "${{ matrix.provider }}" = "vercel" ]; then
             cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
             npx vercel link --yes --project ${{ matrix.appName }} --token "$VERCEL_TOKEN"
