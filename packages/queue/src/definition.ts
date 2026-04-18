@@ -5,7 +5,7 @@ import type {
   QueueHandler,
 } from "./types.ts"
 
-const allowedDefinitionOptions = new Set([
+const allowedDefinitionOptions = new Set<keyof QueueDefinitionOptions>([
   "cache",
   "callbackOptions",
   "concurrency",
@@ -16,7 +16,7 @@ function validateDefinitionOptions(options: QueueDefinitionOptions | undefined) 
   if (!options) return undefined
 
   for (const key of Object.keys(options)) {
-    if (!allowedDefinitionOptions.has(key)) {
+    if (!allowedDefinitionOptions.has(key as keyof QueueDefinitionOptions)) {
       throw new TypeError(`Unknown queue definition option \`${key}\`.`)
     }
   }
@@ -50,8 +50,5 @@ export function defineQueue<TPayload = unknown, TResult = unknown>(
     throw new TypeError("`defineQueue()` requires a queue handler.")
   }
 
-  return {
-    handler,
-    options: validateDefinitionOptions(options),
-  }
+  return { handler, options: validateDefinitionOptions(options) }
 }

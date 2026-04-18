@@ -1,20 +1,27 @@
-import type { NormalizedQueueEnqueueInput, QueueEnqueueInput, QueueEnqueueOptions } from "./types.ts"
+import type { QueueEnqueueInput, QueueEnqueueOptions } from "./types.ts"
 
-let queueMessageCounter = 0
-const enqueueOptionKeys = new Set([
+const envelopeDiscriminatorKeys = new Set([
   "contentType",
   "delaySeconds",
   "id",
   "idempotencyKey",
+  "region",
   "retentionSeconds",
 ])
 
-export function createQueueMessageId(prefix = "queue"): string {
-  const random = globalThis.crypto?.randomUUID?.()
-  if (typeof random === "string" && random.length > 0) return `${prefix}_${random}`
+let fallbackCounter = 0
 
-  queueMessageCounter += 1
-  return `${prefix}_${Date.now()}_${queueMessageCounter}`
+export interface NormalizedQueueEnqueueInput<TPayload = unknown> {
+  id: string
+  options: QueueEnqueueOptions
+  payload: TPayload
+}
+
+export function createQueueMessageId(prefix = "queue"): string {
+  const uuid = globalThis.crypto?.randomUUID?.()
+  if (uuid) return `${prefix}_${uuid}`
+  fallbackCounter = (fallbackCounter + 1) >>> 0
+  return `${prefix}_${Date.now().toString(36)}_${fallbackCounter.toString(36)}`
 }
 
 function isQueueEnqueueInput<TPayload>(
@@ -25,7 +32,7 @@ function isQueueEnqueueInput<TPayload>(
     && !Array.isArray(input)
     && input !== null
     && "payload" in input
-    && Object.keys(input).some(key => enqueueOptionKeys.has(key))
+    && Object.keys(input).some(key => envelopeDiscriminatorKeys.has(key))
 }
 
 export function normalizeQueueEnqueueInput<TPayload = unknown>(

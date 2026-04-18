@@ -1,8 +1,8 @@
 import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 import type { H3Event } from "h3"
 
-import { getQueue } from "../index.ts"
 import { QueueError } from "../errors.ts"
+import { getQueue } from "./client.ts"
 import type { QueueDefinition, QueueJob, VercelQueueMessageHandler } from "../types.ts"
 
 async function toRequest(event: H3Event): Promise<Request> {

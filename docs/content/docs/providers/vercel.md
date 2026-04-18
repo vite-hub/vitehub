@@ -17,6 +17,13 @@ Use this page to find package-specific Vercel guidance in ViteHub.
 - Setup overview: [KV overview](../kv)
 - Provider details: [KV on Vercel](../kv/providers/vercel)
 
+### Queue
+
+`@vitehub/queue` supports Vercel Queues through discovered queue definitions and generated Vercel callback functions.
+
+- Setup overview: [Queue overview](../queue)
+- Provider details: [Queue on Vercel](../queue/providers/vercel)
+
 ## What stays package-specific
 
-Environment variables, fallback behavior, and exact config examples live with the package docs. Use this section as a routing page, not as the source of truth for package setup.
+Environment variables, callback behavior, fallback behavior, and exact config examples live with the package docs. Use this section as a routing page, not as the source of truth for package setup.

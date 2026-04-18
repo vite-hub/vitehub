@@ -31,46 +31,57 @@ jobs:
       - run: pnpm build
       - run: pnpm docs:build
 
-  e2e-local:
-    needs: quality
-    if: github.event_name == 'pull_request'
+  e2e_matrix:
     runs-on: ubuntu-latest
+    outputs:
+      has_local: ${{ steps.e2e.outputs.hasLocal }}
+      has_live: ${{ steps.e2e.outputs.hasLive }}
+      live: ${{ steps.e2e.outputs.live }}
+      local: ${{ steps.e2e.outputs.local }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: e2e
+        run: node .github/scripts/discover-e2e-matrix.mjs
+
+  e2e-local:
+    needs: [quality, e2e_matrix]
+    if: github.event_name == 'pull_request' && needs.e2e_matrix.outputs.has_local == 'true'
+    runs-on: ubuntu-latest
+    name: e2e-local (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
     strategy:
       fail-fast: false
-      matrix:
-        provider: [cloudflare, vercel]
-        framework: [nitro, nuxt, vite]
+      matrix: ${{ fromJSON(needs.e2e_matrix.outputs.local) }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
-      - run: pnpm --dir packages/kv build
+      - run: pnpm --dir ${{ matrix.packageDir }} build
 
-      - name: E2E (${{ matrix.provider }} × ${{ matrix.framework }})
-        run: pnpm --dir packages/kv test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}
+      - name: E2E (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
+        run: pnpm --dir ${{ matrix.packageDir }} test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}
 
   deploy:
-    needs: quality
-    if: github.ref == 'refs/heads/main' || inputs.run-live-e2e
+    needs: [quality, e2e_matrix]
+    if: (github.ref == 'refs/heads/main' || inputs.run-live-e2e) && needs.e2e_matrix.outputs.has_live == 'true'
     runs-on: ubuntu-latest
+    name: deploy (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
     strategy:
       fail-fast: false
-      matrix:
-        provider: [cloudflare, vercel]
-        framework: [nitro, nuxt, vite]
+      matrix: ${{ fromJSON(needs.e2e_matrix.outputs.live) }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
-      - run: pnpm --dir packages/kv build
+      - run: pnpm --dir ${{ matrix.packageDir }} build
 
-      - name: Build (${{ matrix.provider }} × ${{ matrix.framework }})
+      - name: Build (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
         env:
           NITRO_PRESET: ${{ matrix.provider == 'cloudflare' && 'cloudflare-module' || 'vercel' }}
           KV_REST_API_URL: ${{ matrix.provider == 'vercel' && secrets.KV_REST_API_URL || '' }}
           KV_REST_API_TOKEN: ${{ matrix.provider == 'vercel' && secrets.KV_REST_API_TOKEN || '' }}
         run: |
-          cd packages/kv/playground/${{ matrix.framework }}
+          cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
           if [ "${{ matrix.framework }}" = "nuxt" ]; then
             pnpm exec nuxi build
           else
@@ -85,7 +96,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
         run: |
-          cd packages/kv/playground/${{ matrix.framework }}
+          cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
           node -e 'const fs = require("node:fs"); const path = ".output/server/wrangler.json"; const config = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path, "utf8")) : { assets: { binding: "ASSETS", directory: "../public" }, compatibility_date: "2025-07-15", main: "index.mjs", no_bundle: true, rules: [{ type: "ESModule", globs: ["**/*.mjs", "**/*.js"] }] }; config.name = `vitehub-playground-${process.env.APP_NAME}`; config.kv_namespaces = [{ binding: "KV", id: process.env.KV_NAMESPACE_ID }]; config.compatibility_flags = [...new Set([...(config.compatibility_flags || []), "nodejs_compat"])]; fs.writeFileSync(".output/server/wrangler.deploy.json", JSON.stringify(config, null, 2));'
           npx wrangler deploy --config .output/server/wrangler.deploy.json
 
@@ -94,30 +105,29 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          cd packages/kv/playground/${{ matrix.framework }}
-          npx vercel link --yes --project vitehub-playground-${{ matrix.framework }} --token "$VERCEL_TOKEN"
+          cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
+          npx vercel link --yes --project ${{ matrix.appName }} --token "$VERCEL_TOKEN"
           npx vercel deploy --prod --prebuilt --yes --token "$VERCEL_TOKEN"
 
   e2e-live:
-    needs: deploy
-    if: github.ref == 'refs/heads/main' || inputs.run-live-e2e
+    needs: [deploy, e2e_matrix]
+    if: (github.ref == 'refs/heads/main' || inputs.run-live-e2e) && needs.e2e_matrix.outputs.has_live == 'true'
     runs-on: ubuntu-latest
+    name: e2e-live (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
     strategy:
       fail-fast: false
-      matrix:
-        provider: [cloudflare, vercel]
-        framework: [nitro, nuxt, vite]
+      matrix: ${{ fromJSON(needs.e2e_matrix.outputs.live) }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
-      - name: E2E Live (${{ matrix.provider }} × ${{ matrix.framework }})
+      - name: E2E Live (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
         env:
           CF_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
         run: |
           if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            URL="https://vitehub-playground-${{ matrix.framework }}.$CF_SUBDOMAIN.workers.dev"
+            URL="https://${{ matrix.appName }}.$CF_SUBDOMAIN.workers.dev"
           else
-            URL="https://vitehub-playground-${{ matrix.framework }}.vercel.app"
+            URL="https://${{ matrix.appName }}.vercel.app"
           fi
-          pnpm --dir packages/kv test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "$URL"
+          pnpm --dir ${{ matrix.packageDir }} test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "$URL"

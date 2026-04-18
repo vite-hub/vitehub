@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, posix, relative, resolve } from "node:path";
 
 const frameworkIds = ["vite", "nitro", "nuxt"] as const;
 const usageModes = ["dev", "build"] as const;
@@ -165,6 +165,37 @@ export function filterFwBlocksForFramework(source: string, framework: Framework)
   }
 
   return output.join("\n");
+}
+
+function splitUrlSuffix(target: string) {
+  const suffixIndex = target.search(/[?#]/);
+  return suffixIndex === -1
+    ? { pathname: target, suffix: "" }
+    : { pathname: target.slice(0, suffixIndex), suffix: target.slice(suffixIndex) };
+}
+
+function normalizeGeneratedDocLink(target: string, framework: Framework, sectionId: string, relativeFile: string) {
+  if (!target.startsWith("./") && !target.startsWith("../")) return target;
+
+  const currentDir = posix.dirname(posix.join(sectionId, relativeFile.replace(/\.md$/, "")));
+  const { pathname, suffix } = splitUrlSuffix(target);
+  let resolved = posix.normalize(posix.join(currentDir, pathname));
+
+  if (resolved === ".") resolved = sectionId;
+  if (resolved.endsWith("/index")) resolved = resolved.slice(0, -"/index".length);
+
+  return `/docs/${framework}/${resolved}${suffix}`;
+}
+
+function rewriteGeneratedDocLinks(source: string, framework: Framework, sectionId: string, relativeFile: string) {
+  return source
+    .replace(/(!?\[[^\]]+\]\()((?:\.\.?\/)[^)]+)(\))/g, (match, prefix: string, target: string, suffix: string) => {
+      if (prefix.startsWith("![")) return match;
+      return `${prefix}${normalizeGeneratedDocLink(target, framework, sectionId, relativeFile)}${suffix}`;
+    })
+    .replace(/^(\s*to:\s*)(['"]?)(\.\.?\/[^'"\s]+)(\2)\s*$/gm, (_, prefix: string, quote: string, target: string) => {
+      return `${prefix}${quote}${normalizeGeneratedDocLink(target, framework, sectionId, relativeFile)}${quote}`;
+    });
 }
 
 function getPhasePriority(modeConfig: { phases: Partial<Record<typeof phaseOrder[number], string>>; supplementalFiles?: string[] }, path: string) {
@@ -485,9 +516,10 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
 
           for (const page of pages) {
             for (const framework of page.frameworks) {
+              const source = filterFwBlocksForFramework(page.source, framework);
               generatedPages.push({
                 filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
-                contents: filterFwBlocksForFramework(page.source, framework),
+                contents: rewriteGeneratedDocLinks(source, framework, sectionId, page.relativeFile),
               });
             }
           }
@@ -524,9 +556,10 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
 
         for (const page of pages) {
           for (const framework of page.frameworks) {
+            const source = filterFwBlocksForFramework(page.source, framework);
             generatedPages.push({
               filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
-              contents: filterFwBlocksForFramework(page.source, framework),
+              contents: rewriteGeneratedDocLinks(source, framework, sectionId, page.relativeFile),
             });
           }
         }

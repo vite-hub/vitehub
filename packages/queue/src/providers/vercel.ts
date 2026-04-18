@@ -47,7 +47,7 @@ async function loadVercelQueueClient(region?: string): Promise<VercelQueueSDK> {
 }
 
 export async function createVercelQueueClient(
-  provider: VercelQueueProviderOptions & { topic?: string },
+  provider: VercelQueueProviderOptions,
 ): Promise<VercelQueueClient> {
   const topic = provider.topic
   if (!topic) {
@@ -80,12 +80,13 @@ export async function createVercelQueueClient(
       const result = await client.send(topic, normalized.payload, {
         delaySeconds: normalized.options.delaySeconds,
         idempotencyKey: normalized.options.idempotencyKey || normalized.id,
+        region: normalized.options.region,
         retentionSeconds: normalized.options.retentionSeconds,
       })
 
       return {
         status: "queued",
-        messageId: result.messageId || undefined,
+        messageId: result.messageId ?? undefined,
       }
     },
     callback: client.handleCallback,

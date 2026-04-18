@@ -3,9 +3,11 @@ import type { UserConfig } from "vite"
 import { describe, expectTypeOf, it } from "vitest"
 
 import {
+  createQueue,
   defineQueue,
   getQueue,
   runQueue,
+  type CreateQueueDefinitionInput,
   type QueueModuleOptions,
   type VercelQueueClient,
 } from "../src/index.ts"
@@ -28,6 +30,22 @@ describe("types", () => {
       payload: { email: "ava@example.com" },
       retentionSeconds: 3600,
     })
+    await runQueue("welcome-email", {
+      payload: { email: "ava@example.com" },
+      region: "iad1",
+    })
+  })
+
+  it("keeps createQueue compatibility types", () => {
+    const input: CreateQueueDefinitionInput<{ email: string }, { ok: true }> = {
+      handler: async (job) => {
+        expectTypeOf(job.payload.email).toEqualTypeOf<string>()
+        return { ok: true }
+      },
+    }
+
+    const queue = createQueue(input)
+    expectTypeOf(queue.handler).toBeFunction()
   })
 
   it("augments Vite user config with queue options", () => {
