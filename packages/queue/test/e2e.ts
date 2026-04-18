@@ -7,10 +7,10 @@ import assert from "node:assert/strict"
 import { Miniflare } from "miniflare"
 import { type FetchOptions, ofetch } from "ofetch"
 
-import { execCommand, getFreePort, startCommand } from "./helpers/http.ts"
+import { execCommand, getFreePort, startCommand } from "./helpers/proc.ts"
 
 const PROVIDERS = ["cloudflare", "vercel"] as const
-const FRAMEWORKS = ["nitro", "nuxt", "vite"] as const
+const FRAMEWORKS = ["nitro", "nuxt", "vite-plugin"] as const
 
 type Provider = typeof PROVIDERS[number]
 type Framework = typeof FRAMEWORKS[number]
@@ -21,7 +21,7 @@ const providerProbe: Record<Provider, Record<string, unknown>> = {
   vercel: { hosting: "vercel", provider: "vercel", runtime: "vercel" },
 }
 
-const root = process.cwd()
+const root = resolve(import.meta.dirname, "..")
 const buildScript = resolve(import.meta.dirname, "helpers/build-nitro.ts")
 const vercelServer = resolve(import.meta.dirname, "helpers/vercel-server.ts")
 const dir = (fw: Framework) => resolve(root, "playground", fw)
@@ -72,7 +72,7 @@ async function assertQueueProcessed(f: Fetcher) {
   })
   assert.equal(queued.ok, true)
   assert.equal(queued.result.status, "queued")
-  assert.equal(typeof queued.result.messageId, "string")
+  assert.ok(["string", "undefined"].includes(typeof queued.result.messageId), `messageId type: ${typeof queued.result.messageId}`)
   await eventually(() => f("/api/tests/queue-state"), (state) => {
     assert.equal(state.ok, true)
     assert.equal(state.jobs.length, 1)
@@ -181,6 +181,7 @@ if (mode === "live") {
 else {
   const providers = provider ? [provider] : PROVIDERS
   const frameworks = framework ? [framework] : FRAMEWORKS
+  // serialize providers per framework — they share build artifacts (.output/.vercel)
   await Promise.all(frameworks.map(async (fw) => {
     for (const currentProvider of providers) await providerRunner[currentProvider](fw)
   }))

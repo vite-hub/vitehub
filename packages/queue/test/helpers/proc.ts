@@ -8,12 +8,11 @@ export async function execCommand(
   command: string,
   args: string[],
   options: { cwd: string, env?: NodeJS.ProcessEnv },
-) {
-  const result = await x(command, args, {
+): Promise<void> {
+  await x(command, args, {
     nodeOptions: { cwd: options.cwd, env: options.env },
     throwOnError: true,
   })
-  return { stdout: result.stdout, stderr: result.stderr }
 }
 
 export async function startCommand(
