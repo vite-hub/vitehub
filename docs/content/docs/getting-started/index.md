@@ -1,13 +1,13 @@
 ---
 title: Getting started
-description: Set up your first ViteHub package and continue with the KV quickstart.
+description: Set up your first ViteHub package and continue with package quickstarts.
 navigation.title: Getting started
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](/docs/nuxt/kv), a Vite-first key-value package with Nitro and Nuxt runtime adapters.
+ViteHub currently ships [`@vitehub/kv`](/docs/nuxt/kv) and [`@vitehub/blob`](/docs/nuxt/blob), Vite-first packages with Nitro and Nuxt runtime adapters.
 
-This page gives you the first framework-specific setup step, then points you to the KV docs where the full examples live.
+This page gives you the first framework-specific setup step, then points you to package docs where the full examples live.
 
 ## Start with KV
 
@@ -83,6 +83,20 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
   :::
   :::u-page-card
   ---
+  title: Blob overview
+  description: Store and serve files from server routes.
+  to: /docs/nuxt/blob
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Blob quickstart
+  description: Configure R2 or Vercel Blob and upload a first file.
+  to: /docs/nuxt/blob/quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
   title: Cloudflare provider
   description: Configure the Cloudflare KV path.
   to: /docs/nuxt/kv/providers/cloudflare
@@ -93,6 +107,13 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
   title: Vercel provider
   description: Configure the Upstash-backed Vercel path.
   to: /docs/nuxt/kv/providers/vercel
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Blob providers
+  description: Configure Cloudflare R2 or Vercel Blob.
+  to: /docs/nuxt/blob/providers/cloudflare
   ---
   :::
 ::
