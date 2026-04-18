@@ -17,7 +17,6 @@ export type {
   CloudflareQueueModuleProviderOptions,
   CloudflareQueueProviderOptions,
   CloudflareQueueRetryOptions,
-  CreateQueueDefinitionInput,
   DiscoveredQueueDefinition,
   MemoryQueueConsumeOptions,
   MemoryQueueClient,

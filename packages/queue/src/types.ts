@@ -217,11 +217,6 @@ export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
   options?: QueueDefinitionOptions
 }
 
-export interface CreateQueueDefinitionInput<TPayload = unknown, TResult = unknown>
-  extends QueueDefinitionOptions {
-  handler: QueueHandler<TPayload, TResult>
-}
-
 export interface QueueEnqueueOptions {
   contentType?: CloudflareQueueContentType
   delaySeconds?: number
@@ -287,7 +282,13 @@ export interface VercelQueueClient extends QueueClientBase<"vercel"> {
   ) => VercelQueueNodeCallbackReturn
 }
 
-export type QueueClient = CloudflareQueueClient | MemoryQueueClient | VercelQueueClient
+export interface QueueClientMap {
+  cloudflare: CloudflareQueueClient
+  memory: MemoryQueueClient
+  vercel: VercelQueueClient
+}
+
+export type QueueClient<P extends QueueProvider = QueueProvider> = QueueClientMap[P]
 
 export interface QueueDefinitionRegistry {
   [name: string]: () => Promise<{ default?: QueueDefinition } | QueueDefinition>
