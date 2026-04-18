@@ -40,7 +40,7 @@ export function applyFeatureNitroConfig<TConfig extends object>(
     nitro.modules.push(modulePath)
 
   if (typeof config !== 'undefined')
-    nitro[feature] = { ...(nitro[feature] ?? {}), ...config }
+    nitro[feature] = { ...nitro[feature], ...config }
 
   applyServerImportsToNitro(nitro, serverImports)
 }

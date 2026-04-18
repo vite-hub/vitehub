@@ -157,7 +157,7 @@ export function mergeNitroImportsWithServerImports(
   ])
 
   return {
-    ...(imports ?? {}),
+    ...imports,
     presets: groupServerImportsIntoNitroPresets(mergedImports),
   }
 }

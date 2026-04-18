@@ -85,12 +85,12 @@ function mergeUserConfigs(base: UserConfig, extra?: UserConfig) {
     ...extra,
     ...base,
     define: {
-      ...(extra.define ?? {}),
-      ...(base.define ?? {}),
+      ...extra.define,
+      ...base.define,
     },
     resolve: {
-      ...(extra.resolve ?? {}),
-      ...(base.resolve ?? {}),
+      ...extra.resolve,
+      ...base.resolve,
       alias: {
         ...(typeof extra.resolve?.alias === 'object' && !Array.isArray(extra.resolve.alias) ? extra.resolve.alias : {}),
         ...(typeof base.resolve?.alias === 'object' && !Array.isArray(base.resolve.alias) ? base.resolve.alias : {}),
@@ -153,7 +153,7 @@ function resolveNitroOptions(
     ],
     rootDir,
     runtimeConfig: {
-      ...(nitro?.runtimeConfig ?? {}),
+      ...nitro?.runtimeConfig,
       ...state.runtimeConfig,
     },
     srcDir,
@@ -355,8 +355,8 @@ export function createFeatureBridgeBundle<TOptions, TInput, TConfig = TInput>(
         return state.virtualModules.get(id)
     },
     async configureServer(server) {
-      const nitroConfig = (rawConfig.nitro || {}) as ViteNitroConfig
-      if (!state || !nitroConfig.handlers?.length)
+      const nitroConfig = rawConfig.nitro as ViteNitroConfig | undefined
+      if (!state || !nitroConfig?.handlers?.length)
         return
 
       const nitroBuilder = await loadNitroBuilder()
@@ -402,8 +402,8 @@ export function createFeatureBridgeBundle<TOptions, TInput, TConfig = TInput>(
       })
     },
     async closeBundle() {
-      const nitroConfig = (rawConfig.nitro || {}) as ViteNitroConfig
-      if (!state || !nitroConfig.handlers?.length || rawEnv.command !== 'build')
+      const nitroConfig = rawConfig.nitro as ViteNitroConfig | undefined
+      if (!state || !nitroConfig?.handlers?.length || rawEnv.command !== 'build')
         return
 
       const nitroBuilder = await loadNitroBuilder()

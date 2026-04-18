@@ -166,6 +166,16 @@ async function resolveSandboxProvider(
   }
 }
 
+function withSandboxProvider(
+  provider: SandboxProvider,
+  options?: SandboxDefinitionProviderOptions,
+) {
+  return {
+    ...options,
+    provider,
+  } as SandboxDefinitionProviderOptions & { provider: SandboxProvider }
+}
+
 export async function createSandboxWithConfig(
   config: AgentSandboxConfig,
   local: SandboxDefinitionOptions = {},
@@ -174,10 +184,12 @@ export async function createSandboxWithConfig(
   assertSandboxDefinitionOptions(local)
   const resolvedProviderConfig = getSandboxFeatureProvider(config)
   const provider = resolveRuntimeProvider(resolvedProviderConfig, context.event)
-  const { createSandboxClient, resolvedProvider } = await resolveSandboxProvider(provider, {
-    ...(resolvedProviderConfig ?? {}),
+  const { createSandboxClient, resolvedProvider } = await resolveSandboxProvider(
     provider,
-  } as SandboxDefinitionProviderOptions & { provider: SandboxProvider }, local, context)
+    withSandboxProvider(provider, resolvedProviderConfig),
+    local,
+    context,
+  )
 
   const validation = validateSandboxConfig(resolvedProvider as SandboxProviderOptions)
   if (!validation.ok) {
@@ -201,10 +213,12 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
     const config = getSandboxFeatureProvider(context.config)
     const provider = resolveRuntimeProvider(config, context.event)
 
-    return (await resolveSandboxProvider(provider, {
-      ...(config ?? {}),
+    return (await resolveSandboxProvider(
       provider,
-    } as SandboxDefinitionProviderOptions & { provider: SandboxProvider }, context.definition.options ?? {}, { event: context.event })).resolvedProvider
+      withSandboxProvider(provider, config),
+      context.definition.options ?? {},
+      { event: context.event },
+    )).resolvedProvider
   },
   async create(provider, context) {
     const runtimeProvider = await loadSandboxRuntimeProvider(provider.provider)
