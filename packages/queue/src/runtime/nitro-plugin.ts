@@ -1,4 +1,4 @@
-import { defineNitroPlugin, useRuntimeConfig } from "nitro/runtime"
+import { useRuntimeConfig } from "nitro/runtime-config"
 
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { createCloudflareQueueBatchHandler } from "../providers/cloudflare.ts"
@@ -23,6 +23,17 @@ type CloudflareQueueHookPayload = {
   event?: CloudflareQueueMessageBatch
 }
 
+type NitroHooks = {
+  hook: (
+    name: string,
+    handler: ((event: unknown) => void | Promise<void>) | ((payload: CloudflareQueueHookPayload) => void | Promise<void>),
+  ) => void
+}
+
+type NitroAppLike = {
+  hooks: NitroHooks
+}
+
 function createCloudflareQueueJob(
   message: CloudflareQueueMessage,
   batch: CloudflareQueueMessageBatch,
@@ -36,20 +47,17 @@ function createCloudflareQueueJob(
   }
 }
 
-const queueNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin((nitroApp) => {
+const queueNitroPlugin = (nitroApp: NitroAppLike): void => {
   const runtimeConfig = useRuntimeConfig() as {
     queue?: false | ResolvedQueueModuleOptions
   }
   setQueueRuntimeConfig(runtimeConfig.queue)
 
-  nitroApp.hooks.hook("request", (event) => {
+  nitroApp.hooks.hook("request", (event: unknown) => {
     enterQueueRuntimeEvent(event)
   })
 
-  ;(nitroApp.hooks.hook as unknown as (
-    name: string,
-    handler: (payload: CloudflareQueueHookPayload) => void | Promise<void>,
-  ) => void)("cloudflare:queue", async (payload: CloudflareQueueHookPayload) => {
+  nitroApp.hooks.hook("cloudflare:queue", async (payload: CloudflareQueueHookPayload) => {
     setQueueRuntimeConfig(runtimeConfig.queue)
 
     if (runtimeConfig.queue === false || runtimeConfig.queue?.provider.provider !== "cloudflare") return
@@ -73,6 +81,6 @@ const queueNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin
 
     await handler(batch)
   })
-})
+}
 
 export default queueNitroPlugin

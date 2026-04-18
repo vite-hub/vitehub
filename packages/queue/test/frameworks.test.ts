@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -135,6 +135,25 @@ describe("Nitro module", () => {
     rmSync(root, { force: true, recursive: true })
   })
 
+  it("rejects duplicate normalized queue names", () => {
+    const root = mkdtempSync(join(tmpdir(), "vitehub-queue-"))
+    mkdirSync(join(root, "server", "queues", "email"), { recursive: true })
+    writeFileSync(join(root, "server", "queues", "email.ts"), "export default { handler: async () => undefined }\n", "utf8")
+    writeFileSync(join(root, "server", "queues", "email", "index.ts"), "export default { handler: async () => undefined }\n", "utf8")
+
+    expect(() => discoverQueueDefinitions({ rootDir: root })).toThrowError(
+      new RegExp([
+        "^Duplicate queue definition `email` discovered in `",
+        `(?:${join(root, "server", "queues", "email", "index.ts").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}|${join(root, "server", "queues", "email.ts").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
+        "` and `",
+        `(?:${join(root, "server", "queues", "email", "index.ts").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}|${join(root, "server", "queues", "email.ts").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
+        "`\\.$",
+      ].join("")),
+    )
+
+    rmSync(root, { force: true, recursive: true })
+  })
+
   it("wires runtime config, aliases, plugin, registry, and Cloudflare bindings", async () => {
     const { root } = createTempProject()
     const nitro = createNitroStub({
@@ -199,6 +218,41 @@ describe("Nitro module", () => {
       method: "POST",
       route: "/_vitehub/queues/vercel/welcome-email",
     })])
+
+    rmSync(root, { force: true, recursive: true })
+  })
+
+  it("uses collision-free filenames for generated hosted handlers", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vitehub-queue-"))
+    mkdirSync(join(root, "server", "queues", "email"), { recursive: true })
+    writeFileSync(join(root, "server", "queues", "email", "welcome.ts"), "export default { handler: async () => undefined }\n", "utf8")
+    writeFileSync(join(root, "server", "queues", "email__welcome.ts"), "export default { handler: async () => undefined }\n", "utf8")
+
+    const nitro = createNitroStub({
+      preset: "vercel",
+      queue: {
+        provider: "vercel",
+      },
+      rootDir: root,
+      srcDir: root,
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    const generated = readdirSync(join(nitro.options.buildDir, "vitehub", "queue"))
+      .filter(file => file.startsWith("vercel-"))
+      .sort()
+
+    expect(generated).toEqual([
+      `vercel-${encodeURIComponent("email/welcome")}.mjs`,
+      `vercel-${encodeURIComponent("email__welcome")}.mjs`,
+    ])
+    expect(new Set(generated).size).toBe(2)
+    expect(nitro.options.handlers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ route: "/_vitehub/queues/vercel/email/welcome" }),
+      expect.objectContaining({ route: "/_vitehub/queues/vercel/email__welcome" }),
+    ]))
 
     rmSync(root, { force: true, recursive: true })
   })

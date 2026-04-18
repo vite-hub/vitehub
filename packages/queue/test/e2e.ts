@@ -96,6 +96,50 @@ async function assertQueueProcessed(f: Fetcher, marker = `queue-e2e-${randomUUID
   })
 }
 
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function getCloudflareWorkerName(url: string) {
+  const hostname = new URL(url).hostname
+  return hostname.split(".")[0] || hostname
+}
+
+async function assertCloudflareQueueProcessedFromLogs(url: string, marker: string) {
+  const workerName = getCloudflareWorkerName(url)
+  const tailLog = resolve(root, `.wrangler-tail-${workerName}-${randomUUID()}.log`)
+  const payload = JSON.stringify({ email: "ava@example.com", marker })
+  const command = [
+    "set -eu",
+    `tail_log=${shellQuote(tailLog)}`,
+    "cleanup() {",
+    "  if [ -n \"${tail_pid:-}\" ]; then",
+    "    kill \"$tail_pid\" >/dev/null 2>&1 || true",
+    "    wait \"$tail_pid\" >/dev/null 2>&1 || true",
+    "  fi",
+    "  rm -f \"$tail_log\"",
+    "}",
+    "trap cleanup EXIT",
+    `wrangler tail ${shellQuote(workerName)} --format json > \"$tail_log\" 2>&1 &`,
+    "tail_pid=$!",
+    "sleep 3",
+    `curl -fsS -X POST ${shellQuote(`${url}/api/queues/welcome`)} -H 'content-type: application/json' -H ${shellQuote(`x-vitehub-e2e-marker: ${marker}`)} --data ${shellQuote(payload)} >/dev/null`,
+    "attempt=0",
+    "while [ \"$attempt\" -lt 120 ]; do",
+    `  if grep -F ${shellQuote(marker)} \"$tail_log\" >/dev/null 2>&1; then`,
+    "    exit 0",
+    "  fi",
+    "  sleep 1",
+    "  attempt=$((attempt + 1))",
+    "done",
+    `echo ${shellQuote(`Cloudflare queue marker ${marker} was not observed in worker logs.`)} >&2`,
+    "cat \"$tail_log\" >&2 || true",
+    "exit 1",
+  ].join("\n")
+
+  await execCommand("sh", ["-lc", command], { cwd: root, env: process.env })
+}
+
 async function runCloudflare(fw: Framework) {
   log(`cloudflare x ${fw}`)
   await build(fw, "cloudflare-module")
@@ -132,6 +176,17 @@ async function assertVercelFunctionConfig(fw: Framework) {
   assert.deepEqual(config.experimentalTriggers, [{ consumer: queueName(fw), topic: queueName(fw), type: "queue/v2beta" }])
 }
 
+async function resolveVercelEntry(fw: Framework) {
+  const functionsDir = resolve(dir(fw), ".vercel/output/functions")
+  const { readdir } = await import("node:fs/promises")
+  const entries = await readdir(functionsDir, { withFileTypes: true })
+  const fallback = entries.find(entry => entry.isDirectory() && entry.name === "__fallback.func")
+  const server = entries.find(entry => entry.isDirectory() && entry.name === "__server.func")
+  const entry = fallback || server || entries.find(entry => entry.isDirectory() && entry.name.endsWith(".func"))
+  assert.ok(entry, `No Vercel function output found in ${functionsDir}`)
+  return resolve(functionsDir, entry.name, "index.mjs")
+}
+
 async function runVercel(fw: Framework) {
   log(`vercel x ${fw}`)
   const port = await getFreePort()
@@ -139,7 +194,7 @@ async function runVercel(fw: Framework) {
   await build(fw, "vercel", env)
   await assertVercelFunctionConfig(fw)
 
-  const entry = resolve(dir(fw), ".vercel/output/functions/__fallback.func/index.mjs")
+  const entry = await resolveVercelEntry(fw)
   const child = await startCommand("node", ["--import", "tsx/esm", vercelServer, entry], {
     cwd: dir(fw),
     env: { ...process.env, ...env, HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(port), PORT: String(port) },
@@ -202,7 +257,7 @@ async function runLive(url: string, provider: Provider, fw: Framework) {
   await assertProbe(f, providerProbe[provider])
   const marker = `queue-live-${provider}-${randomUUID()}`
   if (provider === "cloudflare") {
-    await assertQueueProcessed(f, marker)
+    await assertCloudflareQueueProcessedFromLogs(url, marker)
   }
   else {
     await assertVercelQueueProcessedFromLogs(url, f, marker, fw)

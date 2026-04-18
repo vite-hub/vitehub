@@ -45,9 +45,14 @@ export function discoverQueueDefinitions(options: {
     const queuesRoot = resolve(root, "server", "queues")
     for (const file of listQueueFiles(queuesRoot)) {
       const name = normalizeQueueName(queuesRoot, file)
-      if (name && !definitions.has(name)) {
-        definitions.set(name, { handler: file, name })
+      if (!name) continue
+
+      const existing = definitions.get(name)
+      if (existing) {
+        throw new TypeError(`Duplicate queue definition \`${name}\` discovered in \`${existing.handler}\` and \`${file}\`.`)
       }
+
+      definitions.set(name, { handler: file, name })
     }
   }
 

@@ -218,6 +218,8 @@ jobs:
 
       - name: E2E Live (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
         env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ matrix.provider == 'cloudflare' && secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
+          CLOUDFLARE_API_TOKEN: ${{ matrix.provider == 'cloudflare' && secrets.CLOUDFLARE_API_TOKEN || '' }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           URL="$(cat .live-url/live-url.txt)"
