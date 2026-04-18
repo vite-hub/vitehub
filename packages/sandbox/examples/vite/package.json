@@ -1,0 +1,17 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite dev",
+    "preview": "node .output/server/index.mjs"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "catalog:",
+    "@vercel/sandbox": "catalog:",
+    "@vitehub/sandbox": "workspace:*",
+    "h3": "catalog:",
+    "nitro": "catalog:",
+    "vite": "catalog:"
+  }
+}

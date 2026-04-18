@@ -1,0 +1,16 @@
+{
+  "name": "vitehub-sandbox-nitro-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nitro build",
+    "dev": "nitro dev",
+    "preview": "nitro preview"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "catalog:",
+    "@vercel/sandbox": "catalog:",
+    "@vitehub/sandbox": "workspace:*",
+    "nitro": "catalog:"
+  }
+}
