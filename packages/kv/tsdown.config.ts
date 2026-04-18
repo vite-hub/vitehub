@@ -9,6 +9,8 @@ export default defineConfig({
     "src/nitro.ts",
     "src/nuxt.ts",
     "src/runtime/nitro-plugin.ts",
+    "src/runtime/nitropack-plugin.ts",
+    "src/runtime/nitropack-storage.ts",
   ],
   exports: {
     inlinedDependencies: false,

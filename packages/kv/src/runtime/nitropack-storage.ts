@@ -1,3 +1,4 @@
+import { useStorage } from "nitropack/runtime/storage"
 import type { KVStorage } from "../types.ts"
 
 interface RuntimeStorage {
@@ -16,7 +17,7 @@ export function resetKVRuntimeState(): void {
 }
 
 async function resolveStorage() {
-  storagePromise ||= import("nitro/storage").then(module => module.useStorage("kv") as RuntimeStorage)
+  storagePromise ||= Promise.resolve(useStorage("kv") as RuntimeStorage)
   return storagePromise
 }
 

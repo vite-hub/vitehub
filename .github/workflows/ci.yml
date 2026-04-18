@@ -73,9 +73,9 @@ jobs:
         run: |
           cd packages/kv/playground/${{ matrix.framework }}
           if [ "${{ matrix.framework }}" = "nuxt" ]; then
-            npx nuxi build
+            pnpm exec nuxi build
           else
-            npx nitro build
+            pnpm exec nitro build
           fi
 
       - name: Deploy Cloudflare
@@ -87,14 +87,13 @@ jobs:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
         run: |
           cd packages/kv/playground/${{ matrix.framework }}
-          node -e 'const fs = require("node:fs"); const config = JSON.parse(fs.readFileSync(".output/server/wrangler.json", "utf8")); config.name = `vitehub-playground-${process.env.APP_NAME}`; config.kv_namespaces = [{ binding: "KV", id: process.env.KV_NAMESPACE_ID }]; fs.writeFileSync(".output/server/wrangler.deploy.json", JSON.stringify(config, null, 2));'
+          node -e 'const fs = require("node:fs"); const path = ".output/server/wrangler.json"; const config = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path, "utf8")) : { assets: { binding: "ASSETS", directory: "../public" }, compatibility_date: "2025-07-15", main: "index.mjs", no_bundle: true, rules: [{ type: "ESModule", globs: ["**/*.mjs", "**/*.js"] }] }; config.name = `vitehub-playground-${process.env.APP_NAME}`; config.kv_namespaces = [{ binding: "KV", id: process.env.KV_NAMESPACE_ID }]; config.compatibility_flags = [...new Set([...(config.compatibility_flags || []), "nodejs_compat"])]; fs.writeFileSync(".output/server/wrangler.deploy.json", JSON.stringify(config, null, 2));'
           npx wrangler deploy --config .output/server/wrangler.deploy.json
 
       - name: Deploy Vercel
         if: matrix.provider == 'vercel'
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         run: |
           cd packages/kv/playground/${{ matrix.framework }}
           npx vercel link --yes --project vitehub-playground-${{ matrix.framework }} --token "$VERCEL_TOKEN"
