@@ -1,5 +1,5 @@
 export { normalizeQueueOptions } from "./config.ts"
-export { defineQueue } from "./definition.ts"
+export { createQueue, defineQueue } from "./definition.ts"
 export { createQueueMessageId } from "./enqueue.ts"
 export { QueueError } from "./errors.ts"
 export { getCloudflareQueueBindingName } from "./integrations/cloudflare.ts"
@@ -19,6 +19,7 @@ export type {
   CloudflareQueueModuleProviderOptions,
   CloudflareQueueProviderOptions,
   CloudflareQueueRetryOptions,
+  CreateQueueDefinitionInput,
   DiscoveredQueueDefinition,
   MemoryQueueConsumeOptions,
   MemoryQueueClient,

@@ -212,6 +212,10 @@ export interface QueueDefinitionOptions {
   onError?: CloudflareQueueBatchHandlerOptions["onError"]
 }
 
+export type CreateQueueDefinitionInput<TPayload = unknown, TResult = unknown> =
+  & { handler: QueueHandler<TPayload, TResult> }
+  & QueueDefinitionOptions
+
 export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
   handler: QueueHandler<TPayload, TResult>
   options?: QueueDefinitionOptions
@@ -232,6 +236,7 @@ export type QueueEnqueueEnvelope<TPayload = unknown> =
     | { delaySeconds: number }
     | { id: string }
     | { idempotencyKey: string }
+    | { region: string }
     | { retentionSeconds: number }
   )
 

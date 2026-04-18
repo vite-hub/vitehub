@@ -80,6 +80,7 @@ export async function createVercelQueueClient(
       const result = await client.send(topic, normalized.payload, {
         delaySeconds: normalized.options.delaySeconds,
         idempotencyKey: normalized.options.idempotencyKey || normalized.id,
+        region: normalized.options.region,
         retentionSeconds: normalized.options.retentionSeconds,
       })
 

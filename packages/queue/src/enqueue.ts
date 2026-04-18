@@ -5,6 +5,7 @@ const envelopeDiscriminatorKeys = new Set([
   "delaySeconds",
   "id",
   "idempotencyKey",
+  "region",
   "retentionSeconds",
 ])
 

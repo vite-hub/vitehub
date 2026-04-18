@@ -1,15 +1,22 @@
 export type HostingRuntime = "cloudflare" | "node" | "vercel"
 
-/**
- * Sniff the active hosting runtime from an H3 event + hosting runtime-config.
- * Used by playgrounds / diagnostics to surface `cloudflare | vercel | node`.
- */
 export function detectHostingRuntime(
   event: { context?: { cloudflare?: unknown, _platform?: { cloudflare?: unknown } } } | undefined,
   hosting?: string,
 ): HostingRuntime {
-  if (hosting === "cloudflare-module" || event?.context?.cloudflare || event?.context?._platform?.cloudflare) {
+  const hostingHint = hosting?.toLowerCase() ?? ""
+
+  if (
+    hostingHint.includes("cloudflare")
+    || event?.context?.cloudflare
+    || event?.context?._platform?.cloudflare
+  ) {
     return "cloudflare"
   }
+
+  if (hostingHint.includes("vercel")) {
+    return "vercel"
+  }
+
   return process.env.VERCEL ? "vercel" : "node"
 }
