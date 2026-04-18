@@ -7,6 +7,8 @@ import assert from "node:assert/strict"
 import { Miniflare } from "miniflare"
 import { type FetchOptions, ofetch } from "ofetch"
 
+import { getCloudflareQueueBindingName } from "@vitehub/queue"
+
 import { execCommand, getFreePort, startCommand } from "./helpers/proc.ts"
 
 const PROVIDERS = ["cloudflare", "vercel"] as const
@@ -89,7 +91,7 @@ async function runCloudflare(fw: Framework) {
     modules: true,
     modulesRoot: ".output/server",
     queueConsumers: ["welcome-email"],
-    queueProducers: { QUEUE_WELCOME_EMAIL: { queueName: "welcome-email" } },
+    queueProducers: { [getCloudflareQueueBindingName("welcome-email")]: { queueName: "welcome-email" } },
     rootPath: dir(fw),
     scriptPath: ".output/server/index.mjs",
   })

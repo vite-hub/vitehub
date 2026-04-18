@@ -110,7 +110,13 @@ let nitroModulePromise: Promise<typeof import("nitro/runtime") | undefined> | un
 async function getNitroRequest(): Promise<unknown> {
   nitroModulePromise ||= import("nitro/runtime").catch(() => undefined)
   const nitro = await nitroModulePromise
-  return nitro?.useRequest?.()
+  const useEvent = (nitro as Record<string, unknown> | undefined)?.useEvent as (() => unknown) | undefined
+  try {
+    return useEvent?.()
+  }
+  catch {
+    return undefined
+  }
 }
 
 function getActiveQueueConfig(): ResolvedQueueModuleOptions | false {

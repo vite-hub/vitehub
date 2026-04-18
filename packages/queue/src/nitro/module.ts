@@ -80,6 +80,10 @@ const queueNitroModule: NitroModule = {
 
     if (!resolved) return
 
+    // runQueue needs the active event to resolve the Cloudflare queue binding; Nitro provides it via AsyncLocalStorage
+    nitro.options.experimental ||= {}
+    nitro.options.experimental.asyncContext = true
+
     const definitions = discoverQueueDefinitions(nitro.options)
     const isVercelProvider = resolved.provider.provider === "vercel"
     const { hostedHandlers, registryFile } = writeQueueRuntimeFiles(nitro.options.buildDir, definitions, isVercelProvider)

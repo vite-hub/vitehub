@@ -3,6 +3,7 @@ import { defineNitroPlugin, useRuntimeConfig } from "nitro/runtime"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { createCloudflareQueueBatchHandler } from "../providers/cloudflare.ts"
 import {
+  enterQueueRuntimeEvent,
   loadQueueDefinition,
   runWithQueueRuntimeEvent,
   setQueueRuntimeConfig,
@@ -40,6 +41,10 @@ const queueNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin
     queue?: false | ResolvedQueueModuleOptions
   }
   setQueueRuntimeConfig(runtimeConfig.queue)
+
+  nitroApp.hooks.hook("request", (event) => {
+    enterQueueRuntimeEvent(event)
+  })
 
   const hook = nitroApp.hooks.hook as unknown as (
     name: string,
