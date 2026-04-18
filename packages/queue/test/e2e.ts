@@ -7,7 +7,7 @@ import assert from "node:assert/strict"
 import { Miniflare } from "miniflare"
 import { type FetchOptions, ofetch } from "ofetch"
 
-import { getCloudflareQueueBindingName } from "@vitehub/queue"
+import { getCloudflareQueueBindingName } from "../src/index.ts"
 
 import { execCommand, getFreePort, startCommand } from "./helpers/proc.ts"
 
