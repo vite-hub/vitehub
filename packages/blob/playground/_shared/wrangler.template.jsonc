@@ -1,0 +1,12 @@
+{
+  "name": "vitehub-blob-${APP_NAME}",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "./server/index.mjs",
+  "r2_buckets": [
+    {
+      "binding": "BLOB",
+      "bucket_name": "${BLOB_BUCKET_NAME}"
+    }
+  ]
+}

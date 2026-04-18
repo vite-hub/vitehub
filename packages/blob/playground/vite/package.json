@@ -1,0 +1,14 @@
+{
+  "name": "playground-blob-vite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nitro build",
+    "dev": "nitro dev"
+  },
+  "dependencies": {
+    "@vitehub/blob": "workspace:*",
+    "nitro": "catalog:",
+    "vite": "catalog:"
+  }
+}
