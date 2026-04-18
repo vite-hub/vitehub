@@ -21,6 +21,7 @@ import type {
   QueueJob,
   QueueProviderOptions,
   QueueSendResult,
+  ResolvedQueueModuleOptions,
   ResolvedQueueModuleProviderOptions,
 } from "../types.ts"
 
@@ -63,7 +64,7 @@ function resolveCloudflareBinding(
 function applyNamedProviderDefaults(
   name: string,
   provider: ResolvedQueueModuleProviderOptions,
-): QueueProviderOptions & { topic?: string } {
+): QueueProviderOptions {
   if (provider.provider === "cloudflare") {
     return {
       ...provider,
@@ -81,26 +82,22 @@ function applyNamedProviderDefaults(
   return provider
 }
 
-function getActiveQueueConfig() {
-  const config = getQueueRuntimeConfig()
-  if (config === false) return false
-  return config || normalizeQueueOptions(undefined)
-}
-
 function createQueueJob<TPayload>(
   normalized: ReturnType<typeof normalizeQueueEnqueueInput<TPayload>>,
-  metadata?: unknown,
 ): QueueJob<TPayload> {
   return {
     attempts: 1,
     id: normalized.id,
-    metadata,
     payload: normalized.payload,
     signal: new AbortController().signal,
   }
 }
 
-export async function createQueueClient(options?: QueueProviderOptions & { topic?: string }): Promise<QueueClient> {
+/**
+ * Create a raw queue client from explicit provider options.
+ * Prefer {@link getQueue} when the queue is declared via `defineQueue`.
+ */
+export async function createQueueClient(options?: QueueProviderOptions): Promise<QueueClient> {
   const provider = options || { provider: "memory" as const }
 
   if (provider.provider === "cloudflare") return createCloudflareQueueClient(provider)
@@ -116,9 +113,15 @@ async function getNitroRequest(): Promise<unknown> {
   return nitro?.useRequest?.()
 }
 
+function getActiveQueueConfig(): ResolvedQueueModuleOptions | false {
+  const config = getQueueRuntimeConfig()
+  if (config === false) return false
+  return config || normalizeQueueOptions(undefined) || { provider: { provider: "memory" } }
+}
+
 async function createNamedQueueClient(name: string): Promise<QueueClient> {
   const config = getActiveQueueConfig()
-  if (!config) {
+  if (config === false) {
     throw new QueueError("Queue is disabled.", {
       code: "QUEUE_DISABLED",
       httpStatus: 400,
@@ -146,6 +149,10 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
   return await build()
 }
 
+/**
+ * Resolve a queue client by declared name, caching when the provider allows it.
+ * Throws `QUEUE_DEFINITION_NOT_FOUND` if no `defineQueue` registered `name`.
+ */
 export async function getQueue(name: string): Promise<QueueClient> {
   const definition = await loadQueueDefinition(name)
   if (!definition) {
@@ -160,8 +167,8 @@ export async function getQueue(name: string): Promise<QueueClient> {
   const cache = getQueueClientCache()
   const cacheEnabled = definition.options?.cache !== false
     && config !== false
-    && config?.provider.cache !== false
-    && config?.provider.provider !== "cloudflare"
+    && config.provider.cache !== false
+    && config.provider.provider !== "cloudflare"
   if (!cacheEnabled) return await createNamedQueueClient(name)
 
   const existing = cache.get(name)
@@ -175,6 +182,10 @@ export async function getQueue(name: string): Promise<QueueClient> {
   return await pending
 }
 
+/**
+ * Enqueue a message on a named queue and, for the memory provider, run the
+ * declared handler in the background.
+ */
 export async function runQueue<TPayload = unknown>(
   name: string,
   input: QueueEnqueueInput<TPayload>,
@@ -207,6 +218,10 @@ export async function runQueue<TPayload = unknown>(
   return result
 }
 
+/**
+ * Fire-and-forget enqueue. On Cloudflare/Vercel the dispatch is handed to the
+ * request's `waitUntil` so the response returns before the queue call settles.
+ */
 export function deferQueue<TPayload = unknown>(
   name: string,
   input: QueueEnqueueInput<TPayload>,
