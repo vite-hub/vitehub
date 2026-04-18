@@ -46,12 +46,10 @@ const queueNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin
     enterQueueRuntimeEvent(event)
   })
 
-  const hook = nitroApp.hooks.hook as unknown as (
+  ;(nitroApp.hooks.hook as unknown as (
     name: string,
     handler: (payload: CloudflareQueueHookPayload) => void | Promise<void>,
-  ) => void
-
-  hook("cloudflare:queue", async (payload: CloudflareQueueHookPayload) => {
+  ) => void)("cloudflare:queue", async (payload: CloudflareQueueHookPayload) => {
     setQueueRuntimeConfig(runtimeConfig.queue)
 
     if (runtimeConfig.queue === false || runtimeConfig.queue?.provider.provider !== "cloudflare") return
