@@ -129,8 +129,7 @@ async function assertVercelFunctionConfig(fw: Framework) {
   const file = vercelFunctionConfigPath(fw)
   assert.equal(existsSync(file), true, `missing generated Vercel queue function config: ${file}`)
   const config = JSON.parse(await readFile(file, "utf8"))
-  assert.deepEqual(config.experimentalTriggers, [{ topic: queueName(fw), type: "queue/v2beta" }])
-  assert.equal(JSON.stringify(config).includes("consumer"), false)
+  assert.deepEqual(config.experimentalTriggers, [{ consumer: queueName(fw), topic: queueName(fw), type: "queue/v2beta" }])
 }
 
 async function runVercel(fw: Framework) {

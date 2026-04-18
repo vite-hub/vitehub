@@ -9,6 +9,7 @@ import type { DiscoveredQueueDefinition, QueueModuleOptions } from "../types.ts"
 import { normalizeQueueOptions } from "../config.ts"
 
 type VercelQueueTrigger = {
+  consumer: string
   topic: string
   type: "queue/v2beta"
 }
@@ -120,6 +121,7 @@ export async function syncVercelQueueBuildOutput(nitro: Nitro, definitions: Disc
     await writeFile(join(functionDir, ".vc-config.json"), `${JSON.stringify({
       ...baseFunctionConfig,
       experimentalTriggers: [{
+        consumer: getVercelQueueTopicName(definition.name),
         topic: getVercelQueueTopicName(definition.name),
         type: "queue/v2beta",
       }],

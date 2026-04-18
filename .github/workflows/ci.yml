@@ -68,6 +68,7 @@ jobs:
     name: deploy (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix: ${{ fromJSON(needs.e2e_matrix.outputs.live) }}
     steps:
       - uses: actions/checkout@v4
