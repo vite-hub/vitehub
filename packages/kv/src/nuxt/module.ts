@@ -6,7 +6,7 @@ import type { KVModuleOptions, KVStoreConfig } from "../types.ts"
 
 const NITRO_MODULE_ID = "@vitehub/kv/nitro"
 
-function installKVNitroModule(nitro: NitroConfig, kv: KVStoreConfig | undefined) {
+function installKVNitroModule(nitro: NitroConfig, kv: KVModuleOptions | undefined) {
   nitro.modules ||= []
   if (!nitro.modules.includes(NITRO_MODULE_ID)) {
     nitro.modules.push(NITRO_MODULE_ID)

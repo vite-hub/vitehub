@@ -1,7 +1,7 @@
 {
   "name": "@vitehub/kv",
   "version": "0.0.0",
-  "description": "Key-value storage primitives and Nitro/Nuxt integration for ViteHub.",
+  "description": "Vite-first key-value storage primitives and Nitro/Nuxt integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -30,6 +30,7 @@
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/nitropack-plugin": "./dist/runtime/nitropack-plugin.js",
     "./runtime/nitropack-storage": "./dist/runtime/nitropack-storage.js",
+    "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
