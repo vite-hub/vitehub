@@ -1,0 +1,57 @@
+name: e2e-local
+
+permissions: {}
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Optional package filter for manual runs
+        required: false
+        default: all
+      provider:
+        description: Optional provider filter for manual runs
+        required: false
+        default: all
+      framework:
+        description: Optional framework filter for manual runs
+        required: false
+        default: all
+
+concurrency:
+  group: e2e-local-${{ github.workflow }}-${{ github.event.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      has_local: ${{ steps.e2e.outputs.hasLocal }}
+      local: ${{ steps.e2e.outputs.local }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: e2e
+        env:
+          VITEHUB_CI_FRAMEWORK: ${{ github.event_name == 'workflow_dispatch' && inputs.framework || '' }}
+          VITEHUB_CI_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || '' }}
+          VITEHUB_CI_PROVIDER: ${{ github.event_name == 'workflow_dispatch' && inputs.provider || '' }}
+        run: node .github/scripts/discover-e2e-matrix.mjs
+
+  e2e:
+    needs: matrix
+    if: needs.matrix.outputs.has_local == 'true'
+    runs-on: ubuntu-latest
+    name: e2e-local (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.local) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - run: pnpm --dir ${{ matrix.packageDir }} build
+
+      - name: E2E (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
+        run: pnpm --dir ${{ matrix.packageDir }} test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}

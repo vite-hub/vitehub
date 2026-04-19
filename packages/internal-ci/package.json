@@ -1,0 +1,12 @@
+{
+  "name": "@vitehub/internal-ci",
+  "version": "0.0.0",
+  "description": "Internal CI helpers shared across vitehub packages. Not published.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./live-target": "./src/live-target.mjs",
+    "./cloudflare-binding": "./src/cloudflare-binding.mjs"
+  },
+  "types": "./src/live-target.d.mts"
+}

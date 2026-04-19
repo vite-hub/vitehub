@@ -114,6 +114,7 @@
     "@cloudflare/workers-types": "^4.20260305.1",
     "@nuxt/schema": "catalog:nuxt-nightly",
     "@vercel/queue": "^0.1.3",
+    "@vitehub/internal-ci": "workspace:*",
     "get-port-please": "catalog:",
     "miniflare": "catalog:",
     "nitro": "catalog:",

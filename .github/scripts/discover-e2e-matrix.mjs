@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs"
 import { basename, join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 const defaultProviders = ["cloudflare", "vercel"]
 const selectedFramework = process.env.VITEHUB_CI_FRAMEWORK || ""
@@ -35,6 +36,20 @@ function discoverPackages() {
     .sort()
 }
 
+async function loadLiveTargetModule(packageDir) {
+  const modulePath = join(process.cwd(), packageDir, "src", "internal", "live-target.mjs")
+  if (!existsSync(modulePath))
+    return null
+  try {
+    return await import(pathToFileURL(modulePath).href)
+  }
+  catch (error) {
+    console.error(`[discover-e2e-matrix] Failed to import live-target module at ${modulePath}:`, error)
+    throw error
+  }
+}
+
+const local = []
 const live = []
 
 for (const packageDir of discoverPackages()) {
@@ -48,42 +63,42 @@ for (const packageDir of discoverPackages()) {
   const providers = e2e.providers ?? defaultProviders
   const frameworks = e2e.frameworks ?? discoverFrameworks(packageDir)
 
-  const liveConfig = e2e.live ?? {}
-  if (!liveConfig.enabled) continue
-
-  const liveProviders = liveConfig.providers ?? providers
-  const liveFrameworks = liveConfig.frameworks ?? frameworks
-  const appPrefix = liveConfig.appPrefix ?? `vitehub-${packageName}-playground`
-  const cloudflare = liveConfig.cloudflare ?? {}
-  const vercel = liveConfig.vercel ?? {}
-  const cloudflareDeployStrategy = cloudflare.strategy ?? "template"
-  const cloudflareWranglerTemplate = cloudflare.wranglerTemplate ?? "playground/_shared/wrangler.template.jsonc"
-
-  for (const framework of liveFrameworks) {
+  for (const framework of frameworks) {
     if (!matchesSelection(framework, selectedFramework)) continue
-    for (const provider of liveProviders) {
+    for (const provider of providers) {
       if (!matchesSelection(provider, selectedProvider)) continue
-      if (provider === "cloudflare" && cloudflareDeployStrategy === "template" && !existsSync(join(packageDir, cloudflareWranglerTemplate))) continue
-      live.push({
-        appName: `${appPrefix}-${framework}`,
-        cloudflareCreateQueues: Boolean(cloudflare.createQueues),
-        cloudflareCreateR2Bucket: Boolean(cloudflare.createR2Bucket),
-        cloudflareDeployStrategy,
-        cloudflareWranglerTemplate,
-        framework,
-        packageDir,
-        packageName,
-        provider,
-        requiresVercelBlobDeployEnv: Boolean(vercel.deployEnv?.blobReadWriteToken),
-        requiresVercelKvBuildEnv: Boolean(vercel.buildEnv?.kv),
-        requiresVercelSandboxBuildEnv: Boolean(vercel.buildEnv?.sandbox),
-      })
+      local.push({ framework, packageDir, packageName, provider })
     }
+  }
+
+  const liveTargetModule = await loadLiveTargetModule(packageDir)
+  if (!liveTargetModule?.getLiveTargetDefinitions)
+    continue
+
+  const definitions = liveTargetModule.getLiveTargetDefinitions({
+    packageDir,
+    packageName,
+    workspaceDir: process.cwd(),
+  })
+
+  for (const definition of definitions) {
+    if (!matchesSelection(definition.framework, selectedFramework))
+      continue
+    if (!matchesSelection(definition.provider, selectedProvider))
+      continue
+    live.push({
+      framework: definition.framework,
+      packageDir,
+      packageName,
+      provider: definition.provider,
+    })
   }
 }
 
 const output = [
+  `local=${JSON.stringify({ include: local })}`,
   `live=${JSON.stringify({ include: live })}`,
+  `hasLocal=${local.length > 0}`,
   `hasLive=${live.length > 0}`,
 ].join("\n")
 

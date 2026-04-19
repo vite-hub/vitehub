@@ -1,0 +1,68 @@
+name: live
+
+permissions: {}
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Optional package filter for manual runs
+        required: false
+        default: all
+      provider:
+        description: Optional provider filter for manual runs
+        required: false
+        default: all
+      framework:
+        description: Optional framework filter for manual runs
+        required: false
+        default: all
+
+concurrency:
+  group: live-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      has_live: ${{ steps.e2e.outputs.hasLive }}
+      live: ${{ steps.e2e.outputs.live }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: e2e
+        env:
+          VITEHUB_CI_FRAMEWORK: ${{ github.event_name == 'workflow_dispatch' && inputs.framework || '' }}
+          VITEHUB_CI_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || '' }}
+          VITEHUB_CI_PROVIDER: ${{ github.event_name == 'workflow_dispatch' && inputs.provider || '' }}
+        run: node .github/scripts/discover-e2e-matrix.mjs
+
+  live:
+    needs: matrix
+    if: needs.matrix.outputs.has_live == 'true'
+    runs-on: ubuntu-latest
+    name: live (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.matrix.outputs.live) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run live target
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN || secrets.VERCEL_BLOB_READ_WRITE_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
+          MATRIX_FRAMEWORK: ${{ matrix.framework }}
+          MATRIX_PACKAGE_DIR: ${{ matrix.packageDir }}
+          MATRIX_PACKAGE_NAME: ${{ matrix.packageName }}
+          MATRIX_PROVIDER: ${{ matrix.provider }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: node .github/scripts/run-live-target.mjs

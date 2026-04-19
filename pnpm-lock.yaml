@@ -146,6 +146,8 @@ importers:
         specifier: 'catalog:'
         version: 3.2.6(typescript@6.0.2)
 
+  packages/internal-ci: {}
+
   packages/kv:
     dependencies:
       '@nuxt/kit':
@@ -288,6 +290,9 @@ importers:
       '@vercel/queue':
         specifier: ^0.1.3
         version: 0.1.6
+      '@vitehub/internal-ci':
+        specifier: workspace:*
+        version: link:../internal-ci
       get-port-please:
         specifier: 'catalog:'
         version: 3.2.0

@@ -1,203 +1,47 @@
 name: ci
 
+permissions: {}
+
 on:
   push:
     branches:
       - main
   pull_request:
   workflow_dispatch:
-    inputs:
-      package:
-        description: Optional package filter for manual runs
-        required: false
-        default: all
-      provider:
-        description: Optional provider filter for manual runs
-        required: false
-        default: cloudflare
-      framework:
-        description: Optional framework filter for manual runs
-        required: false
-        default: all
-      live:
-        description: Run deploy and live e2e from this branch
-        required: false
-        type: boolean
-        default: false
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
-  quality:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-
       - run: pnpm lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - run: pnpm typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - run: pnpm test
       - run: pnpm --dir docs test
-      - run: pnpm build
-      - run: pnpm docs:build
 
-  e2e_matrix:
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      has_live: ${{ steps.e2e.outputs.hasLive }}
-      live: ${{ steps.e2e.outputs.live }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - id: e2e
-        env:
-          VITEHUB_CI_FRAMEWORK: ${{ github.event_name == 'workflow_dispatch' && inputs.framework || '' }}
-          VITEHUB_CI_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || '' }}
-          VITEHUB_CI_PROVIDER: ${{ github.event_name == 'workflow_dispatch' && inputs.provider || '' }}
-        run: node .github/scripts/discover-e2e-matrix.mjs
-
-  live:
-    needs: [quality, e2e_matrix]
-    if: (github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.live)) && needs.e2e_matrix.outputs.has_live == 'true'
-    runs-on: ubuntu-latest
-    name: live (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix: ${{ fromJSON(needs.e2e_matrix.outputs.live) }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-
-      - run: pnpm --dir ${{ matrix.packageDir }} build
-
-      - name: Build (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
-        env:
-          NITRO_PRESET: ${{ matrix.provider == 'cloudflare' && 'cloudflare-module' || 'vercel' }}
-          KV_REST_API_URL: ${{ matrix.provider == 'vercel' && matrix.requiresVercelKvBuildEnv && '********' || '' }}
-          KV_REST_API_TOKEN: ${{ matrix.provider == 'vercel' && matrix.requiresVercelKvBuildEnv && '********' || '' }}
-          SANDBOX_PROVIDER: ${{ matrix.packageName == 'sandbox' && matrix.provider || '' }}
-          VERCEL_TOKEN: ${{ matrix.provider == 'vercel' && matrix.requiresVercelSandboxBuildEnv && '********' || '' }}
-          VERCEL_TEAM_ID: ${{ matrix.provider == 'vercel' && matrix.requiresVercelSandboxBuildEnv && '********' || '' }}
-          VERCEL_PROJECT_ID: ${{ matrix.provider == 'vercel' && matrix.requiresVercelSandboxBuildEnv && '********' || '' }}
-        run: pnpm --dir ${{ matrix.packageDir }}/playground/${{ matrix.framework }} run build
-
-      - name: Deploy Cloudflare
-        if: matrix.provider == 'cloudflare'
-        env:
-          APP_NAME: ${{ matrix.appName }}
-          BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME || '' }}
-          CLOUDFLARE_CREATE_QUEUES: ${{ matrix.cloudflareCreateQueues }}
-          CLOUDFLARE_CREATE_R2_BUCKET: ${{ matrix.cloudflareCreateR2Bucket }}
-          CLOUDFLARE_DEPLOY_STRATEGY: ${{ matrix.cloudflareDeployStrategy }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
-          FRAMEWORK: ${{ matrix.framework }}
-          GITHUB_WORKSPACE: ${{ github.workspace }}
-          KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
-          PACKAGE_DIR: ${{ matrix.packageDir }}
-          PACKAGE_NAME: ${{ matrix.packageName }}
-          WRANGLER_TEMPLATE: ${{ matrix.cloudflareWranglerTemplate }}
-        run: |
-          retry_cloudflare() {
-            local max_attempts="$1"
-            shift
-            local attempt=1
-            local delay=5
-            while true; do
-              if "$@"; then
-                return 0
-              fi
-              if [ "$attempt" -ge "$max_attempts" ]; then
-                return 1
-              fi
-              echo "Cloudflare command failed, retrying in ${delay}s (attempt ${attempt}/${max_attempts})"
-              sleep "$delay"
-              attempt=$((attempt + 1))
-              delay=$((delay * 2))
-            done
-          }
-          cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
-          if [ "$CLOUDFLARE_CREATE_R2_BUCKET" = "true" ]; then
-            export BLOB_BUCKET_NAME="${BLOB_BUCKET_NAME:-vitehub-blob-e2e}"
-            retry_cloudflare 3 npx wrangler r2 bucket create "$BLOB_BUCKET_NAME" || true
-          fi
-          node "$GITHUB_WORKSPACE/.github/scripts/prepare-cloudflare-live-config.mjs"
-          if [ "$CLOUDFLARE_CREATE_QUEUES" = "true" ]; then
-            while IFS= read -r queue; do
-              [ -n "$queue" ] || continue
-              retry_cloudflare 3 npx wrangler queues create "$queue" || true
-            done < .output/cloudflare-queues.txt
-          fi
-          DEPLOY_DIR="$(cat .output/cloudflare-deploy-dir.txt)"
-          DEPLOY_CONFIG="$(cat .output/cloudflare-deploy-config.txt)"
-          retry_cloudflare 4 npx wrangler --cwd "$DEPLOY_DIR" deploy --config "$DEPLOY_CONFIG" --no-bundle
-          printf 'https://%s.%s.workers.dev\n' "${{ matrix.appName }}" "$CLOUDFLARE_WORKERS_SUBDOMAIN" > "$GITHUB_WORKSPACE/live-url.txt"
-
-      - name: Deploy Vercel
-        if: matrix.provider == 'vercel'
-        env:
-          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN || secrets.VERCEL_BLOB_READ_WRITE_TOKEN }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
-          npx vercel link --yes --project ${{ matrix.appName }} --token "$VERCEL_TOKEN"
-          deploy_args=(--prod --prebuilt --yes --token "$VERCEL_TOKEN")
-          if [ "${{ matrix.requiresVercelBlobDeployEnv }}" = "true" ] && [ -n "$BLOB_READ_WRITE_TOKEN" ]; then
-            deploy_args+=(--env "BLOB_READ_WRITE_TOKEN=$BLOB_READ_WRITE_TOKEN")
-          fi
-          set -o pipefail
-          deploy_failed=false
-          if ! npx vercel deploy "${deploy_args[@]}" 2>&1 | tee "$RUNNER_TEMP/vercel-deploy.log"; then
-            deploy_failed=true
-          fi
-          if [ "$deploy_failed" = "true" ]; then
-            if grep -q 'api-deployments-free-per-day' "$RUNNER_TEMP/vercel-deploy.log"; then
-              echo "Vercel deployment quota reached, reusing the latest ready production deployment for ${{ matrix.appName }}."
-              npx vercel ls ${{ matrix.appName }} --status READY --environment production --token "$VERCEL_TOKEN" --no-color > "$RUNNER_TEMP/vercel-list.log"
-              url=""
-              while IFS= read -r candidate; do
-                [ -n "$candidate" ] || continue
-                if curl --silent --show-error --fail --max-time 10 "$candidate/api/tests/probe" > /dev/null; then
-                  url="$candidate"
-                  break
-                fi
-              done < <(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$RUNNER_TEMP/vercel-list.log")
-              if [ -z "$url" ]; then
-                cat "$RUNNER_TEMP/vercel-list.log"
-                echo "Could not determine a healthy fallback Vercel deployment URL." >&2
-                exit 1
-              fi
-              printf '%s\n' "$url" > "$GITHUB_WORKSPACE/live-url.txt"
-            else
-              exit 1
-            fi
-          else
-            url="$(grep -Eo 'Production:[[:space:]]+https://[^[:space:]]+' "$RUNNER_TEMP/vercel-deploy.log" | awk '{print $2}' | tail -n1)"
-            if [ -z "$url" ]; then
-              url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$RUNNER_TEMP/vercel-deploy.log" | tail -n1)"
-            fi
-            if [ -z "$url" ]; then
-              cat "$RUNNER_TEMP/vercel-deploy.log"
-              echo "Could not determine Vercel deployment URL." >&2
-              exit 1
-            fi
-            printf '%s\n' "$url" > "$GITHUB_WORKSPACE/live-url.txt"
-          fi
-
-      - name: E2E Live (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ matrix.provider == 'cloudflare' && secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
-          CLOUDFLARE_API_TOKEN: ${{ matrix.provider == 'cloudflare' && secrets.CLOUDFLARE_API_TOKEN || '' }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          URL="$(cat "$GITHUB_WORKSPACE/live-url.txt")"
-          if [ "${{ matrix.provider }}" = "vercel" ]; then
-            cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
-            npx vercel link --yes --project ${{ matrix.appName }} --token "$VERCEL_TOKEN"
-            cd "$GITHUB_WORKSPACE"
-          fi
-          pnpm --dir ${{ matrix.packageDir }} test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "$URL"
+      - run: pnpm build
+      - run: pnpm docs:build
+      - run: pnpm --dir docs generate
+      - run: node .github/scripts/verify-packed-exports.mjs
