@@ -3,5 +3,12 @@
   "compatibility_date": "2025-01-01",
   "compatibility_flags": ["nodejs_compat"],
   "main": "server/index.mjs",
+  "no_bundle": true,
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": ["**/*.mjs", "**/*.js"]
+    }
+  ],
   "kv_namespaces": [{ "binding": "KV", "id": "$KV_NAMESPACE_ID" }]
 }
