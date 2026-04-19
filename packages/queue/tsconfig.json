@@ -2,6 +2,10 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "#vitehub-queue-registry": ["./src/runtime/empty-registry.ts"],
+      "#vitehub-queue-vercel-provider": ["./src/runtime/vercel-provider.ts"]
+    },
     "rootDir": "."
   },
   "include": [

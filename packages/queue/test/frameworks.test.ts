@@ -264,7 +264,7 @@ describe("Nuxt module", () => {
   })
 
   it("short-circuits disabled config", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
@@ -278,7 +278,7 @@ describe("Nuxt module", () => {
   })
 
   it("installs the Nitro module once and forwards config", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
