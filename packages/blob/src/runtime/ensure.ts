@@ -43,7 +43,7 @@ function fileSizeToBytes(input: string): number {
     throw createError({ message: `Invalid file size format: ${input}`, statusCode: 400 })
   }
 
-  const sizeValue = Number.parseFloat(match[1]!)
+  const sizeValue = Number.parseFloat(`${match[1]!}${match[2] ?? ""}`)
   const sizeUnit = match[3]!.toUpperCase() as SizeUnit
   return Math.floor(sizeValue * 1024 ** FILESIZE_UNITS.indexOf(sizeUnit))
 }

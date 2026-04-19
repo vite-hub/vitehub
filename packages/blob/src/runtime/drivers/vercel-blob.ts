@@ -58,14 +58,14 @@ export function createVercelBlobDriver(options: ResolvedVercelBlobConfig): BlobD
       }
     },
     async get(pathname: string): Promise<Blob | null> {
-      const metadata = await this.head(pathname).catch(() => null)
+      const metadata = await this.head(pathname)
       if (!metadata?.url) return null
 
       const response = await fetch(metadata.url)
       return response.ok ? await response.blob() : null
     },
     async getArrayBuffer(pathname: string): Promise<ArrayBuffer | null> {
-      const metadata = await this.head(pathname).catch(() => null)
+      const metadata = await this.head(pathname)
       if (!metadata?.url) return null
 
       const response = await fetch(metadata.url)
@@ -88,19 +88,20 @@ export function createVercelBlobDriver(options: ResolvedVercelBlobConfig): BlobD
       return mapVercelBlobToBlob(result)
     },
     async head(pathname: string): Promise<BlobObject | null> {
+      const sdk = await loadVercelBlobSdk()
       try {
-        const sdk = await loadVercelBlobSdk()
         const result = await sdk.head(decodeURIComponent(pathname), { token: readToken() })
         return result ? mapVercelBlobToBlob(result) : null
       }
-      catch {
-        return null
+      catch (error) {
+        if (error instanceof sdk.BlobNotFoundError) return null
+        throw error
       }
     },
     async delete(pathnames: string | string[]): Promise<void> {
       const sdk = await loadVercelBlobSdk()
       for (const pathname of Array.isArray(pathnames) ? pathnames : [pathnames]) {
-        const metadata = await this.head(pathname).catch(() => null)
+        const metadata = await this.head(pathname)
         if (metadata?.url) await sdk.del(metadata.url, { token: readToken() })
       }
     },

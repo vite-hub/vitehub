@@ -103,7 +103,11 @@ export function createBlobStorage(driver: BlobDriver<unknown>): BlobStorage {
         ...options,
       }
       const form = await readFormData(event)
-      const files = form.getAll(resolvedOptions.formKey) as File[]
+      const entries = form.getAll(resolvedOptions.formKey)
+      if (entries.some(entry => !(entry instanceof File))) {
+        throw createError({ message: `Form field "${resolvedOptions.formKey}" must contain files`, statusCode: 400 })
+      }
+      const files = entries as File[]
 
       if (!files.length) throw createError({ message: "Missing files", statusCode: 400 })
       if (!resolvedOptions.multiple && files.length > 1) {
