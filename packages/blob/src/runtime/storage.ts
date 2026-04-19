@@ -23,16 +23,29 @@ function normalizePathname(pathname: string): string {
   return pathname.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/+/, "")
 }
 
+function safeDecode(pathname: string): string {
+  try { return decodeURIComponent(pathname) }
+  catch { return pathname }
+}
+
 function resolvePutPathname(pathname: string, options: Pick<BlobPutOptions, "addRandomSuffix" | "prefix">): string {
-  const decoded = decodeURIComponent(pathname)
+  const decoded = safeDecode(pathname)
   const parsed = pathPosix.parse(decoded)
   const dir = parsed.dir === "." ? "" : parsed.dir
   const filename = options.addRandomSuffix
     ? `${parsed.name}-${randomUUID().split("-")[0]}${parsed.ext}`
     : `${parsed.name}${parsed.ext}`
   const resolved = pathPosix.join(dir, filename)
+  const final = normalizePathname(options.prefix ? pathPosix.join(options.prefix, resolved) : resolved)
 
-  return normalizePathname(options.prefix ? pathPosix.join(options.prefix, resolved) : resolved)
+  if (options.prefix) {
+    const prefix = normalizePathname(options.prefix)
+    if (prefix && final !== prefix && !final.startsWith(`${prefix}/`)) {
+      throw createError({ message: "Upload pathname escapes configured prefix", statusCode: 400 })
+    }
+  }
+
+  return final
 }
 
 export function createBlobStorage(driver: BlobDriver<unknown>): BlobStorage {
@@ -45,7 +58,7 @@ export function createBlobStorage(driver: BlobDriver<unknown>): BlobStorage {
       })
     },
     async serve(event: H3Event, pathname: string) {
-      const decoded = decodeURIComponent(pathname)
+      const decoded = safeDecode(pathname)
       const arrayBuffer = await driver.getArrayBuffer(decoded)
       if (!arrayBuffer) throw createError({ message: "File not found", statusCode: 404 })
 
@@ -63,7 +76,7 @@ export function createBlobStorage(driver: BlobDriver<unknown>): BlobStorage {
       })
     },
     async get(pathname: string) {
-      return driver.get(decodeURIComponent(pathname))
+      return driver.get(safeDecode(pathname))
     },
     async put(pathname: string, body: BlobBody, options: BlobPutOptions = {}) {
       const contentType = options.contentType || (body instanceof Blob ? body.type : undefined) || getContentType(pathname)
@@ -77,13 +90,13 @@ export function createBlobStorage(driver: BlobDriver<unknown>): BlobStorage {
       })
     },
     async head(pathname: string) {
-      const metadata = await driver.head(decodeURIComponent(pathname))
+      const metadata = await driver.head(safeDecode(pathname))
       if (!metadata) throw createError({ message: "Blob not found", statusCode: 404 })
       return metadata
     },
     async del(pathnames: string | string[]) {
       const paths = Array.isArray(pathnames) ? pathnames : [pathnames]
-      await driver.delete(paths.map(decodeURIComponent))
+      await driver.delete(paths.map(safeDecode))
     },
     async handleUpload(event: H3Event, options: BlobUploadOptions = {}) {
       assertMethod(event, ["POST", "PUT", "PATCH"])

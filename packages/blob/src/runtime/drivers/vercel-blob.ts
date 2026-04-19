@@ -62,14 +62,18 @@ export function createVercelBlobDriver(options: ResolvedVercelBlobConfig): BlobD
       if (!metadata?.url) return null
 
       const response = await fetch(metadata.url)
-      return response.ok ? await response.blob() : null
+      if (response.status === 404) return null
+      if (!response.ok) throw createError({ message: `Vercel Blob fetch failed: ${response.status} ${response.statusText}`, statusCode: response.status })
+      return await response.blob()
     },
     async getArrayBuffer(pathname: string): Promise<ArrayBuffer | null> {
       const metadata = await this.head(pathname)
       if (!metadata?.url) return null
 
       const response = await fetch(metadata.url)
-      return response.ok ? await response.arrayBuffer() : null
+      if (response.status === 404) return null
+      if (!response.ok) throw createError({ message: `Vercel Blob fetch failed: ${response.status} ${response.statusText}`, statusCode: response.status })
+      return await response.arrayBuffer()
     },
     async put(pathname: string, body: BlobPutBody, putOptions?: BlobPutOptions): Promise<BlobObject> {
       if (putOptions?.access === "private") {

@@ -12,13 +12,18 @@ function installBlobNitroModule(nitro: NitroConfig, blob: BlobModuleOptions | un
   if (blob !== undefined) nitro.blob = blob
 }
 
+function pickBlobOptions(topLevel: BlobModuleOptions | undefined, inline: BlobNuxtOptions): BlobModuleOptions | undefined {
+  if (topLevel !== undefined) return topLevel
+  return Object.keys(inline).length > 0 ? inline : undefined
+}
+
 const blobNuxtModule: NuxtModule<BlobNuxtOptions, BlobNuxtOptions, false> = defineNuxtModule<BlobNuxtOptions>({
   meta: { configKey: "blob", name: "@vitehub/blob/nuxt" },
   setup(inlineOptions, nuxt) {
     const topLevel = nuxt.options.blob
     if (topLevel === false) return
 
-    const blob = topLevel ?? inlineOptions
+    const blob = pickBlobOptions(topLevel, inlineOptions)
     nuxt.options.nitro ||= {}
     installBlobNitroModule(nuxt.options.nitro, blob)
     nuxt.hook("nitro:config", config => installBlobNitroModule(config, blob))
