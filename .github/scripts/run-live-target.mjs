@@ -33,9 +33,38 @@ function run(command, args, options = {}) {
   return result
 }
 
+async function sleep(ms) {
+  await new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function runWithRetry(command, args, options = {}, { attempts = 4, initialDelay = 5000 } = {}) {
+  let delay = initialDelay
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return run(command, args, options)
+    }
+    catch (error) {
+      if (attempt === attempts) throw error
+      process.stderr.write(`[retry] ${command} ${args.join(" ")} failed (attempt ${attempt}/${attempts}). Sleeping ${delay}ms.\n`)
+      await sleep(delay)
+      delay *= 2
+    }
+  }
+}
+
 function runOptional(command, args, options = {}) {
   try {
     return run(command, args, options)
+  }
+  catch (error) {
+    process.stderr.write(`${String(error)}\n`)
+    return null
+  }
+}
+
+async function runOptionalWithRetry(command, args, options = {}, retryOptions = {}) {
+  try {
+    return await runWithRetry(command, args, options, retryOptions)
   }
   catch (error) {
     process.stderr.write(`${String(error)}\n`)
@@ -85,7 +114,7 @@ function buildLiveTarget(context, definition) {
   })
 }
 
-function deployCloudflare(context, manifest) {
+async function deployCloudflare(context, manifest) {
   const workspace = context.workspace
   const deployDir = resolve(workspace, manifest.deployDir)
   const deployConfigPath = resolve(workspace, manifest.deployConfigPath)
@@ -93,12 +122,12 @@ function deployCloudflare(context, manifest) {
   ensureEnvNames(manifest.requiredRuntimeEnvNames)
 
   for (const queueName of manifest.queueNames || []) {
-    runOptional("npx", ["wrangler", "queues", "create", queueName], { cwd: deployDir })
+    await runOptionalWithRetry("npx", ["wrangler", "queues", "create", queueName], { cwd: deployDir }, { attempts: 3 })
   }
 
-  run("npx", ["wrangler", "--cwd", deployDir, "deploy", "--config", basename(deployConfigPath)], {
+  await runWithRetry("npx", ["wrangler", "--cwd", deployDir, "deploy", "--config", basename(deployConfigPath)], {
     cwd: deployDir,
-  })
+  }, { attempts: 4 })
 
   const liveUrl = manifest.liveUrlTemplate?.replace("${CLOUDFLARE_WORKERS_SUBDOMAIN}", required("CLOUDFLARE_WORKERS_SUBDOMAIN"))
   if (!liveUrl)
@@ -180,7 +209,7 @@ const manifest = liveTargetModule.prepareLiveDeployTarget({
 })
 
 const liveUrl = manifest.deployMode === "cloudflare-wrangler"
-  ? deployCloudflare(context, manifest)
+  ? await deployCloudflare(context, manifest)
   : deployVercel(context, manifest)
 
 runLiveE2E(context, liveUrl)
