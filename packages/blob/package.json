@@ -29,6 +29,7 @@
     "./nitro": "./dist/nitro.js",
     "./nuxt": "./dist/nuxt.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
+    "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },

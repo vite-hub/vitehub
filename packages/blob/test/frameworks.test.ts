@@ -89,38 +89,65 @@ describe("package surface", () => {
 })
 
 describe("hubBlob", () => {
-  it("applies only to server environments", async () => {
+  it("resolves blob config from the Vite layer", async () => {
     const { hubBlob } = await import("../src/vite.ts")
-    const plugin = hubBlob()
-    const applyToEnvironment = plugin.applyToEnvironment as unknown as (environment: unknown) => boolean
+    const plugin = hubBlob({ driver: "vercel-blob" })
 
-    expect(applyToEnvironment({ config: { consumer: "server" }, name: "worker" })).toBe(true)
-    expect(applyToEnvironment({ config: {}, name: "nitro" })).toBe(true)
-    expect(applyToEnvironment({ config: {}, name: "ssr" })).toBe(true)
-    expect(applyToEnvironment({ config: { consumer: "client" }, name: "client" })).toBe(false)
+    expect(plugin.nitro.name).toBe("@vitehub/blob")
+    expect(plugin.api.getConfig()).toEqual({
+      blob: {
+        provider: {
+          access: "public",
+          driver: "vercel-blob",
+          source: "explicit",
+          token: undefined,
+        },
+      },
+      hosting: undefined,
+    })
   })
 
-  it("adds @vitehub/blob to server noExternal config", async () => {
+  it("lets top-level Vite config override inline plugin options", async () => {
     const { hubBlob } = await import("../src/vite.ts")
-    const plugin = hubBlob()
-    const configEnvironment = plugin.configEnvironment as unknown as (name: string, config: { consumer?: string, resolve?: { noExternal?: string[] } }) => unknown
+    const plugin = hubBlob({ driver: "vercel-blob" })
+    const configResolved = plugin.configResolved as unknown as (config: unknown) => void | Promise<void>
 
-    expect(configEnvironment("nitro", {})).toEqual({
-      resolve: {
-        noExternal: ["@vitehub/blob"],
+    await configResolved({
+      blob: {
+        binding: "ASSETS",
+        bucketName: "top-level-bucket",
+        driver: "cloudflare-r2",
       },
-    })
-    expect(configEnvironment("nitro", { resolve: { noExternal: ["other"] } })).toEqual({
-      resolve: {
-        noExternal: ["other", "@vitehub/blob"],
+    } as never)
+
+    expect(plugin.api.getConfig()).toEqual({
+      blob: {
+        provider: {
+          binding: "ASSETS",
+          bucketName: "top-level-bucket",
+          driver: "cloudflare-r2",
+          source: "explicit",
+        },
       },
+      hosting: undefined,
     })
-    expect(configEnvironment("client", { consumer: "client" })).toBeUndefined()
+  })
+
+  it("exposes resolved config through a Vite virtual module", async () => {
+    const { BLOB_VIRTUAL_CONFIG_ID, hubBlob } = await import("../src/vite.ts")
+    const plugin = hubBlob({ driver: "vercel-blob" })
+    const resolveId = plugin.resolveId as unknown as (id: string) => string | undefined | Promise<string | undefined>
+    const load = plugin.load as unknown as (id: string) => string | undefined | Promise<string | undefined>
+    const resolvedId = await resolveId(BLOB_VIRTUAL_CONFIG_ID)
+    const code = await load(resolvedId!)
+
+    expect(code).toContain("export const blob =")
+    expect(code).toContain("vercel-blob")
   })
 })
 
 describe("Nitro module", () => {
-  it("wires runtime config, aliases, plugins, Vite plugin, and Cloudflare R2 bindings", async () => {
+  it("wires runtime config, aliases, plugins, and Cloudflare R2 bindings", async () => {
     const nitro = createNitroStub({
       blob: {
         binding: "ASSETS",
@@ -146,7 +173,6 @@ describe("Nitro module", () => {
     })
     expect(nitro.options.alias["@vitehub/blob"]).toContain("/packages/blob/src/index.ts")
     expect(nitro.options.plugins).toHaveLength(1)
-    expect(nitro.options.vite!.plugins).toHaveLength(1)
     expect(nitro.options.cloudflare).toMatchObject({
       wrangler: {
         r2_buckets: [{

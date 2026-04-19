@@ -1,46 +1,52 @@
+import blobNitroModule from "./nitro/module.ts"
+import {
+  BLOB_VIRTUAL_CONFIG_ID,
+  BLOB_VITE_PLUGIN_NAME,
+  resolveBlobViteConfig,
+} from "./vite-config.ts"
+
+import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobModuleOptions } from "./types.ts"
-import type { EnvironmentOptions, Plugin } from "vite"
+import type { NitroModule } from "nitro/types"
+import type { Plugin } from "vite"
 
-const blobPackageName = "@vitehub/blob"
+const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
 
-type BlobViteEnvironment = {
-  config: Pick<EnvironmentOptions, "consumer">
-  name: string
+export { BLOB_VIRTUAL_CONFIG_ID, BLOB_VITE_PLUGIN_NAME, resolveBlobViteConfig }
+export type { BlobViteRuntimeConfig } from "./vite-config.ts"
+
+export interface BlobVitePluginAPI {
+  getConfig: () => BlobViteRuntimeConfig
 }
 
-function mergeNoExternal(
-  current: NonNullable<EnvironmentOptions["resolve"]>["noExternal"],
-): NonNullable<EnvironmentOptions["resolve"]>["noExternal"] {
-  if (current === true) return true
-  if (!current) return [blobPackageName]
+export type BlobVitePlugin = Plugin & { api: BlobVitePluginAPI, nitro: NitroModule }
 
-  const values = Array.isArray(current) ? current : [current]
-  return values.some(value => value === blobPackageName)
-    ? values
-    : [...values, blobPackageName]
+function serializeVirtualConfig(config: BlobViteRuntimeConfig): string {
+  return [
+    `export const blob = ${JSON.stringify(config.blob)};`,
+    `export const hosting = ${JSON.stringify(config.hosting)};`,
+    "export default { blob, hosting };",
+  ].join("\n")
 }
 
-function isBlobServerEnvironment(name: string, config: Pick<EnvironmentOptions, "consumer">): boolean {
-  return name === "nitro" || name === "ssr" || config.consumer === "server"
-}
+export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
+  let runtimeConfig: BlobViteRuntimeConfig | undefined
+  const getConfig = (): BlobViteRuntimeConfig => runtimeConfig ??= resolveBlobViteConfig(options)
 
-export type BlobVitePlugin = Plugin
-
-export function hubBlob(): BlobVitePlugin {
   return {
-    name: "@vitehub/blob/vite",
-    applyToEnvironment(environment: BlobViteEnvironment) {
-      return isBlobServerEnvironment(environment.name, environment.config)
+    name: BLOB_VITE_PLUGIN_NAME,
+    api: { getConfig },
+    nitro: blobNitroModule,
+    configResolved(config) {
+      runtimeConfig = resolveBlobViteConfig(config.blob ?? options)
     },
-    configEnvironment(name, config) {
-      if (!isBlobServerEnvironment(name, config)) return
-      return {
-        resolve: {
-          noExternal: mergeNoExternal(config.resolve?.noExternal),
-        },
-      }
+    resolveId(id) {
+      if (id === BLOB_VIRTUAL_CONFIG_ID) return RESOLVED_BLOB_VIRTUAL_CONFIG_ID
     },
-  } satisfies BlobVitePlugin
+    load(id) {
+      if (id === RESOLVED_BLOB_VIRTUAL_CONFIG_ID) return serializeVirtualConfig(getConfig())
+    },
+  }
 }
 
 declare module "vite" {

@@ -1,9 +1,8 @@
 import { resolveModulePath } from "exsolve"
-import { normalizeBlobOptions } from "../config.ts"
-import { hubBlob } from "../vite.ts"
+import { resolveBlobViteConfig } from "../vite-config.ts"
+
 import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../types.ts"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
-import type { Plugin } from "vite"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
   const fromSource = resolveModulePath(srcRelative, {
@@ -19,6 +18,22 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
 
 function pushUnique<T>(items: T[], item: T): void {
   if (!items.includes(item)) items.push(item)
+}
+
+type NitroOptionsLike = {
+  alias?: Record<string, string>
+  blob?: BlobModuleOptions
+  cloudflare?: {
+    wrangler?: {
+      r2_buckets?: Array<Record<string, unknown>>
+    }
+  }
+  externals?: {
+    inline?: string[]
+  }
+  plugins?: string[]
+  preset?: string
+  runtimeConfig?: NitroRuntimeConfig
 }
 
 function configureCloudflareR2(nitroOptions: NitroOptionsLike, resolved: ResolvedBlobModuleOptions | undefined): void {
@@ -48,43 +63,22 @@ function configureVercelBlobBundling(nitroOptions: NitroOptionsLike, resolved: R
   pushUnique(nitroOptions.externals.inline, "@vercel/blob")
 }
 
-function installVitePlugin(nitroOptions: NitroOptionsLike): void {
-  nitroOptions.vite ||= {}
-  nitroOptions.vite.plugins ||= []
-  nitroOptions.vite.plugins.push(hubBlob())
-}
-
-type NitroOptionsLike = {
-  alias?: Record<string, string>
-  blob?: BlobModuleOptions
-  cloudflare?: {
-    wrangler?: {
-      r2_buckets?: Array<Record<string, unknown>>
-    }
-  }
-  externals?: {
-    inline?: string[]
-  }
-  plugins?: string[]
-  preset?: string
-  runtimeConfig?: NitroRuntimeConfig
-  vite?: {
-    plugins?: Plugin[]
-  }
-}
-
 const blobNitroModule: NitroModule = {
   name: "@vitehub/blob",
   setup(nitro) {
     const nitroOptions = nitro.options as NitroOptionsLike
-    const hosting = (nitroOptions.preset || process.env.NITRO_PRESET || "").trim() || undefined
-    const resolved = normalizeBlobOptions(nitroOptions.blob, { hosting })
+    const viteConfig = resolveBlobViteConfig(nitroOptions.blob, {
+      env: process.env,
+      hosting: nitroOptions.preset,
+    })
+    const { hosting } = viteConfig
+
     const runtimeConfig = (nitroOptions.runtimeConfig ||= {} as NitroRuntimeConfig)
     if (hosting) runtimeConfig.hosting ||= hosting
-    runtimeConfig.blob = resolved ?? false
+    runtimeConfig.blob = viteConfig.blob
 
-    installVitePlugin(nitroOptions)
-    if (!resolved) return
+    if (!viteConfig.blob) return
+    const resolved = viteConfig.blob
 
     nitroOptions.alias ||= {}
     nitroOptions.alias["@vitehub/blob"] = resolveRuntimeEntry("../index", "@vitehub/blob")
@@ -107,9 +101,6 @@ declare module "nitro/types" {
       wrangler?: {
         r2_buckets?: Array<Record<string, unknown>>
       }
-    }
-    vite?: {
-      plugins?: Plugin[]
     }
   }
 
