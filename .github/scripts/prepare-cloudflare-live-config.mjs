@@ -35,6 +35,10 @@ function ensureConfigFromNitro() {
   return configPath
 }
 
+function substituteEnv(template) {
+  return template.replaceAll(/\$\{([A-Z0-9_]+)\}|\$([A-Z0-9_]+)/g, (_, bracketed, bare) => process.env[bracketed || bare] || "")
+}
+
 const deployStrategy = process.env.CLOUDFLARE_DEPLOY_STRATEGY || "template"
 const outputDir = resolve(".output")
 const serverDir = resolve(".output/server")
@@ -44,7 +48,7 @@ mkdirSync(serverDir, { recursive: true })
 
 if (deployStrategy === "template") {
   const templatePath = join(process.env.GITHUB_WORKSPACE, process.env.PACKAGE_DIR, process.env.WRANGLER_TEMPLATE)
-  const template = readFileSync(templatePath, "utf8").replaceAll("$APP_NAME", process.env.APP_NAME)
+  const template = substituteEnv(readFileSync(templatePath, "utf8"))
   writeFileSync(join(outputDir, "wrangler.deploy.json"), template)
   writeFileSync(join(outputDir, "cloudflare-deploy-dir.txt"), ".output\n")
   writeFileSync(join(outputDir, "cloudflare-deploy-config.txt"), "wrangler.deploy.json\n")
@@ -67,6 +71,11 @@ if (!configPath) {
 const config = JSON.parse(readFileSync(configPath, "utf8"))
 config.name = process.env.APP_NAME
 config.compatibility_flags = [...new Set([...(config.compatibility_flags || []), "nodejs_compat"])]
+config.no_bundle = true
+config.rules ||= []
+if (!config.rules.some(rule => rule?.type === "ESModule")) {
+  config.rules.push({ type: "ESModule", globs: ["**/*.mjs", "**/*.js"] })
+}
 
 const queues = new Set()
 if (process.env.CLOUDFLARE_CREATE_QUEUES === "true") {
