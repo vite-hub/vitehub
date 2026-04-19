@@ -1,2 +1,5 @@
 .vercel
+.vitehub
+.nuxt
+.output
 .env*.local
