@@ -82,6 +82,9 @@ jobs:
     if: (github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.live)) && needs.e2e_matrix.outputs.has_live == 'true'
     runs-on: ubuntu-latest
     name: live (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
+    concurrency:
+      group: live-${{ matrix.provider }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       max-parallel: 1
