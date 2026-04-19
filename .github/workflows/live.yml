@@ -33,6 +33,7 @@ jobs:
       live: ${{ steps.e2e.outputs.live }}
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
       - id: e2e
         env:
