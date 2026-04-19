@@ -1,4 +1,4 @@
-import { useRuntimeConfig } from "nitro/runtime"
+import { useRuntimeConfig } from "nitro/runtime-config"
 import { setBlobRuntimeConfig } from "./state.ts"
 import type { ResolvedBlobModuleOptions } from "../types.ts"
 

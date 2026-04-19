@@ -1,5 +1,5 @@
 import { createCloudflareR2Driver } from "./drivers/cloudflare-r2.ts"
-import { useRuntimeConfig } from "nitro/runtime"
+import { useRuntimeConfig } from "nitro/runtime-config"
 import {
   getBlobRuntimeConfig,
   getBlobRuntimeStore,
