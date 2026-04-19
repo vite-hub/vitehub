@@ -14,7 +14,7 @@ on:
       provider:
         description: Optional provider filter for manual runs
         required: false
-        default: all
+        default: cloudflare
       framework:
         description: Optional framework filter for manual runs
         required: false

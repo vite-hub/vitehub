@@ -1,4 +1,4 @@
-import { build, createNitro, prepare } from "nitro"
+import { build, createNitro, prepare } from "nitro/builder"
 
 const [fixtureDir, preset] = process.argv.slice(2)
 
