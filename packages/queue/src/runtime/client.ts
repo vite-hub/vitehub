@@ -26,29 +26,19 @@ import type {
 } from "../types.ts"
 
 function getCloudflareEnv(event: unknown): Record<string, unknown> | undefined {
-  type CloudflareContext = Record<string, unknown> & { env?: Record<string, unknown> }
+  type Env = Record<string, unknown>
   const target = event as {
-    context?: {
-      cloudflare?: CloudflareContext
-      _platform?: { cloudflare?: { env?: Record<string, unknown> } }
-    }
-    env?: Record<string, unknown>
-    req?: {
-      context?: { cloudflare?: { env?: Record<string, unknown> } }
-      runtime?: { cloudflare?: { env?: Record<string, unknown> } }
-    }
-    runtime?: { cloudflare?: { env?: Record<string, unknown> } }
+    context?: { cloudflare?: Env & { env?: Env }, _platform?: { cloudflare?: { env?: Env } } }
+    env?: Env
+    req?: { runtime?: { cloudflare?: { env?: Env } } }
   } | undefined
-  const contextCloudflare = target?.context?.cloudflare as CloudflareContext | undefined
-
+  const context = target?.context
   return target?.env
-    || target?.runtime?.cloudflare?.env
+    || context?.cloudflare?.env
+    || context?._platform?.cloudflare?.env
     || target?.req?.runtime?.cloudflare?.env
-    || target?.req?.context?.cloudflare?.env
-    || contextCloudflare?.env
-    || target?.context?._platform?.cloudflare?.env
-    || contextCloudflare
-    || (globalThis as { __env__?: Record<string, unknown> }).__env__
+    || context?.cloudflare
+    || (globalThis as { __env__?: Env }).__env__
 }
 
 function resolveCloudflareBinding(
@@ -92,7 +82,6 @@ function createQueueJob<TPayload>(
     attempts: 1,
     id: normalized.id,
     payload: normalized.payload,
-    signal: new AbortController().signal,
   }
 }
 
@@ -108,10 +97,6 @@ export async function createQueueClient(options?: QueueProviderOptions): Promise
     return await createConfiguredVercelQueueClient(provider)
   }
   return createMemoryQueueClient(provider)
-}
-
-async function getNitroRequest(): Promise<unknown> {
-  return getQueueRuntimeEvent()
 }
 
 function getActiveQueueConfig(): ResolvedQueueModuleOptions | false {
@@ -140,11 +125,6 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
         provider: config.provider.provider,
       })
     }
-  }
-
-  if (config.provider.provider === "cloudflare" && !getQueueRuntimeEvent()) {
-    const request = await getNitroRequest()
-    if (request) return await runWithQueueRuntimeEvent(request, build)
   }
 
   return await build()
@@ -222,21 +202,27 @@ export async function runQueue<TPayload = unknown>(
 /**
  * Fire-and-forget enqueue. On Cloudflare/Vercel the dispatch is handed to the
  * request's `waitUntil` so the response returns before the queue call settles.
+ * Errors are reported to the declared queue's `onError` hook (if any) and
+ * always logged to the console.
  */
 export function deferQueue<TPayload = unknown>(
   name: string,
   input: QueueEnqueueInput<TPayload>,
 ): void {
-  void getNitroRequest().then((request) => {
-    const task = () => runWithQueueRuntimeEvent(request, () => runQueue(name, input))
-    const waitUntil = (request as { waitUntil?: (promise: Promise<unknown>) => void } | undefined)?.waitUntil
-    if (waitUntil) {
-      waitUntil(task())
-      return
+  const request = getQueueRuntimeEvent()
+  const task = () => runWithQueueRuntimeEvent(request, () => runQueue(name, input))
+  const handleError = async (error: unknown) => {
+    console.error(`[vitehub] Deferred queue dispatch failed for "${name}"`, error)
+    try {
+      const definition = await loadQueueDefinition(name)
+      await definition?.options?.onDispatchError?.(error, { name })
     }
+    catch (hookError) {
+      console.error(`[vitehub] onDispatchError hook failed for "${name}"`, hookError)
+    }
+  }
 
-    task().catch((error) => {
-      console.error(`[vitehub] Deferred queue dispatch failed for "${name}"`, error)
-    })
-  })
+  const waitUntil = (request as { waitUntil?: (promise: Promise<unknown>) => void } | undefined)?.waitUntil
+  const promise = task().catch(handleError)
+  if (waitUntil) waitUntil(promise)
 }

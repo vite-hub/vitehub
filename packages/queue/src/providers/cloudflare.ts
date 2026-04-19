@@ -21,11 +21,9 @@ function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueB
 }
 
 function toSendOptions(options: QueueEnqueueOptions = {}): CloudflareQueueSendOptions {
-  const unsupported = [
-    options.idempotencyKey !== undefined ? "idempotencyKey" : undefined,
-    options.retentionSeconds !== undefined ? "retentionSeconds" : undefined,
-  ].filter((item): item is string => Boolean(item))
-
+  const unsupported: string[] = []
+  if (options.idempotencyKey !== undefined) unsupported.push("idempotencyKey")
+  if (options.retentionSeconds !== undefined) unsupported.push("retentionSeconds")
   if (unsupported.length) {
     throw new QueueError(`Cloudflare queue does not support enqueue options: ${unsupported.join(", ")}.`, {
       code: "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS",
@@ -35,11 +33,7 @@ function toSendOptions(options: QueueEnqueueOptions = {}): CloudflareQueueSendOp
       provider: "cloudflare",
     })
   }
-
-  return {
-    contentType: options.contentType,
-    delaySeconds: options.delaySeconds,
-  }
+  return { contentType: options.contentType, delaySeconds: options.delaySeconds }
 }
 
 function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: CloudflareQueueMessage): void {

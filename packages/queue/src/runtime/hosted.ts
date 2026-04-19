@@ -25,7 +25,6 @@ function createVercelJobHandler(definition: QueueDefinition): VercelQueueMessage
       id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
       metadata,
       payload,
-      signal: new AbortController().signal,
     }
     await definition.handler(job)
   }

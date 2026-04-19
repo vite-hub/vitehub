@@ -31,7 +31,6 @@ describe("queue definition helpers", () => {
       attempts: 1,
       id: "job-1",
       payload: { email: "ava@example.com" },
-      signal: new AbortController().signal,
     })).resolves.toEqual({ email: "ava@example.com" })
   })
 

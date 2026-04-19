@@ -1,7 +1,6 @@
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { QueueError } from "../errors.ts"
 import type {
-  QueueEnqueueOptions,
   VercelQueueClient,
   VercelQueueProviderOptions,
   VercelQueueSDK,
@@ -11,12 +10,6 @@ interface VercelQueueModule {
   QueueClient?: new(options?: Record<string, unknown>) => VercelQueueSDK
   handleCallback?: VercelQueueSDK["handleCallback"]
   send?: VercelQueueSDK["send"]
-}
-
-function getUnsupportedOptions(options: QueueEnqueueOptions) {
-  return [
-    options.contentType !== undefined ? "contentType" : undefined,
-  ].filter((item): item is string => Boolean(item))
 }
 
 async function loadVercelQueueClient(region?: string): Promise<VercelQueueSDK> {
@@ -66,11 +59,10 @@ export async function createVercelQueueClient(
     topic,
     async send(input) {
       const normalized = normalizeQueueEnqueueInput(input)
-      const unsupported = getUnsupportedOptions(normalized.options)
-      if (unsupported.length) {
-        throw new QueueError(`Vercel queue does not support enqueue options: ${unsupported.join(", ")}.`, {
+      if (normalized.options.contentType !== undefined) {
+        throw new QueueError("Vercel queue does not support enqueue options: contentType.", {
           code: "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS",
-          details: { unsupported },
+          details: { unsupported: ["contentType"] },
           httpStatus: 400,
           method: "send",
           provider: "vercel",

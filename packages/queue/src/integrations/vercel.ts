@@ -129,15 +129,19 @@ export async function syncVercelQueueBuildOutput(nitro: Nitro, definitions: Disc
   }
 }
 
+function shouldApplySupport(nitro: Nitro, queueConfig: QueueModuleOptions | undefined): boolean {
+  const target = nitro as QueueBuildOutputNitro
+  return !target.__vitehubQueueVercelBuildOutputApplied && shouldConfigureVercelQueueBuildOutput(nitro, queueConfig)
+}
+
 export function setupVercelQueueBuildOutputSupport(
   nitro: Nitro,
   queueConfig: QueueModuleOptions | undefined,
   definitions: DiscoveredQueueDefinition[],
 ): void {
-  const target = nitro as QueueBuildOutputNitro
-  if (target.__vitehubQueueVercelBuildOutputApplied || !shouldConfigureVercelQueueBuildOutput(nitro, queueConfig)) return
+  if (!shouldApplySupport(nitro, queueConfig)) return
+  ;(nitro as QueueBuildOutputNitro).__vitehubQueueVercelBuildOutputApplied = true
 
-  target.__vitehubQueueVercelBuildOutputApplied = true
   const resolvedDefinitions = definitions.length ? definitions : discoverQueueDefinitions(nitro.options)
   if (!resolvedDefinitions.length) return
 

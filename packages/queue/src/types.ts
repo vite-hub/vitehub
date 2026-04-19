@@ -199,7 +199,6 @@ export interface QueueJob<TPayload = unknown> {
   id: string
   metadata?: unknown
   payload: TPayload
-  signal: AbortSignal
 }
 
 export type QueueHandler<TPayload = unknown, TResult = unknown> =
@@ -209,6 +208,7 @@ export interface QueueDefinitionOptions {
   cache?: boolean
   callbackOptions?: VercelQueueCallbackOptions
   concurrency?: number
+  onDispatchError?: (error: unknown, context: { name: string }) => unknown | Promise<unknown>
   onError?: CloudflareQueueBatchHandlerOptions["onError"]
 }
 

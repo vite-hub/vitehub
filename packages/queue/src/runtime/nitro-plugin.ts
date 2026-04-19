@@ -43,7 +43,6 @@ function createCloudflareQueueJob(
     id: message.id,
     metadata: { batch, message },
     payload: message.body,
-    signal: new AbortController().signal,
   }
 }
 

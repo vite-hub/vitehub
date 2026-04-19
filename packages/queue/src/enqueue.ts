@@ -1,14 +1,5 @@
 import type { QueueEnqueueInput, QueueEnqueueOptions } from "./types.ts"
 
-const envelopeDiscriminatorKeys = new Set([
-  "contentType",
-  "delaySeconds",
-  "id",
-  "idempotencyKey",
-  "region",
-  "retentionSeconds",
-])
-
 let fallbackCounter = 0
 
 export interface NormalizedQueueEnqueueInput<TPayload = unknown> {
@@ -24,21 +15,29 @@ export function createQueueMessageId(prefix = "queue"): string {
   return `${prefix}_${Date.now().toString(36)}_${fallbackCounter.toString(36)}`
 }
 
-function isQueueEnqueueInput<TPayload>(
+const envelopeKeys = new Set<keyof QueueEnqueueOptions | "id">([
+  "contentType",
+  "delaySeconds",
+  "id",
+  "idempotencyKey",
+  "region",
+  "retentionSeconds",
+])
+
+function isQueueEnvelope<TPayload>(
   input: unknown,
 ): input is QueueEnqueueOptions & { id?: string, payload: TPayload } {
-  return Boolean(input)
-    && typeof input === "object"
-    && !Array.isArray(input)
-    && input !== null
-    && "payload" in input
-    && Object.keys(input).some(key => envelopeDiscriminatorKeys.has(key))
+  if (typeof input !== "object" || input === null || Array.isArray(input) || !("payload" in input)) return false
+  for (const key of Object.keys(input)) {
+    if (envelopeKeys.has(key as keyof QueueEnqueueOptions | "id")) return true
+  }
+  return false
 }
 
 export function normalizeQueueEnqueueInput<TPayload = unknown>(
   input: QueueEnqueueInput<TPayload>,
 ): NormalizedQueueEnqueueInput<TPayload> {
-  if (!isQueueEnqueueInput<TPayload>(input)) {
+  if (!isQueueEnvelope<TPayload>(input)) {
     return {
       id: createQueueMessageId(),
       options: {},

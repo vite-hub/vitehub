@@ -17,19 +17,17 @@ function resolveProvider(
   provider: QueueModuleProviderOptions | (Record<string, unknown> & { provider?: undefined }),
   hosting = "",
 ): ResolvedQueueModuleProviderOptions {
-  if (provider.provider === "cloudflare") return { ...provider, provider: "cloudflare" }
-  if (provider.provider === "vercel") return { ...provider, provider: "vercel" }
-  if (provider.provider === "memory") return { ...provider, provider: "memory" }
-  const unknownProvider = (provider as { provider?: unknown }).provider
-  if (typeof unknownProvider !== "undefined") {
-    throw new TypeError(`Unknown \`queue.provider\`: ${JSON.stringify(unknownProvider)}. Expected "cloudflare", "vercel", or "memory".`)
+  const explicit = provider.provider
+  if (explicit === "cloudflare" || explicit === "vercel" || explicit === "memory") {
+    return { ...provider, provider: explicit } as ResolvedQueueModuleProviderOptions
+  }
+  if (typeof explicit !== "undefined") {
+    throw new TypeError(`Unknown \`queue.provider\`: ${JSON.stringify(explicit)}. Expected "cloudflare", "vercel", or "memory".`)
   }
 
-  const shared: { cache?: boolean } = {}
-  if (typeof provider.cache === "boolean") shared.cache = provider.cache
-  if (hosting.includes("cloudflare")) return { ...shared, provider: "cloudflare" }
-  if (hosting.includes("vercel")) return { ...shared, provider: "vercel" }
-  return { ...shared, provider: "memory" }
+  const shared = typeof provider.cache === "boolean" ? { cache: provider.cache } : {}
+  const inferred = hosting.includes("cloudflare") ? "cloudflare" : hosting.includes("vercel") ? "vercel" : "memory"
+  return { ...shared, provider: inferred }
 }
 
 export function normalizeQueueOptions(
