@@ -8,35 +8,20 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: Package feature to exercise
-        required: true
-        type: choice
-        default: kv
-        options:
-          - kv
-          - sandbox
+        description: Optional package filter for manual runs
+        required: false
+        default: all
       provider:
-        description: Provider to exercise
-        required: true
-        type: choice
+        description: Optional provider filter for manual runs
+        required: false
         default: all
-        options:
-          - all
-          - cloudflare
-          - vercel
       framework:
-        description: Framework playground to exercise
-        required: true
-        type: choice
+        description: Optional framework filter for manual runs
+        required: false
         default: all
-        options:
-          - all
-          - nitro
-          - nuxt
-          - vite
       live:
-        description: Run deploy and e2e-live from this branch
-        required: true
+        description: Run deploy and live e2e from this branch
+        required: false
         type: boolean
         default: false
 
@@ -58,153 +43,223 @@ jobs:
       - run: pnpm build
       - run: pnpm docs:build
 
-  e2e-local:
-    needs: quality
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+  e2e_matrix:
     runs-on: ubuntu-latest
+    outputs:
+      has_local: ${{ steps.e2e.outputs.hasLocal }}
+      has_live: ${{ steps.e2e.outputs.hasLive }}
+      live: ${{ steps.e2e.outputs.live }}
+      local: ${{ steps.e2e.outputs.local }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: e2e
+        env:
+          VITEHUB_CI_FRAMEWORK: ${{ github.event_name == 'workflow_dispatch' && inputs.framework || '' }}
+          VITEHUB_CI_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || '' }}
+          VITEHUB_CI_PROVIDER: ${{ github.event_name == 'workflow_dispatch' && inputs.provider || '' }}
+        run: node .github/scripts/discover-e2e-matrix.mjs
+
+  e2e-local:
+    needs: [quality, e2e_matrix]
+    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.e2e_matrix.outputs.has_local == 'true'
+    runs-on: ubuntu-latest
+    name: e2e-local (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
     strategy:
       fail-fast: false
-      matrix:
-        provider: [cloudflare, vercel]
-        framework: [nitro, nuxt, vite]
+      matrix: ${{ fromJSON(needs.e2e_matrix.outputs.local) }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
-      - name: Build package
-        env:
-          VITEHUB_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'kv' }}
-        run: pnpm --dir packages/$VITEHUB_PACKAGE build
+      - run: pnpm --dir ${{ matrix.packageDir }} build
 
-      - name: E2E (${{ matrix.provider }} × ${{ matrix.framework }})
-        if: ${{ github.event_name != 'workflow_dispatch' || ((inputs.provider == 'all' || inputs.provider == matrix.provider) && (inputs.framework == 'all' || inputs.framework == matrix.framework)) }}
-        env:
-          VITEHUB_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'kv' }}
-        run: pnpm --dir packages/$VITEHUB_PACKAGE test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}
+      - name: E2E (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
+        run: pnpm --dir ${{ matrix.packageDir }} test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}
 
   live:
-    needs: quality
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.live)
+    needs: [quality, e2e_matrix]
+    if: (github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.live)) && needs.e2e_matrix.outputs.has_live == 'true'
     runs-on: ubuntu-latest
-    name: live (${{ matrix.provider }}, ${{ matrix.framework }})
+    name: live (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
     strategy:
       fail-fast: false
-      max-parallel: 1
-      matrix:
-        provider: [cloudflare, vercel]
-        framework: [nitro, nuxt, vite]
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.e2e_matrix.outputs.live) }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
-      - name: Build package
-        env:
-          VITEHUB_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'kv' }}
-        run: pnpm --dir packages/$VITEHUB_PACKAGE build
+      - run: pnpm --dir ${{ matrix.packageDir }} build
 
-      - name: Build (${{ matrix.provider }} × ${{ matrix.framework }})
-        if: ${{ github.event_name != 'workflow_dispatch' || ((inputs.provider == 'all' || inputs.provider == matrix.provider) && (inputs.framework == 'all' || inputs.framework == matrix.framework)) }}
+      - name: Build (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
         env:
-          VITEHUB_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'kv' }}
           NITRO_PRESET: ${{ matrix.provider == 'cloudflare' && 'cloudflare-module' || 'vercel' }}
-          SANDBOX_PROVIDER: ${{ matrix.provider }}
-          # Presence forces upstash resolution at build; runtime swaps with real Vercel env.
-          KV_REST_API_URL: ${{ matrix.provider == 'vercel' && '********' || '' }}
-          KV_REST_API_TOKEN: ${{ matrix.provider == 'vercel' && '********' || '' }}
-          # Presence forces Vercel Sandbox credential resolution at build; runtime swaps with real Vercel env.
-          VERCEL_TOKEN: ${{ matrix.provider == 'vercel' && '********' || '' }}
-          VERCEL_TEAM_ID: ${{ matrix.provider == 'vercel' && '********' || '' }}
-          VERCEL_PROJECT_ID: ${{ matrix.provider == 'vercel' && '********' || '' }}
-        run: |
-          cd packages/$VITEHUB_PACKAGE/playground/${{ matrix.framework }}
-          if [ "${{ matrix.framework }}" = "nuxt" ]; then
-            npx nuxi build
-          elif [ "${{ matrix.framework }}" = "vite" ]; then
-            npx vite build
-          else
-            npx nitro build
-          fi
+          KV_REST_API_URL: ${{ matrix.provider == 'vercel' && matrix.requiresVercelKvBuildEnv && '********' || '' }}
+          KV_REST_API_TOKEN: ${{ matrix.provider == 'vercel' && matrix.requiresVercelKvBuildEnv && '********' || '' }}
+          SANDBOX_PROVIDER: ${{ matrix.packageName == 'sandbox' && matrix.provider || '' }}
+          VERCEL_TOKEN: ${{ matrix.provider == 'vercel' && matrix.requiresVercelSandboxBuildEnv && '********' || '' }}
+          VERCEL_TEAM_ID: ${{ matrix.provider == 'vercel' && matrix.requiresVercelSandboxBuildEnv && '********' || '' }}
+          VERCEL_PROJECT_ID: ${{ matrix.provider == 'vercel' && matrix.requiresVercelSandboxBuildEnv && '********' || '' }}
+        run: pnpm --dir ${{ matrix.packageDir }}/playground/${{ matrix.framework }} run build
 
       - name: Deploy Cloudflare
-        if: ${{ matrix.provider == 'cloudflare' && (github.event_name != 'workflow_dispatch' || ((inputs.provider == 'all' || inputs.provider == matrix.provider) && (inputs.framework == 'all' || inputs.framework == matrix.framework))) }}
+        if: matrix.provider == 'cloudflare'
         env:
-          VITEHUB_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'kv' }}
+          APP_NAME: ${{ matrix.appName }}
+          BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME || '' }}
+          CLOUDFLARE_CREATE_QUEUES: ${{ matrix.cloudflareCreateQueues }}
+          CLOUDFLARE_CREATE_R2_BUCKET: ${{ matrix.cloudflareCreateR2Bucket }}
+          CLOUDFLARE_DEPLOY_STRATEGY: ${{ matrix.cloudflareDeployStrategy }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
+          FRAMEWORK: ${{ matrix.framework }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          PACKAGE_DIR: ${{ matrix.packageDir }}
+          PACKAGE_NAME: ${{ matrix.packageName }}
+          WRANGLER_TEMPLATE: ${{ matrix.cloudflareWranglerTemplate }}
         run: |
-          cd packages/$VITEHUB_PACKAGE/playground/${{ matrix.framework }}
-          TARGET_DIR=""
-          TARGET_CONFIG=""
-          if [ "$VITEHUB_PACKAGE" = "kv" ]; then
-            APP_NAME=${{ matrix.framework }} envsubst < ../_shared/wrangler.template.jsonc > .output/wrangler.json
-            TARGET_DIR=".output"
-            TARGET_CONFIG="wrangler.json"
+          cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
+          if [ "$CLOUDFLARE_CREATE_R2_BUCKET" = "true" ]; then
+            export BLOB_BUCKET_NAME="${BLOB_BUCKET_NAME:-vitehub-blob-e2e}"
+            npx wrangler r2 bucket create "$BLOB_BUCKET_NAME" || true
+          fi
+          if [ "$CLOUDFLARE_DEPLOY_STRATEGY" = "template" ]; then
+            APP_NAME="$APP_NAME" envsubst < "$GITHUB_WORKSPACE/$PACKAGE_DIR/$WRANGLER_TEMPLATE" > .output/wrangler.deploy.json
+            printf '%s\n' '.output' > .output/cloudflare-deploy-dir.txt
+            printf '%s\n' 'wrangler.deploy.json' > .output/cloudflare-deploy-config.txt
           else
-            if [ -f .output/server/wrangler.json ]; then
-              TARGET_DIR=".output/server"
-              TARGET_CONFIG="wrangler.json"
-            elif [ -f .output/server/wrangler.jsonc ]; then
-              TARGET_DIR=".output/server"
-              TARGET_CONFIG="wrangler.jsonc"
-            elif [ -f .output/wrangler.json ]; then
-              TARGET_DIR=".output"
-              TARGET_CONFIG="wrangler.json"
-            elif [ -f .output/wrangler.jsonc ]; then
-              TARGET_DIR=".output"
-              TARGET_CONFIG="wrangler.jsonc"
-            elif [ -f .output/nitro.json ]; then
-              node -e "const fs=require('node:fs');const path=require('node:path');const nitro=JSON.parse(fs.readFileSync('.output/nitro.json','utf8'));const serverDir=path.resolve('.output/server');const outputPath=path.join(serverDir,'wrangler.json');const cloudflare=nitro.config?.cloudflare||{};const wrangler=cloudflare.wrangler||{};fs.mkdirSync(serverDir,{recursive:true});fs.writeFileSync(outputPath, JSON.stringify({ compatibility_date:'2025-07-15', main:'index.mjs', compatibility_flags: cloudflare.nodeCompat ? ['nodejs_compat'] : [], assets:{ directory:'../public', binding:'ASSETS' }, no_bundle:true, rules:[{ type:'ESModule', globs:['**/*.mjs','**/*.js'] }], ...wrangler }, null, 2))"
-              TARGET_DIR=".output/server"
-              TARGET_CONFIG="wrangler.json"
-            fi
+            node <<'NODE'
+            const fs = require("node:fs")
+            const path = require("node:path")
+
+            function pushUnique(array, item, getKey) {
+              const key = getKey(item)
+              if (!array.some(entry => getKey(entry) === key)) array.push(item)
+            }
+
+            function queueBindingName(queue) {
+              const encoded = Buffer.from(queue).toString("hex").toUpperCase()
+              return encoded ? `QUEUE_${encoded}` : "QUEUE"
+            }
+
+            function ensureConfigFromNitro() {
+              const nitroConfig = ".output/nitro.json"
+              if (!fs.existsSync(nitroConfig)) return null
+
+              const nitro = JSON.parse(fs.readFileSync(nitroConfig, "utf8"))
+              const serverDir = path.resolve(".output/server")
+              const configPath = path.join(serverDir, "wrangler.deploy.json")
+              const cloudflare = nitro.config?.cloudflare || {}
+              const wrangler = cloudflare.wrangler || {}
+
+              fs.mkdirSync(serverDir, { recursive: true })
+              fs.writeFileSync(configPath, `${JSON.stringify({
+                assets: { binding: "ASSETS", directory: "../public" },
+                compatibility_date: "2025-07-15",
+                compatibility_flags: cloudflare.nodeCompat ? ["nodejs_compat"] : [],
+                main: "index.mjs",
+                no_bundle: true,
+                rules: [{ type: "ESModule", globs: ["**/*.mjs", "**/*.js"] }],
+                ...wrangler,
+              }, null, 2)}\n`)
+
+              return configPath
+            }
+
+            const candidates = [
+              ".output/server/wrangler.deploy.json",
+              ".output/server/wrangler.json",
+              ".output/wrangler.deploy.json",
+              ".output/wrangler.json",
+            ]
+
+            let configPath = candidates.find(candidate => fs.existsSync(candidate)) || ensureConfigFromNitro()
+            if (!configPath) {
+              throw new Error(`Unable to locate generated Wrangler config for ${process.env.PACKAGE_NAME}/${process.env.FRAMEWORK}.`)
+            }
+
+            const config = JSON.parse(fs.readFileSync(configPath, "utf8"))
+            config.name = process.env.APP_NAME
+            config.compatibility_flags = [...new Set([...(config.compatibility_flags || []), "nodejs_compat"])]
+
+            const queues = new Set()
+            if (process.env.CLOUDFLARE_CREATE_QUEUES === "true") {
+              const queue = `welcome-email-${process.env.FRAMEWORK}`
+              config.queues ||= {}
+              config.queues.consumers ||= []
+              config.queues.producers ||= []
+              pushUnique(config.queues.consumers, { queue }, entry => String(entry.queue))
+              pushUnique(
+                config.queues.producers,
+                { binding: queueBindingName(queue), queue },
+                entry => `${String(entry.binding)}:${String(entry.queue)}`,
+              )
+            }
+
+            for (const consumer of config.queues?.consumers || []) {
+              if (consumer.queue) queues.add(String(consumer.queue))
+            }
+            for (const producer of config.queues?.producers || []) {
+              if (producer.queue) queues.add(String(producer.queue))
+            }
+
+            fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
+            fs.writeFileSync(".output/server/cloudflare-queues.txt", `${[...queues].join("\n")}\n`)
+            fs.writeFileSync(".output/cloudflare-deploy-dir.txt", `${path.dirname(configPath)}\n`)
+            fs.writeFileSync(".output/cloudflare-deploy-config.txt", `${path.basename(configPath)}\n`)
+            NODE
           fi
-
-          if [ -z "$TARGET_DIR" ] || [ -z "$TARGET_CONFIG" ]; then
-            echo "Unable to locate generated Wrangler config for $VITEHUB_PACKAGE/${{ matrix.framework }}" >&2
-            exit 1
+          if [ "$CLOUDFLARE_CREATE_QUEUES" = "true" ]; then
+            while IFS= read -r queue; do
+              [ -n "$queue" ] || continue
+              npx wrangler queues create "$queue" || true
+            done < .output/server/cloudflare-queues.txt
           fi
-
-          TARGET="$TARGET_DIR/$TARGET_CONFIG"
-          case "$TARGET" in
-            *.json)
-              node -e "const fs=require('node:fs');const p=process.argv[1];const c=JSON.parse(fs.readFileSync(p,'utf8'));c.name='vitehub-sandbox-playground-${{ matrix.framework }}';fs.writeFileSync(p, JSON.stringify(c, null, 2))" "$TARGET"
-              ;;
-            *.jsonc)
-              perl -0pi -e 's/"name"\s*:\s*"[^"]+"/"name": "vitehub-sandbox-playground-${{ matrix.framework }}"/' "$TARGET"
-              ;;
-          esac
-
-          npx wrangler --cwd "$TARGET_DIR" deploy --config "$TARGET_CONFIG"
+          DEPLOY_DIR="$(cat .output/cloudflare-deploy-dir.txt)"
+          DEPLOY_CONFIG="$(cat .output/cloudflare-deploy-config.txt)"
+          npx wrangler --cwd "$DEPLOY_DIR" deploy --config "$DEPLOY_CONFIG"
+          printf 'https://%s.%s.workers.dev\n' "${{ matrix.appName }}" "$CLOUDFLARE_WORKERS_SUBDOMAIN" > "$GITHUB_WORKSPACE/live-url.txt"
 
       - name: Deploy Vercel
-        if: ${{ matrix.provider == 'vercel' && (github.event_name != 'workflow_dispatch' || ((inputs.provider == 'all' || inputs.provider == matrix.provider) && (inputs.framework == 'all' || inputs.framework == matrix.framework))) }}
+        if: matrix.provider == 'vercel'
         env:
-          VITEHUB_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'kv' }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN || secrets.VERCEL_BLOB_READ_WRITE_TOKEN }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         run: |
-          cd packages/$VITEHUB_PACKAGE/playground/${{ matrix.framework }}
-          PROJECT=vitehub-playground-${{ matrix.framework }}
-          if [ "$VITEHUB_PACKAGE" = "sandbox" ]; then
-            PROJECT=vitehub-sandbox-playground-${{ matrix.framework }}
+          cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
+          npx vercel link --yes --project ${{ matrix.appName }} --token "$VERCEL_TOKEN"
+          deploy_args=(--prod --prebuilt --yes --token "$VERCEL_TOKEN")
+          if [ "${{ matrix.requiresVercelBlobDeployEnv }}" = "true" ] && [ -n "$BLOB_READ_WRITE_TOKEN" ]; then
+            deploy_args+=(--env "BLOB_READ_WRITE_TOKEN=$BLOB_READ_WRITE_TOKEN")
           fi
-          npx vercel link --yes --project "$PROJECT" --token "$VERCEL_TOKEN"
-          npx vercel deploy --prod --prebuilt --yes --token "$VERCEL_TOKEN"
+          set -o pipefail
+          npx vercel deploy "${deploy_args[@]}" 2>&1 | tee "$RUNNER_TEMP/vercel-deploy.log"
+          node <<'NODE'
+          const fs = require("node:fs")
+          const output = fs.readFileSync(`${process.env.RUNNER_TEMP}/vercel-deploy.log`, "utf8")
+          const production = [...output.matchAll(/Production:\s+(https:\/\/[^\s]+)/g)].at(-1)?.[1]
+          const fallback = [...output.matchAll(/https:\/\/[^\s]+\.vercel\.app/g)].at(-1)?.[0]
+          const url = production ?? fallback
+          if (!url) {
+            console.error(output)
+            throw new Error("Could not determine Vercel deployment URL.")
+          }
+          fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/live-url.txt`, `${url}\n`)
+          NODE
 
-      - name: E2E Live (${{ matrix.provider }} × ${{ matrix.framework }})
-        if: ${{ github.event_name != 'workflow_dispatch' || ((inputs.provider == 'all' || inputs.provider == matrix.provider) && (inputs.framework == 'all' || inputs.framework == matrix.framework)) }}
+      - name: E2E Live (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
         env:
-          VITEHUB_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'kv' }}
-          CF_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ matrix.provider == 'cloudflare' && secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
+          CLOUDFLARE_API_TOKEN: ${{ matrix.provider == 'cloudflare' && secrets.CLOUDFLARE_API_TOKEN || '' }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          PROJECT=vitehub-playground-${{ matrix.framework }}
-          if [ "$VITEHUB_PACKAGE" = "sandbox" ]; then
-            PROJECT=vitehub-sandbox-playground-${{ matrix.framework }}
+          URL="$(cat "$GITHUB_WORKSPACE/live-url.txt")"
+          if [ "${{ matrix.provider }}" = "vercel" ]; then
+            cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
+            npx vercel link --yes --project ${{ matrix.appName }} --token "$VERCEL_TOKEN"
+            cd "$GITHUB_WORKSPACE"
           fi
-          if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            URL="https://$PROJECT.$CF_SUBDOMAIN.workers.dev"
-          else
-            URL="https://$PROJECT.vercel.app"
-          fi
-          pnpm --dir packages/$VITEHUB_PACKAGE test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "$URL"
+          pnpm --dir ${{ matrix.packageDir }} test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "$URL"

@@ -13,5 +13,5 @@ function resolveSandboxConfig() {
 export default defineNitroConfig({
   modules: ['@vitehub/sandbox/nitro'],
   sandbox: resolveSandboxConfig(),
-  srcDir: 'server',
+  serverDir: 'server',
 })
