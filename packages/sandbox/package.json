@@ -58,8 +58,45 @@
     "test": "vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
+  "vitehub": {
+    "ci": {
+      "e2e": {
+        "frameworks": [
+          "nitro",
+          "nuxt",
+          "vite"
+        ],
+        "providers": [
+          "cloudflare",
+          "vercel"
+        ],
+        "live": {
+          "appPrefix": "vitehub-sandbox-playground",
+          "enabled": true,
+          "frameworks": [
+            "nitro",
+            "nuxt",
+            "vite"
+          ],
+          "providers": [
+            "cloudflare",
+            "vercel"
+          ],
+          "cloudflare": {
+            "strategy": "generated"
+          },
+          "vercel": {
+            "buildEnv": {
+              "kv": true,
+              "sandbox": true
+            }
+          }
+        }
+      }
+    }
+  },
   "dependencies": {
-    "@nuxt/kit": "catalog:",
+    "@nuxt/kit": "catalog:nuxt-nightly",
     "esbuild": "catalog:",
     "h3": "catalog:",
     "local-pkg": "catalog:",
@@ -94,7 +131,7 @@
   },
   "devDependencies": {
     "@cloudflare/sandbox": "catalog:",
-    "@nuxt/schema": "catalog:",
+    "@nuxt/schema": "catalog:nuxt-nightly",
     "@vercel/sandbox": "catalog:",
     "get-port-please": "catalog:",
     "miniflare": "catalog:",
