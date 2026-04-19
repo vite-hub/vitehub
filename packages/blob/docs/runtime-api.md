@@ -11,7 +11,7 @@ icon: i-lucide-braces
 | Export | Description |
 | --- | --- |
 | `blob` | Active server-side storage handle. |
-| `ensureBlob(blob, options?)` | Validates size and content type. |
+| `ensureBlob(blob, options)` | Validates size and content type. `options` must include at least one of `maxSize` or `types`. |
 | `BlobStorage` | Runtime storage handle type. |
 | `BlobPutOptions` | Write options. |
 | `BlobListOptions` | List and pagination options. |

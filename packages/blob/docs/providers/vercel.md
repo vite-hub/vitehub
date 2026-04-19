@@ -58,7 +58,7 @@ Set the Vercel Blob read-write token in your deployment environment:
 BLOB_READ_WRITE_TOKEN=<vercel-blob-read-write-token>
 ```
 
-You can also pass `token` in config, but environment variables keep secrets out of build output.
+You can also pass `token` in config. Either source is read during option normalization and stored in `runtimeConfig.blob`, so ensure the token is only present in environments where that runtime config is expected (e.g. production), and rely on your deployment platform's secret management rather than committing it.
 
 ## Runtime access
 
