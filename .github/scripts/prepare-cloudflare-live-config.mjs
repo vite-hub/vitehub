@@ -11,6 +11,10 @@ function queueBindingName(queue) {
   return encoded ? `QUEUE_${encoded}` : "QUEUE"
 }
 
+function liveQueueName(appName, logicalQueue) {
+  return `${appName}-${logicalQueue}`
+}
+
 function normalizeWranglerConfig(config) {
   config.compatibility_flags = [...new Set([...(config.compatibility_flags || []), "nodejs_compat"])]
   config.no_bundle = true
@@ -26,13 +30,13 @@ function ensureConfigFromNitro() {
   if (!existsSync(nitroConfig)) return null
 
   const nitro = JSON.parse(readFileSync(nitroConfig, "utf8"))
-  const serverDir = resolve(".output/server")
-  const configPath = join(serverDir, "wrangler.deploy.json")
+  const serverDir = ".output/server"
+  const configPath = join(serverDir, "wrangler.json")
   const cloudflare = nitro.config?.cloudflare || {}
   const wrangler = cloudflare.wrangler || {}
 
-  mkdirSync(serverDir, { recursive: true })
-  writeFileSync(configPath, `${JSON.stringify({
+  mkdirSync(resolve(serverDir), { recursive: true })
+  writeFileSync(resolve(configPath), `${JSON.stringify({
     assets: { binding: "ASSETS", directory: "../public" },
     compatibility_date: "2025-07-15",
     compatibility_flags: cloudflare.nodeCompat ? ["nodejs_compat"] : [],
@@ -85,14 +89,25 @@ normalizeWranglerConfig(config)
 
 const queues = new Set()
 if (process.env.CLOUDFLARE_CREATE_QUEUES === "true") {
-  const queue = `welcome-email-${process.env.FRAMEWORK}`
+  const logicalQueue = `welcome-email-${process.env.FRAMEWORK}`
+  const queue = liveQueueName(process.env.APP_NAME, logicalQueue)
   config.queues ||= {}
   config.queues.consumers ||= []
   config.queues.producers ||= []
+
+  config.queues.consumers = config.queues.consumers.map((entry) => {
+    if (String(entry?.queue) !== logicalQueue) return entry
+    return { ...entry, queue }
+  })
+  config.queues.producers = config.queues.producers.map((entry) => {
+    if (String(entry?.queue) !== logicalQueue) return entry
+    return { ...entry, queue }
+  })
+
   pushUnique(config.queues.consumers, { queue }, entry => String(entry.queue))
   pushUnique(
     config.queues.producers,
-    { binding: queueBindingName(queue), queue },
+    { binding: queueBindingName(logicalQueue), queue },
     entry => `${String(entry.binding)}:${String(entry.queue)}`,
   )
 }
