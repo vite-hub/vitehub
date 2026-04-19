@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vitehub/blob": "workspace:*",
+    "h3": "catalog:",
+    "vite": "catalog:"
+  }
+}

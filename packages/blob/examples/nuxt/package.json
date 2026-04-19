@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxi build",
+    "dev": "nuxi dev"
+  },
+  "dependencies": {
+    "@vitehub/blob": "workspace:*",
+    "nuxt": "catalog:"
+  }
+}

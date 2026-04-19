@@ -1,0 +1,92 @@
+{
+  "label": "Blob",
+  "icon": "i-lucide-file-archive",
+  "order": 1,
+  "providers": [
+    {
+      "id": "cloudflare-r2",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  blob: {\n    driver: 'cloudflare-r2',\n    binding: 'BLOB',\n    bucketName: '<r2-bucket-name>',\n  },"
+    },
+    {
+      "id": "vercel-blob",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "configOverride": "  blob: {\n    driver: 'vercel-blob',\n  },",
+      "envOverride": "BLOB_READ_WRITE_TOKEN=<vercel-blob-read-write-token>"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nitro": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "run": "server/api/files.post.ts"
+          },
+          "supplementalFiles": [
+            "server/api/files/[...pathname].get.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "run": "server/api/files.post.ts"
+          },
+          "supplementalFiles": [
+            "server/api/files/[...pathname].get.ts",
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nuxt": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nuxt.config.ts",
+            "run": "server/api/files.post.ts"
+          },
+          "supplementalFiles": [
+            "server/api/files/[...pathname].get.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nuxt.config.ts",
+            "run": "server/api/files.post.ts"
+          },
+          "supplementalFiles": [
+            "server/api/files/[...pathname].get.ts",
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}
