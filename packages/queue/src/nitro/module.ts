@@ -97,6 +97,8 @@ const queueNitroModule: NitroModule = {
     if (isVercelProvider) {
       nitro.options.alias["@vitehub/queue/runtime/hosted"] = resolveRuntimeEntry("../runtime/hosted", "@vitehub/queue/runtime/hosted")
     }
+    nitro.options.alias["#vitehub-queue-registry"] = registryFile
+    nitro.options.alias["#vitehub-queue-vercel-provider"] = resolvedVercelProviderRuntimeEntry
     nitro.options.alias["@vitehub/queue/runtime/registry"] = registryFile
     nitro.options.alias["@vitehub/queue/runtime/vercel-provider"] = resolvedVercelProviderRuntimeEntry
     nitro.options.alias[registryRuntimeEntry] = registryFile

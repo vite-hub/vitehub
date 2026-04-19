@@ -5,7 +5,7 @@ import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel-topic.ts"
 import { createCloudflareQueueClient } from "../providers/cloudflare.ts"
 import { createMemoryQueueClient } from "../providers/memory.ts"
-import { createVercelQueueClient as createConfiguredVercelQueueClient } from "./vercel-provider.ts"
+import { createVercelQueueClient as createConfiguredVercelQueueClient } from "#vitehub-queue-vercel-provider"
 import {
   getQueueClientCache,
   getQueueRuntimeConfig,
@@ -28,9 +28,10 @@ import type {
 } from "../types.ts"
 
 function getCloudflareEnv(event: unknown): Record<string, unknown> | undefined {
+  type CloudflareContext = Record<string, unknown> & { env?: Record<string, unknown> }
   const target = event as {
     context?: {
-      cloudflare?: { env?: Record<string, unknown> }
+      cloudflare?: CloudflareContext
       _platform?: { cloudflare?: { env?: Record<string, unknown> } }
     }
     env?: Record<string, unknown>
@@ -40,12 +41,14 @@ function getCloudflareEnv(event: unknown): Record<string, unknown> | undefined {
     }
     runtime?: { cloudflare?: { env?: Record<string, unknown> } }
   } | undefined
+  const contextCloudflare = target?.context?.cloudflare as CloudflareContext | undefined
 
   return target?.env
     || target?.runtime?.cloudflare?.env
     || target?.req?.runtime?.cloudflare?.env
     || target?.req?.context?.cloudflare?.env
-    || target?.context?.cloudflare?.env
+    || contextCloudflare?.env
+    || contextCloudflare
     || target?.context?._platform?.cloudflare?.env
     || (globalThis as { __env__?: Record<string, unknown> }).__env__
 }
