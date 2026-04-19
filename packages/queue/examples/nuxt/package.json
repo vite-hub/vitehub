@@ -1,0 +1,11 @@
+{
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build"
+  },
+  "dependencies": {
+    "@vitehub/queue": "workspace:*",
+    "nuxt": "catalog:nuxt-nightly"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "#vitehub-queue-registry": ["./src/runtime/empty-registry.ts"],
+      "#vitehub-queue-vercel-provider": ["./src/runtime/vercel-provider.ts"],
+      "@vitehub/queue/runtime/registry": ["./src/runtime/empty-registry.ts"],
+      "@vitehub/queue/runtime/vercel-provider": ["./src/runtime/vercel-provider.ts"]
+    },
+    "rootDir": "."
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "test/**/*.ts",
+    "test/**/*.test-d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "examples",
+    "playground",
+    "docs",
+    "node_modules"
+  ]
+}

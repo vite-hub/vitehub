@@ -1,9 +1,10 @@
-import { defineNitroPlugin, useRuntimeConfig, useStorage } from "nitro/runtime"
+import { useRuntimeConfig } from "nitro/runtime-config"
+import { useStorage } from "nitro/storage"
 import type { ResolvedKVModuleOptions } from "../types.ts"
 import { createKVRuntimeDriver } from "./driver.ts"
 import { resolveRuntimeKVOptions } from "./upstash.ts"
 
-const kvNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin(async () => {
+const kvNitroPlugin = async (): Promise<void> => {
   const runtimeConfig = useRuntimeConfig() as {
     kv?: false | ResolvedKVModuleOptions
   }
@@ -16,6 +17,6 @@ const kvNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin(as
   const storage = useStorage()
   await storage.unmount("kv", false)
   storage.mount("kv", await createKVRuntimeDriver(resolved.store))
-})
+}
 
 export default kvNitroPlugin
