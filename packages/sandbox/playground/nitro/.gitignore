@@ -1,0 +1,5 @@
+.vercel
+.vitehub
+.nitro
+.output
+.env*.local
