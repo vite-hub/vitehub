@@ -10,7 +10,7 @@ const app = new H3()
       contentType: "text/plain",
     })
   })
-  .get("/files/**:pathname", async (event) => {
+  .get("/files/:pathname", async (event) => {
     return await blob.serve(event, event.context.params.pathname)
   })
 
