@@ -158,10 +158,17 @@ jobs:
             if grep -q 'api-deployments-free-per-day' "$RUNNER_TEMP/vercel-deploy.log"; then
               echo "Vercel deployment quota reached, reusing the latest ready production deployment for ${{ matrix.appName }}."
               npx vercel ls ${{ matrix.appName }} --status READY --environment production --token "$VERCEL_TOKEN" --no-color > "$RUNNER_TEMP/vercel-list.log"
-              url="$(grep -Eo 'https://[^[:space:]]+\\.vercel\\.app' "$RUNNER_TEMP/vercel-list.log" | head -n1)"
+              url=""
+              while IFS= read -r candidate; do
+                [ -n "$candidate" ] || continue
+                if curl --silent --show-error --fail --max-time 10 "$candidate/api/tests/probe" > /dev/null; then
+                  url="$candidate"
+                  break
+                fi
+              done < <(grep -Eo 'https://[^[:space:]]+\\.vercel\\.app' "$RUNNER_TEMP/vercel-list.log")
               if [ -z "$url" ]; then
                 cat "$RUNNER_TEMP/vercel-list.log"
-                echo "Could not determine a fallback Vercel deployment URL." >&2
+                echo "Could not determine a healthy fallback Vercel deployment URL." >&2
                 exit 1
               fi
               printf '%s\n' "$url" > "$GITHUB_WORKSPACE/live-url.txt"
