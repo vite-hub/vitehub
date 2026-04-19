@@ -10,7 +10,7 @@ Use `blob.handleUpload()` in a server route that receives `FormData`.
 
 ## Create an upload route
 
-```ts [server/api/upload.post.ts]
+```ts [server/api/upload.ts]
 import { blob } from '@vitehub/blob'
 
 export default defineEventHandler(async (event) => {
