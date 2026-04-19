@@ -135,7 +135,7 @@ jobs:
           fi
           DEPLOY_DIR="$(cat .output/cloudflare-deploy-dir.txt)"
           DEPLOY_CONFIG="$(cat .output/cloudflare-deploy-config.txt)"
-          npx wrangler --cwd "$DEPLOY_DIR" deploy --config "$DEPLOY_CONFIG"
+          npx wrangler --cwd "$DEPLOY_DIR" deploy --config "$DEPLOY_CONFIG" --no-bundle
           printf 'https://%s.%s.workers.dev\n' "${{ matrix.appName }}" "$CLOUDFLARE_WORKERS_SUBDOMAIN" > "$GITHUB_WORKSPACE/live-url.txt"
 
       - name: Deploy Vercel
