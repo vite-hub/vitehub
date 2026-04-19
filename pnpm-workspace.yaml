@@ -23,7 +23,7 @@ catalog:
   mime: ^4.1.0
   miniflare: ^4.20260317.3
   motion-v: ^2.2.1
-  nitro: 3.0.260311-beta
+  nitro: 3.0.260415-beta
   nitropack: ^2.13.3
   nuxt: ^4.4.2
   ofetch: ^1.5.1
@@ -47,12 +47,16 @@ catalogs:
     typescript: ^6.0.2
   frontend:
     docus: ^5.9.0
-    nitro: ^3.0.0
+    nitro: 3.0.260415-beta
     nuxt: ^4.4.2
   h3v1:
     h3: ^1.15.11
   h3v2:
     h3: ^2.0.1-rc.20
+  nuxt-nightly:
+    "@nuxt/kit": npm:@nuxt/kit-nightly@4.4.3-29608489.ff42fe25
+    "@nuxt/schema": npm:@nuxt/schema-nightly@4.4.3-29608489.ff42fe25
+    nuxt: npm:nuxt-nightly@4.4.3-29608489.ff42fe25
   lint:
     oxlint: ^1.58.0
   script:

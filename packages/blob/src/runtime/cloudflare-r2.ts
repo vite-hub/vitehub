@@ -1,4 +1,5 @@
 import { createCloudflareR2Driver } from "./drivers/cloudflare-r2.ts"
+import { useRuntimeConfig } from "nitro/runtime"
 import {
   getBlobRuntimeConfig,
   getBlobRuntimeStore,
@@ -32,8 +33,19 @@ export type {
 
 type GlobalWithConfig = typeof globalThis & { __vitehubBlobConfig?: false | ResolvedBlobModuleOptions }
 
+function readNitroBlobRuntimeConfig(): false | ResolvedBlobModuleOptions | undefined {
+  try {
+    return (useRuntimeConfig() as {
+      blob?: false | ResolvedBlobModuleOptions
+    }).blob
+  }
+  catch {
+    return undefined
+  }
+}
+
 function resolveRuntimeConfig(): false | ResolvedBlobModuleOptions | undefined {
-  return getBlobRuntimeConfig() ?? (globalThis as GlobalWithConfig).__vitehubBlobConfig
+  return getBlobRuntimeConfig() ?? readNitroBlobRuntimeConfig() ?? (globalThis as GlobalWithConfig).__vitehubBlobConfig
 }
 
 function createBlobClient(): BlobStorage {

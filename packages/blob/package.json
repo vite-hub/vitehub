@@ -44,10 +44,10 @@
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "vitest run",
-    "test:e2e": "tsx ./test/e2e.ts"
+    "test:e2e": "pnpm build && tsx ./test/e2e.ts"
   },
   "dependencies": {
-    "@nuxt/kit": "catalog:",
+    "@nuxt/kit": "catalog:nuxt-nightly",
     "defu": "catalog:",
     "exsolve": "catalog:",
     "h3": "catalog:",
@@ -71,7 +71,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
-    "@nuxt/schema": "catalog:",
+    "@nuxt/schema": "catalog:nuxt-nightly",
     "@vercel/blob": "catalog:",
     "get-port-please": "catalog:",
     "miniflare": "catalog:",
@@ -84,5 +84,43 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
+  },
+  "vitehub": {
+    "ci": {
+      "e2e": {
+        "frameworks": [
+          "nitro",
+          "nuxt",
+          "vite"
+        ],
+        "providers": [
+          "cloudflare",
+          "vercel"
+        ],
+        "live": {
+          "appPrefix": "vitehub-blob",
+          "enabled": true,
+          "frameworks": [
+            "nitro",
+            "nuxt",
+            "vite"
+          ],
+          "providers": [
+            "cloudflare",
+            "vercel"
+          ],
+          "cloudflare": {
+            "createR2Bucket": true,
+            "strategy": "template",
+            "wranglerTemplate": "playground/_shared/wrangler.template.jsonc"
+          },
+          "vercel": {
+            "deployEnv": {
+              "blobReadWriteToken": true
+            }
+          }
+        }
+      }
+    }
   }
 }
