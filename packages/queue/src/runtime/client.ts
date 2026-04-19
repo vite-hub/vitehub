@@ -46,8 +46,8 @@ function getCloudflareEnv(event: unknown): Record<string, unknown> | undefined {
     || target?.req?.runtime?.cloudflare?.env
     || target?.req?.context?.cloudflare?.env
     || contextCloudflare?.env
-    || contextCloudflare
     || target?.context?._platform?.cloudflare?.env
+    || contextCloudflare
     || (globalThis as { __env__?: Record<string, unknown> }).__env__
 }
 
