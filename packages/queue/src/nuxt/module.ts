@@ -26,6 +26,8 @@ function installQueueRuntimeAliases(
   queue: QueueModuleOptions | undefined,
 ) {
   const buildDir = resolve(nuxtOptions.rootDir || process.cwd(), nuxtOptions.buildDir || ".nuxt")
+  const queueRegistryId = "#vitehub-queue-registry"
+  const queueVercelProviderId = "#vitehub-queue-vercel-provider"
   const emptyRegistryEntry = resolveRuntimeEntry("../runtime/empty-registry", "@vitehub/queue/runtime/empty-registry")
   const vercelProviderEntry = resolveRuntimeEntry("../runtime/vercel-provider", "@vitehub/queue/runtime/vercel-provider")
   const vercelProviderStubEntry = resolveRuntimeEntry("../runtime/vercel-provider-stub", "@vitehub/queue/runtime/vercel-provider-stub")
@@ -34,6 +36,8 @@ function installQueueRuntimeAliases(
     || hosting.includes("vercel")
 
   const aliases = {
+    [queueRegistryId]: resolve(buildDir, "vitehub", "queue", "registry.mjs"),
+    [queueVercelProviderId]: usesVercelProvider ? vercelProviderEntry : vercelProviderStubEntry,
     [emptyRegistryEntry]: resolve(buildDir, "vitehub", "queue", "registry.mjs"),
     [vercelProviderEntry]: usesVercelProvider ? vercelProviderEntry : vercelProviderStubEntry,
   }

@@ -183,6 +183,8 @@ describe("Nitro module", () => {
     })
     expect(nitroOptions.alias["@vitehub/queue"]).toContain("/packages/queue/src/index.ts")
     expect(nitroOptions.alias["@vitehub/queue/runtime/hosted"]).toBeUndefined()
+    expect(nitroOptions.alias["#vitehub-queue-registry"]).toContain("registry.mjs")
+    expect(nitroOptions.alias["#vitehub-queue-vercel-provider"]).toContain("vercel-provider-stub")
     expect(nitroOptions.alias["@vitehub/queue/runtime/registry"]).toContain("registry.mjs")
     expect(nitroOptions.alias["#vitehub-queue-definition/welcome-email"]).toBe(join(root, "server", "queues", "welcome-email.ts"))
     expect(nitro.options.plugins).toHaveLength(1)
@@ -307,9 +309,18 @@ describe("Nuxt module", () => {
 
     await nuxt.runHook("nitro:config", nitroConfig)
 
+    const nuxtOptions = nuxt.options as typeof nuxt.options & {
+      alias: Record<string, string>
+      vite: { resolve: { alias: Record<string, string> } }
+    }
+
     expect(nitroConfig.modules).toEqual(["@vitehub/queue/nitro"])
     expect(nitroConfig.queue).toEqual({
       provider: "vercel",
     })
+    expect(nuxtOptions.alias["#vitehub-queue-registry"]).toContain("vitehub/queue/registry.mjs")
+    expect(nuxtOptions.alias["#vitehub-queue-vercel-provider"]).toContain("vercel-provider")
+    expect(nuxtOptions.vite.resolve.alias["#vitehub-queue-registry"]).toContain("vitehub/queue/registry.mjs")
+    expect(nuxtOptions.vite.resolve.alias["#vitehub-queue-vercel-provider"]).toContain("vercel-provider")
   })
 })

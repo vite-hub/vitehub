@@ -227,6 +227,27 @@ describe("Cloudflare provider", () => {
     expect(sendB).toHaveBeenCalledWith({ id: "b" }, { contentType: undefined, delaySeconds: undefined })
   })
 
+  it("resolves Cloudflare bindings from direct context.cloudflare bindings", async () => {
+    const send = vi.fn(async () => ({}))
+    const sendBatch = vi.fn(async () => ({}))
+    setQueueRuntimeConfig({ provider: { provider: "cloudflare" } })
+    setQueueRuntimeRegistry({
+      "welcome-email": async () => ({ default: defineQueue(async () => undefined) }),
+    })
+
+    const queue = await runWithQueueRuntimeEvent({
+      context: {
+        cloudflare: {
+          QUEUE_77656C636F6D652D656D61696C: { send, sendBatch },
+        },
+      },
+    }, () => getQueue("welcome-email"))
+
+    await queue.send({ id: "direct", payload: { id: "direct" } })
+
+    expect(send).toHaveBeenCalledWith({ id: "direct" }, { contentType: undefined, delaySeconds: undefined })
+  })
+
   it("resolves Cloudflare bindings from scoped queue runtime context", async () => {
     const send = vi.fn(async () => ({}))
     const sendBatch = vi.fn(async () => ({}))

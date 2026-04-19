@@ -1,12 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
+import runtimeRegistry from "#vitehub-queue-registry"
+
 import type {
   QueueClient,
   QueueDefinition,
   QueueDefinitionRegistry,
   ResolvedQueueModuleOptions,
 } from "../types.ts"
-import runtimeRegistry from "./empty-registry.ts"
 
 let runtimeConfig: false | ResolvedQueueModuleOptions | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
