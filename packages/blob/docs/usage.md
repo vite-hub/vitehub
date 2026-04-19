@@ -17,11 +17,9 @@ import { blob, ensureBlob } from '@vitehub/blob'
 ## Upload a blob
 
 ```ts
-export default defineEventHandler(async () => {
-  return await blob.put('documents/report.txt', 'hello blob', {
-    contentType: 'text/plain',
-    customMetadata: { source: 'api' },
-  })
+const object = await blob.put('documents/report.txt', 'hello blob', {
+  contentType: 'text/plain',
+  customMetadata: { source: 'api' },
 })
 ```
 
