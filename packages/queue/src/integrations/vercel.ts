@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { join, relative } from "node:path"
+import { join } from "node:path"
 
 import type { Nitro } from "nitro/types"
 
@@ -41,37 +41,38 @@ function createFunctionDir(outputDir: string, name: string) {
   return join(outputDir, generatedFunctionPrefix, ...segments, last)
 }
 
-function toImportPath(path: string) {
-  return path.startsWith(".") ? path : `./${path}`
-}
-
-function createDelegatingWrapperContents(route: string, serverEntryImport: string) {
+function createDelegatingWrapperContents(route: string) {
+  // Consumer functions are deployed as isolated bundles on Vercel, so we
+  // cannot `import` the main server. Instead, forward the incoming queue
+  // request (CloudEvents POST) to the main server over HTTP using the
+  // deployment's VERCEL_URL, which Vercel injects at runtime.
   return [
     generatedSourceHeader,
-    `import server from ${JSON.stringify(serverEntryImport)}`,
-    "",
     `const route = ${JSON.stringify(route)}`,
     "",
-    "function rewriteNodeRequestUrl(url) {",
-    "  const target = new URL(url || route, 'https://vitehub.local')",
-    "  target.pathname = route",
-    "  return `${target.pathname}${target.search}`",
+    "function resolveOrigin() {",
+    "  const url = process.env.VERCEL_URL",
+    "  if (!url) throw new Error('[vitehub] VERCEL_URL missing; queue consumer needs it to forward to main server.')",
+    "  return url.startsWith('http') ? url : `https://${url}`",
     "}",
     "",
-    "const handler = typeof server === 'function'",
-    "  ? function queueHandler(req, res) {",
-    "      req.url = rewriteNodeRequestUrl(req.url)",
-    "      return server(req, res)",
-    "    }",
-    "  : {",
-    "      fetch(req, context) {",
-    "        const target = new URL(req.url)",
-    "        target.pathname = route",
-    "        return server.fetch(new Request(target, req), context)",
-    "      },",
-    "    }",
+    "async function forward(request) {",
+    "  const origin = resolveOrigin()",
+    "  const target = new URL(route, origin)",
+    "  const init = {",
+    "    method: request.method,",
+    "    headers: request.headers,",
+    "    body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer(),",
+    "    redirect: 'manual',",
+    "  }",
+    "  return await fetch(target, init)",
+    "}",
     "",
-    "export default handler",
+    "export default {",
+    "  async fetch(request) {",
+    "    return await forward(request)",
+    "  },",
+    "}",
     "",
   ].join("\n")
 }
@@ -93,7 +94,6 @@ export async function syncVercelQueueBuildOutput(nitro: Nitro, definitions: Disc
 
   const outputDir = nitro.options.output.dir
   const serverDir = nitro.options.output.serverDir
-  const serverEntry = join(serverDir, "index.mjs")
   const generatedFunctionsDir = join(outputDir, generatedFunctionPrefix)
   const serverConfigPath = join(serverDir, ".vc-config.json")
   let baseFunctionConfig: VercelFunctionConfig
@@ -115,7 +115,7 @@ export async function syncVercelQueueBuildOutput(nitro: Nitro, definitions: Disc
     await mkdir(functionDir, { recursive: true })
     await writeFile(
       join(functionDir, "index.mjs"),
-      createDelegatingWrapperContents(route, toImportPath(relative(functionDir, serverEntry).replace(/\\/g, "/"))),
+      createDelegatingWrapperContents(route),
       "utf8",
     )
     await writeFile(join(functionDir, ".vc-config.json"), `${JSON.stringify({
