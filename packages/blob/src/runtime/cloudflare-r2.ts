@@ -33,6 +33,21 @@ export type {
 
 type GlobalWithConfig = typeof globalThis & { __vitehubBlobConfig?: false | ResolvedBlobModuleOptions }
 
+function detectCloudflareBlobRuntimeConfig(): false | ResolvedBlobModuleOptions | undefined {
+  const runtimeGlobals = globalThis as typeof globalThis & Record<string, unknown> & {
+    __env__?: Record<string, unknown>
+  }
+  if (!runtimeGlobals.BLOB && !runtimeGlobals.__env__?.BLOB) return
+
+  return {
+    provider: {
+      binding: "BLOB",
+      driver: "cloudflare-r2",
+      source: "auto",
+    },
+  }
+}
+
 function readNitroBlobRuntimeConfig(): false | ResolvedBlobModuleOptions | undefined {
   try {
     return (useRuntimeConfig() as {
@@ -45,7 +60,10 @@ function readNitroBlobRuntimeConfig(): false | ResolvedBlobModuleOptions | undef
 }
 
 function resolveRuntimeConfig(): false | ResolvedBlobModuleOptions | undefined {
-  return getBlobRuntimeConfig() ?? readNitroBlobRuntimeConfig() ?? (globalThis as GlobalWithConfig).__vitehubBlobConfig
+  return getBlobRuntimeConfig()
+    ?? readNitroBlobRuntimeConfig()
+    ?? (globalThis as GlobalWithConfig).__vitehubBlobConfig
+    ?? detectCloudflareBlobRuntimeConfig()
 }
 
 function createBlobClient(): BlobStorage {

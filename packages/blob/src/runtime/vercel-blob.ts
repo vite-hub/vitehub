@@ -33,6 +33,19 @@ export type {
 
 type GlobalWithConfig = typeof globalThis & { __vitehubBlobConfig?: false | ResolvedBlobModuleOptions }
 
+function detectVercelBlobRuntimeConfig(): false | ResolvedBlobModuleOptions | undefined {
+  if (!process.env.VERCEL && !process.env.BLOB_READ_WRITE_TOKEN) return
+
+  return {
+    provider: {
+      access: "public",
+      driver: "vercel-blob",
+      source: "auto",
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    },
+  }
+}
+
 function readNitroBlobRuntimeConfig(): false | ResolvedBlobModuleOptions | undefined {
   try {
     return (useRuntimeConfig() as {
@@ -45,7 +58,10 @@ function readNitroBlobRuntimeConfig(): false | ResolvedBlobModuleOptions | undef
 }
 
 function resolveRuntimeConfig(): false | ResolvedBlobModuleOptions | undefined {
-  return getBlobRuntimeConfig() ?? readNitroBlobRuntimeConfig() ?? (globalThis as GlobalWithConfig).__vitehubBlobConfig
+  return getBlobRuntimeConfig()
+    ?? readNitroBlobRuntimeConfig()
+    ?? (globalThis as GlobalWithConfig).__vitehubBlobConfig
+    ?? detectVercelBlobRuntimeConfig()
 }
 
 function createBlobClient(): BlobStorage {

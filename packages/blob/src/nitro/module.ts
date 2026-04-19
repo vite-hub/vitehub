@@ -86,10 +86,11 @@ const blobNitroModule: NitroModule = {
     if (hosting) runtimeConfig.hosting ||= hosting
     runtimeConfig.blob = viteConfig.blob
 
+    nitroOptions.alias ||= {}
+
     if (!viteConfig.blob) return
     const resolved = viteConfig.blob
 
-    nitroOptions.alias ||= {}
     nitroOptions.alias["@vitehub/blob"] = resolveProviderRuntimeEntry(resolved)
 
     nitroOptions.plugins ||= []

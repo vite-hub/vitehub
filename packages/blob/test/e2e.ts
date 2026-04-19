@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises"
+import { readdir, rm } from "node:fs/promises"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import assert from "node:assert/strict"
@@ -21,13 +21,14 @@ const vercelServer = resolve(import.meta.dirname, "helpers/vercel-server.ts")
 const dir = (fw: Framework): string => resolve(root, "playground", fw)
 const log = (msg: string): void => console.log(`[e2e] ${msg}`)
 
-function resolveVercelEntry(fw: Framework): string {
+async function resolveVercelEntry(fw: Framework): Promise<string> {
   const functionsDir = resolve(dir(fw), ".vercel/output/functions")
-  for (const name of ["__server.func", "__fallback.func"]) {
-    const entry = resolve(functionsDir, name, "index.mjs")
-    if (existsSync(entry)) return entry
-  }
-  throw new Error(`No Vercel server entry found in ${functionsDir}`)
+  const entries = await readdir(functionsDir, { withFileTypes: true })
+  const fallback = entries.find(entry => entry.isDirectory() && entry.name === "__fallback.func")
+  const server = entries.find(entry => entry.isDirectory() && entry.name === "__server.func")
+  const entry = fallback || server || entries.find(entry => entry.isDirectory() && entry.name.endsWith(".func"))
+  if (!entry) throw new Error(`No Vercel server entry found in ${functionsDir}`)
+  return resolve(functionsDir, entry.name, "index.mjs")
 }
 
 async function dumpChild(child: Awaited<ReturnType<typeof startCommand>>, label: string, error: unknown): Promise<never> {
@@ -119,7 +120,7 @@ async function runVercel(fw: Framework): Promise<void> {
   const env = { VERCEL: "1", VERCEL_REGION: "iad1" }
   await build(fw, "vercel", env)
 
-  const entry = resolveVercelEntry(fw)
+  const entry = await resolveVercelEntry(fw)
   const child = await startCommand("node", ["--import", "tsx/esm", vercelServer, entry], {
     cwd: dir(fw),
     env: { ...process.env, ...env, HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(port), PORT: String(port) },
@@ -180,7 +181,17 @@ if (mode === "live") {
 else {
   const providers = provider ? [provider] : PROVIDERS
   const frameworks = framework ? [framework] : FRAMEWORKS
-  await Promise.all(frameworks.map(async (fw) => {
-    for (const currentProvider of providers) await providerRunner[currentProvider](fw)
-  }))
+  if (frameworks.length === 1 && providers.length === 1) {
+    await providerRunner[providers[0]](frameworks[0])
+  }
+  else {
+    for (const fw of frameworks) {
+      for (const currentProvider of providers) {
+        await execCommand("pnpm", ["tsx", "./test/e2e.ts", "--provider", currentProvider, "--framework", fw], {
+          cwd: root,
+          env: process.env,
+        })
+      }
+    }
+  }
 }
