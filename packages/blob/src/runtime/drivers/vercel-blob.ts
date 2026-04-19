@@ -94,7 +94,7 @@ export function createVercelBlobDriver(options: ResolvedVercelBlobConfig): BlobD
     async head(pathname: string): Promise<BlobObject | null> {
       const sdk = await loadVercelBlobSdk()
       try {
-        const result = await sdk.head(decodeURIComponent(pathname), { token: readToken() })
+        const result = await sdk.head(pathname, { token: readToken() })
         return result ? mapVercelBlobToBlob(result) : null
       }
       catch (error) {

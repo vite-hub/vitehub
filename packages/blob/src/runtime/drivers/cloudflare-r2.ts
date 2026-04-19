@@ -68,13 +68,13 @@ export function createCloudflareR2Driver(options: ResolvedCloudflareR2BlobConfig
       }
     },
     async get(pathname: string): Promise<Blob | null> {
-      const object = await getBucket(options).get(decodeURIComponent(pathname))
+      const object = await getBucket(options).get(pathname)
       return object
         ? new Blob([await object.arrayBuffer()], { type: object.httpMetadata?.contentType || getContentType(pathname) })
         : null
     },
     async getArrayBuffer(pathname: string): Promise<ArrayBuffer | null> {
-      const object = await getBucket(options).get(decodeURIComponent(pathname))
+      const object = await getBucket(options).get(pathname)
       return object ? await object.arrayBuffer() : null
     },
     async put(pathname: string, body: BlobPutBody, putOptions?: BlobPutOptions): Promise<BlobObject> {
@@ -86,12 +86,12 @@ export function createCloudflareR2Driver(options: ResolvedCloudflareR2BlobConfig
       return mapR2ObjectToBlob(object)
     },
     async head(pathname: string): Promise<BlobObject | null> {
-      const object = await getBucket(options).head(decodeURIComponent(pathname))
+      const object = await getBucket(options).head(pathname)
       return object ? mapR2ObjectToBlob(object) : null
     },
     async delete(pathnames: string | string[]): Promise<void> {
       const paths = Array.isArray(pathnames) ? pathnames : [pathnames]
-      await Promise.all(paths.map(pathname => getBucket(options).delete(decodeURIComponent(pathname))))
+      await Promise.all(paths.map(pathname => getBucket(options).delete(pathname)))
     },
   }
 }
