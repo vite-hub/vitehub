@@ -31,10 +31,9 @@ const server = isNodeListener
           },
         )
 
-        const pending: Promise<unknown>[] = []
         const response = await handler.fetch(request, {
           waitUntil(promise: Promise<unknown>) {
-            pending.push(Promise.resolve(promise).catch(() => {}))
+            Promise.resolve(promise).catch(() => {})
           },
         })
 

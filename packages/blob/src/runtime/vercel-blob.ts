@@ -30,9 +30,10 @@ export type {
   VercelBlobConfig,
 } from "../types.ts"
 
+type GlobalWithConfig = typeof globalThis & { __vitehubBlobConfig?: false | ResolvedBlobModuleOptions }
+
 function resolveRuntimeConfig(): false | ResolvedBlobModuleOptions | undefined {
-  return getBlobRuntimeConfig()
-    ?? (globalThis as typeof globalThis & { __vitehubBlobConfig?: false | ResolvedBlobModuleOptions }).__vitehubBlobConfig
+  return getBlobRuntimeConfig() ?? (globalThis as GlobalWithConfig).__vitehubBlobConfig
 }
 
 function createBlobClient(): BlobStorage {
