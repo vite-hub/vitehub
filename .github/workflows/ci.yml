@@ -131,7 +131,7 @@ jobs:
             while IFS= read -r queue; do
               [ -n "$queue" ] || continue
               npx wrangler queues create "$queue" || true
-            done < .output/server/cloudflare-queues.txt
+            done < .output/cloudflare-queues.txt
           fi
           DEPLOY_DIR="$(cat .output/cloudflare-deploy-dir.txt)"
           DEPLOY_CONFIG="$(cat .output/cloudflare-deploy-config.txt)"
