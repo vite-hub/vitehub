@@ -10,6 +10,6 @@
     "@cloudflare/sandbox": "catalog:",
     "@vercel/sandbox": "catalog:",
     "@vitehub/sandbox": "workspace:*",
-    "nuxt": "catalog:"
+    "nuxt": "catalog:nuxt-nightly"
   }
 }
