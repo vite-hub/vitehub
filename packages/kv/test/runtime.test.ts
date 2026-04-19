@@ -28,9 +28,15 @@ function createInspectableDriver(name: "fsLite" | "upstash") {
   }
 }
 
-vi.mock("nitro/runtime", () => ({
-  defineNitroPlugin: (plugin: unknown) => plugin,
+vi.mock("nitro", () => ({
+  definePlugin: (plugin: unknown) => plugin,
+}))
+
+vi.mock("nitro/runtime-config", () => ({
   useRuntimeConfig: () => runtimeState.config,
+}))
+
+vi.mock("nitro/storage", () => ({
   useStorage: (base = "") => base ? prefixStorage(storage, base) : storage,
 }))
 

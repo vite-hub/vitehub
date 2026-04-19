@@ -1,5 +1,5 @@
 import { defineEventHandler } from "h3"
-import { useRuntimeConfig } from "nitro/runtime"
+import { useRuntimeConfig } from "nitro/runtime-config"
 
 export default defineEventHandler((event) => {
   const { hosting, kv } = useRuntimeConfig()
