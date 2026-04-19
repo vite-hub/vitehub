@@ -42,4 +42,4 @@ type BlobModuleOptions =
   | false
 ```
 
-Cloudflare defaults `binding` to `BLOB`. Vercel defaults `access` to `public`. `BLOB_READ_WRITE_TOKEN` is resolved during option normalization (module setup) and stored in `runtimeConfig.blob`, so set it in the build/deploy environment rather than expecting runtime-only reads.
+Cloudflare defaults `binding` to `BLOB`. Vercel defaults `access` to `public`. `BLOB_READ_WRITE_TOKEN` is resolved during option normalization and stored in `runtimeConfig.blob` when the env var is set at that time; the Vercel driver also falls back to `process.env.BLOB_READ_WRITE_TOKEN` at runtime when no token is present in config, so runtime-only secret injection still works.
