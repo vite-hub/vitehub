@@ -35,7 +35,6 @@ function discoverPackages() {
     .sort()
 }
 
-const local = []
 const live = []
 
 for (const packageDir of discoverPackages()) {
@@ -48,14 +47,6 @@ for (const packageDir of discoverPackages()) {
 
   const providers = e2e.providers ?? defaultProviders
   const frameworks = e2e.frameworks ?? discoverFrameworks(packageDir)
-
-  for (const framework of frameworks) {
-    if (!matchesSelection(framework, selectedFramework)) continue
-    for (const provider of providers) {
-      if (!matchesSelection(provider, selectedProvider)) continue
-      local.push({ framework, packageDir, packageName, provider })
-    }
-  }
 
   const liveConfig = e2e.live ?? {}
   if (!liveConfig.enabled) continue
@@ -92,9 +83,7 @@ for (const packageDir of discoverPackages()) {
 }
 
 const output = [
-  `local=${JSON.stringify({ include: local })}`,
   `live=${JSON.stringify({ include: live })}`,
-  `hasLocal=${local.length > 0}`,
   `hasLive=${live.length > 0}`,
 ].join("\n")
 
