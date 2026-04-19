@@ -21,6 +21,20 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
   })
 }
 
+function resolveRuntimeEntries(srcRelative: string, packageSubpath: string): string[] {
+  const sourceEntry = resolveModulePath(srcRelative, {
+    extensions: [".ts", ".mts"],
+    from: import.meta.url,
+    try: true,
+  })
+  const packageEntry = resolveModulePath(packageSubpath, {
+    extensions: [".js", ".mjs"],
+    from: import.meta.url,
+    try: true,
+  })
+  return Array.from(new Set([sourceEntry, packageEntry].filter((entry): entry is string => Boolean(entry))))
+}
+
 function installQueueRuntimeAliases(
   nuxtOptions: Record<string, any>,
   queue: QueueModuleOptions | undefined,
@@ -28,19 +42,25 @@ function installQueueRuntimeAliases(
   const buildDir = resolve(nuxtOptions.rootDir || process.cwd(), nuxtOptions.buildDir || ".nuxt")
   const queueRegistryId = "#vitehub-queue-registry"
   const queueVercelProviderId = "#vitehub-queue-vercel-provider"
-  const emptyRegistryEntry = resolveRuntimeEntry("../runtime/empty-registry", "@vitehub/queue/runtime/empty-registry")
+  const registryFile = resolve(buildDir, "vitehub", "queue", "registry.mjs")
+  const emptyRegistryEntries = resolveRuntimeEntries("../runtime/empty-registry", "@vitehub/queue/runtime/empty-registry")
+  const hostedRuntimeEntry = resolveRuntimeEntry("../runtime/hosted", "@vitehub/queue/runtime/hosted")
   const vercelProviderEntry = resolveRuntimeEntry("../runtime/vercel-provider", "@vitehub/queue/runtime/vercel-provider")
   const vercelProviderStubEntry = resolveRuntimeEntry("../runtime/vercel-provider-stub", "@vitehub/queue/runtime/vercel-provider-stub")
+  const vercelProviderEntries = resolveRuntimeEntries("../runtime/vercel-provider", "@vitehub/queue/runtime/vercel-provider")
   const hosting = `${process.env.NITRO_PRESET || ""}`.trim()
   const usesVercelProvider = typeof queue === "object" && queue?.provider === "vercel"
     || hosting.includes("vercel")
+  const resolvedVercelProviderEntry = usesVercelProvider ? vercelProviderEntry : vercelProviderStubEntry
 
-  const aliases = {
-    [queueRegistryId]: resolve(buildDir, "vitehub", "queue", "registry.mjs"),
-    [queueVercelProviderId]: usesVercelProvider ? vercelProviderEntry : vercelProviderStubEntry,
-    [emptyRegistryEntry]: resolve(buildDir, "vitehub", "queue", "registry.mjs"),
-    [vercelProviderEntry]: usesVercelProvider ? vercelProviderEntry : vercelProviderStubEntry,
+  const aliases: Record<string, string> = {
+    [queueRegistryId]: registryFile,
+    [queueVercelProviderId]: resolvedVercelProviderEntry,
   }
+
+  for (const entry of emptyRegistryEntries) aliases[entry] = registryFile
+  for (const entry of vercelProviderEntries) aliases[entry] = resolvedVercelProviderEntry
+  if (usesVercelProvider) aliases["@vitehub/queue/runtime/hosted"] = hostedRuntimeEntry
 
   nuxtOptions.alias ||= {}
   Object.assign(nuxtOptions.alias, aliases)
@@ -49,6 +69,10 @@ function installQueueRuntimeAliases(
   nuxtOptions.vite.resolve ||= {}
   nuxtOptions.vite.resolve.alias ||= {}
   Object.assign(nuxtOptions.vite.resolve.alias, aliases)
+
+  nuxtOptions.nitro ||= {}
+  nuxtOptions.nitro.alias ||= {}
+  Object.assign(nuxtOptions.nitro.alias, aliases)
 }
 
 function installQueueNitroModule(nitro: NitroConfig, queue: QueueModuleOptions | undefined) {
@@ -68,7 +92,11 @@ const queueNuxtModule: ReturnType<typeof defineNuxtModule<QueueNuxtOptions>> = d
     const nitro = nuxtOptions.nitro ||= {}
     installQueueNitroModule(nitro, queue)
     installQueueRuntimeAliases(nuxtOptions, queue)
-    ;(nuxt.hook as any)("nitro:config", (config: NitroConfig) => installQueueNitroModule(config, queue))
+    ;(nuxt.hook as any)("nitro:config", (config: NitroConfig) => {
+      installQueueNitroModule(config, queue)
+      config.alias ||= {}
+      Object.assign(config.alias, nuxtOptions.nitro?.alias || {})
+    })
   },
 })
 

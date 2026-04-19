@@ -3,6 +3,10 @@ import { defineConfig } from "tsdown"
 export default defineConfig({
   clean: true,
   deps: {
+    neverBundle: [
+      "#vitehub-queue-registry",
+      "#vitehub-queue-vercel-provider",
+    ],
     skipNodeModulesBundle: true,
   },
   dts: true,

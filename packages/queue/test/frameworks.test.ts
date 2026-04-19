@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { discoverQueueDefinitions } from "../src/discovery.ts"
 
 interface NitroHarnessOptions {
+  alias?: Record<string, string>
   buildDir?: string
   handlers?: unknown[]
   imports?: boolean
@@ -318,6 +319,8 @@ describe("Nuxt module", () => {
     expect(nitroConfig.queue).toEqual({
       provider: "vercel",
     })
+    expect(nitroConfig.alias!["#vitehub-queue-registry"]).toContain("vitehub/queue/registry.mjs")
+    expect(nitroConfig.alias!["#vitehub-queue-vercel-provider"]).toContain("vercel-provider")
     expect(nuxtOptions.alias["#vitehub-queue-registry"]).toContain("vitehub/queue/registry.mjs")
     expect(nuxtOptions.alias["#vitehub-queue-vercel-provider"]).toContain("vercel-provider")
     expect(nuxtOptions.vite.resolve.alias["#vitehub-queue-registry"]).toContain("vitehub/queue/registry.mjs")
