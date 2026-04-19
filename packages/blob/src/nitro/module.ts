@@ -1,19 +1,28 @@
+import { dirname, resolve } from "node:path"
 import { resolveModulePath } from "exsolve"
 import { resolveBlobViteConfig } from "../vite-config.ts"
 
 import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../types.ts"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
-function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
+function resolveRuntimeEntry(srcRelative: string, distRelative: string): string {
   const fromSource = resolveModulePath(srcRelative, {
     extensions: [".ts", ".mts"],
     from: import.meta.url,
     try: true,
   })
-  return fromSource ?? resolveModulePath(packageSubpath, {
-    extensions: [".js", ".mjs"],
+  if (fromSource) return fromSource
+
+  const packageJson = resolveModulePath("@vitehub/blob/package.json", {
     from: import.meta.url,
   })
+  return resolve(dirname(packageJson), distRelative)
+}
+
+function resolveProviderRuntimeEntry(resolved: ResolvedBlobModuleOptions): string {
+  return resolved.provider.driver === "cloudflare-r2"
+    ? resolveRuntimeEntry("../runtime/cloudflare-r2", "dist/runtime/cloudflare-r2.js")
+    : resolveRuntimeEntry("../runtime/vercel-blob", "dist/runtime/vercel-blob.js")
 }
 
 function pushUnique<T>(items: T[], item: T): void {
@@ -77,14 +86,15 @@ const blobNitroModule: NitroModule = {
     if (hosting) runtimeConfig.hosting ||= hosting
     runtimeConfig.blob = viteConfig.blob
 
+    nitroOptions.alias ||= {}
+
     if (!viteConfig.blob) return
     const resolved = viteConfig.blob
 
-    nitroOptions.alias ||= {}
-    nitroOptions.alias["@vitehub/blob"] = resolveRuntimeEntry("../index", "@vitehub/blob")
+    nitroOptions.alias["@vitehub/blob"] = resolveProviderRuntimeEntry(resolved)
 
     nitroOptions.plugins ||= []
-    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/blob/runtime/nitro-plugin")
+    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "dist/runtime/nitro-plugin.js")
     pushUnique(nitroOptions.plugins, plugin)
 
     configureCloudflareR2(nitroOptions, resolved)

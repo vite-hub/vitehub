@@ -21,7 +21,6 @@ describe("normalizeBlobOptions", () => {
         access: "public",
         driver: "vercel-blob",
         source: "auto",
-        token: "token",
       },
     })
   })

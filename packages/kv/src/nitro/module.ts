@@ -34,13 +34,24 @@ const kvNitroModule: NitroModule = {
     if (!viteConfig.kv) return
     const resolved = viteConfig.kv
 
+    const framework = (nitro.options as { framework?: { name?: string } }).framework?.name
     nitro.options.alias ||= {}
-    nitro.options.alias["@vitehub/kv"] = resolveRuntimeEntry("../index", "@vitehub/kv")
+    nitro.options.alias["@vitehub/kv"] = framework === "nuxt"
+      ? resolveRuntimeEntry("../runtime/nitropack-storage", "@vitehub/kv/runtime/nitropack-storage")
+      : resolveRuntimeEntry("../index", "@vitehub/kv")
+    if (framework === "nuxt") {
+      nitro.options.alias["nitro/runtime-config"] = "nitropack/runtime/config"
+      nitro.options.alias["nitro/storage"] = "nitropack/runtime/storage"
+    }
 
-    nitro.options.plugins ||= []
-    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/kv/runtime/nitro-plugin")
-    if (!nitro.options.plugins.includes(plugin)) {
-      nitro.options.plugins.push(plugin)
+    if (resolved.store.driver === "upstash") {
+      nitro.options.plugins ||= []
+      const plugin = framework === "nuxt"
+        ? resolveRuntimeEntry("../runtime/nitropack-plugin", "@vitehub/kv/runtime/nitropack-plugin")
+        : resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/kv/runtime/nitro-plugin")
+      if (!nitro.options.plugins.includes(plugin)) {
+        nitro.options.plugins.push(plugin)
+      }
     }
 
     nitro.options.storage ||= {}

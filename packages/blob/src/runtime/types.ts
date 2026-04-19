@@ -64,5 +64,5 @@ export interface BlobStorage {
   head(pathname: string): Promise<BlobObject>
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobBody, options?: BlobPutOptions): Promise<BlobObject>
-  serve(event: H3Event, pathname: string): Promise<BlobReadableStream>
+  serve(event: H3Event, pathname: string): Promise<Response>
 }

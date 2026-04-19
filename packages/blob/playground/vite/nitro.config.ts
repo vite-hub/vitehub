@@ -1,4 +1,6 @@
+import blob from "../../src/nitro/module.ts"
+
 export default {
-  srcDir: "server",
-  modules: ["../../src/nitro/module.ts"],
+  serverDir: "./server",
+  modules: [blob],
 }

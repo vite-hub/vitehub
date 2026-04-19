@@ -44,7 +44,7 @@ vi.mock("@nuxt/kit", () => ({
   defineNuxtModule,
 }))
 
-vi.mock("nitro/runtime", () => ({
+vi.mock("nitro/storage", () => ({
   useStorage: () => ({
     clear: vi.fn(),
     getItem: vi.fn(),
@@ -178,7 +178,7 @@ describe("Nitro module", () => {
       },
     })
     expect(nitro.options.alias["@vitehub/kv"]).toContain("/packages/kv/src/index.ts")
-    expect(nitro.options.plugins).toHaveLength(1)
+    expect(nitro.options.plugins).toEqual([])
     expect(nitro.options.cloudflare).toMatchObject({
       wrangler: {
         kv_namespaces: [{
@@ -187,6 +187,25 @@ describe("Nitro module", () => {
         }],
       },
     })
+  })
+
+  it("uses Nitropack-compatible runtime entries for Nuxt", async () => {
+    const nitro = createNitroStub({
+      framework: {
+        name: "nuxt",
+      },
+      kv: {
+        driver: "upstash",
+      },
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.alias["@vitehub/kv"]).toContain("/packages/kv/src/runtime/nitropack-storage.ts")
+    expect(nitro.options.alias["nitro/runtime-config"]).toBe("nitropack/runtime/config")
+    expect(nitro.options.alias["nitro/storage"]).toBe("nitropack/runtime/storage")
+    expect(nitro.options.plugins[0]).toContain("/packages/kv/src/runtime/nitropack-plugin.ts")
   })
 
   it("warns when Vercel falls back to fs-lite", async () => {
@@ -240,7 +259,7 @@ describe("Nuxt module", () => {
   })
 
   it("short-circuits disabled config", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
@@ -254,7 +273,7 @@ describe("Nuxt module", () => {
   })
 
   it("installs the Nitro module once and forwards config", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
@@ -291,7 +310,7 @@ describe("Nuxt module", () => {
   })
 
   it("does not force fs-lite when no Nuxt config is provided", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
@@ -317,7 +336,7 @@ describe("Nuxt module", () => {
   })
 
   it("forwards inline module options when top-level config is absent", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>

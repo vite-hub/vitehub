@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises"
+import { readdir, rm } from "node:fs/promises"
 import { createServer } from "node:http"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
@@ -79,6 +79,16 @@ async function build(fw: Framework, preset: string, extra?: Record<string, strin
   return execCommand("node", ["--import", "tsx/esm", buildScript, dir(fw), preset], { cwd: root, env })
 }
 
+async function resolveVercelEntry(fw: Framework) {
+  const functionsDir = resolve(dir(fw), ".vercel/output/functions")
+  const entries = await readdir(functionsDir, { withFileTypes: true })
+  const fallback = entries.find(entry => entry.isDirectory() && entry.name === "__fallback.func")
+  const server = entries.find(entry => entry.isDirectory() && entry.name === "__server.func")
+  const entry = fallback || server || entries.find(entry => entry.isDirectory() && entry.name.endsWith(".func"))
+  assert.ok(entry, `No Vercel function output found in ${functionsDir}`)
+  return resolve(functionsDir, entry.name, "index.mjs")
+}
+
 const providerProbe: Record<Provider, Record<string, unknown>> = {
   cloudflare: { hasWaitUntil: true, hosting: "cloudflare-module", provider: "cloudflare-kv-binding", runtime: "cloudflare" },
   vercel: { hasWaitUntil: true, hosting: "vercel", provider: "upstash", runtime: "node" },
@@ -104,7 +114,7 @@ async function runVercel(fw: Framework) {
   const env = { KV_REST_API_TOKEN: "t", KV_REST_API_URL: upstash.url }
   try {
     await build(fw, "vercel", env)
-    const entry = resolve(dir(fw), ".vercel/output/functions/__fallback.func/index.mjs")
+    const entry = await resolveVercelEntry(fw)
     const child = await startCommand("node", ["--import", "tsx/esm", vercelServer, entry], {
       cwd: dir(fw),
       env: { ...process.env, ...env, HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(port), PORT: String(port) },

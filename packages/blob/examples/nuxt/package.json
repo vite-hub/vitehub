@@ -7,6 +7,6 @@
   },
   "dependencies": {
     "@vitehub/blob": "workspace:*",
-    "nuxt": "catalog:"
+    "nuxt": "catalog:nuxt-nightly"
   }
 }

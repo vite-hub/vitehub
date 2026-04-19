@@ -77,7 +77,7 @@ describe("showcase examples", () => {
     expect(packageFile!.code).not.toContain("workspace:*");
     expect(packageFile!.code).not.toContain("catalog:");
     expect(packageFile!.code).toContain("\"@vitehub/kv\": \"0.0.0\"");
-    expect(packageFile!.code).toContain("\"nitro\": \"3.0.260311-beta\"");
+    expect(packageFile!.code).toContain("\"nitro\": \"3.0.260415-beta\"");
   });
 
   it("includes a providers overview page in the docs manifest", () => {

@@ -33,22 +33,20 @@ function resolveCloudflareR2Provider(
 
 function resolveVercelBlobProvider(
   provider: Partial<VercelBlobConfig> = {},
-  env: Record<string, string | undefined>,
 ): ResolvedBlobProviderConfig {
   return {
     ...provider,
     access: "public",
     driver: "vercel-blob",
-    token: provider.token || readEnv(env, "BLOB_READ_WRITE_TOKEN"),
+    token: provider.token,
   }
 }
 
 function resolveExplicitProvider(
   provider: BlobProviderConfig,
-  env: Record<string, string | undefined>,
 ): ResolvedBlobProviderConfig {
   if (provider.driver === "cloudflare-r2") return { ...resolveCloudflareR2Provider(provider), source: "explicit" }
-  if (provider.driver === "vercel-blob") return { ...resolveVercelBlobProvider(provider, env), source: "explicit" }
+  if (provider.driver === "vercel-blob") return { ...resolveVercelBlobProvider(provider), source: "explicit" }
 
   const unknownProvider = (provider as { driver?: unknown }).driver
   throw new TypeError(`Unknown \`blob.driver\`: ${JSON.stringify(unknownProvider)}. Expected "cloudflare-r2" or "vercel-blob".`)
@@ -68,10 +66,10 @@ export function normalizeBlobOptions(
   const hosting = input.hosting || ""
   const explicit = options as BlobProviderConfig | undefined
 
-  if (explicit?.driver) return { provider: resolveExplicitProvider(explicit, env) }
+  if (explicit?.driver) return { provider: resolveExplicitProvider(explicit) }
   if (hosting.includes("cloudflare")) return { provider: { ...resolveCloudflareR2Provider(), source: "auto" } }
   if (hosting.includes("vercel") || readEnv(env, "BLOB_READ_WRITE_TOKEN")) {
-    return { provider: { ...resolveVercelBlobProvider({}, env), source: "auto" } }
+    return { provider: { ...resolveVercelBlobProvider({}), source: "auto" } }
   }
 
   return

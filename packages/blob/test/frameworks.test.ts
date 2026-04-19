@@ -171,7 +171,7 @@ describe("Nitro module", () => {
       },
       hosting: "cloudflare-module",
     })
-    expect(nitro.options.alias["@vitehub/blob"]).toContain("/packages/blob/src/index.ts")
+    expect(nitro.options.alias["@vitehub/blob"]).toContain("/packages/blob/src/runtime/cloudflare-r2.ts")
     expect(nitro.options.plugins).toHaveLength(1)
     expect(nitro.options.cloudflare).toMatchObject({
       wrangler: {
@@ -228,7 +228,7 @@ describe("Nuxt module", () => {
   })
 
   it("short-circuits disabled config", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
@@ -242,7 +242,7 @@ describe("Nuxt module", () => {
   })
 
   it("installs the Nitro module once and forwards top-level config", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
@@ -258,7 +258,8 @@ describe("Nuxt module", () => {
     await module(undefined, nuxt as never)
     await module(undefined, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vitehub/blob/nitro"])
+    expect(nuxt.options.nitro!.modules).toHaveLength(1)
+    expect(nuxt.options.nitro!.modules![0]).toBe("@vitehub/blob/nitro")
     expect(nuxt.options.nitro!.blob).toEqual({
       driver: "vercel-blob",
     })
@@ -269,14 +270,15 @@ describe("Nuxt module", () => {
 
     await nuxt.runHook("nitro:config", nitroConfig)
 
-    expect(nitroConfig.modules).toEqual(["@vitehub/blob/nitro"])
+    expect(nitroConfig.modules).toHaveLength(1)
+    expect(nitroConfig.modules![0]).toBe("@vitehub/blob/nitro")
     expect(nitroConfig.blob).toEqual({
       driver: "vercel-blob",
     })
   })
 
   it("forwards inline module options when top-level config is absent", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
@@ -288,7 +290,8 @@ describe("Nuxt module", () => {
 
     await module({ binding: "ASSETS", driver: "cloudflare-r2" }, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vitehub/blob/nitro"])
+    expect(nuxt.options.nitro!.modules).toHaveLength(1)
+    expect(nuxt.options.nitro!.modules![0]).toBe("@vitehub/blob/nitro")
     expect(nuxt.options.nitro!.blob).toEqual({
       binding: "ASSETS",
       driver: "cloudflare-r2",

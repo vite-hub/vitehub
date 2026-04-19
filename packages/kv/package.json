@@ -28,6 +28,8 @@
     "./nitro": "./dist/nitro.js",
     "./nuxt": "./dist/nuxt.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
+    "./runtime/nitropack-plugin": "./dist/runtime/nitropack-plugin.js",
+    "./runtime/nitropack-storage": "./dist/runtime/nitropack-storage.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
@@ -43,14 +45,52 @@
     "test": "vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
+  "vitehub": {
+    "ci": {
+      "e2e": {
+        "frameworks": [
+          "nitro",
+          "nuxt",
+          "vite"
+        ],
+        "providers": [
+          "cloudflare",
+          "vercel"
+        ],
+        "live": {
+          "appPrefix": "vitehub-playground",
+          "enabled": true,
+          "frameworks": [
+            "nitro",
+            "nuxt",
+            "vite"
+          ],
+          "providers": [
+            "cloudflare",
+            "vercel"
+          ],
+          "cloudflare": {
+            "strategy": "template",
+            "wranglerTemplate": "playground/_shared/wrangler.template.jsonc"
+          },
+          "vercel": {
+            "buildEnv": {
+              "kv": true
+            }
+          }
+        }
+      }
+    }
+  },
   "dependencies": {
-    "@nuxt/kit": "catalog:",
+    "@nuxt/kit": "catalog:nuxt-nightly",
     "defu": "catalog:",
     "exsolve": "catalog:",
     "unstorage": "catalog:"
   },
   "peerDependencies": {
     "@upstash/redis": "^1.37.0",
+    "nitropack": "^2.13.3",
     "nitro": "^3.0.0-0",
     "vite": ">=6.0.0"
   },
@@ -61,15 +101,20 @@
     "nitro": {
       "optional": true
     },
+    "nitropack": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }
   },
   "devDependencies": {
-    "@nuxt/schema": "catalog:",
+    "@nuxt/schema": "catalog:nuxt-nightly",
     "@upstash/redis": "catalog:",
     "get-port-please": "catalog:",
     "miniflare": "catalog:",
+    "nitro": "catalog:",
+    "nitropack": "^2.13.3",
     "ofetch": "catalog:",
     "publint": "^0.3.15",
     "tinyexec": "catalog:",

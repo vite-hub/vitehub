@@ -61,7 +61,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`blob.serve()` sets `Content-Type`, `Content-Length`, and `ETag` when metadata is available.
+`blob.serve()` returns a `Response` with `Content-Type`, `Content-Length`, and `ETag` when metadata is available.
 
 ## Delete blobs
 
