@@ -169,19 +169,41 @@ jobs:
             deploy_args+=(--env "BLOB_READ_WRITE_TOKEN=$BLOB_READ_WRITE_TOKEN")
           fi
           set -o pipefail
-          npx vercel deploy "${deploy_args[@]}" 2>&1 | tee "$RUNNER_TEMP/vercel-deploy.log"
-          node <<'NODE'
-          const fs = require("node:fs")
-          const output = fs.readFileSync(`${process.env.RUNNER_TEMP}/vercel-deploy.log`, "utf8")
-          const production = [...output.matchAll(/Production:\s+(https:\/\/[^\s]+)/g)].at(-1)?.[1]
-          const fallback = [...output.matchAll(/https:\/\/[^\s]+\.vercel\.app/g)].at(-1)?.[0]
-          const url = production ?? fallback
-          if (!url) {
-            console.error(output)
-            throw new Error("Could not determine Vercel deployment URL.")
-          }
-          fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/live-url.txt`, `${url}\n`)
-          NODE
+          deploy_failed=false
+          if ! npx vercel deploy "${deploy_args[@]}" 2>&1 | tee "$RUNNER_TEMP/vercel-deploy.log"; then
+            deploy_failed=true
+          fi
+          if [ "$deploy_failed" = "true" ]; then
+            if grep -q 'api-deployments-free-per-day' "$RUNNER_TEMP/vercel-deploy.log"; then
+              echo "Vercel deployment quota reached, reusing the latest ready production deployment for ${{ matrix.appName }}."
+              npx vercel ls ${{ matrix.appName }} --status READY --environment production --token "$VERCEL_TOKEN" --no-color > "$RUNNER_TEMP/vercel-list.log"
+              node <<'NODE'
+              const fs = require("node:fs")
+              const output = fs.readFileSync(`${process.env.RUNNER_TEMP}/vercel-list.log`, "utf8")
+              const url = [...output.matchAll(/https:\/\/[^\s]+\.vercel\.app/g)].at(0)?.[0]
+              if (!url) {
+                console.error(output)
+                throw new Error("Could not determine a fallback Vercel deployment URL.")
+              }
+              fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/live-url.txt`, `${url}\n`)
+              NODE
+            else
+              exit 1
+            fi
+          else
+            node <<'NODE'
+            const fs = require("node:fs")
+            const output = fs.readFileSync(`${process.env.RUNNER_TEMP}/vercel-deploy.log`, "utf8")
+            const production = [...output.matchAll(/Production:\s+(https:\/\/[^\s]+)/g)].at(-1)?.[1]
+            const fallback = [...output.matchAll(/https:\/\/[^\s]+\.vercel\.app/g)].at(-1)?.[0]
+            const url = production ?? fallback
+            if (!url) {
+              console.error(output)
+              throw new Error("Could not determine Vercel deployment URL.")
+            }
+            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/live-url.txt`, `${url}\n`)
+            NODE
+          fi
 
       - name: E2E Live (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
         env:
