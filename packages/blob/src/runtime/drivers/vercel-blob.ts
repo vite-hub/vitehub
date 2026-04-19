@@ -6,6 +6,7 @@ import type { BlobListOptions, BlobListResult, BlobObject, BlobPutOptions } from
 
 type VercelBlobRecord = {
   contentType?: string
+  etag?: string
   pathname: string
   size?: number
   uploadedAt?: Date
@@ -25,7 +26,7 @@ function mapVercelBlobToBlob(blob: VercelBlobRecord): BlobObject {
   return {
     contentType: blob.contentType || getContentType(blob.pathname),
     customMetadata: {},
-    httpEtag: undefined,
+    httpEtag: blob.etag,
     httpMetadata: {},
     pathname: blob.pathname,
     size: blob.size,
