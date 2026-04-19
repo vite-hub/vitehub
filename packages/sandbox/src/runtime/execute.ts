@@ -1,4 +1,5 @@
 import { dirname } from 'pathe'
+import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE } from '../internal/shared/cloudflare-retry'
 import { SandboxError } from '../sandbox/errors'
 import type { SandboxClient } from '../sandbox/types'
 import type { SandboxDefinitionBundle, SandboxDefinitionOptions, SandboxDefinitionRuntime } from '../module-types'
@@ -10,7 +11,6 @@ const MAX_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 120_000
 const EXEC_OUTPUT_RECOVERY_POLL_MS = 1_000
 const EXEC_STDIO_OUTPUT_MARKER = '__VITEHUB_OUTPUT__'
 const EXEC_OUTPUT_PREVIEW_LENGTH = 500
-const CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE = /network connection lost|durable object reset|code was updated|container is starting|currently provisioning|retry in a moment|aborterror|aborted|maximum number of running container instances exceeded|there is no container instance that can be provided to this durable object/i
 const DEFAULT_DEFINITION_ENTRY = 'definition.js'
 
 type SandboxDefinitionSource = SandboxDefinitionBundle | string

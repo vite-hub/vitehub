@@ -19,10 +19,6 @@ export interface FeatureCompiler<TConfig> {
   compile: (context: FeatureCompilerContext<TConfig>) => Promise<FeatureRuntimePlan> | FeatureRuntimePlan
 }
 
-export function defineFeatureCompiler<TConfig>(compiler: FeatureCompiler<TConfig>) {
-  return compiler
-}
-
 export async function compileFeatureIntoNitro<TConfig>(
   nitro: Nitro,
   config: TConfig | undefined,

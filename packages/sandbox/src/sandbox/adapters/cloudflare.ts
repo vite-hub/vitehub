@@ -1,16 +1,15 @@
 import type { CloudflareSandboxNamespace, CloudflareSandboxSession, CloudflareSandboxSessionOptions, SandboxCodeContext, SandboxCodeContextOptions, SandboxCodeExecutionResult, SandboxExposedPort, SandboxExposePortOptions, SandboxGitCheckoutOptions, SandboxGitCheckoutResult, SandboxMountBucketOptions, SandboxRunCodeOptions } from '../types/cloudflare'
 import type { CloudflareSandboxStub, SandboxCapabilities, SandboxExecOptions, SandboxExecResult, SandboxFileEntry, SandboxListFilesOptions, SandboxProcess, SandboxProcessOptions, SandboxWaitForPortOptions } from '../types/common'
+import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS } from '../../internal/shared/cloudflare-retry'
 import { NotSupportedError, SandboxError } from '../errors'
 import { shellQuote } from '../utils'
 import { normalizeLogPattern, sleep, waitForPortProbe } from './_shared'
 import { BaseSandboxAdapter } from './base'
 
-const CLOUDFLARE_CONTROL_PLANE_RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 15000]
 const CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS = 15_000
 const CLOUDFLARE_READ_FILE_TIMEOUT_MS = 15_000
 const CLOUDFLARE_STOP_TIMEOUT_MS = 10_000
 const CLOUDFLARE_EXEC_REQUEST_TIMEOUT_MS = 180_000
-const CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE = /container is starting|currently provisioning|retry in a moment|network connection lost|not listening in the tcp address|durable object reset|code was updated|aborterror|aborted|maximum number of running container instances exceeded|there is no container instance that can be provided to this durable object/i
 
 type CloudflareExtendedStub = CloudflareSandboxStub & {
   gitCheckout?: (url: string, opts?: SandboxGitCheckoutOptions) => Promise<SandboxGitCheckoutResult>
@@ -82,7 +81,7 @@ async function withCloudflareDeadline<T>(operation: string, timeoutMs: number, r
 }
 
 async function withCloudflareTransportRetry<T>(operation: string, run: () => Promise<T>) {
-  const attempts = CLOUDFLARE_CONTROL_PLANE_RETRY_DELAYS_MS.length + 1
+  const attempts = CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length + 1
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
@@ -93,13 +92,13 @@ async function withCloudflareTransportRetry<T>(operation: string, run: () => Pro
         ? error
         : createCloudflareTransportError(operation, error)
 
-      const shouldRetry = attempt < CLOUDFLARE_CONTROL_PLANE_RETRY_DELAYS_MS.length
+      const shouldRetry = attempt < CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length
         && isRetriableCloudflareTransportError(sandboxError)
 
       if (!shouldRetry)
         throw sandboxError
 
-      await sleep(CLOUDFLARE_CONTROL_PLANE_RETRY_DELAYS_MS[attempt])
+      await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
     }
   }
 

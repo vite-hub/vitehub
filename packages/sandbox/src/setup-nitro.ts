@@ -1,5 +1,5 @@
 import type { Nitro } from 'nitro/types'
-import { compileFeatureIntoNitro, defineFeatureCompiler } from './internal/shared/feature-compiler'
+import { compileFeatureIntoNitro, type FeatureCompiler } from './internal/shared/feature-compiler'
 import { hasInstalledDependency } from './internal/shared/dependency'
 import { loadFeatureDefinitions, normalizeDefinitionName } from './internal/shared/feature-definitions'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
@@ -9,7 +9,7 @@ import { createSandboxFeaturePlan } from './feature'
 import { getSandboxFeatureProvider } from './module-types'
 import type { AgentSandboxConfig } from './module-types'
 
-const sandboxFeatureCompiler = defineFeatureCompiler<AgentSandboxConfig>({
+const sandboxFeatureCompiler: FeatureCompiler<AgentSandboxConfig> = {
   feature: 'sandbox',
   async compile(context) {
     applyServerImportsToNitro(
@@ -41,7 +41,7 @@ const sandboxFeatureCompiler = defineFeatureCompiler<AgentSandboxConfig>({
       nitroImports: context.nitro.options.imports,
     })
   },
-})
+}
 
 export async function setupSandboxNitro(nitro: Nitro, sandboxConfig: AgentSandboxConfig | undefined, deps: Record<string, string>) {
   const enabled = await compileFeatureIntoNitro(nitro, sandboxConfig, deps, sandboxFeatureCompiler)
