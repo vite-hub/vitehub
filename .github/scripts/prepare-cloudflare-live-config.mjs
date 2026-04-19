@@ -11,6 +11,16 @@ function queueBindingName(queue) {
   return encoded ? `QUEUE_${encoded}` : "QUEUE"
 }
 
+function normalizeWranglerConfig(config) {
+  config.compatibility_flags = [...new Set([...(config.compatibility_flags || []), "nodejs_compat"])]
+  config.no_bundle = true
+  config.rules ||= []
+  if (!config.rules.some(rule => rule?.type === "ESModule")) {
+    config.rules.push({ type: "ESModule", globs: ["**/*.mjs", "**/*.js"] })
+  }
+  return config
+}
+
 function ensureConfigFromNitro() {
   const nitroConfig = ".output/nitro.json"
   if (!existsSync(nitroConfig)) return null
@@ -49,10 +59,11 @@ mkdirSync(serverDir, { recursive: true })
 if (deployStrategy === "template") {
   const templatePath = join(process.env.GITHUB_WORKSPACE, process.env.PACKAGE_DIR, process.env.WRANGLER_TEMPLATE)
   const template = substituteEnv(readFileSync(templatePath, "utf8"))
-  writeFileSync(join(outputDir, "wrangler.deploy.json"), template)
+  const config = normalizeWranglerConfig(JSON.parse(template))
+  writeFileSync(join(outputDir, "wrangler.deploy.json"), `${JSON.stringify(config, null, 2)}\n`)
   writeFileSync(join(outputDir, "cloudflare-deploy-dir.txt"), ".output\n")
   writeFileSync(join(outputDir, "cloudflare-deploy-config.txt"), "wrangler.deploy.json\n")
-  writeFileSync(join(serverDir, "cloudflare-queues.txt"), "\n")
+  writeFileSync(join(outputDir, "cloudflare-queues.txt"), "\n")
   process.exit(0)
 }
 
@@ -70,12 +81,7 @@ if (!configPath) {
 
 const config = JSON.parse(readFileSync(configPath, "utf8"))
 config.name = process.env.APP_NAME
-config.compatibility_flags = [...new Set([...(config.compatibility_flags || []), "nodejs_compat"])]
-config.no_bundle = true
-config.rules ||= []
-if (!config.rules.some(rule => rule?.type === "ESModule")) {
-  config.rules.push({ type: "ESModule", globs: ["**/*.mjs", "**/*.js"] })
-}
+normalizeWranglerConfig(config)
 
 const queues = new Set()
 if (process.env.CLOUDFLARE_CREATE_QUEUES === "true") {
@@ -99,6 +105,6 @@ for (const producer of config.queues?.producers || []) {
 }
 
 writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
-writeFileSync(join(serverDir, "cloudflare-queues.txt"), `${[...queues].join("\n")}\n`)
+writeFileSync(join(outputDir, "cloudflare-queues.txt"), `${[...queues].join("\n")}\n`)
 writeFileSync(join(outputDir, "cloudflare-deploy-dir.txt"), `${dirname(configPath)}\n`)
 writeFileSync(join(outputDir, "cloudflare-deploy-config.txt"), `${configPath.split("/").at(-1)}\n`)
