@@ -84,7 +84,7 @@ jobs:
     name: live (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 1
       matrix: ${{ fromJSON(needs.e2e_matrix.outputs.live) }}
     steps:
       - uses: actions/checkout@v4
@@ -121,21 +121,39 @@ jobs:
           PACKAGE_NAME: ${{ matrix.packageName }}
           WRANGLER_TEMPLATE: ${{ matrix.cloudflareWranglerTemplate }}
         run: |
+          retry_cloudflare() {
+            local max_attempts="$1"
+            shift
+            local attempt=1
+            local delay=5
+            while true; do
+              if "$@"; then
+                return 0
+              fi
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                return 1
+              fi
+              echo "Cloudflare command failed, retrying in ${delay}s (attempt ${attempt}/${max_attempts})"
+              sleep "$delay"
+              attempt=$((attempt + 1))
+              delay=$((delay * 2))
+            done
+          }
           cd ${{ matrix.packageDir }}/playground/${{ matrix.framework }}
           if [ "$CLOUDFLARE_CREATE_R2_BUCKET" = "true" ]; then
             export BLOB_BUCKET_NAME="${BLOB_BUCKET_NAME:-vitehub-blob-e2e}"
-            npx wrangler r2 bucket create "$BLOB_BUCKET_NAME" || true
+            retry_cloudflare 3 npx wrangler r2 bucket create "$BLOB_BUCKET_NAME" || true
           fi
           node "$GITHUB_WORKSPACE/.github/scripts/prepare-cloudflare-live-config.mjs"
           if [ "$CLOUDFLARE_CREATE_QUEUES" = "true" ]; then
             while IFS= read -r queue; do
               [ -n "$queue" ] || continue
-              npx wrangler queues create "$queue" || true
+              retry_cloudflare 3 npx wrangler queues create "$queue" || true
             done < .output/cloudflare-queues.txt
           fi
           DEPLOY_DIR="$(cat .output/cloudflare-deploy-dir.txt)"
           DEPLOY_CONFIG="$(cat .output/cloudflare-deploy-config.txt)"
-          npx wrangler --cwd "$DEPLOY_DIR" deploy --config "$DEPLOY_CONFIG" --no-bundle
+          retry_cloudflare 4 npx wrangler --cwd "$DEPLOY_DIR" deploy --config "$DEPLOY_CONFIG" --no-bundle
           printf 'https://%s.%s.workers.dev\n' "${{ matrix.appName }}" "$CLOUDFLARE_WORKERS_SUBDOMAIN" > "$GITHUB_WORKSPACE/live-url.txt"
 
       - name: Deploy Vercel
