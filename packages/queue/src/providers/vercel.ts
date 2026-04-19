@@ -22,7 +22,7 @@ function getUnsupportedOptions(options: QueueEnqueueOptions) {
 async function loadVercelQueueClient(region?: string): Promise<VercelQueueSDK> {
   let module: VercelQueueModule
   try {
-    module = await import("@vercel/queue") as VercelQueueModule
+    module = await import(/* @vite-ignore */ ["@vercel", "queue"].join("/")) as VercelQueueModule
   }
   catch (error) {
     throw new QueueError(`@vercel/queue load failed. Install it to use the Vercel provider. Original error: ${error instanceof Error ? error.message : error}`, {

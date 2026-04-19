@@ -5,7 +5,7 @@ import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel-topic.ts"
 import { createCloudflareQueueClient } from "../providers/cloudflare.ts"
 import { createMemoryQueueClient } from "../providers/memory.ts"
-import { createVercelQueueClient } from "../providers/vercel.ts"
+import { createVercelQueueClient } from "#vitehub-queue-vercel-provider"
 import {
   getQueueClientCache,
   getQueueRuntimeConfig,

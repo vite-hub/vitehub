@@ -93,6 +93,9 @@ const queueNitroModule: NitroModule = {
       nitro.options.alias["@vitehub/queue/runtime/hosted"] = resolveRuntimeEntry("../runtime/hosted", "@vitehub/queue/runtime/hosted")
     }
     nitro.options.alias["#vitehub-queue-registry"] = registryFile
+    nitro.options.alias["#vitehub-queue-vercel-provider"] = isVercelProvider
+      ? resolveRuntimeEntry("../runtime/vercel-provider", "@vitehub/queue/runtime/vercel-provider")
+      : resolveRuntimeEntry("../runtime/vercel-provider-stub", "@vitehub/queue/runtime/vercel-provider-stub")
     for (const definition of definitions) {
       nitro.options.alias[`#vitehub-queue-definition/${definition.name}`] = definition.handler
     }

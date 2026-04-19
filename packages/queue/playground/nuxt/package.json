@@ -8,6 +8,6 @@
   },
   "dependencies": {
     "@vitehub/queue": "workspace:*",
-    "nuxt": "catalog:"
+    "nuxt": "catalog:nuxt-nightly"
   }
 }

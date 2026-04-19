@@ -2,9 +2,16 @@ import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs"
 import { basename, join } from "node:path"
 
 const defaultProviders = ["cloudflare", "vercel"]
+const selectedFramework = process.env.VITEHUB_CI_FRAMEWORK || ""
+const selectedPackage = process.env.VITEHUB_CI_PACKAGE || ""
+const selectedProvider = process.env.VITEHUB_CI_PROVIDER || ""
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"))
+}
+
+function matchesSelection(value, selection) {
+  return !selection || selection === "all" || selection === value
 }
 
 function discoverFrameworks(packageDir) {
@@ -36,33 +43,49 @@ for (const packageDir of discoverPackages()) {
   if (!manifest.scripts?.["test:e2e"]) continue
 
   const e2e = manifest.vitehub?.ci?.e2e ?? {}
+  const packageName = packageLabel(manifest, packageDir)
+  if (!matchesSelection(packageName, selectedPackage)) continue
+
   const providers = e2e.providers ?? defaultProviders
   const frameworks = e2e.frameworks ?? discoverFrameworks(packageDir)
-  const packageName = packageLabel(manifest, packageDir)
 
   for (const framework of frameworks) {
+    if (!matchesSelection(framework, selectedFramework)) continue
     for (const provider of providers) {
+      if (!matchesSelection(provider, selectedProvider)) continue
       local.push({ framework, packageDir, packageName, provider })
     }
   }
 
-  if (!e2e.live?.enabled) continue
+  const liveConfig = e2e.live ?? {}
+  if (!liveConfig.enabled) continue
 
-  const liveProviders = e2e.live.providers ?? providers
-  const liveFrameworks = e2e.live.frameworks ?? frameworks
-  const appPrefix = e2e.live.appPrefix ?? `vitehub-${packageName}-playground`
-  const cloudflareWranglerTemplate = e2e.live.cloudflare?.wranglerTemplate
+  const liveProviders = liveConfig.providers ?? providers
+  const liveFrameworks = liveConfig.frameworks ?? frameworks
+  const appPrefix = liveConfig.appPrefix ?? `vitehub-${packageName}-playground`
+  const cloudflare = liveConfig.cloudflare ?? {}
+  const vercel = liveConfig.vercel ?? {}
+  const cloudflareDeployStrategy = cloudflare.strategy ?? "template"
+  const cloudflareWranglerTemplate = cloudflare.wranglerTemplate ?? "playground/_shared/wrangler.template.jsonc"
 
   for (const framework of liveFrameworks) {
+    if (!matchesSelection(framework, selectedFramework)) continue
     for (const provider of liveProviders) {
-      if (provider === "cloudflare" && cloudflareWranglerTemplate && !existsSync(join(packageDir, cloudflareWranglerTemplate))) continue
+      if (!matchesSelection(provider, selectedProvider)) continue
+      if (provider === "cloudflare" && cloudflareDeployStrategy === "template" && !existsSync(join(packageDir, cloudflareWranglerTemplate))) continue
       live.push({
         appName: `${appPrefix}-${framework}`,
+        cloudflareCreateQueues: Boolean(cloudflare.createQueues),
+        cloudflareCreateR2Bucket: Boolean(cloudflare.createR2Bucket),
+        cloudflareDeployStrategy,
         cloudflareWranglerTemplate,
         framework,
         packageDir,
         packageName,
         provider,
+        requiresVercelBlobDeployEnv: Boolean(vercel.deployEnv?.blobReadWriteToken),
+        requiresVercelKvBuildEnv: Boolean(vercel.buildEnv?.kv),
+        requiresVercelSandboxBuildEnv: Boolean(vercel.buildEnv?.sandbox),
       })
     }
   }

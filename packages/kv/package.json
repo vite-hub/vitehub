@@ -48,18 +48,42 @@
   "vitehub": {
     "ci": {
       "e2e": {
+        "frameworks": [
+          "nitro",
+          "nuxt",
+          "vite"
+        ],
+        "providers": [
+          "cloudflare",
+          "vercel"
+        ],
         "live": {
           "appPrefix": "vitehub-playground",
           "enabled": true,
+          "frameworks": [
+            "nitro",
+            "nuxt",
+            "vite"
+          ],
           "providers": [
-            "cloudflare"
-          ]
+            "cloudflare",
+            "vercel"
+          ],
+          "cloudflare": {
+            "strategy": "template",
+            "wranglerTemplate": "playground/_shared/wrangler.template.jsonc"
+          },
+          "vercel": {
+            "buildEnv": {
+              "kv": true
+            }
+          }
         }
       }
     }
   },
   "dependencies": {
-    "@nuxt/kit": "catalog:",
+    "@nuxt/kit": "catalog:nuxt-nightly",
     "defu": "catalog:",
     "exsolve": "catalog:",
     "unstorage": "catalog:"
@@ -85,7 +109,7 @@
     }
   },
   "devDependencies": {
-    "@nuxt/schema": "catalog:",
+    "@nuxt/schema": "catalog:nuxt-nightly",
     "@upstash/redis": "catalog:",
     "get-port-please": "catalog:",
     "miniflare": "catalog:",

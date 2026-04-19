@@ -63,15 +63,19 @@ export function createQueueRegistryContents(
   registryFile: string,
   definitions: DiscoveredQueueDefinition[],
 ): string {
-  const imports = definitions.map((definition) => {
+  const imports = definitions.map((definition, index) => {
     const relativePath = relative(resolve(registryFile, ".."), definition.handler).replace(/\\/g, "/")
     const importPath = relativePath.startsWith(".") ? relativePath : `./${relativePath}`
-    return `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(importPath)}),`
+    return `import * as queueDefinition${index} from ${JSON.stringify(importPath)}`
   })
+  const registry = definitions.map((definition, index) =>
+    `  ${JSON.stringify(definition.name)}: async () => queueDefinition${index},`)
 
   return [
-    "const registry = {",
     ...imports,
+    imports.length ? "" : "",
+    "const registry = {",
+    ...registry,
     "}",
     "",
     "export default registry",

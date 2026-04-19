@@ -23,12 +23,25 @@
   "sideEffects": false,
   "type": "module",
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub-queue-registry": {
+      "types": "./dist/runtime/empty-registry.d.ts",
+      "default": "./dist/runtime/empty-registry.js"
+    },
+    "#vitehub-queue-vercel-provider": {
+      "types": "./dist/runtime/vercel-provider.d.ts",
+      "default": "./dist/runtime/vercel-provider.js"
+    }
+  },
   "exports": {
     ".": "./dist/index.js",
     "./nitro": "./dist/nitro.js",
     "./nuxt": "./dist/nuxt.js",
+    "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
+    "./runtime/vercel-provider": "./dist/runtime/vercel-provider.js",
+    "./runtime/vercel-provider-stub": "./dist/runtime/vercel-provider-stub.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
@@ -46,19 +59,37 @@
   "vitehub": {
     "ci": {
       "e2e": {
+        "frameworks": [
+          "nitro",
+          "nuxt",
+          "vite-plugin"
+        ],
+        "providers": [
+          "cloudflare",
+          "vercel"
+        ],
         "live": {
           "appPrefix": "vitehub-queue-playground",
           "enabled": true,
+          "frameworks": [
+            "nitro",
+            "nuxt",
+            "vite-plugin"
+          ],
           "providers": [
             "cloudflare",
             "vercel"
-          ]
+          ],
+          "cloudflare": {
+            "createQueues": true,
+            "strategy": "generated"
+          }
         }
       }
     }
   },
   "dependencies": {
-    "@nuxt/kit": "catalog:",
+    "@nuxt/kit": "catalog:nuxt-nightly",
     "defu": "catalog:",
     "exsolve": "catalog:",
     "h3": "catalog:"
@@ -81,7 +112,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260305.1",
-    "@nuxt/schema": "catalog:",
+    "@nuxt/schema": "catalog:nuxt-nightly",
     "@vercel/queue": "^0.1.3",
     "get-port-please": "catalog:",
     "miniflare": "catalog:",

@@ -1,6 +1,5 @@
 import { defineNuxtModule } from "@nuxt/kit"
 import type { NitroConfig } from "nitro/types"
-import type { NuxtModule } from "@nuxt/schema"
 
 import type { QueueModuleOptions } from "../types.ts"
 
@@ -13,31 +12,18 @@ function installQueueNitroModule(nitro: NitroConfig, queue: QueueModuleOptions |
   if (queue !== undefined) nitro.queue = queue
 }
 
-const queueNuxtModule: NuxtModule<QueueNuxtOptions, QueueNuxtOptions, false> = defineNuxtModule<QueueNuxtOptions>({
+const queueNuxtModule: ReturnType<typeof defineNuxtModule<QueueNuxtOptions>> = defineNuxtModule<QueueNuxtOptions>({
   meta: { configKey: "queue", name: "@vitehub/queue/nuxt" },
-  setup(inlineOptions, nuxt) {
-    const topLevel = nuxt.options.queue
+  setup(inlineOptions: QueueNuxtOptions, nuxt: { options: Record<string, any>; hook: (...args: any[]) => unknown }) {
+    const nuxtOptions = nuxt.options as Record<string, any>
+    const topLevel = nuxtOptions.queue as QueueModuleOptions | false | undefined
     if (topLevel === false) return
 
     const queue = topLevel ?? inlineOptions
-    nuxt.options.nitro ||= {}
-    installQueueNitroModule(nuxt.options.nitro, queue)
-    nuxt.hook("nitro:config", config => installQueueNitroModule(config, queue))
+    const nitro = nuxtOptions.nitro ||= {}
+    installQueueNitroModule(nitro, queue)
+    ;(nuxt.hook as any)("nitro:config", (config: NitroConfig) => installQueueNitroModule(config, queue))
   },
 })
 
 export default queueNuxtModule
-
-declare module "@nuxt/schema" {
-  interface NuxtConfig {
-    nitro?: NitroConfig
-    queue?: QueueModuleOptions
-  }
-  interface NuxtOptions {
-    nitro?: NitroConfig
-    queue?: QueueModuleOptions
-  }
-  interface NuxtHooks {
-    "nitro:config": (config: NitroConfig) => void | Promise<void>
-  }
-}

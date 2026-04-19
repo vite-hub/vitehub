@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import runtimeRegistry from "#vitehub-queue-registry"
 
 import type {
   QueueClient,
@@ -48,24 +49,15 @@ export function resetQueueRuntimeState(): void {
   queueClientCache.clear()
 }
 
-// `#vitehub-queue-registry` is aliased by `src/nitro/module.ts` to the
-// build-emitted registry (`writeQueueRuntimeFiles`). In non-Nitro builds the
-// specifier doesn't resolve; tests and non-Nitro consumers should call
-// `setQueueRuntimeRegistry()` instead of relying on the catch-swallow below.
-async function loadRuntimeRegistry(): Promise<QueueDefinitionRegistry> {
+// `#vitehub-queue-registry` resolves to `runtime/empty-registry` by default
+// and is aliased by `src/nitro/module.ts` to the build-emitted registry.
+function loadRuntimeRegistry(): QueueDefinitionRegistry {
   if (registryOverride) return registryOverride
-
-  try {
-    const loaded = await import("#vitehub-queue-registry") as { default?: QueueDefinitionRegistry }
-    return loaded.default || {}
-  }
-  catch {
-    return {}
-  }
+  return runtimeRegistry || {}
 }
 
 export async function loadQueueDefinition(name: string): Promise<QueueDefinition | undefined> {
-  const entries = await loadRuntimeRegistry()
+  const entries = loadRuntimeRegistry()
   const entry = entries[name]
   if (!entry) return
 
