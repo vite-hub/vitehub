@@ -46,24 +46,25 @@ deferQueue('welcome-email', {
 
 ### `getQueue(name)`
 
-Use `getQueue()` when you need the active provider handle.
+Use `getQueue()` when you need the active hosted provider handle.
 
 ```ts
 const queue = await getQueue('welcome-email')
 console.log(queue.provider)
 ```
 
+In local Node development, ViteHub falls back to an internal in-memory queue runner when no hosted provider is configured. That fallback is used by `runQueue()` and `deferQueue()`, but `getQueue()` only returns hosted Cloudflare or Vercel clients.
+
 ## Config type
 
 ```ts
-type QueueProvider = 'cloudflare' | 'vercel' | 'memory'
+type QueueProvider = 'cloudflare' | 'vercel'
 ```
 
 ```ts
 type QueueModuleOptions =
   | false
   | { provider?: undefined, cache?: boolean }
-  | { provider: 'memory', cache?: boolean }
   | { provider: 'cloudflare', binding?: string, cache?: boolean }
   | { provider: 'vercel', region?: string, cache?: boolean }
 ```

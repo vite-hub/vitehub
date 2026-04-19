@@ -6,7 +6,7 @@ navigation.order: 1
 icon: i-lucide-rocket
 ---
 
-This quickstart uses the Memory provider so you can verify the queue flow locally with minimal setup.
+This quickstart uses the local in-memory fallback so you can verify the queue flow locally with minimal setup.
 
 ## Configure Queue
 
@@ -19,9 +19,6 @@ import { hubQueue } from '@vitehub/queue/vite'
 
 export default defineConfig({
   plugins: [hubQueue()],
-  queue: {
-    provider: 'memory',
-  },
 })
 ```
 ::
@@ -32,9 +29,6 @@ import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
   modules: ['@vitehub/queue/nitro'],
-  queue: {
-    provider: 'memory',
-  },
 })
 ```
 ::
@@ -43,9 +37,6 @@ export default defineNitroConfig({
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['@vitehub/queue/nuxt'],
-  queue: {
-    provider: 'memory',
-  },
 })
 ```
 ::
@@ -96,7 +87,7 @@ Start the app and send one request:
 curl -X POST http://localhost:3000/api/queues/welcome
 ```
 
-With the Memory provider, the route returns a queued result and the handler logs the email payload.
+With the local in-memory fallback, the route returns a queued result and the handler logs the email payload.
 
 ## Next steps
 

@@ -1,15 +1,17 @@
 ---
 title: Memory Queue
-description: Use the local in-process queue provider.
+description: Use the local in-process queue fallback.
 navigation.title: Memory
 navigation.group: Providers
 navigation.order: 12
 icon: i-lucide-memory-stick
 ---
 
-Memory is the default local provider. It stores messages in process memory and runs discovered handlers after enqueue.
+Memory is the default local fallback. It stores messages in process memory and runs discovered handlers after enqueue.
 
 ## Configuration
+
+Memory is internal. To use it locally, leave `queue.provider` unset outside hosted platforms.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
@@ -18,9 +20,6 @@ import { hubQueue } from '@vitehub/queue/vite'
 
 export default defineConfig({
   plugins: [hubQueue()],
-  queue: {
-    provider: 'memory',
-  },
 })
 ```
 ::
@@ -31,9 +30,6 @@ import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
   modules: ['@vitehub/queue/nitro'],
-  queue: {
-    provider: 'memory',
-  },
 })
 ```
 ::
@@ -42,9 +38,6 @@ export default defineNitroConfig({
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['@vitehub/queue/nuxt'],
-  queue: {
-    provider: 'memory',
-  },
 })
 ```
 ::

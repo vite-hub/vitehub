@@ -168,7 +168,7 @@ async function createNamedQueueClient(name: string): Promise<InternalQueueClient
  * Resolve a queue client by declared name, caching when the provider allows it.
  * Throws `QUEUE_DEFINITION_NOT_FOUND` if no `defineQueue` registered `name`.
  */
-async function getInternalQueue(name: string): Promise<InternalQueueClient> {
+export async function getInternalQueue(name: string): Promise<InternalQueueClient> {
   const definition = await loadQueueDefinition(name)
   if (!definition) {
     throw new QueueError(`Unknown queue definition: ${name}`, {
@@ -198,7 +198,17 @@ async function getInternalQueue(name: string): Promise<InternalQueueClient> {
 }
 
 export async function getQueue(name: string): Promise<QueueClient> {
-  return await getInternalQueue(name) as QueueClient
+  const queue = await getInternalQueue(name)
+  if (queue.provider === "memory") {
+    throw new QueueError("`getQueue()` does not expose the internal memory queue provider. Use `runQueue()` for local queue execution or createMemoryQueueClient() in tests.", {
+      code: "QUEUE_PROVIDER_UNAVAILABLE",
+      details: { name, provider: queue.provider },
+      httpStatus: 400,
+      provider: queue.provider,
+    })
+  }
+
+  return queue
 }
 
 /**

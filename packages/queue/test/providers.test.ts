@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createQueue, createQueueClient, defineQueue, getQueue, getVercelQueueTopicName, runQueue } from "../src/index.ts"
 import { createCloudflareQueueBatchHandler } from "../src/providers/cloudflare.ts"
 import { createMemoryQueueClient } from "../src/providers/memory.ts"
+import { getInternalQueue } from "../src/runtime/client.ts"
 import { resetQueueRuntimeState, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
-import type { MemoryQueueClient, VercelQueueSDK } from "../src/types.ts"
+import type { VercelQueueSDK } from "../src/types.ts"
 
 afterEach(() => {
   vi.doUnmock("@vercel/queue")
@@ -117,7 +118,7 @@ describe("memory provider", () => {
     await runQueue("welcome-email", { id: "welcome-ava", payload: { email: "ava@example.com" } })
     await new Promise(resolve => setTimeout(resolve, 0))
 
-    const queue = await getQueue("welcome-email") as unknown as MemoryQueueClient
+    const queue = await getInternalQueue("welcome-email")
     expect(queue.provider).toBe("memory")
     if (queue.provider !== "memory") throw new Error("expected memory")
     expect(queue.size()).toBe(0)
@@ -135,7 +136,7 @@ describe("memory provider", () => {
       }),
     })
 
-    const queue = await getQueue("welcome-email") as unknown as MemoryQueueClient
+    const queue = await getInternalQueue("welcome-email")
     expect(queue.provider).toBe("memory")
     if (queue.provider !== "memory") throw new Error("expected memory")
 
@@ -156,10 +157,23 @@ describe("memory provider", () => {
       "welcome-email": async () => ({ default: defineQueue(async () => undefined) }),
     })
 
-    const first = await getQueue("welcome-email")
-    const second = await getQueue("welcome-email")
+    const first = await getInternalQueue("welcome-email")
+    const second = await getInternalQueue("welcome-email")
 
     expect(first).not.toBe(second)
+  })
+
+  it("rejects getQueue() when the active runtime falls back to memory", async () => {
+    setQueueRuntimeConfig({ provider: { provider: "memory" } })
+    setQueueRuntimeRegistry({
+      "welcome-email": async () => ({ default: defineQueue(async () => undefined) }),
+    })
+
+    await expect(getQueue("welcome-email")).rejects.toMatchObject({
+      code: "QUEUE_PROVIDER_UNAVAILABLE",
+      httpStatus: 400,
+      provider: "memory",
+    })
   })
 })
 

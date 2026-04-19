@@ -71,7 +71,7 @@ During Vercel builds, ViteHub generates hidden queue consumer functions in `.ver
 
 ## Local development
 
-ViteHub does not manage a local Vercel queue emulator. Use `queue.provider = 'memory'` for local contract testing, then deploy with the Vercel provider.
+ViteHub does not manage a local Vercel queue emulator. Leave `queue.provider` unset for local contract testing, then deploy with the Vercel provider.
 
 ## Related
 

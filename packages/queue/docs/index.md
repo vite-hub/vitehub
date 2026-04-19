@@ -5,11 +5,11 @@ navigation.title: Overview
 icon: i-lucide-list-restart
 ---
 
-`@vitehub/queue` discovers named queue definitions and sends jobs through the active provider. The first supported providers are Memory, Cloudflare Queues, and Vercel Queues.
+`@vitehub/queue` discovers named queue definitions and sends jobs through the active provider. Hosted providers are Cloudflare Queues and Vercel Queues, with an internal in-memory fallback for local development and tests.
 
 ## Getting started
 
-Start with [Quickstart](./quickstart) to define one queue and enqueue one job. The default local provider is Memory, so you can test the API before choosing a hosted provider.
+Start with [Quickstart](./quickstart) to define one queue and enqueue one job. Local Node development falls back to an internal in-memory runner so you can test the API before choosing a hosted provider.
 
 ## Automatic configuration
 
@@ -19,7 +19,7 @@ ViteHub resolves the queue provider in this order:
 2. Explicit `queue.provider` config wins.
 3. Cloudflare hosting defaults to `cloudflare`.
 4. Vercel hosting defaults to `vercel`.
-5. Everything else falls back to `memory`.
+5. Everything else falls back to the internal in-memory runner.
 
 This mirrors the `normalizeQueueOptions` runtime logic.
 
@@ -37,7 +37,7 @@ Use this path when queue publishing and callbacks should stay inside the Vercel 
 
 Read [Vercel](./providers/vercel) for topics, callback routes, and SDK behavior.
 
-### Memory
+### Local fallback
 
 Use this path for local development and tests. Jobs are stored in process memory and handlers run after enqueue.
 
@@ -93,7 +93,7 @@ These pieces stay stable when you change providers:
   :::u-page-card
   ---
   title: Memory
-  description: Use the local provider.
+  description: Review the local in-memory fallback.
   to: ./providers/memory
   ---
   :::
