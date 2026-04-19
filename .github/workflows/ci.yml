@@ -165,7 +165,7 @@ jobs:
                   url="$candidate"
                   break
                 fi
-              done < <(grep -Eo 'https://[^[:space:]]+\\.vercel\\.app' "$RUNNER_TEMP/vercel-list.log")
+              done < <(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$RUNNER_TEMP/vercel-list.log")
               if [ -z "$url" ]; then
                 cat "$RUNNER_TEMP/vercel-list.log"
                 echo "Could not determine a healthy fallback Vercel deployment URL." >&2
@@ -178,7 +178,7 @@ jobs:
           else
             url="$(grep -Eo 'Production:[[:space:]]+https://[^[:space:]]+' "$RUNNER_TEMP/vercel-deploy.log" | awk '{print $2}' | tail -n1)"
             if [ -z "$url" ]; then
-              url="$(grep -Eo 'https://[^[:space:]]+\\.vercel\\.app' "$RUNNER_TEMP/vercel-deploy.log" | tail -n1)"
+              url="$(grep -Eo 'https://[^[:space:]]+\.vercel\.app' "$RUNNER_TEMP/vercel-deploy.log" | tail -n1)"
             fi
             if [ -z "$url" ]; then
               cat "$RUNNER_TEMP/vercel-deploy.log"
