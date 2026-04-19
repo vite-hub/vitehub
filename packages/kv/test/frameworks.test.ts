@@ -240,7 +240,7 @@ describe("Nuxt module", () => {
   })
 
   it("short-circuits disabled config", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
@@ -254,7 +254,7 @@ describe("Nuxt module", () => {
   })
 
   it("installs the Nitro module once and forwards config", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
@@ -291,7 +291,7 @@ describe("Nuxt module", () => {
   })
 
   it("does not force fs-lite when no Nuxt config is provided", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>
@@ -317,7 +317,7 @@ describe("Nuxt module", () => {
   })
 
   it("forwards inline module options when top-level config is absent", async () => {
-    const module = (await import("../src/nuxt/module.ts")).default as (
+    const module = (await import("../src/nuxt/module.ts")).default as unknown as (
       inlineOptions: unknown,
       nuxt: unknown,
     ) => Promise<void>

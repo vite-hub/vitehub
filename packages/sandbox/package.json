@@ -1,14 +1,14 @@
 {
-  "name": "@vitehub/kv",
+  "name": "@vitehub/sandbox",
   "version": "0.0.0",
-  "description": "Vite-first key-value storage primitives and Nitro/Nuxt integration for ViteHub.",
+  "description": "Sandbox execution primitives and Nitro/Nuxt integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
-    "directory": "packages/kv"
+    "directory": "packages/sandbox"
   },
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "keywords": [
@@ -16,19 +16,34 @@
     "vite",
     "nitro",
     "nuxt",
-    "kv",
+    "sandbox",
     "cloudflare",
     "vercel"
   ],
   "sideEffects": false,
   "type": "module",
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub-sandbox-provider-loader": {
+      "types": "./dist/runtime/provider-loader.d.ts",
+      "default": "./dist/runtime/provider-loader.js"
+    },
+    "#vitehub-sandbox-registry": {
+      "types": "./dist/runtime/empty-registry.d.ts",
+      "default": "./dist/runtime/empty-registry.js"
+    }
+  },
   "exports": {
     ".": "./dist/index.js",
     "./nitro": "./dist/nitro.js",
     "./nuxt": "./dist/nuxt.js",
+    "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
-    "./virtual": "./dist/virtual.js",
+    "./runtime/provider-loader": "./dist/runtime/provider-loader.js",
+    "./runtime/providers/cloudflare": "./dist/runtime/providers/cloudflare.js",
+    "./runtime/providers/vercel": "./dist/runtime/providers/vercel.js",
+    "./sandbox/providers/cloudflare": "./dist/sandbox/providers/cloudflare.js",
+    "./sandbox/providers/vercel": "./dist/sandbox/providers/vercel.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
@@ -56,7 +71,7 @@
           "vercel"
         ],
         "live": {
-          "appPrefix": "vitehub-playground",
+          "appPrefix": "vitehub-sandbox-playground",
           "enabled": true,
           "frameworks": [
             "nitro",
@@ -68,12 +83,12 @@
             "vercel"
           ],
           "cloudflare": {
-            "strategy": "template",
-            "wranglerTemplate": "playground/_shared/wrangler.template.jsonc"
+            "strategy": "generated"
           },
           "vercel": {
             "buildEnv": {
-              "kv": true
+              "kv": true,
+              "sandbox": true
             }
           }
         }
@@ -82,17 +97,29 @@
   },
   "dependencies": {
     "@nuxt/kit": "catalog:nuxt-nightly",
-    "defu": "catalog:",
-    "exsolve": "catalog:",
-    "unstorage": "catalog:"
+    "esbuild": "catalog:",
+    "h3": "catalog:",
+    "local-pkg": "catalog:",
+    "mlly": "catalog:",
+    "pathe": "catalog:",
+    "pkg-types": "catalog:",
+    "rollup": "catalog:",
+    "scule": "catalog:",
+    "ufo": "catalog:",
+    "unctx": "catalog:",
+    "unimport": "catalog:"
   },
   "peerDependencies": {
-    "@upstash/redis": "^1.37.0",
+    "@cloudflare/sandbox": "catalog:",
+    "@vercel/sandbox": "catalog:",
     "nitro": "^3.0.0-0",
-    "vite": ">=6.0.0"
+    "vite": ">=8.0.0"
   },
   "peerDependenciesMeta": {
-    "@upstash/redis": {
+    "@cloudflare/sandbox": {
+      "optional": true
+    },
+    "@vercel/sandbox": {
       "optional": true
     },
     "nitro": {
@@ -103,10 +130,12 @@
     }
   },
   "devDependencies": {
+    "@cloudflare/sandbox": "catalog:",
     "@nuxt/schema": "catalog:nuxt-nightly",
-    "@upstash/redis": "catalog:",
+    "@vercel/sandbox": "catalog:",
     "get-port-please": "catalog:",
     "miniflare": "catalog:",
+    "nitro": "catalog:",
     "ofetch": "catalog:",
     "publint": "^0.3.15",
     "tinyexec": "catalog:",
