@@ -177,32 +177,27 @@ jobs:
             if grep -q 'api-deployments-free-per-day' "$RUNNER_TEMP/vercel-deploy.log"; then
               echo "Vercel deployment quota reached, reusing the latest ready production deployment for ${{ matrix.appName }}."
               npx vercel ls ${{ matrix.appName }} --status READY --environment production --token "$VERCEL_TOKEN" --no-color > "$RUNNER_TEMP/vercel-list.log"
-              node <<'NODE'
-              const fs = require("node:fs")
-              const output = fs.readFileSync(`${process.env.RUNNER_TEMP}/vercel-list.log`, "utf8")
-              const url = [...output.matchAll(/https:\/\/[^\s]+\.vercel\.app/g)].at(0)?.[0]
-              if (!url) {
-                console.error(output)
-                throw new Error("Could not determine a fallback Vercel deployment URL.")
-              }
-              fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/live-url.txt`, `${url}\n`)
-              NODE
+              url="$(grep -Eo 'https://[^[:space:]]+\\.vercel\\.app' "$RUNNER_TEMP/vercel-list.log" | head -n1)"
+              if [ -z "$url" ]; then
+                cat "$RUNNER_TEMP/vercel-list.log"
+                echo "Could not determine a fallback Vercel deployment URL." >&2
+                exit 1
+              fi
+              printf '%s\n' "$url" > "$GITHUB_WORKSPACE/live-url.txt"
             else
               exit 1
             fi
           else
-            node <<'NODE'
-            const fs = require("node:fs")
-            const output = fs.readFileSync(`${process.env.RUNNER_TEMP}/vercel-deploy.log`, "utf8")
-            const production = [...output.matchAll(/Production:\s+(https:\/\/[^\s]+)/g)].at(-1)?.[1]
-            const fallback = [...output.matchAll(/https:\/\/[^\s]+\.vercel\.app/g)].at(-1)?.[0]
-            const url = production ?? fallback
-            if (!url) {
-              console.error(output)
-              throw new Error("Could not determine Vercel deployment URL.")
-            }
-            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/live-url.txt`, `${url}\n`)
-            NODE
+            url="$(grep -Eo 'Production:[[:space:]]+https://[^[:space:]]+' "$RUNNER_TEMP/vercel-deploy.log" | awk '{print $2}' | tail -n1)"
+            if [ -z "$url" ]; then
+              url="$(grep -Eo 'https://[^[:space:]]+\\.vercel\\.app' "$RUNNER_TEMP/vercel-deploy.log" | tail -n1)"
+            fi
+            if [ -z "$url" ]; then
+              cat "$RUNNER_TEMP/vercel-deploy.log"
+              echo "Could not determine Vercel deployment URL." >&2
+              exit 1
+            fi
+            printf '%s\n' "$url" > "$GITHUB_WORKSPACE/live-url.txt"
           fi
 
       - name: E2E Live (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
