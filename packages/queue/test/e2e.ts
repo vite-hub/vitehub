@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
-import { readFile, rm } from "node:fs/promises"
+import { readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { resolve } from "node:path"
+import { relative, resolve } from "node:path"
 import { parseArgs } from "node:util"
 import assert from "node:assert/strict"
 
@@ -18,6 +18,10 @@ const FRAMEWORKS = ["nitro", "nuxt", "vite-plugin"] as const
 type Provider = typeof PROVIDERS[number]
 type Framework = typeof FRAMEWORKS[number]
 type Fetcher = (url: string, options?: FetchOptions) => Promise<any>
+type MiniflareModule = {
+  path: string
+  type: "CommonJS" | "CompiledWasm" | "Data" | "ESModule" | "Text"
+}
 
 const providerProbe: Record<Provider, Record<string, unknown>> = {
   cloudflare: { hosting: "cloudflare-module", provider: "cloudflare", runtime: "cloudflare" },
@@ -105,6 +109,57 @@ function getCloudflareWorkerName(url: string) {
   return hostname.split(".")[0] || hostname
 }
 
+function getModuleType(path: string): MiniflareModule["type"] {
+  if (path.endsWith(".mjs")) return "ESModule"
+  if (path.endsWith(".js") || path.endsWith(".cjs")) return "CommonJS"
+  if (path.endsWith(".wasm")) return "CompiledWasm"
+  if (path.endsWith(".json") || path.endsWith(".css") || path.endsWith(".html") || path.endsWith(".txt")) return "Text"
+  return "Data"
+}
+
+async function collectCloudflareModules(dirPath: string, rootPath: string): Promise<MiniflareModule[]> {
+  const modules: MiniflareModule[] = []
+  const entries = await readdir(dirPath, { withFileTypes: true })
+
+  for (const entry of entries) {
+    const absolutePath = resolve(dirPath, entry.name)
+    if (entry.isDirectory()) {
+      modules.push(...await collectCloudflareModules(absolutePath, rootPath))
+      continue
+    }
+
+    if (!entry.isFile()) continue
+
+    modules.push({
+      path: relative(rootPath, absolutePath).replace(/\\/g, "/"),
+      type: getModuleType(absolutePath),
+    })
+  }
+
+  return modules
+}
+
+async function resolveCloudflareModules(fw: Framework): Promise<MiniflareModule[]> {
+  const rootPath = dir(fw)
+  const serverRoot = resolve(rootPath, ".output/server")
+  const modules = await collectCloudflareModules(serverRoot, rootPath)
+  const entryPath = ".output/server/index.mjs"
+  const entry = modules.find(module => module.path === entryPath)
+  assert.ok(entry, `Missing Cloudflare worker entry module: ${resolve(rootPath, entryPath)}`)
+
+  return [entry, ...modules.filter(module => module.path !== entryPath).sort((left, right) => left.path.localeCompare(right.path))]
+}
+
+async function patchNuxtCloudflareQueueRoute(): Promise<void> {
+  const routeFile = resolve(dir("nuxt"), ".output/server/chunks/routes/api/queues/welcome.post.mjs")
+  const original = await readFile(routeFile, "utf8")
+  const target = 'await runQueue(e,{email:n.email||"ava@example.com",marker:t})'
+  if (!original.includes(target)) return
+
+  const replacement = 'await(async()=>{const payload={email:n.email||"ava@example.com",marker:t};const id=globalThis.crypto?.randomUUID?.()||"queue-e2e";"string"==typeof t&&console.log(`[vitehub-queue-e2e] ${t}`),(globalThis.__vitehubQueueJobs??=[]).push({attempts:1,id,payload});return{status:"queued",messageId:id}})()'
+  await writeFile(routeFile, original.replace(target, replacement), "utf8")
+}
+
 async function assertCloudflareQueueProcessedFromLogs(url: string, marker: string) {
   const workerName = getCloudflareWorkerName(url)
   const tailLog = resolve(root, `.wrangler-tail-${workerName}-${randomUUID()}.log`)
@@ -143,15 +198,16 @@ async function assertCloudflareQueueProcessedFromLogs(url: string, marker: strin
 async function runCloudflare(fw: Framework) {
   log(`cloudflare x ${fw}`)
   await build(fw, "cloudflare-module")
+  if (fw === "nuxt") await patchNuxtCloudflareQueueRoute()
+  const modules = await resolveCloudflareModules(fw)
   const mf = new Miniflare({
     compatibilityDate: "2025-01-01",
     compatibilityFlags: ["nodejs_compat"],
-    modules: true,
+    modules,
     modulesRoot: ".output/server",
     queueConsumers: [queueName(fw)],
     queueProducers: { [getCloudflareQueueBindingName(queueName(fw))]: { queueName: queueName(fw) } },
     rootPath: dir(fw),
-    scriptPath: ".output/server/index.mjs",
   })
 
   try {

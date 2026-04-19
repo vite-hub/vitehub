@@ -5,6 +5,7 @@ import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel-topic.ts"
 import { createCloudflareQueueClient } from "../providers/cloudflare.ts"
 import { createMemoryQueueClient } from "../providers/memory.ts"
+import { createVercelQueueClient as createConfiguredVercelQueueClient } from "./vercel-provider.ts"
 import {
   getQueueClientCache,
   getQueueRuntimeConfig,
@@ -25,25 +26,6 @@ import type {
   ResolvedQueueModuleOptions,
   InternalResolvedQueueModuleProviderOptions,
 } from "../types.ts"
-
-type VercelProviderModule = {
-  createVercelQueueClient: typeof import("../providers/vercel.ts")["createVercelQueueClient"]
-}
-
-async function loadVercelProviderModule(): Promise<VercelProviderModule> {
-  try {
-    return await import("#vitehub-queue-vercel-provider") as VercelProviderModule
-  }
-  catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if ((error as { code?: unknown } | undefined)?.code !== "ERR_MODULE_NOT_FOUND"
-      && !message.includes("#vitehub-queue-vercel-provider")) {
-      throw error
-    }
-
-    return await import(/* @vite-ignore */ ["./vercel-provider", ".ts"].join("")) as VercelProviderModule
-  }
-}
 
 function getCloudflareEnv(event: unknown): Record<string, unknown> | undefined {
   const target = event as {
@@ -126,7 +108,7 @@ export async function createQueueClient(options?: QueueProviderOptions): Promise
   }
 
   if (options.provider === "cloudflare") return createCloudflareQueueClient(options)
-  return await (await loadVercelProviderModule()).createVercelQueueClient(options)
+  return await createConfiguredVercelQueueClient(options)
 }
 
 async function createInternalQueueClient(options?: InternalQueueProviderOptions): Promise<InternalQueueClient> {
@@ -134,7 +116,7 @@ async function createInternalQueueClient(options?: InternalQueueProviderOptions)
 
   if (provider.provider === "cloudflare") return createCloudflareQueueClient(provider)
   if (provider.provider === "vercel") {
-    return await (await loadVercelProviderModule()).createVercelQueueClient(provider)
+    return await createConfiguredVercelQueueClient(provider)
   }
   return createMemoryQueueClient(provider)
 }

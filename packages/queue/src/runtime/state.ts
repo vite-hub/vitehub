@@ -6,6 +6,7 @@ import type {
   QueueDefinitionRegistry,
   ResolvedQueueModuleOptions,
 } from "../types.ts"
+import runtimeRegistry from "./empty-registry.ts"
 
 let runtimeConfig: false | ResolvedQueueModuleOptions | undefined
 let registryOverride: QueueDefinitionRegistry | undefined
@@ -48,27 +49,9 @@ export function resetQueueRuntimeState(): void {
   queueClientCache.clear()
 }
 
-type QueueRegistryModule = {
-  default: QueueDefinitionRegistry
-}
-
-// `#vitehub-queue-registry` resolves to `runtime/empty-registry` by default
-// and is aliased by `src/nitro/module.ts` to the build-emitted registry.
 async function loadRuntimeRegistry(): Promise<QueueDefinitionRegistry> {
   if (registryOverride) return registryOverride
-
-  try {
-    return (await import("#vitehub-queue-registry") as QueueRegistryModule).default || {}
-  }
-  catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if ((error as { code?: unknown } | undefined)?.code !== "ERR_MODULE_NOT_FOUND"
-      && !message.includes("#vitehub-queue-registry")) {
-      throw error
-    }
-
-    return (await import(/* @vite-ignore */ ["./empty-registry", ".ts"].join("")) as QueueRegistryModule).default
-  }
+  return runtimeRegistry || {}
 }
 
 export async function loadQueueDefinition(name: string): Promise<QueueDefinition | undefined> {

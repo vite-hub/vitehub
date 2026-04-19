@@ -83,6 +83,11 @@ const queueNitroModule: NitroModule = {
     const definitions = discoverQueueDefinitions(nitro.options)
     const isVercelProvider = resolved.provider.provider === "vercel"
     const { hostedHandlers, registryFile } = writeQueueRuntimeFiles(nitro.options.buildDir, definitions, isVercelProvider)
+    const registryRuntimeEntry = resolveRuntimeEntry("../runtime/empty-registry", "@vitehub/queue/runtime/empty-registry")
+    const vercelProviderRuntimeEntry = resolveRuntimeEntry("../runtime/vercel-provider", "@vitehub/queue/runtime/vercel-provider")
+    const resolvedVercelProviderRuntimeEntry = isVercelProvider
+      ? vercelProviderRuntimeEntry
+      : resolveRuntimeEntry("../runtime/vercel-provider-stub", "@vitehub/queue/runtime/vercel-provider-stub")
     nitro.hooks.hook("build:before", () => {
       writeQueueRuntimeFiles(nitro.options.buildDir, definitions, isVercelProvider)
     })
@@ -92,10 +97,10 @@ const queueNitroModule: NitroModule = {
     if (isVercelProvider) {
       nitro.options.alias["@vitehub/queue/runtime/hosted"] = resolveRuntimeEntry("../runtime/hosted", "@vitehub/queue/runtime/hosted")
     }
-    nitro.options.alias["#vitehub-queue-registry"] = registryFile
-    nitro.options.alias["#vitehub-queue-vercel-provider"] = isVercelProvider
-      ? resolveRuntimeEntry("../runtime/vercel-provider", "@vitehub/queue/runtime/vercel-provider")
-      : resolveRuntimeEntry("../runtime/vercel-provider-stub", "@vitehub/queue/runtime/vercel-provider-stub")
+    nitro.options.alias["@vitehub/queue/runtime/registry"] = registryFile
+    nitro.options.alias["@vitehub/queue/runtime/vercel-provider"] = resolvedVercelProviderRuntimeEntry
+    nitro.options.alias[registryRuntimeEntry] = registryFile
+    nitro.options.alias[vercelProviderRuntimeEntry] = resolvedVercelProviderRuntimeEntry
     for (const definition of definitions) {
       nitro.options.alias[`#vitehub-queue-definition/${definition.name}`] = definition.handler
     }
