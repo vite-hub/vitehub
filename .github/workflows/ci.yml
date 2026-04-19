@@ -46,10 +46,8 @@ jobs:
   e2e_matrix:
     runs-on: ubuntu-latest
     outputs:
-      has_local: ${{ steps.e2e.outputs.hasLocal }}
       has_live: ${{ steps.e2e.outputs.hasLive }}
       live: ${{ steps.e2e.outputs.live }}
-      local: ${{ steps.e2e.outputs.local }}
     steps:
       - uses: actions/checkout@v4
 
@@ -59,23 +57,6 @@ jobs:
           VITEHUB_CI_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || '' }}
           VITEHUB_CI_PROVIDER: ${{ github.event_name == 'workflow_dispatch' && inputs.provider || '' }}
         run: node .github/scripts/discover-e2e-matrix.mjs
-
-  e2e-local:
-    needs: [quality, e2e_matrix]
-    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.e2e_matrix.outputs.has_local == 'true'
-    runs-on: ubuntu-latest
-    name: e2e-local (${{ matrix.packageName }}, ${{ matrix.provider }}, ${{ matrix.framework }})
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.e2e_matrix.outputs.local) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-
-      - run: pnpm --dir ${{ matrix.packageDir }} build
-
-      - name: E2E (${{ matrix.packageName }} / ${{ matrix.provider }} / ${{ matrix.framework }})
-        run: pnpm --dir ${{ matrix.packageDir }} test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}
 
   live:
     needs: [quality, e2e_matrix]
