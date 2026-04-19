@@ -3,8 +3,8 @@
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
     "paths": {
-      "#vitehub-queue-registry": ["./src/runtime/empty-registry.ts"],
-      "#vitehub-queue-vercel-provider": ["./src/runtime/vercel-provider.ts"]
+      "@vitehub/queue/runtime/registry": ["./src/runtime/empty-registry.ts"],
+      "@vitehub/queue/runtime/vercel-provider": ["./src/runtime/vercel-provider.ts"]
     },
     "rootDir": "."
   },

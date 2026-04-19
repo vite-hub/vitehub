@@ -183,7 +183,7 @@ describe("Nitro module", () => {
     })
     expect(nitroOptions.alias["@vitehub/queue"]).toContain("/packages/queue/src/index.ts")
     expect(nitroOptions.alias["@vitehub/queue/runtime/hosted"]).toBeUndefined()
-    expect(nitroOptions.alias["#vitehub-queue-registry"]).toContain("registry.mjs")
+    expect(nitroOptions.alias["@vitehub/queue/runtime/registry"]).toContain("registry.mjs")
     expect(nitroOptions.alias["#vitehub-queue-definition/welcome-email"]).toBe(join(root, "server", "queues", "welcome-email.ts"))
     expect(nitro.options.plugins).toHaveLength(1)
     expect(nitro.options.handlers).toEqual([])
