@@ -28,6 +28,8 @@
     "./nitro": "./dist/nitro.js",
     "./nuxt": "./dist/nuxt.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
+    "./runtime/nitropack-plugin": "./dist/runtime/nitropack-plugin.js",
+    "./runtime/nitropack-storage": "./dist/runtime/nitropack-storage.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
