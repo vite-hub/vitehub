@@ -126,7 +126,7 @@ export async function createQueueClient(options?: QueueProviderOptions): Promise
   }
 
   if (options.provider === "cloudflare") return createCloudflareQueueClient(options)
-  return await createVercelQueueClient(options)
+  return await (await loadVercelProviderModule()).createVercelQueueClient(options)
 }
 
 async function createInternalQueueClient(options?: InternalQueueProviderOptions): Promise<InternalQueueClient> {
@@ -149,7 +149,7 @@ function getActiveQueueConfig(): ResolvedQueueModuleOptions | false {
   return config || normalizeQueueOptions(undefined) || { provider: { provider: "memory" } }
 }
 
-async function createNamedQueueClient(name: string): Promise<QueueClient> {
+async function createNamedQueueClient(name: string): Promise<InternalQueueClient> {
   const config = getActiveQueueConfig()
   if (config === false) {
     throw new QueueError("Queue is disabled.", {
