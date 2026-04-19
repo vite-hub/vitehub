@@ -14,12 +14,6 @@
       "label": "Vercel",
       "icon": "i-simple-icons-vercel",
       "configOverride": "  queue: {\n    provider: 'vercel',\n  },"
-    },
-    {
-      "id": "memory",
-      "label": "Memory",
-      "icon": "i-lucide-memory-stick",
-      "configOverride": "  queue: {\n    provider: 'memory',\n  },"
     }
   ],
   "frameworks": {

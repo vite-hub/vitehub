@@ -1,5 +1,5 @@
 import { decodeQueueNameHex, encodeQueueNameHex } from "./encoding.ts"
-import type { DiscoveredQueueDefinition, QueueModuleProviderOptions } from "../types.ts"
+import type { DiscoveredQueueDefinition, InternalResolvedQueueModuleProviderOptions } from "../types.ts"
 
 export const defaultCloudflareQueueBindingPrefix = "QUEUE"
 const cloudflareQueueNamePattern = /^[A-Za-z0-9-]+$/
@@ -41,7 +41,7 @@ export function configureCloudflareQueues(
     }
   },
   definitions: DiscoveredQueueDefinition[],
-  provider?: QueueModuleProviderOptions,
+  provider?: InternalResolvedQueueModuleProviderOptions,
 ): void {
   if (!provider || provider.provider !== "cloudflare") return
   if (typeof provider.binding === "string" && definitions.length > 1) {

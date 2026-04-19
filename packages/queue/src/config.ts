@@ -1,8 +1,8 @@
 import type {
+  InternalResolvedQueueModuleProviderOptions,
   QueueModuleProviderOptions,
   QueueModuleOptions,
   ResolvedQueueModuleOptions,
-  ResolvedQueueModuleProviderOptions,
 } from "./types.ts"
 
 export interface QueueResolutionInput {
@@ -16,13 +16,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function resolveProvider(
   provider: QueueModuleProviderOptions | (Record<string, unknown> & { provider?: undefined }),
   hosting = "",
-): ResolvedQueueModuleProviderOptions {
+): InternalResolvedQueueModuleProviderOptions {
   if (provider.provider === "cloudflare") return { ...provider, provider: "cloudflare" }
   if (provider.provider === "vercel") return { ...provider, provider: "vercel" }
-  if (provider.provider === "memory") return { ...provider, provider: "memory" }
   const unknownProvider = (provider as { provider?: unknown }).provider
   if (typeof unknownProvider !== "undefined") {
-    throw new TypeError(`Unknown \`queue.provider\`: ${JSON.stringify(unknownProvider)}. Expected "cloudflare", "vercel", or "memory".`)
+    throw new TypeError(`Unknown \`queue.provider\`: ${JSON.stringify(unknownProvider)}. Expected "cloudflare" or "vercel".`)
   }
 
   const shared: { cache?: boolean } = {}
