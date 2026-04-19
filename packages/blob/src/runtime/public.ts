@@ -9,14 +9,10 @@ import { createBlobStorage } from "./storage.ts"
 import type { ResolvedBlobModuleOptions } from "../types.ts"
 import type { BlobStorage } from "./types.ts"
 
+type GlobalWithConfig = typeof globalThis & { __vitehubBlobConfig?: false | ResolvedBlobModuleOptions }
+
 function resolveRuntimeConfig(): false | ResolvedBlobModuleOptions | undefined {
-  try {
-    return getBlobRuntimeConfig()
-      ?? (globalThis as typeof globalThis & { __vitehubBlobConfig?: false | ResolvedBlobModuleOptions }).__vitehubBlobConfig
-  }
-  catch {
-    return getBlobRuntimeConfig()
-  }
+  return getBlobRuntimeConfig() ?? (globalThis as GlobalWithConfig).__vitehubBlobConfig
 }
 
 function createBlobClient(): BlobStorage {
@@ -30,8 +26,6 @@ function createBlobClient(): BlobStorage {
       return createBlobStorage(createCloudflareR2Driver(config.provider))
     case "vercel-blob":
       return createBlobStorage(createVercelBlobDriver(config.provider))
-    default:
-      throw new Error("[vitehub] Unsupported blob provider.")
   }
 }
 

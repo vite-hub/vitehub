@@ -19,15 +19,6 @@ import type {
 } from "./types.ts"
 import type { H3Event } from "h3"
 
-function readBlobErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown error"
-}
-
-function readBlobStatusCode(error: unknown): number {
-  const code = (error as { statusCode?: number } | null)?.statusCode
-  return typeof code === "number" ? code : 500
-}
-
 function normalizePathname(pathname: string): string {
   return pathname.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/+/, "")
 }
@@ -92,7 +83,7 @@ export function createBlobStorage(driver: BlobDriver<unknown>): BlobStorage {
     },
     async del(pathnames: string | string[]) {
       const paths = Array.isArray(pathnames) ? pathnames : [pathnames]
-      await driver.delete(paths.map(pathname => decodeURIComponent(pathname)))
+      await driver.delete(paths.map(decodeURIComponent))
     },
     async handleUpload(event: H3Event, options: BlobUploadOptions = {}) {
       assertMethod(event, ["POST", "PUT", "PATCH"])
@@ -123,9 +114,11 @@ export function createBlobStorage(driver: BlobDriver<unknown>): BlobStorage {
         for (const file of files) objects.push(await blob.put(file.name, file, resolvedOptions.put))
       }
       catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error"
+        const statusCode = (error as { statusCode?: number } | null)?.statusCode
         throw createError({
-          message: `Storage error: ${readBlobErrorMessage(error)}`,
-          statusCode: readBlobStatusCode(error),
+          message: `Storage error: ${message}`,
+          statusCode: typeof statusCode === "number" ? statusCode : 500,
         })
       }
 
