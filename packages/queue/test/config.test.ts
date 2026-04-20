@@ -5,17 +5,13 @@ import { normalizeQueueOptions } from "../src/config.ts"
 describe("normalizeQueueOptions", () => {
   it("defaults to cloudflare when hosting is cloudflare", () => {
     expect(normalizeQueueOptions(undefined, { hosting: "cloudflare" })).toEqual({
-      provider: {
-        provider: "cloudflare",
-      },
+      provider: "cloudflare",
     })
   })
 
   it("defaults to vercel when hosting is unknown", () => {
     expect(normalizeQueueOptions(undefined, { hosting: "" })).toEqual({
-      provider: {
-        provider: "vercel",
-      },
+      provider: "vercel",
     })
   })
 
@@ -24,10 +20,8 @@ describe("normalizeQueueOptions", () => {
       binding: "QUEUE_WELCOME",
       provider: "cloudflare",
     }, { hosting: "vercel" })).toEqual({
-      provider: {
-        binding: "QUEUE_WELCOME",
-        provider: "cloudflare",
-      },
+      binding: "QUEUE_WELCOME",
+      provider: "cloudflare",
     })
   })
 

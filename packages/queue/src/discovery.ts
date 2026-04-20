@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs"
-import { basename, relative, resolve } from "node:path"
+import { existsSync, readdirSync } from "node:fs"
+import { relative, resolve } from "node:path"
 
 import type { DiscoveredQueueDefinition } from "./types.ts"
 
@@ -36,7 +36,8 @@ function listQueueFiles(root: string): string[] {
 
 function normalizeSuffixQueueName(rootDir: string, file: string) {
   const relativePath = relative(rootDir, file).replace(/\\/g, "/")
-  return relativePath.replace(queueSuffixPattern, "")
+  const normalized = relativePath.replace(queueSuffixPattern, "")
+  return normalized.startsWith("src/") ? normalized.slice("src/".length) : normalized
 }
 
 export function scanSuffixQueueFiles(rootDir: string): DiscoveredQueueDefinition[] {
@@ -54,22 +55,13 @@ export function scanSuffixQueueFiles(rootDir: string): DiscoveredQueueDefinition
       throw new Error(`Duplicate queue name "${name}" from suffix scan:\n  - ${existing.handler}\n  - ${file}`)
     }
 
-    definitions.set(name, {
-      handler: file,
-      name,
-      source: "vite-suffix",
-    })
+    definitions.set(name, { handler: file, name, source: "vite-suffix" })
   }
 
   return [...definitions.values()].sort((left, right) => left.name.localeCompare(right.name))
 }
 
-export function discoverQueueDefinitions(options: { rootDir: string, scanDirs?: string[] }): DiscoveredQueueDefinition[] {
-  const roots = new Set([options.rootDir, ...(options.scanDirs || [])].filter(Boolean))
-  return mergeQueueDefinitions(...[...roots].map(root => scanSuffixQueueFiles(root)))
-}
-
-export function mergeQueueDefinitions(...sources: Array<DiscoveredQueueDefinition[] | undefined>): DiscoveredQueueDefinition[] {
+function mergeQueueDefinitions(...sources: Array<DiscoveredQueueDefinition[] | undefined>): DiscoveredQueueDefinition[] {
   const definitions = new Map<string, DiscoveredQueueDefinition>()
 
   for (const source of sources) {
@@ -92,41 +84,9 @@ export function mergeQueueDefinitions(...sources: Array<DiscoveredQueueDefinitio
   return [...definitions.values()].sort((left, right) => left.name.localeCompare(right.name))
 }
 
-function manifestPath(rootDir: string) {
-  return resolve(rootDir, "node_modules", ".vitehub", "queue", "manifest.json")
-}
-
-export function readQueueManifest(rootDir: string): { definitions: DiscoveredQueueDefinition[], generatedAt: string, rootDir: string, version: 1 } | undefined {
-  const file = manifestPath(rootDir)
-  if (!existsSync(file)) {
-    return undefined
-  }
-
-  try {
-    const raw = readFileSync(file, "utf8")
-    const parsed = JSON.parse(raw)
-    if (parsed?.version !== 1 || !Array.isArray(parsed.definitions)) {
-      return undefined
-    }
-    return parsed
-  } catch {
-    return undefined
-  }
-}
-
-export function writeQueueManifest(rootDir: string, definitions: DiscoveredQueueDefinition[]) {
-  const file = manifestPath(rootDir)
-  mkdirSync(resolve(file, ".."), { recursive: true })
-  const temp = `${file}.${process.pid}.tmp`
-  const manifest = {
-    definitions,
-    generatedAt: new Date().toISOString(),
-    rootDir,
-    version: 1 as const,
-  }
-  writeFileSync(temp, `${JSON.stringify(manifest, null, 2)}\n`, "utf8")
-  renameSync(temp, file)
-  return file
+export function discoverQueueDefinitions(options: { rootDir: string, scanDirs?: string[] }): DiscoveredQueueDefinition[] {
+  const roots = new Set([options.rootDir, ...(options.scanDirs || [])].filter(Boolean))
+  return mergeQueueDefinitions(...[...roots].map(root => scanSuffixQueueFiles(root)))
 }
 
 export function createQueueRegistryContents(registryFile: string, definitions: DiscoveredQueueDefinition[]) {
@@ -143,8 +103,4 @@ export function createQueueRegistryContents(registryFile: string, definitions: D
     "export default registry",
     "",
   ].join("\n")
-}
-
-export function getQueueBaseName(name: string) {
-  return basename(name)
 }

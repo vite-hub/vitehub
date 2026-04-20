@@ -1,8 +1,6 @@
-import { mkdirSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 
-import { detectHosting } from "./internal/hosting.ts"
-import { defaultCompatibilityDate, generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
+import { generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
 
 import type { QueueModuleOptions } from "./types.ts"
 import type { Plugin, UserConfig } from "vite"
@@ -28,24 +26,6 @@ function isQueueServerEnvironment(name: string, config: { consumer?: string }) {
   return name === "ssr" || config.consumer === "server"
 }
 
-function resolveRootDir(configRoot: string | undefined) {
-  return resolve(process.cwd(), configRoot || ".")
-}
-
-function resolveClientOutDir(userConfig: UserConfig) {
-  return typeof userConfig.build?.outDir === "string" ? userConfig.build.outDir : "dist/client"
-}
-
-function writeBuildInfo(rootDir: string, queue: QueueModuleOptions | undefined) {
-  const generatedDir = resolve(rootDir, ".vitehub", "queue")
-  mkdirSync(generatedDir, { recursive: true })
-  writeFileSync(resolve(generatedDir, "build-state.json"), `${JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    hosting: detectHosting({ preset: process.env.NITRO_PRESET }),
-    queue: queue || null,
-  }, null, 2)}\n`, "utf8")
-}
-
 export function hubQueue(): QueueVitePlugin {
   let rawConfig: UserConfig = {}
   let rootDir = process.cwd()
@@ -55,9 +35,8 @@ export function hubQueue(): QueueVitePlugin {
     name: "@vitehub/queue/vite",
     config(config, env) {
       rawConfig = config
-      rootDir = resolveRootDir(typeof config.root === "string" ? config.root : undefined)
+      rootDir = resolve(process.cwd(), typeof config.root === "string" ? config.root : ".")
       command = env.command
-      writeBuildInfo(rootDir, config.queue)
     },
     configEnvironment(name, config) {
       if (!isQueueServerEnvironment(name, config)) {
@@ -76,7 +55,7 @@ export function hubQueue(): QueueVitePlugin {
       }
 
       await generateProviderOutputs({
-        clientOutDir: resolveClientOutDir(rawConfig),
+        clientOutDir: typeof rawConfig.build?.outDir === "string" ? rawConfig.build.outDir : "dist/client",
         queue: rawConfig.queue,
         rootDir,
       })

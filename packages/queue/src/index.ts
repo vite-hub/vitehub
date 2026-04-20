@@ -1,5 +1,5 @@
 export { normalizeQueueOptions } from "./config.ts"
-export { createQueue, defineQueue } from "./definition.ts"
+export { defineQueue } from "./definition.ts"
 export { createQueueMessageId } from "./enqueue.ts"
 export { QueueError } from "./errors.ts"
 export { createCloudflareQueueBatchHandler } from "./providers/cloudflare.ts"
@@ -14,7 +14,6 @@ export type {
   CloudflareQueueClient,
   CloudflareQueueMessage,
   CloudflareQueueMessageBatch,
-  CreateQueueDefinitionInput,
   DiscoveredQueueDefinition,
   QueueClient,
   QueueDefinition,
@@ -28,9 +27,9 @@ export type {
   QueueProvider,
   QueueProviderOptions,
   QueueSendResult,
+  ResolvedQueueOptions,
   VercelQueueCallbackOptions,
   VercelQueueClient,
-  VercelQueueNodeCallbackReturn,
   VercelQueueRetryDirective,
   VercelQueueRetryHandler,
   VercelQueueSendResult,

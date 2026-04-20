@@ -3,12 +3,10 @@ import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { QueueError } from "../errors.ts"
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
-import { createCloudflareQueueClient } from "../providers/cloudflare.ts"
-import { createVercelQueueClient } from "../providers/vercel.ts"
 
 import { getQueueClientCache, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "./state.ts"
 
-import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueJob, QueueProviderOptions, QueueSendResult, ResolvedQueueModuleOptions, VercelQueueProviderOptions } from "../types.ts"
+import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 
 function getCloudflareEnv(event: unknown) {
   const target = event as {
@@ -30,44 +28,34 @@ function resolveCloudflareBinding(binding: string | CloudflareQueueClient["bindi
 
   const bindingName = binding || getCloudflareQueueBindingName(name)
   const resolved = getCloudflareEnv(getQueueRuntimeEvent())?.[bindingName] as CloudflareQueueClient["binding"] | undefined
-  if (!resolved) {
-    return bindingName
-  }
-
-  return resolved
+  return resolved || bindingName
 }
 
-function applyNamedProviderDefaults(name: string, provider: QueueProviderOptions): QueueProviderOptions {
-  if (provider.provider === "cloudflare") {
+function toProviderOptions(name: string, config: ResolvedQueueOptions): QueueProviderOptions {
+  if (config.provider === "cloudflare") {
     return {
-      ...provider,
-      binding: resolveCloudflareBinding(provider.binding, name),
+      ...config,
+      binding: resolveCloudflareBinding(config.binding, name),
     } satisfies CloudflareQueueProviderOptions
   }
 
   return {
-    ...provider,
-    topic: provider.topic || getVercelQueueTopicName(name),
+    ...config,
+    topic: getVercelQueueTopicName(name),
   } satisfies VercelQueueProviderOptions
-}
-
-function createQueueJob<TPayload = unknown>(normalized: { id: string, payload: TPayload }): QueueJob<TPayload> {
-  return {
-    attempts: 1,
-    id: normalized.id,
-    payload: normalized.payload,
-  }
 }
 
 export async function createQueueClient(options: QueueProviderOptions): Promise<QueueClient> {
   if (options.provider === "cloudflare") {
+    const { createCloudflareQueueClient } = await import("../providers/cloudflare.ts")
     return createCloudflareQueueClient(options)
   }
 
+  const { createVercelQueueClient } = await import("../providers/vercel.ts")
   return await createVercelQueueClient(options)
 }
 
-function getActiveQueueConfig(): false | ResolvedQueueModuleOptions {
+function getActiveQueueConfig(): false | ResolvedQueueOptions {
   const config = getQueueRuntimeConfig()
   if (config === false) {
     return false
@@ -85,7 +73,7 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
     })
   }
 
-  const provider = applyNamedProviderDefaults(name, config.provider)
+  const provider = toProviderOptions(name, config)
   try {
     return await createQueueClient(provider)
   } catch (error) {
@@ -110,12 +98,13 @@ export async function getQueue(name: string): Promise<QueueClient> {
     })
   }
 
-  const cache = getQueueClientCache()
   const config = getActiveQueueConfig()
-  if (definition.options?.cache === false || config === false || config.provider.cache === false || config.provider.provider === "cloudflare") {
+  const bypassCache = definition.options?.cache === false || config === false || config.cache === false || config.provider === "cloudflare"
+  if (bypassCache) {
     return await createNamedQueueClient(name)
   }
 
+  const cache = getQueueClientCache()
   const existing = cache.get(name)
   if (existing) {
     return await existing as QueueClient
@@ -142,13 +131,11 @@ export async function runQueue<TPayload = unknown>(name: string, input: QueueEnq
 
   const normalized = normalizeQueueEnqueueInput(input)
   const queue = await getQueue(name)
-  const result = await queue.send({
+  return await queue.send({
     ...normalized.options,
     id: normalized.id,
     payload: normalized.payload,
   })
-
-  return result
 }
 
 export function deferQueue<TPayload = unknown>(name: string, input: QueueEnqueueInput<TPayload>): void {

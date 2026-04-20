@@ -8,6 +8,7 @@
   "dependencies": {
     "@vitehub/queue": "workspace:*",
     "h3": "catalog:",
+    "valibot": "catalog:",
     "vite": "catalog:"
   }
 }

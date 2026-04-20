@@ -78,11 +78,8 @@ export type VercelQueueMessageHandler<T = unknown> = (payload: T, metadata?: unk
 
 export type VercelQueueCallbackReturn = (request: Request) => Promise<unknown> | unknown
 
-export type VercelQueueNodeCallbackReturn = (req: unknown, res: unknown) => Promise<unknown> | unknown
-
 export interface VercelQueueSDK {
   handleCallback: <TPayload = unknown>(handler: VercelQueueMessageHandler<TPayload>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
-  handleNodeCallback?: <TPayload = unknown>(handler: VercelQueueMessageHandler<TPayload>, options?: VercelQueueCallbackOptions) => VercelQueueNodeCallbackReturn
   send: (topic: string, payload: unknown, options?: VercelQueueSendOptions) => Promise<VercelQueueSendResult>
 }
 
@@ -125,21 +122,7 @@ export type QueueModuleOptions =
   | (QueueSharedOptions & { provider?: undefined })
   | QueueModuleProviderOptions
 
-export interface ResolvedCloudflareQueueModuleProviderOptions extends CloudflareQueueModuleProviderOptions {
-  provider: "cloudflare"
-}
-
-export interface ResolvedVercelQueueModuleProviderOptions extends VercelQueueModuleProviderOptions {
-  provider: "vercel"
-}
-
-export type ResolvedQueueModuleProviderOptions =
-  | ResolvedCloudflareQueueModuleProviderOptions
-  | ResolvedVercelQueueModuleProviderOptions
-
-export interface ResolvedQueueModuleOptions {
-  provider: ResolvedQueueModuleProviderOptions
-}
+export type ResolvedQueueOptions = QueueModuleProviderOptions
 
 export interface QueueJob<TPayload = unknown> {
   attempts: number
@@ -157,10 +140,6 @@ export interface QueueDefinitionOptions {
   onDispatchError?: (error: unknown, context: { name: string }) => unknown | Promise<unknown>
   onError?: CloudflareQueueBatchHandlerOptions["onError"]
 }
-
-export type CreateQueueDefinitionInput<TPayload = unknown, TResult = unknown> = {
-  handler: QueueHandler<TPayload, TResult>
-} & QueueDefinitionOptions
 
 export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
   handler: QueueHandler<TPayload, TResult>
@@ -213,7 +192,6 @@ export interface CloudflareQueueClient extends QueueClientBase<"cloudflare"> {
 export interface VercelQueueClient extends QueueClientBase<"vercel"> {
   readonly topic: string
   callback: <TPayload = unknown>(handler: VercelQueueMessageHandler<TPayload>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
-  nodeCallback: <TPayload = unknown>(handler: VercelQueueMessageHandler<TPayload>, options?: VercelQueueCallbackOptions) => VercelQueueNodeCallbackReturn
 }
 
 export interface QueueClientMap {

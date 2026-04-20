@@ -22,7 +22,6 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
   if (typeof module.send === "function" && typeof module.handleCallback === "function") {
     return {
       handleCallback: module.handleCallback as VercelQueueSDK["handleCallback"],
-      handleNodeCallback: typeof module.handleNodeCallback === "function" ? module.handleNodeCallback as VercelQueueSDK["handleNodeCallback"] : undefined,
       send: module.send as VercelQueueSDK["send"],
     }
   }
@@ -71,12 +70,5 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
       }
     },
     callback: client.handleCallback,
-    nodeCallback: client.handleNodeCallback || (() => {
-      throw new QueueError("@vercel/queue handleNodeCallback is not available on this client.", {
-        code: "VERCEL_NODE_CALLBACK_UNAVAILABLE",
-        httpStatus: 400,
-        provider: "vercel",
-      })
-    }),
   }
 }

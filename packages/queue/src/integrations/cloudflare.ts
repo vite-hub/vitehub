@@ -1,21 +1,8 @@
-const textEncoder = new TextEncoder()
-const textDecoder = new TextDecoder()
+import { decodeQueueNameHex, encodeQueueNameHex } from "../internal/hex.ts"
 
 const cloudflareQueueNamePrefix = "queue--"
 const defaultCloudflareQueueBindingPrefix = "QUEUE"
 const encodedCloudflareQueueNamePattern = /^queue--([0-9a-f]{2})+$/i
-
-function encodeQueueNameHex(name: string) {
-  return [...textEncoder.encode(name)].map(byte => byte.toString(16).padStart(2, "0")).join("")
-}
-
-function decodeQueueNameHex(hex: string) {
-  const bytes = hex.match(/.{2}/g)?.map(byte => Number.parseInt(byte, 16)) ?? []
-  if (!bytes.length || bytes.some(byte => !Number.isFinite(byte))) {
-    return undefined
-  }
-  return textDecoder.decode(new Uint8Array(bytes))
-}
 
 export function getCloudflareQueueName(name: string): string {
   return `${cloudflareQueueNamePrefix}${encodeQueueNameHex(name)}`

@@ -22,8 +22,8 @@ describe("discoverQueueDefinitions", () => {
 
     const definitions = discoverQueueDefinitions({ rootDir })
     expect(definitions.map(definition => definition.name)).toEqual([
-      "src/billing",
-      "src/emails/welcome",
+      "billing",
+      "emails/welcome",
     ])
   })
 

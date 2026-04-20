@@ -1,4 +1,6 @@
-import type { QueueModuleOptions, QueueSharedOptions, ResolvedQueueModuleOptions, ResolvedQueueModuleProviderOptions } from "./types.ts"
+import { normalizeHosting } from "./internal/hosting.ts"
+
+import type { QueueModuleOptions, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
 
 export interface QueueResolutionInput {
   hosting?: string
@@ -18,47 +20,32 @@ function cloneSharedOptions(input: QueueSharedOptions | undefined) {
   return shared
 }
 
-function normalizeHosting(hosting: string | undefined) {
-  return hosting?.trim().toLowerCase().replaceAll("_", "-") || ""
-}
-
-function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedQueueModuleProviderOptions {
+function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedQueueOptions {
+  const shared = cloneSharedOptions(options as QueueSharedOptions)
   const provider = options.provider
-  if (typeof provider === "string") {
-    if (!knownProviders.has(provider)) {
-      throw new TypeError(`Unknown \`queue.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare" or "vercel".`)
-    }
 
-    if (provider === "cloudflare") {
-      return {
-        ...cloneSharedOptions(options as QueueSharedOptions),
-        ...typeof options.binding === "string" ? { binding: options.binding } : {},
-        provider: "cloudflare",
-      }
-    }
-
-    return {
-      ...cloneSharedOptions(options as QueueSharedOptions),
-      ...typeof options.region === "string" ? { region: options.region } : {},
-      provider: "vercel",
-    }
+  if (typeof provider === "string" && !knownProviders.has(provider)) {
+    throw new TypeError(`Unknown \`queue.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare" or "vercel".`)
   }
 
-  if (hosting.includes("cloudflare")) {
+  const resolved = provider || (hosting.includes("cloudflare") ? "cloudflare" : "vercel")
+
+  if (resolved === "cloudflare") {
     return {
-      ...cloneSharedOptions(options as QueueSharedOptions),
+      ...shared,
+      ...typeof options.binding === "string" ? { binding: options.binding } : {},
       provider: "cloudflare",
     }
   }
 
   return {
-    ...cloneSharedOptions(options as QueueSharedOptions),
+    ...shared,
     ...typeof options.region === "string" ? { region: options.region } : {},
     provider: "vercel",
   }
 }
 
-export function normalizeQueueOptions(options: QueueModuleOptions | undefined, input: QueueResolutionInput = {}): ResolvedQueueModuleOptions | undefined {
+export function normalizeQueueOptions(options: QueueModuleOptions | undefined, input: QueueResolutionInput = {}): ResolvedQueueOptions | undefined {
   if (options === false) {
     return undefined
   }
@@ -67,7 +54,5 @@ export function normalizeQueueOptions(options: QueueModuleOptions | undefined, i
     throw new TypeError("`queue` must be a plain object.")
   }
 
-  return {
-    provider: resolveProvider(options || {}, normalizeHosting(input.hosting)),
-  }
+  return resolveProvider(options || {}, normalizeHosting(input.hosting))
 }

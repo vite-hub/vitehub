@@ -41,7 +41,7 @@ describe("cloudflare queue runtime", () => {
     const queueHandler = vi.fn()
     const worker = createQueueCloudflareWorker({
       app: () => new Response("ok"),
-      queue: { provider: { provider: "cloudflare" } },
+      queue: { provider: "cloudflare" },
       registry: {
         welcome: async () => ({
           default: {
@@ -51,7 +51,7 @@ describe("cloudflare queue runtime", () => {
       },
     })
 
-    const response = await worker.fetch(new Request("https://example.com/api/tests/probe"), {}, { waitUntil: vi.fn() })
+    const response = await worker.fetch(new Request("https://example.com/"), {}, { waitUntil: vi.fn() })
     expect(await response.text()).toBe("ok")
 
     await worker.queue({
