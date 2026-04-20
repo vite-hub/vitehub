@@ -26,24 +26,6 @@ function resolveRuntimeModule(modulePath: string) {
   return existsSync(distFile) ? distFile : resolve(packageDir, "src", `${modulePath}.ts`)
 }
 
-async function bundleEsmEntry(entryFile: string, outfile: string) {
-  await bundle({
-    banner: {
-      js: 'import { createRequire as __createRequire } from "node:module";\nvar require = __createRequire(import.meta.url);\n',
-    },
-    bundle: true,
-    inject: [],
-    entryPoints: [entryFile],
-    format: "esm",
-    logLevel: "silent",
-    outfile,
-    platform: "node",
-    sourcemap: false,
-    target: "es2022",
-    write: true,
-  })
-}
-
 async function bundleQueueWrapperEntry(entryFile: string, outfile: string, inject: string[]) {
   await bundle({
     banner: {
