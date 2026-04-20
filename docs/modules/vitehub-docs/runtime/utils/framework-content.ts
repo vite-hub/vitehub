@@ -7,10 +7,10 @@ import {
 } from "./fw-variants";
 import { frameworkPattern, type Framework } from "./frameworks";
 
-export type NodeProps = Record<string, unknown>;
-export type ContentNode = string | [string, NodeProps?, ...ContentNode[]];
+type NodeProps = Record<string, unknown>;
+type ContentNode = string | [string, NodeProps?, ...ContentNode[]];
 
-export type TocLink = { id: string; depth: number; text: string; children?: TocLink[] };
+type TocLink = { id: string; depth: number; text: string; children?: TocLink[] };
 export type DocsRenderOptions = { framework: Framework; mode: UsageMode; renderMode: "single" | "all"; tocMode: "current-selection" };
 
 type NormalizableBody = { value?: unknown[]; toc?: { links?: unknown[] } | null };
@@ -159,7 +159,7 @@ function buildTocTree(headings: TocLink[]) {
 
 // --- Public API ---
 
-export function getFrameworkFromContentPath(path: string): Framework | null {
+function getFrameworkFromContentPath(path: string): Framework | null {
   const match = path.match(new RegExp(`^/docs/(${frameworkPattern})(?:/|$)`));
   return (match?.[1] as Framework | undefined) || null;
 }

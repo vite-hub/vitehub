@@ -1,4 +1,4 @@
-export const frameworkDefs = [
+const frameworkDefs = [
   { id: "vite", label: "Vite", description: "Plugin only", icon: "i-simple-icons-vite", colorIcon: "i-logos-vitejs" },
   { id: "nitro", label: "Nitro v3", description: "Server runtime", icon: "i-brand-nitro", colorIcon: "i-unjs-nitro" },
   { id: "nuxt", label: "Nuxt v5", description: "Full-stack app", icon: "i-simple-icons-nuxtdotjs", colorIcon: "i-logos-nuxt-icon" },
@@ -14,7 +14,7 @@ export const frameworkLabels = Object.fromEntries(
   frameworkDefs.map(entry => [entry.id, entry.label]),
 ) as Record<Framework, string>;
 
-export const frameworkIcons = Object.fromEntries(
+const frameworkIcons = Object.fromEntries(
   frameworkDefs.map(entry => [entry.id, entry.icon]),
 ) as Record<Framework, string>;
 

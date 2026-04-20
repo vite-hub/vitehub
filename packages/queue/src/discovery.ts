@@ -56,28 +56,39 @@ function normalizeNitroQueueName(rootDir: string, file: string) {
   return normalized
 }
 
-export function scanSuffixQueueFiles(rootDir: string): DiscoveredQueueDefinition[] {
-  const files = listQueueFiles(rootDir)
+function sortQueueDefinitions(definitions: Map<string, DiscoveredQueueDefinition>) {
+  return [...definitions.values()].sort((left, right) => left.name.localeCompare(right.name))
+}
+
+function registerQueueDefinition(
+  definitions: Map<string, DiscoveredQueueDefinition>,
+  definition: DiscoveredQueueDefinition,
+  sourceLabel: string,
+) {
+  const existing = definitions.get(definition.name)
+  if (existing) {
+    throw new Error(`Duplicate queue name "${definition.name}" from ${sourceLabel}:\n  - ${existing.handler}\n  - ${definition.handler}`)
+  }
+
+  definitions.set(definition.name, definition)
+}
+
+function scanSuffixQueueFiles(rootDir: string): DiscoveredQueueDefinition[] {
   const definitions = new Map<string, DiscoveredQueueDefinition>()
 
-  for (const file of files) {
+  for (const file of listQueueFiles(rootDir)) {
     const name = normalizeSuffixQueueName(rootDir, file)
     if (!name) {
       continue
     }
 
-    const existing = definitions.get(name)
-    if (existing) {
-      throw new Error(`Duplicate queue name "${name}" from suffix scan:\n  - ${existing.handler}\n  - ${file}`)
-    }
-
-    definitions.set(name, { handler: file, name, source: "vite-suffix" })
+    registerQueueDefinition(definitions, { handler: file, name, source: "vite-suffix" }, "suffix scan")
   }
 
-  return [...definitions.values()].sort((left, right) => left.name.localeCompare(right.name))
+  return sortQueueDefinitions(definitions)
 }
 
-export function scanNitroQueueFiles(scanDirs: string[]): DiscoveredQueueDefinition[] {
+function scanNitroQueueFiles(scanDirs: string[]): DiscoveredQueueDefinition[] {
   const definitions = new Map<string, DiscoveredQueueDefinition>()
 
   for (const scanDir of scanDirs) {
@@ -88,20 +99,11 @@ export function scanNitroQueueFiles(scanDirs: string[]): DiscoveredQueueDefiniti
         continue
       }
 
-      const existing = definitions.get(name)
-      if (existing) {
-        throw new Error(`Duplicate queue name "${name}" from Nitro server/queues scan:\n  - ${existing.handler}\n  - ${file}`)
-      }
-
-      definitions.set(name, {
-        handler: file,
-        name,
-        source: "nitro-server-queues",
-      })
+      registerQueueDefinition(definitions, { handler: file, name, source: "nitro-server-queues" }, "Nitro server/queues scan")
     }
   }
 
-  return [...definitions.values()].sort((left, right) => left.name.localeCompare(right.name))
+  return sortQueueDefinitions(definitions)
 }
 
 function mergeQueueDefinitions(...sources: Array<DiscoveredQueueDefinition[] | undefined>): DiscoveredQueueDefinition[] {
@@ -124,7 +126,7 @@ function mergeQueueDefinitions(...sources: Array<DiscoveredQueueDefinition[] | u
     }
   }
 
-  return [...definitions.values()].sort((left, right) => left.name.localeCompare(right.name))
+  return sortQueueDefinitions(definitions)
 }
 
 export function discoverQueueDefinitions(options:

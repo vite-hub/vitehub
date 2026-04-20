@@ -1,0 +1,8 @@
+dynamicallyLoaded = [
+  "docs/content.config.ts",
+  "docs/app/assets/main.css",
+]
+
+ignoreDependencies = [
+  "docus",
+]

@@ -1,14 +1,19 @@
 import { docsManifest, type DocsExample } from "./docs";
 import { defaultUsageMode, type UsageMode } from "./fw-variants";
 import type { Framework } from "./frameworks";
+import {
+  generateFrameworkConfig,
+  getFrameworkConfigPath,
+  sortShowcaseFiles,
+} from "../../shared/showcase";
+export { showcasePhaseIds } from "../../shared/showcase";
+export type { ShowcasePhaseId } from "../../shared/showcase";
 
-export type ShowcaseExample = DocsExample;
+type ShowcaseExample = DocsExample;
 export type ExampleFile = ShowcaseExample["files"][Framework][number];
-export type ShowcaseFrameworkConfig = ShowcaseExample["frameworks"][Framework];
-export type ShowcaseModeConfig = ShowcaseFrameworkConfig["modes"][UsageMode];
-export type ShowcaseProvider = NonNullable<ShowcaseExample["providers"]>[number];
-export const showcasePhaseIds = ["configure", "define", "run"] as const;
-export type ShowcasePhaseId = (typeof showcasePhaseIds)[number];
+type ShowcaseFrameworkConfig = ShowcaseExample["frameworks"][Framework];
+type ShowcaseModeConfig = ShowcaseFrameworkConfig["modes"][UsageMode];
+type ShowcaseProvider = NonNullable<ShowcaseExample["providers"]>[number];
 
 const extensionToLanguage = new Map<string, string>([
   ["ts", "ts"],
@@ -25,41 +30,6 @@ const extensionToLanguage = new Map<string, string>([
   ["env", "bash"],
 ]);
 
-function getPhasePriority(modeConfig: ShowcaseModeConfig, path: string) {
-  const index = showcasePhaseIds.findIndex(phaseId => modeConfig.phases[phaseId] === path);
-  return index === -1 ? Number.POSITIVE_INFINITY : index;
-}
-
-export function getFrameworkConfigPath(framework: Framework) {
-  if (framework === "nuxt") {
-    return "nuxt.config.ts";
-  }
-
-  if (framework === "nitro") {
-    return "nitro.config.ts";
-  }
-
-  return "vite.config.ts";
-}
-
-export function generateFrameworkConfig(framework: Framework, pkg: string, configOverride?: string | null) {
-  if (!configOverride) {
-    return null;
-  }
-
-  const modulePath = `@vitehub/${pkg}/${framework}`;
-  if (framework === "nuxt") {
-    return `export default defineNuxtConfig({\n  modules: ['${modulePath}'],\n${configOverride}\n})`;
-  }
-
-  if (framework === "nitro") {
-    return `import { defineNitroConfig } from 'nitro/config'\n\nexport default defineNitroConfig({\n  modules: ['${modulePath}'],\n${configOverride}\n})`;
-  }
-
-  const fnName = `hub${pkg[0]!.toUpperCase()}${pkg.slice(1)}`;
-  return `import { defineConfig } from 'vite'\nimport { ${fnName} } from '${modulePath}'\n\nexport default defineConfig({\n  plugins: [${fnName}()],\n${configOverride}\n})`;
-}
-
 export function getCodeLanguage(path: string) {
   if (path === "env.example" || path.endsWith(".env") || path.endsWith(".example")) {
     return "bash";
@@ -73,7 +43,7 @@ export function getShowcaseExamples() {
   return docsManifest.examples;
 }
 
-export function getShowcaseModeConfig(example: ShowcaseExample, framework: Framework, mode: UsageMode = defaultUsageMode) {
+function getShowcaseModeConfig(example: ShowcaseExample, framework: Framework, mode: UsageMode = defaultUsageMode) {
   return example.frameworks[framework].modes[mode];
 }
 
@@ -94,8 +64,6 @@ export function getShowcaseFiles(
   const mode = isUsageMode(modeOrProviderId) ? modeOrProviderId : defaultUsageMode;
   const providerId = isUsageMode(modeOrProviderId) ? maybeProviderId : modeOrProviderId;
   const modeConfig = getShowcaseModeConfig(example, framework, mode);
-  const supplementalFileOrder = new Map((modeConfig.supplementalFiles || []).map((path, index) => [path, index]));
-  const supplementalFiles = new Set(supplementalFileOrder.keys());
   const excludedFiles = modeConfig.excludedFiles || [];
   const provider = example.providers?.find(item => item.id === providerId);
 
@@ -136,30 +104,5 @@ export function getShowcaseFiles(
     files = [...files, { path: "env.example", code: provider.envOverride }];
   }
 
-  return [...files].sort((left, right) => {
-    const phaseA = getPhasePriority(modeConfig, left.path);
-    const phaseB = getPhasePriority(modeConfig, right.path);
-    if (phaseA !== phaseB) {
-      return phaseA - phaseB;
-    }
-
-    const supplementalA = supplementalFiles.has(left.path) ? 0 : 1;
-    const supplementalB = supplementalFiles.has(right.path) ? 0 : 1;
-    if (supplementalA !== supplementalB) {
-      return supplementalA - supplementalB;
-    }
-
-    if (supplementalA === 0 && supplementalB === 0) {
-      return (supplementalFileOrder.get(left.path) ?? Number.POSITIVE_INFINITY)
-        - (supplementalFileOrder.get(right.path) ?? Number.POSITIVE_INFINITY);
-    }
-
-    const envA = left.path === "env.example" ? 1 : 0;
-    const envB = right.path === "env.example" ? 1 : 0;
-    if (envA !== envB) {
-      return envA - envB;
-    }
-
-    return left.path.localeCompare(right.path);
-  });
+  return sortShowcaseFiles(files, modeConfig, { sortEnvExampleLast: true });
 }

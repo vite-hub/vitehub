@@ -13,8 +13,8 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
 
 export const queuePackageName = "@vitehub/queue"
-export const defaultCompatibilityDate = "2026-04-20"
-export const generatedDirSegments = [".vitehub", "queue"] as const
+const defaultCompatibilityDate = "2026-04-20"
+const generatedDirSegments = [".vitehub", "queue"] as const
 
 const generatedRegistryFileName = "registry.mjs"
 const userAppEntryCandidates = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"].map(name => resolve("src", name))
