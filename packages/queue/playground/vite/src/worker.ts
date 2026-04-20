@@ -32,6 +32,13 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
 
 const app = createApp()
 
+app.get("/", defineEventHandler((event) => ({
+  ok: true,
+  queue: queueName,
+  runtime: detectRuntime(event),
+  server: "h3",
+})))
+
 app.get("/api/tests/probe", defineEventHandler((event) => {
   return {
     hasWaitUntil: typeof event.waitUntil === "function",

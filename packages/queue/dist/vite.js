@@ -144,6 +144,9 @@ function toSafeAppName(rootDir) {
 function resolveClientDir(rootDir, clientOutDir) {
 	return resolve(rootDir, clientOutDir);
 }
+function hasStaticIndex(clientDir) {
+	return existsSync(resolve(clientDir, "index.html"));
+}
 function resolveRuntimeModule(modulePath) {
 	const distFile = resolve(packageDir, "dist", `${modulePath}.js`);
 	if (existsSync(distFile)) return distFile;
@@ -247,6 +250,7 @@ async function writeCloudflareOutput(rootDir, clientOutDir, artifacts) {
 	const clientDir = resolveClientDir(rootDir, clientOutDir);
 	const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir));
 	const workerOutfile = resolve(outputRoot, "index.js");
+	const staticIndex = hasStaticIndex(clientDir);
 	await rm(outputRoot, {
 		force: true,
 		recursive: true
@@ -264,20 +268,20 @@ async function writeCloudflareOutput(rootDir, clientOutDir, artifacts) {
 		platform: "neutral"
 	});
 	const wranglerConfig = {
-		assets: {
-			directory: "../client",
-			run_worker_first: ["/api/*"]
-		},
 		compatibility_date: defaultCompatibilityDate,
 		compatibility_flags: ["nodejs_compat"],
 		main: "index.js",
 		name: toSafeAppName(rootDir),
 		observability: { enabled: true },
+		...staticIndex ? { assets: {
+			directory: "../client",
+			run_worker_first: ["/api/*"]
+		} } : {},
 		...createCloudflareQueueBindings(artifacts.definitions) ? { queues: createCloudflareQueueBindings(artifacts.definitions) } : {}
 	};
 	await writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8");
 	await writeFile(resolve(outputRoot, "vitehub.wrangler.deploy.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8");
-	if (existsSync(resolve(clientDir, "index.html"))) await copyClientOutput(clientDir, resolve(rootDir, "dist", "client"));
+	if (staticIndex) await copyClientOutput(clientDir, resolve(rootDir, "dist", "client"));
 }
 function createVercelConfigJson() {
 	return {
@@ -331,6 +335,7 @@ async function writeVercelOutput(rootDir, clientOutDir, artifacts) {
 	const serverDir = resolve(outputRoot, "functions", "__server.func");
 	const serverEntry = resolve(serverDir, "index.mjs");
 	const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel");
+	const staticIndex = hasStaticIndex(clientDir);
 	await rm(outputRoot, {
 		force: true,
 		recursive: true
@@ -343,7 +348,7 @@ async function writeVercelOutput(rootDir, clientOutDir, artifacts) {
 	});
 	await writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8");
 	await writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8");
-	await copyClientOutput(clientDir, resolve(outputRoot, "static"));
+	if (staticIndex) await copyClientOutput(clientDir, resolve(outputRoot, "static"));
 	for (const definition of artifacts.definitions) {
 		const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_");
 		const functionDir = resolve(queueRoot, ...safeName.split("/"), `${safeName.split("/").at(-1)}.func`);

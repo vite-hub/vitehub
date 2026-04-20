@@ -47,7 +47,7 @@ export interface CloudflareQueueConfigOptions {
 }
 
 export interface CloudflareQueueConfig {
-  assets: {
+  assets?: {
     directory?: string
     run_worker_first: string[]
   }
@@ -94,6 +94,10 @@ function toSafeAppName(rootDir: string) {
 
 function resolveClientDir(rootDir: string, clientOutDir: string) {
   return resolve(rootDir, clientOutDir)
+}
+
+function hasStaticIndex(clientDir: string) {
+  return existsSync(resolve(clientDir, "index.html"))
 }
 
 function resolveRuntimeModule(modulePath: string) {
@@ -231,6 +235,7 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
   const clientDir = resolveClientDir(rootDir, clientOutDir)
   const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir))
   const workerOutfile = resolve(outputRoot, "index.js")
+  const staticIndex = hasStaticIndex(clientDir)
   await rm(outputRoot, { force: true, recursive: true })
   await mkdir(outputRoot, { recursive: true })
 
@@ -242,15 +247,17 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
   })
 
   const wranglerConfig: CloudflareQueueConfig = {
-    assets: {
-      directory: "../client",
-      run_worker_first: ["/api/*"],
-    },
     compatibility_date: defaultCompatibilityDate,
     compatibility_flags: ["nodejs_compat"],
     main: "index.js",
     name: toSafeAppName(rootDir),
     observability: { enabled: true },
+    ...(staticIndex ? {
+      assets: {
+        directory: "../client",
+        run_worker_first: ["/api/*"],
+      },
+    } : {}),
     ...createCloudflareQueueBindings(artifacts.definitions) ? {
       queues: createCloudflareQueueBindings(artifacts.definitions),
     } : {},
@@ -259,7 +266,7 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
   await writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8")
   await writeFile(resolve(outputRoot, "vitehub.wrangler.deploy.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8")
 
-  if (existsSync(resolve(clientDir, "index.html"))) {
+  if (staticIndex) {
     await copyClientOutput(clientDir, resolve(rootDir, "dist", "client"))
   }
 }
@@ -319,6 +326,7 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, artifact
   const serverDir = resolve(outputRoot, "functions", "__server.func")
   const serverEntry = resolve(serverDir, "index.mjs")
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
+  const staticIndex = hasStaticIndex(clientDir)
 
   await rm(outputRoot, { force: true, recursive: true })
   await mkdir(serverDir, { recursive: true })
@@ -332,7 +340,9 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, artifact
   await writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
   await writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8")
 
-  await copyClientOutput(clientDir, resolve(outputRoot, "static"))
+  if (staticIndex) {
+    await copyClientOutput(clientDir, resolve(outputRoot, "static"))
+  }
 
   for (const definition of artifacts.definitions) {
     const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_")

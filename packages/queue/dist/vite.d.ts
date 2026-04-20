@@ -7,7 +7,7 @@ interface CloudflareQueueConfigOptions {
   rootDir?: string;
 }
 interface CloudflareQueueConfig {
-  assets: {
+  assets?: {
     directory?: string;
     run_worker_first: string[];
   };
