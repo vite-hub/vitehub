@@ -35,7 +35,7 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
   { name: "vercel", entryFile: "vercel-server.mjs", runtimeModule: "runtime/vercel-vite", factory: "createQueueVercelServer", hosting: "vercel" },
 ]
 
-export interface GeneratedQueueArtifacts {
+interface GeneratedQueueArtifacts {
   cloudflareWorkerFile: string
   definitions: DiscoveredQueueDefinition[]
   generatedDir: string
@@ -43,7 +43,7 @@ export interface GeneratedQueueArtifacts {
   vercelServerFile: string
 }
 
-export interface GenerateProviderOutputsOptions {
+interface GenerateProviderOutputsOptions {
   clientOutDir: string
   queue: QueueModuleOptions | undefined
   rootDir: string

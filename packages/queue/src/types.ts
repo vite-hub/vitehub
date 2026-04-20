@@ -1,21 +1,21 @@
 export type QueueProvider = "cloudflare" | "vercel"
 
-export type CloudflareQueueContentType = "bytes" | "json" | "text" | "v8"
+type CloudflareQueueContentType = "bytes" | "json" | "text" | "v8"
 
-export interface CloudflareQueueSendOptions {
+interface CloudflareQueueSendOptions {
   contentType?: CloudflareQueueContentType
   delaySeconds?: number
 }
 
-export interface CloudflareQueueSendBatchOptions {
+interface CloudflareQueueSendBatchOptions {
   delaySeconds?: number
 }
 
-export interface CloudflareQueueSendBatchMessage<T = unknown> extends CloudflareQueueSendOptions {
+interface CloudflareQueueSendBatchMessage<T = unknown> extends CloudflareQueueSendOptions {
   body: T
 }
 
-export interface CloudflareQueueRetryOptions {
+interface CloudflareQueueRetryOptions {
   delaySeconds?: number
 }
 
@@ -62,7 +62,7 @@ export interface VercelQueueCallbackOptions {
   visibilityTimeoutSeconds?: number
 }
 
-export interface VercelQueueSendOptions {
+interface VercelQueueSendOptions {
   delaySeconds?: number
   headers?: Record<string, string>
   idempotencyKey?: string
@@ -74,9 +74,9 @@ export interface VercelQueueSendResult {
   messageId?: string | null
 }
 
-export type VercelQueueMessageHandler<T = unknown> = (payload: T, metadata?: unknown) => unknown | Promise<unknown>
+type VercelQueueMessageHandler<T = unknown> = (payload: T, metadata?: unknown) => unknown | Promise<unknown>
 
-export type VercelQueueCallbackReturn = (request: Request) => Promise<unknown> | unknown
+type VercelQueueCallbackReturn = (request: Request) => Promise<unknown> | unknown
 
 export interface VercelQueueSDK {
   handleCallback: <TPayload = unknown>(handler: VercelQueueMessageHandler<TPayload>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
@@ -92,7 +92,7 @@ export interface CloudflareQueueProviderOptions extends QueueSharedOptions {
   provider: "cloudflare"
 }
 
-export interface CloudflareQueueModuleProviderOptions extends QueueSharedOptions {
+interface CloudflareQueueModuleProviderOptions extends QueueSharedOptions {
   binding?: string
   provider: "cloudflare"
 }
@@ -104,7 +104,7 @@ export interface VercelQueueProviderOptions extends QueueSharedOptions {
   topic?: string
 }
 
-export interface VercelQueueModuleProviderOptions extends QueueSharedOptions {
+interface VercelQueueModuleProviderOptions extends QueueSharedOptions {
   provider: "vercel"
   region?: string
 }
@@ -177,7 +177,7 @@ export interface NormalizedQueueEnqueueInput<TPayload = unknown> {
   payload: TPayload
 }
 
-export interface QueueClientBase<P extends QueueProvider = QueueProvider> {
+interface QueueClientBase<P extends QueueProvider = QueueProvider> {
   readonly native: unknown
   readonly provider: P
   send: <TPayload = unknown>(input: QueueEnqueueInput<TPayload>) => Promise<QueueSendResult>
@@ -194,7 +194,7 @@ export interface VercelQueueClient extends QueueClientBase<"vercel"> {
   callback: <TPayload = unknown>(handler: VercelQueueMessageHandler<TPayload>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
 }
 
-export interface QueueClientMap {
+interface QueueClientMap {
   cloudflare: CloudflareQueueClient
   vercel: VercelQueueClient
 }

@@ -1,4 +1,4 @@
-export type QueueAppHandler = (request: Request, context?: Record<string, unknown>) => Response | Promise<Response>
+type QueueAppHandler = (request: Request, context?: Record<string, unknown>) => Response | Promise<Response>
 
 export type QueueApp =
   | {

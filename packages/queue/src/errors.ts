@@ -1,4 +1,4 @@
-export interface QueueErrorMetadata {
+interface QueueErrorMetadata {
   cause?: unknown
   code?: string
   details?: Record<string, unknown>

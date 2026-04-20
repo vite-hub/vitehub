@@ -2,7 +2,7 @@ import { normalizeHosting } from "./internal/hosting.ts"
 
 import type { QueueModuleOptions, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
 
-export interface QueueResolutionInput {
+interface QueueResolutionInput {
   hosting?: string
 }
 

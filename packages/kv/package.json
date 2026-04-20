@@ -67,7 +67,6 @@
   },
   "devDependencies": {
     "@nuxt/schema": "catalog:",
-    "@upstash/redis": "catalog:",
     "get-port-please": "catalog:",
     "miniflare": "catalog:",
     "ofetch": "catalog:",

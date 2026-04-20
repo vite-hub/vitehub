@@ -2,7 +2,7 @@ import { readEnv, trimmed } from "../internal/env.ts"
 
 import type { ResolvedUpstashKVStoreConfig, UpstashKVStoreConfig } from "../types.ts"
 
-export const maskedUpstashRuntimeValue = "********"
+const maskedUpstashRuntimeValue = "********"
 
 export function hasUpstashEnv(env: Record<string, string | undefined>): boolean {
   const url = readEnv(env, "KV_REST_API_URL", "UPSTASH_REDIS_REST_URL")

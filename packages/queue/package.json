@@ -69,7 +69,6 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "miniflare": "catalog:",
     "publint": "^0.3.15",
     "tsdown": "^0.21.8",
     "typescript": "catalog:",
