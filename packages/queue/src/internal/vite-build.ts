@@ -333,9 +333,20 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, queue: Q
     await copyClientOutput(clientDir, resolve(outputRoot, "static"))
   }
 
+  if (queueConfig === false) {
+    return
+  }
+
+  const functionDirs = new Map<string, DiscoveredQueueDefinition>()
   for (const definition of artifacts.definitions) {
     const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_")
     const segments = safeName.split("/")
+    const functionDirKey = [...segments, `${segments.at(-1)}.func`].join("/")
+    const existing = functionDirs.get(functionDirKey)
+    if (existing) {
+      throw new Error(`Queue names "${existing.name}" and "${definition.name}" collide after Vercel output sanitization:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved output path: ${functionDirKey}`)
+    }
+    functionDirs.set(functionDirKey, definition)
     const functionDir = resolve(queueRoot, ...segments, `${segments.at(-1)}.func`)
     const functionFile = resolve(functionDir, "index.mjs")
     const wrapperFile = resolve(functionDir, "index.source.mjs")

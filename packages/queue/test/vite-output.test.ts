@@ -1,13 +1,24 @@
 import { existsSync } from "node:fs"
-import { readFile, rm } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { generateProviderOutputs } from "../src/internal/vite-build.ts"
+
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
+const tempDirs: string[] = []
+
+async function createWorkspaceTempDir(prefix: string) {
+  const baseDir = join(playgroundDir, ".vitest-tmp")
+  await mkdir(baseDir, { recursive: true })
+  const rootDir = await mkdtemp(join(baseDir, prefix))
+  tempDirs.push(rootDir)
+  return rootDir
+}
 
 beforeAll(async () => {
   await rm(join(playgroundDir, "dist"), { force: true, recursive: true })
@@ -19,6 +30,7 @@ afterAll(async () => {
   await rm(join(playgroundDir, "dist"), { force: true, recursive: true })
   await rm(join(playgroundDir, ".vercel"), { force: true, recursive: true })
   await rm(join(playgroundDir, ".vitehub"), { force: true, recursive: true })
+  await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
 describe("Vite provider outputs", () => {
@@ -68,4 +80,34 @@ describe("Vite provider outputs", () => {
     })
     expect(existsSync(vercelStatic)).toBe(false)
   }, 15_000)
+
+  it("skips Vercel queue functions when queue support is disabled", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-disabled-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      queue: false,
+      rootDir,
+    })
+
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"))).toBe(true)
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(false)
+  })
+
+  it("throws when queue names collide after Vercel sanitization", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-collision-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(rootDir, "src", "foo.bar.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "src", "foo+bar.queue.ts"), "export default null\n", "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      queue: {},
+      rootDir,
+    })).rejects.toThrow(/collide after Vercel output sanitization/)
+  })
 })

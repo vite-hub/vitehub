@@ -1,5 +1,6 @@
 import { H3, toWebHandler } from "h3"
 
+import { normalizeQueueOptions } from "../config.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { createCloudflareQueueBatchHandler } from "../providers/cloudflare.ts"
 
@@ -23,7 +24,7 @@ export interface QueueCloudflareWorker {
 }
 
 export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOptions = {}): QueueCloudflareWorker {
-  const queueConfig = options.queue
+  const queueConfig = options.queue === false ? false : normalizeQueueOptions(options.queue, { hosting: "cloudflare" })!
   const registry = options.registry
   const defaultHandler = toWebHandler(new H3())
   const appHandler = resolveQueueAppFetch(options.app)

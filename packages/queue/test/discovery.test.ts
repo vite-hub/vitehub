@@ -74,6 +74,21 @@ describe("discoverQueueDefinitions", () => {
     ])
   })
 
+  it("ignores declaration files in Nitro queue discovery", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-dts-"))
+    directories.push(rootDir)
+    await mkdir(join(rootDir, "queues"), { recursive: true })
+    await writeFile(join(rootDir, "queues", "welcome.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "queues", "welcome.d.ts"), "export type Welcome = string\n", "utf8")
+
+    const definitions = discoverQueueDefinitions({
+      mode: "nitro-server-queues",
+      scanDirs: [rootDir],
+    })
+
+    expect(definitions.map(definition => definition.name)).toEqual(["welcome"])
+  })
+
   it("throws on duplicate Nitro queue names across scan roots", async () => {
     const firstScanDir = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-first-"))
     const secondScanDir = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-second-"))

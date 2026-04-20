@@ -5,6 +5,7 @@ import type { DiscoveredQueueDefinition } from "./types.ts"
 
 const queueSuffixPattern = /\.queue\.(?:c|m)?[jt]s$/i
 const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
+const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
 const ignoredDirs = new Set(["node_modules", "dist", ".nitro", ".output", ".nuxt", ".vercel", ".git", ".vitehub"])
 
 function listMatchingFiles(root: string, predicate: (name: string) => boolean): string[] {
@@ -40,7 +41,7 @@ function listQueueFiles(root: string): string[] {
 }
 
 function listSourceFiles(root: string): string[] {
-  return listMatchingFiles(root, name => sourceFilePattern.test(name))
+  return listMatchingFiles(root, name => sourceFilePattern.test(name) && !declarationFilePattern.test(name))
 }
 
 function normalizeSuffixQueueName(rootDir: string, file: string) {

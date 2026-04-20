@@ -125,6 +125,6 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
         })).messageId ?? undefined,
       }
     },
-    callback: client.handleCallback,
+    callback: client.handleCallback.bind(client),
   }
 }
