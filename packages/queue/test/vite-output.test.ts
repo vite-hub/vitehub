@@ -7,22 +7,24 @@ import { promisify } from "node:util"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
-const playgroundDir = resolve(import.meta.dirname, "../playground/vite")
+const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 
 beforeAll(async () => {
   await rm(join(playgroundDir, "dist"), { force: true, recursive: true })
   await rm(join(playgroundDir, ".vercel"), { force: true, recursive: true })
+  await rm(join(playgroundDir, ".vitehub"), { force: true, recursive: true })
 })
 
 afterAll(async () => {
   await rm(join(playgroundDir, "dist"), { force: true, recursive: true })
   await rm(join(playgroundDir, ".vercel"), { force: true, recursive: true })
+  await rm(join(playgroundDir, ".vitehub"), { force: true, recursive: true })
 })
 
 describe("Vite provider outputs", () => {
   it("builds the playground and emits cloudflare and vercel outputs", async () => {
     await execFileAsync("pnpm", ["--filter", "@vitehub/queue", "build"], {
-      cwd: resolve(playgroundDir, "../../../.."),
+      cwd: resolve(playgroundDir, "../.."),
       env: process.env,
     })
 

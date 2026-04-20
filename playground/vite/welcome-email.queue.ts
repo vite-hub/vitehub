@@ -1,4 +1,5 @@
 import { defineQueue } from "@vitehub/queue"
+
 import { appendQueueState } from "./queue-state.ts"
 
 export default defineQueue<{ email: string, marker?: string }>(async (job) => {

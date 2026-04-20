@@ -1,5 +1,6 @@
 packages:
   - "docs"
+  - "playground/*"
   - "packages/*"
   - "packages/*/examples/*"
   - "packages/*/playground/*"

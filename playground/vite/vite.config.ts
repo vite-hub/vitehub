@@ -9,7 +9,7 @@ export default defineConfig({
   build: {
     outDir: "dist/client",
     rollupOptions: {
-      input: resolve(import.meta.dirname, "noop.ts"),
+      input: resolve(import.meta.dirname, "src/worker.ts"),
     },
   },
   plugins: [hubQueue()],
