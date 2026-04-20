@@ -18,6 +18,7 @@ export type {
   QueueClient,
   QueueDefinition,
   QueueDefinitionOptions,
+  QueueDefinitionRegistry,
   QueueEnqueueInput,
   QueueEnqueueOptions,
   QueueHandler,

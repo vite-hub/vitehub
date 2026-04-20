@@ -148,15 +148,22 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
 }
 
 async function bundleEsmEntry(entryFile: string, outfile: string, options: { conditions?: string[], external?: string[], format?: "esm" | "cjs", platform?: "browser" | "node" | "neutral" } = {}) {
+  const format = options.format || "esm"
+  const platform = options.platform || "neutral"
   await bundle({
+    banner: format === "esm" && platform === "node"
+      ? {
+          js: 'import { createRequire as __createRequire } from "node:module";\nvar require = __createRequire(import.meta.url);\n',
+        }
+      : undefined,
     bundle: true,
     conditions: options.conditions,
     entryPoints: [entryFile],
     external: options.external,
-    format: options.format || "esm",
+    format,
     logLevel: "silent",
     outfile,
-    platform: options.platform || "neutral",
+    platform,
     sourcemap: false,
     target: "es2022",
     write: true,
@@ -256,6 +263,24 @@ function createNodeFunctionConfig(extra: Record<string, unknown> = {}) {
   }
 }
 
+function sanitizeVercelConsumerName(functionPath: string) {
+  let result = ""
+  for (const char of functionPath) {
+    if (char === "_") {
+      result += "__"
+    } else if (char === "/") {
+      result += "_S"
+    } else if (char === ".") {
+      result += "_D"
+    } else if (/[A-Za-z0-9-]/.test(char)) {
+      result += char
+    } else {
+      result += `_${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`
+    }
+  }
+  return result
+}
+
 function createVercelQueueWrapperContents(file: string, registryFile: string, name: string, queueConfig: false | ReturnType<typeof normalizeQueueOptions>) {
   return [
     "import { H3 } from 'h3'",
@@ -297,7 +322,6 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, queue: Q
   await mkdir(serverDir, { recursive: true })
 
   await bundleEsmEntry(artifacts.vercelServerFile, serverEntry, {
-    external: ["@vercel/queue"],
     format: "esm",
     platform: "node",
   })
@@ -315,16 +339,21 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, queue: Q
     const functionDir = resolve(queueRoot, ...segments, `${segments.at(-1)}.func`)
     const functionFile = resolve(functionDir, "index.mjs")
     const wrapperFile = resolve(functionDir, "index.source.mjs")
+    const functionPath = relative(resolve(outputRoot, "functions"), functionDir).replace(/\\/g, "/")
+    const consumer = sanitizeVercelConsumerName(functionPath)
     await mkdir(functionDir, { recursive: true })
     await writeFile(wrapperFile, createVercelQueueWrapperContents(wrapperFile, artifacts.registryFile, definition.name, queueConfig), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
-      external: ["@vercel/queue"],
       format: "esm",
       platform: "node",
     })
     await rm(wrapperFile, { force: true })
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig({
-      experimentalTriggers: [{ topic: getVercelQueueTopicName(definition.name), type: "queue/v2beta" }],
+      experimentalTriggers: [{
+        consumer,
+        topic: getVercelQueueTopicName(definition.name),
+        type: "queue/v2beta",
+      }],
     }), null, 2)}\n`, "utf8")
   }
 }

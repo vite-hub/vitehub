@@ -1,7 +1,54 @@
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { QueueError } from "../errors.ts"
+import { getQueueRuntimeEvent } from "../runtime/state.ts"
 
 import type { VercelQueueClient, VercelQueueProviderOptions, VercelQueueSDK } from "../types.ts"
+
+function readHeader(headers: Headers | Record<string, unknown> | undefined, name: string) {
+  if (!headers) {
+    return
+  }
+
+  if (headers instanceof Headers) {
+    return headers.get(name) || undefined
+  }
+
+  const value = headers[name] ?? headers[name.toLowerCase()]
+  if (typeof value === "string") {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return typeof value[0] === "string" ? value[0] : undefined
+  }
+}
+
+function parseRegionFromVercelId(value: string | undefined) {
+  if (!value) {
+    return
+  }
+
+  const match = value.match(/^([a-z0-9]+)::/i)
+  return match?.[1]?.toLowerCase()
+}
+
+function resolveVercelRegion(explicitRegion: string | undefined) {
+  if (explicitRegion) {
+    return explicitRegion
+  }
+
+  if (typeof process.env.QUEUE_REGION === "string" && process.env.QUEUE_REGION) {
+    return process.env.QUEUE_REGION
+  }
+
+  if (typeof process.env.VERCEL_REGION === "string" && process.env.VERCEL_REGION) {
+    return process.env.VERCEL_REGION
+  }
+
+  const event = getQueueRuntimeEvent() as { req?: { headers?: Headers | Record<string, unknown> }, request?: Request } | undefined
+  const requestHeaders = event?.request instanceof Request ? event.request.headers : event?.req?.headers
+
+  return readHeader(requestHeaders, "ce-vqsregion") || parseRegionFromVercelId(readHeader(requestHeaders, "x-vercel-id"))
+}
 
 async function loadVercelQueueClient(region: string | undefined): Promise<VercelQueueSDK> {
   let module: Record<string, unknown>
@@ -15,8 +62,17 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
     })
   }
 
+  const resolvedRegion = resolveVercelRegion(region)
   if ("QueueClient" in module && typeof module.QueueClient === "function") {
-    return new (module.QueueClient as new (options?: { region?: string }) => VercelQueueSDK)(region ? { region } : undefined)
+    if (!resolvedRegion) {
+      throw new QueueError("Vercel queue region could not be resolved. Set `queue.region`, `QUEUE_REGION`, or run inside a Vercel request context.", {
+        code: "VERCEL_QUEUE_REGION_REQUIRED",
+        httpStatus: 500,
+        provider: "vercel",
+      })
+    }
+
+    return new (module.QueueClient as new (options: { region: string }) => VercelQueueSDK)({ region: resolvedRegion })
   }
 
   if (typeof module.send === "function" && typeof module.handleCallback === "function") {

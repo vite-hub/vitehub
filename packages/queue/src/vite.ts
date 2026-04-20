@@ -1,11 +1,13 @@
+import queueNitroModule from "./nitro/module.ts"
 import { resolve } from "node:path"
 
 import { generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
 
 import type { QueueModuleOptions } from "./types.ts"
+import type { NitroModule } from "nitro/types"
 import type { Plugin, UserConfig } from "vite"
 
-export type QueueVitePlugin = Plugin
+export type QueueVitePlugin = Plugin & { nitro: NitroModule }
 
 export { createCloudflareQueueConfig, type CloudflareQueueConfig, type CloudflareQueueConfigOptions } from "./internal/vite-build.ts"
 
@@ -33,6 +35,7 @@ export function hubQueue(): QueueVitePlugin {
 
   return {
     name: "@vitehub/queue/vite",
+    nitro: queueNitroModule,
     config(config, env) {
       rawConfig = config
       rootDir = resolve(process.cwd(), typeof config.root === "string" ? config.root : ".")

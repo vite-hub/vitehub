@@ -21,6 +21,10 @@ export function runWithQueueRuntimeEvent<T>(event: unknown, callback: () => T): 
   return queueEventStorage.run(event, callback)
 }
 
+export function enterQueueRuntimeEvent(event: unknown): void {
+  queueEventStorage.enterWith(event)
+}
+
 export function getQueueRuntimeEvent(): unknown {
   return queueEventStorage.getStore()
 }

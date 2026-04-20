@@ -1,0 +1,15 @@
+{
+  "name": "playground-nitro",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nitro build",
+    "dev": "nitro dev"
+  },
+  "dependencies": {
+    "@vitehub/queue": "workspace:*",
+    "h3": "catalog:",
+    "nitro": "catalog:",
+    "valibot": "catalog:"
+  }
+}

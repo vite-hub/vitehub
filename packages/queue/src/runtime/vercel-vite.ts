@@ -1,3 +1,4 @@
+import { waitUntil as vercelWaitUntil } from "@vercel/functions"
 import { H3, fromWebHandler } from "h3"
 import { toNodeHandler } from "h3/node"
 
@@ -26,6 +27,6 @@ export function createQueueVercelServer(options: QueueVercelServerOptions = {}):
 
   const nodeHandler = toNodeHandler(app)
   return function vercelQueueServer(req, res) {
-    return runWithQueueRuntimeEvent({ req, res }, () => nodeHandler(req as never, res as never))
+    return runWithQueueRuntimeEvent({ req, res, waitUntil: vercelWaitUntil }, () => nodeHandler(req as never, res as never))
   }
 }
