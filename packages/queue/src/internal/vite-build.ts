@@ -256,7 +256,7 @@ function createNodeFunctionConfig(extra: Record<string, unknown> = {}) {
   }
 }
 
-function createVercelQueueWrapperContents(file: string, registryFile: string, name: string) {
+function createVercelQueueWrapperContents(file: string, registryFile: string, name: string, queueConfig: false | ReturnType<typeof normalizeQueueOptions>) {
   return [
     "import { H3 } from 'h3'",
     "import { toNodeHandler } from 'h3/node'",
@@ -264,7 +264,7 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
-    "setQueueRuntimeConfig({ provider: 'vercel' })",
+    `setQueueRuntimeConfig(${JSON.stringify(queueConfig, null, 2)})`,
     "setQueueRuntimeRegistry(queueRegistry)",
     "",
     "const app = new H3()",
@@ -284,13 +284,14 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
   ].join("\n")
 }
 
-async function writeVercelOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedQueueArtifacts) {
+async function writeVercelOutput(rootDir: string, clientOutDir: string, queue: QueueModuleOptions | undefined, artifacts: GeneratedQueueArtifacts) {
   const clientDir = resolve(rootDir, clientOutDir)
   const outputRoot = resolve(rootDir, ".vercel", "output")
   const serverDir = resolve(outputRoot, "functions", "__server.func")
   const serverEntry = resolve(serverDir, "index.mjs")
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
   const staticIndex = hasStaticIndex(clientDir)
+  const queueConfig = normalizeQueueOptions(queue, { hosting: "vercel" }) || false
 
   await rm(outputRoot, { force: true, recursive: true })
   await mkdir(serverDir, { recursive: true })
@@ -313,8 +314,15 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, artifact
     const segments = safeName.split("/")
     const functionDir = resolve(queueRoot, ...segments, `${segments.at(-1)}.func`)
     const functionFile = resolve(functionDir, "index.mjs")
+    const wrapperFile = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
-    await writeFile(functionFile, createVercelQueueWrapperContents(functionFile, artifacts.registryFile, definition.name), "utf8")
+    await writeFile(wrapperFile, createVercelQueueWrapperContents(wrapperFile, artifacts.registryFile, definition.name, queueConfig), "utf8")
+    await bundleEsmEntry(wrapperFile, functionFile, {
+      external: ["@vercel/queue"],
+      format: "esm",
+      platform: "node",
+    })
+    await rm(wrapperFile, { force: true })
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig({
       experimentalTriggers: [{ topic: getVercelQueueTopicName(definition.name), type: "queue/v2beta" }],
     }), null, 2)}\n`, "utf8")
@@ -324,6 +332,6 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, artifact
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue)
   await writeCloudflareOutput(options.rootDir, options.clientOutDir, artifacts)
-  await writeVercelOutput(options.rootDir, options.clientOutDir, artifacts)
+  await writeVercelOutput(options.rootDir, options.clientOutDir, options.queue, artifacts)
   return artifacts
 }

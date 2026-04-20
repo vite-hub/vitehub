@@ -25,14 +25,7 @@ function isQueueEnvelope<TPayload = unknown>(input: QueueEnqueueInput<TPayload>)
   if (typeof input !== "object" || input === null || Array.isArray(input) || !("payload" in input)) {
     return false
   }
-
-  for (const key of Object.keys(input)) {
-    if (envelopeKeys.has(key)) {
-      return true
-    }
-  }
-
-  return false
+  return Object.keys(input).every(key => key === "payload" || envelopeKeys.has(key))
 }
 
 export function normalizeQueueEnqueueInput<TPayload = unknown>(input: QueueEnqueueInput<TPayload>): NormalizedQueueEnqueueInput<TPayload> {
