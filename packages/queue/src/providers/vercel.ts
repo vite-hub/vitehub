@@ -120,7 +120,7 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
         messageId: (await client.send(topic, normalized.payload, {
           delaySeconds: normalized.options.delaySeconds,
           idempotencyKey: normalized.options.idempotencyKey || normalized.id,
-          region: normalized.options.region,
+          region: normalized.options.region ?? provider.region,
           retentionSeconds: normalized.options.retentionSeconds,
         })).messageId ?? undefined,
       }

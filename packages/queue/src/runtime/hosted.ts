@@ -1,3 +1,4 @@
+import { waitUntil as vercelWaitUntil } from "@vercel/functions"
 import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
 import { QueueError } from "../errors.ts"
@@ -5,6 +6,8 @@ import { QueueError } from "../errors.ts"
 import { getQueue } from "./client.ts"
 
 import type { QueueDefinition } from "../types.ts"
+
+export const hostedVercelWaitUntil: typeof vercelWaitUntil = vercelWaitUntil
 
 async function toRequest(event: {
   method?: string

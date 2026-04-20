@@ -89,6 +89,22 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(false)
   })
 
+  it("copies Vercel static output from Vite's default dist directory", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-default-dist-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      queue: {},
+      rootDir,
+    })
+
+    expect(await readFile(join(rootDir, ".vercel", "output", "static", "index.html"), "utf8")).toContain("<title>vitehub</title>")
+  })
+
   it("throws when queue names collide after Vercel sanitization", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-collision-")
     await mkdir(join(rootDir, "src"), { recursive: true })

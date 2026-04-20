@@ -129,6 +129,31 @@ describe("vercel provider", () => {
     expect(handleCallback).toHaveBeenCalledTimes(1)
   })
 
+  it("uses provider region as the default send region", async () => {
+    const send = vi.fn(async () => ({ messageId: "message-1" }))
+    const client = await createVercelQueueClient({
+      client: {
+        handleCallback: vi.fn(() => async () => new Response("queued")),
+        send,
+      },
+      provider: "vercel",
+      region: "fra1",
+      topic: "topic--77656c636f6d65",
+    })
+
+    await client.send({ email: "ava@example.com" })
+    await client.send({ payload: { email: "ava@example.com" }, region: "iad1" })
+
+    expect(send).toHaveBeenNthCalledWith(1, "topic--77656c636f6d65", { email: "ava@example.com" }, expect.objectContaining({
+      idempotencyKey: expect.any(String),
+      region: "fra1",
+    }))
+    expect(send).toHaveBeenNthCalledWith(2, "topic--77656c636f6d65", { email: "ava@example.com" }, expect.objectContaining({
+      idempotencyKey: expect.any(String),
+      region: "iad1",
+    }))
+  })
+
   it("infers the sdk region from the Vercel runtime env", async () => {
     process.env.VERCEL_REGION = "iad1"
 

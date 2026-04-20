@@ -1,11 +1,10 @@
 import queueNitroModule from "./nitro/module.ts"
-import { resolve } from "node:path"
 
 import { generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
 
 import type { QueueModuleOptions } from "./types.ts"
 import type { NitroModule } from "nitro/types"
-import type { Plugin, UserConfig } from "vite"
+import type { Plugin } from "vite"
 
 export type QueueVitePlugin = Plugin & { nitro: NitroModule }
 
@@ -29,7 +28,8 @@ function isQueueServerEnvironment(name: string, config: { consumer?: string }) {
 }
 
 export function hubQueue(): QueueVitePlugin {
-  let rawConfig: UserConfig = {}
+  let clientOutDir = "dist"
+  let queue: QueueModuleOptions | undefined
   let rootDir = process.cwd()
   let command: "build" | "serve" = "serve"
 
@@ -37,9 +37,13 @@ export function hubQueue(): QueueVitePlugin {
     name: "@vitehub/queue/vite",
     nitro: queueNitroModule,
     config(config, env) {
-      rawConfig = config
-      rootDir = resolve(process.cwd(), typeof config.root === "string" ? config.root : ".")
+      queue = config.queue
       command = env.command
+    },
+    configResolved(config) {
+      clientOutDir = config.build.outDir
+      queue = config.queue ?? queue
+      rootDir = config.root
     },
     configEnvironment(name, config) {
       if (!isQueueServerEnvironment(name, config)) {
@@ -58,8 +62,8 @@ export function hubQueue(): QueueVitePlugin {
       }
 
       await generateProviderOutputs({
-        clientOutDir: typeof rawConfig.build?.outDir === "string" ? rawConfig.build.outDir : "dist/client",
-        queue: rawConfig.queue,
+        clientOutDir,
+        queue,
         rootDir,
       })
     },

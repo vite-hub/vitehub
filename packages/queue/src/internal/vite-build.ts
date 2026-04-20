@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { cp, mkdir, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -171,13 +171,26 @@ async function bundleEsmEntry(entryFile: string, outfile: string, options: { con
 }
 
 async function copyClientOutput(clientDir: string, targetDir: string) {
-  if (resolve(clientDir) === resolve(targetDir)) {
+  const resolvedClientDir = resolve(clientDir)
+  const resolvedTargetDir = resolve(targetDir)
+  if (resolvedClientDir === resolvedTargetDir) {
     return
   }
 
-  await rm(targetDir, { force: true, recursive: true })
-  await mkdir(dirname(targetDir), { recursive: true })
-  await cp(clientDir, targetDir, { recursive: true })
+  await rm(resolvedTargetDir, { force: true, recursive: true })
+  await mkdir(dirname(resolvedTargetDir), { recursive: true })
+
+  const targetRelativePath = relative(resolvedClientDir, resolvedTargetDir).replace(/\\/g, "/")
+  if (targetRelativePath && !targetRelativePath.startsWith("../")) {
+    const [targetRootEntry] = targetRelativePath.split("/", 1)
+    await mkdir(resolvedTargetDir, { recursive: true })
+    await Promise.all((await readdir(resolvedClientDir))
+      .filter(entry => entry !== targetRootEntry)
+      .map(entry => cp(resolve(resolvedClientDir, entry), resolve(resolvedTargetDir, entry), { recursive: true })))
+    return
+  }
+
+  await cp(resolvedClientDir, resolvedTargetDir, { recursive: true })
 }
 
 function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[]) {
@@ -216,6 +229,10 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
   const queues = createCloudflareQueueBindings(artifacts.definitions)
 
   await rm(outputRoot, { force: true, recursive: true })
+  if (staticIndex) {
+    await copyClientOutput(clientDir, resolve(rootDir, "dist", "client"))
+  }
+
   await mkdir(outputRoot, { recursive: true })
 
   await bundleEsmEntry(artifacts.cloudflareWorkerFile, workerOutfile, {
@@ -236,10 +253,6 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
   }
 
   await writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8")
-
-  if (staticIndex) {
-    await copyClientOutput(clientDir, resolve(rootDir, "dist", "client"))
-  }
 }
 
 function createVercelConfigJson() {
@@ -285,7 +298,7 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
   return [
     "import { H3 } from 'h3'",
     "import { toNodeHandler } from 'h3/node'",
-    `import { handleHostedVercelQueueCallback } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
+    `import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
@@ -303,7 +316,7 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
     "",
     "const handler = toNodeHandler(app)",
     "export default function queueHandler(req, res) {",
-    "  return runWithQueueRuntimeEvent({ req, res }, () => handler(req, res))",
+    "  return runWithQueueRuntimeEvent({ req, res, waitUntil: hostedVercelWaitUntil }, () => handler(req, res))",
     "}",
     "",
   ].join("\n")

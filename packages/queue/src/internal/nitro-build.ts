@@ -77,7 +77,7 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
   return [
     "import { H3 } from 'h3'",
     "import { toNodeHandler } from 'h3/node'",
-    `import { handleHostedVercelQueueCallback } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
+    `import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
@@ -95,7 +95,7 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
     "",
     "const handler = toNodeHandler(app)",
     "export default function queueHandler(req, res) {",
-    "  return runWithQueueRuntimeEvent({ req, res }, () => handler(req, res))",
+    "  return runWithQueueRuntimeEvent({ req, res, waitUntil: hostedVercelWaitUntil }, () => handler(req, res))",
     "}",
     "",
   ].join("\n")
@@ -129,9 +129,16 @@ export async function writeNitroVercelQueueOutputs(options: {
     return
   }
 
+  const functionDirs = new Map<string, typeof definitions[number]>()
   for (const definition of definitions) {
     const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_")
     const segments = safeName.split("/")
+    const functionDirKey = [...segments, `${segments.at(-1)}.func`].join("/")
+    const existing = functionDirs.get(functionDirKey)
+    if (existing) {
+      throw new Error(`Queue names "${existing.name}" and "${definition.name}" collide after Vercel output sanitization:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved output path: ${functionDirKey}`)
+    }
+    functionDirs.set(functionDirKey, definition)
     const functionDir = resolve(queueRoot, ...segments, `${segments.at(-1)}.func`)
     const functionFile = resolve(functionDir, "index.mjs")
     const wrapperFile = resolve(functionDir, "index.source.mjs")
