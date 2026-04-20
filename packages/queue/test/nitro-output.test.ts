@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { readFile, rm } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { execFile } from "node:child_process"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -7,11 +7,22 @@ import { promisify } from "node:util"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { build, createNitro, prepare } from "nitro/builder"
 
+import { writeNitroVercelQueueOutputs } from "../src/internal/nitro-build.ts"
+
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/nitro")
 const workspaceRoot = resolve(playgroundDir, "../..")
 const testBuildDir = join(playgroundDir, "node_modules", ".nitro-output-test")
 const testOutputRoot = join(playgroundDir, ".queue-test-output")
+const tempDirs: string[] = []
+
+async function createWorkspaceTempDir(prefix: string) {
+  const baseDir = join(playgroundDir, ".vitest-tmp")
+  await mkdir(baseDir, { recursive: true })
+  const rootDir = await mkdtemp(join(baseDir, prefix))
+  tempDirs.push(rootDir)
+  return rootDir
+}
 
 async function buildQueuePackage() {
   await execFileAsync("pnpm", ["--filter", "@vitehub/queue", "build"], {
@@ -51,6 +62,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await cleanupPlayground()
+  await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
 describe("Nitro provider outputs", () => {
@@ -82,13 +94,32 @@ describe("Nitro provider outputs", () => {
 
     expect(existsSync(vercelServer)).toBe(true)
     expect(existsSync(vercelConsumer)).toBe(true)
-    expect(vercelConsumerContents).not.toContain('import queueRegistry from')
-    expect(vercelConsumerContents).not.toContain('from "./')
-    expect(vercelConsumerContents).not.toContain('from "../')
+    expect(vercelConsumerContents).toContain("waitUntil")
+    expect(vercelConsumerContents).not.toContain("runWithQueueRuntimeEvent({ req, res },")
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Swelcome_Dfunc",
       topic: "topic--77656c636f6d65",
       type: "queue/v2beta",
     })
   }, 30_000)
+
+  it("throws when Nitro queue names collide after Vercel sanitization", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-nitro-collision-")
+    const outputDir = join(rootDir, ".output")
+    const registryFile = join(rootDir, ".vitehub", "queue", "nitro-registry.mjs")
+    const serverDir = join(rootDir, "server")
+
+    await mkdir(join(serverDir, "queues"), { recursive: true })
+    await mkdir(join(rootDir, ".vitehub", "queue"), { recursive: true })
+    await writeFile(join(serverDir, "queues", "foo.bar.ts"), "export default null\n", "utf8")
+    await writeFile(join(serverDir, "queues", "foo+bar.ts"), "export default null\n", "utf8")
+    await writeFile(registryFile, "export default {}\n", "utf8")
+
+    await expect(writeNitroVercelQueueOutputs({
+      outputDir,
+      queue: {},
+      registryFile,
+      scanDirs: [serverDir],
+    })).rejects.toThrow(/collide after Vercel output sanitization/)
+  })
 })

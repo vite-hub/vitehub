@@ -12,35 +12,15 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
+async function createTempDir(prefix: string) {
+  const rootDir = await mkdtemp(join(tmpdir(), prefix))
+  directories.push(rootDir)
+  return rootDir
+}
+
 describe("discoverQueueDefinitions", () => {
-  it("discovers nested *.queue files", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-queue-discovery-"))
-    directories.push(rootDir)
-    await mkdir(join(rootDir, "src", "emails"), { recursive: true })
-    await writeFile(join(rootDir, "src", "emails", "welcome.queue.ts"), "export default null\n", "utf8")
-    await writeFile(join(rootDir, "src", "billing.queue.ts"), "export default null\n", "utf8")
-
-    const definitions = discoverQueueDefinitions({ mode: "vite-suffix", rootDir })
-    expect(definitions.map(definition => definition.name)).toEqual([
-      "billing",
-      "emails/welcome",
-    ])
-  })
-
-  it("throws on duplicate discovered names", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-queue-duplicate-"))
-    const scanDir = await mkdtemp(join(tmpdir(), "vitehub-queue-duplicate-scan-"))
-    directories.push(rootDir)
-    directories.push(scanDir)
-    await writeFile(join(rootDir, "welcome.queue.ts"), "export default null\n", "utf8")
-    await writeFile(join(scanDir, "welcome.queue.ts"), "export default null\n", "utf8")
-
-    expect(() => discoverQueueDefinitions({ mode: "vite-suffix", rootDir, scanDirs: [scanDir] })).toThrow(/Duplicate queue name/)
-  })
-
   it("creates a runtime registry file", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-queue-registry-"))
-    directories.push(rootDir)
+    const rootDir = await createTempDir("vitehub-queue-registry-")
     const registryFile = join(rootDir, ".vitehub", "queue", "registry.mjs")
     const sourceFile = join(rootDir, "welcome.queue.ts")
     await writeFile(sourceFile, "export default null\n", "utf8")
@@ -52,57 +32,58 @@ describe("discoverQueueDefinitions", () => {
     }])).toContain('"welcome": async () => import(')
   })
 
-  it("discovers Nitro queues from server/queues only", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-discovery-"))
-    directories.push(rootDir)
-    await mkdir(join(rootDir, "queues", "emails"), { recursive: true })
-    await writeFile(join(rootDir, "queues", "emails", "welcome.ts"), "export default null\n", "utf8")
-    await writeFile(join(rootDir, "queues", "billing", "index.ts"), "export default null\n", "utf8").catch(async () => {
-      await mkdir(join(rootDir, "queues", "billing"), { recursive: true })
-      await writeFile(join(rootDir, "queues", "billing", "index.ts"), "export default null\n", "utf8")
-    })
-    await writeFile(join(rootDir, "welcome.queue.ts"), "export default null\n", "utf8")
+  it("discovers queue names for vite and nitro entrypoints", async () => {
+    const viteRootDir = await createTempDir("vitehub-queue-vite-discovery-")
+    await mkdir(join(viteRootDir, "src", "emails"), { recursive: true })
+    await writeFile(join(viteRootDir, "src", "emails", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(viteRootDir, "src", "billing.queue.ts"), "export default null\n", "utf8")
 
-    const definitions = discoverQueueDefinitions({
+    const nitroScanDir = await createTempDir("vitehub-queue-nitro-discovery-")
+    await mkdir(join(nitroScanDir, "queues", "emails"), { recursive: true })
+    await mkdir(join(nitroScanDir, "queues", "billing"), { recursive: true })
+    await writeFile(join(nitroScanDir, "queues", "emails", "welcome.ts"), "export default null\n", "utf8")
+    await writeFile(join(nitroScanDir, "queues", "billing", "index.ts"), "export default null\n", "utf8")
+    await writeFile(join(nitroScanDir, "queues", "welcome.d.ts"), "export type Welcome = string\n", "utf8")
+
+    expect(discoverQueueDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual([
+      "billing",
+      "emails/welcome",
+    ])
+
+    expect(discoverQueueDefinitions({
       mode: "nitro-server-queues",
-      scanDirs: [rootDir],
-    })
-
-    expect(definitions.map(definition => definition.name)).toEqual([
+      scanDirs: [nitroScanDir],
+    }).map(definition => definition.name)).toEqual([
       "billing",
       "emails/welcome",
     ])
   })
 
-  it("ignores declaration files in Nitro queue discovery", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-dts-"))
-    directories.push(rootDir)
-    await mkdir(join(rootDir, "queues"), { recursive: true })
-    await writeFile(join(rootDir, "queues", "welcome.ts"), "export default null\n", "utf8")
-    await writeFile(join(rootDir, "queues", "welcome.d.ts"), "export type Welcome = string\n", "utf8")
+  it("rejects duplicate queue names across discovery roots", async () => {
+    const viteRootDir = await createTempDir("vitehub-queue-vite-duplicate-")
+    const viteScanDir = await createTempDir("vitehub-queue-vite-duplicate-scan-")
+    await writeFile(join(viteRootDir, "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(viteScanDir, "welcome.queue.ts"), "export default null\n", "utf8")
 
-    const definitions = discoverQueueDefinitions({
-      mode: "nitro-server-queues",
-      scanDirs: [rootDir],
-    })
+    expect(() => discoverQueueDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+      scanDirs: [viteScanDir],
+    })).toThrow(/Duplicate queue name/)
 
-    expect(definitions.map(definition => definition.name)).toEqual(["welcome"])
-  })
-
-  it("throws on duplicate Nitro queue names across scan roots", async () => {
-    const firstScanDir = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-first-"))
-    const secondScanDir = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-second-"))
-    directories.push(firstScanDir)
-    directories.push(secondScanDir)
-
-    await mkdir(join(firstScanDir, "queues"), { recursive: true })
-    await mkdir(join(secondScanDir, "queues"), { recursive: true })
-    await writeFile(join(firstScanDir, "queues", "welcome.ts"), "export default null\n", "utf8")
-    await writeFile(join(secondScanDir, "queues", "welcome.ts"), "export default null\n", "utf8")
+    const firstNitroScanDir = await createTempDir("vitehub-queue-nitro-first-")
+    const secondNitroScanDir = await createTempDir("vitehub-queue-nitro-second-")
+    await mkdir(join(firstNitroScanDir, "queues"), { recursive: true })
+    await mkdir(join(secondNitroScanDir, "queues"), { recursive: true })
+    await writeFile(join(firstNitroScanDir, "queues", "welcome.ts"), "export default null\n", "utf8")
+    await writeFile(join(secondNitroScanDir, "queues", "welcome.ts"), "export default null\n", "utf8")
 
     expect(() => discoverQueueDefinitions({
       mode: "nitro-server-queues",
-      scanDirs: [firstScanDir, secondScanDir],
+      scanDirs: [firstNitroScanDir, secondNitroScanDir],
     })).toThrow(/Duplicate queue name/)
   })
 })

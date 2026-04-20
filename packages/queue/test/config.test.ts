@@ -3,16 +3,9 @@ import { describe, expect, it } from "vitest"
 import { normalizeQueueOptions } from "../src/config.ts"
 
 describe("normalizeQueueOptions", () => {
-  it("defaults to cloudflare when hosting is cloudflare", () => {
-    expect(normalizeQueueOptions(undefined, { hosting: "cloudflare" })).toEqual({
-      provider: "cloudflare",
-    })
-  })
-
-  it("defaults to vercel when hosting is unknown", () => {
-    expect(normalizeQueueOptions(undefined, { hosting: "" })).toEqual({
-      provider: "vercel",
-    })
+  it("defaults the provider from hosting", () => {
+    expect(normalizeQueueOptions(undefined, { hosting: "cloudflare" })).toEqual({ provider: "cloudflare" })
+    expect(normalizeQueueOptions(undefined, { hosting: "" })).toEqual({ provider: "vercel" })
   })
 
   it("keeps explicit provider settings", () => {

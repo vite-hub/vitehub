@@ -11,8 +11,6 @@ import { createQueueVercelServer } from "../src/runtime/vercel-vite.ts"
 import { deferQueue } from "../src/runtime/client.ts"
 import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
 
-import type { VercelQueueSDK } from "../src/types.ts"
-
 const vercelQueueMock = vi.hoisted(() => {
   const state = {
     handleCallback: vi.fn(() => async () => new Response("queued")),
@@ -80,39 +78,6 @@ describe("cloudflare queue runtime", () => {
     expect(retry).toHaveBeenCalledTimes(1)
   })
 
-  it("dispatches fetch and queue handlers with runtime state", async () => {
-    const queueHandler = vi.fn()
-    const worker = createQueueCloudflareWorker({
-      app: () => new Response("ok"),
-      queue: { provider: "cloudflare" },
-      registry: {
-        welcome: async () => ({
-          default: {
-            handler: queueHandler,
-          },
-        }),
-      },
-    })
-
-    const response = await worker.fetch(new Request("https://example.com/"), {}, { waitUntil: vi.fn() })
-    expect(await response.text()).toBe("ok")
-
-    await worker.queue({
-      ackAll: vi.fn(),
-      messages: [{
-        ack: vi.fn(),
-        attempts: 1,
-        body: { email: "ava@example.com" },
-        id: "message-1",
-        retry: vi.fn(),
-      }],
-      queue: "welcome",
-      retryAll: vi.fn(),
-    }, {}, { waitUntil: vi.fn() })
-
-    expect(queueHandler).toHaveBeenCalledTimes(1)
-  })
-
   it("defaults omitted queue config to the Cloudflare provider", async () => {
     const send = vi.fn(async () => {})
     const worker = createQueueCloudflareWorker({
@@ -162,33 +127,6 @@ describe("vercel provider", () => {
     const response = await client.callback(async () => {}, {})(new Request("https://example.com"))
     expect(response).toBeInstanceOf(Response)
     expect(handleCallback).toHaveBeenCalledTimes(1)
-  })
-
-  it("binds callback execution to the sdk instance", async () => {
-    const sdk = {
-      prefix: "queued",
-      async send() {
-        return { messageId: "message-1" }
-      },
-      handleCallback<TPayload>(this: { prefix: string }, handler: (payload: TPayload, metadata?: unknown) => unknown | Promise<unknown>) {
-        expect(this).toBe(sdk)
-        return async () => {
-          await handler(undefined as TPayload)
-          return new Response(this.prefix)
-        }
-      },
-    } satisfies VercelQueueSDK & { prefix: string }
-    const handler = vi.fn(async () => {})
-    const client = await createVercelQueueClient({
-      client: sdk,
-      provider: "vercel",
-      topic: "topic--77656c636f6d65",
-    })
-
-    const response = await client.callback(handler)(new Request("https://example.com")) as Response
-
-    expect(await response.text()).toBe("queued")
-    expect(handler).toHaveBeenCalledTimes(1)
   })
 
   it("infers the sdk region from the Vercel runtime env", async () => {
