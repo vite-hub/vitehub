@@ -1,0 +1,14 @@
+{
+  "name": "playground-vite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@vitehub/queue": "workspace:*",
+    "h3": "catalog:",
+    "valibot": "catalog:",
+    "vite": "catalog:"
+  }
+}

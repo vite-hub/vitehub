@@ -80,6 +80,16 @@ describe("showcase examples", () => {
     expect(packageFile!.code).toContain("\"nitro\": \"3.0.260311-beta\"");
   });
 
+  it("applies provider overrides without changing showcase ordering", () => {
+    const kv = getShowcaseExamples().find(example => example.docsPath === "kv");
+    expect(kv).toBeTruthy();
+
+    const files = getShowcaseFiles(kv!, "vite", "upstash");
+    expect(files.slice(0, 2).map(file => file.path)).toEqual(["vite.config.ts", "src/main.ts"]);
+    expect(files.find(file => file.path === "vite.config.ts")?.code).toContain("driver: 'upstash'");
+    expect(files.find(file => file.path === "env.example")?.code).toContain("KV_REST_API_URL=https://example.upstash.io");
+  });
+
   it("includes a providers overview page in the docs manifest", () => {
     const providers = docsManifest.sections.find(section => section.id === "providers");
 

@@ -9,14 +9,14 @@ import {
 export type FwGroupContext = { selectedId: Ref<string | null> };
 export const fwGroupContextKey = Symbol("vitehub.docs.fw-group");
 
-export const usageModeDefs = [
+const usageModeDefs = [
   { id: "dev", label: "Dev", description: "Local development flow", icon: "i-lucide-wrench" },
   { id: "build", label: "Build", description: "Production build flow", icon: "i-lucide-hammer" },
 ] as const;
 
 export type UsageMode = (typeof usageModeDefs)[number]["id"];
 
-export type FwVariant = {
+type FwVariant = {
   framework: Framework;
   mode: UsageMode;
   id: `${Framework}:${UsageMode}`;
@@ -27,18 +27,18 @@ export const defaultUsageMode: UsageMode = "dev";
 export const usageModeLabels = Object.fromEntries(
   usageModeDefs.map(entry => [entry.id, entry.label]),
 ) as Record<UsageMode, string>;
-export const usageModeDescriptions = Object.fromEntries(
+const usageModeDescriptions = Object.fromEntries(
   usageModeDefs.map(entry => [entry.id, entry.description]),
 ) as Record<UsageMode, string>;
-export const usageModeIcons = Object.fromEntries(
+const usageModeIcons = Object.fromEntries(
   usageModeDefs.map(entry => [entry.id, entry.icon]),
 ) as Record<UsageMode, string>;
 
-export function isFramework(value: string): value is Framework {
+function isFramework(value: string): value is Framework {
   return frameworks.includes(value as Framework);
 }
 
-export function isUsageMode(value: string): value is UsageMode {
+function isUsageMode(value: string): value is UsageMode {
   return usageModes.includes(value as UsageMode);
 }
 
@@ -131,6 +131,6 @@ export function getFwVariantTabScore(variants: FwVariant[], current: Pick<FwVari
   return 2;
 }
 
-export function formatFwVariantLabel(variant: Pick<FwVariant, "framework" | "mode">) {
+function formatFwVariantLabel(variant: Pick<FwVariant, "framework" | "mode">) {
   return `${frameworkLabels[variant.framework]} ${usageModeLabels[variant.mode]}`;
 }

@@ -1,0 +1,25 @@
+dynamicallyLoaded = [
+  "docs/content.config.ts",
+  "docs/app/assets/main.css",
+  "packages/kv/examples/**/nitro.config.ts",
+  "packages/kv/examples/**/server/**",
+  "packages/kv/playground/**/nitro.config.ts",
+  "packages/kv/playground/**/server/**",
+  "packages/kv/test/helpers/*.ts",
+  "packages/kv/test/**/*.test-d.ts",
+  "packages/queue/test/e2e-live.mjs",
+  "packages/queue/test/**/*.test-d.ts",
+  "playground/nitro/nitro.config.ts",
+  "playground/nitro/server/**",
+  "playground/vite/src/server.ts",
+  "playground/vite/src/**/*.queue.ts",
+]
+
+ignoreDependencies = [
+  "docus",
+  "publint",
+]
+
+[[overrides]]
+files = ["packages/queue/src/errors.ts"]
+rules = { "unused-class-members" = "off" }

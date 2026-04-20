@@ -11,11 +11,13 @@ test-results
 .nitro
 .cache
 .generated
+.vitehub
 **/.nuxt
 **/.output
 **/.data
 **/.nitro
 **/.generated
+**/.vitehub
 **/node_modules/.cache
 **/node_modules/.vite
 **/node_modules/.vite-temp

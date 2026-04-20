@@ -53,9 +53,6 @@ describe("kv runtime", () => {
     runtimeState.config = {
       kv: false,
     }
-
-    const { resetKVRuntimeState } = await import("../src/runtime/storage.ts")
-    resetKVRuntimeState()
   })
 
   afterEach(() => {

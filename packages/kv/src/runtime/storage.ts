@@ -11,10 +11,6 @@ interface RuntimeStorage {
 
 let storagePromise: Promise<RuntimeStorage> | undefined
 
-export function resetKVRuntimeState(): void {
-  storagePromise = undefined
-}
-
 async function resolveStorage() {
   storagePromise ||= import("nitro/runtime").then(module => module.useStorage("kv") as RuntimeStorage)
   return storagePromise

@@ -23,13 +23,13 @@ export type DocsSection = {
   pages: DocsPage[];
 };
 
-export type DocsExampleMode = {
+type DocsExampleMode = {
   phases: Partial<Record<"configure" | "define" | "run", string>>;
   supplementalFiles?: string[];
   excludedFiles?: string[];
 };
 
-export type DocsExampleProvider = {
+type DocsExampleProvider = {
   id: string;
   label: string;
   icon: string;
@@ -51,13 +51,13 @@ export type DocsExample = {
   files: Record<Framework, Array<{ path: string; code: string }>>;
 };
 
-export type PackageSectionMeta = {
+type PackageSectionMeta = {
   id: string;
   title: string;
   icon: string | null;
 };
 
-export type DocsManifest = {
+type DocsManifest = {
   frameworks: Framework[];
   defaultFramework: Framework;
   usageModes: UsageMode[];
@@ -94,7 +94,7 @@ export function getDocsPathMeta(path: string) {
   };
 }
 
-export function getDocsSection(sectionId: string) {
+function getDocsSection(sectionId: string) {
   return docsManifest.sections.find(section => section.id === sectionId) || null;
 }
 
