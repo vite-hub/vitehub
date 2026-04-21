@@ -138,6 +138,45 @@ describe("cloudflare queue runtime", () => {
     expect(send).toHaveBeenCalledTimes(1)
     expect(vercelQueueMock.send).not.toHaveBeenCalled()
   })
+
+  it("binds Cloudflare waitUntil to the original owner", async () => {
+    const send = vi.fn(async () => {})
+    const sendBatch = vi.fn(async () => {})
+    const owner = {
+      calls: 0,
+      waitUntil(this: { calls: number }, promise: Promise<unknown>) {
+        this.calls += 1
+        void promise
+      },
+    }
+
+    setQueueRuntimeConfig({ provider: "cloudflare" })
+    setQueueRuntimeRegistry({
+      welcome: async () => ({
+        default: {
+          handler: async () => {},
+        },
+      }),
+    })
+
+    await runWithQueueRuntimeEvent({
+      req: {
+        runtime: {
+          cloudflare: {
+            context: owner,
+            env: {
+              [getCloudflareQueueBindingName("welcome")]: { send, sendBatch },
+            },
+          },
+        },
+      },
+    }, async () => {
+      deferQueue("welcome", { email: "ava@example.com" })
+      await Promise.resolve()
+    })
+
+    expect(owner.calls).toBe(1)
+  })
 })
 
 describe("vercel provider", () => {

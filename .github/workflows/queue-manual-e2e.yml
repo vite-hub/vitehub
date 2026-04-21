@@ -126,36 +126,10 @@ jobs:
         id: prepare_vercel
         if: matrix.provider == 'vercel'
         env:
-          KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
-          KV_REST_API_URL: ${{ secrets.KV_REST_API_URL }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           APP_DIR="playground/${{ matrix.framework }}"
           PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
-
-          normalize_env_value() {
-            node -e '
-              let value = process.argv[1] ?? ""
-              if (value.length >= 2) {
-                const first = value[0]
-                const last = value[value.length - 1]
-                if ((first === "\"" && last === "\"") || (first === "\x27" && last === "\x27")) {
-                  if (first === "\"") {
-                    try {
-                      value = JSON.parse(value)
-                    }
-                    catch {
-                      value = value.slice(1, -1)
-                    }
-                  }
-                  else {
-                    value = value.slice(1, -1)
-                  }
-                }
-              }
-              process.stdout.write(value)
-            ' "$1"
-          }
 
           get_pulled_env_value() {
             node -e '
@@ -190,11 +164,6 @@ jobs:
             ' "$1" "$2"
           }
 
-          if [ -z "$KV_REST_API_URL" ] || [ -z "$KV_REST_API_TOKEN" ]; then
-            echo "Missing Production secrets: KV_REST_API_URL and KV_REST_API_TOKEN are required for Vercel live KV E2E." >&2
-            exit 1
-          fi
-
           npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
 
           readarray -t VERCEL_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$APP_DIR")
@@ -206,34 +175,26 @@ jobs:
             exit 1
           fi
 
-          for env_name in KV_REST_API_URL KV_REST_API_TOKEN; do
-            env_value="$(normalize_env_value "${!env_name}")"
-            if [ -z "$env_value" ]; then
-              echo "Normalized Vercel env value for $env_name is empty." >&2
-              exit 1
-            fi
-
-            VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-              npx vercel env rm "$env_name" production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
-
-            printf '%s' "$env_value" | VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-              npx vercel env add "$env_name" production --cwd "$APP_DIR" --token "$VERCEL_TOKEN"
-          done
-
           PULLED_ENV_FILE="$(mktemp)"
           trap 'rm -f "$PULLED_ENV_FILE"' EXIT
           VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
-          for env_name in KV_REST_API_URL KV_REST_API_TOKEN; do
-            expected_value="$(normalize_env_value "${!env_name}")"
-            actual_value="$(get_pulled_env_value "$PULLED_ENV_FILE" "$env_name")"
+          KV_URL="$(get_pulled_env_value "$PULLED_ENV_FILE" KV_REST_API_URL)"
+          KV_TOKEN="$(get_pulled_env_value "$PULLED_ENV_FILE" KV_REST_API_TOKEN)"
 
-            if [ "$actual_value" != "$expected_value" ]; then
-              echo "Vercel production env verification failed for $env_name." >&2
+          if [ -z "$KV_URL" ] || [ -z "$KV_TOKEN" ]; then
+            echo "Vercel production env verification failed: KV_REST_API_URL and KV_REST_API_TOKEN must both be set on the linked project." >&2
+            exit 1
+          fi
+
+          case "$KV_URL" in
+            https://*) ;;
+            *)
+              echo "Vercel production env verification failed: KV_REST_API_URL must start with https://." >&2
               exit 1
-            fi
-          done
+              ;;
+          esac
 
           echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
           echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"

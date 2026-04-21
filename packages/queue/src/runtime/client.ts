@@ -57,14 +57,17 @@ function resolveWaitUntil(event: unknown): ((promise: Promise<unknown>) => void)
     }
   } | undefined
 
-  return target?.waitUntil
-    || target?.context?.waitUntil
-    || target?.context?.cloudflare?.waitUntil
-    || target?.context?.cloudflare?.context?.waitUntil
-    || target?.context?._platform?.cloudflare?.waitUntil
-    || target?.context?._platform?.cloudflare?.context?.waitUntil
-    || target?.req?.runtime?.cloudflare?.waitUntil
-    || target?.req?.runtime?.cloudflare?.context?.waitUntil
+  const bindWaitUntil = (owner: { waitUntil?: (promise: Promise<unknown>) => void } | undefined) =>
+    typeof owner?.waitUntil === "function" ? owner.waitUntil.bind(owner) : undefined
+
+  return bindWaitUntil(target)
+    || bindWaitUntil(target?.context)
+    || bindWaitUntil(target?.context?.cloudflare)
+    || bindWaitUntil(target?.context?.cloudflare?.context)
+    || bindWaitUntil(target?.context?._platform?.cloudflare)
+    || bindWaitUntil(target?.context?._platform?.cloudflare?.context)
+    || bindWaitUntil(target?.req?.runtime?.cloudflare)
+    || bindWaitUntil(target?.req?.runtime?.cloudflare?.context)
 }
 
 function toProviderOptions(name: string, config: ResolvedQueueOptions): QueueProviderOptions {
