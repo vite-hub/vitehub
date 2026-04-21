@@ -136,7 +136,7 @@ jobs:
           PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
 
           npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
-          npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm --dir "$APP_DIR" exec nitro build --preset vercel
+          npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm exec nitro build --preset vercel
 
       - name: Deploy Cloudflare
         id: deploy_cloudflare
