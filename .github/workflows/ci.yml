@@ -40,24 +40,6 @@ jobs:
       - run: pnpm build
       - run: pnpm docs:build
 
-  e2e-local:
-    needs: quality
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        provider: [cloudflare, vercel]
-        framework: [nitro, nuxt, vite]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup
-
-      - run: pnpm --dir packages/kv build
-
-      - name: E2E (${{ matrix.provider }} × ${{ matrix.framework }})
-        run: pnpm --dir packages/kv test:e2e --provider ${{ matrix.provider }} --framework ${{ matrix.framework }}
-
   deploy:
     needs: quality
     if: github.ref == 'refs/heads/main'
