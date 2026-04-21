@@ -7,10 +7,14 @@ concurrency:
   group: queue-manual-e2e-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   deploy-and-test:
     name: deploy-and-test (${{ matrix.framework }}, ${{ matrix.provider }})
     runs-on: ubuntu-latest
+    environment: Preview
     strategy:
       fail-fast: false
       matrix:
