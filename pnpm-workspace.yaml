@@ -3,7 +3,6 @@ packages:
   - "playground/*"
   - "packages/*"
   - "packages/*/examples/*"
-  - "packages/*/playground/*"
 catalog:
   '@nuxt/content': ^3.13.0
   '@nuxt/kit': ^4.4.2

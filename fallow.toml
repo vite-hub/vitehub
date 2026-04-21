@@ -3,8 +3,6 @@ dynamicallyLoaded = [
   "docs/app/assets/main.css",
   "packages/kv/examples/**/nitro.config.ts",
   "packages/kv/examples/**/server/**",
-  "packages/kv/playground/**/nitro.config.ts",
-  "packages/kv/playground/**/server/**",
   "packages/kv/test/helpers/*.ts",
   "packages/kv/test/**/*.test-d.ts",
   "packages/queue/test/e2e-live.mjs",
