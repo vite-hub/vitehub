@@ -11,14 +11,11 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
       - name: Fallow dead-code
@@ -53,7 +50,7 @@ jobs:
         provider: [cloudflare, vercel]
         framework: [nitro, nuxt, vite]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
       - run: pnpm --dir packages/kv build
@@ -72,7 +69,7 @@ jobs:
         provider: [cloudflare, vercel]
         framework: [nitro, nuxt, vite]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
       - run: pnpm --dir packages/kv build
@@ -123,7 +120,7 @@ jobs:
         provider: [cloudflare, vercel]
         framework: [nitro, nuxt, vite]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
       - name: E2E Live (${{ matrix.provider }} × ${{ matrix.framework }})

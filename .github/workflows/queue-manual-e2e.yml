@@ -7,9 +7,6 @@ concurrency:
   group: queue-manual-e2e-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   deploy-and-test:
     name: deploy-and-test (${{ matrix.framework }}, ${{ matrix.provider }})
@@ -21,7 +18,7 @@ jobs:
         framework: [vite, nitro]
         provider: [cloudflare, vercel]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
       - run: pnpm --filter @vitehub/queue build
