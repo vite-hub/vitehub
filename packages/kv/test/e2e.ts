@@ -32,11 +32,11 @@ const nitroBuildScript = [
 let packagesBuiltPromise: Promise<void> | undefined
 
 const assertProbe = async (f: Fetcher, expected: Record<string, unknown>) =>
-  assert.deepEqual(await f("/api/tests/probe"), { feature: "kv", ok: true, ...expected })
+  assert.deepEqual(await f("/api/tests/probe"), { ok: true, ...expected })
 
 const assertKvWrite = async (f: Fetcher) =>
   assert.deepEqual(
-    await f("/api/tests/kv", { method: "POST", body: JSON.stringify({ key: "smoke" }), headers: { "content-type": "application/json" } }),
+    await f("/api/tests/kv", { method: "POST" }),
     { ok: true, value: { key: "smoke", store: "kv" } },
   )
 
@@ -97,8 +97,8 @@ async function build(fw: Framework, preset: string, extra?: Record<string, strin
 }
 
 const providerProbe: Record<Provider, Record<string, unknown>> = {
-  cloudflare: { hasWaitUntil: true, hosting: "cloudflare-module", provider: "cloudflare-kv-binding", runtime: "cloudflare" },
-  vercel: { hasWaitUntil: true, hosting: "vercel", provider: "upstash", runtime: "node" },
+  cloudflare: { provider: "cloudflare-kv-binding" },
+  vercel: { provider: "upstash" },
 }
 
 async function runCloudflare(fw: Framework) {

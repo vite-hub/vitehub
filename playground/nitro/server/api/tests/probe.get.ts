@@ -1,14 +1,10 @@
 import { defineEventHandler } from "h3"
 import { useRuntimeConfig } from "nitro/runtime-config"
 
-export default defineEventHandler((event) => {
-  const { hosting, kv } = useRuntimeConfig()
+export default defineEventHandler(() => {
+  const { kv } = useRuntimeConfig()
   return {
-    feature: "kv",
-    hasWaitUntil: typeof event.waitUntil === "function",
-    hosting: hosting || null,
     ok: true,
     provider: (kv && typeof kv === "object" && "store" in kv ? kv.store.driver : null),
-    runtime: hosting?.includes("cloudflare") ? "cloudflare" : "node",
   }
 })

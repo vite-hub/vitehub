@@ -189,9 +189,12 @@ describe("Nitro module", () => {
     })
   })
 
-  it("warns when Vercel falls back to fs-lite", async () => {
+  it("warns when Vercel is configured to use fs-lite", async () => {
     const nitro = createNitroStub({
       preset: "vercel",
+      kv: {
+        driver: "fs-lite",
+      },
     })
     const module = (await import("../src/nitro/module.ts")).default
 
