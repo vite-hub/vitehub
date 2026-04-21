@@ -35,11 +35,6 @@ afterAll(async () => {
 
 describe("Vite provider outputs", () => {
   it("builds the playground and emits cloudflare and vercel outputs", async () => {
-    await execFileAsync("pnpm", ["--filter", "@vitehub/queue", "build"], {
-      cwd: resolve(playgroundDir, "../.."),
-      env: process.env,
-    })
-
     await execFileAsync("pnpm", ["exec", "vite", "build"], {
       cwd: playgroundDir,
       env: process.env,
