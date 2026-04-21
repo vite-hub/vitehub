@@ -2,6 +2,7 @@ import { resolve } from "node:path"
 
 import { defineConfig } from "vite"
 
+import { hubKv } from "@vitehub/kv/vite"
 import { hubQueue } from "@vitehub/queue/vite"
 
 export default defineConfig({
@@ -12,6 +13,6 @@ export default defineConfig({
       input: resolve(import.meta.dirname, "src/server.ts"),
     },
   },
-  plugins: [hubQueue()],
+  plugins: [hubQueue(), hubKv()],
   queue: {},
 })
