@@ -1,4 +1,6 @@
-import { defineNitroPlugin, useRuntimeConfig, useStorage } from "nitro/runtime"
+import { definePlugin as defineNitroPlugin } from "nitro"
+import { useRuntimeConfig } from "nitro/runtime-config"
+import { useStorage } from "nitro/storage"
 import type { ResolvedKVModuleOptions } from "../types.ts"
 import { createKVRuntimeDriver } from "./driver.ts"
 import { resolveRuntimeKVOptions } from "./upstash.ts"

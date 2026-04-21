@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { rm } from "node:fs/promises"
 import { createServer } from "node:http"
-import { dirname, resolve } from "node:path"
+import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import assert from "node:assert/strict"
 
@@ -89,115 +89,11 @@ async function ensurePlaygroundPackagesBuilt() {
   await packagesBuiltPromise
 }
 
-async function ensureCloudflareStorageShim(fw: Framework) {
-  const runtimeChunk = resolve(cloudflareServerDir(fw), "_chunks/runtime.mjs")
-  const runtimeSource = await readFile(runtimeChunk, "utf8")
-  if (!runtimeSource.includes("#nitro-internal-virtual/storage")) {
-    return
-  }
-
-  const shimPath = resolve(cloudflareServerDir(fw), "_chunks/nitro-storage.mjs")
-
-  await mkdir(dirname(shimPath), { recursive: true })
-  await writeFile(
-    runtimeChunk,
-    runtimeSource.replaceAll("#nitro-internal-virtual/storage", "./nitro-storage.mjs"),
-  )
-  await writeFile(
-    shimPath,
-    [
-      "function normalizeKey(key = '', sep = ':') {",
-      "  return key.replace(/[:/\\\\]/g, sep).replace(/^[:/\\\\]|[:/\\\\]$/g, '')",
-      "}",
-      "function joinKeys(...keys) {",
-      "  return keys.map((key) => normalizeKey(key)).filter(Boolean).join(':')",
-      "}",
-      "function createMemoryDriver() {",
-      "  const data = new Map()",
-      "  return {",
-      "    async hasItem(key) { return data.has(key) },",
-      "    async getItem(key) { return data.get(key) ?? null },",
-      "    async setItem(key, value) { data.set(key, value) },",
-      "    async removeItem(key) { data.delete(key) },",
-      "    async getKeys(base = '') {",
-      "      return [...data.keys()].filter((key) => !base || key === base || key.startsWith(base + ':'))",
-      "    },",
-      "    async clear(base = '') {",
-      "      for (const key of [...data.keys()]) {",
-      "        if (!base || key === base || key.startsWith(base + ':')) data.delete(key)",
-      "      }",
-      "    },",
-      "    async dispose() { data.clear() },",
-      "  }",
-      "}",
-      "export function initStorage() {",
-      "  const mounts = new Map([['', createMemoryDriver()]])",
-      "  const resolveMount = (key = '') => {",
-      "    const normalized = normalizeKey(key)",
-      "    const mountpoints = [...mounts.keys()].sort((a, b) => b.length - a.length)",
-      "    for (const base of mountpoints) {",
-      "      if (!base || normalized === base || normalized.startsWith(base + ':')) {",
-      "        return {",
-      "          driver: mounts.get(base),",
-      "          relativeKey: base ? normalized.slice(base.length + 1) : normalized,",
-      "          base,",
-      "        }",
-      "      }",
-      "    }",
-      "    return { driver: mounts.get(''), relativeKey: normalized, base: '' }",
-      "  }",
-      "  return {",
-      "    async hasItem(key) {",
-      "      const { driver, relativeKey } = resolveMount(key)",
-      "      return driver.hasItem(relativeKey)",
-      "    },",
-      "    async getItem(key) {",
-      "      const { driver, relativeKey } = resolveMount(key)",
-      "      const value = await driver.getItem(relativeKey)",
-      "      if (value == null) return null",
-      "      try { return JSON.parse(value) } catch { return value }",
-      "    },",
-      "    async setItem(key, value, opts) {",
-      "      const { driver, relativeKey } = resolveMount(key)",
-      "      await driver.setItem(relativeKey, JSON.stringify(value), opts)",
-      "    },",
-      "    async removeItem(key, opts) {",
-      "      const { driver, relativeKey } = resolveMount(key)",
-      "      await driver.removeItem(relativeKey, opts)",
-      "    },",
-      "    async getKeys(base = '') {",
-      "      const { driver, relativeKey, base: mountBase } = resolveMount(base)",
-      "      const keys = await driver.getKeys(relativeKey)",
-      "      return keys.map((key) => joinKeys(mountBase, key))",
-      "    },",
-      "    async clear(base = '') {",
-      "      const { driver, relativeKey } = resolveMount(base)",
-      "      await driver.clear(relativeKey)",
-      "    },",
-      "    mount(base, driver) {",
-      "      mounts.set(normalizeKey(base), driver)",
-      "    },",
-      "    async unmount(base, dispose = true) {",
-      "      const normalized = normalizeKey(base)",
-      "      const driver = mounts.get(normalized)",
-      "      mounts.delete(normalized)",
-      "      if (dispose && driver?.dispose) await driver.dispose()",
-      "    },",
-      "  }",
-      "}",
-      "",
-    ].join("\n"),
-  )
-}
-
 async function build(fw: Framework, preset: string, extra?: Record<string, string>) {
   await ensurePlaygroundPackagesBuilt()
   await Promise.all([".output", ".vercel", ".nuxt", ".nitro"].map(n => rm(resolve(dir(fw), n), { force: true, recursive: true })))
   const env = { ...process.env, ...extra, NITRO_PRESET: preset, NODE_PATH: resolve(workspaceRoot, "node_modules") }
   await execCommand("node", ["--input-type=module", "-e", nitroBuildScript, dir(fw), preset], { cwd: dir(fw), env })
-  if (preset === "cloudflare-module") {
-    await ensureCloudflareStorageShim(fw)
-  }
 }
 
 const providerProbe: Record<Provider, Record<string, unknown>> = {
@@ -207,7 +103,7 @@ const providerProbe: Record<Provider, Record<string, unknown>> = {
 
 async function runCloudflare(fw: Framework) {
   log(`cloudflare × ${fw}`)
-  await build(fw, "cloudflare-module")
+  await build(fw, "cloudflare-module", { KV_NAMESPACE_ID: "local-test-namespace" })
   const port = await getFreePort()
   const inspectorPort = await getFreePort()
   const child = await startCommand("npx", [

@@ -45,6 +45,18 @@ async function cleanupPlayground() {
   await rm(testOutputRoot, { force: true, recursive: true, maxRetries: 10, retryDelay: 50 })
 }
 
+async function assertNoNitroInternalVirtualImports(outputDir: string) {
+  const files = [
+    join(outputDir, "server", "_chunks", "runtime.mjs"),
+    join(outputDir, "functions", "__server.func", "_chunks", "runtime.mjs"),
+  ]
+
+  for (const file of files) {
+    if (!existsSync(file)) continue
+    await expect(readFile(file, "utf8")).resolves.not.toContain("#nitro-internal-virtual/")
+  }
+}
+
 beforeAll(async () => {
   await cleanupPlayground()
 })
@@ -66,6 +78,7 @@ describe("Nitro provider outputs", () => {
     expect(existsSync(cloudflareServerEntry)).toBe(true)
     expect(registryContents).toContain('"welcome": async () => import(')
     expect(registryContents).toContain("server/queues/welcome.ts")
+    await assertNoNitroInternalVirtualImports(cloudflareBuild.outputDir)
 
     await cleanupPlayground()
 
@@ -83,6 +96,7 @@ describe("Nitro provider outputs", () => {
     expect(existsSync(vercelConsumer)).toBe(true)
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).not.toContain("runWithQueueRuntimeEvent({ req, res },")
+    await assertNoNitroInternalVirtualImports(vercelBuild.outputDir)
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Swelcome_Dfunc",
       topic: "topic--77656c636f6d65",
