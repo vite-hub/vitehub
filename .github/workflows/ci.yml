@@ -12,7 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
+  ci:
+    name: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -36,13 +37,21 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
-      - run: pnpm --dir docs test
       - run: pnpm build
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - run: pnpm --dir docs test
       - run: pnpm docs:build
 
   deploy-and-test:
     name: deploy-and-test (${{ matrix.framework }}, ${{ matrix.provider }})
-    needs: quality
+    needs: ci
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: Production
