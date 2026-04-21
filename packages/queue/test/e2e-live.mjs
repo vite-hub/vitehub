@@ -87,6 +87,32 @@ function startCloudflareLogStream(workerName) {
   })
 }
 
+function waitForProcessExit(child) {
+  if (child.exitCode !== null) {
+    return Promise.resolve()
+  }
+
+  return new Promise((resolve) => {
+    child.once("close", () => resolve())
+  })
+}
+
+async function stopProcess(child, gracePeriodMs = 5_000) {
+  if (child.exitCode !== null) {
+    return
+  }
+
+  child.kill("SIGTERM")
+  await Promise.race([waitForProcessExit(child), sleep(gracePeriodMs)])
+
+  if (child.exitCode !== null) {
+    return
+  }
+
+  child.kill("SIGKILL")
+  await waitForProcessExit(child)
+}
+
 async function waitForCloudflareMarkers(workerName, markers, timeoutMs) {
   const logProcess = startCloudflareLogStream(workerName)
   let output = ""
@@ -111,9 +137,7 @@ async function waitForCloudflareMarkers(workerName, markers, timeoutMs) {
       await sleep(1_000)
     }
   } finally {
-    if (logProcess.exitCode === null) {
-      logProcess.kill("SIGTERM")
-    }
+    await stopProcess(logProcess)
   }
 
   throw new Error(`Timed out waiting for markers ${markers.join(", ")}.\n\nCaptured logs:\n${output}`)

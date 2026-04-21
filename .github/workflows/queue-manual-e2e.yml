@@ -109,6 +109,7 @@ jobs:
     needs: setup-cloudflare
     runs-on: ubuntu-latest
     environment: Production
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -238,6 +239,7 @@ jobs:
           pnpm --dir packages/kv test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "$URL"
 
       - name: Queue Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
+        timeout-minutes: 5
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
