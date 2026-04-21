@@ -36,9 +36,6 @@ catalogs:
     h3:
       specifier: 2.0.1-rc.20
       version: 2.0.1-rc.20
-    miniflare:
-      specifier: ^4.20260317.3
-      version: 4.20260415.0
     nitro:
       specifier: 3.0.260311-beta
       version: 3.0.260311-beta
@@ -157,9 +154,6 @@ importers:
       get-port-please:
         specifier: 'catalog:'
         version: 3.2.0
-      miniflare:
-        specifier: 'catalog:'
-        version: 4.20260415.0
       ofetch:
         specifier: 'catalog:'
         version: 1.5.1
