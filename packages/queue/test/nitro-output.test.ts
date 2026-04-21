@@ -79,7 +79,7 @@ describe("Nitro provider outputs", () => {
     expect(existsSync(cloudflareServerEntry)).toBe(true)
     expect(registryContents).toContain('"welcome": async () => import(')
     expect(registryContents).toContain("server/queues/welcome.ts")
-    await expect(readFile(cloudflareQueueHandler, "utf8")).resolves.toContain("queue-e2e:")
+    await expect(readFile(cloudflareQueueHandler, "utf8")).resolves.toContain("reportQueueMarker")
     await assertNoNitroInternalVirtualImports(cloudflareBuild.outputDir)
 
     await cleanupPlayground()

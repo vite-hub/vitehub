@@ -1,7 +1,5 @@
-import { kv } from "@vitehub/kv"
+import { reportQueueMarker } from "../../queue-test"
 
-export default defineQueue<{ email: string, marker?: string }>(async (job) => {
-  if (typeof job.payload.marker === "string") {
-    await kv.set(`queue-e2e:${job.payload.marker}`, true)
-  }
+export default defineQueue<{ callbackUrl?: string, email: string, marker?: string }>(async (job) => {
+  await reportQueueMarker(job.payload.marker, job.payload.callbackUrl)
 })

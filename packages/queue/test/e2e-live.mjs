@@ -75,8 +75,8 @@ async function requestJson(url, init) {
   return body
 }
 
-function createQueueBody(marker) {
-  return JSON.stringify({ email: "ava@example.com", marker })
+function createQueueBody(marker, callbackUrl) {
+  return JSON.stringify({ callbackUrl, email: "ava@example.com", marker })
 }
 
 function createRunConfig(args) {
@@ -106,9 +106,9 @@ async function verifyApp(url) {
   }
 }
 
-async function triggerQueue(url, marker) {
+async function triggerQueue(url, marker, callbackUrl) {
   const directResponse = await requestJson(new URL("/api/queues/welcome", url), {
-    body: createQueueBody(marker),
+    body: createQueueBody(marker, callbackUrl),
     headers: {
       "content-type": "application/json",
     },
@@ -120,9 +120,9 @@ async function triggerQueue(url, marker) {
   }
 }
 
-async function triggerDeferredQueue(url, marker) {
+async function triggerDeferredQueue(url, marker, callbackUrl) {
   const deferResponse = await requestJson(new URL("/api/queues/welcome-defer", url), {
-    body: createQueueBody(marker),
+    body: createQueueBody(marker, callbackUrl),
     headers: {
       "content-type": "application/json",
     },
@@ -170,10 +170,11 @@ async function waitForCompletion(run) {
 async function main() {
   const run = createRunConfig(parseArgs(process.argv.slice(2)))
   const pendingCompletion = waitForCompletion(run)
+  const callbackUrl = new URL("/api/tests/queue", run.url).toString()
 
   await verifyApp(run.url)
-  await triggerQueue(run.url, run.directMarker)
-  await triggerDeferredQueue(run.url, run.deferMarker)
+  await triggerQueue(run.url, run.directMarker, callbackUrl)
+  await triggerDeferredQueue(run.url, run.deferMarker, callbackUrl)
   await pendingCompletion
 
   console.log(JSON.stringify({ ...run, ok: true }))
