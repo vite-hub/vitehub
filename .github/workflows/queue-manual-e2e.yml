@@ -33,7 +33,7 @@ jobs:
             npx wrangler queues create queue--77656c636f6d65
           fi
 
-      - name: Deploy
+      - name: Deploy (${{ matrix.provider }} × ${{ matrix.framework }})
         id: deploy
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -78,7 +78,7 @@ jobs:
             fi
           fi
 
-      - name: E2E
+      - name: E2E Live (${{ matrix.provider }} × ${{ matrix.framework }})
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
