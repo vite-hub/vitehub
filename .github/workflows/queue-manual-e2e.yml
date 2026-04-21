@@ -174,8 +174,8 @@ jobs:
 
           for env_name in KV_REST_API_URL KV_REST_API_TOKEN; do
             env_value="$(normalize_env_value "${!env_name}")"
-            VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-              npx vercel env add "$env_name" production --force --yes --value "$env_value" --cwd "$APP_DIR" --token "$VERCEL_TOKEN"
+            printf '%s' "$env_value" | VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+              npx vercel env add "$env_name" production --force --cwd "$APP_DIR" --token "$VERCEL_TOKEN"
           done
 
           echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
