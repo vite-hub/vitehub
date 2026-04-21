@@ -30,9 +30,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          if ! npx wrangler queues list | grep -q 'queue--77656c636f6d65'; then
-            npx wrangler queues create queue--77656c636f6d65
-          fi
+          for queue in queue--77656c636f6d65 queue--77656c636f6d652d656d61696c; do
+            if ! npx wrangler queues list | grep -q "$queue"; then
+              npx wrangler queues create "$queue"
+            fi
+          done
 
       - name: Build (${{ matrix.provider }} × ${{ matrix.framework }})
         env:
