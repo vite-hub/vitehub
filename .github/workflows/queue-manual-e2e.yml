@@ -24,8 +24,7 @@ jobs:
           API_BASE="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
           AUTH_HEADER="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
           QUEUES="queue--77656c636f6d65 queue--77656c636f6d652d656d61696c"
-          WORKERS="vitehub-playground-nitro vitehub-playground-vite"
-          export QUEUES WORKERS
+          export QUEUES
 
           for queue in $QUEUES; do
             if ! npx wrangler queues list | grep -q "$queue"; then
@@ -42,51 +41,68 @@ jobs:
 
             const queues = JSON.parse(fs.readFileSync(0, "utf8")).result || [];
             const wantedQueues = new Set(process.env.QUEUES.split(" "));
-            const wantedWorkers = new Set(process.env.WORKERS.split(" "));
 
             for (const queue of queues) {
               if (!wantedQueues.has(queue.queue_name)) continue;
-              for (const consumer of queue.consumers || []) {
-                if (!wantedWorkers.has(consumer.script_name)) continue;
-                console.log([queue.queue_id, queue.queue_name, consumer.consumer_id, consumer.script_name].join("\t"));
-              }
+              console.log([queue.queue_id, queue.queue_name].join("\t"));
             }
-          ' > /tmp/cloudflare-queue-consumers.tsv
+          ' > /tmp/cloudflare-queues.tsv
 
-          while IFS=$'\t' read -r queue_id queue_name consumer_id script_name; do
-            [ -n "$consumer_id" ] || continue
-            echo "Removing stale consumer ${script_name} from ${queue_name}"
-            curl --fail --silent --show-error \
-              --request DELETE \
+          while IFS=$'\t' read -r queue_id queue_name; do
+            [ -n "$queue_id" ] || continue
+
+            CONSUMERS=$(curl --fail --silent --show-error \
               --header "$AUTH_HEADER" \
-              "$API_BASE/queues/${queue_id}/consumers/${consumer_id}" >/dev/null
-          done < /tmp/cloudflare-queue-consumers.tsv
+              "$API_BASE/queues/${queue_id}/consumers")
 
-          VERIFIED_STATE=$(curl --fail --silent --show-error \
-            --header "$AUTH_HEADER" \
-            "$API_BASE/queues")
+            printf '%s' "$CONSUMERS" | node -e '
+              const fs = require("node:fs");
 
-          printf '%s' "$VERIFIED_STATE" | node -e '
-            const fs = require("node:fs");
+              const consumers = JSON.parse(fs.readFileSync(0, "utf8")).result || [];
 
-            const queues = JSON.parse(fs.readFileSync(0, "utf8")).result || [];
-            const wantedQueues = new Set(process.env.QUEUES.split(" "));
-            const wantedWorkers = new Set(process.env.WORKERS.split(" "));
-            const remaining = [];
-
-            for (const queue of queues) {
-              if (!wantedQueues.has(queue.queue_name)) continue;
-              for (const consumer of queue.consumers || []) {
-                if (!wantedWorkers.has(consumer.script_name)) continue;
-                remaining.push(`${queue.queue_name}:${consumer.script_name}:${consumer.consumer_id}`);
+              for (const consumer of consumers) {
+                console.log([consumer.consumer_id, consumer.script_name || consumer.type || "unknown"].join("\t"));
               }
-            }
+            ' | while IFS=$'\t' read -r consumer_id consumer_name; do
+              [ -n "$consumer_id" ] || continue
+              echo "Removing consumer ${consumer_name} from ${queue_name}"
+              curl --fail --silent --show-error \
+                --request DELETE \
+                --header "$AUTH_HEADER" \
+                "$API_BASE/queues/${queue_id}/consumers/${consumer_id}" >/dev/null
+            done
+          done < /tmp/cloudflare-queues.tsv
 
-            if (remaining.length > 0) {
-              console.error(`Cloudflare queue consumers still attached: ${remaining.join(", ")}`);
-              process.exit(1);
-            }
-          '
+          for attempt in $(seq 1 10); do
+            REMAINING=$(
+              while IFS=$'\t' read -r queue_id queue_name; do
+                [ -n "$queue_id" ] || continue
+
+                curl --fail --silent --show-error \
+                  --header "$AUTH_HEADER" \
+                  "$API_BASE/queues/${queue_id}/consumers" | node -e '
+                    const fs = require("node:fs");
+                    const queueName = process.argv[1];
+                    const consumers = JSON.parse(fs.readFileSync(0, "utf8")).result || [];
+
+                    for (const consumer of consumers) {
+                      console.log(`${queueName}:${consumer.script_name || consumer.type || "unknown"}:${consumer.consumer_id}`);
+                    }
+                  ' "$queue_name"
+              done < /tmp/cloudflare-queues.tsv
+            )
+
+            if [ -z "$REMAINING" ]; then
+              break
+            fi
+
+            if [ "$attempt" -eq 10 ]; then
+              echo "Cloudflare queue consumers still attached: $REMAINING" >&2
+              exit 1
+            fi
+
+            sleep 2
+          done
 
   live-e2e:
     name: live e2e
@@ -105,14 +121,22 @@ jobs:
       - run: pnpm --filter @vitehub/queue build
       - run: pnpm --filter @vitehub/kv build
 
-      - name: Build (${{ matrix.provider }} × ${{ matrix.framework }})
+      - name: Build (cloudflare × ${{ matrix.framework }})
+        if: matrix.provider == 'cloudflare'
         env:
-          NITRO_PRESET: ${{ matrix.provider == 'cloudflare' && 'cloudflare-module' || 'vercel' }}
-          KV_NAMESPACE_ID: ${{ matrix.provider == 'cloudflare' && secrets.CLOUDFLARE_KV_NAMESPACE_ID || '' }}
-          # Presence forces upstash resolution at build; runtime swaps with real Vercel env.
-          KV_REST_API_URL: ${{ matrix.provider == 'vercel' && '********' || '' }}
-          KV_REST_API_TOKEN: ${{ matrix.provider == 'vercel' && '********' || '' }}
-        run: pnpm --dir playground/${{ matrix.framework }} exec nitro build --preset "$NITRO_PRESET"
+          KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+        run: pnpm --dir playground/${{ matrix.framework }} exec nitro build --preset cloudflare-module
+
+      - name: Build (vercel × ${{ matrix.framework }})
+        if: matrix.provider == 'vercel'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          APP_DIR="playground/${{ matrix.framework }}"
+          PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
+
+          npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
+          npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm --dir "$APP_DIR" exec nitro build --preset vercel
 
       - name: Deploy Cloudflare
         id: deploy_cloudflare
