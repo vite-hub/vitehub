@@ -49,10 +49,10 @@ jobs:
       - run: pnpm --dir docs test
       - run: pnpm docs:build
 
-  deploy-and-test:
-    name: deploy-and-test (${{ matrix.framework }}, ${{ matrix.provider }})
+  live-e2e:
+    name: live e2e
     needs: ci
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: Production
     strategy:
