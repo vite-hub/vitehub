@@ -11,13 +11,14 @@ jobs:
   deploy-and-test:
     name: deploy-and-test (${{ matrix.framework }}, ${{ matrix.provider }})
     runs-on: ubuntu-latest
+    environment: Production
     strategy:
       fail-fast: false
       matrix:
         framework: [vite, nitro]
         provider: [cloudflare, vercel]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
       - run: pnpm --filter @vitehub/queue build
