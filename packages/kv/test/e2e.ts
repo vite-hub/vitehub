@@ -101,6 +101,30 @@ const providerProbe: Record<Provider, Record<string, unknown>> = {
   vercel: { provider: "upstash" },
 }
 
+async function assertLiveProbe(f: Fetcher, provider: Provider) {
+  const expected = providerProbe[provider]
+
+  if (provider !== "cloudflare") {
+    await assertProbe(f, expected)
+    return
+  }
+
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    try {
+      await assertProbe(f, expected)
+      return
+    }
+    catch (error) {
+      lastError = error
+      if (attempt === 20) break
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+  }
+
+  throw lastError
+}
+
 async function runCloudflare(fw: Framework) {
   log(`cloudflare × ${fw}`)
   await build(fw, "cloudflare-module", { KV_NAMESPACE_ID: "local-test-namespace" })
@@ -171,7 +195,7 @@ async function runVercel(fw: Framework) {
 async function runLive(url: string, provider: Provider) {
   log(`live ${provider} → ${url}`)
   const f: Fetcher = (p, i) => ofetch(p, { baseURL: url, ...i })
-  await assertProbe(f, providerProbe[provider])
+  await assertLiveProbe(f, provider)
   await assertKvWrite(f)
   log(`live ${provider} ✓`)
 }

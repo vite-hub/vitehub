@@ -121,6 +121,43 @@ jobs:
       - run: pnpm --filter @vitehub/queue build
       - run: pnpm --filter @vitehub/kv build
 
+      - name: Prepare Vercel project
+        id: prepare_vercel
+        if: matrix.provider == 'vercel'
+        env:
+          KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
+          KV_REST_API_URL: ${{ secrets.KV_REST_API_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          APP_DIR="playground/${{ matrix.framework }}"
+          PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
+
+          if [ -z "$KV_REST_API_URL" ] || [ -z "$KV_REST_API_TOKEN" ]; then
+            echo "Missing Production secrets: KV_REST_API_URL and KV_REST_API_TOKEN are required for Vercel live KV E2E." >&2
+            exit 1
+          fi
+
+          npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
+
+          readarray -t VERCEL_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$APP_DIR")
+          VERCEL_ORG_ID="${VERCEL_CONFIG[0]}"
+          VERCEL_PROJECT_ID="${VERCEL_CONFIG[1]}"
+
+          if [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "Failed to read linked Vercel project metadata." >&2
+            exit 1
+          fi
+
+          for env_name in KV_REST_API_URL KV_REST_API_TOKEN; do
+            env_value="${!env_name}"
+            VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+              npx vercel env add "$env_name" production --force --yes --value "$env_value" --cwd "$APP_DIR" --token "$VERCEL_TOKEN"
+          done
+
+          echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
+          echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
+          echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
+
       - name: Build (cloudflare × ${{ matrix.framework }})
         if: matrix.provider == 'cloudflare'
         env:
@@ -130,12 +167,11 @@ jobs:
       - name: Build (vercel × ${{ matrix.framework }})
         if: matrix.provider == 'vercel'
         env:
+          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          APP_DIR="playground/${{ matrix.framework }}"
-          PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
-
-          npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
+          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm exec nitro build --preset vercel
 
       - name: Deploy Cloudflare
@@ -155,22 +191,11 @@ jobs:
         id: deploy_vercel
         if: matrix.provider == 'vercel'
         env:
+          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          APP_DIR="playground/${{ matrix.framework }}"
-          PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
-
-          npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
-
-          readarray -t VERCEL_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$APP_DIR")
-          VERCEL_ORG_ID="${VERCEL_CONFIG[0]}"
-          VERCEL_PROJECT_ID="${VERCEL_CONFIG[1]}"
-
-          if [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
-            echo "Failed to read linked Vercel project metadata." >&2
-            exit 1
-          fi
-
+          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           DEPLOYMENT_URL=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
           if [ -z "$DEPLOYMENT_URL" ]; then
             echo "Failed to capture Vercel deployment URL." >&2
