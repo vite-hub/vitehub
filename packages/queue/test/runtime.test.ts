@@ -9,7 +9,7 @@ import { runQueue } from "../src/runtime/client.ts"
 import { createQueueCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import { createQueueVercelServer } from "../src/runtime/vercel-vite.ts"
 import { deferQueue } from "../src/runtime/client.ts"
-import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
+import { runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/runtime/state.ts"
 
 const vercelQueueMock = vi.hoisted(() => {
   const state = {
@@ -101,6 +101,40 @@ describe("cloudflare queue runtime", () => {
     expect(await response.json()).toEqual(expect.objectContaining({
       status: "queued",
     }))
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(vercelQueueMock.send).not.toHaveBeenCalled()
+  })
+
+  it("uses nested Cloudflare waitUntil for deferred dispatch", async () => {
+    const send = vi.fn(async () => {})
+    const waitUntil = vi.fn()
+    const sendBatch = vi.fn(async () => {})
+
+    setQueueRuntimeConfig({ provider: "cloudflare" })
+    setQueueRuntimeRegistry({
+      welcome: async () => ({
+        default: {
+          handler: async () => {},
+        },
+      }),
+    })
+
+    await runWithQueueRuntimeEvent({
+      context: {
+        cloudflare: {
+          context: { waitUntil },
+          env: {
+            [getCloudflareQueueBindingName("welcome")]: { send, sendBatch },
+          },
+        },
+      },
+    }, async () => {
+      deferQueue("welcome", { email: "ava@example.com" })
+      await Promise.resolve()
+    })
+
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+    await waitUntil.mock.calls[0]?.[0]
     expect(send).toHaveBeenCalledTimes(1)
     expect(vercelQueueMock.send).not.toHaveBeenCalled()
   })

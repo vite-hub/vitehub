@@ -31,6 +31,42 @@ function resolveCloudflareBinding(binding: string | CloudflareQueueClient["bindi
   return resolved || bindingName
 }
 
+function resolveWaitUntil(event: unknown): ((promise: Promise<unknown>) => void) | undefined {
+  const target = event as {
+    waitUntil?: (promise: Promise<unknown>) => void
+    context?: {
+      waitUntil?: (promise: Promise<unknown>) => void
+      cloudflare?: {
+        context?: { waitUntil?: (promise: Promise<unknown>) => void }
+        waitUntil?: (promise: Promise<unknown>) => void
+      }
+      _platform?: {
+        cloudflare?: {
+          context?: { waitUntil?: (promise: Promise<unknown>) => void }
+          waitUntil?: (promise: Promise<unknown>) => void
+        }
+      }
+    }
+    req?: {
+      runtime?: {
+        cloudflare?: {
+          context?: { waitUntil?: (promise: Promise<unknown>) => void }
+          waitUntil?: (promise: Promise<unknown>) => void
+        }
+      }
+    }
+  } | undefined
+
+  return target?.waitUntil
+    || target?.context?.waitUntil
+    || target?.context?.cloudflare?.waitUntil
+    || target?.context?.cloudflare?.context?.waitUntil
+    || target?.context?._platform?.cloudflare?.waitUntil
+    || target?.context?._platform?.cloudflare?.context?.waitUntil
+    || target?.req?.runtime?.cloudflare?.waitUntil
+    || target?.req?.runtime?.cloudflare?.context?.waitUntil
+}
+
 function toProviderOptions(name: string, config: ResolvedQueueOptions): QueueProviderOptions {
   if (config.provider === "cloudflare") {
     return {
@@ -139,7 +175,7 @@ export async function runQueue<TPayload = unknown>(name: string, input: QueueEnq
 }
 
 export function deferQueue<TPayload = unknown>(name: string, input: QueueEnqueueInput<TPayload>): void {
-  const request = getQueueRuntimeEvent() as { waitUntil?: (promise: Promise<unknown>) => void } | undefined
+  const request = getQueueRuntimeEvent()
   const task = () => runWithQueueRuntimeEvent(request, () => runQueue(name, input))
   const handleError = async (error: unknown) => {
     console.error(`[vitehub] Deferred queue dispatch failed for "${name}"`, error)
@@ -151,7 +187,8 @@ export function deferQueue<TPayload = unknown>(name: string, input: QueueEnqueue
   }
 
   const promise = task().catch(handleError)
-  if (typeof request?.waitUntil === "function") {
-    request.waitUntil(promise)
+  const waitUntil = resolveWaitUntil(request)
+  if (typeof waitUntil === "function") {
+    waitUntil(promise)
   }
 }

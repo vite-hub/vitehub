@@ -132,6 +132,30 @@ jobs:
           APP_DIR="playground/${{ matrix.framework }}"
           PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
 
+          normalize_env_value() {
+            node -e '
+              let value = process.argv[1] ?? ""
+              if (value.length >= 2) {
+                const first = value[0]
+                const last = value[value.length - 1]
+                if ((first === "\"" && last === "\"") || (first === "\x27" && last === "\x27")) {
+                  if (first === "\"") {
+                    try {
+                      value = JSON.parse(value)
+                    }
+                    catch {
+                      value = value.slice(1, -1)
+                    }
+                  }
+                  else {
+                    value = value.slice(1, -1)
+                  }
+                }
+              }
+              process.stdout.write(value)
+            ' "$1"
+          }
+
           if [ -z "$KV_REST_API_URL" ] || [ -z "$KV_REST_API_TOKEN" ]; then
             echo "Missing Production secrets: KV_REST_API_URL and KV_REST_API_TOKEN are required for Vercel live KV E2E." >&2
             exit 1
@@ -149,7 +173,7 @@ jobs:
           fi
 
           for env_name in KV_REST_API_URL KV_REST_API_TOKEN; do
-            env_value="${!env_name}"
+            env_value="$(normalize_env_value "${!env_name}")"
             VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
               npx vercel env add "$env_name" production --force --yes --value "$env_value" --cwd "$APP_DIR" --token "$VERCEL_TOKEN"
           done
