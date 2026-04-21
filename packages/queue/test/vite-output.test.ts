@@ -112,6 +112,7 @@ describe("Vite provider outputs", () => {
     const vercelConsumerSource = join(playgroundDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", "index.source.mjs")
     const vercelStatic = join(playgroundDir, ".vercel", "output", "static")
     const vercelConsumerContents = await readFile(vercelConsumer, "utf8")
+    const vercelServerContents = await readFile(vercelServer, "utf8")
     const vercelConsumerTrigger = JSON.parse(await readFile(vercelConsumerConfig, "utf8")).experimentalTriggers?.[0]
 
     expect(existsSync(cloudflareWorker)).toBe(true)
@@ -123,6 +124,8 @@ describe("Vite provider outputs", () => {
     expect(existsSync(vercelConsumerSource)).toBe(false)
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).not.toContain("runWithQueueRuntimeEvent({ req, res },")
+    expect(vercelConsumerContents).toContain("queue-e2e:")
+    expect(vercelServerContents).toContain("queue-e2e:")
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome-email_Swelcome-email_Dfunc",
       topic: "topic--77656c636f6d652d656d61696c",

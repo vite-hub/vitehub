@@ -157,6 +157,39 @@ jobs:
             ' "$1"
           }
 
+          get_pulled_env_value() {
+            node -e '
+              const fs = require("node:fs")
+              const file = process.argv[1]
+              const key = process.argv[2]
+              const lines = fs.readFileSync(file, "utf8").split(/\r?\n/)
+
+              for (const line of lines) {
+                if (!line.startsWith(`${key}=`)) continue
+                let value = line.slice(key.length + 1)
+                if (value.length >= 2) {
+                  const first = value[0]
+                  const last = value[value.length - 1]
+                  if ((first === "\"" && last === "\"") || (first === "\x27" && last === "\x27")) {
+                    if (first === "\"") {
+                      try {
+                        value = JSON.parse(value)
+                      }
+                      catch {
+                        value = value.slice(1, -1)
+                      }
+                    }
+                    else {
+                      value = value.slice(1, -1)
+                    }
+                  }
+                }
+                process.stdout.write(value)
+                process.exit(0)
+              }
+            ' "$1" "$2"
+          }
+
           if [ -z "$KV_REST_API_URL" ] || [ -z "$KV_REST_API_TOKEN" ]; then
             echo "Missing Production secrets: KV_REST_API_URL and KV_REST_API_TOKEN are required for Vercel live KV E2E." >&2
             exit 1
@@ -175,8 +208,31 @@ jobs:
 
           for env_name in KV_REST_API_URL KV_REST_API_TOKEN; do
             env_value="$(normalize_env_value "${!env_name}")"
+            if [ -z "$env_value" ]; then
+              echo "Normalized Vercel env value for $env_name is empty." >&2
+              exit 1
+            fi
+
+            VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+              npx vercel env rm "$env_name" production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+
             printf '%s' "$env_value" | VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-              npx vercel env add "$env_name" production --force --cwd "$APP_DIR" --token "$VERCEL_TOKEN"
+              npx vercel env add "$env_name" production --cwd "$APP_DIR" --token "$VERCEL_TOKEN"
+          done
+
+          PULLED_ENV_FILE="$(mktemp)"
+          trap 'rm -f "$PULLED_ENV_FILE"' EXIT
+          VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+            npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+
+          for env_name in KV_REST_API_URL KV_REST_API_TOKEN; do
+            expected_value="$(normalize_env_value "${!env_name}")"
+            actual_value="$(get_pulled_env_value "$PULLED_ENV_FILE" "$env_name")"
+
+            if [ "$actual_value" != "$expected_value" ]; then
+              echo "Vercel production env verification failed for $env_name." >&2
+              exit 1
+            fi
           done
 
           echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
@@ -240,14 +296,9 @@ jobs:
 
       - name: Queue Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
         timeout-minutes: 5
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            node packages/queue/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider cloudflare --url "${{ steps.deploy_cloudflare.outputs.url }}" --worker "${{ steps.deploy_cloudflare.outputs.worker }}"
+            node packages/queue/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider cloudflare --url "${{ steps.deploy_cloudflare.outputs.url }}"
           else
             node packages/queue/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider vercel --url "${{ steps.deploy_vercel.outputs.url }}"
           fi
