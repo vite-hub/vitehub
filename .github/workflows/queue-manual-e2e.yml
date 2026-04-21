@@ -8,8 +8,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  setup-cloudflare:
+    name: setup
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - name: Ensure Cloudflare Queues
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          for queue in queue--77656c636f6d65 queue--77656c636f6d652d656d61696c; do
+            if ! npx wrangler queues list | grep -q "$queue"; then
+              npx wrangler queues create "$queue"
+            fi
+          done
+
+          for queue in queue--77656c636f6d65 queue--77656c636f6d652d656d61696c; do
+            for worker in vitehub-playground-nitro vitehub-playground-vite; do
+              npx wrangler queues consumer remove "$queue" "$worker" >/dev/null 2>&1 || true
+            done
+          done
+
   live-e2e:
     name: live e2e
+    needs: setup-cloudflare
     runs-on: ubuntu-latest
     environment: Production
     strategy:
@@ -23,18 +49,6 @@ jobs:
 
       - run: pnpm --filter @vitehub/queue build
       - run: pnpm --filter @vitehub/kv build
-
-      - name: Ensure Cloudflare Queue
-        if: matrix.provider == 'cloudflare' && matrix.framework == 'nitro'
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          for queue in queue--77656c636f6d65 queue--77656c636f6d652d656d61696c; do
-            if ! npx wrangler queues list | grep -q "$queue"; then
-              npx wrangler queues create "$queue"
-            fi
-          done
 
       - name: Build (${{ matrix.provider }} × ${{ matrix.framework }})
         env:
