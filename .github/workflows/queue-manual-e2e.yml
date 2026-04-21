@@ -21,17 +21,72 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          for queue in queue--77656c636f6d65 queue--77656c636f6d652d656d61696c; do
+          API_BASE="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
+          AUTH_HEADER="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+          QUEUES="queue--77656c636f6d65 queue--77656c636f6d652d656d61696c"
+          WORKERS="vitehub-playground-nitro vitehub-playground-vite"
+          export QUEUES WORKERS
+
+          for queue in $QUEUES; do
             if ! npx wrangler queues list | grep -q "$queue"; then
               npx wrangler queues create "$queue"
             fi
           done
 
-          for queue in queue--77656c636f6d65 queue--77656c636f6d652d656d61696c; do
-            for worker in vitehub-playground-nitro vitehub-playground-vite; do
-              npx wrangler queues consumer remove "$queue" "$worker" >/dev/null 2>&1 || true
-            done
-          done
+          QUEUE_STATE=$(curl --fail --silent --show-error \
+            --header "$AUTH_HEADER" \
+            "$API_BASE/queues")
+
+          printf '%s' "$QUEUE_STATE" | node -e '
+            const fs = require("node:fs");
+
+            const queues = JSON.parse(fs.readFileSync(0, "utf8")).result || [];
+            const wantedQueues = new Set(process.env.QUEUES.split(" "));
+            const wantedWorkers = new Set(process.env.WORKERS.split(" "));
+
+            for (const queue of queues) {
+              if (!wantedQueues.has(queue.queue_name)) continue;
+              for (const consumer of queue.consumers || []) {
+                if (!wantedWorkers.has(consumer.script_name)) continue;
+                console.log([queue.queue_id, queue.queue_name, consumer.consumer_id, consumer.script_name].join("\t"));
+              }
+            }
+          ' > /tmp/cloudflare-queue-consumers.tsv
+
+          while IFS=$'\t' read -r queue_id queue_name consumer_id script_name; do
+            [ -n "$consumer_id" ] || continue
+            echo "Removing stale consumer ${script_name} from ${queue_name}"
+            curl --fail --silent --show-error \
+              --request DELETE \
+              --header "$AUTH_HEADER" \
+              "$API_BASE/queues/${queue_id}/consumers/${consumer_id}" >/dev/null
+          done < /tmp/cloudflare-queue-consumers.tsv
+
+          VERIFIED_STATE=$(curl --fail --silent --show-error \
+            --header "$AUTH_HEADER" \
+            "$API_BASE/queues")
+
+          printf '%s' "$VERIFIED_STATE" | node -e '
+            const fs = require("node:fs");
+
+            const queues = JSON.parse(fs.readFileSync(0, "utf8")).result || [];
+            const wantedQueues = new Set(process.env.QUEUES.split(" "));
+            const wantedWorkers = new Set(process.env.WORKERS.split(" "));
+            const remaining = [];
+
+            for (const queue of queues) {
+              if (!wantedQueues.has(queue.queue_name)) continue;
+              for (const consumer of queue.consumers || []) {
+                if (!wantedWorkers.has(consumer.script_name)) continue;
+                remaining.push(`${queue.queue_name}:${consumer.script_name}:${consumer.consumer_id}`);
+              }
+            }
+
+            if (remaining.length > 0) {
+              console.error(`Cloudflare queue consumers still attached: ${remaining.join(", ")}`);
+              process.exit(1);
+            }
+          '
 
   live-e2e:
     name: live e2e

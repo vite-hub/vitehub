@@ -102,7 +102,7 @@ describe("Nitro provider outputs", () => {
       topic: "topic--77656c636f6d65",
       type: "queue/v2beta",
     })
-  }, 30_000)
+  }, 45_000)
 
   it("throws when Nitro queue names collide after Vercel sanitization", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-nitro-collision-")

@@ -44,7 +44,7 @@ vi.mock("@nuxt/kit", () => ({
   defineNuxtModule,
 }))
 
-vi.mock("nitro/runtime", () => ({
+vi.mock("nitro/storage", () => ({
   useStorage: () => ({
     clear: vi.fn(),
     getItem: vi.fn(),

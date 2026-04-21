@@ -28,9 +28,16 @@ function createInspectableDriver(name: "fsLite" | "upstash") {
   }
 }
 
-vi.mock("nitro/runtime", () => ({
-  defineNitroPlugin: (plugin: unknown) => plugin,
+vi.mock("nitro", () => ({
+  definePlugin: (plugin: unknown) => plugin,
+}))
+
+vi.mock("nitro/runtime-config", () => ({
   useRuntimeConfig: () => runtimeState.config,
+}))
+
+vi.mock("nitro/storage", () => ({
+  defineNitroPlugin: (plugin: unknown) => plugin,
   useStorage: (base = "") => base ? prefixStorage(storage, base) : storage,
 }))
 
@@ -101,6 +108,8 @@ describe("kv runtime", () => {
     const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
     await plugin()
 
+    expect(mountedDrivers.upstash).toBeUndefined()
+
     const { kv } = await import("../src/runtime/storage.ts")
     await kv.set("notes/hello", "world")
 
@@ -128,6 +137,11 @@ describe("kv runtime", () => {
     const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
     await plugin()
 
+    expect(mountedDrivers.upstash).toBeUndefined()
+
+    const { kv } = await import("../src/runtime/storage.ts")
+    await kv.has("notes/hello")
+
     expect(mountedDrivers.upstash).toMatchObject({
       driver: "upstash",
       token: "legacy-upstash-token",
@@ -135,7 +149,7 @@ describe("kv runtime", () => {
     })
   })
 
-  it("fails clearly when masked Upstash values have no runtime env vars", async () => {
+  it("does not initialize Upstash during plugin startup for non-KV requests", async () => {
     runtimeState.config = {
       kv: {
         store: {
@@ -148,6 +162,26 @@ describe("kv runtime", () => {
 
     const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
 
-    await expect(plugin()).rejects.toThrow("Missing runtime environment variable `KV_REST_API_URL` for Upstash KV.")
+    await expect(plugin()).resolves.toBeUndefined()
+    expect(mountedDrivers.upstash).toBeUndefined()
+  })
+
+  it("fails clearly when masked Upstash values have no runtime env vars on first KV access", async () => {
+    runtimeState.config = {
+      kv: {
+        store: {
+          driver: "upstash",
+          token: "********",
+          url: "********",
+        },
+      },
+    }
+
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
+    await plugin()
+
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    await expect(kv.get("notes/hello")).rejects.toThrow("Missing runtime environment variable `KV_REST_API_URL` for Upstash KV.")
   })
 })
