@@ -15,8 +15,16 @@ const mountedDrivers: {
 
 let storage = createStorage({ driver: memoryDriver() })
 
+const mockedUseStorage = Object.assign((base = "") => {
+  const activeStorage = mockedUseStorage._storage ?? storage
+  return base ? prefixStorage(activeStorage, base) : activeStorage
+}, {
+  _storage: undefined as typeof storage | undefined,
+})
+
 function resetStorage() {
   storage = createStorage({ driver: memoryDriver() })
+  mockedUseStorage._storage = storage
   delete mountedDrivers.fsLite
   delete mountedDrivers.upstash
 }
@@ -38,7 +46,7 @@ vi.mock("nitro/runtime-config", () => ({
 
 vi.mock("nitro/storage", () => ({
   defineNitroPlugin: (plugin: unknown) => plugin,
-  useStorage: (base = "") => base ? prefixStorage(storage, base) : storage,
+  useStorage: mockedUseStorage,
 }))
 
 vi.mock("unstorage/drivers/fs-lite", () => ({
@@ -79,7 +87,7 @@ describe("kv runtime", () => {
       },
     }
 
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
     await plugin()
 
     const { kv } = await import("../src/runtime/storage.ts")
@@ -105,7 +113,7 @@ describe("kv runtime", () => {
       },
     }
 
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
     await plugin()
 
     expect(mountedDrivers.upstash).toBeUndefined()
@@ -134,7 +142,7 @@ describe("kv runtime", () => {
       },
     }
 
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
     await plugin()
 
     expect(mountedDrivers.upstash).toBeUndefined()
@@ -160,10 +168,34 @@ describe("kv runtime", () => {
       },
     }
 
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
-
-    await expect(plugin()).resolves.toBeUndefined()
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
+    await plugin()
     expect(mountedDrivers.upstash).toBeUndefined()
+  })
+
+  it("replaces the masked kv mount synchronously during plugin startup", async () => {
+    runtimeState.config = {
+      kv: {
+        store: {
+          driver: "upstash",
+          token: "********",
+          url: "********",
+        },
+      },
+    }
+
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
+    plugin()
+
+    const { useStorage } = await import("nitro/storage")
+    expect(useStorage().getMount("kv")?.driver).toMatchObject({
+      name: "lazy:upstash",
+      options: {
+        driver: "upstash",
+        token: "********",
+        url: "********",
+      },
+    })
   })
 
   it("fails clearly when masked Upstash values have no runtime env vars on first KV access", async () => {
@@ -177,7 +209,7 @@ describe("kv runtime", () => {
       },
     }
 
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => Promise<void>
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
     await plugin()
 
     const { kv } = await import("../src/runtime/storage.ts")
