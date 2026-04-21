@@ -44,7 +44,7 @@ jobs:
     needs: quality
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: Production
+    environment: Default
     strategy:
       fail-fast: false
       matrix:
@@ -95,7 +95,7 @@ jobs:
     needs: deploy
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: Production
+    environment: Default
     strategy:
       fail-fast: false
       matrix:

@@ -11,7 +11,7 @@ jobs:
   deploy-and-test:
     name: deploy-and-test (${{ matrix.framework }}, ${{ matrix.provider }})
     runs-on: ubuntu-latest
-    environment: Production
+    environment: Default
     strategy:
       fail-fast: false
       matrix:
