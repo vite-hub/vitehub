@@ -100,6 +100,16 @@ describe("showcase examples", () => {
     expect(queue?.frameworks.nuxt).toBeFalsy();
   });
 
+  it("loads the blob example for vite and nitro only", () => {
+    const blob = getShowcaseExamples().find(example => example.docsPath === "blob");
+    expect(blob).toBeTruthy();
+
+    expect(blob?.label).toBe("Blob");
+    expect(blob?.frameworks.vite).toBeTruthy();
+    expect(blob?.frameworks.nitro).toBeTruthy();
+    expect(blob?.frameworks.nuxt).toBeFalsy();
+  });
+
   it("returns queue phase paths for supported frameworks", () => {
     const queue = getShowcaseExamples().find(example => example.docsPath === "queue");
     expect(queue).toBeTruthy();
@@ -113,6 +123,20 @@ describe("showcase examples", () => {
       configure: "nitro.config.ts",
       define: "server/queues/welcome-email.ts",
       run: "server/api/welcome.post.ts",
+    });
+  });
+
+  it("returns blob phase paths for supported frameworks", () => {
+    const blob = getShowcaseExamples().find(example => example.docsPath === "blob");
+    expect(blob).toBeTruthy();
+
+    expect(getShowcasePhasePaths(blob!, "vite", "build")).toEqual({
+      configure: "vite.config.ts",
+      run: "src/server.ts",
+    });
+    expect(getShowcasePhasePaths(blob!, "nitro", "build")).toEqual({
+      configure: "nitro.config.ts",
+      run: "server/api/blob.get.ts",
     });
   });
 
@@ -132,6 +156,24 @@ describe("showcase examples", () => {
       "nitro.config.ts",
       "server/queues/welcome-email.ts",
       "server/api/welcome.post.ts",
+      "package.json",
+    ]);
+  });
+
+  it("keeps blob showcase files ordered by phase and supplemental files", () => {
+    const blob = getShowcaseExamples().find(example => example.docsPath === "blob");
+    expect(blob).toBeTruthy();
+
+    expect(getShowcaseFiles(blob!, "vite", "build").slice(0, 3).map(file => file.path)).toEqual([
+      "vite.config.ts",
+      "src/server.ts",
+      "package.json",
+    ]);
+
+    expect(getShowcaseFiles(blob!, "nitro", "build").slice(0, 4).map(file => file.path)).toEqual([
+      "nitro.config.ts",
+      "server/api/blob.get.ts",
+      "server/api/blob.put.ts",
       "package.json",
     ]);
   });

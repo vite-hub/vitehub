@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "nitro build",
+    "dev": "nitro dev",
+    "preview": "nitro preview"
+  },
+  "dependencies": {
+    "@vitehub/blob": "workspace:*",
+    "nitro": "catalog:"
+  }
+}
