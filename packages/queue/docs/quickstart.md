@@ -7,13 +7,15 @@ frameworks: [vite, nitro]
 
 This quickstart keeps the setup small and explicit. It shows the current Queue integration points: Vite handles discovery and build output, and Nitro adds the runtime module you call from routes.
 
-## Install the package
+::steps
+
+### Install the package
 
 ```bash
 pnpm add @vitehub/queue
 ```
 
-## Register Queue
+### Register Queue
 
 ::fw{id="vite:dev vite:build"}
 Register the Vite plugin and pick a provider explicitly:
@@ -47,7 +49,7 @@ export default defineNitroConfig({
 ```
 ::
 
-## Define a queue
+### Define a queue
 
 ::fw{id="vite:dev vite:build"}
 Create a discovered queue file in `src/**/*.queue.ts`:
@@ -73,7 +75,7 @@ export default defineQueue<{ email: string }>(async (job) => {
 ```
 ::
 
-## Enqueue a job
+### Enqueue a job
 
 ::fw{id="vite:dev vite:build"}
 Vite provides discovery and build integration. Keep a normal app entry and build the project so Queue can emit provider-specific outputs:
@@ -92,19 +94,37 @@ Use the provider pages when you need the deployed runtime wiring for Cloudflare 
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Add a small route that enqueues the discovered queue:
+Add a small route that enqueues the discovered queue and optionally defers dispatch when the request body includes `defer: true`:
 
-```ts [server/api/queues/welcome.post.ts]
-import { runQueue } from '@vitehub/queue'
+```ts [server/api/welcome.post.ts]
+import { deferQueue, runQueue } from '@vitehub/queue'
+
+type WelcomeEmailPayload = {
+  email: string
+  template: 'default' | 'vip'
+}
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ email?: string }>(event)
+  const body = await readBody<Partial<WelcomeEmailPayload> & { defer?: boolean }>(event)
+  const payload: WelcomeEmailPayload = {
+    email: body?.email || 'ava@example.com',
+    template: body?.template || 'default',
+  }
+
+  if (body?.defer) {
+    deferQueue('welcome-email', payload)
+
+    return {
+      deferred: true,
+      ok: true,
+      payload,
+    }
+  }
 
   return {
     ok: true,
-    result: await runQueue('welcome-email', {
-      email: body?.email || 'ava@example.com',
-    }),
+    payload,
+    result: await runQueue('welcome-email', payload),
   }
 })
 ```
@@ -113,10 +133,12 @@ Start the app and send one request:
 
 ```bash
 pnpm nitro dev
-curl -X POST http://localhost:3000/api/queues/welcome \
+curl -X POST http://localhost:3000/api/welcome \
   -H 'content-type: application/json' \
-  -d '{"email":"ava@example.com"}'
+  -d '{"email":"ava@example.com","template":"vip"}'
 ```
+::
+
 ::
 
 ## What to read next

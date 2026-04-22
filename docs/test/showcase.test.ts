@@ -112,7 +112,7 @@ describe("showcase examples", () => {
     expect(getShowcasePhasePaths(queue!, "nitro", "build")).toEqual({
       configure: "nitro.config.ts",
       define: "server/queues/welcome-email.ts",
-      run: "server/api/queues/welcome.post.ts",
+      run: "server/api/welcome.post.ts",
     });
   });
 
@@ -128,12 +128,10 @@ describe("showcase examples", () => {
       "package.json",
     ]);
 
-    expect(getShowcaseFiles(queue!, "nitro", "build").slice(0, 6).map(file => file.path)).toEqual([
+    expect(getShowcaseFiles(queue!, "nitro", "build").slice(0, 4).map(file => file.path)).toEqual([
       "nitro.config.ts",
       "server/queues/welcome-email.ts",
-      "server/api/queues/welcome.post.ts",
-      "server/api/queues/welcome-defer.post.ts",
-      "server/api/queues/welcome-payload.get.ts",
+      "server/api/welcome.post.ts",
       "package.json",
     ]);
   });
