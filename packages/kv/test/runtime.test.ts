@@ -15,16 +15,10 @@ const mountedDrivers: {
 
 let storage = createStorage({ driver: memoryDriver() })
 
-const mockedUseStorage = Object.assign((base = "") => {
-  const activeStorage = mockedUseStorage._storage ?? storage
-  return base ? prefixStorage(activeStorage, base) : activeStorage
-}, {
-  _storage: undefined as typeof storage | undefined,
-})
+const mockedUseStorage = (base = "") => (base ? prefixStorage(storage, base) : storage)
 
 function resetStorage() {
   storage = createStorage({ driver: memoryDriver() })
-  mockedUseStorage._storage = storage
   delete mountedDrivers.fsLite
   delete mountedDrivers.upstash
 }
@@ -173,7 +167,7 @@ describe("kv runtime", () => {
     expect(mountedDrivers.upstash).toBeUndefined()
   })
 
-  it("replaces the masked kv mount synchronously during plugin startup", async () => {
+  it("replaces the masked kv mount during plugin startup", async () => {
     runtimeState.config = {
       kv: {
         store: {
@@ -185,7 +179,7 @@ describe("kv runtime", () => {
     }
 
     const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
-    plugin()
+    await plugin()
 
     const { useStorage } = await import("nitro/storage")
     expect(useStorage().getMount("kv")?.driver).toMatchObject({

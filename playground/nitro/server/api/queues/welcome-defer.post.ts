@@ -1,6 +1,6 @@
 import { defineEventHandler, readValidatedBody } from "h3"
 import * as v from "valibot"
-import { runInBackground } from "../../../queue-test"
+import { runInBackground } from "../../../../_shared/queue-test"
 
 const queueBody = v.optional(v.object({
   callbackUrl: v.optional(v.string()),
@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
     marker,
   }
 
-  if (!runInBackground(event, runQueue("welcome", payload))) {
+  if (!runInBackground(event, () => runQueue("welcome", payload))) {
     deferQueue("welcome", payload)
   }
 

@@ -16,7 +16,7 @@ async function loadDriverFactory(driver: ResolvedKVStoreConfig["driver"]) {
   return module.default
 }
 
-export async function createKVRuntimeDriver(
+async function createKVRuntimeDriver(
   config: ResolvedKVStoreConfig,
 ): Promise<Driver> {
   const createDriver = await loadDriverFactory(config.driver)

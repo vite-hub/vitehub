@@ -139,12 +139,16 @@ async function waitForMarker(url, marker, timeoutMs) {
   let lastSeen = false
 
   while (Date.now() - startedAt < timeoutMs) {
-    const payload = await requestJson(new URL(`/api/tests/queue?marker=${encodeURIComponent(marker)}`, url))
-    if (payload?.ok && payload?.seen === true) {
-      return
+    try {
+      const payload = await requestJson(new URL(`/api/tests/queue?marker=${encodeURIComponent(marker)}`, url))
+      if (payload?.ok && payload?.seen === true) {
+        return
+      }
+      lastSeen = payload?.seen === true
+    } catch {
+      lastSeen = false
     }
 
-    lastSeen = payload?.seen === true
     await sleep(1_000)
   }
 
@@ -169,10 +173,10 @@ async function waitForCompletion(run) {
 
 async function main() {
   const run = createRunConfig(parseArgs(process.argv.slice(2)))
-  const pendingCompletion = waitForCompletion(run)
   const callbackUrl = new URL("/api/tests/queue", run.url).toString()
 
   await verifyApp(run.url)
+  const pendingCompletion = waitForCompletion(run)
   await triggerQueue(run.url, run.directMarker, callbackUrl)
   await triggerDeferredQueue(run.url, run.deferMarker, callbackUrl)
   await pendingCompletion

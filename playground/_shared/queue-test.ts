@@ -38,13 +38,13 @@ function resolveWaitUntil(event: EventLike) {
     || bindWaitUntil(event.req?.runtime?.cloudflare?.context)
 }
 
-export function runInBackground(event: EventLike, task: Promise<unknown>) {
+export function runInBackground(event: EventLike, taskFactory: () => Promise<unknown>) {
   const waitUntil = resolveWaitUntil(event)
   if (!waitUntil) {
     return false
   }
 
-  waitUntil(task.catch((error) => {
+  waitUntil(taskFactory().catch((error) => {
     console.error("[vitehub] Deferred queue dispatch failed", error)
   }))
   return true

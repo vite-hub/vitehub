@@ -3,7 +3,7 @@ import * as v from "valibot"
 
 import { deferQueue, runQueue } from "@vitehub/queue"
 import { kv } from "@vitehub/kv"
-import { runInBackground } from "../queue-test"
+import { runInBackground } from "../../_shared/queue-test"
 
 const app = new H3()
 const queueName = "welcome-email"
@@ -42,7 +42,7 @@ app.post("/api/queues/welcome-defer", async (event) => {
     marker,
   }
 
-  if (!runInBackground(event, runQueue(queueName, payload))) {
+  if (!runInBackground(event, () => runQueue(queueName, payload))) {
     deferQueue(queueName, payload)
   }
   return { ok: true }
