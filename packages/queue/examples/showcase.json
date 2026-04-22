@@ -1,0 +1,77 @@
+{
+  "label": "Queue",
+  "docsPath": "queue",
+  "icon": "i-lucide-list-ordered",
+  "order": 1,
+  "defaultPhase": "define",
+  "providers": [
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  queue: {\n    provider: 'cloudflare',\n  },"
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "darkInvert": true,
+      "configOverride": "  queue: {\n    provider: 'vercel',\n    region: 'fra1',\n  },",
+      "envOverride": "QUEUE_REGION=fra1"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/welcome-email.queue.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "src/server.ts",
+            "index.html",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/welcome-email.queue.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "src/server.ts",
+            "index.html",
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nitro": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/queues/welcome-email.ts",
+            "run": "server/api/welcome.post.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/queues/welcome-email.ts",
+            "run": "server/api/welcome.post.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}

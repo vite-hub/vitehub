@@ -261,7 +261,10 @@ function assertPhaseFilesExist(
   frameworks: Record<string, any>,
   packageFiles: Record<Framework, ExampleFile[]>,
 ) {
-  for (const framework of frameworkIds) {
+  const supportedFrameworks = frameworkIds.filter(framework => Boolean(frameworks[framework]));
+  assert(supportedFrameworks.length > 0, `[showcase] Missing supported frameworks in ${manifestPath}`);
+
+  for (const framework of supportedFrameworks) {
     const fileSet = new Set(packageFiles[framework].map(file => file.path));
     const frameworkConfig = frameworks[framework];
     assert(frameworkConfig?.modes, `[showcase] Missing ${framework} config in ${manifestPath}`);
@@ -313,10 +316,12 @@ export function parsePackageExamples(packagesRoot: string, repoRoot = resolve(pa
       order: manifest.order ?? Number.MAX_SAFE_INTEGER,
       frameworks,
       files: Object.fromEntries(
-        frameworkIds.map((framework) => {
-          const defaultMode = frameworks[framework].modes.dev || frameworks[framework].modes.build;
-          return [framework, sortShowcaseFiles(packageFiles[framework], defaultMode)];
-        }),
+        frameworkIds
+          .filter(framework => Boolean(frameworks[framework]))
+          .map((framework) => {
+            const defaultMode = frameworks[framework].modes.dev || frameworks[framework].modes.build;
+            return [framework, sortShowcaseFiles(packageFiles[framework], defaultMode)];
+          }),
       ),
     });
   }

@@ -24,8 +24,9 @@ const packageLinks = computed(() => {
 
   for (const sectionMeta of docsManifest.packageSections) {
     const section = docsManifest.sections.find(item => item.id === sectionMeta.id);
-    const primaryPage = section?.pages.find(page => page.id === "index")
-      || section?.pages[0];
+    const pages = section?.pages.filter(page => page.frameworks.includes(current.value)) || [];
+    const primaryPage = pages.find(page => page.id === "index")
+      || pages[0];
 
     if (!section || !primaryPage) {
       continue;

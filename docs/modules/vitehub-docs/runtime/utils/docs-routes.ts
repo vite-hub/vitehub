@@ -1,4 +1,4 @@
-import { getDocsPath, getDocsPathMeta, isDocsPageSupported } from "./docs";
+import { getDocsPath, getDocsPathMeta, isDocsPageSupported, isDocsSectionSupported } from "./docs";
 import { frameworkPattern, type Framework } from "./frameworks";
 
 export function normalizeSitePath(path?: string | null) {
@@ -12,7 +12,9 @@ export function resolveFrameworkSwitchPath(path: string, framework: Framework) {
     const meta = getDocsPathMeta(nextPath);
 
     if (meta && !isDocsPageSupported(meta.section, meta.page, framework)) {
-      return getDocsPath(meta.section, framework);
+      return isDocsSectionSupported(meta.section, framework)
+        ? getDocsPath(meta.section, framework)
+        : getDocsPath("getting-started", framework);
     }
 
     return nextPath;

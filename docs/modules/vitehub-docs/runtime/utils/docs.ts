@@ -47,8 +47,8 @@ export type DocsExample = {
   defaultPhase?: "configure" | "define" | "run";
   providers?: DocsExampleProvider[];
   order: number;
-  frameworks: Record<Framework, { modes: Record<UsageMode, DocsExampleMode> }>;
-  files: Record<Framework, Array<{ path: string; code: string }>>;
+  frameworks: Partial<Record<Framework, { modes: Record<UsageMode, DocsExampleMode> }>>;
+  files: Partial<Record<Framework, Array<{ path: string; code: string }>>>;
 };
 
 type PackageSectionMeta = {
@@ -100,6 +100,16 @@ function getDocsSection(sectionId: string) {
 
 export function getDocsPage(sectionId: string, pageId = "index") {
   return getDocsSection(sectionId)?.pages.find(page => page.id === pageId) || null;
+}
+
+export function isDocsSectionSupported(sectionId: string, framework: Framework) {
+  const section = getDocsSection(sectionId);
+
+  if (!section) {
+    return false;
+  }
+
+  return section.pages.some(page => page.frameworks.includes(framework));
 }
 
 export function isDocsPageSupported(sectionId: string, pageId: string, framework: Framework) {

@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@vitehub/queue": "workspace:*",
+    "vite": "catalog:"
+  }
+}

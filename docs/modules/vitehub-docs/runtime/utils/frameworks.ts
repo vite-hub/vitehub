@@ -7,7 +7,8 @@ const frameworkDefs = [
 export type Framework = (typeof frameworkDefs)[number]["id"];
 
 export const frameworks = frameworkDefs.map(entry => entry.id) as Framework[];
-export const defaultFramework: Framework = "nuxt";
+export const visibleFrameworks = frameworks.filter((framework): framework is Framework => framework !== "nuxt");
+export const defaultFramework: Framework = "vite";
 export const frameworkPattern = frameworks.join("|");
 
 export const frameworkLabels = Object.fromEntries(

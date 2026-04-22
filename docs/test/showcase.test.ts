@@ -90,22 +90,78 @@ describe("showcase examples", () => {
     expect(files.find(file => file.path === "env.example")?.code).toContain("KV_REST_API_URL=https://example.upstash.io");
   });
 
+  it("loads the queue example for vite and nitro only", () => {
+    const queue = getShowcaseExamples().find(example => example.docsPath === "queue");
+    expect(queue).toBeTruthy();
+
+    expect(queue?.label).toBe("Queue");
+    expect(queue?.frameworks.vite).toBeTruthy();
+    expect(queue?.frameworks.nitro).toBeTruthy();
+    expect(queue?.frameworks.nuxt).toBeFalsy();
+  });
+
+  it("returns queue phase paths for supported frameworks", () => {
+    const queue = getShowcaseExamples().find(example => example.docsPath === "queue");
+    expect(queue).toBeTruthy();
+
+    expect(getShowcasePhasePaths(queue!, "vite", "build")).toEqual({
+      configure: "vite.config.ts",
+      define: "src/welcome-email.queue.ts",
+      run: "src/main.ts",
+    });
+    expect(getShowcasePhasePaths(queue!, "nitro", "build")).toEqual({
+      configure: "nitro.config.ts",
+      define: "server/queues/welcome-email.ts",
+      run: "server/api/welcome.post.ts",
+    });
+  });
+
+  it("keeps queue showcase files ordered by phase and supplemental files", () => {
+    const queue = getShowcaseExamples().find(example => example.docsPath === "queue");
+    expect(queue).toBeTruthy();
+
+    expect(getShowcaseFiles(queue!, "vite", "build").slice(0, 5).map(file => file.path)).toEqual([
+      "vite.config.ts",
+      "src/welcome-email.queue.ts",
+      "src/main.ts",
+      "src/server.ts",
+      "index.html",
+    ]);
+
+    expect(getShowcaseFiles(queue!, "nitro", "build").slice(0, 4).map(file => file.path)).toEqual([
+      "nitro.config.ts",
+      "server/queues/welcome-email.ts",
+      "server/api/welcome.post.ts",
+      "package.json",
+    ]);
+  });
+
   it("includes a providers overview page in the docs manifest", () => {
     const providers = docsManifest.sections.find(section => section.id === "providers");
 
     expect(providers?.pages.some(page => page.id === "index")).toBe(true);
   });
 
-  it("links provider overview pages to generated KV provider pages", () => {
+  it("links provider overview pages to generated provider docs", () => {
     expect(getDocsPage("kv", "providers/cloudflare")).toBeTruthy();
     expect(getDocsPage("kv", "providers/vercel")).toBeTruthy();
+    expect(getDocsPage("queue", "providers/cloudflare")).toBeTruthy();
+    expect(getDocsPage("queue", "providers/vercel")).toBeTruthy();
 
+    const gettingStarted = readFileSync(resolve(import.meta.dirname, "../content/docs/getting-started/index.md"), "utf8");
     const cloudflare = readFileSync(resolve(import.meta.dirname, "../content/docs/providers/cloudflare.md"), "utf8");
     const vercel = readFileSync(resolve(import.meta.dirname, "../content/docs/providers/vercel.md"), "utf8");
 
+    expect(gettingStarted).toContain("to: ../queue");
+    expect(gettingStarted).toContain("to: ../queue/quickstart");
+    expect(gettingStarted).not.toContain("/docs/nitro/queue");
     expect(cloudflare).toContain("../kv/providers/cloudflare");
     expect(cloudflare).not.toContain("../kv/cloudflare");
+    expect(cloudflare).toContain("../queue/providers/cloudflare");
+    expect(cloudflare).not.toContain("/docs/nitro/queue/providers/cloudflare");
     expect(vercel).toContain("../kv/providers/vercel");
     expect(vercel).not.toContain("../kv/vercel");
+    expect(vercel).toContain("../queue/providers/vercel");
+    expect(vercel).not.toContain("/docs/nitro/queue/providers/vercel");
   });
 });
