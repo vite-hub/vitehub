@@ -42,7 +42,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/kv build && pnpm --filter @vitehub/queue build && vitest run"
+    "test": "pnpm --filter @vitehub/blob build && pnpm --filter @vitehub/kv build && pnpm --filter @vitehub/queue build && vitest run"
   },
   "dependencies": {
     "@vercel/functions": "catalog:",

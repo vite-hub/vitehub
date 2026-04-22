@@ -63,6 +63,10 @@ function createNitroQueuePluginPath(rootDir: string, buildDir: string) {
   return resolve(rootDir, buildDir, ...generatedDirSegments, "nitro-plugin.ts")
 }
 
+function resolveNitroQueueScanDirs(rootDir: string, scanDirs: string[] | undefined) {
+  return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
+}
+
 function createNitroQueuePluginContents(file: string, registryFile: string) {
   return [
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
@@ -147,7 +151,7 @@ async function writeNitroQueueRuntimeFiles(nitro: { options: { buildDir: string,
   const pluginFile = createNitroQueuePluginPath(nitro.options.rootDir, nitro.options.buildDir)
   const definitions = discoverQueueDefinitions({
     mode: "nitro-server-queues",
-    scanDirs: nitro.options.scanDirs,
+    scanDirs: resolveNitroQueueScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
 
   await mkdir(resolve(registryFile, ".."), { recursive: true })
@@ -240,7 +244,7 @@ const queueNitroModule: NitroModule = {
           outputDir: currentNitro.options.output.dir,
           queue: currentNitro.options.queue,
           registryFile: runtimeFiles.registryFile,
-          scanDirs: currentNitro.options.scanDirs,
+          scanDirs: resolveNitroQueueScanDirs(currentNitro.options.rootDir, currentNitro.options.scanDirs),
         })
       }
     })
