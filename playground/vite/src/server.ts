@@ -1,9 +1,9 @@
-import { H3, readValidatedBody } from "h3"
+import { H3, getRequestURL, readValidatedBody } from "h3"
 import * as v from "valibot"
 
 import { deferQueue, runQueue } from "@vitehub/queue"
 import { kv } from "@vitehub/kv"
-import { runInBackground } from "../../_shared/queue-test"
+import { resolveTrustedMarkerCallbackUrl, runInBackground } from "../../_shared/queue-test"
 
 const app = new H3()
 const queueName = "welcome-email"
@@ -23,11 +23,12 @@ app.get("/api/queues/welcome", () => ({ ok: true, queue: queueName }))
 app.post("/api/queues/welcome", async (event) => {
   const body = await readValidatedBody(event, queueBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
+  const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
   return {
     ok: true,
     result: await runQueue(queueName, {
       email: body?.email || "ava@example.com",
-      callbackUrl: body?.callbackUrl,
+      callbackUrl,
       marker,
     }),
   }
@@ -36,9 +37,10 @@ app.post("/api/queues/welcome", async (event) => {
 app.post("/api/queues/welcome-defer", async (event) => {
   const body = await readValidatedBody(event, queueBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
+  const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
   const payload = {
     email: body?.email || "ava@example.com",
-    callbackUrl: body?.callbackUrl,
+    callbackUrl,
     marker,
   }
 

@@ -1,6 +1,6 @@
-import { defineEventHandler, readValidatedBody } from "h3"
+import { defineEventHandler, getRequestURL, readValidatedBody } from "h3"
 import * as v from "valibot"
-import { runInBackground } from "../../../../_shared/queue-test"
+import { resolveTrustedMarkerCallbackUrl, runInBackground } from "../../../../_shared/queue-test"
 
 const queueName = "welcome-email"
 const queueBody = v.optional(v.object({
@@ -12,9 +12,10 @@ const queueBody = v.optional(v.object({
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, queueBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.headers.get("x-vitehub-e2e-marker") || undefined
+  const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
   const payload = {
     email: body?.email || "ava@example.com",
-    callbackUrl: body?.callbackUrl,
+    callbackUrl,
     marker,
   }
 

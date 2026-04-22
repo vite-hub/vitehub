@@ -23,6 +23,8 @@ type EventLike = {
   }
 }
 
+const queueMarkerCallbackPath = "/api/tests/queue"
+
 function bindWaitUntil(owner: { waitUntil?: (promise: Promise<unknown>) => void } | undefined) {
   return typeof owner?.waitUntil === "function" ? owner.waitUntil.bind(owner) : undefined
 }
@@ -48,6 +50,23 @@ export function runInBackground(event: EventLike, taskFactory: () => Promise<unk
     console.error("[vitehub] Deferred queue dispatch failed", error)
   }))
   return true
+}
+
+export function resolveTrustedMarkerCallbackUrl(requestUrl: URL, callbackUrl: string | undefined) {
+  if (!callbackUrl) {
+    return undefined
+  }
+
+  const resolved = new URL(callbackUrl, requestUrl)
+  if (resolved.origin !== requestUrl.origin || resolved.pathname !== queueMarkerCallbackPath) {
+    return undefined
+  }
+
+  if (resolved.search || resolved.hash) {
+    return undefined
+  }
+
+  return resolved.toString()
 }
 
 export async function reportQueueMarker(marker: string | undefined, callbackUrl: string | undefined) {
