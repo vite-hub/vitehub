@@ -1,5 +1,5 @@
 {
-  "name": "playground-vite",
+  "name": "blob-example-vite",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,11 +7,7 @@
   },
   "dependencies": {
     "@vitehub/blob": "workspace:*",
-    "@vitehub/kv": "workspace:*",
-    "@vitehub/queue": "workspace:*",
     "h3": "catalog:",
-    "nitro": "catalog:",
-    "valibot": "catalog:",
     "vite": "catalog:"
   }
 }

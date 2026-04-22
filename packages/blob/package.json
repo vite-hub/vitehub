@@ -1,0 +1,90 @@
+{
+  "name": "@vitehub/blob",
+  "version": "0.0.0",
+  "description": "Vite-first blob storage primitives and deployment integration for ViteHub.",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/blob"
+  },
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "keywords": [
+    "vitehub",
+    "vite",
+    "blob",
+    "cloudflare",
+    "vercel",
+    "r2"
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./config": "./dist/config.js",
+    "./drivers/cloudflare": "./dist/drivers/cloudflare.js",
+    "./drivers/fs": "./dist/drivers/fs.js",
+    "./drivers/vercel": "./dist/drivers/vercel.js",
+    "./ensure": "./dist/ensure.js",
+    "./nitro": "./dist/nitro.js",
+    "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
+    "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
+    "./runtime/state": "./dist/runtime/state.js",
+    "./runtime/storage": "./dist/runtime/storage.js",
+    "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
+    "./storage": "./dist/storage.js",
+    "./virtual": "./dist/virtual.js",
+    "./vite": "./dist/vite.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsdown --tsconfig tsconfig.build.json",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vitest run",
+    "test:e2e": "tsx ./test/e2e.ts"
+  },
+  "dependencies": {
+    "defu": "catalog:",
+    "esbuild": "^0.27.7",
+    "exsolve": "catalog:",
+    "h3": "catalog:"
+  },
+  "peerDependencies": {
+    "@vercel/blob": "^1.1.1",
+    "nitro": "^3.0.0-0",
+    "vite": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@vercel/blob": {
+      "optional": true
+    },
+    "nitro": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@vercel/blob": "^1.1.1",
+    "@types/node": "catalog:",
+    "get-port-please": "catalog:",
+    "nitro": "catalog:",
+    "ofetch": "catalog:",
+    "publint": "^0.3.15",
+    "tinyexec": "catalog:",
+    "tsdown": "^0.21.8",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

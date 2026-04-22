@@ -2,10 +2,10 @@ import { H3, getRequestURL, readValidatedBody } from "h3"
 import * as v from "valibot"
 
 import { deferQueue, runQueue } from "@vitehub/queue"
-import { kv } from "@vitehub/kv"
 import { resolveTrustedMarkerCallbackUrl, runInBackground } from "../../_shared/queue-test"
 
 const app = new H3()
+const queueMarkers = new Set<string>()
 const queueName = "welcome-email"
 const queueBody = v.optional(v.object({
   callbackUrl: v.optional(v.string()),
@@ -52,19 +52,15 @@ app.post("/api/queues/welcome-defer", async (event) => {
 
 app.get("/api/tests/queue", async (event) => {
   const marker = event.req.query?.marker
-  const key = typeof marker === "string" && marker.length > 0
-    ? `queue-e2e:${marker}`
-    : ""
-
   return {
     ok: true,
-    seen: key ? await kv.has(key) : false,
+    seen: typeof marker === "string" && marker.length > 0 ? queueMarkers.has(marker) : false,
   }
 })
 
 app.post("/api/tests/queue", async (event) => {
   const body = await readValidatedBody(event, markerBody)
-  await kv.set(`queue-e2e:${body.marker}`, true)
+  queueMarkers.add(body.marker)
   return { ok: true }
 })
 
