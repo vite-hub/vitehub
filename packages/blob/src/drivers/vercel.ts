@@ -1,8 +1,11 @@
-import type { BlobDriverAdapter, BlobPutBody } from "./types.ts"
+import { toArray } from "../internal/arrays.ts"
+
 import type {
+  BlobDriverAdapter,
   BlobListOptions,
   BlobListResult,
   BlobObject,
+  BlobPutBody,
   BlobPutOptions,
   ResolvedVercelBlobStoreConfig,
 } from "../types.ts"
@@ -44,9 +47,8 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
     name: "vercel-blob",
     options,
     async delete(pathnames) {
-      const values = Array.isArray(pathnames) ? pathnames : [pathnames]
       const { del, head } = await import("@vercel/blob")
-      for (const pathname of values) {
+      for (const pathname of toArray(pathnames)) {
         try {
           const current = await head(pathname, { token: options.token })
           if (current) {

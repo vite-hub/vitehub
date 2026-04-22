@@ -1,7 +1,8 @@
 import { createError, setHeader } from "h3"
 
-import type { BlobDriverAdapter } from "./drivers/types.ts"
-import type { BlobListOptions, BlobObject, BlobPutOptions, BlobStorage } from "./types.ts"
+import { toArray } from "./internal/arrays.ts"
+
+import type { BlobDriverAdapter, BlobListOptions, BlobObject, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
 
 function normalizePathname(pathname: string): string {
   return decodeURIComponent(pathname).replace(/^\/+/, "")
@@ -15,9 +16,9 @@ function joinPath(...parts: Array<string | undefined>): string {
     .replace(/^\/+/, "")
 }
 
+// Expects pathname already normalized via normalizePathname.
 function splitPath(pathname: string) {
-  const cleanPath = normalizePathname(pathname)
-  const segments = cleanPath.split("/").filter(Boolean)
+  const segments = pathname.split("/").filter(Boolean)
   const filename = segments.pop() || ""
   const dotIndex = filename.lastIndexOf(".")
 
@@ -28,8 +29,9 @@ function splitPath(pathname: string) {
   }
 }
 
+// Expects pathname already normalized via normalizePathname.
 function guessContentType(pathname: string): string {
-  const filename = normalizePathname(pathname).split("/").pop() || ""
+  const filename = pathname.split("/").pop() || ""
   const dotIndex = filename.lastIndexOf(".")
   const extension = dotIndex > 0 ? filename.slice(dotIndex).toLowerCase() : ""
   const known: Record<string, string> = {
@@ -65,8 +67,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>): BlobStorage {
       await this.del(pathnames)
     },
     async del(pathnames: string | string[]) {
-      const values = Array.isArray(pathnames) ? pathnames : [pathnames]
-      await driver.delete(values.map(value => normalizePathname(value)))
+      await driver.delete(toArray(pathnames).map(value => normalizePathname(value)))
     },
     async get(pathname: string) {
       return driver.get(normalizePathname(pathname))
@@ -84,8 +85,8 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>): BlobStorage {
         prefix: options.prefix ? normalizePathname(options.prefix) : options.prefix,
       })
     },
-    async put(pathname: string, body: string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob, options: BlobPutOptions = {}) {
-      const normalizedPath = normalizeBlobPath(pathname, options)
+    async put(pathname: string, body: BlobPutBody, options: BlobPutOptions = {}) {
+      const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
       const contentType = options.contentType || (body instanceof Blob ? body.type : undefined) || guessContentType(normalizedPath)
       return driver.put(normalizedPath, body, {
         ...options,

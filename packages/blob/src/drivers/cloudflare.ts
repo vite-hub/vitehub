@@ -1,10 +1,12 @@
+import { toArray } from "../internal/arrays.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 
-import type { BlobDriverAdapter, BlobPutBody } from "./types.ts"
 import type {
+  BlobDriverAdapter,
   BlobListOptions,
   BlobListResult,
   BlobObject,
+  BlobPutBody,
   BlobPutOptions,
   ResolvedCloudflareR2BlobStoreConfig,
 } from "../types.ts"
@@ -74,11 +76,10 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     options,
     async delete(pathnames) {
       const bucket = getBucket()
-      const values = Array.isArray(pathnames) ? pathnames : [pathnames]
-      await Promise.all(values.map(pathname => bucket.delete(decodeURIComponent(pathname))))
+      await Promise.all(toArray(pathnames).map(pathname => bucket.delete(pathname)))
     },
     async get(pathname) {
-      const object = await getBucket().get(decodeURIComponent(pathname))
+      const object = await getBucket().get(pathname)
       if (!object) {
         return null
       }
@@ -88,11 +89,11 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       })
     },
     async getArrayBuffer(pathname) {
-      const object = await getBucket().get(decodeURIComponent(pathname))
+      const object = await getBucket().get(pathname)
       return object ? object.arrayBuffer() : null
     },
     async head(pathname) {
-      const object = await getBucket().head(decodeURIComponent(pathname))
+      const object = await getBucket().head(pathname)
       return object ? mapR2ObjectToBlob(object) : null
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {

@@ -40,6 +40,19 @@ export interface BlobPutOptions {
   prefix?: string
 }
 
+export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
+
+export interface BlobDriverAdapter<TOptions> {
+  name: string
+  options: TOptions
+  delete(pathnames: string | string[]): Promise<void>
+  get(pathname: string): Promise<Blob | null>
+  getArrayBuffer(pathname: string): Promise<ArrayBuffer | null>
+  head(pathname: string): Promise<BlobObject | null>
+  list(options?: BlobListOptions): Promise<BlobListResult>
+  put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
+}
+
 export interface BlobEnsureOptions {
   maxSize?: BlobSize
   types?: BlobType[]
@@ -51,7 +64,7 @@ export interface BlobStorage {
   get(pathname: string): Promise<Blob | null>
   head(pathname: string): Promise<BlobObject>
   list(options?: BlobListOptions): Promise<BlobListResult>
-  put(pathname: string, body: string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob, options?: BlobPutOptions): Promise<BlobObject>
+  put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
   serve(event: H3Event, pathname: string): Promise<ReadableStream>
 }
 

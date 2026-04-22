@@ -3,8 +3,9 @@ import { existsSync } from "node:fs"
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
 
-import type { BlobDriverAdapter, BlobPutBody } from "./types.ts"
-import type { BlobListOptions, BlobListResult, BlobObject, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
+import { toArray } from "../internal/arrays.ts"
+
+import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 
 type FsBlobMetadata = {
   contentType?: string
@@ -99,8 +100,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     name: "fs",
     options,
     async delete(pathnames) {
-      const values = Array.isArray(pathnames) ? pathnames : [pathnames]
-      await Promise.all(values.flatMap(pathname => {
+      await Promise.all(toArray(pathnames).flatMap(pathname => {
         const file = resolveSafePath(base, pathname)
         return [
           rm(file, { force: true }),

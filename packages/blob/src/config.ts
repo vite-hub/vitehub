@@ -19,7 +19,7 @@ export interface BlobResolutionInput {
   hosting?: string
 }
 
-const maskedBlobRuntimeValue = "********"
+export const MASKED_BLOB_RUNTIME_VALUE = "********"
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
@@ -50,7 +50,7 @@ function resolveVercelStore(
   return {
     access: config.access ?? "public",
     driver: "vercel-blob",
-    token: trimmed(config.token) ?? maskedBlobRuntimeValue,
+    token: trimmed(config.token) ?? MASKED_BLOB_RUNTIME_VALUE,
   }
 }
 
@@ -124,7 +124,7 @@ export function warnVercelBlobFallback(
 }
 
 export function isMaskedBlobRuntimeValue(value: string | undefined): boolean {
-  return !value || /^\*+$/.test(value)
+  return !value || value === MASKED_BLOB_RUNTIME_VALUE
 }
 
 export function resolveRuntimeVercelBlobStore(

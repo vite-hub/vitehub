@@ -195,6 +195,52 @@ describe("blob runtime", () => {
     await expect(blob.head("notes/hello.txt")).rejects.toThrow("Blob not found")
   })
 
+  it("decodes percent-encoded pathnames once before reaching drivers", async () => {
+    const bucket = createMemoryBucket()
+    setBlobRuntimeConfig({
+      store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" },
+    })
+    setActiveCloudflareEnv({ BLOB: bucket })
+
+    // Users pass URL-encoded pathnames; storage decodes exactly once.
+    // Before the fix, the Cloudflare driver decoded again and "%25" → "%" → URIError on the next op.
+    await blob.put("notes/100%25.txt", "value")
+    await blob.put("notes/h%C3%A9llo.txt", "unicode")
+    await blob.put("notes/space%20file.txt", "raw")
+
+    const list = await blob.list()
+    const keys = list.blobs.map(b => b.pathname).sort()
+    expect(keys).toEqual([
+      "notes/100%.txt",
+      "notes/héllo.txt",
+      "notes/space file.txt",
+    ])
+
+    expect(await (await blob.get("notes/100%25.txt"))?.text()).toBe("value")
+    await blob.del("notes/h%C3%A9llo.txt")
+    await expect(blob.head("notes/h%C3%A9llo.txt")).rejects.toThrow("Blob not found")
+  })
+
+  it("passes decoded pathnames to the Vercel driver", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    setBlobRuntimeConfig({
+      store: { access: "public", driver: "vercel-blob", token: "********" },
+    })
+
+    await blob.put("notes/100%25.txt", "value")
+    await blob.del("notes/h%C3%A9llo.txt")
+
+    expect(vercelBlobMock.put).toHaveBeenCalledWith(
+      "notes/100%.txt",
+      "value",
+      expect.anything(),
+    )
+    expect(vercelBlobMock.head).toHaveBeenCalledWith(
+      "notes/héllo.txt",
+      expect.anything(),
+    )
+  })
+
   it("binds Blob access inside the Cloudflare worker wrapper", async () => {
     const worker = createBlobCloudflareWorker({
       app: async (request) => {
