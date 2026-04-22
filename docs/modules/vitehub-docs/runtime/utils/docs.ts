@@ -102,6 +102,16 @@ export function getDocsPage(sectionId: string, pageId = "index") {
   return getDocsSection(sectionId)?.pages.find(page => page.id === pageId) || null;
 }
 
+export function isDocsSectionSupported(sectionId: string, framework: Framework) {
+  const section = getDocsSection(sectionId);
+
+  if (!section) {
+    return false;
+  }
+
+  return section.pages.some(page => page.frameworks.includes(framework));
+}
+
 export function isDocsPageSupported(sectionId: string, pageId: string, framework: Framework) {
   const page = getDocsPage(sectionId, pageId);
 

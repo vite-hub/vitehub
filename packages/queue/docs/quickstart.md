@@ -42,7 +42,6 @@ export default defineNitroConfig({
   modules: ['@vitehub/queue/nitro'],
   queue: {
     provider: 'cloudflare',
-    binding: 'WELCOME_EMAIL',
   },
 })
 ```

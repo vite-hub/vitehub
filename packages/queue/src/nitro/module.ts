@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { relative, resolve } from "node:path"
 
 import { resolveModulePath } from "exsolve"
 import type { NitroModule, NitroOptions, NitroRuntimeConfig } from "nitro/types"
@@ -66,18 +66,120 @@ function createNitroQueueRegistryPath(rootDir: string, buildDir: string) {
   return resolve(rootDir, buildDir, ...generatedDirSegments, "nitro-registry.mjs")
 }
 
-async function writeNitroQueueRegistry(nitro: { options: { buildDir: string, rootDir: string, scanDirs: string[] } }) {
+function createNitroQueuePluginPath(rootDir: string, buildDir: string) {
+  return resolve(rootDir, buildDir, ...generatedDirSegments, "nitro-plugin.ts")
+}
+
+function createImportPath(fromFile: string, toFile: string) {
+  const importPath = relative(resolve(fromFile, ".."), toFile).replace(/\\/g, "/")
+  return importPath.startsWith(".") ? importPath : `./${importPath}`
+}
+
+function createNitroQueuePluginContents(file: string, registryFile: string) {
+  return [
+    "import { definePlugin as defineNitroPlugin } from \"nitro\"",
+    "import { useRuntimeConfig } from \"nitro/runtime-config\"",
+    "",
+    "import { createCloudflareQueueBatchHandler, getCloudflareQueueDefinitionName, type CloudflareQueueMessageBatch, type ResolvedQueueOptions } from \"@vitehub/queue\"",
+    "import { enterQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from \"@vitehub/queue/runtime/state\"",
+    "",
+    `import queueRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    "",
+    "function setActiveCloudflareEnv(env: Record<string, unknown>): void {",
+    "  ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = env",
+    "}",
+    "",
+    "function createCloudflareRuntimeEvent(env: Record<string, unknown>, context: { waitUntil?: (promise: Promise<unknown>) => void } | undefined) {",
+    "  const waitUntil = typeof context?.waitUntil === \"function\" ? context.waitUntil.bind(context) : undefined",
+    "  return {",
+    "    context: { cloudflare: { context, env }, waitUntil },",
+    "    env,",
+    "    waitUntil,",
+    "  }",
+    "}",
+    "",
+    "function createQueueJob(message: CloudflareQueueMessageBatch[\"messages\"][number], batch: CloudflareQueueMessageBatch) {",
+    "  return {",
+    "    attempts: typeof message.attempts === \"number\" ? message.attempts : 1,",
+    "    id: message.id,",
+    "    metadata: { batch, message },",
+    "    payload: message.body,",
+    "  }",
+    "}",
+    "",
+    "const queueNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin((nitroApp: any) => {",
+    "  const runtimeConfig = useRuntimeConfig() as {",
+    "    queue?: false | ResolvedQueueOptions",
+    "  }",
+    "",
+    "  const applyRuntimeState = () => {",
+    "    setQueueRuntimeConfig(runtimeConfig.queue)",
+    "    setQueueRuntimeRegistry(queueRegistry)",
+    "  }",
+    "",
+    "  applyRuntimeState()",
+    "",
+    "  nitroApp.hooks.hook(\"request\", (event: any) => {",
+    "    applyRuntimeState()",
+    "    enterQueueRuntimeEvent(event)",
+    "  })",
+    "",
+    "  nitroApp.hooks.hook(\"cloudflare:queue\", async ({ batch, env, context }: { batch: CloudflareQueueMessageBatch, context: { waitUntil?: (promise: Promise<unknown>) => void }, env: Record<string, unknown> }) => {",
+    "    applyRuntimeState()",
+    "    if (runtimeConfig.queue === false || runtimeConfig.queue?.provider !== \"cloudflare\") {",
+    "      return",
+    "    }",
+    "",
+    "    setActiveCloudflareEnv(env as Record<string, unknown>)",
+    "    const definition = await loadQueueDefinition(getCloudflareQueueDefinitionName(batch.queue))",
+    "    if (!definition) {",
+    "      return",
+    "    }",
+    "",
+    "    const runtimeEvent = createCloudflareRuntimeEvent(env as Record<string, unknown>, context)",
+    "    await createCloudflareQueueBatchHandler({",
+    "      concurrency: definition.options?.concurrency,",
+    "      onError: definition.options?.onError,",
+    "      onMessage: async (message, currentBatch) => {",
+    "        await runWithQueueRuntimeEvent(runtimeEvent, async () => {",
+    "          await definition.handler(createQueueJob(message, currentBatch))",
+    "        })",
+    "      },",
+    "    })(batch as CloudflareQueueMessageBatch)",
+    "  })",
+    "})",
+    "",
+    "export default queueNitroPlugin",
+    "",
+  ].join("\n")
+}
+
+async function writeNitroQueueRuntimeFiles(nitro: { options: { buildDir: string, rootDir: string, scanDirs: string[] } }) {
   const registryFile = createNitroQueueRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
+  const pluginFile = createNitroQueuePluginPath(nitro.options.rootDir, nitro.options.buildDir)
   const definitions = discoverQueueDefinitions({
     mode: "nitro-server-queues",
     scanDirs: nitro.options.scanDirs,
   })
 
   await mkdir(resolve(registryFile, ".."), { recursive: true })
-  await writeFile(registryFile, createQueueRegistryContents(registryFile, definitions), "utf8")
+  const registryContents = createQueueRegistryContents(registryFile, definitions)
+  const pluginContents = createNitroQueuePluginContents(pluginFile, registryFile)
+  const writeGeneratedFile = async (file: string, contents: string) => {
+    const existing = await readFile(file, "utf8").catch(() => undefined)
+    if (existing === contents) {
+      return
+    }
+
+    await writeFile(file, contents, "utf8")
+  }
+
+  await writeGeneratedFile(registryFile, registryContents)
+  await writeGeneratedFile(pluginFile, pluginContents)
 
   return {
     definitions,
+    pluginFile,
     registryFile,
   }
 }
@@ -94,9 +196,10 @@ const queueNitroModule: NitroModule = {
 
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/queue"] = resolveRuntimeEntry("../index", "@vitehub/queue")
+    nitro.options.alias["@vitehub/queue/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/queue/runtime/state")
 
-    const { definitions, registryFile } = await writeNitroQueueRegistry(nitro)
-    nitro.options.alias["#vitehub/queue/registry"] = registryFile
+    let runtimeFiles = await writeNitroQueueRuntimeFiles(nitro)
+    const { definitions } = runtimeFiles
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
     if (!importsExplicitlyDisabled) {
@@ -108,7 +211,7 @@ const queueNitroModule: NitroModule = {
     }
 
     nitro.options.plugins ||= []
-    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/queue/runtime/nitro-plugin")
+    const plugin = runtimeFiles.pluginFile
     if (!nitro.options.plugins.includes(plugin)) {
       nitro.options.plugins.push(plugin)
     }
@@ -137,19 +240,17 @@ const queueNitroModule: NitroModule = {
     }
 
     nitro.hooks.hook("build:before", async () => {
-      const refreshed = await writeNitroQueueRegistry(nitro)
-      nitro.options.alias!["#vitehub/queue/registry"] = refreshed.registryFile
+      runtimeFiles = await writeNitroQueueRuntimeFiles(nitro)
     })
     nitro.hooks.hook("dev:reload", async () => {
-      const refreshed = await writeNitroQueueRegistry(nitro)
-      nitro.options.alias!["#vitehub/queue/registry"] = refreshed.registryFile
+      runtimeFiles = await writeNitroQueueRuntimeFiles(nitro)
     })
     nitro.hooks.hook("compiled", async (currentNitro: any) => {
       if (currentNitro.options.preset?.includes("vercel")) {
         await writeNitroVercelQueueOutputs({
           outputDir: currentNitro.options.output.dir,
           queue: currentNitro.options.queue,
-          registryFile,
+          registryFile: runtimeFiles.registryFile,
           scanDirs: currentNitro.options.scanDirs,
         })
       }

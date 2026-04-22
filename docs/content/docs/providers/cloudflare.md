@@ -17,12 +17,15 @@ Use this page to find package-specific Cloudflare guidance in ViteHub.
 - Setup overview: [KV overview](../kv)
 - Provider details: [KV on Cloudflare](../kv/providers/cloudflare)
 
+::fw{vite nitro}
 ### Queue
 
 `@vitehub/queue` supports a Cloudflare path on Vite and Nitro through `queue.provider = 'cloudflare'`.
 
-- Setup overview: [Queue overview](/docs/nitro/queue)
-- Provider details: [Queue on Cloudflare](/docs/nitro/queue/providers/cloudflare)
+- Setup overview: [Queue overview](../queue)
+- Provider details: [Queue on Cloudflare](../queue/providers/cloudflare)
+::
+
 
 ## What stays package-specific
 

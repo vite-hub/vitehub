@@ -150,14 +150,20 @@ describe("showcase examples", () => {
     expect(getDocsPage("queue", "providers/cloudflare")).toBeTruthy();
     expect(getDocsPage("queue", "providers/vercel")).toBeTruthy();
 
+    const gettingStarted = readFileSync(resolve(import.meta.dirname, "../content/docs/getting-started/index.md"), "utf8");
     const cloudflare = readFileSync(resolve(import.meta.dirname, "../content/docs/providers/cloudflare.md"), "utf8");
     const vercel = readFileSync(resolve(import.meta.dirname, "../content/docs/providers/vercel.md"), "utf8");
 
+    expect(gettingStarted).toContain("to: ../queue");
+    expect(gettingStarted).toContain("to: ../queue/quickstart");
+    expect(gettingStarted).not.toContain("/docs/nitro/queue");
     expect(cloudflare).toContain("../kv/providers/cloudflare");
     expect(cloudflare).not.toContain("../kv/cloudflare");
-    expect(cloudflare).toContain("/docs/nitro/queue/providers/cloudflare");
+    expect(cloudflare).toContain("../queue/providers/cloudflare");
+    expect(cloudflare).not.toContain("/docs/nitro/queue/providers/cloudflare");
     expect(vercel).toContain("../kv/providers/vercel");
     expect(vercel).not.toContain("../kv/vercel");
-    expect(vercel).toContain("/docs/nitro/queue/providers/vercel");
+    expect(vercel).toContain("../queue/providers/vercel");
+    expect(vercel).not.toContain("/docs/nitro/queue/providers/vercel");
   });
 });

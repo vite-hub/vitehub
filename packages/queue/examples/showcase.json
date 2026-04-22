@@ -9,7 +9,7 @@
       "id": "cloudflare",
       "label": "Cloudflare",
       "icon": "i-simple-icons-cloudflare",
-      "configOverride": "  queue: {\n    provider: 'cloudflare',\n    binding: 'WELCOME_EMAIL',\n  },"
+      "configOverride": "  queue: {\n    provider: 'cloudflare',\n  },"
     },
     {
       "id": "vercel",

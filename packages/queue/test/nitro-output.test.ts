@@ -72,13 +72,17 @@ describe("Nitro provider outputs", () => {
     const cloudflareBuild = await buildPlayground("cloudflare_module")
 
     const registryFile = join(cloudflareBuild.buildDir, ".vitehub", "queue", "nitro-registry.mjs")
+    const pluginFile = join(cloudflareBuild.buildDir, ".vitehub", "queue", "nitro-plugin.ts")
     const cloudflareNitroJson = JSON.parse(await readFile(join(cloudflareBuild.outputDir, "nitro.json"), "utf8"))
     const cloudflareServerEntry = join(cloudflareBuild.outputDir, cloudflareNitroJson.serverEntry)
     const registryContents = await readFile(registryFile, "utf8")
+    const pluginContents = await readFile(pluginFile, "utf8")
 
     expect(existsSync(cloudflareServerEntry)).toBe(true)
     expect(registryContents).toContain('"welcome": async () => import(')
     expect(registryContents).toContain("server/queues/welcome.ts")
+    expect(pluginContents).toContain('import queueRegistry from "./nitro-registry.mjs"')
+    expect(pluginContents).not.toContain("#vitehub/queue/registry")
 
     await cleanupPlayground()
 

@@ -12,7 +12,7 @@ Use Cloudflare when producers and consumers should run through Cloudflare Queues
 
 ## Configure the provider
 
-Set `queue.provider = 'cloudflare'`. Add `queue.binding` only when you want to override the derived binding name.
+Set `queue.provider = 'cloudflare'`. Queue derives the producer binding name from the discovered queue name.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
@@ -23,7 +23,6 @@ export default defineConfig({
   plugins: [hubQueue()],
   queue: {
     provider: 'cloudflare',
-    binding: 'WELCOME_EMAIL',
   },
 })
 ```
@@ -37,7 +36,6 @@ export default defineNitroConfig({
   modules: ['@vitehub/queue/nitro'],
   queue: {
     provider: 'cloudflare',
-    binding: 'WELCOME_EMAIL',
   },
 })
 ```

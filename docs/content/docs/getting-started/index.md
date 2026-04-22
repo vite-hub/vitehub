@@ -5,7 +5,11 @@ navigation.title: Getting started
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](/docs/nuxt/kv) and [`@vitehub/queue`](/docs/nitro/queue). Queue currently documents Vite and Nitro integrations.
+ViteHub currently ships [`@vitehub/kv`](../kv).
+
+::fw{vite nitro}
+It also ships [`@vitehub/queue`](../queue) for background jobs on Vite and Nitro.
+::
 
 This page gives you the first framework-specific setup step, then points you to the package docs where the full examples live.
 
@@ -71,56 +75,61 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
   ---
   title: KV overview
   description: Understand what the KV package provides and how it resolves drivers.
-  to: /docs/nuxt/kv
+  to: ../kv
   ---
   :::
   :::u-page-card
   ---
   title: KV quickstart
   description: Read, write, and delete a first key locally.
-  to: /docs/nuxt/kv/quickstart
+  to: ../kv/quickstart
   ---
   :::
   :::u-page-card
   ---
   title: Cloudflare provider
   description: Configure the Cloudflare KV path.
-  to: /docs/nuxt/kv/providers/cloudflare
+  to: ../kv/providers/cloudflare
   ---
   :::
   :::u-page-card
   ---
   title: Vercel provider
   description: Configure the Upstash-backed Vercel path.
-  to: /docs/nuxt/kv/providers/vercel
+  to: ../kv/providers/vercel
   ---
   :::
+::
+
+::fw{vite nitro}
+::u-page-grid{class="pb-2"}
   :::u-page-card
   ---
   title: Queue overview
   description: Discover background job routing for Vite and Nitro.
-  to: /docs/nitro/queue
+  to: ../queue
   ---
   :::
   :::u-page-card
   ---
   title: Queue quickstart
   description: Register Queue and enqueue a first job.
-  to: /docs/nitro/queue/quickstart
+  to: ../queue/quickstart
   ---
   :::
   :::u-page-card
   ---
   title: Queue on Cloudflare
   description: Configure Cloudflare queue bindings and batch processing.
-  to: /docs/nitro/queue/providers/cloudflare
+  to: ../queue/providers/cloudflare
   ---
   :::
   :::u-page-card
   ---
   title: Queue on Vercel
   description: Configure Vercel topics and hosted callbacks.
-  to: /docs/nitro/queue/providers/vercel
+  to: ../queue/providers/vercel
   ---
   :::
+::
 ::
