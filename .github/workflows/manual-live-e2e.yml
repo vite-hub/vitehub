@@ -60,39 +60,6 @@ jobs:
           APP_DIR="playground/${{ matrix.framework }}"
           PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
 
-          get_pulled_env_value() {
-            node -e '
-              const fs = require("node:fs")
-              const file = process.argv[1]
-              const key = process.argv[2]
-              const lines = fs.readFileSync(file, "utf8").split(/\r?\n/)
-
-              for (const line of lines) {
-                if (!line.startsWith(`${key}=`)) continue
-                let value = line.slice(key.length + 1)
-                if (value.length >= 2) {
-                  const first = value[0]
-                  const last = value[value.length - 1]
-                  if ((first === "\"" && last === "\"") || (first === "\x27" && last === "\x27")) {
-                    if (first === "\"") {
-                      try {
-                        value = JSON.parse(value)
-                      }
-                      catch {
-                        value = value.slice(1, -1)
-                      }
-                    }
-                    else {
-                      value = value.slice(1, -1)
-                    }
-                  }
-                }
-                process.stdout.write(value)
-                process.exit(0)
-              }
-            ' "$1" "$2"
-          }
-
           npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
 
           readarray -t VERCEL_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$APP_DIR")
@@ -109,8 +76,8 @@ jobs:
           VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
-          KV_URL="$(get_pulled_env_value "$PULLED_ENV_FILE" KV_REST_API_URL)"
-          KV_TOKEN="$(get_pulled_env_value "$PULLED_ENV_FILE" KV_REST_API_TOKEN)"
+          KV_URL="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" KV_REST_API_URL)"
+          KV_TOKEN="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" KV_REST_API_TOKEN)"
 
           if [ -z "$KV_URL" ] || [ -z "$KV_TOKEN" ]; then
             echo "Vercel production env verification failed: KV_REST_API_URL and KV_REST_API_TOKEN must both be set on the linked project." >&2
@@ -200,39 +167,6 @@ jobs:
           APP_DIR="playground/vite"
           PROJECT_NAME="vitehub-playground-vite-blob"
 
-          get_pulled_env_value() {
-            node -e '
-              const fs = require("node:fs")
-              const file = process.argv[1]
-              const key = process.argv[2]
-              const lines = fs.readFileSync(file, "utf8").split(/\r?\n/)
-
-              for (const line of lines) {
-                if (!line.startsWith(`${key}=`)) continue
-                let value = line.slice(key.length + 1)
-                if (value.length >= 2) {
-                  const first = value[0]
-                  const last = value[value.length - 1]
-                  if ((first === "\"" && last === "\"") || (first === "\x27" && last === "\x27")) {
-                    if (first === "\"") {
-                      try {
-                        value = JSON.parse(value)
-                      }
-                      catch {
-                        value = value.slice(1, -1)
-                      }
-                    }
-                    else {
-                      value = value.slice(1, -1)
-                    }
-                  }
-                }
-                process.stdout.write(value)
-                process.exit(0)
-              }
-            ' "$1" "$2"
-          }
-
           npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
 
           readarray -t VERCEL_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$APP_DIR")
@@ -249,7 +183,7 @@ jobs:
           VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
-          BLOB_TOKEN="$(get_pulled_env_value "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
+          BLOB_TOKEN="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
 
           if [ -z "$BLOB_TOKEN" ]; then
             echo "Vercel production env verification failed: BLOB_READ_WRITE_TOKEN must be set on the linked project." >&2
