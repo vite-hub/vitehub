@@ -47,8 +47,8 @@ export type DocsExample = {
   defaultPhase?: "configure" | "define" | "run";
   providers?: DocsExampleProvider[];
   order: number;
-  frameworks: Record<Framework, { modes: Record<UsageMode, DocsExampleMode> }>;
-  files: Record<Framework, Array<{ path: string; code: string }>>;
+  frameworks: Partial<Record<Framework, { modes: Record<UsageMode, DocsExampleMode> }>>;
+  files: Partial<Record<Framework, Array<{ path: string; code: string }>>>;
 };
 
 type PackageSectionMeta = {

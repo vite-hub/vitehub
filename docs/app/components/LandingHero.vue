@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useFrameworkPreference } from "../composables/useFrameworkPreference";
 import { useHighlightedCode } from "../composables/useHighlightedCode";
 import { defaultFramework, frameworkColorIcons, frameworkLabels, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
-import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths, showcasePhaseIds, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
+import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths, getSupportedShowcaseFrameworks, resolveShowcaseFramework, showcasePhaseIds, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 
 type TreeItem = { id: string; label: string; icon?: string; defaultExpanded?: boolean; children?: TreeItem[] };
 
@@ -17,7 +17,10 @@ const selectionMemory = new Map<string, string>();
 
 const examples = getShowcaseExamples().map(e => ({ ...e, icon: e.icon || "i-lucide-box", defaultPhase: e.defaultPhase || "configure", providers: e.providers || [] }));
 const activeExample = computed(() => examples[activeTab.value]!);
-const displayedFramework = computed<Framework>(() => mounted.value ? current.value : defaultFramework);
+const displayedFramework = computed<Framework>(() => {
+  const preferredFramework = mounted.value ? current.value : defaultFramework;
+  return resolveShowcaseFramework(activeExample.value, preferredFramework);
+});
 const getStartedLink = computed(() => `/docs/${displayedFramework.value}/getting-started/`);
 const activeDocsLink = computed(() => `/docs/${displayedFramework.value}/${activeExample.value.docsPath}`);
 const activePhasePaths = computed(() => getShowcasePhasePaths(activeExample.value, displayedFramework.value));
@@ -193,7 +196,13 @@ function treeItemIcon(item: TreeItem, expanded: boolean) {
   return fileIcon(item.id || item.label);
 }
 
-const frameworkOptions = (["vite", "nitro", "nuxt"] as const).map(id => ({ id, label: frameworkLabels[id], icon: frameworkColorIcons[id] }));
+const frameworkOptions = computed(() => {
+  return getSupportedShowcaseFrameworks(activeExample.value).map(id => ({
+    id,
+    label: frameworkLabels[id],
+    icon: frameworkColorIcons[id],
+  }));
+});
 const copyIcons = { copy: "i-lucide-copy", copyCheck: "i-lucide-check" };
 const copied = ref(false);
 let copiedTimeout: ReturnType<typeof setTimeout> | undefined;

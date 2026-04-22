@@ -5,9 +5,9 @@ navigation.title: Getting started
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](/docs/nuxt/kv), a Vite-first key-value package with Nitro and Nuxt runtime adapters.
+ViteHub currently ships [`@vitehub/kv`](/docs/nuxt/kv) and [`@vitehub/queue`](/docs/nitro/queue). Queue currently documents Vite and Nitro integrations.
 
-This page gives you the first framework-specific setup step, then points you to the KV docs where the full examples live.
+This page gives you the first framework-specific setup step, then points you to the package docs where the full examples live.
 
 ## Start with KV
 
@@ -93,6 +93,34 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
   title: Vercel provider
   description: Configure the Upstash-backed Vercel path.
   to: /docs/nuxt/kv/providers/vercel
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Queue overview
+  description: Discover background job routing for Vite and Nitro.
+  to: /docs/nitro/queue
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Queue quickstart
+  description: Register Queue and enqueue a first job.
+  to: /docs/nitro/queue/quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Queue on Cloudflare
+  description: Configure Cloudflare queue bindings and batch processing.
+  to: /docs/nitro/queue/providers/cloudflare
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Queue on Vercel
+  description: Configure Vercel topics and hosted callbacks.
+  to: /docs/nitro/queue/providers/vercel
   ---
   :::
 ::

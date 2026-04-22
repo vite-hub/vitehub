@@ -3,17 +3,25 @@ import {
   getShowcaseFiles,
   getShowcaseExamples,
   getShowcasePhasePaths,
+  resolveShowcaseFramework,
 } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 import { useFrameworkPreference } from "./useFrameworkPreference";
 import { useUsageModePreference } from "./useUsageModePreference";
 
 export function useShowcaseExamples(docsPath?: MaybeRefOrGetter<string | undefined>) {
   const pathRef = computed(() => toValue(docsPath));
-  const { current: framework } = useFrameworkPreference();
+  const { current: preferredFramework } = useFrameworkPreference();
   const { current: mode } = useUsageModePreference();
 
   const examples = computed(() => getShowcaseExamples());
   const example = computed(() => examples.value.find(entry => entry.docsPath === pathRef.value));
+  const framework = computed(() => {
+    if (!example.value) {
+      return preferredFramework.value;
+    }
+
+    return resolveShowcaseFramework(example.value, preferredFramework.value);
+  });
   const phases = computed(() => {
     if (!example.value) {
       return {};

@@ -219,4 +219,77 @@ describe("writeDocsArtifacts", () => {
       rmSync(rootDir, { force: true, recursive: true });
     }
   });
+
+  it("supports package docs and showcase manifests with a framework subset", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-subset-"));
+    const docsRoot = resolve(rootDir, "docs");
+    const outputDir = resolve(rootDir, ".generated");
+
+    try {
+      mkdirSync(docsRoot, { recursive: true });
+      writeText(resolve(rootDir, "pnpm-workspace.yaml"), [
+        "catalog:",
+        "  nitro: 3.0.0",
+        "  vite: 6.2.0",
+      ].join("\n"));
+
+      writeText(resolve(rootDir, "packages/demo/docs/index.md"), [
+        "---",
+        "title: Demo",
+        "frameworks: [vite, nitro]",
+        "---",
+        "",
+        "Demo docs.",
+      ].join("\n"));
+
+      writeJson(resolve(rootDir, "packages/demo/examples/showcase.json"), {
+        label: "Demo",
+        frameworks: {
+          vite: {
+            define: "src/demo.queue.ts",
+            run: "src/main.ts",
+          },
+          nitro: {
+            define: "server/queues/demo.ts",
+            run: "server/api/demo.get.ts",
+          },
+        },
+      });
+
+      writeJson(resolve(rootDir, "packages/demo/examples/vite/package.json"), {
+        private: true,
+        dependencies: {
+          "@vitehub/demo": "workspace:*",
+          vite: "catalog:",
+        },
+      });
+      writeText(resolve(rootDir, "packages/demo/examples/vite/vite.config.ts"), "export default {};\n");
+      writeText(resolve(rootDir, "packages/demo/examples/vite/src/demo.queue.ts"), "export default null;\n");
+      writeText(resolve(rootDir, "packages/demo/examples/vite/src/main.ts"), "console.log('vite');\n");
+
+      writeJson(resolve(rootDir, "packages/demo/examples/nitro/package.json"), {
+        private: true,
+        dependencies: {
+          "@vitehub/demo": "workspace:*",
+          nitro: "catalog:",
+        },
+      });
+      writeText(resolve(rootDir, "packages/demo/examples/nitro/nitro.config.ts"), "export default {};\n");
+      writeText(resolve(rootDir, "packages/demo/examples/nitro/server/queues/demo.ts"), "export default null;\n");
+      writeText(resolve(rootDir, "packages/demo/examples/nitro/server/api/demo.get.ts"), "export default () => 'nitro';\n");
+
+      const manifest = writeDocsArtifacts({ docsRoot, repoRoot: rootDir, outputDir });
+      const example = manifest.examples.find(item => item.pkg === "demo");
+      const page = manifest.sections.find(section => section.id === "demo")?.pages.find(item => item.id === "index");
+
+      expect(example).toBeTruthy();
+      expect(example?.frameworks.vite).toBeTruthy();
+      expect(example?.frameworks.nitro).toBeTruthy();
+      expect(example?.frameworks.nuxt).toBeUndefined();
+      expect(example?.files.nuxt).toBeUndefined();
+      expect(page?.frameworks).toEqual(["vite", "nitro"]);
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
 });
