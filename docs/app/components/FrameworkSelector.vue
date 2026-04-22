@@ -5,13 +5,14 @@ import {
   frameworkColorIcons,
   frameworkDescriptions,
   frameworkLabels,
-  frameworks,
+  type Framework,
+  visibleFrameworks,
 } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 
 const open = ref(false);
 const { current, switchTo } = useFrameworkPreference();
 
-function select(fw: (typeof frameworks)[number]) {
+function select(fw: Framework) {
   switchTo(fw);
   open.value = false;
 }
@@ -34,7 +35,7 @@ function select(fw: (typeof frameworks)[number]) {
     <template #content>
       <div class="p-1" role="listbox">
         <button
-          v-for="fw in frameworks"
+          v-for="fw in visibleFrameworks"
           :key="fw"
           type="button"
           role="option"

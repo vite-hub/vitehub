@@ -3,7 +3,7 @@ import { navigateTo, useRoute } from "#app/composables/router";
 import { useState } from "#app/composables/state";
 import { computed, nextTick, onMounted, watch } from "vue";
 import { normalizeSitePath, resolveFrameworkSwitchPath } from "~~/modules/vitehub-docs/runtime/utils/docs-routes";
-import { defaultFramework, frameworks, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
+import { defaultFramework, frameworks, type Framework, visibleFrameworks } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 
 export function useFrameworkPreference() {
   const route = useRoute();
@@ -28,11 +28,11 @@ export function useFrameworkPreference() {
       return routeFramework.value;
     }
 
-    if (frameworks.includes(stored.value as Framework)) {
+    if (visibleFrameworks.includes(stored.value as Framework)) {
       return stored.value as Framework;
     }
 
-    if (frameworks.includes(cookie.value as Framework)) {
+    if (visibleFrameworks.includes(cookie.value as Framework)) {
       return cookie.value as Framework;
     }
 
@@ -66,7 +66,7 @@ export function useFrameworkPreference() {
   onMounted(() => {
     refreshCookie("vitehub-fw");
 
-    if (frameworks.includes(cookie.value as Framework)) {
+    if (visibleFrameworks.includes(cookie.value as Framework)) {
       stored.value = cookie.value as Framework;
     }
 

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useFrameworkPreference } from "../composables/useFrameworkPreference";
 import { useHighlightedCode } from "../composables/useHighlightedCode";
-import { defaultFramework, frameworkColorIcons, frameworkLabels, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
+import { defaultFramework, frameworkColorIcons, frameworkLabels, type Framework, visibleFrameworks } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths, getSupportedShowcaseFrameworks, resolveShowcaseFramework, showcasePhaseIds, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 
 type TreeItem = { id: string; label: string; icon?: string; defaultExpanded?: boolean; children?: TreeItem[] };
@@ -21,7 +21,7 @@ const displayedFramework = computed<Framework>(() => {
   const preferredFramework = mounted.value ? current.value : defaultFramework;
   return resolveShowcaseFramework(activeExample.value, preferredFramework);
 });
-const getStartedLink = computed(() => `/docs/${displayedFramework.value}/getting-started/`);
+const getStartedLink = computed(() => `/docs/${displayedFramework.value}/${activeExample.value.docsPath}/quickstart`);
 const activeDocsLink = computed(() => `/docs/${displayedFramework.value}/${activeExample.value.docsPath}`);
 const activePhasePaths = computed(() => getShowcasePhasePaths(activeExample.value, displayedFramework.value));
 const activeFiles = computed(() => getShowcaseFiles(activeExample.value, displayedFramework.value, activeProvider.value));
@@ -197,7 +197,9 @@ function treeItemIcon(item: TreeItem, expanded: boolean) {
 }
 
 const frameworkOptions = computed(() => {
-  return getSupportedShowcaseFrameworks(activeExample.value).map(id => ({
+  return getSupportedShowcaseFrameworks(activeExample.value)
+    .filter((id): id is Framework => visibleFrameworks.includes(id))
+    .map(id => ({
     id,
     label: frameworkLabels[id],
     icon: frameworkColorIcons[id],
