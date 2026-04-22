@@ -10,6 +10,10 @@ frameworks: [vite, nitro]
 
 Use Vercel when queue publishing and callback handling should stay in a Vercel deployment.
 
+::callout{to="https://vercel.com/docs/queues"}
+Vercel Queue is a hosted service. Queue does not provide a local in-memory Vercel queue binding in development.
+::
+
 ## Install the SDK
 
 ```bash

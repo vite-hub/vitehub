@@ -10,6 +10,10 @@ frameworks: [vite, nitro]
 
 Use Cloudflare when producers and consumers should run through Cloudflare Queues.
 
+::callout{to="https://developers.cloudflare.com/queues/configuration/local-development/"}
+Cloudflare queue development runs locally through Wrangler and Miniflare, which simulate your Worker and queue bindings.
+::
+
 ## Configure the provider
 
 Set `queue.provider = 'cloudflare'`. Queue derives the producer binding name from the discovered queue name.

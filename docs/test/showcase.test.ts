@@ -124,8 +124,8 @@ describe("showcase examples", () => {
       "vite.config.ts",
       "src/welcome-email.queue.ts",
       "src/main.ts",
+      "src/server.ts",
       "index.html",
-      "package.json",
     ]);
 
     expect(getShowcaseFiles(queue!, "nitro", "build").slice(0, 4).map(file => file.path)).toEqual([

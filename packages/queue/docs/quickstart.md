@@ -18,35 +18,87 @@ pnpm add @vitehub/queue
 ### Register Queue
 
 ::fw{id="vite:dev vite:build"}
-Register the Vite plugin and pick a provider explicitly:
+Register the Vite plugin and choose the provider you deploy to:
 
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { hubQueue } from '@vitehub/queue/vite'
+::tabs{sync="provider"}
+  :::tabs-item{label="Vercel" icon="i-simple-icons-vercel" class="p-4"}
+    ```ts [vite.config.ts]
+    import { defineConfig } from 'vite'
+    import { hubQueue } from '@vitehub/queue/vite'
 
-export default defineConfig({
-  plugins: [hubQueue()],
-  queue: {
-    provider: 'vercel',
-    region: 'fra1',
-  },
-})
-```
+    export default defineConfig({
+      plugins: [hubQueue()],
+      queue: {
+        provider: 'vercel',
+        region: 'fra1',
+      },
+    })
+    ```
+
+    ::callout{to="https://vercel.com/docs/queues"}
+    Vercel Queue stays backed by Vercel's hosted queue service. Queue does not create a local in-memory queue for this provider.
+    ::
+  :::
+
+  :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
+    ```ts [vite.config.ts]
+    import { defineConfig } from 'vite'
+    import { hubQueue } from '@vitehub/queue/vite'
+
+    export default defineConfig({
+      plugins: [hubQueue()],
+      queue: {
+        provider: 'cloudflare',
+      },
+    })
+    ```
+
+    ::callout{to="https://developers.cloudflare.com/queues/configuration/local-development/"}
+    Cloudflare queue development runs locally through Wrangler and Miniflare, which simulate your Worker and queue bindings.
+    ::
+  :::
+::
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Register the Nitro module and pick a provider explicitly:
+Register the Nitro module and choose the provider you deploy to:
 
-```ts [nitro.config.ts]
-import { defineNitroConfig } from 'nitro/config'
+::tabs{sync="provider"}
+  :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
+    ```ts [nitro.config.ts]
+    import { defineNitroConfig } from 'nitro/config'
 
-export default defineNitroConfig({
-  modules: ['@vitehub/queue/nitro'],
-  queue: {
-    provider: 'cloudflare',
-  },
-})
-```
+    export default defineNitroConfig({
+      modules: ['@vitehub/queue/nitro'],
+      queue: {
+        provider: 'cloudflare',
+      },
+    })
+    ```
+
+    ::callout{to="https://developers.cloudflare.com/queues/configuration/local-development/"}
+    Cloudflare queue development runs locally through Wrangler and Miniflare, which simulate your Worker and queue bindings.
+    ::
+  :::
+
+  :::tabs-item{label="Vercel" icon="i-simple-icons-vercel" class="p-4"}
+    ```ts [nitro.config.ts]
+    import { defineNitroConfig } from 'nitro/config'
+
+    export default defineNitroConfig({
+      modules: ['@vitehub/queue/nitro'],
+      queue: {
+        provider: 'vercel',
+        region: 'fra1',
+      },
+    })
+    ```
+
+    ::callout{to="https://vercel.com/docs/queues"}
+    Vercel Queue stays backed by Vercel's hosted queue service. Queue does not create a local in-memory queue for this provider.
+    ::
+  :::
+::
 ::
 
 ### Define a queue
@@ -57,8 +109,13 @@ Create a discovered queue file in `src/**/*.queue.ts`:
 ```ts [src/welcome-email.queue.ts]
 import { defineQueue } from '@vitehub/queue'
 
-export default defineQueue<{ email: string }>(async (job) => {
-  console.log(`Processing welcome email for ${job.payload.email}`)
+type WelcomeEmailPayload = {
+  email: string
+  template: 'default' | 'vip'
+}
+
+export default defineQueue<WelcomeEmailPayload>(async (job) => {
+  console.log(`Processing ${job.payload.template} welcome email for ${job.payload.email}`)
 })
 ```
 ::
@@ -69,8 +126,13 @@ Create a discovered queue file in `server/queues/**`:
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from '@vitehub/queue'
 
-export default defineQueue<{ email: string }>(async (job) => {
-  console.log(`Processing welcome email for ${job.payload.email}`)
+type WelcomeEmailPayload = {
+  email: string
+  template: 'default' | 'vip'
+}
+
+export default defineQueue<WelcomeEmailPayload>(async (job) => {
+  console.log(`Processing ${job.payload.template} welcome email for ${job.payload.email}`)
 })
 ```
 ::
@@ -78,10 +140,43 @@ export default defineQueue<{ email: string }>(async (job) => {
 ### Enqueue a job
 
 ::fw{id="vite:dev vite:build"}
-Vite provides discovery and build integration. Keep a normal app entry and build the project so Queue can emit provider-specific outputs:
+Add a small Vite server entry that calls Queue:
+
+```ts [src/server.ts]
+import { H3, readBody } from 'h3'
+
+import { runQueue } from '@vitehub/queue'
+
+type WelcomeEmailPayload = {
+  email: string
+  template: 'default' | 'vip'
+}
+
+const app = new H3()
+
+app.post('/api/welcome', async (event) => {
+  const payload = await readBody<WelcomeEmailPayload>(event)
+
+  // Use deferQueue('welcome-email', payload) when you do not need a promise.
+  return { ok: true, payload, result: await runQueue('welcome-email', payload) }
+})
+
+export default app
+```
+
+Then call that route from `src/main.ts`:
 
 ```ts [src/main.ts]
-console.log('Queue definitions are discovered during build.')
+const response = await fetch('/api/welcome', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    email: 'ava@example.com',
+    template: 'vip',
+  }),
+})
+
+console.log(await response.json())
 ```
 
 Then run:
@@ -90,14 +185,14 @@ Then run:
 pnpm vite build
 ```
 
-Use the provider pages when you need the deployed runtime wiring for Cloudflare or Vercel.
+Queue discovers `src/**/*.queue.ts`, bundles the server entry, and emits provider-specific outputs.
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Add a small route that enqueues the discovered queue and optionally defers dispatch when the request body includes `defer: true`:
+Add one route that enqueues the discovered queue:
 
 ```ts [server/api/welcome.post.ts]
-import { deferQueue, runQueue } from '@vitehub/queue'
+import { runQueue } from '@vitehub/queue'
 
 type WelcomeEmailPayload = {
   email: string
@@ -105,27 +200,10 @@ type WelcomeEmailPayload = {
 }
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<Partial<WelcomeEmailPayload> & { defer?: boolean }>(event)
-  const payload: WelcomeEmailPayload = {
-    email: body?.email || 'ava@example.com',
-    template: body?.template || 'default',
-  }
+  const payload = await readBody<WelcomeEmailPayload>(event)
 
-  if (body?.defer) {
-    deferQueue('welcome-email', payload)
-
-    return {
-      deferred: true,
-      ok: true,
-      payload,
-    }
-  }
-
-  return {
-    ok: true,
-    payload,
-    result: await runQueue('welcome-email', payload),
-  }
+  // Use deferQueue('welcome-email', payload) when you do not need a promise.
+  return { ok: true, payload, result: await runQueue('welcome-email', payload) }
 })
 ```
 

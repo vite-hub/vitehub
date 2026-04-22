@@ -30,6 +30,7 @@
             "run": "src/main.ts"
           },
           "supplementalFiles": [
+            "src/server.ts",
             "index.html",
             "package.json"
           ]
@@ -41,6 +42,7 @@
             "run": "src/main.ts"
           },
           "supplementalFiles": [
+            "src/server.ts",
             "index.html",
             "package.json"
           ]
