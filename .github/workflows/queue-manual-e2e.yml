@@ -1,91 +1,191 @@
-name: queue manual e2e
+name: manual live e2e
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: queue-manual-e2e-${{ github.ref }}
+  group: manual-live-e2e-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy-and-test:
-    name: deploy-and-test (${{ matrix.framework }}, ${{ matrix.provider }})
+  setup-cloudflare:
+    name: setup
     runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - name: Ensure Cloudflare Queues
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          API_BASE="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
+          AUTH_HEADER="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+          QUEUES="queue--77656c636f6d65 queue--77656c636f6d652d656d61696c"
+          export QUEUES
+
+          for queue in $QUEUES; do
+            if ! npx wrangler queues list | grep -q "$queue"; then
+              npx wrangler queues create "$queue"
+            fi
+          done
+
+  live-e2e:
+    name: live e2e
+    needs: setup-cloudflare
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         framework: [vite, nitro]
         provider: [cloudflare, vercel]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
       - run: pnpm --filter @vitehub/queue build
+      - run: pnpm --filter @vitehub/kv build
 
-      - name: Ensure Nitro Cloudflare Queue
-        if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
+      - name: Prepare Vercel project
+        id: prepare_vercel
+        if: matrix.provider == 'vercel'
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          if ! npx wrangler queues list | grep -q 'queue--77656c636f6d65'; then
-            npx wrangler queues create queue--77656c636f6d65
+          APP_DIR="playground/${{ matrix.framework }}"
+          PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
+
+          get_pulled_env_value() {
+            node -e '
+              const fs = require("node:fs")
+              const file = process.argv[1]
+              const key = process.argv[2]
+              const lines = fs.readFileSync(file, "utf8").split(/\r?\n/)
+
+              for (const line of lines) {
+                if (!line.startsWith(`${key}=`)) continue
+                let value = line.slice(key.length + 1)
+                if (value.length >= 2) {
+                  const first = value[0]
+                  const last = value[value.length - 1]
+                  if ((first === "\"" && last === "\"") || (first === "\x27" && last === "\x27")) {
+                    if (first === "\"") {
+                      try {
+                        value = JSON.parse(value)
+                      }
+                      catch {
+                        value = value.slice(1, -1)
+                      }
+                    }
+                    else {
+                      value = value.slice(1, -1)
+                    }
+                  }
+                }
+                process.stdout.write(value)
+                process.exit(0)
+              }
+            ' "$1" "$2"
+          }
+
+          npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
+
+          readarray -t VERCEL_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$APP_DIR")
+          VERCEL_ORG_ID="${VERCEL_CONFIG[0]}"
+          VERCEL_PROJECT_ID="${VERCEL_CONFIG[1]}"
+
+          if [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "Failed to read linked Vercel project metadata." >&2
+            exit 1
           fi
 
-      - name: Deploy
-        id: deploy
+          PULLED_ENV_FILE="$(mktemp)"
+          trap 'rm -f "$PULLED_ENV_FILE"' EXIT
+          VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+            npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+
+          KV_URL="$(get_pulled_env_value "$PULLED_ENV_FILE" KV_REST_API_URL)"
+          KV_TOKEN="$(get_pulled_env_value "$PULLED_ENV_FILE" KV_REST_API_TOKEN)"
+
+          if [ -z "$KV_URL" ] || [ -z "$KV_TOKEN" ]; then
+            echo "Vercel production env verification failed: KV_REST_API_URL and KV_REST_API_TOKEN must both be set on the linked project." >&2
+            exit 1
+          fi
+
+          case "$KV_URL" in
+            https://*) ;;
+            *)
+              echo "Vercel production env verification failed: KV_REST_API_URL must start with https://." >&2
+              exit 1
+              ;;
+          esac
+
+          echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
+          echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
+          echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Build (cloudflare × ${{ matrix.framework }})
+        if: matrix.provider == 'cloudflare'
+        env:
+          KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+        run: pnpm --dir playground/${{ matrix.framework }} exec nitro build --preset cloudflare-module
+
+      - name: Build (vercel × ${{ matrix.framework }})
+        if: matrix.provider == 'vercel'
+        env:
+          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
+          npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm exec nitro build --preset vercel
+
+      - name: Deploy Cloudflare
+        id: deploy_cloudflare
+        if: matrix.provider == 'cloudflare'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        run: |
+          WORKER_NAME="vitehub-playground-${{ matrix.framework }}"
+          npx wrangler --cwd "playground/${{ matrix.framework }}/.output/server" deploy --config wrangler.json --name "$WORKER_NAME"
+          echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
+          echo "worker=$WORKER_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Vercel
+        id: deploy_vercel
+        if: matrix.provider == 'vercel'
+        env:
+          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          if [ "${{ matrix.framework }}" = "vite" ]; then
-            pnpm playground:vite:build
-
-            if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-              WORKER_NAME="vitehub-queue-playground-vite"
-              npx wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --name "$WORKER_NAME"
-              echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
-              echo "worker=$WORKER_NAME" >> "$GITHUB_OUTPUT"
-            else
-              npx vercel link --yes --cwd playground/vite --project vitehub-queue-playground-vite --token "$VERCEL_TOKEN"
-              DEPLOYMENT_URL=$(npx vercel deploy --cwd playground/vite --prebuilt --prod --yes --token "$VERCEL_TOKEN" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
-              if [ -z "$DEPLOYMENT_URL" ]; then
-                echo "Failed to capture Vercel deployment URL." >&2
-                exit 1
-              fi
-              echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-              pnpm --dir playground/nitro exec nitro build --preset cloudflare_module
-              WORKER_NAME="vitehub-queue-playground-nitro"
-              CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID}" npx wrangler --cwd playground/nitro/.output/server deploy --config wrangler.json --name "$WORKER_NAME"
-              echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
-              echo "worker=$WORKER_NAME" >> "$GITHUB_OUTPUT"
-            else
-              pnpm --dir playground/nitro exec nitro build --preset vercel
-              npx vercel link --yes --cwd playground/nitro --project vitehub-queue-playground-nitro --token "$VERCEL_TOKEN"
-              DEPLOYMENT_URL=$(npx vercel deploy --cwd playground/nitro --prebuilt --prod --yes --token "$VERCEL_TOKEN" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
-              if [ -z "$DEPLOYMENT_URL" ]; then
-                echo "Failed to capture Vercel deployment URL." >&2
-                exit 1
-              fi
-              echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-            fi
+          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
+          DEPLOYMENT_URL=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            echo "Failed to capture Vercel deployment URL." >&2
+            exit 1
           fi
 
-      - name: E2E
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve deployment URL
+        id: url
         run: |
           if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            node packages/queue/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider cloudflare --url "${{ steps.deploy.outputs.url }}" --worker "${{ steps.deploy.outputs.worker }}"
+            echo "url=${{ steps.deploy_cloudflare.outputs.url }}" >> "$GITHUB_OUTPUT"
           else
-            node packages/queue/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider vercel --url "${{ steps.deploy.outputs.url }}"
+            echo "url=${{ steps.deploy_vercel.outputs.url }}" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: KV Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
+        run: pnpm --dir packages/kv test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "${{ steps.url.outputs.url }}"
+
+      - name: Queue Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
+        timeout-minutes: 5
+        run: node packages/queue/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"

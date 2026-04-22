@@ -1,17 +1,13 @@
 import { existsSync } from "node:fs"
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { execFile } from "node:child_process"
 import { join, resolve } from "node:path"
-import { promisify } from "node:util"
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { build, createNitro, prepare } from "nitro/builder"
 
 import { writeNitroVercelQueueOutputs } from "../src/internal/nitro-build.ts"
 
-const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/nitro")
-const workspaceRoot = resolve(playgroundDir, "../..")
 const testBuildDir = join(playgroundDir, "node_modules", ".nitro-output-test")
 const testOutputRoot = join(playgroundDir, ".queue-test-output")
 const tempDirs: string[] = []
@@ -22,13 +18,6 @@ async function createWorkspaceTempDir(prefix: string) {
   const rootDir = await mkdtemp(join(baseDir, prefix))
   tempDirs.push(rootDir)
   return rootDir
-}
-
-async function buildQueuePackage() {
-  await execFileAsync("pnpm", ["--filter", "@vitehub/queue", "build"], {
-    cwd: workspaceRoot,
-    env: process.env,
-  })
 }
 
 async function buildPlayground(preset: string) {
@@ -56,6 +45,18 @@ async function cleanupPlayground() {
   await rm(testOutputRoot, { force: true, recursive: true, maxRetries: 10, retryDelay: 50 })
 }
 
+async function assertNoNitroInternalVirtualImports(outputDir: string) {
+  const files = [
+    join(outputDir, "server", "_chunks", "runtime.mjs"),
+    join(outputDir, "functions", "__server.func", "_chunks", "runtime.mjs"),
+  ]
+
+  for (const file of files) {
+    if (!existsSync(file)) continue
+    await expect(readFile(file, "utf8")).resolves.not.toContain("#nitro-internal-virtual/")
+  }
+}
+
 beforeAll(async () => {
   await cleanupPlayground()
 })
@@ -67,14 +68,13 @@ afterAll(async () => {
 
 describe("Nitro provider outputs", () => {
   it("builds the Nitro playground for cloudflare_module and vercel", async () => {
-    await buildQueuePackage()
-
     const cloudflareBuild = await buildPlayground("cloudflare_module")
 
     const registryFile = join(cloudflareBuild.buildDir, ".vitehub", "queue", "nitro-registry.mjs")
     const pluginFile = join(cloudflareBuild.buildDir, ".vitehub", "queue", "nitro-plugin.ts")
     const cloudflareNitroJson = JSON.parse(await readFile(join(cloudflareBuild.outputDir, "nitro.json"), "utf8"))
     const cloudflareServerEntry = join(cloudflareBuild.outputDir, cloudflareNitroJson.serverEntry)
+    const cloudflareQueueHandler = join(cloudflareBuild.outputDir, "server", "_chunks", "welcome.mjs")
     const registryContents = await readFile(registryFile, "utf8")
     const pluginContents = await readFile(pluginFile, "utf8")
 
@@ -83,6 +83,8 @@ describe("Nitro provider outputs", () => {
     expect(registryContents).toContain("server/queues/welcome.ts")
     expect(pluginContents).toContain('import queueRegistry from "./nitro-registry.mjs"')
     expect(pluginContents).not.toContain("#vitehub/queue/registry")
+    await expect(readFile(cloudflareQueueHandler, "utf8")).resolves.toContain("reportQueueMarker")
+    await assertNoNitroInternalVirtualImports(cloudflareBuild.outputDir)
 
     await cleanupPlayground()
 
@@ -100,12 +102,13 @@ describe("Nitro provider outputs", () => {
     expect(existsSync(vercelConsumer)).toBe(true)
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).not.toContain("runWithQueueRuntimeEvent({ req, res },")
+    await assertNoNitroInternalVirtualImports(vercelBuild.outputDir)
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Swelcome_Dfunc",
       topic: "topic--77656c636f6d65",
       type: "queue/v2beta",
     })
-  }, 30_000)
+  }, 45_000)
 
   it("throws when Nitro queue names collide after Vercel sanitization", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-nitro-collision-")

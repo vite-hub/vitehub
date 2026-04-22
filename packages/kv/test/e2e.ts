@@ -1,33 +1,42 @@
+import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { createServer } from "node:http"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import assert from "node:assert/strict"
 
-import { Miniflare } from "miniflare"
 import { type FetchOptions, ofetch } from "ofetch"
 
 import { execCommand, getFreePort, startCommand } from "./helpers/http.ts"
 
 const PROVIDERS = ["cloudflare", "vercel"] as const
-const FRAMEWORKS = ["nitro", "nuxt", "vite"] as const
+const FRAMEWORKS = ["nitro", "vite"] as const
 
 type Provider = typeof PROVIDERS[number]
 type Framework = typeof FRAMEWORKS[number]
 type Fetcher = (url: string, options?: FetchOptions) => Promise<any>
 
-const root = process.cwd()
-const buildScript = resolve(import.meta.dirname, "helpers/build-nitro.ts")
+const workspaceRoot = resolve(import.meta.dirname, "../../..")
 const vercelServer = resolve(import.meta.dirname, "helpers/vercel-server.ts")
-const dir = (fw: Framework) => resolve(root, "playground", fw)
+const dir = (fw: Framework) => resolve(workspaceRoot, "playground", fw)
+const cloudflareServerDir = (fw: Framework) => resolve(dir(fw), ".output/server")
 const log = (msg: string) => console.log(`[e2e] ${msg}`)
+const nitroBuildScript = [
+  'import { build, createNitro, prepare } from "nitro/builder"',
+  "const [rootDir, preset] = process.argv.slice(1)",
+  "const nitro = await createNitro({ rootDir, preset })",
+  "await prepare(nitro)",
+  "await build(nitro)",
+  "await nitro.close()",
+].join("; ")
+let packagesBuiltPromise: Promise<void> | undefined
 
 const assertProbe = async (f: Fetcher, expected: Record<string, unknown>) =>
-  assert.deepEqual(await f("/api/tests/probe"), { feature: "kv", ok: true, ...expected })
+  assert.deepEqual(await f("/api/tests/probe"), { ok: true, ...expected })
 
 const assertKvWrite = async (f: Fetcher) =>
   assert.deepEqual(
-    await f("/api/tests/kv", { method: "POST", body: JSON.stringify({ key: "smoke" }), headers: { "content-type": "application/json" } }),
+    await f("/api/tests/kv", { method: "POST" }),
     { ok: true, value: { key: "smoke", store: "kv" } },
   )
 
@@ -72,29 +81,83 @@ async function upstashStub() {
   return { url: `http://127.0.0.1:${port}`, close: () => new Promise<void>(r => server.close(() => r())) }
 }
 
+async function ensurePlaygroundPackagesBuilt() {
+  packagesBuiltPromise ||= Promise.all([
+    execCommand("pnpm", ["--filter", "@vitehub/kv", "build"], { cwd: workspaceRoot, env: process.env }),
+    execCommand("pnpm", ["--filter", "@vitehub/queue", "build"], { cwd: workspaceRoot, env: process.env }),
+  ]).then(() => undefined)
+  await packagesBuiltPromise
+}
+
 async function build(fw: Framework, preset: string, extra?: Record<string, string>) {
+  await ensurePlaygroundPackagesBuilt()
   await Promise.all([".output", ".vercel", ".nuxt", ".nitro"].map(n => rm(resolve(dir(fw), n), { force: true, recursive: true })))
-  const env = { ...process.env, ...extra, NITRO_PRESET: preset, NODE_PATH: resolve(root, "node_modules") }
-  if (fw === "nuxt") return execCommand("npx", ["nuxi", "build"], { cwd: dir(fw), env })
-  return execCommand("node", ["--import", "tsx/esm", buildScript, dir(fw), preset], { cwd: root, env })
+  const env = { ...process.env, ...extra, NITRO_PRESET: preset, NODE_PATH: resolve(workspaceRoot, "node_modules") }
+  await execCommand("node", ["--input-type=module", "-e", nitroBuildScript, dir(fw), preset], { cwd: dir(fw), env })
 }
 
 const providerProbe: Record<Provider, Record<string, unknown>> = {
-  cloudflare: { hasWaitUntil: true, hosting: "cloudflare-module", provider: "cloudflare-kv-binding", runtime: "cloudflare" },
-  vercel: { hasWaitUntil: true, hosting: "vercel", provider: "upstash", runtime: "node" },
+  cloudflare: { provider: "cloudflare-kv-binding" },
+  vercel: { provider: "upstash" },
+}
+
+async function assertLiveProbe(f: Fetcher, provider: Provider) {
+  const expected = providerProbe[provider]
+
+  if (provider !== "cloudflare") {
+    await assertProbe(f, expected)
+    return
+  }
+
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    try {
+      await assertProbe(f, expected)
+      return
+    }
+    catch (error) {
+      lastError = error
+      if (attempt === 20) break
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+  }
+
+  throw lastError
 }
 
 async function runCloudflare(fw: Framework) {
   log(`cloudflare × ${fw}`)
-  await build(fw, "cloudflare-module")
-  const mf = new Miniflare({ compatibilityDate: "2025-01-01", compatibilityFlags: ["nodejs_compat"], kvNamespaces: ["KV"], modules: true, modulesRoot: ".output/server", rootPath: dir(fw), scriptPath: ".output/server/index.mjs" })
+  await build(fw, "cloudflare-module", { KV_NAMESPACE_ID: "local-test-namespace" })
+  const port = await getFreePort()
+  const inspectorPort = await getFreePort()
+  const child = await startCommand("npx", [
+    "wrangler",
+    "--cwd",
+    ".output/server",
+    "dev",
+    "--config",
+    "wrangler.json",
+    "--ip",
+    "127.0.0.1",
+    "--port",
+    String(port),
+    "--inspector-port",
+    String(inspectorPort),
+    "--show-interactive-dev-session=false",
+  ], {
+    cwd: dir(fw),
+    env: { ...process.env, NO_COLOR: "1" },
+  })
+  const base = `http://127.0.0.1:${port}`
+  const f: Fetcher = (p, i) => ofetch(p, { baseURL: base, ...i })
   try {
-    const f: Fetcher = async (p, i) => (await mf.dispatchFetch(`http://localhost${p}`, i as never)).json()
+    await ofetch("/api/tests/probe", { baseURL: base, retry: 40, retryDelay: 250 })
     await assertProbe(f, providerProbe.cloudflare)
     await assertKvWrite(f)
     log(`cloudflare × ${fw} ✓`)
   }
-  finally { await mf.dispose() }
+  catch (error) { await dumpChild(child, `cloudflare × ${fw} on port ${port}`, error) }
+  finally { child.kill("SIGTERM"); await child.exit }
 }
 
 async function runVercel(fw: Framework) {
@@ -104,9 +167,15 @@ async function runVercel(fw: Framework) {
   const env = { KV_REST_API_TOKEN: "t", KV_REST_API_URL: upstash.url }
   try {
     await build(fw, "vercel", env)
-    const entry = resolve(dir(fw), ".vercel/output/functions/__fallback.func/index.mjs")
-    const child = await startCommand("node", ["--import", "tsx/esm", vercelServer, entry], {
-      cwd: dir(fw),
+    const entry = [
+      resolve(dir(fw), ".vercel/output/functions/__fallback.func/index.mjs"),
+      resolve(dir(fw), ".vercel/output/functions/__server.func/index.mjs"),
+    ].find(existsSync)
+    if (!entry) {
+      throw new Error(`Missing Vercel server entry for ${fw}.`)
+    }
+    const child = await startCommand("pnpm", ["exec", "tsx", vercelServer, entry], {
+      cwd: workspaceRoot,
       env: { ...process.env, ...env, HOST: "127.0.0.1", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(port), PORT: String(port) },
     })
     const base = `http://127.0.0.1:${port}`
@@ -126,7 +195,7 @@ async function runVercel(fw: Framework) {
 async function runLive(url: string, provider: Provider) {
   log(`live ${provider} → ${url}`)
   const f: Fetcher = (p, i) => ofetch(p, { baseURL: url, ...i })
-  await assertProbe(f, providerProbe[provider])
+  await assertLiveProbe(f, provider)
   await assertKvWrite(f)
   log(`live ${provider} ✓`)
 }

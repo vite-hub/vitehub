@@ -199,6 +199,7 @@ const queueNitroModule: NitroModule = {
     nitro.options.alias["@vitehub/queue/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/queue/runtime/state")
 
     let runtimeFiles = await writeNitroQueueRuntimeFiles(nitro)
+    nitro.options.alias["#vitehub/queue/registry"] = runtimeFiles.registryFile
     const { definitions } = runtimeFiles
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false

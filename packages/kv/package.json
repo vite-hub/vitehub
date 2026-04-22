@@ -68,7 +68,7 @@
   "devDependencies": {
     "@nuxt/schema": "catalog:",
     "get-port-please": "catalog:",
-    "miniflare": "catalog:",
+    "nitro": "catalog:",
     "ofetch": "catalog:",
     "publint": "^0.3.15",
     "tinyexec": "catalog:",

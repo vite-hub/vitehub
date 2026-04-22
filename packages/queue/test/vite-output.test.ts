@@ -5,11 +5,14 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { build, createNitro, prepare } from "nitro/builder"
 
 import { generateProviderOutputs } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
+const nitroBuildDir = join(playgroundDir, "node_modules", ".nitro-output-test")
+const nitroOutputRoot = join(playgroundDir, ".queue-test-output")
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -24,22 +27,77 @@ beforeAll(async () => {
   await rm(join(playgroundDir, "dist"), { force: true, recursive: true })
   await rm(join(playgroundDir, ".vercel"), { force: true, recursive: true })
   await rm(join(playgroundDir, ".vitehub"), { force: true, recursive: true })
+  await rm(nitroBuildDir, { force: true, recursive: true })
+  await rm(nitroOutputRoot, { force: true, recursive: true })
 })
 
 afterAll(async () => {
   await rm(join(playgroundDir, "dist"), { force: true, recursive: true })
   await rm(join(playgroundDir, ".vercel"), { force: true, recursive: true })
   await rm(join(playgroundDir, ".vitehub"), { force: true, recursive: true })
+  await rm(nitroBuildDir, { force: true, recursive: true })
+  await rm(nitroOutputRoot, { force: true, recursive: true })
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
+async function buildNitroPlayground(preset: string) {
+  const outputDir = join(nitroOutputRoot, preset)
+  const previousEnv = {
+    KV_REST_API_TOKEN: process.env.KV_REST_API_TOKEN,
+    KV_REST_API_URL: process.env.KV_REST_API_URL,
+  }
+
+  if (preset === "vercel") {
+    process.env.KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN ?? "test-token"
+    process.env.KV_REST_API_URL = process.env.KV_REST_API_URL ?? "https://example.com"
+  }
+
+  const nitro = await createNitro({
+    buildDir: nitroBuildDir,
+    output: {
+      dir: outputDir,
+    },
+    preset,
+    rootDir: playgroundDir,
+  })
+
+  try {
+    await prepare(nitro)
+    await build(nitro)
+  }
+  finally {
+    await nitro.close()
+    if (previousEnv.KV_REST_API_TOKEN === undefined) {
+      delete process.env.KV_REST_API_TOKEN
+    }
+    else {
+      process.env.KV_REST_API_TOKEN = previousEnv.KV_REST_API_TOKEN
+    }
+    if (previousEnv.KV_REST_API_URL === undefined) {
+      delete process.env.KV_REST_API_URL
+    }
+    else {
+      process.env.KV_REST_API_URL = previousEnv.KV_REST_API_URL
+    }
+  }
+
+  return outputDir
+}
+
+async function assertNoNitroInternalVirtualImports(outputDir: string) {
+  const files = [
+    join(outputDir, "server", "_chunks", "runtime.mjs"),
+    join(outputDir, "functions", "__server.func", "_chunks", "runtime.mjs"),
+  ]
+
+  for (const file of files) {
+    if (!existsSync(file)) continue
+    await expect(readFile(file, "utf8")).resolves.not.toContain("#nitro-internal-virtual/")
+  }
+}
+
 describe("Vite provider outputs", () => {
   it("builds the playground and emits cloudflare and vercel outputs", async () => {
-    await execFileAsync("pnpm", ["--filter", "@vitehub/queue", "build"], {
-      cwd: resolve(playgroundDir, "../.."),
-      env: process.env,
-    })
-
     await execFileAsync("pnpm", ["exec", "vite", "build"], {
       cwd: playgroundDir,
       env: process.env,
@@ -54,6 +112,7 @@ describe("Vite provider outputs", () => {
     const vercelConsumerSource = join(playgroundDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", "index.source.mjs")
     const vercelStatic = join(playgroundDir, ".vercel", "output", "static")
     const vercelConsumerContents = await readFile(vercelConsumer, "utf8")
+    const vercelServerContents = await readFile(vercelServer, "utf8")
     const vercelConsumerTrigger = JSON.parse(await readFile(vercelConsumerConfig, "utf8")).experimentalTriggers?.[0]
 
     expect(existsSync(cloudflareWorker)).toBe(true)
@@ -65,6 +124,8 @@ describe("Vite provider outputs", () => {
     expect(existsSync(vercelConsumerSource)).toBe(false)
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).not.toContain("runWithQueueRuntimeEvent({ req, res },")
+    expect(vercelConsumerContents).toContain("reportQueueMarker")
+    expect(vercelServerContents).toContain("/api/tests/queue")
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome-email_Swelcome-email_Dfunc",
       topic: "topic--77656c636f6d652d656d61696c",
@@ -72,6 +133,16 @@ describe("Vite provider outputs", () => {
     })
     expect(existsSync(vercelStatic)).toBe(false)
   }, 15_000)
+
+  it("builds Nitro provider output for the Vite playground without unresolved Nitro internals", async () => {
+    const cloudflareOutput = await buildNitroPlayground("cloudflare_module")
+    await assertNoNitroInternalVirtualImports(cloudflareOutput)
+
+    await rm(nitroBuildDir, { force: true, recursive: true })
+
+    const vercelOutput = await buildNitroPlayground("vercel")
+    await assertNoNitroInternalVirtualImports(vercelOutput)
+  }, 45_000)
 
   it("skips Vercel queue functions when queue support is disabled", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-disabled-")

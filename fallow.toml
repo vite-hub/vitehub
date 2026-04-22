@@ -3,8 +3,6 @@ dynamicallyLoaded = [
   "docs/app/assets/main.css",
   "packages/kv/examples/**/nitro.config.ts",
   "packages/kv/examples/**/server/**",
-  "packages/kv/playground/**/nitro.config.ts",
-  "packages/kv/playground/**/server/**",
   "packages/kv/test/helpers/*.ts",
   "packages/kv/test/**/*.test-d.ts",
   "packages/queue/test/e2e-live.mjs",
@@ -14,6 +12,8 @@ dynamicallyLoaded = [
   "packages/queue/examples/**/src/**/*.queue.ts",
   "playground/nitro/nitro.config.ts",
   "playground/nitro/server/**",
+  "playground/vite/nitro.config.ts",
+  "playground/vite/server/**",
   "playground/vite/src/server.ts",
   "playground/vite/src/**/*.queue.ts",
 ]

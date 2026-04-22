@@ -2,6 +2,7 @@ import { defineEventHandler, getRequestURL, readValidatedBody } from "h3"
 import * as v from "valibot"
 import { resolveTrustedMarkerCallbackUrl } from "../../../../_shared/queue-test"
 
+const queueName = "welcome-email"
 const queueBody = v.optional(v.object({
   callbackUrl: v.optional(v.string()),
   email: v.optional(v.string()),
@@ -15,7 +16,7 @@ export default defineEventHandler(async (event) => {
 
   return {
     ok: true,
-    result: await runQueue("welcome", {
+    result: await runQueue(queueName, {
       email: body?.email || "ava@example.com",
       callbackUrl,
       marker,

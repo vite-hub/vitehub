@@ -61,6 +61,7 @@ export function normalizeKVOptions(
 
   if (explicit?.driver) return { store: resolveExplicitStore(explicit, env) }
   if (hasUpstashEnv(env)) return { store: resolveUpstashStore() }
+  if (hosting.includes("vercel")) return { store: resolveUpstashStore() }
   if (hosting.includes("cloudflare")) return { store: resolveCloudflareStore({}, env) }
   return { store: resolveFsLiteStore() }
 }

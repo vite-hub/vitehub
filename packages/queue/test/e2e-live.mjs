@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process"
 import process from "node:process"
 import { setTimeout as sleep } from "node:timers/promises"
 
@@ -76,113 +75,8 @@ async function requestJson(url, init) {
   return body
 }
 
-function createQueueBody(marker) {
-  return JSON.stringify({ email: "ava@example.com", marker })
-}
-
-function startCloudflareLogStream(workerName) {
-  return spawn("npx", ["wrangler", "tail", workerName, "--format", "json", "--search", "vitehub-queue-e2e"], {
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  })
-}
-
-async function waitForCloudflareMarkers(workerName, markers, timeoutMs) {
-  const logProcess = startCloudflareLogStream(workerName)
-  let output = ""
-  const capture = (chunk) => {
-    output += chunk.toString()
-  }
-
-  logProcess.stdout.on("data", capture)
-  logProcess.stderr.on("data", capture)
-
-  try {
-    const startedAt = Date.now()
-    while (Date.now() - startedAt < timeoutMs) {
-      if (markers.every(marker => output.includes(marker))) {
-        return output
-      }
-
-      if (logProcess.exitCode !== null) {
-        break
-      }
-
-      await sleep(1_000)
-    }
-  } finally {
-    if (logProcess.exitCode === null) {
-      logProcess.kill("SIGTERM")
-    }
-  }
-
-  throw new Error(`Timed out waiting for markers ${markers.join(", ")}.\n\nCaptured logs:\n${output}`)
-}
-
-async function waitForVercelMarkers(url, markers, timeoutMs) {
-  const token = process.env.VERCEL_TOKEN
-  if (!token) {
-    throw new TypeError("Missing VERCEL_TOKEN.")
-  }
-
-  const deploymentHost = new URL(url).host
-  const deploymentLookupUrl = new URL(`https://api.vercel.com/v13/deployments/${encodeURIComponent(deploymentHost)}`)
-  if (typeof process.env.VERCEL_ORG_ID === "string" && process.env.VERCEL_ORG_ID.length > 0) {
-    deploymentLookupUrl.searchParams.set("teamId", process.env.VERCEL_ORG_ID)
-  }
-
-  const deploymentResponse = await fetch(deploymentLookupUrl, {
-    headers: {
-      authorization: `Bearer ${token}`,
-    },
-  })
-
-  if (!deploymentResponse.ok) {
-    throw new Error(`Failed to resolve Vercel deployment: ${deploymentResponse.status} ${await deploymentResponse.text()}`)
-  }
-
-  const deployment = await deploymentResponse.json()
-  const runtimeLogsUrl = new URL(`https://api.vercel.com/v1/projects/${deployment.projectId}/deployments/${deployment.id}/runtime-logs`)
-  if (typeof process.env.VERCEL_ORG_ID === "string" && process.env.VERCEL_ORG_ID.length > 0) {
-    runtimeLogsUrl.searchParams.set("teamId", process.env.VERCEL_ORG_ID)
-  }
-
-  const timeoutSignal = AbortSignal.timeout(timeoutMs)
-  const runtimeLogsResponse = await fetch(runtimeLogsUrl, {
-    headers: {
-      authorization: `Bearer ${token}`,
-    },
-    signal: timeoutSignal,
-  })
-
-  if (!runtimeLogsResponse.ok || !runtimeLogsResponse.body) {
-    throw new Error(`Failed to stream Vercel runtime logs: ${runtimeLogsResponse.status} ${await runtimeLogsResponse.text()}`)
-  }
-
-  const reader = runtimeLogsResponse.body.getReader()
-  const decoder = new TextDecoder()
-  let output = ""
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) {
-        break
-      }
-
-      output += decoder.decode(value, { stream: true })
-      if (markers.every(marker => output.includes(marker))) {
-        return output
-      }
-    }
-  } catch (error) {
-    if (timeoutSignal.aborted) {
-      throw new Error(`Timed out waiting for markers ${markers.join(", ")}.\n\nCaptured logs:\n${output}`)
-    }
-    throw error
-  }
-
-  throw new Error(`Stream closed before markers ${markers.join(", ")} were observed.\n\nCaptured logs:\n${output}`)
+function createQueueBody(marker, callbackUrl) {
+  return JSON.stringify({ callbackUrl, email: "ava@example.com", marker })
 }
 
 function createRunConfig(args) {
@@ -199,7 +93,6 @@ function createRunConfig(args) {
     provider,
     timeoutMs,
     url,
-    worker: provider === "cloudflare" ? getRequiredArg(args, "worker") : undefined,
   }
 }
 
@@ -213,9 +106,9 @@ async function verifyApp(url) {
   }
 }
 
-async function triggerQueue(url, marker) {
+async function triggerQueue(url, marker, callbackUrl) {
   const directResponse = await requestJson(new URL("/api/queues/welcome", url), {
-    body: createQueueBody(marker),
+    body: createQueueBody(marker, callbackUrl),
     headers: {
       "content-type": "application/json",
     },
@@ -227,9 +120,9 @@ async function triggerQueue(url, marker) {
   }
 }
 
-async function triggerDeferredQueue(url, marker) {
+async function triggerDeferredQueue(url, marker, callbackUrl) {
   const deferResponse = await requestJson(new URL("/api/queues/welcome-defer", url), {
-    body: createQueueBody(marker),
+    body: createQueueBody(marker, callbackUrl),
     headers: {
       "content-type": "application/json",
     },
@@ -241,22 +134,51 @@ async function triggerDeferredQueue(url, marker) {
   }
 }
 
-async function waitForCompletion(run) {
-  const markers = [run.directMarker, run.deferMarker]
-  if (run.provider === "cloudflare") {
-    return await waitForCloudflareMarkers(run.worker, markers, run.timeoutMs)
+async function waitForMarker(url, marker, timeoutMs) {
+  const startedAt = Date.now()
+  let lastSeen = false
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const payload = await requestJson(new URL(`/api/tests/queue?marker=${encodeURIComponent(marker)}`, url))
+      if (payload?.ok && payload?.seen === true) {
+        return
+      }
+      lastSeen = payload?.seen === true
+    } catch {
+      lastSeen = false
+    }
+
+    await sleep(1_000)
   }
 
-  return await waitForVercelMarkers(run.url, markers, run.timeoutMs)
+  throw new Error(JSON.stringify({ marker, seen: lastSeen }))
+}
+
+async function waitForCompletion(run) {
+  const failures = []
+
+  for (const marker of [run.directMarker, run.deferMarker]) {
+    try {
+      await waitForMarker(run.url, marker, run.timeoutMs)
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`Queue markers were not observed: ${failures.join(", ")}`)
+  }
 }
 
 async function main() {
   const run = createRunConfig(parseArgs(process.argv.slice(2)))
-  const pendingCompletion = waitForCompletion(run)
+  const callbackUrl = new URL("/api/tests/queue", run.url).toString()
 
   await verifyApp(run.url)
-  await triggerQueue(run.url, run.directMarker)
-  await triggerDeferredQueue(run.url, run.deferMarker)
+  const pendingCompletion = waitForCompletion(run)
+  await triggerQueue(run.url, run.directMarker, callbackUrl)
+  await triggerDeferredQueue(run.url, run.deferMarker, callbackUrl)
   await pendingCompletion
 
   console.log(JSON.stringify({ ...run, ok: true }))
