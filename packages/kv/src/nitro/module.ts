@@ -1,4 +1,4 @@
-import { resolveModulePath } from "exsolve"
+import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { warnVercelKVFallback } from "../config.ts"
@@ -7,15 +7,7 @@ import { resolveKVViteConfig } from "../vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "../types.ts"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
-  const fromSource = resolveModulePath(srcRelative, {
-    from: import.meta.url,
-    extensions: [".ts", ".mts"],
-    try: true,
-  })
-  return fromSource ?? resolveModulePath(packageSubpath, {
-    from: import.meta.url,
-    extensions: [".js", ".mjs"],
-  })
+  return resolveEntry(srcRelative, packageSubpath, import.meta.url)
 }
 
 const kvNitroModule: NitroModule = {

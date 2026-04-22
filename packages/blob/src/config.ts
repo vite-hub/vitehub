@@ -1,6 +1,6 @@
 import { defu } from "defu"
 
-import { readEnv, trimmed } from "./internal/env.ts"
+import { readEnv, trimmed } from "@vitehub/internal/env"
 
 import type {
   BlobModuleOptions,

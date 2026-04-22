@@ -1,6 +1,6 @@
 import { createError, setHeader } from "h3"
 
-import { toArray } from "./internal/arrays.ts"
+import { toArray } from "@vitehub/internal/arrays"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobObject, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
 

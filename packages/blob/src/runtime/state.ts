@@ -1,16 +1,15 @@
+import { readEnv } from "@vitehub/internal/env"
+import { getActiveCloudflareBinding, getActiveCloudflareEnv, setActiveCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+
 import { normalizeBlobOptions } from "../config.ts"
-import { readEnv } from "../internal/env.ts"
 
 import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"
 
-let activeCloudflareEnv: Record<string, unknown> | undefined
 let runtimeConfig: false | ResolvedBlobModuleOptions | undefined
 let runtimeConfigPromise: Promise<false | ResolvedBlobModuleOptions> | undefined
 let runtimeStorage: BlobStorage | undefined
 
-export function getActiveCloudflareBinding<T>(name: string): T | undefined {
-  return activeCloudflareEnv?.[name] as T | undefined
-}
+export { getActiveCloudflareBinding, setActiveCloudflareEnv }
 
 export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModuleOptions> {
   if (typeof runtimeConfig !== "undefined") {
@@ -28,7 +27,7 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
     }
     catch {
       const env = typeof process !== "undefined" ? process.env : {}
-      const hosting = activeCloudflareEnv
+      const hosting = getActiveCloudflareEnv()
         ? "cloudflare"
         : readEnv(env, "VITEHUB_HOSTING", "NITRO_PRESET") || (readEnv(env, "BLOB_READ_WRITE_TOKEN") ? "vercel" : undefined)
       return normalizeBlobOptions(undefined, { env, hosting }) || false
@@ -40,10 +39,6 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
 
 export function getBlobRuntimeStorage(): BlobStorage | undefined {
   return runtimeStorage
-}
-
-export function setActiveCloudflareEnv(env: Record<string, unknown> | undefined): void {
-  activeCloudflareEnv = env
 }
 
 export function setBlobRuntimeConfig(config: false | ResolvedBlobModuleOptions | undefined): void {

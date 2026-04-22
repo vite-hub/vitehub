@@ -1,4 +1,4 @@
-import { readEnv } from "../internal/env.ts"
+import { readEnv } from "@vitehub/internal/env"
 
 import type {
   ResolvedKVModuleOptions,

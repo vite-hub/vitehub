@@ -1,0 +1,35 @@
+{
+  "name": "@vitehub/internal",
+  "version": "0.0.0",
+  "description": "Private shared internals for @vitehub/* packages. Not published.",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "license": "Apache-2.0",
+  "private": true,
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    "./env": "./src/env.ts",
+    "./arrays": "./src/arrays.ts",
+    "./hosting": "./src/hosting.ts",
+    "./nitro": "./src/nitro.ts",
+    "./runtime/app": "./src/runtime/app.ts",
+    "./runtime/cloudflare-env": "./src/runtime/cloudflare-env.ts",
+    "./build/paths": "./src/build/paths.ts",
+    "./build/esbuild": "./src/build/esbuild.ts",
+    "./build/client-output": "./src/build/client-output.ts",
+    "./build/vercel-config": "./src/build/vercel-config.ts",
+    "./build/user-entry": "./src/build/user-entry.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ./tsconfig.json"
+  },
+  "dependencies": {
+    "esbuild": "^0.27.7",
+    "exsolve": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

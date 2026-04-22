@@ -1,0 +1,41 @@
+export type CloudflareWorkerEnv = Record<string, unknown>
+
+export interface CloudflareWorkerExecutionContext {
+  waitUntil?: (promise: Promise<unknown>) => void
+}
+
+let activeEnv: CloudflareWorkerEnv | undefined
+
+export function setActiveCloudflareEnv(env: CloudflareWorkerEnv | undefined): void {
+  activeEnv = env
+  ;(globalThis as { __env__?: CloudflareWorkerEnv }).__env__ = env
+}
+
+export function getActiveCloudflareEnv(): CloudflareWorkerEnv | undefined {
+  return activeEnv ?? (globalThis as { __env__?: CloudflareWorkerEnv }).__env__
+}
+
+export function getActiveCloudflareBinding<T>(name: string): T | undefined {
+  return getActiveCloudflareEnv()?.[name] as T | undefined
+}
+
+export interface CloudflareRuntimeEvent {
+  context: {
+    cloudflare: { context: CloudflareWorkerExecutionContext | undefined, env: CloudflareWorkerEnv }
+    waitUntil?: (promise: Promise<unknown>) => void
+  }
+  env: CloudflareWorkerEnv
+  waitUntil?: (promise: Promise<unknown>) => void
+}
+
+export function createCloudflareRuntimeEvent(
+  env: CloudflareWorkerEnv,
+  context: CloudflareWorkerExecutionContext | undefined,
+): CloudflareRuntimeEvent {
+  const waitUntil = typeof context?.waitUntil === "function" ? context.waitUntil.bind(context) : undefined
+  return {
+    context: { cloudflare: { env, context }, waitUntil },
+    env,
+    waitUntil,
+  }
+}

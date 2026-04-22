@@ -76,6 +76,7 @@
   "devDependencies": {
     "@vercel/blob": "^1.1.1",
     "@types/node": "catalog:",
+    "@vitehub/internal": "workspace:*",
     "get-port-please": "catalog:",
     "nitro": "catalog:",
     "ofetch": "catalog:",

@@ -1,9 +1,10 @@
-import { existsSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
-import { basename, dirname, relative, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { relative, resolve } from "node:path"
 
 import { build as bundle } from "esbuild"
+
+import { computePackageDir, createImportPath, generatedDirSegments as sharedGeneratedDirSegments, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
+import { createNodeFunctionConfig } from "@vitehub/internal/build/vercel-config"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { discoverQueueDefinitions } from "../discovery.ts"
@@ -11,20 +12,10 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
 import type { QueueModuleOptions } from "../types.ts"
 
-export const generatedDirSegments = [".vitehub", "queue"] as const
+export const generatedDirSegments = sharedGeneratedDirSegments("queue")
 
-const currentFileDir = dirname(fileURLToPath(import.meta.url))
-const packageDir = resolve(currentFileDir, basename(currentFileDir) === "internal" ? "../.." : "..")
-
-function createImportPath(fromFile: string, targetFile: string) {
-  const importPath = relative(dirname(fromFile), targetFile).replace(/\\/g, "/")
-  return importPath.startsWith(".") ? importPath : `./${importPath}`
-}
-
-function resolveRuntimeModule(modulePath: string) {
-  const distFile = resolve(packageDir, "dist", `${modulePath}.js`)
-  return existsSync(distFile) ? distFile : resolve(packageDir, "src", `${modulePath}.ts`)
-}
+const packageDir = computePackageDir(import.meta.url)
+const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 
 async function bundleQueueWrapperEntry(entryFile: string, outfile: string, inject: string[]) {
   await bundle({
@@ -60,17 +51,6 @@ function sanitizeVercelConsumerName(functionPath: string) {
     }
   }
   return result
-}
-
-function createNodeFunctionConfig(extra: Record<string, unknown> = {}) {
-  return {
-    handler: "index.mjs",
-    launcherType: "Nodejs",
-    runtime: "nodejs24.x",
-    shouldAddHelpers: false,
-    supportsResponseStreaming: true,
-    ...extra,
-  }
 }
 
 function createVercelQueueWrapperContents(file: string, registryFile: string, name: string, queueConfig: false | ReturnType<typeof normalizeQueueOptions>) {

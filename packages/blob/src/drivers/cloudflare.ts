@@ -1,4 +1,4 @@
-import { toArray } from "../internal/arrays.ts"
+import { toArray } from "@vitehub/internal/arrays"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 
 import type {

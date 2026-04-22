@@ -1,4 +1,4 @@
-import { resolveModulePath } from "exsolve"
+import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { normalizeBlobOptions, warnVercelBlobFallback } from "../config.ts"
@@ -7,15 +7,7 @@ import { configureCloudflareR2 } from "../integrations/cloudflare.ts"
 import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../types.ts"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
-  const fromSource = resolveModulePath(srcRelative, {
-    extensions: [".ts", ".mts"],
-    from: import.meta.url,
-    try: true,
-  })
-  return fromSource ?? resolveModulePath(packageSubpath, {
-    extensions: [".js", ".mjs"],
-    from: import.meta.url,
-  })
+  return resolveEntry(srcRelative, packageSubpath, import.meta.url)
 }
 
 const blobNitroModule: NitroModule = {
