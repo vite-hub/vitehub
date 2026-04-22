@@ -1,12 +1,13 @@
 ---
 title: Vercel Blob
-description: Configure @vitehub/blob for Vercel using Vercel Blob storage.
+description: Configure @vitehub/blob for Vercel using Vercel Blob storage on Vite or Nitro.
 navigation.title: Vercel
-frameworks: vite
+frameworks: [vite, nitro]
 ---
 
-Use the Vercel path when your Vite app deploys to Vercel and Blob storage should resolve through `BLOB_READ_WRITE_TOKEN`.
+Use the Vercel path when your Vite or Nitro app deploys to Vercel and Blob storage should resolve through `BLOB_READ_WRITE_TOKEN`.
 
+::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { hubBlob } from '@vitehub/blob/vite'
@@ -18,6 +19,20 @@ export default defineConfig({
   },
 })
 ```
+::
+
+::fw{id="nitro:dev nitro:build"}
+```ts [nitro.config.ts]
+import { defineNitroConfig } from 'nitro/config'
+
+export default defineNitroConfig({
+  modules: ['@vitehub/blob/nitro'],
+  blob: {
+    driver: 'vercel-blob',
+  },
+})
+```
+::
 
 Required environment variable:
 

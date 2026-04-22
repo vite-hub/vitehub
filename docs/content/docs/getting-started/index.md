@@ -5,10 +5,10 @@ navigation.title: Getting started
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](../kv) and [`@vitehub/blob`](../blob).
+ViteHub currently ships [`@vitehub/kv`](../kv), [`@vitehub/blob`](../blob), and server-side queueing through [`@vitehub/queue`](../queue).
 
 ::fw{vite nitro}
-It also ships [`@vitehub/queue`](../queue) for background jobs on Vite and Nitro.
+`@vitehub/blob` and `@vitehub/queue` both support Vite and Nitro.
 ::
 
 This page gives you the first framework-specific setup step, then points you to the package docs where the full examples live.
@@ -87,6 +87,20 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
   :::
   :::u-page-card
   ---
+  title: Blob overview
+  description: Understand the Blob package and its shared runtime surface.
+  to: ../blob
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Blob quickstart
+  description: Add one read route and one write route for blob storage.
+  to: ../blob/quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
   title: Cloudflare provider
   description: Configure the Cloudflare KV path.
   to: ../kv/providers/cloudflare
@@ -103,6 +117,20 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
 
 ::fw{vite nitro}
 ::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Blob on Cloudflare
+  description: Configure Blob storage against a Cloudflare R2 binding.
+  to: ../blob/providers/cloudflare
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Blob on Vercel
+  description: Configure Blob storage against Vercel Blob.
+  to: ../blob/providers/vercel
+  ---
+  :::
   :::u-page-card
   ---
   title: Queue overview

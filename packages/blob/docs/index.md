@@ -1,13 +1,19 @@
 ---
 title: Blob
-description: Vite-first server Blob storage for local files, Cloudflare R2, and Vercel Blob.
+description: Blob storage for Vite and Nitro apps with local files, Cloudflare R2, and Vercel Blob.
 navigation.order: 0
-frameworks: vite
+frameworks: [vite, nitro]
 ---
 
-`@vitehub/blob` gives Vite server apps one Blob API that works across local files, Cloudflare R2, and Vercel Blob.
+`@vitehub/blob` gives Vite and Nitro server apps one Blob API that works across local files, Cloudflare R2, and Vercel Blob.
 
-It starts with a Vite plugin that resolves Blob config for server environments and emits provider outputs for Cloudflare and Vercel builds.
+::fw{vite}
+On Vite, it starts with a plugin that resolves Blob config for server environments and emits provider outputs for Cloudflare and Vercel builds.
+::
+
+::fw{nitro}
+On Nitro, it starts with a module that resolves Blob config into runtime storage and wires provider-specific bindings for Cloudflare and Vercel presets.
+::
 
 ## Drivers
 
@@ -26,4 +32,10 @@ It starts with a Vite plugin that resolves Blob config for server environments a
 - `blob.serve()`
 - `ensureBlob()`
 
-Use the Vite plugin when you want Vite-owned provider output generation. This package does not ship Nitro or Nuxt adapters in this release.
+::fw{vite}
+Use the Vite plugin when you want Vite-owned provider output generation.
+::
+
+::fw{nitro}
+Use the Nitro module when you want Blob config resolved through `nitro.config.ts` and runtime access from server routes.
+::

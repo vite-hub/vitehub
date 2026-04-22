@@ -187,6 +187,8 @@ describe("showcase examples", () => {
   it("links provider overview pages to generated provider docs", () => {
     expect(getDocsPage("kv", "providers/cloudflare")).toBeTruthy();
     expect(getDocsPage("kv", "providers/vercel")).toBeTruthy();
+    expect(getDocsPage("blob", "providers/cloudflare")).toBeTruthy();
+    expect(getDocsPage("blob", "providers/vercel")).toBeTruthy();
     expect(getDocsPage("queue", "providers/cloudflare")).toBeTruthy();
     expect(getDocsPage("queue", "providers/vercel")).toBeTruthy();
 
@@ -196,14 +198,25 @@ describe("showcase examples", () => {
 
     expect(gettingStarted).toContain("to: ../queue");
     expect(gettingStarted).toContain("to: ../queue/quickstart");
+    expect(gettingStarted).toContain("to: ../blob");
+    expect(gettingStarted).toContain("to: ../blob/quickstart");
+    expect(gettingStarted).toContain("to: ../blob/providers/cloudflare");
+    expect(gettingStarted).toContain("to: ../blob/providers/vercel");
     expect(gettingStarted).not.toContain("/docs/nitro/queue");
+    expect(gettingStarted).not.toContain("/docs/nitro/blob");
     expect(cloudflare).toContain("../kv/providers/cloudflare");
     expect(cloudflare).not.toContain("../kv/cloudflare");
+    expect(cloudflare).toContain("../blob/providers/cloudflare");
+    expect(cloudflare).not.toContain("../blob/cloudflare");
     expect(cloudflare).toContain("../queue/providers/cloudflare");
     expect(cloudflare).not.toContain("/docs/nitro/queue/providers/cloudflare");
+    expect(cloudflare).not.toContain("/docs/nitro/blob/providers/cloudflare");
     expect(vercel).toContain("../kv/providers/vercel");
     expect(vercel).not.toContain("../kv/vercel");
+    expect(vercel).toContain("../blob/providers/vercel");
+    expect(vercel).not.toContain("../blob/vercel");
     expect(vercel).toContain("../queue/providers/vercel");
     expect(vercel).not.toContain("/docs/nitro/queue/providers/vercel");
+    expect(vercel).not.toContain("/docs/nitro/blob/providers/vercel");
   });
 });

@@ -18,6 +18,13 @@ Use this page to find package-specific Cloudflare guidance in ViteHub.
 - Provider details: [KV on Cloudflare](../kv/providers/cloudflare)
 
 ::fw{vite nitro}
+### Blob
+
+`@vitehub/blob` supports a Cloudflare path on Vite and Nitro through the `cloudflare-r2` driver.
+
+- Setup overview: [Blob overview](../blob)
+- Provider details: [Blob on Cloudflare](../blob/providers/cloudflare)
+
 ### Queue
 
 `@vitehub/queue` supports a Cloudflare path on Vite and Nitro through `queue.provider = 'cloudflare'`.

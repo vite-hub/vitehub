@@ -18,6 +18,13 @@ Use this page to find package-specific Vercel guidance in ViteHub.
 - Provider details: [KV on Vercel](../kv/providers/vercel)
 
 ::fw{vite nitro}
+### Blob
+
+`@vitehub/blob` supports a Vercel path on Vite and Nitro through the `vercel-blob` driver.
+
+- Setup overview: [Blob overview](../blob)
+- Provider details: [Blob on Vercel](../blob/providers/vercel)
+
 ### Queue
 
 `@vitehub/queue` supports a Vercel path on Vite and Nitro through `queue.provider = 'vercel'`.
