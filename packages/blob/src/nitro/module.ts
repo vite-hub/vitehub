@@ -2,6 +2,7 @@ import { resolveModulePath } from "exsolve"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { normalizeBlobOptions, warnVercelBlobFallback } from "../config.ts"
+import { configureCloudflareR2 } from "../integrations/cloudflare.ts"
 
 import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../types.ts"
 
@@ -15,30 +16,6 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
     extensions: [".js", ".mjs"],
     from: import.meta.url,
   })
-}
-
-function configureCloudflareR2(
-  nitro: { options: NitroRuntimeConfig & { cloudflare?: { wrangler?: { r2_buckets?: Array<{ binding: string, bucket_name: string }> } } } },
-  resolved: ResolvedBlobModuleOptions,
-) {
-  if (!nitro.options.preset?.includes("cloudflare") || resolved.store.driver !== "cloudflare-r2" || !resolved.store.bucketName) {
-    return
-  }
-
-  const store = resolved.store
-  const bucketName = store.bucketName
-  if (!bucketName) {
-    return
-  }
-  nitro.options.cloudflare ||= {}
-  nitro.options.cloudflare.wrangler ||= {}
-  const buckets = nitro.options.cloudflare.wrangler.r2_buckets ||= []
-  if (!buckets.some(bucket => bucket.binding === store.binding || bucket.bucket_name === bucketName)) {
-    buckets.push({
-      binding: store.binding,
-      bucket_name: bucketName,
-    })
-  }
 }
 
 const blobNitroModule: NitroModule = {
@@ -70,7 +47,9 @@ const blobNitroModule: NitroModule = {
       nitro.options.plugins.push(plugin)
     }
 
-    configureCloudflareR2(nitro as never, resolved)
+    if (hosting?.includes("cloudflare")) {
+      configureCloudflareR2(nitro.options, resolved)
+    }
     warnVercelBlobFallback(nitro, resolved, hosting)
   },
 }
