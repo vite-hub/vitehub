@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs"
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { execFile } from "node:child_process"
-import { basename, join, resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { toSafeAppName } from "@vitehub/internal/build/user-entry"
 
 import { generateProviderOutputs } from "../src/internal/vite-build.ts"
 
@@ -87,6 +88,6 @@ describe("Vite provider outputs", () => {
       rootDir,
     })
 
-    expect(await readFile(join(rootDir, "dist", basename(rootDir), "wrangler.json"), "utf8")).not.toContain("\"r2_buckets\"")
+    expect(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")).not.toContain("\"r2_buckets\"")
   })
 })
