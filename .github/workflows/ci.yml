@@ -12,7 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
+  ci:
+    name: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -36,82 +37,14 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
-      - run: pnpm --dir docs test
       - run: pnpm build
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - run: pnpm --dir docs test
       - run: pnpm docs:build
-
-  deploy:
-    needs: quality
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: Production
-    strategy:
-      fail-fast: false
-      matrix:
-        provider: [cloudflare, vercel]
-        framework: [nitro, nuxt, vite]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup
-
-      - run: pnpm --dir packages/kv build
-
-      - name: Build (${{ matrix.provider }} × ${{ matrix.framework }})
-        env:
-          NITRO_PRESET: ${{ matrix.provider == 'cloudflare' && 'cloudflare-module' || 'vercel' }}
-          # Presence forces upstash resolution at build; runtime swaps with real Vercel env.
-          KV_REST_API_URL: ${{ matrix.provider == 'vercel' && '********' || '' }}
-          KV_REST_API_TOKEN: ${{ matrix.provider == 'vercel' && '********' || '' }}
-        run: |
-          cd packages/kv/playground/${{ matrix.framework }}
-          if [ "${{ matrix.framework }}" = "nuxt" ]; then
-            npx nuxi build
-          else
-            npx nitro build
-          fi
-
-      - name: Deploy Cloudflare
-        if: matrix.provider == 'cloudflare'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
-        run: |
-          cd packages/kv/playground/${{ matrix.framework }}
-          APP_NAME=${{ matrix.framework }} envsubst < ../_shared/wrangler.template.jsonc > .output/wrangler.json
-          npx wrangler --cwd .output/ deploy
-
-      - name: Deploy Vercel
-        if: matrix.provider == 'vercel'
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-        run: |
-          cd packages/kv/playground/${{ matrix.framework }}
-          npx vercel link --yes --project vitehub-playground-${{ matrix.framework }} --token "$VERCEL_TOKEN"
-          npx vercel deploy --prod --prebuilt --yes --token "$VERCEL_TOKEN"
-
-  e2e-live:
-    needs: deploy
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: Production
-    strategy:
-      fail-fast: false
-      matrix:
-        provider: [cloudflare, vercel]
-        framework: [nitro, nuxt, vite]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup
-
-      - name: E2E Live (${{ matrix.provider }} × ${{ matrix.framework }})
-        env:
-          CF_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
-        run: |
-          if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            URL="https://vitehub-playground-${{ matrix.framework }}.$CF_SUBDOMAIN.workers.dev"
-          else
-            URL="https://vitehub-playground-${{ matrix.framework }}.vercel.app"
-          fi
-          pnpm --dir packages/kv test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "$URL"

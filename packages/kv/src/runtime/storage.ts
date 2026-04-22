@@ -12,7 +12,7 @@ interface RuntimeStorage {
 let storagePromise: Promise<RuntimeStorage> | undefined
 
 async function resolveStorage() {
-  storagePromise ||= import("nitro/runtime").then(module => module.useStorage("kv") as RuntimeStorage)
+  storagePromise ||= import("nitro/storage").then(module => module.useStorage("kv") as RuntimeStorage)
   return storagePromise
 }
 

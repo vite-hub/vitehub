@@ -80,6 +80,19 @@ describe("normalizeKVOptions", () => {
     })
   })
 
+  it("defaults Vercel hosting to masked Upstash runtime config", () => {
+    expect(normalizeKVOptions(undefined, {
+      env: {},
+      hosting: "vercel",
+    })).toEqual({
+      store: {
+        driver: "upstash",
+        token: "********",
+        url: "********",
+      },
+    })
+  })
+
   it("preserves explicit Upstash credentials", () => {
     expect(normalizeKVOptions({
       driver: "upstash",
@@ -157,14 +170,13 @@ describe("Cloudflare integration", () => {
 })
 
 describe("warnVercelKVFallback", () => {
-  it("reports fs-lite on Vercel hosting", () => {
+  it("reports explicit fs-lite on Vercel hosting", () => {
     const error = vi.fn()
 
     warnVercelKVFallback({
       logger: { error },
-    }, normalizeKVOptions(undefined, {
-      env: {},
-      hosting: "vercel",
+    }, normalizeKVOptions({
+      driver: "fs-lite",
     }), "vercel")
 
     expect(error).toHaveBeenCalledWith(

@@ -6,8 +6,10 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
     "h3": "catalog:",
+    "nitro": "catalog:",
     "valibot": "catalog:",
     "vite": "catalog:"
   }

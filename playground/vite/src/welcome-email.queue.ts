@@ -1,7 +1,6 @@
 import { defineQueue } from "@vitehub/queue"
+import { reportQueueMarker } from "../../_shared/queue-test"
 
-export default defineQueue<{ email: string, marker?: string }>(async (job) => {
-  if (typeof job.payload.marker === "string") {
-    console.log(`[vitehub-queue-e2e] ${job.payload.marker}`)
-  }
+export default defineQueue<{ callbackUrl?: string, email: string, marker?: string }>(async (job) => {
+  await reportQueueMarker(job.payload.marker, job.payload.callbackUrl)
 })
