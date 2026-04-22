@@ -133,7 +133,7 @@ describe("showcase examples", () => {
       "server/queues/welcome-email.ts",
       "server/api/queues/welcome.post.ts",
       "server/api/queues/welcome-defer.post.ts",
-      "server/api/tests/probe.get.ts",
+      "server/api/queues/welcome-payload.get.ts",
       "package.json",
     ]);
   });

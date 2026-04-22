@@ -1,5 +1,10 @@
 import { defineQueue } from "@vitehub/queue"
 
-export default defineQueue<{ email: string }>(async (job) => {
-  console.log(`Processing welcome email for ${job.payload.email}`)
+export type WelcomeEmailPayload = {
+  email: string
+  template: "default" | "vip"
+}
+
+export default defineQueue<WelcomeEmailPayload>(async (job) => {
+  console.log(`Processing ${job.payload.template} welcome email for ${job.payload.email}`)
 })
