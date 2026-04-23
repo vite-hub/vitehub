@@ -20,9 +20,8 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
         run: |
-          API_BASE="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
-          AUTH_HEADER="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
           QUEUES="queue--77656c636f6d65 queue--77656c636f6d652d656d61696c"
           export QUEUES
 
@@ -31,6 +30,10 @@ jobs:
               npx wrangler queues create "$queue"
             fi
           done
+
+          if [ -n "$CLOUDFLARE_R2_BUCKET_NAME" ] && ! npx wrangler r2 bucket list | grep -q "$CLOUDFLARE_R2_BUCKET_NAME"; then
+            npx wrangler r2 bucket create "$CLOUDFLARE_R2_BUCKET_NAME"
+          fi
 
   live-e2e:
     name: live e2e
@@ -162,10 +165,16 @@ jobs:
         id: prepare_vercel_blob
         if: matrix.framework == 'vite' && matrix.provider == 'vercel'
         env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           APP_DIR="playground/vite"
           PROJECT_NAME="vitehub-playground-vite-blob"
+
+          if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
+            echo "GitHub Production secret BLOB_READ_WRITE_TOKEN must be set." >&2
+            exit 1
+          fi
 
           npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
 
@@ -177,6 +186,9 @@ jobs:
             echo "Failed to read linked Vercel project metadata." >&2
             exit 1
           fi
+
+          npx vercel env rm BLOB_READ_WRITE_TOKEN production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+          printf '%s' "$BLOB_READ_WRITE_TOKEN" | npx vercel env add BLOB_READ_WRITE_TOKEN production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
           PULLED_ENV_FILE="$(mktemp)"
           trap 'rm -f "$PULLED_ENV_FILE"' EXIT
