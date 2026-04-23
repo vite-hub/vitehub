@@ -5,10 +5,10 @@ navigation.title: Getting started
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](../kv) and [`@vitehub/blob`](../blob).
+ViteHub currently ships [`@vitehub/kv`](../kv), [`@vitehub/blob`](/docs/vite/blob), and server-side queueing through [`@vitehub/queue`](/docs/vite/queue).
 
 ::fw{vite nitro}
-It also ships [`@vitehub/queue`](../queue) for background jobs on Vite and Nitro.
+`@vitehub/blob` and `@vitehub/queue` both support Vite and Nitro.
 ::
 
 This page gives you the first framework-specific setup step, then points you to the package docs where the full examples live.
@@ -101,34 +101,123 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
   :::
 ::
 
-::fw{vite nitro}
+::fw{id="vite:dev vite:build"}
 ::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Blob overview
+  description: Understand Blob driver resolution and the shared runtime surface.
+  to: /docs/vite/blob
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Blob quickstart
+  description: Read and write a first blob locally.
+  to: /docs/vite/blob/quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Blob on Cloudflare
+  description: Configure Blob storage against a Cloudflare R2 binding.
+  to: /docs/vite/blob/providers/cloudflare
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Blob on Vercel
+  description: Configure Blob storage against Vercel Blob.
+  to: /docs/vite/blob/providers/vercel
+  ---
+  :::
   :::u-page-card
   ---
   title: Queue overview
   description: Discover background job routing for Vite and Nitro.
-  to: ../queue
+  to: /docs/vite/queue
   ---
   :::
   :::u-page-card
   ---
   title: Queue quickstart
   description: Register Queue and enqueue a first job.
-  to: ../queue/quickstart
+  to: /docs/vite/queue/quickstart
   ---
   :::
   :::u-page-card
   ---
   title: Queue on Cloudflare
   description: Configure Cloudflare queue bindings and batch processing.
-  to: ../queue/providers/cloudflare
+  to: /docs/vite/queue/providers/cloudflare
   ---
   :::
   :::u-page-card
   ---
   title: Queue on Vercel
   description: Configure Vercel topics and hosted callbacks.
-  to: ../queue/providers/vercel
+  to: /docs/vite/queue/providers/vercel
+  ---
+  :::
+::
+::
+
+::fw{id="nitro:dev nitro:build"}
+::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Blob overview
+  description: Understand Blob driver resolution and the shared runtime surface.
+  to: /docs/nitro/blob
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Blob quickstart
+  description: Read and write a first blob locally.
+  to: /docs/nitro/blob/quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Blob on Cloudflare
+  description: Configure Blob storage against a Cloudflare R2 binding.
+  to: /docs/nitro/blob/providers/cloudflare
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Blob on Vercel
+  description: Configure Blob storage against Vercel Blob.
+  to: /docs/nitro/blob/providers/vercel
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Queue overview
+  description: Discover background job routing for Vite and Nitro.
+  to: /docs/nitro/queue
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Queue quickstart
+  description: Register Queue and enqueue a first job.
+  to: /docs/nitro/queue/quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Queue on Cloudflare
+  description: Configure Cloudflare queue bindings and batch processing.
+  to: /docs/nitro/queue/providers/cloudflare
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Queue on Vercel
+  description: Configure Vercel topics and hosted callbacks.
+  to: /docs/nitro/queue/providers/vercel
   ---
   :::
 ::
