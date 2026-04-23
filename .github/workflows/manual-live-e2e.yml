@@ -190,7 +190,7 @@ jobs:
           npx vercel env rm BLOB_READ_WRITE_TOKEN production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
           printf '%s' "$BLOB_READ_WRITE_TOKEN" | npx vercel env add BLOB_READ_WRITE_TOKEN production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
-          BYPASS_SECRET=$(openssl rand -hex 32)
+          BYPASS_SECRET=$(openssl rand -hex 16)
           echo "::add-mask::$BYPASS_SECRET"
           BYPASS_SECRET="$BYPASS_SECRET" node <<'EOF'
           const projectId = process.env.VERCEL_PROJECT_ID
