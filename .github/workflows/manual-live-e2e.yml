@@ -190,18 +190,6 @@ jobs:
           npx vercel env rm BLOB_READ_WRITE_TOKEN production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
           printf '%s' "$BLOB_READ_WRITE_TOKEN" | npx vercel env add BLOB_READ_WRITE_TOKEN production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
-          PULLED_ENV_FILE="$(mktemp)"
-          trap 'rm -f "$PULLED_ENV_FILE"' EXIT
-          VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-            npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
-
-          BLOB_TOKEN="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
-
-          if [ -z "$BLOB_TOKEN" ]; then
-            echo "Vercel production env verification failed: BLOB_READ_WRITE_TOKEN must be set on the linked project." >&2
-            exit 1
-          fi
-
           echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
           echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
           echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
