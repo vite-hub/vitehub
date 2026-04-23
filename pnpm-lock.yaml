@@ -30,9 +30,6 @@ catalogs:
     exsolve:
       specifier: ^1.0.8
       version: 1.0.8
-    get-port-please:
-      specifier: ^3.2.0
-      version: 3.2.0
     h3:
       specifier: 2.0.1-rc.20
       version: 2.0.1-rc.20
@@ -51,9 +48,6 @@ catalogs:
     shiki:
       specifier: ^4.0.2
       version: 4.0.2
-    tinyexec:
-      specifier: ^1.1.1
-      version: 1.1.1
     tsx:
       specifier: ^4.21.0
       version: 4.21.0
@@ -151,9 +145,6 @@ importers:
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
-      get-port-please:
-        specifier: 'catalog:'
-        version: 3.2.0
       nitro:
         specifier: 'catalog:'
         version: 3.0.260311-beta(@upstash/redis@1.37.0)(@vercel/blob@1.1.1)(@vercel/functions@3.4.3)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -163,9 +154,6 @@ importers:
       publint:
         specifier: ^0.3.15
         version: 0.3.18
-      tinyexec:
-        specifier: 'catalog:'
-        version: 1.1.1
       tsdown:
         specifier: ^0.21.8
         version: 0.21.9(publint@0.3.18)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))
@@ -243,9 +231,6 @@ importers:
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
-      get-port-please:
-        specifier: 'catalog:'
-        version: 3.2.0
       nitro:
         specifier: 'catalog:'
         version: 3.0.260311-beta(@upstash/redis@1.37.0)(@vercel/blob@1.1.1)(@vercel/functions@3.4.3)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -255,9 +240,6 @@ importers:
       publint:
         specifier: ^0.3.15
         version: 0.3.18
-      tinyexec:
-        specifier: 'catalog:'
-        version: 1.1.1
       tsdown:
         specifier: ^0.21.8
         version: 0.21.9(publint@0.3.18)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))
