@@ -1,18 +1,16 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it } from "vitest"
 import { build, createNitro, prepare } from "nitro/builder"
 
 import { generateProviderOutputs } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
-const nitroBuildDir = join(playgroundDir, "node_modules", ".nitro-output-test")
-const nitroOutputRoot = join(playgroundDir, ".queue-test-output")
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -23,25 +21,30 @@ async function createWorkspaceTempDir(prefix: string) {
   return rootDir
 }
 
-beforeAll(async () => {
-  await rm(join(playgroundDir, "dist"), { force: true, recursive: true })
-  await rm(join(playgroundDir, ".vercel"), { force: true, recursive: true })
-  await rm(join(playgroundDir, ".vitehub"), { force: true, recursive: true })
-  await rm(nitroBuildDir, { force: true, recursive: true })
-  await rm(nitroOutputRoot, { force: true, recursive: true })
-})
+async function createPlaygroundCopy(prefix: string) {
+  const workspaceDir = await createWorkspaceTempDir(prefix)
+  const rootDir = join(workspaceDir, "vite")
+  const nodeModules = join(playgroundDir, "node_modules")
+
+  await mkdir(rootDir, { recursive: true })
+  await cp(resolve(playgroundDir, "../_shared"), join(workspaceDir, "_shared"), { recursive: true })
+  await cp(join(playgroundDir, "package.json"), join(rootDir, "package.json"))
+  await cp(join(playgroundDir, "vite.config.ts"), join(rootDir, "vite.config.ts"))
+  await cp(join(playgroundDir, "nitro.config.ts"), join(rootDir, "nitro.config.ts"))
+  await cp(join(playgroundDir, "src"), join(rootDir, "src"), { recursive: true })
+  await cp(join(playgroundDir, "server"), join(rootDir, "server"), { recursive: true })
+  await symlink(nodeModules, join(rootDir, "node_modules"), "dir")
+
+  return rootDir
+}
 
 afterAll(async () => {
-  await rm(join(playgroundDir, "dist"), { force: true, recursive: true })
-  await rm(join(playgroundDir, ".vercel"), { force: true, recursive: true })
-  await rm(join(playgroundDir, ".vitehub"), { force: true, recursive: true })
-  await rm(nitroBuildDir, { force: true, recursive: true })
-  await rm(nitroOutputRoot, { force: true, recursive: true })
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-async function buildNitroPlayground(preset: string) {
-  const outputDir = join(nitroOutputRoot, preset)
+async function buildNitroPlayground(rootDir: string, preset: string) {
+  const nitroBuildDir = join(rootDir, "node_modules", ".nitro-output-test")
+  const outputDir = join(rootDir, ".queue-test-output", preset)
   const previousEnv = {
     KV_REST_API_TOKEN: process.env.KV_REST_API_TOKEN,
     KV_REST_API_URL: process.env.KV_REST_API_URL,
@@ -58,7 +61,7 @@ async function buildNitroPlayground(preset: string) {
       dir: outputDir,
     },
     preset,
-    rootDir: playgroundDir,
+    rootDir,
   })
 
   try {
@@ -98,19 +101,21 @@ async function assertNoNitroInternalVirtualImports(outputDir: string) {
 
 describe("Vite provider outputs", () => {
   it("builds the playground and emits cloudflare and vercel outputs", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-queue-vite-playground-")
+
     await execFileAsync("pnpm", ["exec", "vite", "build"], {
-      cwd: playgroundDir,
+      cwd: rootDir,
       env: process.env,
     })
 
-    const cloudflareWorker = join(playgroundDir, "dist", "vite", "index.js")
-    const cloudflareConfig = join(playgroundDir, "dist", "vite", "wrangler.json")
-    const vercelConfig = join(playgroundDir, ".vercel", "output", "config.json")
-    const vercelServer = join(playgroundDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
-    const vercelConsumer = join(playgroundDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", "index.mjs")
-    const vercelConsumerConfig = join(playgroundDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", ".vc-config.json")
-    const vercelConsumerSource = join(playgroundDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", "index.source.mjs")
-    const vercelStatic = join(playgroundDir, ".vercel", "output", "static")
+    const cloudflareWorker = join(rootDir, "dist", "vite", "index.js")
+    const cloudflareConfig = join(rootDir, "dist", "vite", "wrangler.json")
+    const vercelConfig = join(rootDir, ".vercel", "output", "config.json")
+    const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
+    const vercelConsumer = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", "index.mjs")
+    const vercelConsumerConfig = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", ".vc-config.json")
+    const vercelConsumerSource = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", "index.source.mjs")
+    const vercelStatic = join(rootDir, ".vercel", "output", "static")
     const vercelConsumerContents = await readFile(vercelConsumer, "utf8")
     const vercelServerContents = await readFile(vercelServer, "utf8")
     const vercelConsumerTrigger = JSON.parse(await readFile(vercelConsumerConfig, "utf8")).experimentalTriggers?.[0]
@@ -135,12 +140,13 @@ describe("Vite provider outputs", () => {
   }, 15_000)
 
   it("builds Nitro provider output for the Vite playground without unresolved Nitro internals", async () => {
-    const cloudflareOutput = await buildNitroPlayground("cloudflare_module")
+    const rootDir = await createPlaygroundCopy("vitehub-queue-vite-nitro-")
+    const cloudflareOutput = await buildNitroPlayground(rootDir, "cloudflare_module")
     await assertNoNitroInternalVirtualImports(cloudflareOutput)
 
-    await rm(nitroBuildDir, { force: true, recursive: true })
+    await rm(join(rootDir, "node_modules", ".nitro-output-test"), { force: true, recursive: true })
 
-    const vercelOutput = await buildNitroPlayground("vercel")
+    const vercelOutput = await buildNitroPlayground(rootDir, "vercel")
     await assertNoNitroInternalVirtualImports(vercelOutput)
   }, 45_000)
 

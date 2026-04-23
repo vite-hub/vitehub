@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { relative, resolve } from "node:path"
+import { resolve } from "node:path"
 
-import { resolveModulePath } from "exsolve"
+import { createImportPath } from "@vitehub/internal/build/paths"
+import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import type { NitroModule, NitroOptions, NitroRuntimeConfig } from "nitro/types"
 
 import { normalizeQueueOptions } from "../config.ts"
@@ -11,15 +12,7 @@ import { generatedDirSegments, writeNitroVercelQueueOutputs } from "../internal/
 import type { DiscoveredQueueDefinition, QueueModuleOptions, ResolvedQueueOptions } from "../types.ts"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
-  const fromSource = resolveModulePath(srcRelative, {
-    from: import.meta.url,
-    extensions: [".ts", ".mts"],
-    try: true,
-  })
-  return fromSource ?? resolveModulePath(packageSubpath, {
-    from: import.meta.url,
-    extensions: [".js", ".mjs"],
-  })
+  return resolveEntry(srcRelative, packageSubpath, import.meta.url)
 }
 
 function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[]) {
@@ -70,9 +63,8 @@ function createNitroQueuePluginPath(rootDir: string, buildDir: string) {
   return resolve(rootDir, buildDir, ...generatedDirSegments, "nitro-plugin.ts")
 }
 
-function createImportPath(fromFile: string, toFile: string) {
-  const importPath = relative(resolve(fromFile, ".."), toFile).replace(/\\/g, "/")
-  return importPath.startsWith(".") ? importPath : `./${importPath}`
+function resolveNitroQueueScanDirs(rootDir: string, scanDirs: string[] | undefined) {
+  return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
 }
 
 function createNitroQueuePluginContents(file: string, registryFile: string) {
@@ -159,7 +151,7 @@ async function writeNitroQueueRuntimeFiles(nitro: { options: { buildDir: string,
   const pluginFile = createNitroQueuePluginPath(nitro.options.rootDir, nitro.options.buildDir)
   const definitions = discoverQueueDefinitions({
     mode: "nitro-server-queues",
-    scanDirs: nitro.options.scanDirs,
+    scanDirs: resolveNitroQueueScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
 
   await mkdir(resolve(registryFile, ".."), { recursive: true })
@@ -252,7 +244,7 @@ const queueNitroModule: NitroModule = {
           outputDir: currentNitro.options.output.dir,
           queue: currentNitro.options.queue,
           registryFile: runtimeFiles.registryFile,
-          scanDirs: currentNitro.options.scanDirs,
+          scanDirs: resolveNitroQueueScanDirs(currentNitro.options.rootDir, currentNitro.options.scanDirs),
         })
       }
     })

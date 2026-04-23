@@ -7,6 +7,7 @@
     "dev": "nitro dev"
   },
   "dependencies": {
+    "@vitehub/blob": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
     "h3": "catalog:",

@@ -10,6 +10,7 @@ catalog:
   '@oku-ui/motion': ^0.4.3
   '@types/node': ^25.6.0
   '@upstash/redis': ^1.37.0
+  '@vercel/blob': ^1.1.1
   '@valibot/to-json-schema': ^1.6.0
   '@vercel/functions': ^3.4.3
   '@vueuse/nuxt': ^14.2.1

@@ -6,9 +6,9 @@ export default defineConfig({
     { from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" },
   ],
   deps: {
+    alwaysBundle: [/^@vitehub\/internal/],
     neverBundle: ["#vitehub/queue/registry"],
     onlyBundle: false,
-    skipNodeModulesBundle: true,
   },
   dts: true,
   entry: [

@@ -1,4 +1,5 @@
 dynamicallyLoaded = [
+  ".github/scripts/*.mjs",
   "docs/content.config.ts",
   "docs/app/assets/main.css",
   "packages/kv/examples/**/nitro.config.ts",
@@ -11,16 +12,23 @@ dynamicallyLoaded = [
   "packages/queue/examples/**/server/**",
   "packages/queue/examples/**/src/server.ts",
   "packages/queue/examples/**/src/**/*.queue.ts",
+  "packages/blob/test/helpers/*.ts",
+  "packages/blob/test/**/*.test-d.ts",
+  "packages/blob/examples/**/src/server.ts",
   "playground/nitro/nitro.config.ts",
   "playground/nitro/server/**",
+  "playground/_shared/api/tests/**",
   "playground/vite/nitro.config.ts",
   "playground/vite/server/**",
   "playground/vite/src/server.ts",
+  "playground/vite/src/server.blob.ts",
   "playground/vite/src/**/*.queue.ts",
 ]
 
 ignoreDependencies = [
   "docus",
+  "esbuild",
+  "exsolve",
   "publint",
 ]
 

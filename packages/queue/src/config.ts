@@ -1,4 +1,4 @@
-import { normalizeHosting } from "./internal/hosting.ts"
+import { normalizeHosting } from "@vitehub/internal/hosting"
 
 import type { QueueModuleOptions, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
 

@@ -3,8 +3,8 @@ import { defineConfig } from "tsdown"
 export default defineConfig({
   clean: true,
   deps: {
+    alwaysBundle: [/^@vitehub\/internal/],
     onlyBundle: false,
-    skipNodeModulesBundle: true,
   },
   copy: [
     { from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" },

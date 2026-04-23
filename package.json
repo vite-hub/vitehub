@@ -13,7 +13,7 @@
     "fallow:dead-code": "pnpm exec fallow dead-code --summary --format markdown --fail-on-issues",
     "lint": "pnpm exec oxlint . --ignore-path .gitignore",
     "typecheck": "pnpm --dir docs typecheck && pnpm -r --filter './packages/*' --if-present run typecheck",
-    "test": "pnpm -r --filter './packages/*' --if-present run test",
+    "test": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test",
     "build": "pnpm -r --filter './packages/*' --if-present run build",
     "playground:vite:build": "pnpm --dir playground/vite build",
     "docs:dev": "pnpm --dir docs dev",

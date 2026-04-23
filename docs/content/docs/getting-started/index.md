@@ -5,7 +5,7 @@ navigation.title: Getting started
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](../kv).
+ViteHub currently ships [`@vitehub/kv`](../kv) and [`@vitehub/blob`](../blob).
 
 ::fw{vite nitro}
 It also ships [`@vitehub/queue`](../queue) for background jobs on Vite and Nitro.

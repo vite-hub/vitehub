@@ -67,6 +67,7 @@
   },
   "devDependencies": {
     "@nuxt/schema": "catalog:",
+    "@vitehub/internal": "workspace:*",
     "get-port-please": "catalog:",
     "nitro": "catalog:",
     "ofetch": "catalog:",

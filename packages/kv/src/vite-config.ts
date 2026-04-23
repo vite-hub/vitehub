@@ -1,5 +1,5 @@
 import { normalizeKVOptions } from "./config.ts"
-import { readEnv, trimmed } from "./internal/env.ts"
+import { readEnv, trimmed } from "@vitehub/internal/env"
 
 import type { KVResolutionInput } from "./config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"

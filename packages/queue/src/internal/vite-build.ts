@@ -1,9 +1,11 @@
-import { existsSync } from "node:fs"
-import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises"
-import { basename, dirname, relative, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { mkdir, rm, writeFile } from "node:fs/promises"
+import { relative, resolve } from "node:path"
 
-import { build as bundle } from "esbuild"
+import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
+import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
+import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg, toGeneratedPath } from "@vitehub/internal/build/paths"
+import { resolveUserAppEntry, toSafeAppName } from "@vitehub/internal/build/user-entry"
+import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { createQueueRegistryContents, discoverQueueDefinitions } from "../discovery.ts"
@@ -14,12 +16,11 @@ import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } fro
 
 export const queuePackageName = "@vitehub/queue"
 const defaultCompatibilityDate = "2026-04-20"
-const generatedDirSegments = [".vitehub", "queue"] as const
+const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
-const userAppEntryCandidates = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"].map(name => resolve("src", name))
-const currentFileDir = dirname(fileURLToPath(import.meta.url))
-const packageDir = resolve(currentFileDir, basename(currentFileDir) === "internal" ? "../.." : "..")
+const packageDir = computePackageDir(import.meta.url)
+const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 
 // Table-driven provider entry generation. Add a new entry to support a new provider.
 interface ProviderEntrySpec {
@@ -67,36 +68,6 @@ export interface CloudflareQueueConfig {
   }
 }
 
-function ensureGeneratedDir(rootDir: string) {
-  return resolve(rootDir, ...generatedDirSegments)
-}
-
-function createImportPath(fromFile: string, targetFile: string) {
-  const importPath = relative(dirname(fromFile), targetFile).replace(/\\/g, "/")
-  return importPath.startsWith(".") ? importPath : `./${importPath}`
-}
-
-function resolveUserAppEntry(rootDir: string) {
-  return userAppEntryCandidates.map(candidate => resolve(rootDir, candidate)).find(existsSync)
-}
-
-function toGeneratedWorkerPath(rootDir: string, filename: string) {
-  return relative(rootDir, resolve(rootDir, ...generatedDirSegments, filename)).replace(/\\/g, "/")
-}
-
-function toSafeAppName(rootDir: string) {
-  return basename(rootDir).replace(/[^a-z0-9-]+/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase()
-}
-
-function hasStaticIndex(clientDir: string) {
-  return existsSync(resolve(clientDir, "index.html"))
-}
-
-function resolveRuntimeModule(modulePath: string) {
-  const distFile = resolve(packageDir, "dist", `${modulePath}.js`)
-  return existsSync(distFile) ? distFile : resolve(packageDir, "src", `${modulePath}.ts`)
-}
-
 function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registryFile: string, userAppEntry: string | undefined, queueConfig: unknown) {
   const imports = [
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
@@ -121,7 +92,7 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
 }
 
 async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions | undefined) {
-  const generatedDir = ensureGeneratedDir(rootDir)
+  const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
@@ -147,52 +118,6 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   }
 }
 
-async function bundleEsmEntry(entryFile: string, outfile: string, options: { conditions?: string[], external?: string[], format?: "esm" | "cjs", platform?: "browser" | "node" | "neutral" } = {}) {
-  const format = options.format || "esm"
-  const platform = options.platform || "neutral"
-  await bundle({
-    banner: format === "esm" && platform === "node"
-      ? {
-          js: 'import { createRequire as __createRequire } from "node:module";\nvar require = __createRequire(import.meta.url);\n',
-        }
-      : undefined,
-    bundle: true,
-    conditions: options.conditions,
-    entryPoints: [entryFile],
-    external: options.external,
-    format,
-    logLevel: "silent",
-    outfile,
-    platform,
-    sourcemap: false,
-    target: "es2022",
-    write: true,
-  })
-}
-
-async function copyClientOutput(clientDir: string, targetDir: string) {
-  const resolvedClientDir = resolve(clientDir)
-  const resolvedTargetDir = resolve(targetDir)
-  if (resolvedClientDir === resolvedTargetDir) {
-    return
-  }
-
-  await rm(resolvedTargetDir, { force: true, recursive: true })
-  await mkdir(dirname(resolvedTargetDir), { recursive: true })
-
-  const targetRelativePath = relative(resolvedClientDir, resolvedTargetDir).replace(/\\/g, "/")
-  if (targetRelativePath && !targetRelativePath.startsWith("../")) {
-    const [targetRootEntry] = targetRelativePath.split("/", 1)
-    await mkdir(resolvedTargetDir, { recursive: true })
-    await Promise.all((await readdir(resolvedClientDir))
-      .filter(entry => entry !== targetRootEntry)
-      .map(entry => cp(resolve(resolvedClientDir, entry), resolve(resolvedTargetDir, entry), { recursive: true })))
-    return
-  }
-
-  await cp(resolvedClientDir, resolvedTargetDir, { recursive: true })
-}
-
 function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[]) {
   if (!definitions.length) {
     return undefined
@@ -215,7 +140,7 @@ export async function createCloudflareQueueConfig(options: CloudflareQueueConfig
     assets: { run_worker_first: ["/api/*"] },
     compatibility_date: options.compatibilityDate || defaultCompatibilityDate,
     compatibility_flags: ["nodejs_compat"],
-    main: toGeneratedWorkerPath(rootDir, providerEntrySpecs[0]!.entryFile),
+    main: toGeneratedPath(rootDir, productName, providerEntrySpecs[0]!.entryFile),
     observability: { enabled: true },
     ...(queues ? { queues } : {}),
   }
@@ -253,27 +178,6 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
   }
 
   await writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8")
-}
-
-function createVercelConfigJson() {
-  return {
-    version: 3,
-    routes: [
-      { handle: "filesystem" },
-      { src: "/(.*)", dest: "/__server" },
-    ],
-  }
-}
-
-function createNodeFunctionConfig(extra: Record<string, unknown> = {}) {
-  return {
-    handler: "index.mjs",
-    launcherType: "Nodejs",
-    runtime: "nodejs24.x",
-    shouldAddHelpers: false,
-    supportsResponseStreaming: true,
-    ...extra,
-  }
 }
 
 function sanitizeVercelConsumerName(functionPath: string) {
