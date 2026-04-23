@@ -1,10 +1,10 @@
-name: manual live e2e
+name: manual kv-queue live e2e
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: manual-live-e2e-${{ github.ref }}
+  group: manual-kv-queue-live-e2e-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -49,6 +49,7 @@ jobs:
 
       - run: pnpm --filter @vitehub/queue build
       - run: pnpm --filter @vitehub/kv build
+      - run: pnpm --filter @vitehub/blob build
 
       - name: Prepare Vercel project
         id: prepare_vercel
