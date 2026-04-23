@@ -1,10 +1,13 @@
 ---
-title: Quickstart
-description: Add Blob storage to a Vite or Nitro server app.
+title: Blob quickstart
+description: Read and write a first blob with the local filesystem driver.
+navigation.title: Quickstart
+navigation.order: 1
+icon: i-lucide-rocket
 frameworks: [vite, nitro]
 ---
 
-This quickstart keeps the example small: one route lists blobs and one route writes a blob with a default pathname and value.
+This quickstart uses the local `fs` driver so you can get Blob working with the least setup first. Files are stored in `.data/blob`.
 
 ::steps
 
@@ -17,7 +20,7 @@ pnpm add @vitehub/blob
 ### Register Blob
 
 ::fw{id="vite:dev vite:build"}
-Register the Vite plugin:
+The Vite plugin is the Blob config primitive:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -25,20 +28,26 @@ import { hubBlob } from '@vitehub/blob/vite'
 
 export default defineConfig({
   plugins: [hubBlob()],
-  blob: {},
+  blob: {
+    driver: 'fs',
+    base: '.data/blob',
+  },
 })
 ```
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Register the Nitro module:
+Register the Nitro module with the same local driver:
 
 ```ts [nitro.config.ts]
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
   modules: ['@vitehub/blob/nitro'],
-  blob: {},
+  blob: {
+    driver: 'fs',
+    base: '.data/blob',
+  },
 })
 ```
 ::
@@ -115,4 +124,8 @@ curl -X PUT http://localhost:3000/api/blob \
 
 ::
 
-For provider-specific setup, continue with [Cloudflare](./providers/cloudflare) or [Vercel](./providers/vercel).
+## What to read next
+
+- Use [Usage](./usage) for pagination, metadata, `blob.serve()`, and delete patterns.
+- Use [Runtime API](./runtime-api) to review the shared handle, config shapes, and helper types.
+- Use [Cloudflare](./providers/cloudflare) or [Vercel](./providers/vercel) when you want hosted Blob storage instead of local files.
