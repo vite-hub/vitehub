@@ -20,7 +20,7 @@ function getRuntimeEnv(): Record<string, string | undefined> {
 
 export const isCloudflare = () => {
   const env = getRuntimeEnv()
-  return !!(env.CLOUDFLARE_WORKER || env.CF_PAGES || typeof process === 'undefined')
+  return !!(env.CLOUDFLARE_WORKER || env.CF_PAGES)
 }
 export const isVercel = () => { const env = getRuntimeEnv(); return !!(env.VERCEL || env.VERCEL_ENV) }
 export const isNetlify = () => { const env = getRuntimeEnv(); return !!(env.NETLIFY || env.NETLIFY_LOCAL) }
