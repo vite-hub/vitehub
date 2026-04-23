@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks"
+
 export type CloudflareWorkerEnv = Record<string, unknown>
 
 export interface CloudflareWorkerExecutionContext {
@@ -5,14 +7,27 @@ export interface CloudflareWorkerExecutionContext {
 }
 
 let activeEnv: CloudflareWorkerEnv | undefined
+const activeEnvStorage = new AsyncLocalStorage<CloudflareWorkerEnv | undefined>()
 
 export function setActiveCloudflareEnv(env: CloudflareWorkerEnv | undefined): void {
   activeEnv = env
   ;(globalThis as { __env__?: CloudflareWorkerEnv }).__env__ = env
+  activeEnvStorage.enterWith(env)
+}
+
+export function clearActiveCloudflareEnv(): void {
+  activeEnv = undefined
+  delete (globalThis as { __env__?: CloudflareWorkerEnv }).__env__
+}
+
+export function runWithActiveCloudflareEnv<T>(env: CloudflareWorkerEnv | undefined, callback: () => T): T {
+  activeEnv = env
+  ;(globalThis as { __env__?: CloudflareWorkerEnv }).__env__ = env
+  return activeEnvStorage.run(env, callback)
 }
 
 export function getActiveCloudflareEnv(): CloudflareWorkerEnv | undefined {
-  return activeEnv ?? (globalThis as { __env__?: CloudflareWorkerEnv }).__env__
+  return activeEnvStorage.getStore() ?? activeEnv ?? (globalThis as { __env__?: CloudflareWorkerEnv }).__env__
 }
 
 export function getActiveCloudflareBinding<T>(name: string): T | undefined {

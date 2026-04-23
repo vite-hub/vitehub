@@ -209,7 +209,7 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, blob
       "@vitehub/blob": artifacts.runtimeModuleFiles.cloudflare,
     },
     conditions: ["workerd", "worker", "browser", "default"],
-    external: ["@vercel/blob", "virtual:@vitehub/blob/config"],
+    external: ["@vercel/blob", "node:async_hooks", "virtual:@vitehub/blob/config"],
     format: "esm",
     platform: "neutral",
   })

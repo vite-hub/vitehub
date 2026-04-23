@@ -241,6 +241,23 @@ describe("blob runtime", () => {
     )
   })
 
+  it("accepts literal percent characters in blob pathnames", async () => {
+    const bucket = createMemoryBucket()
+    setBlobRuntimeConfig({
+      store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" },
+    })
+    setActiveCloudflareEnv({ BLOB: bucket })
+
+    await blob.put("notes/100%.txt", "value")
+
+    expect(await (await blob.get("notes/100%.txt"))?.text()).toBe("value")
+    expect((await blob.list()).blobs).toEqual([
+      expect.objectContaining({
+        pathname: "notes/100%.txt",
+      }),
+    ])
+  })
+
   it("binds Blob access inside the Cloudflare worker wrapper", async () => {
     const worker = createBlobCloudflareWorker({
       app: async (request) => {
@@ -314,6 +331,43 @@ describe("blob runtime", () => {
         pathname: "notes/deferred.txt",
       }],
     })
+  })
+
+  it("keeps Cloudflare bindings isolated across overlapping requests", async () => {
+    const worker = createBlobCloudflareWorker({
+      app: async (request) => {
+        const url = new URL(request.url)
+        const delay = Number(url.searchParams.get("delay") || "0")
+        if (delay > 0) {
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+        await blob.put(`notes/${url.pathname.slice(1)}.txt`, url.pathname)
+        return Response.json({ ok: true })
+      },
+      blob: {
+        store: {
+          binding: "BLOB",
+          bucketName: "assets",
+          driver: "cloudflare-r2",
+        },
+      },
+    })
+
+    const envA = { BLOB: createMemoryBucket() }
+    const envB = { BLOB: createMemoryBucket() }
+
+    await Promise.all([
+      worker.fetch(new Request("https://example.com/slow?delay=25"), envA, {}),
+      worker.fetch(new Request("https://example.com/fast"), envB, {}),
+    ])
+
+    setActiveCloudflareEnv(envA)
+    expect(await (await blob.get("notes/slow.txt"))?.text()).toBe("/slow")
+    expect(await blob.get("notes/fast.txt")).toBeNull()
+
+    setActiveCloudflareEnv(envB)
+    expect(await (await blob.get("notes/fast.txt"))?.text()).toBe("/fast")
+    expect(await blob.get("notes/slow.txt")).toBeNull()
   })
 
   it("hydrates Blob runtime state from the Nitro plugin", async () => {

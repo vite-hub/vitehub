@@ -5,7 +5,12 @@ import { toArray } from "@vitehub/internal/arrays"
 import type { BlobDriverAdapter, BlobListOptions, BlobObject, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
 
 function normalizePathname(pathname: string): string {
-  return decodeURIComponent(pathname).replace(/^\/+/, "")
+  try {
+    return decodeURIComponent(pathname).replace(/^\/+/, "")
+  }
+  catch {
+    return pathname.replace(/^\/+/, "")
+  }
 }
 
 function joinPath(...parts: Array<string | undefined>): string {
