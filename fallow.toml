@@ -17,6 +17,10 @@ dynamicallyLoaded = [
   "packages/blob/examples/**/nitro.config.ts",
   "packages/blob/examples/**/server/**",
   "packages/blob/examples/**/src/server.ts",
+  "packages/sandbox/test/**/*.test-d.ts",
+  "packages/sandbox/playground/**/src/**/*.sandbox.ts",
+  "packages/sandbox/playground/**/src/run-*.ts",
+  "packages/sandbox/playground/**/src/*probe.ts",
   "playground/nitro/nitro.config.ts",
   "playground/nitro/server/**",
   "playground/_shared/api/tests/**",
@@ -29,11 +33,24 @@ dynamicallyLoaded = [
 
 ignoreDependencies = [
   "docus",
+  "@cloudflare/sandbox",
+  "@vercel/sandbox",
   "esbuild",
   "exsolve",
   "publint",
 ]
 
+publicPackages = [
+  "@vitehub/sandbox",
+]
+
 [[overrides]]
 files = ["packages/queue/src/errors.ts"]
+rules = { "unused-class-members" = "off" }
+
+[[overrides]]
+files = [
+  "packages/sandbox/src/internal/shared/errors.ts",
+  "packages/sandbox/src/sandbox/adapters/*.ts",
+]
 rules = { "unused-class-members" = "off" }

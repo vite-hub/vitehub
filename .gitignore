@@ -12,12 +12,16 @@ test-results
 .cache
 .generated
 .vitehub
+.fallow
+.wrangler
 **/.nuxt
 **/.output
 **/.data
 **/.nitro
 **/.generated
 **/.vitehub
+**/.fallow
+**/.wrangler
 **/node_modules/.cache
 **/node_modules/.vite
 **/node_modules/.vite-temp
