@@ -44,6 +44,19 @@ describe("blob config", () => {
     })
   })
 
+  it("prefers Cloudflare hosting over Vercel env auto-resolution", () => {
+    expect(normalizeBlobOptions({}, {
+      env: { BLOB_READ_WRITE_TOKEN: "secret-token" },
+      hosting: "cloudflare",
+    })).toEqual({
+      store: {
+        binding: "BLOB",
+        bucketName: undefined,
+        driver: "cloudflare-r2",
+      },
+    })
+  })
+
   it("defaults Vercel hosting to a masked runtime token", () => {
     expect(normalizeBlobOptions({}, {
       hosting: "vercel",

@@ -29,7 +29,7 @@
     "./drivers/fs": "./dist/drivers/fs.js",
     "./drivers/vercel": "./dist/drivers/vercel.js",
     "./ensure": "./dist/ensure.js",
-    "./nitro": "./src/nitro.ts",
+    "./nitro": "./dist/nitro.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/state": "./dist/runtime/state.js",

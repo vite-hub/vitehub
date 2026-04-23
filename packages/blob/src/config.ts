@@ -95,16 +95,16 @@ export function normalizeBlobOptions(
     return { store: resolveExplicitStore(explicit, env) }
   }
 
+  if (hosting.includes("cloudflare")) {
+    return { store: resolveCloudflareStore(implicitCloudflare, env) }
+  }
+
   if (hasVercelBlobEnv(env)) {
     return { store: resolveVercelStore() }
   }
 
   if (hosting.includes("vercel")) {
     return { store: resolveVercelStore() }
-  }
-
-  if (hosting.includes("cloudflare")) {
-    return { store: resolveCloudflareStore(implicitCloudflare, env) }
   }
 
   return { store: resolveFsStore() }
