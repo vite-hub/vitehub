@@ -12,7 +12,13 @@ const activeEnvStorage = new AsyncLocalStorage<CloudflareWorkerEnv | undefined>(
 export function setActiveCloudflareEnv(env: CloudflareWorkerEnv | undefined): void {
   activeEnv = env
   ;(globalThis as { __env__?: CloudflareWorkerEnv }).__env__ = env
-  activeEnvStorage.enterWith(env)
+  try {
+    activeEnvStorage.enterWith(env)
+  }
+  catch {
+    // Cloudflare Workers validates Node builtins but does not implement enterWith().
+    // The request-scoped wrapper still uses AsyncLocalStorage.run() where available.
+  }
 }
 
 export function clearActiveCloudflareEnv(): void {
