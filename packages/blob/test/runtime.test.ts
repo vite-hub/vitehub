@@ -12,6 +12,15 @@ const runtimeConfigMock = vi.hoisted(() => ({
   },
 }))
 
+interface NitroRequestMock {
+  context?: {
+    cloudflare?: {
+      env?: Record<string, unknown>
+    }
+  }
+  url: string
+}
+
 vi.mock("nitro", () => ({
   definePlugin: (plugin: unknown) => plugin,
 }))
@@ -24,7 +33,6 @@ import { ensureBlob } from "../src/ensure.ts"
 import { blob } from "../src/runtime/storage.ts"
 import { createBlobCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import {
-  getActiveCloudflareBinding,
   setActiveCloudflareEnv,
   setBlobRuntimeConfig,
   setBlobRuntimeStorage,
@@ -379,18 +387,28 @@ describe("blob runtime", () => {
       },
     }
 
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as (nitroApp: {
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as unknown as (nitroApp: {
+      fetch: (request: NitroRequestMock) => Promise<Response>
       hooks: { hook: (name: string, cb: (event?: unknown) => void) => void }
     }) => void
 
     const hooks = new Map<string, (event?: unknown) => void>()
-    plugin({
+    const nitroApp: {
+      fetch: (request: NitroRequestMock) => Promise<Response>
+      hooks: { hook: (name: string, cb: (event?: unknown) => void) => void }
+    } = {
+      async fetch() {
+        await blob.put("notes/nitro.txt", "hello nitro")
+        return Response.json({ ok: true })
+      },
       hooks: {
-        hook(name, cb) {
+        hook(name: string, cb: (event?: unknown) => void) {
           hooks.set(name, cb)
         },
       },
-    })
+    }
+
+    plugin(nitroApp)
 
     hooks.get("request")?.({
       context: {
@@ -402,10 +420,82 @@ describe("blob runtime", () => {
       },
     })
 
-    await blob.put("notes/nitro.txt", "hello nitro")
+    const env = {
+      BLOB: createMemoryBucket(),
+    }
 
-    expect(getActiveCloudflareBinding("BLOB")).toBeDefined()
+    await nitroApp.fetch({
+      url: "https://example.com/nitro",
+      context: {
+        cloudflare: {
+          env,
+        },
+      },
+    })
+
+    setActiveCloudflareEnv(env)
     expect(await (await blob.get("notes/nitro.txt"))?.text()).toBe("hello nitro")
+  })
+
+  it("keeps Cloudflare bindings isolated across overlapping Nitro requests", async () => {
+    runtimeConfigMock.blob = {
+      store: {
+        binding: "BLOB",
+        bucketName: "assets",
+        driver: "cloudflare-r2",
+      },
+    }
+
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as unknown as (nitroApp: {
+      fetch: (request: NitroRequestMock) => Promise<Response>
+      hooks: { hook: (name: string, cb: (event?: unknown) => void) => void }
+    }) => void
+
+    const hooks = new Map<string, (event?: unknown) => void>()
+    const nitroApp = {
+      async fetch(request: NitroRequestMock) {
+        const url = new URL(request.url)
+        const delay = Number(url.searchParams.get("delay") || "0")
+        if (delay > 0) {
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+        await blob.put(`notes/${url.pathname.slice(1)}.txt`, url.pathname)
+        return Response.json({ ok: true })
+      },
+      hooks: {
+        hook(name: string, cb: (event?: unknown) => void) {
+          hooks.set(name, cb)
+        },
+      },
+    }
+
+    plugin(nitroApp)
+
+    const envA = { BLOB: createMemoryBucket() }
+    const envB = { BLOB: createMemoryBucket() }
+
+    await Promise.all([
+      nitroApp.fetch({
+        url: "https://example.com/slow?delay=25",
+        context: {
+          cloudflare: { env: envA },
+        },
+      }),
+      nitroApp.fetch({
+        url: "https://example.com/fast",
+        context: {
+          cloudflare: { env: envB },
+        },
+      }),
+    ])
+
+    setActiveCloudflareEnv(envA)
+    expect(await (await blob.get("notes/slow.txt"))?.text()).toBe("/slow")
+    expect(await blob.get("notes/fast.txt")).toBeNull()
+
+    setActiveCloudflareEnv(envB)
+    expect(await (await blob.get("notes/fast.txt"))?.text()).toBe("/fast")
+    expect(await blob.get("notes/slow.txt")).toBeNull()
   })
 })
 
