@@ -89,6 +89,7 @@ export function normalizeBlobOptions(
   const env = input.env || process.env
   const hosting = input.hosting || ""
   const explicit = options as BlobStoreConfig | undefined
+  const implicitCloudflare = options as Partial<CloudflareR2BlobStoreConfig> | undefined
 
   if (explicit?.driver) {
     return { store: resolveExplicitStore(explicit, env) }
@@ -103,7 +104,7 @@ export function normalizeBlobOptions(
   }
 
   if (hosting.includes("cloudflare")) {
-    return { store: resolveCloudflareStore({}, env) }
+    return { store: resolveCloudflareStore(implicitCloudflare, env) }
   }
 
   return { store: resolveFsStore() }

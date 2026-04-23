@@ -152,9 +152,12 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         const blobs: BlobObject[] = []
         const limit = listOptions.limit ?? 1000
         const cursor = Number.parseInt(Buffer.from(listOptions.cursor || "", "base64url").toString("utf8") || "0")
-        const values = allFiles.slice(Number.isFinite(cursor) ? cursor : 0)
+        const start = Number.isFinite(cursor) ? cursor : 0
+        const values = allFiles.slice(start)
+        let consumed = start
 
         for (const pathname of values) {
+          consumed += 1
           const remainder = prefix ? pathname.slice(prefix.length).replace(/^\/+/, "") : pathname
           const firstSlash = remainder.indexOf("/")
           if (firstSlash !== -1) {
@@ -172,7 +175,6 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
           }
         }
 
-        const consumed = (Number.isFinite(cursor) ? cursor : 0) + values.length
         return {
           blobs,
           cursor: consumed < allFiles.length ? Buffer.from(String(consumed)).toString("base64url") : undefined,

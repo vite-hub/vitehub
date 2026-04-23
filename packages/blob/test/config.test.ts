@@ -29,6 +29,21 @@ describe("blob config", () => {
     })
   })
 
+  it("preserves implicit Cloudflare binding overrides", () => {
+    expect(normalizeBlobOptions({
+      binding: "FILES",
+      bucketName: "custom-assets",
+    }, {
+      hosting: "cloudflare",
+    })).toEqual({
+      store: {
+        binding: "FILES",
+        bucketName: "custom-assets",
+        driver: "cloudflare-r2",
+      },
+    })
+  })
+
   it("defaults Vercel hosting to a masked runtime token", () => {
     expect(normalizeBlobOptions({}, {
       hosting: "vercel",

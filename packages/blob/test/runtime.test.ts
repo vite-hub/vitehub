@@ -273,6 +273,49 @@ describe("blob runtime", () => {
     })
   })
 
+  it("keeps the Cloudflare binding available for waitUntil Blob tasks", async () => {
+    const waitUntilPromises: Promise<unknown>[] = []
+    const worker = createBlobCloudflareWorker({
+      app: async (request, context) => {
+        const workerContext = context as { waitUntil?: (promise: Promise<unknown>) => void } | undefined
+        const url = new URL(request.url)
+        if (url.pathname === "/defer") {
+          workerContext?.waitUntil?.((async () => {
+            await Promise.resolve()
+            await blob.put("notes/deferred.txt", "hello")
+          })())
+          return Response.json({ ok: true })
+        }
+
+        return Response.json(await blob.list())
+      },
+      blob: {
+        store: {
+          binding: "BLOB",
+          bucketName: "assets",
+          driver: "cloudflare-r2",
+        },
+      },
+    })
+
+    const env = { BLOB: createMemoryBucket() }
+    const deferred = await worker.fetch(new Request("https://example.com/defer"), env, {
+      waitUntil(promise) {
+        waitUntilPromises.push(promise)
+      },
+    })
+
+    await Promise.all(waitUntilPromises)
+    const list = await worker.fetch(new Request("https://example.com/list"), env, {})
+
+    expect(await deferred.json()).toEqual({ ok: true })
+    expect(await list.json()).toMatchObject({
+      blobs: [{
+        pathname: "notes/deferred.txt",
+      }],
+    })
+  })
+
   it("hydrates Blob runtime state from the Nitro plugin", async () => {
     runtimeConfigMock.blob = {
       store: {

@@ -1,5 +1,9 @@
 import { readEnv } from "@vitehub/internal/env"
-import { getActiveCloudflareBinding, getActiveCloudflareEnv, setActiveCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import {
+  getActiveCloudflareBinding,
+  getActiveCloudflareEnv,
+  setActiveCloudflareEnv,
+} from "@vitehub/internal/runtime/cloudflare-env"
 
 import { normalizeBlobOptions } from "../config.ts"
 
@@ -9,7 +13,7 @@ let runtimeConfig: false | ResolvedBlobModuleOptions | undefined
 let runtimeConfigPromise: Promise<false | ResolvedBlobModuleOptions> | undefined
 let runtimeStorage: BlobStorage | undefined
 
-export { getActiveCloudflareBinding, setActiveCloudflareEnv }
+export { getActiveCloudflareBinding, getActiveCloudflareEnv, setActiveCloudflareEnv }
 
 export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModuleOptions> {
   if (typeof runtimeConfig !== "undefined") {

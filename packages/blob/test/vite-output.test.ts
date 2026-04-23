@@ -2,9 +2,10 @@ import { existsSync } from "node:fs"
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { execFile } from "node:child_process"
 import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { toSafeAppName } from "@vitehub/internal/build/user-entry"
 
 import { generateProviderOutputs } from "../src/internal/vite-build.ts"
@@ -12,6 +13,33 @@ import { generateProviderOutputs } from "../src/internal/vite-build.ts"
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const tempDirs: string[] = []
+const vercelBlobMock = vi.hoisted(() => ({
+  del: vi.fn(async () => {}),
+  head: vi.fn(async (pathname: string) => ({
+    pathname,
+    size: 5,
+    uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+    url: `https://blob.example/${pathname}`,
+  })),
+  list: vi.fn(async () => ({
+    blobs: [],
+    hasMore: false,
+  })),
+  put: vi.fn(async (pathname: string) => ({
+    contentType: "text/plain",
+    pathname,
+    size: 5,
+    uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+    url: `https://blob.example/${pathname}`,
+  })),
+}))
+
+vi.mock("@vercel/blob", () => ({
+  del: vercelBlobMock.del,
+  head: vercelBlobMock.head,
+  list: vercelBlobMock.list,
+  put: vercelBlobMock.put,
+}))
 
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
@@ -32,6 +60,14 @@ afterAll(async () => {
   await rm(join(playgroundDir, ".vercel"), { force: true, recursive: true })
   await rm(join(playgroundDir, ".vitehub"), { force: true, recursive: true })
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
+})
+
+afterEach(() => {
+  delete process.env.BLOB_READ_WRITE_TOKEN
+  vercelBlobMock.del.mockClear()
+  vercelBlobMock.head.mockClear()
+  vercelBlobMock.list.mockClear()
+  vercelBlobMock.put.mockClear()
 })
 
 describe("Vite provider outputs", () => {
@@ -89,5 +125,40 @@ describe("Vite provider outputs", () => {
     })
 
     expect(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")).not.toContain("\"r2_buckets\"")
+  })
+
+  it("rehydrates masked Vercel tokens from generated runtime output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-runtime-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: {},
+      clientOutDir: "dist",
+      rootDir,
+    })
+
+    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    const runtimeModulePath = `${pathToFileURL(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs")).href}?t=${Date.now()}`
+    const runtimeModule = await import(runtimeModulePath) as {
+      blob: {
+        put: (pathname: string, body: string) => Promise<unknown>
+      }
+    }
+
+    await runtimeModule.blob.put("notes/generated.txt", "hello")
+
+    expect(vercelBlobMock.put).toHaveBeenCalledWith(
+      "notes/generated.txt",
+      "hello",
+      expect.objectContaining({
+        token: "secret-token",
+      }),
+    )
+
+    const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore")
+    expect(runtimeContents).toContain("createDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env))")
   })
 })

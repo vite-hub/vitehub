@@ -1,7 +1,7 @@
 import { H3, toWebHandler } from "h3"
 
 import { resolveBlobAppFetch, type BlobApp } from "./_app.ts"
-import { setActiveCloudflareEnv, setBlobRuntimeConfig } from "./state.ts"
+import { getActiveCloudflareEnv, setActiveCloudflareEnv, setBlobRuntimeConfig } from "./state.ts"
 
 import type { ResolvedBlobModuleOptions } from "../types.ts"
 
@@ -20,13 +20,36 @@ export function createBlobCloudflareWorker(options: BlobCloudflareWorkerOptions 
 
   return {
     async fetch(request, env, context) {
+      let requestSettled = false
+      const pendingWaitUntil = new Set<Promise<unknown>>()
+      const maybeClearActiveEnv = () => {
+        if (requestSettled && pendingWaitUntil.size === 0 && getActiveCloudflareEnv() === env) {
+          setActiveCloudflareEnv(undefined)
+        }
+      }
+
+      const runtimeContext = typeof context.waitUntil === "function"
+        ? {
+            ...context,
+            waitUntil(promise: Promise<unknown>) {
+              const wrappedPromise = Promise.resolve(promise).finally(() => {
+                pendingWaitUntil.delete(wrappedPromise)
+                maybeClearActiveEnv()
+              })
+              pendingWaitUntil.add(wrappedPromise)
+              context.waitUntil?.(wrappedPromise)
+            },
+          }
+        : context
+
       setBlobRuntimeConfig(options.blob)
       setActiveCloudflareEnv(env)
       try {
-        return await Promise.resolve(appHandler ? appHandler(request, context as never) : defaultHandler(request, context as never))
+        return await Promise.resolve(appHandler ? appHandler(request, runtimeContext as never) : defaultHandler(request, runtimeContext as never))
       }
       finally {
-        setActiveCloudflareEnv(undefined)
+        requestSettled = true
+        maybeClearActiveEnv()
       }
     },
   }
