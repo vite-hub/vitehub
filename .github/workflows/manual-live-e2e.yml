@@ -192,14 +192,16 @@ jobs:
 
           BYPASS_SECRET=$(openssl rand -hex 16)
           echo "::add-mask::$BYPASS_SECRET"
-          BYPASS_SECRET="$BYPASS_SECRET" node <<'EOF'
+          VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" BYPASS_SECRET="$BYPASS_SECRET" node <<'EOF'
           const projectId = process.env.VERCEL_PROJECT_ID
-          const teamId = process.env.VERCEL_ORG_ID
+          const scope = process.env.VERCEL_ORG_ID
           const token = process.env.VERCEL_TOKEN
           const secret = process.env.BYPASS_SECRET
           const url = new URL(`https://api.vercel.com/v1/projects/${projectId}/protection-bypass`)
-          if (teamId)
-            url.searchParams.set('teamId', teamId)
+          if (scope?.startsWith('team_'))
+            url.searchParams.set('teamId', scope)
+          else if (scope)
+            url.searchParams.set('slug', scope)
 
           const response = await fetch(url, {
             body: JSON.stringify({ generate: { secret } }),
