@@ -14,6 +14,8 @@ dynamicallyLoaded = [
   "packages/queue/examples/**/src/**/*.queue.ts",
   "packages/blob/test/helpers/*.ts",
   "packages/blob/test/**/*.test-d.ts",
+  "packages/blob/examples/**/nitro.config.ts",
+  "packages/blob/examples/**/server/**",
   "packages/blob/examples/**/src/server.ts",
   "playground/nitro/nitro.config.ts",
   "playground/nitro/server/**",
