@@ -437,6 +437,42 @@ describe("blob runtime", () => {
     expect(await (await blob.get("notes/nitro.txt"))?.text()).toBe("hello nitro")
   })
 
+  it("does not clear Nitro's global Cloudflare env when request-scoped env is absent", async () => {
+    runtimeConfigMock.blob = {
+      store: {
+        binding: "BLOB",
+        bucketName: "assets",
+        driver: "cloudflare-r2",
+      },
+    }
+
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as unknown as (nitroApp: {
+      fetch: (request: NitroRequestMock) => Promise<Response>
+      hooks: { hook: (name: string, cb: (event?: unknown) => void) => void }
+    }) => void
+
+    const nitroApp = {
+      async fetch(_request: NitroRequestMock) {
+        await blob.put("notes/global-env.txt", "hello global")
+        return Response.json({ ok: true })
+      },
+      hooks: {
+        hook() {},
+      },
+    }
+
+    const env = {
+      BLOB: createMemoryBucket(),
+    }
+    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = env
+
+    plugin(nitroApp)
+    await nitroApp.fetch({ url: "https://example.com/global-env" })
+
+    setActiveCloudflareEnv(env)
+    expect(await (await blob.get("notes/global-env.txt"))?.text()).toBe("hello global")
+  })
+
   it("keeps Cloudflare bindings isolated across overlapping Nitro requests", async () => {
     runtimeConfigMock.blob = {
       store: {

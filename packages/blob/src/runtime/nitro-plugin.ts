@@ -19,7 +19,12 @@ const blobNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin(
   if (originalFetch) {
     nitroApp.fetch = (request: { context?: { cloudflare?: { env?: Record<string, unknown> } } }) => {
       applyRuntimeState()
-      return runWithActiveCloudflareEnv(request?.context?.cloudflare?.env, async () => {
+      const env = request?.context?.cloudflare?.env
+      if (!env) {
+        return originalFetch(request)
+      }
+
+      return runWithActiveCloudflareEnv(env, async () => {
         try {
           return await originalFetch(request)
         }
