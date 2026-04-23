@@ -40,6 +40,21 @@ import {
 
 const vercelBlobMock = vi.hoisted(() => ({
   del: vi.fn(async () => {}),
+  get: vi.fn(async (pathname: string) => ({
+    blob: {
+      cacheControl: "public, max-age=0, must-revalidate",
+      contentDisposition: "inline",
+      contentType: "text/plain",
+      etag: "\"etag\"",
+      pathname,
+      size: 5,
+      uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+      url: `https://blob.example/${pathname}`,
+    },
+    headers: new Headers(),
+    statusCode: 200,
+    stream: new Response("value").body,
+  })),
   head: vi.fn(async (pathname: string) => ({
     pathname,
     size: 5,
@@ -61,6 +76,7 @@ const vercelBlobMock = vi.hoisted(() => ({
 
 vi.mock("@vercel/blob", () => ({
   del: vercelBlobMock.del,
+  get: vercelBlobMock.get,
   head: vercelBlobMock.head,
   list: vercelBlobMock.list,
   put: vercelBlobMock.put,
@@ -72,6 +88,7 @@ afterEach(() => {
   setBlobRuntimeConfig(undefined)
   setBlobRuntimeStorage(undefined)
   vercelBlobMock.del.mockClear()
+  vercelBlobMock.get.mockClear()
   vercelBlobMock.head.mockClear()
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()
@@ -246,6 +263,43 @@ describe("blob runtime", () => {
     expect(vercelBlobMock.head).toHaveBeenCalledWith(
       "notes/héllo.txt",
       expect.anything(),
+    )
+  })
+
+  it("uses Vercel Blob private access when the connected store requires it", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    setBlobRuntimeConfig({
+      store: { access: "public", driver: "vercel-blob", token: "********" },
+    })
+    vercelBlobMock.put
+      .mockRejectedValueOnce(new Error("Vercel Blob: Cannot use public access on a private store."))
+      .mockResolvedValueOnce({
+        contentType: "text/plain",
+        pathname: "notes/private.txt",
+        size: 5,
+        uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+        url: "https://store.private.blob.vercel-storage.com/notes/private.txt",
+      })
+    vercelBlobMock.head.mockResolvedValueOnce({
+      pathname: "notes/private.txt",
+      size: 5,
+      uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+      url: "https://store.private.blob.vercel-storage.com/notes/private.txt",
+    })
+
+    await blob.put("notes/private.txt", "value")
+    expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/private.txt", "value", expect.objectContaining({
+      access: "private",
+      token: "secret-token",
+    }))
+
+    expect(await (await blob.get("notes/private.txt"))?.text()).toBe("value")
+    expect(vercelBlobMock.get).toHaveBeenCalledWith(
+      "https://store.private.blob.vercel-storage.com/notes/private.txt",
+      expect.objectContaining({
+        access: "private",
+        token: "secret-token",
+      }),
     )
   })
 

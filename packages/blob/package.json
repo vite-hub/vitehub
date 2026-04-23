@@ -58,7 +58,7 @@
     "h3": "catalog:"
   },
   "peerDependencies": {
-    "@vercel/blob": "^1.1.1",
+    "@vercel/blob": "catalog:",
     "nitro": "^3.0.0-0",
     "vite": "^8.0.0"
   },
@@ -74,7 +74,7 @@
     }
   },
   "devDependencies": {
-    "@vercel/blob": "^1.1.1",
+    "@vercel/blob": "catalog:",
     "@types/node": "catalog:",
     "@vitehub/internal": "workspace:*",
     "nitro": "catalog:",
