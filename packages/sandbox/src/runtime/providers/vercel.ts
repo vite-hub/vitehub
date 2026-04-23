@@ -1,13 +1,19 @@
 import type { SandboxDefinitionOptions, VercelSandboxProviderOptions } from '../../module-types'
 import { readFrameworkEnv } from '../../internal/shared/env'
 import { normalizeVercelSandboxRuntime } from '../../sandbox/providers/vercel-runtime'
+import type { ResolvedVercelSandboxCredentials } from '../../sandbox/providers/shared'
 
 type SandboxOptions = {
   local: SandboxDefinitionOptions
   provider: VercelSandboxProviderOptions
 }
 
-function resolveEnvCredentials() {
+function readConfigCredential(value: string | undefined) {
+  const trimmed = value?.trim()
+  return trimmed || undefined
+}
+
+function resolveEnvCredentials(): Partial<ResolvedVercelSandboxCredentials> {
   const token = readFrameworkEnv(process.env, {
     nitro: ['NITRO_SANDBOX_TOKEN'],
     nuxt: ['NUXT_SANDBOX_TOKEN'],
@@ -27,6 +33,19 @@ function resolveEnvCredentials() {
     plain: ['VERCEL_PROJECT_ID'],
   })
 
+  return {
+    token,
+    teamId,
+    projectId,
+  }
+}
+
+function resolveCredentials(provider: VercelSandboxProviderOptions): ResolvedVercelSandboxCredentials | undefined {
+  const env = resolveEnvCredentials()
+  const token = readConfigCredential(provider.token) || env.token
+  const teamId = readConfigCredential(provider.teamId) || env.teamId
+  const projectId = readConfigCredential(provider.projectId) || env.projectId
+
   if (!token || !teamId || !projectId)
     return undefined
 
@@ -38,14 +57,6 @@ function resolveEnvCredentials() {
 }
 
 export async function resolveSandboxProvider(options: SandboxOptions) {
-  const credentials = options.provider.token && options.provider.teamId && options.provider.projectId
-    ? {
-        token: options.provider.token,
-        teamId: options.provider.teamId,
-        projectId: options.provider.projectId,
-      }
-    : resolveEnvCredentials()
-
   return {
     provider: 'vercel' as const,
     runtime: normalizeVercelSandboxRuntime(options.provider.runtime),
@@ -54,7 +65,7 @@ export async function resolveSandboxProvider(options: SandboxOptions) {
       : (typeof options.provider.timeout === 'number' ? options.provider.timeout : undefined),
     cpu: options.provider.cpu,
     ports: options.provider.ports,
-    credentials,
+    credentials: resolveCredentials(options.provider),
     source: options.provider.source,
     networkPolicy: options.provider.networkPolicy,
   }

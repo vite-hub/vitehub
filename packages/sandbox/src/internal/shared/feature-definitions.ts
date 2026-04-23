@@ -137,6 +137,17 @@ export function createDefinitionRegistryContents(definitions: Pick<ScannedDefini
   ].join('\n')
 }
 
+function normalizeDefinitionFilename(
+  filename: string,
+  subdir: string,
+  srcScan: FeatureSrcScanOptions | undefined,
+) {
+  if (srcScan?.normalizeName && srcScan.filter(filename))
+    return srcScan.normalizeName(filename)
+
+  return normalizeFlatDefinitionName(filename, subdir)
+}
+
 export async function loadFeatureDefinitions(options: {
   feature: string
   scanRoots: string[]
@@ -167,7 +178,9 @@ export async function loadFeatureDefinitions(options: {
 
         const filename = relative(definitionDir, file).split(sep).join('/')
         definitions.push({
-          name: normalizeName(filename),
+          name: basename(scanRoot) === 'src' && options.srcScan
+            ? normalizeDefinitionFilename(filename, options.subdir, options.srcScan)
+            : normalizeName(filename),
           handler: file,
           _meta: {
             filename,

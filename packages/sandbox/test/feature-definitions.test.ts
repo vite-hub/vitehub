@@ -44,6 +44,10 @@ describe("loadFeatureDefinitions", () => {
       join(srcDir, "server/sandboxes/release-notes.sandbox.ts"),
       join(srcDir, "tools/summary.sandbox.ts"),
     ])
+    expect(result.definitions.map(definition => definition.name)).toEqual([
+      "release-notes",
+      "tools/summary",
+    ])
     expect(result.definitions).toHaveLength(2)
   })
 })
