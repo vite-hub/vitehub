@@ -147,6 +147,7 @@ export async function loadFeatureDefinitions(options: {
   const definitions: ScannedDefinition[] = []
   const normalizeName = options.normalizeName || normalizeDefinitionName
   const scannedDirs = new Set<string>()
+  const scannedFiles = new Set<string>()
 
   for (const scanRoot of options.scanRoots) {
     const definitionDirs = basename(scanRoot) === 'src' && options.srcScan
@@ -160,6 +161,10 @@ export async function loadFeatureDefinitions(options: {
 
       const files = await walkDefinitions(definitionDir)
       for (const file of files) {
+        if (scannedFiles.has(file))
+          continue
+        scannedFiles.add(file)
+
         const filename = relative(definitionDir, file).split(sep).join('/')
         definitions.push({
           name: normalizeName(filename),
@@ -184,6 +189,10 @@ export async function loadFeatureDefinitions(options: {
       const filename = relative(scanRoot, file).split(sep).join('/')
       if (srcScan && !srcScan.filter(filename))
         continue
+
+      if (scannedFiles.has(file))
+        continue
+      scannedFiles.add(file)
 
       definitions.push({
         name: srcScan?.normalizeName

@@ -341,8 +341,10 @@ async function waitForCloudflareOutput(
   timeout?: number,
   execution?: { stdout?: string, stderr?: string, code?: number | null },
 ) {
+  const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
+
   if (sandbox.provider !== 'cloudflare')
-    throw error
+    throw createExecOutputFailure(sandbox, outputPath, error, recoveryTimeout, execution)
 
   return await waitForExecOutput(
     sandbox,

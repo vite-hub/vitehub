@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest"
 
 import { executeSandboxDefinition } from "../src/runtime/execute.ts"
+import type { SandboxError } from "../src/sandbox/errors.ts"
 import type { SandboxClient, SandboxExecResult } from "../src/sandbox/types.ts"
 
-function createFakeSandbox(options: { execError?: Error } = {}) {
+function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult } = {}) {
   const files = new Map<string, string>()
   const execCalls: Array<{ cmd: string, args: string[] }> = []
 
@@ -26,6 +27,8 @@ function createFakeSandbox(options: { execError?: Error } = {}) {
       execCalls.push({ cmd, args })
       if (options.execError)
         throw options.execError
+      if (options.execResult)
+        return options.execResult
 
       const outputPath = args.at(-1)
       if (!outputPath)
@@ -109,5 +112,37 @@ describe("executeSandboxDefinition", () => {
         },
       },
     )).rejects.toThrow(execError)
+  })
+
+  it("wraps missing output from completed non-Cloudflare executions with diagnostics", async () => {
+    const { sandbox } = createFakeSandbox({
+      execResult: {
+        ok: false,
+        stdout: "booted",
+        stderr: "runtime command failed",
+        code: 127,
+      },
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+    )).rejects.toMatchObject({
+      name: "SandboxError",
+      code: "SANDBOX_HANDLER_ERROR",
+      provider: "vercel",
+      details: {
+        exitCode: 127,
+        stderrPreview: "runtime command failed",
+        stdoutPreview: "booted",
+      },
+    } satisfies Partial<SandboxError>)
   })
 })

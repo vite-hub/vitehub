@@ -336,7 +336,7 @@ jobs:
             exit 1
           fi
 
-          echo "url=https://vitehub-sandbox-vite.vercel.app" >> "$GITHUB_OUTPUT"
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Resolve Sandbox deployment URL
         id: sandbox_url
