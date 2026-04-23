@@ -14,19 +14,20 @@ function readConfigCredential(value: string | undefined) {
 }
 
 function resolveEnvCredentials(): Partial<ResolvedVercelSandboxCredentials> {
-  const token = readFrameworkEnv(process.env, {
+  const env = typeof process !== 'undefined' ? process.env : {}
+  const token = readFrameworkEnv(env, {
     nitro: ['NITRO_SANDBOX_TOKEN'],
     nuxt: ['NUXT_SANDBOX_TOKEN'],
     vite: ['VITE_SANDBOX_TOKEN'],
     plain: ['VERCEL_TOKEN'],
   })
-  const teamId = readFrameworkEnv(process.env, {
+  const teamId = readFrameworkEnv(env, {
     nitro: ['NITRO_SANDBOX_TEAM_ID'],
     nuxt: ['NUXT_SANDBOX_TEAM_ID'],
     vite: ['VITE_SANDBOX_TEAM_ID'],
     plain: ['VERCEL_TEAM_ID'],
   })
-  const projectId = readFrameworkEnv(process.env, {
+  const projectId = readFrameworkEnv(env, {
     nitro: ['NITRO_SANDBOX_PROJECT_ID'],
     nuxt: ['NUXT_SANDBOX_PROJECT_ID'],
     vite: ['VITE_SANDBOX_PROJECT_ID'],

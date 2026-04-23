@@ -115,11 +115,11 @@ function createCloudflareExecutionSandboxId(name: string, sandboxId?: string) {
   return `vitehub-${name.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}-${hash}`
 }
 
-function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptions, event?: SandboxEvent) {
+export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptions, event?: SandboxEvent) {
   if (provider?.provider)
     return provider.provider
 
-  const envProvider = process.env.SANDBOX_PROVIDER
+  const envProvider = typeof process !== 'undefined' ? process.env?.SANDBOX_PROVIDER : undefined
   if (envProvider === 'cloudflare' || envProvider === 'vercel')
     return envProvider
 
