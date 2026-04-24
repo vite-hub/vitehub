@@ -10,6 +10,7 @@
   "exports": {
     "./env": "./src/env.ts",
     "./arrays": "./src/arrays.ts",
+    "./definition-discovery": "./src/definition-discovery.ts",
     "./hosting": "./src/hosting.ts",
     "./nitro": "./src/nitro.ts",
     "./runtime/app": "./src/runtime/app.ts",
@@ -22,6 +23,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
@@ -30,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

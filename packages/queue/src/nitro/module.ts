@@ -1,12 +1,11 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
-
 import { createImportPath } from "@vitehub/internal/build/paths"
+import { createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-discovery"
 import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { resolve } from "node:path"
 import type { NitroModule, NitroOptions, NitroRuntimeConfig } from "nitro/types"
 
 import { normalizeQueueOptions } from "../config.ts"
-import { createQueueRegistryContents, discoverQueueDefinitions } from "../discovery.ts"
+import { discoverQueueDefinitions } from "../discovery.ts"
 import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../integrations/cloudflare.ts"
 import { generatedDirSegments, writeNitroVercelQueueOutputs } from "../internal/nitro-build.ts"
 import type { DiscoveredQueueDefinition, QueueModuleOptions, ResolvedQueueOptions } from "../types.ts"
@@ -154,20 +153,8 @@ async function writeNitroQueueRuntimeFiles(nitro: { options: { buildDir: string,
     scanDirs: resolveNitroQueueScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
 
-  await mkdir(resolve(registryFile, ".."), { recursive: true })
-  const registryContents = createQueueRegistryContents(registryFile, definitions)
-  const pluginContents = createNitroQueuePluginContents(pluginFile, registryFile)
-  const writeGeneratedFile = async (file: string, contents: string) => {
-    const existing = await readFile(file, "utf8").catch(() => undefined)
-    if (existing === contents) {
-      return
-    }
-
-    await writeFile(file, contents, "utf8")
-  }
-
-  await writeGeneratedFile(registryFile, registryContents)
-  await writeGeneratedFile(pluginFile, pluginContents)
+  await writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions))
+  await writeFileIfChanged(pluginFile, createNitroQueuePluginContents(pluginFile, registryFile))
 
   return {
     definitions,

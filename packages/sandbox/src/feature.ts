@@ -27,7 +27,7 @@ export const sandboxRuntimeDependencies = [
   '@vercel/sandbox',
 ]
 
-const sandboxRuntimeDependencyByProvider = {
+export const sandboxRuntimeDependencyByProvider = {
   cloudflare: '@cloudflare/sandbox',
   vercel: '@vercel/sandbox',
 } as const satisfies Partial<Record<string, string>>
@@ -37,7 +37,7 @@ const sandboxClientExportByProvider = {
   vercel: 'createVercelSandboxClient',
 } as const
 
-function resolveSandboxProviderLoaderTarget(
+export function resolveSandboxProviderLoaderTarget(
   provider: keyof typeof sandboxClientExportByProvider | undefined,
   deps: Record<string, string>,
 ) {
@@ -130,7 +130,7 @@ function createSandboxRegistryContents(
   ].join('\n')
 }
 
-function createSandboxProviderLoaderContents(
+export function createSandboxProviderLoaderContents(
   provider: keyof typeof sandboxClientExportByProvider,
 ) {
   const providerLoaderPath = resolveFeatureRuntimePath(

@@ -10,6 +10,7 @@
     "@vitehub/blob": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
+    "@vitehub/sandbox": "workspace:*",
     "h3": "catalog:",
     "nitro": "catalog:",
     "valibot": "catalog:"

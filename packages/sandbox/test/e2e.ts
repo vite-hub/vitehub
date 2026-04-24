@@ -4,8 +4,8 @@ import { parseArgs } from "node:util"
 import { type FetchOptions, ofetch } from "ofetch"
 
 const providers = ["cloudflare", "vercel"] as const
-const frameworks = ["vite"] as const
-const liveOnlyMessage = "Sandbox e2e requires a deployed app: pnpm --dir packages/sandbox test:e2e --mode live --provider cloudflare|vercel --framework vite --url <url>"
+const frameworks = ["nitro", "vite"] as const
+const liveOnlyMessage = "Sandbox e2e requires a deployed app: pnpm --dir packages/sandbox test:e2e --mode live --provider cloudflare|vercel --framework nitro|vite --url <url>"
 
 type Provider = typeof providers[number]
 type Framework = typeof frameworks[number]
@@ -56,12 +56,12 @@ function assertMatches(actual: Record<string, unknown>, expected: Record<string,
   }
 }
 
-async function runLive(url: string, provider: Provider) {
+async function runLive(url: string, provider: Provider, framework: Framework) {
   const request = (path: string, options?: FetchOptions) => ofetch(path, { baseURL: url, ...options })
-  log(`live ${provider} -> ${url}`)
+  log(`live ${provider} ${framework} -> ${url}`)
 
   await retry(`${provider} probe`, async () => {
-    assertMatches(await request("/api/tests/probe"), expectedProbe[provider])
+    assertMatches(await request("/api/tests/probe?sandbox=1"), expectedProbe[provider])
   })
   await retry(`${provider} sandbox`, async () => {
     assert.deepEqual(await request("/api/sandboxes/release-notes", {
@@ -71,7 +71,7 @@ async function runLive(url: string, provider: Provider) {
     }), expectedReleaseNotes)
   })
 
-  log(`live ${provider} ok`)
+  log(`live ${provider} ${framework} ok`)
 }
 
 const { values } = parseArgs({
@@ -94,4 +94,4 @@ assert.ok(values.url, "--url required for live mode")
 assert.ok(provider && providers.includes(provider), "--provider required for live mode")
 assert.ok(framework && frameworks.includes(framework), "--framework required for live mode")
 
-await runLive(values.url, provider)
+await runLive(values.url, provider, framework)
