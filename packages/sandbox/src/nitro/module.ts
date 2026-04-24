@@ -148,7 +148,7 @@ async function writeNitroSandboxRuntimeFiles(nitro: Nitro) {
   const definitions = discoverNitroSandboxDefinitions(scanDirs)
   const compiler = await createDiscoveredDefinitionCompiler({
     rootDir: nitro.options.rootDir,
-    scanRoots: scanDirs,
+    scanRoots: [nitro.options.rootDir],
     nitroImports: nitro.options.imports,
     featureImports: resolveEffectiveViteHubServerImports(nitro.options as Record<string, any>, 'sandbox'),
   })

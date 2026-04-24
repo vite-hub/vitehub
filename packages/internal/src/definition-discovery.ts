@@ -50,9 +50,25 @@ export function normalizePathDefinitionName(rootDir: string, file: string): stri
 }
 
 export function sanitizeDefinitionFilename(name: string): string {
-  return name
-    .replace(/[^a-z0-9/_:-]/gi, "_")
-    .replace(/[/:]/g, "__")
+  let result = ""
+  for (const char of name) {
+    if (/[a-z0-9-]/i.test(char)) {
+      result += char
+    }
+    else if (char === "_") {
+      result += "__"
+    }
+    else if (char === "/") {
+      result += "_s"
+    }
+    else if (char === ":") {
+      result += "_c"
+    }
+    else {
+      result += `_x${char.charCodeAt(0).toString(16).padStart(4, "0")}`
+    }
+  }
+  return result
 }
 
 export function sortDefinitions<TDefinition extends DiscoveredDefinition>(definitions: Map<string, TDefinition>): TDefinition[] {

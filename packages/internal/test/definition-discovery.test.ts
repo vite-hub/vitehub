@@ -133,16 +133,23 @@ describe("writeFileIfChanged", () => {
 })
 
 describe("sanitizeDefinitionFilename", () => {
-  it("collapses slashes and colons", () => {
-    expect(sanitizeDefinitionFilename("foo/bar")).toBe("foo__bar")
-    expect(sanitizeDefinitionFilename("ns:foo/bar")).toBe("ns__foo__bar")
+  it("escapes slashes and colons distinctly", () => {
+    expect(sanitizeDefinitionFilename("foo/bar")).toBe("foo_sbar")
+    expect(sanitizeDefinitionFilename("ns:foo/bar")).toBe("ns_cfoo_sbar")
   })
 
-  it("replaces other unsafe chars with underscore", () => {
-    expect(sanitizeDefinitionFilename("bad char!")).toBe("bad_char_")
+  it("doubles literal underscores so they never collide with escapes", () => {
+    expect(sanitizeDefinitionFilename("foo_bar")).toBe("foo__bar")
+    expect(sanitizeDefinitionFilename("valid-name_01")).toBe("valid-name__01")
   })
 
-  it("keeps safe chars untouched", () => {
-    expect(sanitizeDefinitionFilename("valid-name_01")).toBe("valid-name_01")
+  it("hex-encodes other unsafe chars", () => {
+    expect(sanitizeDefinitionFilename("bad char!")).toBe("bad_x0020char_x0021")
+  })
+
+  it("is injective across collision-prone inputs", () => {
+    const inputs = ["a/b", "a:b", "a_b", "a b", "a__b", "a_sb"]
+    const outputs = new Set(inputs.map(sanitizeDefinitionFilename))
+    expect(outputs.size).toBe(inputs.length)
   })
 })
