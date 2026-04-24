@@ -16,6 +16,15 @@ export const defaultCloudflareSandboxMigrationTag = 'v1'
 const defaultCloudflareSandboxMaxInstances = 12
 const require = createRequire(import.meta.url)
 
+function resolveCloudflareSandboxEntrypoint() {
+  try {
+    return require.resolve('@cloudflare/sandbox')
+  }
+  catch {
+    return '@cloudflare/sandbox'
+  }
+}
+
 function resolveCloudflareSandboxVersion() {
   try {
     const entry = require.resolve('@cloudflare/sandbox')
@@ -93,6 +102,7 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
 
 function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypointOptions = {}): Plugin {
   const { className } = resolveCloudflareSandboxEntrypointOptions(options)
+  const cloudflareSandboxEntrypoint = resolveCloudflareSandboxEntrypoint()
   const moduleId = 'virtual:vitehub-sandbox-cloudflare-exports'
   const resolvedModuleId = '\0virtual:vitehub-sandbox-cloudflare-exports'
 
@@ -108,6 +118,8 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
     resolveId(id) {
       if (id === moduleId)
         return resolvedModuleId
+      if (id === '@cloudflare/sandbox')
+        return cloudflareSandboxEntrypoint
     },
     load(id) {
       if (id === resolvedModuleId) {

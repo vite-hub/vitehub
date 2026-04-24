@@ -50,9 +50,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      - run: pnpm --filter @vitehub/queue build
-      - run: pnpm --filter @vitehub/kv build
       - run: pnpm --filter @vitehub/blob build
+      - run: pnpm --filter @vitehub/kv build
+      - run: pnpm --filter @vitehub/queue build
+      - run: pnpm --filter @vitehub/sandbox build
 
       - name: Prepare Vercel project
         id: prepare_vercel
@@ -160,6 +161,9 @@ jobs:
       - name: Queue Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
         timeout-minutes: 5
         run: node packages/queue/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
+
+      - name: Sandbox Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
+        run: pnpm --dir packages/sandbox test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "${{ steps.url.outputs.url }}"
 
       - name: Prepare Vercel Blob project
         id: prepare_vercel_blob
@@ -280,108 +284,3 @@ jobs:
           fi
 
           pnpm --dir packages/blob test:e2e --mode live --url "$BLOB_URL"
-
-  sandbox-live-e2e:
-    name: sandbox live e2e
-    needs: setup-cloudflare
-    runs-on: ubuntu-latest
-    environment: Production
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        provider: [cloudflare, vercel]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup
-
-      - run: pnpm --filter @vitehub/sandbox build
-
-      - name: Prepare Vercel Sandbox project
-        id: prepare_vercel_sandbox
-        if: matrix.provider == 'vercel'
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          APP_DIR="packages/sandbox/playground/vite"
-          PROJECT_NAME="vitehub-sandbox-vite"
-
-          npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
-
-          readarray -t VERCEL_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$APP_DIR")
-          VERCEL_ORG_ID="${VERCEL_CONFIG[0]}"
-          VERCEL_PROJECT_ID="${VERCEL_CONFIG[1]}"
-
-          if [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
-            echo "Failed to read linked Vercel project metadata." >&2
-            exit 1
-          fi
-
-          echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
-          echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
-          echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Build Sandbox Vite (cloudflare)
-        if: matrix.provider == 'cloudflare'
-        env:
-          SANDBOX_PROVIDER: cloudflare
-          NITRO_PRESET: cloudflare-module
-        run: pnpm --dir packages/sandbox/playground/vite build
-
-      - name: Build Sandbox Vite (vercel)
-        if: matrix.provider == 'vercel'
-        env:
-          VERCEL_ORG_ID: ${{ steps.prepare_vercel_sandbox.outputs.org_id }}
-          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel_sandbox.outputs.project_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          APP_DIR="${{ steps.prepare_vercel_sandbox.outputs.app_dir }}"
-          npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- sh -c 'SANDBOX_PROVIDER=vercel NITRO_PRESET=vercel pnpm build'
-
-      - name: Deploy Sandbox Cloudflare
-        id: deploy_sandbox_cloudflare
-        if: matrix.provider == 'cloudflare'
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
-        run: |
-          WORKER_NAME="vitehub-sandbox-vite"
-          npx wrangler --cwd "packages/sandbox/playground/vite/.output/server" deploy --config wrangler.json --name "$WORKER_NAME"
-          echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy Sandbox Vercel
-        id: deploy_sandbox_vercel
-        if: matrix.provider == 'vercel'
-        env:
-          VERCEL_ORG_ID: ${{ steps.prepare_vercel_sandbox.outputs.org_id }}
-          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel_sandbox.outputs.project_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          APP_DIR="${{ steps.prepare_vercel_sandbox.outputs.app_dir }}"
-          DEPLOY_OUTPUT=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" 2>&1)
-          echo "$DEPLOY_OUTPUT"
-
-          DEPLOYMENT_URL=$(printf '%s\n' "$DEPLOY_OUTPUT" | awk '/Aliased:/ { print $2 }' | tail -n 1)
-          if [ -z "$DEPLOYMENT_URL" ]; then
-            DEPLOYMENT_URL=$(printf '%s\n' "$DEPLOY_OUTPUT" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
-          fi
-
-          if [ -z "$DEPLOYMENT_URL" ]; then
-            echo "Failed to capture Sandbox Vercel deployment URL." >&2
-            exit 1
-          fi
-
-          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve Sandbox deployment URL
-        id: sandbox_url
-        run: |
-          if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            echo "url=${{ steps.deploy_sandbox_cloudflare.outputs.url }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "url=${{ steps.deploy_sandbox_vercel.outputs.url }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Sandbox Live E2E (${{ matrix.provider }} × vite)
-        run: pnpm --dir packages/sandbox test:e2e --mode live --provider ${{ matrix.provider }} --framework vite --url "${{ steps.sandbox_url.outputs.url }}"

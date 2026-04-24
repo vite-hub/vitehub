@@ -22,7 +22,7 @@ import { loadSandboxRuntimeProvider } from 'virtual:vitehub-sandbox-provider-loa
 import { validateSandboxConfig } from '../sandbox/validation'
 import { executeSandboxDefinition } from './execute'
 import { err, ok } from './result'
-import { getSandboxRuntimeConfig } from './state'
+import { getSandboxRuntimeConfig, getSandboxRuntimeRegistry } from './state'
 import sandboxRegistry from 'virtual:vitehub-sandbox-registry'
 
 type SandboxEvent = {
@@ -282,7 +282,13 @@ const sandboxRuntime = createResourceRuntime({
   },
   getFallbackConfig: getSandboxRuntimeConfig,
   registry: {
-    entries: sandboxRegistry as Record<string, SandboxRegistryEntry | (() => Promise<{ default?: SandboxRegistryEntry }>)>,
+    entries: new Proxy(sandboxRegistry as Record<string, SandboxRegistryEntry | (() => Promise<{ default?: SandboxRegistryEntry }>)>, {
+      get(target, property) {
+        if (typeof property !== 'string')
+          return Reflect.get(target, property)
+        return getSandboxRuntimeRegistry()?.[property] ?? target[property]
+      },
+    }),
     validate(definition) {
       return !!definition.bundle
         && typeof definition.bundle === 'object'

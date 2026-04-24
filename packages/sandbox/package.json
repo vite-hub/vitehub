@@ -34,11 +34,13 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./nitro": "./dist/nitro.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/provider-loader": "./dist/runtime/provider-loader.js",
     "./runtime/providers/cloudflare": "./dist/runtime/providers/cloudflare.js",
     "./runtime/providers/vercel": "./dist/runtime/providers/vercel.js",
+    "./runtime/state": "./dist/runtime/state.js",
     "./sandbox/providers/cloudflare": "./dist/sandbox/providers/cloudflare.js",
     "./sandbox/providers/vercel": "./dist/sandbox/providers/vercel.js",
     "./vite": "./dist/vite.js",
@@ -52,11 +54,12 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "vitest run",
+    "test": "pnpm --filter @vitehub/blob build && pnpm --filter @vitehub/kv build && pnpm --filter @vitehub/queue build && pnpm --filter @vitehub/sandbox build && vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {
     "esbuild": "catalog:",
+    "exsolve": "catalog:",
     "h3": "catalog:",
     "local-pkg": "catalog:",
     "mlly": "catalog:",
@@ -97,6 +100,7 @@
     "publint": "^0.3.15",
     "tsdown": "^0.21.8",
     "tsx": "catalog:",
+    "@vitehub/internal": "workspace:*",
     "vite": "catalog:",
     "vitest": "catalog:"
   }

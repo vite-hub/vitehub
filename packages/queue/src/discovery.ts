@@ -1,76 +1,26 @@
-import { existsSync, readdirSync } from "node:fs"
 import { relative, resolve } from "node:path"
+import {
+  createRuntimeRegistryContents,
+  listMatchingFiles,
+  listSourceFiles,
+  mergeDefinitions,
+  normalizePathDefinitionName,
+  registerDefinition,
+  sortDefinitions,
+} from "@vitehub/internal/definition-discovery"
 
 import type { DiscoveredQueueDefinition } from "./types.ts"
 
 const queueSuffixPattern = /\.queue\.(?:c|m)?[jt]s$/i
-const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
-const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
-const ignoredDirs = new Set(["node_modules", "dist", ".nitro", ".output", ".nuxt", ".vercel", ".git", ".vitehub"])
-
-function listMatchingFiles(root: string, predicate: (name: string) => boolean): string[] {
-  if (!existsSync(root)) {
-    return []
-  }
-
-  const files: string[] = []
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    if (entry.name.startsWith(".")) {
-      continue
-    }
-
-    const absolute = resolve(root, entry.name)
-    if (entry.isDirectory() && !entry.isSymbolicLink()) {
-      if (ignoredDirs.has(entry.name)) {
-        continue
-      }
-      files.push(...listMatchingFiles(absolute, predicate))
-      continue
-    }
-
-    if (entry.isFile() && predicate(entry.name)) {
-      files.push(absolute)
-    }
-  }
-
-  return files.sort()
-}
 
 function listQueueFiles(root: string): string[] {
   return listMatchingFiles(root, name => queueSuffixPattern.test(name))
-}
-
-function listSourceFiles(root: string): string[] {
-  return listMatchingFiles(root, name => sourceFilePattern.test(name) && !declarationFilePattern.test(name))
 }
 
 function normalizeSuffixQueueName(rootDir: string, file: string) {
   const relativePath = relative(rootDir, file).replace(/\\/g, "/")
   const normalized = relativePath.replace(queueSuffixPattern, "")
   return normalized.startsWith("src/") ? normalized.slice("src/".length) : normalized
-}
-
-function normalizeNitroQueueName(rootDir: string, file: string) {
-  const relativePath = relative(rootDir, file).replace(/\\/g, "/")
-  const normalized = relativePath.replace(sourceFilePattern, "").replace(/\/index$/i, "")
-  return normalized
-}
-
-function sortQueueDefinitions(definitions: Map<string, DiscoveredQueueDefinition>) {
-  return [...definitions.values()].sort((left, right) => left.name.localeCompare(right.name))
-}
-
-function registerQueueDefinition(
-  definitions: Map<string, DiscoveredQueueDefinition>,
-  definition: DiscoveredQueueDefinition,
-  sourceLabel: string,
-) {
-  const existing = definitions.get(definition.name)
-  if (existing) {
-    throw new Error(`Duplicate queue name "${definition.name}" from ${sourceLabel}:\n  - ${existing.handler}\n  - ${definition.handler}`)
-  }
-
-  definitions.set(definition.name, definition)
 }
 
 function scanSuffixQueueFiles(rootDir: string): DiscoveredQueueDefinition[] {
@@ -82,10 +32,10 @@ function scanSuffixQueueFiles(rootDir: string): DiscoveredQueueDefinition[] {
       continue
     }
 
-    registerQueueDefinition(definitions, { handler: file, name, source: "vite-suffix" }, "suffix scan")
+    registerDefinition(definitions, { handler: file, name, source: "vite-suffix" }, "queue")
   }
 
-  return sortQueueDefinitions(definitions)
+  return sortDefinitions(definitions)
 }
 
 function scanNitroQueueFiles(scanDirs: string[]): DiscoveredQueueDefinition[] {
@@ -94,39 +44,16 @@ function scanNitroQueueFiles(scanDirs: string[]): DiscoveredQueueDefinition[] {
   for (const scanDir of scanDirs) {
     const queueDir = resolve(scanDir, "queues")
     for (const file of listSourceFiles(queueDir)) {
-      const name = normalizeNitroQueueName(queueDir, file)
+      const name = normalizePathDefinitionName(queueDir, file)
       if (!name) {
         continue
       }
 
-      registerQueueDefinition(definitions, { handler: file, name, source: "nitro-server-queues" }, "Nitro server/queues scan")
+      registerDefinition(definitions, { handler: file, name, source: "nitro-server-queues" }, "queue")
     }
   }
 
-  return sortQueueDefinitions(definitions)
-}
-
-function mergeQueueDefinitions(...sources: Array<DiscoveredQueueDefinition[] | undefined>): DiscoveredQueueDefinition[] {
-  const definitions = new Map<string, DiscoveredQueueDefinition>()
-
-  for (const source of sources) {
-    if (!source) {
-      continue
-    }
-
-    for (const definition of source) {
-      const existing = definitions.get(definition.name)
-      if (existing && existing.handler !== definition.handler) {
-        throw new Error(`Duplicate queue name "${definition.name}" from multiple discovery sources:\n  - ${existing.handler} (${existing.source ?? "unknown"})\n  - ${definition.handler} (${definition.source ?? "unknown"})`)
-      }
-
-      if (!existing) {
-        definitions.set(definition.name, definition)
-      }
-    }
-  }
-
-  return sortQueueDefinitions(definitions)
+  return sortDefinitions(definitions)
 }
 
 export function discoverQueueDefinitions(options:
@@ -138,21 +65,9 @@ export function discoverQueueDefinitions(options:
   }
 
   const roots = new Set([options.rootDir, ...(options.scanDirs || [])].filter(Boolean))
-  return mergeQueueDefinitions(...[...roots].map(root => scanSuffixQueueFiles(root)))
+  return mergeDefinitions("queue", ...[...roots].map(root => scanSuffixQueueFiles(root)))
 }
 
 export function createQueueRegistryContents(registryFile: string, definitions: DiscoveredQueueDefinition[]) {
-  const imports = definitions.map((definition) => {
-    const importPath = relative(resolve(registryFile, ".."), definition.handler).replace(/\\/g, "/")
-    return `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(importPath.startsWith(".") ? importPath : `./${importPath}`)}),`
-  })
-
-  return [
-    "const registry = {",
-    ...imports,
-    "}",
-    "",
-    "export default registry",
-    "",
-  ].join("\n")
+  return createRuntimeRegistryContents(registryFile, definitions)
 }

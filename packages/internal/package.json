@@ -10,6 +10,7 @@
   "exports": {
     "./env": "./src/env.ts",
     "./arrays": "./src/arrays.ts",
+    "./definition-discovery": "./src/definition-discovery.ts",
     "./hosting": "./src/hosting.ts",
     "./nitro": "./src/nitro.ts",
     "./runtime/app": "./src/runtime/app.ts",
