@@ -12,7 +12,13 @@ export interface MissingModuleResult {
 }
 
 function normalizePaths(paths?: string[]) {
-  return paths?.length ? paths : [process.cwd()]
+  if (paths?.length)
+    return paths
+
+  if (typeof process !== 'undefined')
+    return [process.cwd()]
+
+  return []
 }
 
 function tryResolveFromRuntime(id: string): string | false | undefined {
@@ -50,7 +56,12 @@ export function tryResolveModule(id: string, options: { paths?: string[] } = {})
     }
   }
 
-  return { ok: false, error: `Unable to resolve module "${id}" from ${paths.join(', ')}` }
+  return {
+    ok: false,
+    error: paths.length > 0
+      ? `Unable to resolve module "${id}" from ${paths.join(', ')}`
+      : `Unable to resolve module "${id}" without explicit resolution paths`,
+  }
 }
 
 const resolveCache = new Map<string, boolean>()

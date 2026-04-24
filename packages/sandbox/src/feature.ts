@@ -37,6 +37,22 @@ const sandboxClientExportByProvider = {
   vercel: 'createVercelSandboxClient',
 } as const
 
+function resolveSandboxProviderLoaderTarget(
+  provider: keyof typeof sandboxClientExportByProvider | undefined,
+  deps: Record<string, string>,
+) {
+  if (provider)
+    return provider
+
+  const hasCloudflareSandbox = Boolean(deps['@cloudflare/sandbox'])
+  const hasVercelSandbox = Boolean(deps['@vercel/sandbox'])
+
+  if (hasCloudflareSandbox === hasVercelSandbox)
+    return undefined
+
+  return hasCloudflareSandbox ? 'cloudflare' : 'vercel'
+}
+
 function createSandboxProviderLoaderAliases(defaultProviderName: keyof typeof sandboxClientExportByProvider | undefined): Array<{ key: string, value?: string, artifactKey?: string }> {
   const keys = [
     'virtual:vitehub-sandbox-provider-loader',
@@ -204,6 +220,7 @@ export async function createSandboxFeaturePlan(
   }))
   const defaultProvider = getSandboxFeatureProvider(resolvedConfig)
   const defaultProviderName = defaultProvider?.provider
+  const providerLoaderTarget = resolveSandboxProviderLoaderTarget(defaultProviderName, deps)
   const cloudflareOptions = defaultProvider?.provider === 'cloudflare'
     ? {
         binding: typeof defaultProvider.binding === 'string' ? defaultProvider.binding : defaultCloudflareSandboxBinding,
@@ -217,7 +234,7 @@ export async function createSandboxFeaturePlan(
     aliases: [
       { key: 'virtual:vitehub-sandbox-registry', artifactKey: 'sandbox-registry' },
       { key: '#vitehub-sandbox-registry', artifactKey: 'sandbox-registry' },
-      ...createSandboxProviderLoaderAliases(defaultProviderName),
+      ...createSandboxProviderLoaderAliases(providerLoaderTarget),
     ],
     artifacts: [
       ...sandboxArtifacts,
@@ -236,11 +253,11 @@ export async function createSandboxFeaturePlan(
           }))
         },
       },
-      ...(defaultProviderName
+      ...(providerLoaderTarget
         ? [{
             key: 'sandbox-provider-loader',
             filename: 'runtime/sandbox-provider-loader.mjs',
-            getContents: () => createSandboxProviderLoaderContents(defaultProviderName),
+            getContents: () => createSandboxProviderLoaderContents(providerLoaderTarget),
           }]
         : []),
     ],
@@ -260,8 +277,8 @@ export async function createSandboxFeaturePlan(
       nitroTarget.externals.inline = nitroTarget.externals.inline || []
       nitroTarget.externals.traceInclude = nitroTarget.externals.traceInclude || []
 
-      const runtimeDependencies = defaultProviderName
-        ? [sandboxRuntimeDependencyByProvider[defaultProviderName]].filter(Boolean)
+      const runtimeDependencies = providerLoaderTarget
+        ? [sandboxRuntimeDependencyByProvider[providerLoaderTarget]].filter(Boolean)
         : sandboxRuntimeDependencies
 
       for (const dependency of runtimeDependencies) {

@@ -81,4 +81,40 @@ describe("hubSandbox", () => {
       value: expect.stringContaining("runtime/provider-loader"),
     }))
   })
+
+  it("emits a vercel-only provider loader when only the vercel sdk is installed", async () => {
+    const { createSandboxFeaturePlan } = await import("../src/feature.ts")
+    const plan = await createSandboxFeaturePlan({}, [], {
+      aliasPath: "/tmp/vitehub-sandbox/index.js",
+      nitroPlugin: "/tmp/vitehub-sandbox/runtime/nitro-plugin.js",
+    }, {
+      "@vercel/sandbox": "1.0.0",
+    })
+
+    expect(plan.aliases).toContainEqual(expect.objectContaining({
+      key: "virtual:vitehub-sandbox-provider-loader",
+      artifactKey: "sandbox-provider-loader",
+    }))
+    expect(plan.artifacts).toContainEqual(expect.objectContaining({
+      key: "sandbox-provider-loader",
+    }))
+  })
+
+  it("emits a cloudflare-only provider loader when only the cloudflare sdk is installed", async () => {
+    const { createSandboxFeaturePlan } = await import("../src/feature.ts")
+    const plan = await createSandboxFeaturePlan({}, [], {
+      aliasPath: "/tmp/vitehub-sandbox/index.js",
+      nitroPlugin: "/tmp/vitehub-sandbox/runtime/nitro-plugin.js",
+    }, {
+      "@cloudflare/sandbox": "1.0.0",
+    })
+
+    expect(plan.aliases).toContainEqual(expect.objectContaining({
+      key: "virtual:vitehub-sandbox-provider-loader",
+      artifactKey: "sandbox-provider-loader",
+    }))
+    expect(plan.artifacts).toContainEqual(expect.objectContaining({
+      key: "sandbox-provider-loader",
+    }))
+  })
 })
