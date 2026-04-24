@@ -4,7 +4,8 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createSandboxNitroRegistryContents, discoverNitroSandboxDefinitions } from "../src/discovery.ts"
+import { createRuntimeRegistryContents } from "@vitehub/internal/definition-discovery"
+import { discoverNitroSandboxDefinitions } from "../src/discovery.ts"
 
 const tempDirs: string[] = []
 
@@ -50,7 +51,7 @@ describe("discoverNitroSandboxDefinitions", () => {
     const sourceFile = join(rootDir, "definition.mjs")
     await writeFile(sourceFile, "export default null\n", "utf8")
 
-    expect(createSandboxNitroRegistryContents(registryFile, [{
+    expect(createRuntimeRegistryContents(registryFile, [{
       handler: sourceFile,
       name: "release-notes",
     }])).toContain('"release-notes": async () => import(')

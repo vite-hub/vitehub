@@ -1,8 +1,8 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { createImportPath } from '@vitehub/internal/build/paths'
+import { createImportPath, generatedDirSegments } from '@vitehub/internal/build/paths'
 import { resolveRuntimeEntry as resolveEntry } from '@vitehub/internal/nitro'
-import { writeFileIfChanged } from '@vitehub/internal/definition-discovery'
+import { createRuntimeRegistryContents, sanitizeDefinitionFilename, writeFileIfChanged } from '@vitehub/internal/definition-discovery'
 import { readPackageJSON } from 'pkg-types'
 import type { Nitro, NitroModule, NitroRuntimeConfig } from 'nitro/types'
 import {
@@ -14,7 +14,7 @@ import {
   writeCloudflareSandboxDockerfile,
 } from '../cloudflare'
 import { extractSandboxDefinitionOptions } from '../definition-options'
-import { createSandboxNitroRegistryContents, discoverNitroSandboxDefinitions } from '../discovery'
+import { discoverNitroSandboxDefinitions } from '../discovery'
 import { createSandboxProviderLoaderContents, resolveSandboxProviderLoaderTarget, sandboxRuntimeDependencies, sandboxRuntimeDependencyByProvider } from '../feature'
 import { hasInstalledDependency } from '../internal/shared/dependency'
 import { createDiscoveredDefinitionCompiler } from '../internal/shared/discovered-definition'
@@ -74,16 +74,18 @@ async function readWorkspaceDeps(rootDir: string) {
   }
 }
 
+const sandboxGeneratedDir = generatedDirSegments('sandbox')
+
 function createNitroSandboxRegistryPath(rootDir: string, buildDir: string) {
-  return resolve(rootDir, buildDir, '.vitehub', 'sandbox', 'nitro-registry.mjs')
+  return resolve(rootDir, buildDir, ...sandboxGeneratedDir, 'nitro-registry.mjs')
 }
 
 function createNitroSandboxPluginPath(rootDir: string, buildDir: string) {
-  return resolve(rootDir, buildDir, '.vitehub', 'sandbox', 'nitro-plugin.ts')
+  return resolve(rootDir, buildDir, ...sandboxGeneratedDir, 'nitro-plugin.ts')
 }
 
 function createNitroSandboxDefinitionPath(rootDir: string, buildDir: string, name: string) {
-  return resolve(rootDir, buildDir, '.vitehub', 'sandbox', 'definitions', `${name.replace(/[^a-z0-9/_:-]/gi, '_').replace(/\//g, '__').replace(/:/g, '__')}.mjs`)
+  return resolve(rootDir, buildDir, ...sandboxGeneratedDir, 'definitions', `${sanitizeDefinitionFilename(name)}.mjs`)
 }
 
 function createNitroSandboxPluginContents(file: string, registryFile: string) {
@@ -160,7 +162,7 @@ async function writeNitroSandboxRuntimeFiles(nitro: Nitro) {
   }))
 
   registryDefinitions.sort((left, right) => left.name.localeCompare(right.name))
-  await writeFileIfChanged(registryFile, createSandboxNitroRegistryContents(registryFile, registryDefinitions))
+  await writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, registryDefinitions))
   await writeFileIfChanged(pluginFile, createNitroSandboxPluginContents(pluginFile, registryFile))
 
   return {
@@ -185,7 +187,7 @@ function createSandboxProviderLoaderAliases(nitro: Nitro, provider: 'cloudflare'
     }
   }
 
-  const providerLoaderPath = resolve(nitro.options.rootDir, nitro.options.buildDir, '.vitehub', 'sandbox', 'provider-loader.mjs')
+  const providerLoaderPath = resolve(nitro.options.rootDir, nitro.options.buildDir, ...sandboxGeneratedDir, 'provider-loader.mjs')
   return {
     providerLoaderTarget,
     aliases: keys.map(key => ({ key, value: providerLoaderPath })),

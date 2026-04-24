@@ -1,6 +1,5 @@
 import { resolve } from 'node:path'
 import {
-  createRuntimeRegistryContents,
   listSourceFiles,
   normalizePathDefinitionName,
   registerDefinition,
@@ -35,8 +34,4 @@ export function discoverNitroSandboxDefinitions(scanDirs: string[]): DiscoveredS
   }
 
   return sortDefinitions(definitions)
-}
-
-export function createSandboxNitroRegistryContents(registryFile: string, definitions: Array<{ handler: string, name: string }>) {
-  return createRuntimeRegistryContents(registryFile, definitions)
 }

@@ -49,6 +49,12 @@ export function normalizePathDefinitionName(rootDir: string, file: string): stri
   return relativePath.replace(sourceFilePattern, "").replace(/\/index$/i, "")
 }
 
+export function sanitizeDefinitionFilename(name: string): string {
+  return name
+    .replace(/[^a-z0-9/_:-]/gi, "_")
+    .replace(/[/:]/g, "__")
+}
+
 export function sortDefinitions<TDefinition extends DiscoveredDefinition>(definitions: Map<string, TDefinition>): TDefinition[] {
   return [...definitions.values()].sort((left, right) => left.name.localeCompare(right.name))
 }

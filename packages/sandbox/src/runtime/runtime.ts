@@ -8,11 +8,10 @@ import {
 } from '../internal/shared/resource-runtime'
 import type {
   AgentSandboxConfig,
-  SandboxDefinitionBundle,
   SandboxDefinitionOptions,
+  SandboxDefinitionProviderOptions,
   SandboxExecutionOptions,
   SandboxRunResult,
-  SandboxDefinitionProviderOptions,
 } from '../module-types'
 import { getSandboxFeatureProvider } from '../module-types'
 import { SandboxError } from '../sandbox/errors'
@@ -22,7 +21,7 @@ import { loadSandboxRuntimeProvider } from 'virtual:vitehub-sandbox-provider-loa
 import { validateSandboxConfig } from '../sandbox/validation'
 import { executeSandboxDefinition } from './execute'
 import { err, ok } from './result'
-import { getSandboxRuntimeConfig, getSandboxRuntimeRegistry } from './state'
+import { getSandboxRuntimeConfig, getSandboxRuntimeRegistry, type SandboxRegistryEntry } from './state'
 import sandboxRegistry from 'virtual:vitehub-sandbox-registry'
 
 type SandboxEvent = {
@@ -30,11 +29,6 @@ type SandboxEvent = {
     cloudflare?: { env?: Record<string, unknown> }
     _platform?: { cloudflare?: { env?: Record<string, unknown> } }
   }
-}
-
-type SandboxRegistryEntry = {
-  bundle: SandboxDefinitionBundle
-  options?: SandboxDefinitionOptions
 }
 
 type SandboxRuntimeContext = ResourceRuntimeContext<AgentSandboxConfig, SandboxRegistryEntry, SandboxEvent>
