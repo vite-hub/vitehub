@@ -6,9 +6,10 @@ import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg, toGeneratedPath } from "@vitehub/internal/build/paths"
 import { resolveUserAppEntry, toSafeAppName } from "@vitehub/internal/build/user-entry"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
+import { createRuntimeRegistryContents } from "@vitehub/internal/definition-discovery"
 
 import { normalizeQueueOptions } from "../config.ts"
-import { createQueueRegistryContents, discoverQueueDefinitions } from "../discovery.ts"
+import { discoverQueueDefinitions } from "../discovery.ts"
 import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
@@ -99,7 +100,7 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   const definitions = discoverQueueDefinitions({ rootDir })
   const userAppEntry = resolveUserAppEntry(rootDir)
 
-  await writeFile(registryFile, createQueueRegistryContents(registryFile, definitions), "utf8")
+  await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
   const entryFiles: Record<QueueProvider, string> = { cloudflare: "", vercel: "" }
   for (const spec of providerEntrySpecs) {

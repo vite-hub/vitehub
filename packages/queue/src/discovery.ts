@@ -1,6 +1,5 @@
 import { relative, resolve } from "node:path"
 import {
-  createRuntimeRegistryContents,
   listMatchingFiles,
   listSourceFiles,
   mergeDefinitions,
@@ -66,8 +65,4 @@ export function discoverQueueDefinitions(options:
 
   const roots = new Set([options.rootDir, ...(options.scanDirs || [])].filter(Boolean))
   return mergeDefinitions("queue", ...[...roots].map(root => scanSuffixQueueFiles(root)))
-}
-
-export function createQueueRegistryContents(registryFile: string, definitions: DiscoveredQueueDefinition[]) {
-  return createRuntimeRegistryContents(registryFile, definitions)
 }

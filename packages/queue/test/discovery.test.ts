@@ -4,7 +4,8 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createQueueRegistryContents, discoverQueueDefinitions } from "../src/discovery.ts"
+import { createRuntimeRegistryContents } from "@vitehub/internal/definition-discovery"
+import { discoverQueueDefinitions } from "../src/discovery.ts"
 
 const directories: string[] = []
 
@@ -25,10 +26,9 @@ describe("discoverQueueDefinitions", () => {
     const sourceFile = join(rootDir, "welcome.queue.ts")
     await writeFile(sourceFile, "export default null\n", "utf8")
 
-    expect(createQueueRegistryContents(registryFile, [{
+    expect(createRuntimeRegistryContents(registryFile, [{
       handler: sourceFile,
       name: "welcome",
-      source: "vite-suffix",
     }])).toContain('"welcome": async () => import(')
   })
 
