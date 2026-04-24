@@ -13,7 +13,6 @@ export default defineEventHandler((event) => {
       || !!event.context.cloudflare?.env
       || !!event.context._platform?.cloudflare?.env
     const provider = (runtimeConfig.sandbox && typeof runtimeConfig.sandbox === "object" ? runtimeConfig.sandbox.provider : null)
-      || process.env.SANDBOX_PROVIDER
       || (isCloudflare ? "cloudflare" : null)
       || (process.env.VERCEL || process.env.VERCEL_URL ? "vercel" : null)
     const hosting = runtimeConfig.hosting
