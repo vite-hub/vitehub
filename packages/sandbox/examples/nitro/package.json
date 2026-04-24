@@ -1,0 +1,15 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nitro build",
+    "dev": "nitro dev",
+    "preview": "nitro preview"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "^0.8.11",
+    "@vercel/sandbox": "^1.10.0",
+    "@vitehub/sandbox": "workspace:*",
+    "nitro": "catalog:"
+  }
+}

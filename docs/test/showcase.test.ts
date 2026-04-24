@@ -13,6 +13,14 @@ describe("showcase examples", () => {
     expect(docsManifest.examples.length).toBeGreaterThan(0);
   });
 
+  it("includes every generated package section in the package selector manifest", () => {
+    const generatedPackageSections = docsManifest.sections
+      .filter(section => section.source === "package")
+      .map(section => ({ id: section.id, title: section.title, icon: section.icon }));
+
+    expect(docsManifest.packageSections).toEqual(generatedPackageSections);
+  });
+
   it("returns the phase paths for the selected framework and mode", () => {
     const kv = getShowcaseExamples().find(example => example.docsPath === "kv");
     expect(kv).toBeTruthy();
@@ -110,6 +118,16 @@ describe("showcase examples", () => {
     expect(blob?.frameworks.nuxt).toBeFalsy();
   });
 
+  it("loads the sandbox example for vite and nitro only", () => {
+    const sandbox = getShowcaseExamples().find(example => example.docsPath === "sandbox");
+    expect(sandbox).toBeTruthy();
+
+    expect(sandbox?.label).toBe("Sandbox");
+    expect(sandbox?.frameworks.vite).toBeTruthy();
+    expect(sandbox?.frameworks.nitro).toBeTruthy();
+    expect(sandbox?.frameworks.nuxt).toBeFalsy();
+  });
+
   it("returns queue phase paths for supported frameworks", () => {
     const queue = getShowcaseExamples().find(example => example.docsPath === "queue");
     expect(queue).toBeTruthy();
@@ -137,6 +155,22 @@ describe("showcase examples", () => {
     expect(getShowcasePhasePaths(blob!, "nitro", "build")).toEqual({
       configure: "nitro.config.ts",
       run: "server/api/blob.get.ts",
+    });
+  });
+
+  it("returns sandbox phase paths for supported frameworks", () => {
+    const sandbox = getShowcaseExamples().find(example => example.docsPath === "sandbox");
+    expect(sandbox).toBeTruthy();
+
+    expect(getShowcasePhasePaths(sandbox!, "vite", "build")).toEqual({
+      configure: "vite.config.ts",
+      define: "src/release-notes.sandbox.ts",
+      run: "src/server.ts",
+    });
+    expect(getShowcasePhasePaths(sandbox!, "nitro", "build")).toEqual({
+      configure: "nitro.config.ts",
+      define: "server/sandboxes/release-notes.ts",
+      run: "server/api/release-notes.post.ts",
     });
   });
 
@@ -178,6 +212,47 @@ describe("showcase examples", () => {
     ]);
   });
 
+  it("keeps sandbox showcase files ordered by phase and supplemental files", () => {
+    const sandbox = getShowcaseExamples().find(example => example.docsPath === "sandbox");
+    expect(sandbox).toBeTruthy();
+
+    expect(getShowcaseFiles(sandbox!, "vite", "build").slice(0, 4).map(file => file.path)).toEqual([
+      "vite.config.ts",
+      "src/release-notes.sandbox.ts",
+      "src/server.ts",
+      "package.json",
+    ]);
+
+    expect(getShowcaseFiles(sandbox!, "nitro", "build").slice(0, 4).map(file => file.path)).toEqual([
+      "nitro.config.ts",
+      "server/sandboxes/release-notes.ts",
+      "server/api/release-notes.post.ts",
+      "package.json",
+    ]);
+  });
+
+  it("applies sandbox provider overrides without changing showcase ordering", () => {
+    const sandbox = getShowcaseExamples().find(example => example.docsPath === "sandbox");
+    expect(sandbox).toBeTruthy();
+
+    const cloudflareFiles = getShowcaseFiles(sandbox!, "vite", "cloudflare");
+    expect(cloudflareFiles.slice(0, 3).map(file => file.path)).toEqual([
+      "vite.config.ts",
+      "src/release-notes.sandbox.ts",
+      "src/server.ts",
+    ]);
+    expect(cloudflareFiles.find(file => file.path === "vite.config.ts")?.code).toContain("provider: 'cloudflare'");
+
+    const vercelFiles = getShowcaseFiles(sandbox!, "nitro", "vercel");
+    expect(vercelFiles.slice(0, 3).map(file => file.path)).toEqual([
+      "nitro.config.ts",
+      "server/sandboxes/release-notes.ts",
+      "server/api/release-notes.post.ts",
+    ]);
+    expect(vercelFiles.find(file => file.path === "nitro.config.ts")?.code).toContain("provider: 'vercel'");
+    expect(vercelFiles.find(file => file.path === "env.example")?.code).toContain("VERCEL_TOKEN=<vercel-token>");
+  });
+
   it("includes a providers overview page in the docs manifest", () => {
     const providers = docsManifest.sections.find(section => section.id === "providers");
 
@@ -191,6 +266,8 @@ describe("showcase examples", () => {
     expect(getDocsPage("blob", "providers/vercel")).toBeTruthy();
     expect(getDocsPage("queue", "providers/cloudflare")).toBeTruthy();
     expect(getDocsPage("queue", "providers/vercel")).toBeTruthy();
+    expect(getDocsPage("sandbox", "providers/cloudflare")?.group).toBe("Providers");
+    expect(getDocsPage("sandbox", "providers/vercel")?.group).toBe("Providers");
 
     const gettingStarted = readFileSync(resolve(import.meta.dirname, "../content/docs/getting-started/index.md"), "utf8");
     const cloudflare = readFileSync(resolve(import.meta.dirname, "../content/docs/providers/cloudflare.md"), "utf8");

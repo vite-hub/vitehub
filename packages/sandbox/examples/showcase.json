@@ -1,0 +1,73 @@
+{
+  "label": "Sandbox",
+  "docsPath": "sandbox",
+  "icon": "i-lucide-terminal-square",
+  "order": 3,
+  "defaultPhase": "define",
+  "providers": [
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  sandbox: {\n    provider: 'cloudflare',\n  },"
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "darkInvert": true,
+      "configOverride": "  sandbox: {\n    provider: 'vercel',\n  },",
+      "envOverride": "VERCEL_TOKEN=<vercel-token>\nVERCEL_TEAM_ID=<vercel-team-id>\nVERCEL_PROJECT_ID=<vercel-project-id>"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/release-notes.sandbox.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/release-notes.sandbox.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nitro": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/sandboxes/release-notes.ts",
+            "run": "server/api/release-notes.post.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/sandboxes/release-notes.ts",
+            "run": "server/api/release-notes.post.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}

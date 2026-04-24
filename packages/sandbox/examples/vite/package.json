@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "^0.8.11",
+    "@vercel/sandbox": "^1.10.0",
+    "@vitehub/sandbox": "workspace:*",
+    "h3": "catalog:",
+    "vite": "catalog:"
+  }
+}
