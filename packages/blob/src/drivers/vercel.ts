@@ -12,6 +12,8 @@ import type {
 
 type VercelPutBlobResult = {
   contentType?: string
+  downloadUrl?: string
+  etag?: string
   pathname: string
   size?: number
   uploadedAt?: Date
@@ -29,11 +31,29 @@ function getContentType(pathname: string): string | undefined {
   return pathname.endsWith(".json") ? "application/json; charset=utf-8" : undefined
 }
 
+function getAccessFromUrl(url: string | undefined): "private" | "public" | undefined {
+  if (!url) {
+    return
+  }
+
+  if (url.includes(".private.blob.vercel-storage.com")) {
+    return "private"
+  }
+
+  if (url.includes(".public.blob.vercel-storage.com")) {
+    return "public"
+  }
+}
+
+function shouldRetryPrivate(error: unknown): boolean {
+  return error instanceof Error && /private store|public access/i.test(error.message)
+}
+
 function mapVercelBlobToBlob(blob: VercelPutBlobResult): BlobObject {
   return {
     contentType: blob.contentType || getContentType(blob.pathname),
     customMetadata: {},
-    httpEtag: undefined,
+    httpEtag: blob.etag,
     httpMetadata: {},
     pathname: blob.pathname,
     size: blob.size,
@@ -66,8 +86,13 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
         return null
       }
 
-      const response = await fetch(current.url)
-      return response.ok ? response.blob() : null
+      const { get } = await import("@vercel/blob")
+      const result = await get(current.url, {
+        access: getAccessFromUrl(current.url) || options.access,
+        token: options.token,
+      })
+
+      return result?.statusCode === 200 ? await new Response(result.stream).blob() : null
     },
     async getArrayBuffer(pathname) {
       const current = await this.head(pathname)
@@ -75,8 +100,13 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
         return null
       }
 
-      const response = await fetch(current.url)
-      return response.ok ? await response.arrayBuffer() : null
+      const { get } = await import("@vercel/blob")
+      const result = await get(current.url, {
+        access: getAccessFromUrl(current.url) || options.access,
+        token: options.token,
+      })
+
+      return result?.statusCode === 200 ? await new Response(result.stream).arrayBuffer() : null
     },
     async head(pathname) {
       const { head } = await import("@vercel/blob")
@@ -106,16 +136,29 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      if ((putOptions.access || options.access) === "private") {
-        throw new Error("Private access is not yet supported for Vercel Blob.")
-      }
-
       const { put } = await import("@vercel/blob")
-      const result = await put(pathname, body as any, {
-        access: "public",
+      const access = putOptions.access || options.access
+      const putInput = {
+        access,
+        addRandomSuffix: false,
         contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
         token: options.token,
-      })
+      } as const
+
+      let result: unknown
+      try {
+        result = await put(pathname, body as any, putInput)
+      }
+      catch (error) {
+        if (access !== "public" || !shouldRetryPrivate(error)) {
+          throw error
+        }
+
+        result = await put(pathname, body as any, {
+          ...putInput,
+          access: "private",
+        })
+      }
 
       return mapVercelBlobToBlob(result as VercelPutBlobResult)
     },

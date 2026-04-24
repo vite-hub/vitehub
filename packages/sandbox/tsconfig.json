@@ -1,0 +1,26 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "#vitehub-sandbox-provider-loader": ["./src/runtime/provider-loader.ts"],
+      "#vitehub-sandbox-registry": ["./src/runtime/empty-registry.ts"]
+    },
+    "rootDir": "."
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "test/**/*.ts",
+    "test/**/*.test-d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "examples",
+    "playground",
+    "docs",
+    "node_modules"
+  ]
+}

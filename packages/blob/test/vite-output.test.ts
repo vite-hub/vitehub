@@ -15,6 +15,21 @@ const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const tempDirs: string[] = []
 const vercelBlobMock = vi.hoisted(() => ({
   del: vi.fn(async () => {}),
+  get: vi.fn(async (pathname: string) => ({
+    blob: {
+      cacheControl: "public, max-age=0, must-revalidate",
+      contentDisposition: "inline",
+      contentType: "text/plain",
+      etag: "\"etag\"",
+      pathname,
+      size: 5,
+      uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+      url: `https://blob.example/${pathname}`,
+    },
+    headers: new Headers(),
+    statusCode: 200,
+    stream: new Response("value").body,
+  })),
   head: vi.fn(async (pathname: string) => ({
     pathname,
     size: 5,
@@ -36,6 +51,7 @@ const vercelBlobMock = vi.hoisted(() => ({
 
 vi.mock("@vercel/blob", () => ({
   del: vercelBlobMock.del,
+  get: vercelBlobMock.get,
   head: vercelBlobMock.head,
   list: vercelBlobMock.list,
   put: vercelBlobMock.put,
@@ -65,6 +81,7 @@ afterAll(async () => {
 afterEach(() => {
   delete process.env.BLOB_READ_WRITE_TOKEN
   vercelBlobMock.del.mockClear()
+  vercelBlobMock.get.mockClear()
   vercelBlobMock.head.mockClear()
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()

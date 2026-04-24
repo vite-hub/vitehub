@@ -61,7 +61,7 @@ If you omit explicit Blob config, Vercel hosting still resolves `vercel-blob` au
 
 ## Access model
 
-ViteHub currently documents and supports the public-write Vercel Blob path. `blob.put(..., { access: 'private' })` is not yet supported by the current driver and throws.
+ViteHub supports public and private Vercel Blob stores with `@vercel/blob` 2.3 or newer. Public stores can serve Blob URLs directly. Private stores use the Vercel Blob SDK for reads so `blob.get()` and `blob.serve()` can stream content through your app with `BLOB_READ_WRITE_TOKEN`.
 
 Blob still preserves the portable API surface:
 
