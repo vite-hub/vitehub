@@ -1,6 +1,7 @@
 import { defu } from "defu"
 
 import { readEnv, trimmed } from "@vitehub/internal/env"
+import { isPlainObject } from "@vitehub/internal/object"
 
 import type {
   BlobModuleOptions,
@@ -20,10 +21,6 @@ export interface BlobResolutionInput {
 }
 
 export const MASKED_BLOB_RUNTIME_VALUE = "********"
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
 
 function resolveFsStore(
   config: Partial<FsBlobStoreConfig> = {},
@@ -111,17 +108,12 @@ export function normalizeBlobOptions(
 }
 
 export function warnVercelBlobFallback(
-  target: { logger?: { error?: (message: string) => void } },
+  target: { logger: { error: (message: string) => void } },
   config: ResolvedBlobModuleOptions | undefined,
   hosting?: string,
 ): void {
-  if (!config || !hosting?.includes("vercel") || config.store.driver !== "fs") {
-    return
-  }
-
-  target.logger?.error?.(
-    "Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.",
-  )
+  if (!config || !hosting?.includes("vercel") || config.store.driver !== "fs") return
+  target.logger.error("Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.")
 }
 
 export function isMaskedBlobRuntimeValue(value: string | undefined): boolean {

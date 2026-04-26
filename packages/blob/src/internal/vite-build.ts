@@ -1,5 +1,5 @@
 import { mkdir, rm, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { resolve } from "pathe"
 
 import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
 import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"

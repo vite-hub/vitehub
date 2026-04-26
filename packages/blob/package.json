@@ -48,14 +48,15 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/blob build && pnpm --filter @vitehub/kv build && pnpm --filter @vitehub/queue build && vitest run",
+    "test": "vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {
     "defu": "catalog:",
     "esbuild": "^0.27.7",
     "exsolve": "catalog:",
-    "h3": "catalog:"
+    "h3": "catalog:",
+    "pathe": "catalog:"
   },
   "peerDependencies": {
     "@vercel/blob": "catalog:",
