@@ -153,7 +153,7 @@ Nuxt registers `@vitehub/kv/nuxt`, which installs the Nitro module and forwards 
 
 ## Start Here
 
-Start with [Quickstart](./quickstart) for a complete local setup. Use [When to use KV](./when-to-use) when you are deciding between KV, Blob, Queue, or a database.
+Start with [Quickstart](./quickstart) for a complete local setup. Use the [primitive comparison](../compare) when you are deciding between KV, Blob, Queue, Sandbox, or a database.
 
 ## Next Steps
 
