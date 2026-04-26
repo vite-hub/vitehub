@@ -1,9 +1,10 @@
-import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS } from '../internal/shared/cloudflare-retry'
+import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import {
   createResourceRuntime,
   type ProviderPort,
   type ResourceRuntimeContext,
 } from '../internal/shared/resource-runtime'
+import { sleep } from '../internal/shared/utils'
 import { SandboxError } from '../sandbox/errors'
 import { detectSandbox, isSandboxAvailable } from '../sandbox/providers/shared'
 import { loadSandboxRuntimeProvider } from 'virtual:vitehub-sandbox-provider-loader'
@@ -36,22 +37,13 @@ type SandboxRuntimeContext = ResourceRuntimeContext<AgentSandboxConfig, SandboxR
 function isRetriableCloudflareSandboxError(error: unknown) {
   const sandboxError = error instanceof SandboxError ? error : undefined
   const metadata = readSandboxErrorMetadata(error)
-  const messages = [
-    error instanceof Error ? error.message : String(error),
-    error instanceof Error && error.cause instanceof Error ? error.cause.message : '',
-    sandboxError?.cause instanceof Error ? sandboxError.cause.message : '',
-    metadata?.cause instanceof Error ? metadata.cause.message : '',
-  ].filter(Boolean).join('\n')
 
   const provider = sandboxError?.provider || metadata?.provider
   if (provider && provider !== 'cloudflare')
     return false
 
-  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(messages)
-}
-
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
+  const extraMessage = metadata?.cause instanceof Error ? metadata.cause.message : ''
+  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error, extraMessage))
 }
 
 export async function createSandboxWithConfig(

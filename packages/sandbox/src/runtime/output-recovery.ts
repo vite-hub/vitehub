@@ -1,4 +1,5 @@
-import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE } from '../internal/shared/cloudflare-retry'
+import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
+import { sleep } from '../internal/shared/utils'
 import { SandboxError } from '../sandbox/errors'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
@@ -11,10 +12,6 @@ const EXEC_OUTPUT_RECOVERY_POLL_MS = 1_000
 const EXEC_OUTPUT_PREVIEW_LENGTH = 500
 
 type ExecutionMeta = { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }
-
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error)
@@ -39,11 +36,6 @@ function getErrorMessage(error: unknown) {
 
 function isRecoverableCloudflareExecError(error: unknown) {
   const sandboxError = error instanceof SandboxError ? error : undefined
-  const messages = [
-    error instanceof Error ? error.message : String(error),
-    error instanceof Error && error.cause instanceof Error ? error.cause.message : '',
-    sandboxError?.cause instanceof Error ? sandboxError.cause.message : '',
-  ].filter(Boolean).join('\n')
 
   if (sandboxError?.provider && sandboxError.provider !== 'cloudflare')
     return false
@@ -51,7 +43,7 @@ function isRecoverableCloudflareExecError(error: unknown) {
   if (sandboxError?.code === 'TIMEOUT' || sandboxError?.code === 'SANDBOX_TRANSPORT_ERROR')
     return true
 
-  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(messages)
+  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error))
 }
 
 export function createHandlerError(message: string, provider: string, details?: Record<string, unknown>) {
