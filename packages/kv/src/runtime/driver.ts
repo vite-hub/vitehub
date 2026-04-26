@@ -1,9 +1,25 @@
-import type { Driver, GetKeysOptions, TransactionOptions } from "unstorage"
+import type { Driver } from "unstorage"
 
 import type { ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
 import { resolveRuntimeKVOptions } from "./upstash.ts"
 
 type DriverFactory = (options: object) => Driver
+type AnyRecord = Record<PropertyKey, unknown>
+
+const lazyDriverMethods = new Set<PropertyKey>([
+  "clear",
+  "getItem",
+  "getKeys",
+  "hasItem",
+  "removeItem",
+  "setItem",
+])
+
+const lazyOptionalDriverMethods: Record<ResolvedKVStoreConfig["driver"], Set<PropertyKey>> = {
+  "cloudflare-kv-binding": new Set(),
+  "fs-lite": new Set(["getItemRaw", "getMeta", "setItemRaw"]),
+  "upstash": new Set(["getItems"]),
+}
 
 const driverLoaders = {
   "cloudflare-kv-binding": () => import("unstorage/drivers/cloudflare-kv-binding"),
@@ -11,83 +27,37 @@ const driverLoaders = {
   "upstash": () => import("unstorage/drivers/upstash"),
 } satisfies Record<ResolvedKVStoreConfig["driver"], () => Promise<{ default: DriverFactory }>>
 
-async function loadDriverFactory(driver: ResolvedKVStoreConfig["driver"]) {
-  const module = await driverLoaders[driver]()
-  return module.default
-}
-
-async function createKVRuntimeDriver(
-  config: ResolvedKVStoreConfig,
-): Promise<Driver> {
-  const createDriver = await loadDriverFactory(config.driver)
-  return createDriver(config)
-}
-
-export function createLazyKVRuntimeDriver(
-  config: ResolvedKVModuleOptions,
-): Driver {
+export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions): Driver {
   let driverPromise: Promise<Driver> | undefined
 
-  const resolveDriver = () => driverPromise ||= (async () => {
-    const resolved = resolveRuntimeKVOptions(config)
-    if (!resolved) {
-      throw new Error("KV runtime is disabled.")
-    }
-
-    return createKVRuntimeDriver(resolved.store)
+  const resolve = () => driverPromise ||= (async () => {
+    const runtime = resolveRuntimeKVOptions(config)
+    if (!runtime) throw new Error("KV runtime is disabled.")
+    const { default: factory } = await driverLoaders[runtime.store.driver]()
+    return factory(runtime.store)
   })()
 
-  return {
-    name: `lazy:${config.store.driver}`,
-    options: config.store,
-    hasItem: async (key: string, options: TransactionOptions = {}) => {
-      return (await resolveDriver()).hasItem(key, options)
-    },
-    getItem: async (key: string, options: TransactionOptions = {}) => {
-      return (await resolveDriver()).getItem(key, options)
-    },
-    getItems: async (items, commonOptions = {}) => {
-      const driver = await resolveDriver()
-      return driver.getItems?.(items, commonOptions) ?? []
-    },
-    getItemRaw: async (key: string, options: TransactionOptions = {}) => {
-      const driver = await resolveDriver()
-      return driver.getItemRaw?.(key, options) ?? null
-    },
-    setItem: async (key: string, value: string, options: TransactionOptions = {}) => {
-      const driver = await resolveDriver()
-      return driver.setItem?.(key, value, options)
-    },
-    setItems: async (items, commonOptions = {}) => {
-      const driver = await resolveDriver()
-      return driver.setItems?.(items, commonOptions)
-    },
-    setItemRaw: async (key: string, value: unknown, options: TransactionOptions = {}) => {
-      const driver = await resolveDriver()
-      return driver.setItemRaw?.(key, value, options)
-    },
-    removeItem: async (key: string, options: TransactionOptions = {}) => {
-      const driver = await resolveDriver()
-      return driver.removeItem?.(key, options)
-    },
-    getMeta: async (key: string, options: TransactionOptions = {}) => {
-      const driver = await resolveDriver()
-      return driver.getMeta?.(key, options) ?? null
-    },
-    getKeys: async (base: string, options: GetKeysOptions = {}) => {
-      return (await resolveDriver()).getKeys(base, options)
-    },
-    clear: async (base: string, options: TransactionOptions = {}) => {
-      const driver = await resolveDriver()
-      return driver.clear?.(base, options)
-    },
-    dispose: async () => {
-      if (!driverPromise) {
-        return
-      }
+  const target = { name: `lazy:${config.store.driver}`, options: config.store } as AnyRecord
 
-      const driver = await driverPromise
-      return driver.dispose?.()
+  return new Proxy(target as unknown as Driver, {
+    get(t, prop) {
+      const own = (t as unknown as AnyRecord)[prop]
+      if (own !== undefined) return own
+      if (prop === "dispose") {
+        return async () => {
+          if (!driverPromise) return
+          const driver = await driverPromise as unknown as AnyRecord
+          const fn = driver.dispose as ((this: unknown) => unknown) | undefined
+          return fn?.call(driver)
+        }
+      }
+      const optionalMethods = lazyOptionalDriverMethods[config.store.driver]
+      if (!lazyDriverMethods.has(prop) && !optionalMethods.has(prop)) return undefined
+      return async (...args: unknown[]) => {
+        const driver = await resolve() as unknown as AnyRecord
+        const method = driver[prop] as ((this: unknown, ...args: unknown[]) => unknown) | undefined
+        return method?.apply(driver, args)
+      }
     },
-  }
+  })
 }

@@ -1,6 +1,7 @@
 import { defu } from "defu"
 
 import { readEnv, trimmed } from "@vitehub/internal/env"
+import { isPlainObject } from "@vitehub/internal/object"
 import { hasUpstashEnv, resolveUpstashStore } from "./integrations/upstash.ts"
 
 import type {
@@ -16,10 +17,6 @@ import type {
 export interface KVResolutionInput {
   env?: Record<string, string | undefined>
   hosting?: string
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
 function resolveFsLiteStore(config: Partial<FsLiteKVStoreConfig> = {}): ResolvedFsLiteKVStoreConfig {
@@ -67,12 +64,12 @@ export function normalizeKVOptions(
 }
 
 export function warnVercelKVFallback(
-  target: { logger?: { error?: (message: string) => void } },
+  target: { logger: { error: (message: string) => void } },
   config: ResolvedKVModuleOptions | undefined,
   hosting?: string,
 ): void {
   if (!config || !hosting?.includes("vercel") || config.store.driver !== "fs-lite") return
-  target.logger?.error?.(
+  target.logger.error(
     "Vercel hosting requires Upstash-backed KV. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN`.",
   )
 }
