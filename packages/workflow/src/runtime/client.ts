@@ -46,6 +46,7 @@ function resolveWaitUntil(event: unknown): ((promise: Promise<unknown>) => void)
       }
     }
     req?: {
+      waitUntil?: (promise: Promise<unknown>) => void
       runtime?: {
         cloudflare?: {
           context?: { waitUntil?: (promise: Promise<unknown>) => void }
@@ -64,6 +65,7 @@ function resolveWaitUntil(event: unknown): ((promise: Promise<unknown>) => void)
     || bindWaitUntil(target?.context?.cloudflare?.context)
     || bindWaitUntil(target?.context?._platform?.cloudflare)
     || bindWaitUntil(target?.context?._platform?.cloudflare?.context)
+    || bindWaitUntil(target?.req)
     || bindWaitUntil(target?.req?.runtime?.cloudflare)
     || bindWaitUntil(target?.req?.runtime?.cloudflare?.context)
 }
