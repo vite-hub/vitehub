@@ -147,7 +147,7 @@ The sandbox name comes from the path under `server/sandboxes`, without the file 
 
 ## Start here
 
-Start with [Quickstart](./quickstart) for the smallest complete setup. Use [When to use Sandbox](./when-to-use) when you are deciding between inline request code, Queue, cron, and Sandbox.
+Start with [Quickstart](./quickstart) for the smallest complete setup. Use the [primitive comparison](../compare) when you are deciding between Sandbox, Queue, inline request code, and other ViteHub primitives.
 
 ## Next steps
 

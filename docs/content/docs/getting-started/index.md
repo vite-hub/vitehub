@@ -73,6 +73,13 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
 ::u-page-grid{class="pb-2"}
   :::u-page-card
   ---
+  title: Compare primitives
+  description: Choose between KV, Blob, Queue, Sandbox, inline work, and a database.
+  to: ../compare
+  ---
+  :::
+  :::u-page-card
+  ---
   title: KV overview
   description: Understand what the KV package provides and how it resolves drivers.
   to: ../kv

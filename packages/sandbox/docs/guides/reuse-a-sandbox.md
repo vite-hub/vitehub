@@ -84,9 +84,3 @@ Before using a stable sandbox ID, confirm:
 - concurrent calls with the same ID will not corrupt the work
 - cleanup is handled by the provider lifecycle options
 - the route still handles `result.isErr()`
-
-## Related pages
-
-- [Cloudflare](../providers/cloudflare)
-- [Usage](../usage)
-- [Runtime API](../runtime-api)

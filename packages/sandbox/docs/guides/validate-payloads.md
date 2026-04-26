@@ -124,9 +124,3 @@ export default defineEventHandler(async (event) => {
 })
 ```
 ::
-
-## Related pages
-
-- [Run a sandbox](./run-a-sandbox)
-- [Runtime API](../runtime-api)
-- [Troubleshooting](../troubleshooting)
