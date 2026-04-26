@@ -1,4 +1,4 @@
-import { normalizeHosting } from "@vitehub/internal/hosting"
+import { isPlainObject } from "@vitehub/internal/object"
 
 import type { QueueModuleOptions, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
 
@@ -8,8 +8,8 @@ interface QueueResolutionInput {
 
 const knownProviders = new Set(["cloudflare", "vercel"])
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+function normalizeHosting(hosting: string | undefined): string {
+  return hosting?.trim().toLowerCase().replaceAll("_", "-") || ""
 }
 
 function cloneSharedOptions(input: QueueSharedOptions | undefined) {
