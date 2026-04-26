@@ -103,4 +103,13 @@ describe("blob config", () => {
       "Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.",
     )
   })
+
+  it("does not require a logger for the Vercel fs fallback warning", () => {
+    expect(() => warnVercelBlobFallback({}, {
+      store: {
+        base: ".data/blob",
+        driver: "fs",
+      },
+    }, "vercel")).not.toThrow()
+  })
 })

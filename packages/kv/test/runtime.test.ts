@@ -17,18 +17,20 @@ const mountedDrivers: {
 
 let storage = createStorage({ driver: memoryDriver() })
 let cloudflareDriver: Driver | undefined
+let fsLiteDriver: Driver | undefined
 
 const mockedUseStorage = (base = "") => (base ? prefixStorage(storage, base) : storage)
 
 function resetStorage() {
   storage = createStorage({ driver: memoryDriver() })
   cloudflareDriver = undefined
+  fsLiteDriver = undefined
   delete mountedDrivers.cloudflare
   delete mountedDrivers.fsLite
   delete mountedDrivers.upstash
 }
 
-function createInspectableDriver(name: "fsLite" | "upstash") {
+function createInspectableDriver(name: "upstash") {
   return (options: Record<string, unknown> = {}) => {
     mountedDrivers[name] = options
     return memoryDriver()
@@ -78,7 +80,10 @@ vi.mock("nitro/storage", () => ({
 }))
 
 vi.mock("unstorage/drivers/fs-lite", () => ({
-  default: vi.fn(createInspectableDriver("fsLite")),
+  default: vi.fn((options: Record<string, unknown> = {}) => {
+    mountedDrivers.fsLite = options
+    return fsLiteDriver || memoryDriver()
+  }),
 }))
 
 vi.mock("unstorage/drivers/upstash", () => ({
@@ -289,6 +294,37 @@ describe("kv runtime", () => {
     expect(driver.setItems).toBeUndefined()
     expect(driver.removeItems).toBeUndefined()
     expect(driver.watch).toBeUndefined()
+  })
+
+  it("exposes optional methods supported by the configured driver", async () => {
+    const metadata = {
+      mtime: new Date("2026-01-01T00:00:00.000Z"),
+      size: 5,
+    }
+    fsLiteDriver = {
+      ...createDriverWithoutOptionalMethods(),
+      getItemRaw: vi.fn(async () => Buffer.from("hello")),
+      getMeta: vi.fn(async () => metadata),
+      setItemRaw: vi.fn(async () => {}),
+    } as Driver
+
+    const { createLazyKVRuntimeDriver } = await import("../src/runtime/driver.ts")
+    const driver = createLazyKVRuntimeDriver({
+      store: {
+        base: ".data/kv",
+        driver: "fs-lite",
+      },
+    }) as Driver & Record<string, unknown>
+
+    expect(driver.getItemRaw).toEqual(expect.any(Function))
+    expect(driver.getMeta).toEqual(expect.any(Function))
+    expect(driver.setItemRaw).toEqual(expect.any(Function))
+    expect(driver.getItems).toBeUndefined()
+    expect(driver.watch).toBeUndefined()
+
+    await expect(driver.getItemRaw?.("greeting", {})).resolves.toEqual(Buffer.from("hello"))
+    await expect(driver.getMeta?.("greeting", {})).resolves.toBe(metadata)
+    await expect(driver.setItemRaw?.("greeting", Buffer.from("hello"), {})).resolves.toBeUndefined()
   })
 
   it("fails clearly when masked Upstash values have no runtime env vars on first KV access", async () => {

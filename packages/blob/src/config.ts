@@ -108,12 +108,12 @@ export function normalizeBlobOptions(
 }
 
 export function warnVercelBlobFallback(
-  target: { logger: { error: (message: string) => void } },
+  target: { logger?: { error?: (message: string) => void } },
   config: ResolvedBlobModuleOptions | undefined,
   hosting?: string,
 ): void {
   if (!config || !hosting?.includes("vercel") || config.store.driver !== "fs") return
-  target.logger.error("Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.")
+  target.logger?.error?.("Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.")
 }
 
 export function isMaskedBlobRuntimeValue(value: string | undefined): boolean {

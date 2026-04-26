@@ -15,6 +15,12 @@ const lazyDriverMethods = new Set<PropertyKey>([
   "setItem",
 ])
 
+const lazyOptionalDriverMethods: Record<ResolvedKVStoreConfig["driver"], Set<PropertyKey>> = {
+  "cloudflare-kv-binding": new Set(),
+  "fs-lite": new Set(["getItemRaw", "getMeta", "setItemRaw"]),
+  "upstash": new Set(["getItems"]),
+}
+
 const driverLoaders = {
   "cloudflare-kv-binding": () => import("unstorage/drivers/cloudflare-kv-binding"),
   "fs-lite": () => import("unstorage/drivers/fs-lite"),
@@ -45,7 +51,8 @@ export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions): Driv
           return fn?.call(driver)
         }
       }
-      if (!lazyDriverMethods.has(prop)) return undefined
+      const optionalMethods = lazyOptionalDriverMethods[config.store.driver]
+      if (!lazyDriverMethods.has(prop) && !optionalMethods.has(prop)) return undefined
       return async (...args: unknown[]) => {
         const driver = await resolve() as unknown as AnyRecord
         const method = driver[prop] as ((this: unknown, ...args: unknown[]) => unknown) | undefined
