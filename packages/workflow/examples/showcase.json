@@ -1,0 +1,78 @@
+{
+  "label": "Workflow",
+  "docsPath": "workflow",
+  "icon": "i-lucide-workflow",
+  "order": 4,
+  "defaultPhase": "define",
+  "providers": [
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  workflow: {\n    provider: 'cloudflare',\n  },"
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "darkInvert": true,
+      "configOverride": "  workflow: {\n    provider: 'vercel',\n  },"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/welcome.workflow.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "src/server.ts",
+            "index.html",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/welcome.workflow.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "src/server.ts",
+            "index.html",
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nitro": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/workflows/welcome.ts",
+            "run": "server/api/welcome.post.ts"
+          },
+          "supplementalFiles": [
+            "server/api/workflow/[id].get.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/workflows/welcome.ts",
+            "run": "server/api/welcome.post.ts"
+          },
+          "supplementalFiles": [
+            "server/api/workflow/[id].get.ts",
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}

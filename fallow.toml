@@ -12,6 +12,11 @@ dynamicallyLoaded = [
   "packages/queue/examples/**/server/**",
   "packages/queue/examples/**/src/server.ts",
   "packages/queue/examples/**/src/**/*.queue.ts",
+  "packages/workflow/test/e2e-live.mjs",
+  "packages/workflow/examples/**/nitro.config.ts",
+  "packages/workflow/examples/**/server/**",
+  "packages/workflow/examples/**/src/server.ts",
+  "packages/workflow/examples/**/src/**/*.workflow.ts",
   "packages/blob/test/helpers/*.ts",
   "packages/blob/test/**/*.test-d.ts",
   "packages/blob/examples/**/nitro.config.ts",
@@ -30,6 +35,7 @@ dynamicallyLoaded = [
   "playground/vite/src/server.ts",
   "playground/vite/src/server.blob.ts",
   "playground/vite/src/**/*.queue.ts",
+  "playground/vite/src/**/*.workflow.ts",
 ]
 
 ignoreDependencies = [

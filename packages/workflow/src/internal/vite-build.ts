@@ -49,7 +49,7 @@ interface GenerateProviderOutputsOptions {
   workflow: WorkflowModuleOptions | undefined
 }
 
-export interface CloudflareWorkflowConfig {
+interface CloudflareWorkflowConfig {
   assets?: { directory?: string, run_worker_first: string[] }
   compatibility_date: string
   compatibility_flags: string[]

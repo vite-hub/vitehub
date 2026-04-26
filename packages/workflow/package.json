@@ -46,12 +46,10 @@
   },
   "dependencies": {
     "@vercel/functions": "catalog:",
-    "@workflow/world-vercel": "catalog:",
     "defu": "catalog:",
     "esbuild": "catalog:",
     "h3": "catalog:",
-    "pathe": "catalog:",
-    "workflow": "catalog:"
+    "pathe": "catalog:"
   },
   "peerDependencies": {
     "nitro": "^3.0.0-0",

@@ -1,4 +1,4 @@
-export interface WorkflowErrorOptions {
+interface WorkflowErrorOptions {
   cause?: unknown
   code?: string
   details?: Record<string, unknown>
