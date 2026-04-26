@@ -141,7 +141,7 @@ ViteHub resolves Blob storage in this order:
 
 ## Start Here
 
-Start with [Quickstart](./quickstart) for a local `fs` setup. Use [When to use Blob](./when-to-use) when you are choosing between Blob, KV, Queue, and inline response data.
+Start with [Quickstart](./quickstart) for a local `fs` setup. Use the [primitive comparison](../compare) when you are choosing between Blob, KV, Queue, Sandbox, and inline response data.
 
 ## Next Steps
 
