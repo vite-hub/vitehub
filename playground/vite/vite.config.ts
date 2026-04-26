@@ -5,7 +5,11 @@ import { defineConfig } from "vite"
 const buildMode = process.env.VITEHUB_VITE_MODE || "queue"
 const blobOnly = buildMode === "blob"
 const workflowOnly = buildMode === "workflow"
-const input = blobOnly ? "src/server.blob.ts" : "src/server.ts"
+const input = blobOnly
+  ? "src/server.blob.ts"
+  : workflowOnly
+    ? "src/server.workflow.ts"
+    : "src/server.ts"
 
 export default defineConfig(async () => {
   const baseConfig = {

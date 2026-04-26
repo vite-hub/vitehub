@@ -1,9 +1,23 @@
 import { defineNitroConfig } from "nitro/config"
 
+const workflowEnabled = process.env.VITEHUB_NITRO_MODE === "workflow" || process.env.VITEHUB_VITE_MODE === "workflow"
+
 export default defineNitroConfig({
-  modules: ["@vitehub/queue/nitro", "@vitehub/kv/nitro", "@vitehub/sandbox/nitro", "@vitehub/workflow/nitro"],
+  modules: [
+    "@vitehub/queue/nitro",
+    "@vitehub/kv/nitro",
+    "@vitehub/sandbox/nitro",
+    ...(workflowEnabled ? ["@vitehub/workflow/nitro"] : []),
+  ],
+  ignore: workflowEnabled
+    ? []
+    : [
+        "api/tests/workflow.*",
+        "api/workflows/**",
+        "workflows/**",
+      ],
   queue: {},
   sandbox: {},
   serverDir: "./server",
-  workflow: {},
+  workflow: workflowEnabled ? {} : false,
 })

@@ -105,6 +105,7 @@ jobs:
         if: matrix.provider == 'cloudflare'
         env:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          VITEHUB_NITRO_MODE: ${{ matrix.framework == 'vite' && 'workflow' || '' }}
         run: pnpm --dir playground/${{ matrix.framework }} exec nitro build --preset cloudflare-module
 
       - name: Build (vercel × ${{ matrix.framework }})
@@ -113,6 +114,7 @@ jobs:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VITEHUB_NITRO_MODE: ${{ matrix.framework == 'vite' && 'workflow' || '' }}
         run: |
           APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm exec nitro build --preset vercel
