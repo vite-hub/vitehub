@@ -70,7 +70,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: vitehub-package-dist
-          path: .
+          path: packages
 
       - name: Prepare Vercel project
         id: prepare_vercel
