@@ -69,8 +69,12 @@ async function collectFiles(base: string): Promise<string[]> {
       .filter(entry => entry.isFile() && !entry.name.endsWith(".meta.json"))
       .map(entry => join(entry.parentPath ?? base, entry.name))
   }
-  catch {
-    return []
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return []
+    }
+
+    throw error
   }
 }
 
