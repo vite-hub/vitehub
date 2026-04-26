@@ -1,36 +1,35 @@
 ---
 title: NuxtHub KV to ViteHub KV migration
-description: Move existing NuxtHub KV apps to ViteHub KV safely.
+description: Move existing NuxtHub KV apps to ViteHub KV while keeping runtime call sites small.
 navigation.title: NuxtHub KV migration
-navigation.order: 4
+navigation.order: 50
 icon: i-lucide-arrow-right-left
+frameworks: [vite, nitro, nuxt]
 ---
 
-Use this guide when you are moving an existing NuxtHub KV app to ViteHub KV.
+Use this guide when an existing NuxtHub KV app should move to ViteHub KV.
 
-## What stays the same
+The runtime shape is still a shared `kv` handle. The main changes are the package name, module registration, and top-level config key.
 
-- You still use one shared `kv` handle at runtime.
-- Driver-specific options still belong in app config instead of application call sites.
+## What Stays the Same
 
-## What changes
+- Store and read values with one runtime handle.
+- Keep provider options in app config.
+- Use Cloudflare KV bindings for Cloudflare deployments.
+- Use key prefixes to group related values.
 
-- Nuxt config moves from `hub.kv` to the top-level `kv` key.
-- Nuxt integration now uses `modules: ['@vitehub/kv/nuxt']`.
-- Canonical runtime imports are `@vitehub/kv`.
-
-## Mapping the docs and config
+## What Changes
 
 | NuxtHub | ViteHub |
 | --- | --- |
 | `hub.kv` | top-level `kv` |
 | `@nuxthub/kv` | `@vitehub/kv` |
-| NuxtHub KV setup page | [Overview](./index) |
-| NuxtHub KV SDK page | [Usage](./usage) |
+| NuxtHub module setup | `modules: ['@vitehub/kv/nuxt']` |
+| NuxtHub KV SDK docs | [ViteHub KV usage](./usage) |
 
-## Update the Nuxt config shape
+## Update Nuxt Config
 
-### Before
+Before:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
@@ -43,7 +42,7 @@ export default defineNuxtConfig({
 })
 ```
 
-### After
+After:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
@@ -58,16 +57,45 @@ export default defineNuxtConfig({
 
 For the full hosted Cloudflare setup, see [Cloudflare](./providers/cloudflare).
 
-## Update runtime imports
+## Update Runtime Imports
 
-### Before
+Before:
 
-```ts [server/api/settings.post.ts]
+```ts [server/api/settings.get.ts]
 import { kv } from '@nuxthub/kv'
 ```
 
-### After
+After:
 
-```ts [server/api/settings.post.ts]
+```ts [server/api/settings.get.ts]
 import { kv } from '@vitehub/kv'
 ```
+
+## Verify One Route
+
+Add or keep a simple read route:
+
+```ts [server/api/settings.get.ts]
+import { kv } from '@vitehub/kv'
+
+export default defineEventHandler(async () => {
+  return {
+    settings: await kv.get('settings'),
+  }
+})
+```
+
+Then deploy or run locally and request it:
+
+```bash
+curl http://localhost:3000/api/settings
+```
+
+## Migration Checklist
+
+- Install `@vitehub/kv`.
+- Register `@vitehub/kv/nuxt`.
+- Move config from `hub.kv` to top-level `kv`.
+- Replace `@nuxthub/kv` imports with `@vitehub/kv`.
+- Confirm Cloudflare `binding` and `namespaceId` values.
+- Use [Troubleshooting](./troubleshooting) if the runtime mount or provider credentials fail.

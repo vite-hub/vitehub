@@ -1,68 +1,110 @@
 ---
 title: KV runtime API
-description: Reference for the `kv` handle and the common KV config types.
+description: Reference for KV exports, runtime methods, Vite virtual config, config shapes, driver routing, and framework registration.
 navigation.title: Runtime API
-navigation.order: 3
+navigation.order: 90
 icon: i-lucide-braces
+frameworks: [vite, nitro, nuxt]
 ---
 
-## Runtime export
+Use this page when you need exact names, signatures, and option fields. For a guided setup, start with [Quickstart](./quickstart).
 
-| Export | Use it for |
-| --- | --- |
-| `kv` | The active key-value storage handle. |
+## Imports
 
-The Vite plugin resolves KV config and exposes it to Vite environments. The `kv` handle is mounted by the Nitro runtime adapter; Nuxt uses that Nitro path under the hood.
-
-## Vite virtual config
-
-Vite code can import the resolved setup config from `virtual:@vitehub/kv/config`.
+Runtime code imports the `kv` handle from `@vitehub/kv`:
 
 ```ts
-import config, { hosting, kv } from 'virtual:@vitehub/kv/config'
+import { kv } from '@vitehub/kv'
 ```
 
-If TypeScript cannot find the virtual module, add the package's ambient type entry to your app config.
+::fw{id="vite:dev vite:build"}
+Vite config imports the plugin from `@vitehub/kv/vite`:
 
-```json [tsconfig.json]
-{
-  "compilerOptions": {
-    "types": ["@vitehub/kv/virtual"]
-  }
+```ts
+import { hubKv } from '@vitehub/kv/vite'
+```
+::
+
+::fw{id="nitro:dev nitro:build"}
+Nitro config registers the module by name:
+
+```ts
+export default defineNitroConfig({
+  modules: ['@vitehub/kv/nitro'],
+})
+```
+::
+
+::fw{id="nuxt:dev nuxt:build"}
+Nuxt config registers the Nuxt module by name:
+
+```ts
+export default defineNuxtConfig({
+  modules: ['@vitehub/kv/nuxt'],
+})
+```
+::
+
+## Runtime Handle
+
+### `kv`
+
+`kv` is a small wrapper around the active Nitro storage mount named `kv`.
+
+```ts
+const value = await kv.get('settings')
+```
+
+### `KVStorage`
+
+```ts
+interface KVStorage {
+  clear(base?: string, options?: unknown): Promise<void>
+  del(key: string, options?: unknown): Promise<void>
+  get<T = unknown>(key: string, options?: unknown): Promise<T | null>
+  has(key: string, options?: unknown): Promise<boolean>
+  keys(base?: string, options?: unknown): Promise<string[]>
+  set<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
 }
 ```
 
-## Common methods
-
-| Method | Use it for |
+| Method | Description |
 | --- | --- |
-| `kv.get(key)` | Read one value. |
+| `kv.get(key)` | Read one value. Returns `null` when the key is missing. |
 | `kv.set(key, value, options?)` | Write one value. |
-| `kv.has(key)` | Check whether a key exists. |
-| `kv.del(key)` | Remove one key. |
-| `kv.clear(prefix?)` | Clear the store or one prefix. |
-| `kv.keys(prefix?)` | List keys. |
+| `kv.has(key, options?)` | Check whether a key exists. |
+| `kv.del(key, options?)` | Remove one key. |
+| `kv.keys(base?, options?)` | List keys, optionally under a prefix. |
+| `kv.clear(base?, options?)` | Clear the whole store or one prefix. |
 
-## Supported driver union
+Method options are passed to the underlying unstorage driver. Treat them as provider-specific.
+
+## Module Options
+
+### `KVModuleOptions`
+
+```ts
+type KVModuleOptions = KVStoreConfig | false
+```
+
+Set `kv: false` to disable runtime mounting.
+
+### `KVDriver`
 
 ```ts
 type KVDriver = 'cloudflare-kv-binding' | 'upstash' | 'fs-lite'
 ```
 
-## Config types
+### `KVStoreConfig`
 
-| Type | Description |
-| --- | --- |
-| `CloudflareKVStoreConfig` | Config for the Cloudflare KV binding driver. |
-| `UpstashKVStoreConfig` | Config for the Upstash driver. |
-| `FsLiteKVStoreConfig` | Config for the local filesystem driver. |
-| `KVStorage` | The runtime storage handle type. |
-| `KVModuleOptions` | Module-level KV config. |
-| `KVStoreConfig` | One supported KV driver config. |
-| `ResolvedKVStoreConfig` | The resolved driver config union. |
-| `ResolvedKVModuleOptions` | The resolved KV config at setup time. |
+```ts
+type KVStoreConfig =
+  | CloudflareKVStoreConfig
+  | UpstashKVStoreConfig
+  | FsLiteKVStoreConfig
+```
 
-## Driver config shapes
+## Driver Config Shapes
 
 ### `CloudflareKVStoreConfig`
 
@@ -74,6 +116,12 @@ type KVDriver = 'cloudflare-kv-binding' | 'upstash' | 'fs-lite'
 }
 ```
 
+| Option | Default | Description |
+| --- | --- | --- |
+| `driver` | required | Selects the Cloudflare KV binding driver. |
+| `binding` | `KV` | Cloudflare binding name. |
+| `namespaceId` | `KV_NAMESPACE_ID` env var | Cloudflare KV namespace ID used to generate Wrangler config. |
+
 ### `UpstashKVStoreConfig`
 
 ```ts
@@ -84,7 +132,14 @@ type KVDriver = 'cloudflare-kv-binding' | 'upstash' | 'fs-lite'
 }
 ```
 
-When Upstash credentials come from env vars, setup stores masked placeholders and the runtime plugin reads the real values from `KV_REST_API_URL` and `KV_REST_API_TOKEN`. Inline `url` and `token` values are treated as explicit config, but env vars are preferred for hosted deployments.
+When credentials come from env vars, ViteHub stores masked placeholders at build time and reads real values at runtime.
+
+Supported env vars:
+
+| Value | Preferred env var | Alias |
+| --- | --- | --- |
+| REST URL | `KV_REST_API_URL` | `UPSTASH_REDIS_REST_URL` |
+| REST token | `KV_REST_API_TOKEN` | `UPSTASH_REDIS_REST_TOKEN` |
 
 ### `FsLiteKVStoreConfig`
 
@@ -95,8 +150,96 @@ When Upstash credentials come from env vars, setup stores masked placeholders an
 }
 ```
 
-## Method options
+| Option | Default | Description |
+| --- | --- | --- |
+| `driver` | required | Selects the local filesystem driver. |
+| `base` | `.data/kv` | Directory used by the `fs-lite` driver. |
 
-`KVStorage` methods accept `options?: unknown` and pass those options through to the underlying storage driver.
+## Resolution Rules
 
-Treat those options as provider-specific. They are not currently documented as a portable ViteHub KV API contract.
+`normalizeKVOptions()` resolves the active driver in this order:
+
+1. `kv: false` disables KV.
+2. Explicit `kv.driver` config wins.
+3. Upstash env vars select `upstash`.
+4. Vercel hosting selects `upstash`.
+5. Cloudflare hosting selects `cloudflare-kv-binding`.
+6. Everything else falls back to `fs-lite`.
+
+Unknown drivers throw:
+
+```txt
+Unknown `kv.driver`: "...". Expected "cloudflare-kv-binding", "upstash", or "fs-lite".
+```
+
+Non-object config throws:
+
+```txt
+`kv` must be a plain object.
+```
+
+## Vite Plugin API
+
+### `hubKv(options?)`
+
+```ts
+import { hubKv } from '@vitehub/kv/vite'
+
+export default defineConfig({
+  plugins: [hubKv({ driver: 'fs-lite' })],
+})
+```
+
+The plugin exposes `api.getConfig()` for tooling and examples:
+
+```ts
+const plugin = hubKv()
+const config = plugin.api.getConfig()
+```
+
+Top-level Vite config `kv` overrides inline plugin options.
+
+## Vite Virtual Config
+
+Vite code can import the resolved setup config from `virtual:@vitehub/kv/config`:
+
+```ts
+import config, { hosting, kv } from 'virtual:@vitehub/kv/config'
+```
+
+If TypeScript cannot find the virtual module, add the package's ambient type entry:
+
+```json [tsconfig.json]
+{
+  "compilerOptions": {
+    "types": ["@vitehub/kv/virtual"]
+  }
+}
+```
+
+## Nitro Runtime Wiring
+
+The Nitro module:
+
+- resolves KV config from `nitro.options.kv`
+- writes resolved config to `runtimeConfig.kv`
+- mounts the active driver as Nitro storage at `kv`
+- aliases `@vitehub/kv` to the runtime package entry
+- adds the runtime plugin that remounts lazy Upstash config
+- adds Cloudflare Wrangler KV namespace config when `namespaceId` is available
+
+## Nuxt Runtime Wiring
+
+The Nuxt module:
+
+- reads top-level `kv` config
+- installs `@vitehub/kv/nitro`
+- forwards `kv` config to Nitro
+- does nothing when top-level `kv` is `false`
+
+## Related Pages
+
+- [Usage](./usage)
+- [Choose a driver](./guides/choose-a-driver)
+- [Cloudflare](./providers/cloudflare)
+- [Vercel](./providers/vercel)

@@ -1,76 +1,180 @@
 ---
-title: Usage
-description: Use the KV runtime to set, get, delete, clear, and list key-value pairs.
+title: KV usage
+description: Practical patterns for keys, JSON values, prefixes, deletes, lists, clears, and provider-neutral runtime code.
 navigation.title: Usage
-navigation.order: 2
-icon: i-lucide-square-terminal
+navigation.order: 3
+icon: i-lucide-workflow
+frameworks: [vite, nitro, nuxt]
 ---
 
-`kv` is an unstorage-backed runtime handle for your active KV mount.
+After the quickstart works, most KV code falls into four patterns: choose stable keys, store JSON values, group related keys with prefixes, and keep provider details out of route code.
 
-## Importing KV
+## Import the Runtime Handle
 
-Use the canonical portable import:
+Use the canonical portable import from server/runtime code:
 
 ```ts
 import { kv } from '@vitehub/kv'
 ```
 
-This is the supported import path for Nitro and Nuxt runtime code that targets ViteHub KV. The Vite plugin owns config resolution; the runtime handle is mounted by the Nitro adapter.
+The handle is backed by Nitro storage. Nitro mounts the active driver at startup, and Nuxt uses that Nitro path under the hood.
 
-## Set an item
+## Set and Get JSON Values
 
-```ts
-await kv.set('vue', { year: 2014 })
-await kv.set('vue:nuxt', { year: 2016 })
-```
-
-Use prefixes when you want to organize keys into groups that are easy to list or clear later.
-
-## Get an item
+`kv.set()` stores one value. `kv.get()` returns that value or `null` when the key is missing.
 
 ```ts
-const vue = await kv.get('vue')
+await kv.set('settings', {
+  theme: 'system',
+  notifications: true,
+})
+
+const settings = await kv.get<{
+  theme: string
+  notifications: boolean
+}>('settings')
 ```
 
-## Has an item
+Route example:
+
+```ts [server/api/settings.get.ts]
+import { kv } from '@vitehub/kv'
+
+export default defineEventHandler(async () => {
+  const settings = await kv.get('settings')
+
+  return {
+    settings: settings ?? {
+      theme: 'system',
+      notifications: true,
+    },
+  }
+})
+```
+
+## Use Prefixes for Related Keys
+
+KV keys are strings. Use prefixes when a feature owns a group of values:
 
 ```ts
-const hasVue = await kv.has('vue')
+await kv.set('users:ava:preferences', { density: 'compact' })
+await kv.set('users:ava:flags', { beta: true })
 ```
 
-## Delete an item
+Then list only that group:
 
 ```ts
-await kv.del('react')
+const userKeys = await kv.keys('users:ava')
 ```
 
-## Clear the namespace
+Example response:
+
+```json
+{
+  "keys": [
+    "users:ava:flags",
+    "users:ava:preferences"
+  ]
+}
+```
+
+## Check Before Doing Expensive Work
+
+Use `kv.has()` when the value is not needed:
 
 ```ts
-await kv.clear()
+if (await kv.has('reports:daily:2026-04-26')) {
+  return { cached: true }
+}
 ```
 
-Pass a prefix when you want to clear only one subset of keys.
+Use `kv.get()` when the route needs the value anyway. That avoids a separate round trip for remote providers.
+
+## Delete One Key
 
 ```ts
-await kv.clear('react')
+await kv.del('settings')
 ```
 
-## List keys
+Use this for explicit user actions such as resetting preferences or removing a cache entry.
+
+## Clear a Prefix
+
+`kv.clear()` clears the whole active store. Pass a prefix when only one feature namespace should be removed:
 
 ```ts
-const keys = await kv.keys()
+await kv.clear('users:ava')
 ```
 
-Pass a prefix when you want to list only matching keys.
+::callout{icon="i-lucide-alert-triangle" color="warning"}
+Use unscoped `kv.clear()` carefully. In hosted providers it targets the configured namespace or database, not only the current route.
+::
+
+## Keep Provider Logic in Config
+
+Route code should look the same for local, Cloudflare, and Vercel:
 
 ```ts
-const vueKeys = await kv.keys('vue')
+await kv.set('settings', { enabled: true })
+return { settings: await kv.get('settings') }
 ```
 
-## Provider-specific options
+Provider details belong in config:
 
-Methods such as `kv.set(key, value, options)` pass `options` through to the underlying storage driver.
+::tabs{sync="provider"}
+  :::tabs-item{label="Local" icon="i-lucide-folder" class="p-4"}
+    ```ts
+    kv: {
+      driver: 'fs-lite',
+      base: '.data/kv',
+    }
+    ```
+  :::
 
-Those options are intentionally provider-specific in ViteHub today. They are not yet documented as a portable API contract, so use them only when you are targeting a specific driver and understand that driver's behavior.
+  :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
+    ```ts
+    kv: {
+      driver: 'cloudflare-kv-binding',
+      binding: 'KV',
+      namespaceId: '<kv-namespace-id>',
+    }
+    ```
+  :::
+
+  :::tabs-item{label="Vercel" icon="i-simple-icons-vercel" class="p-4"}
+    ```ts
+    kv: {
+      driver: 'upstash',
+    }
+    ```
+  :::
+::
+
+## Pass Driver-Specific Options Intentionally
+
+Every method accepts an optional `options` argument and passes it to the underlying unstorage driver:
+
+```ts
+await kv.set('settings', { enabled: true }, {
+  ttl: 60,
+})
+```
+
+Those options are driver-specific. ViteHub does not currently define a portable option contract for TTLs, metadata, or consistency behavior.
+
+## Disable KV
+
+Set `kv: false` when a Nuxt or Nitro app should install the package but not mount runtime KV:
+
+```ts
+export default defineNuxtConfig({
+  modules: ['@vitehub/kv/nuxt'],
+  kv: false,
+})
+```
+
+## Next Steps
+
+- Use [Write and read values](./guides/read-write-values) for complete route examples.
+- Use [Choose a driver](./guides/choose-a-driver) when deciding between local, Cloudflare, and Vercel.
+- Use [Runtime API](./runtime-api) for method signatures and config types.
