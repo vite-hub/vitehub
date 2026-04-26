@@ -45,7 +45,7 @@ describe("Vite workflow provider outputs", () => {
 
     await execFileAsync("pnpm", ["exec", "vite", "build"], {
       cwd: rootDir,
-      env: process.env,
+      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })
 
     const cloudflareWorker = join(rootDir, "dist", "vite", "index.js")
