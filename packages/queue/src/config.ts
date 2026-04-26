@@ -1,3 +1,5 @@
+import { defu } from "defu"
+
 import { isPlainObject } from "@vitehub/internal/object"
 
 import type { QueueModuleOptions, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
@@ -12,16 +14,8 @@ function normalizeHosting(hosting: string | undefined): string {
   return hosting?.trim().toLowerCase().replaceAll("_", "-") || ""
 }
 
-function cloneSharedOptions(input: QueueSharedOptions | undefined) {
-  const shared: QueueSharedOptions = {}
-  if (typeof input?.cache === "boolean") {
-    shared.cache = input.cache
-  }
-  return shared
-}
-
 function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedQueueOptions {
-  const shared = cloneSharedOptions(options as QueueSharedOptions)
+  const shared: QueueSharedOptions = typeof options.cache === "boolean" ? { cache: options.cache } : {}
   const provider = options.provider
 
   if (typeof provider === "string" && !knownProviders.has(provider)) {
@@ -31,28 +25,24 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
   const resolved = provider || (hosting.includes("cloudflare") ? "cloudflare" : "vercel")
 
   if (resolved === "cloudflare") {
-    return {
-      ...shared,
-      ...typeof options.binding === "string" ? { binding: options.binding } : {},
-      provider: "cloudflare",
-    }
+    return defu(
+      typeof options.binding === "string" ? { binding: options.binding } : {},
+      shared,
+      { provider: "cloudflare" as const },
+    )
   }
 
-  return {
-    ...shared,
-    ...typeof options.region === "string" ? { region: options.region } : {},
-    provider: "vercel",
-  }
+  return defu(
+    typeof options.region === "string" ? { region: options.region } : {},
+    shared,
+    { provider: "vercel" as const },
+  )
 }
 
 export function normalizeQueueOptions(options: QueueModuleOptions | undefined, input: QueueResolutionInput = {}): ResolvedQueueOptions | undefined {
-  if (options === false) {
-    return undefined
-  }
-
+  if (options === false) return undefined
   if (typeof options !== "undefined" && !isPlainObject(options)) {
     throw new TypeError("`queue` must be a plain object.")
   }
-
   return resolveProvider(options || {}, normalizeHosting(input.hosting))
 }

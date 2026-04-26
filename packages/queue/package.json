@@ -46,10 +46,11 @@
   },
   "dependencies": {
     "@vercel/functions": "catalog:",
+    "defu": "catalog:",
     "esbuild": "^0.27.7",
     "exsolve": "catalog:",
     "h3": "catalog:",
-    "pathe": "^2.0.3"
+    "pathe": "catalog:"
   },
   "peerDependencies": {
     "@vercel/queue": "^0.0.0-alpha.23",
