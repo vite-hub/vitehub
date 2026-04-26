@@ -38,6 +38,12 @@ function hasExport(packageName: string, specifier: string) {
   return Boolean(manifest.exports?.[`.${subpath}`])
 }
 
+function hasGeneratedOutputUnderExampleSurface(path: string) {
+  const parts = path.split("/")
+  const surfaceIndex = parts.findIndex(part => part === "examples" || part === "playground")
+  return surfaceIndex !== -1 && parts.slice(surfaceIndex + 1).some(part => ignoredGeneratedDirs.has(part))
+}
+
 describe("package manifest contracts", () => {
   it("keeps landed package manifests publishable by convention", () => {
     for (const packageName of packageNames) {
@@ -149,7 +155,7 @@ describe("runtime hygiene contracts", () => {
     })
       .split("\n")
       .filter(Boolean)
-      .filter(path => /\/(examples|playground)\/(\.nuxt|\.output|\.vercel|\.wrangler|dist|node_modules)\//.test(path))
+      .filter(hasGeneratedOutputUnderExampleSurface)
 
     expect(tracked).toEqual([])
   })
@@ -163,7 +169,7 @@ describe("runtime hygiene contracts", () => {
     )
 
     const offenders = runtimeFiles
-      .filter(path => !path.endsWith("/empty-registry.ts"))
+      .filter(path => !toRepoPath(path).endsWith("/empty-registry.ts"))
       .filter(path => readFileSync(path, "utf8").includes("__vitehub"))
       .map(toRepoPath)
 
