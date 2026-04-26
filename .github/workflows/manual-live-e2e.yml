@@ -223,7 +223,7 @@ jobs:
         run: pnpm --dir playground/vite build
 
       - name: Build Blob Vite (vercel)
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
+        if: matrix.framework == 'vite' && matrix.provider == 'vercel' && steps.prepare_vercel_blob.outputs.protection_bypass != ''
         env:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel_blob.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel_blob.outputs.project_id }}
@@ -246,7 +246,7 @@ jobs:
 
       - name: Deploy Blob Vercel
         id: deploy_blob_vercel
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
+        if: matrix.framework == 'vite' && matrix.provider == 'vercel' && steps.prepare_vercel_blob.outputs.protection_bypass != ''
         env:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel_blob.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel_blob.outputs.project_id }}
@@ -262,7 +262,7 @@ jobs:
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Blob Live E2E (vite × ${{ matrix.provider }})
-        if: matrix.framework == 'vite'
+        if: matrix.framework == 'vite' && (matrix.provider != 'vercel' || steps.prepare_vercel_blob.outputs.protection_bypass != '')
         env:
           VERCEL_PROTECTION_BYPASS: ${{ steps.prepare_vercel_blob.outputs.protection_bypass }}
         run: |
