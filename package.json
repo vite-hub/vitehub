@@ -13,6 +13,7 @@
     "fallow:dead-code": "pnpm exec fallow dead-code --summary --format markdown --fail-on-issues",
     "lint": "pnpm exec oxlint . --ignore-path .gitignore",
     "typecheck": "pnpm --dir docs typecheck && pnpm -r --filter './packages/*' --if-present run typecheck",
+    "test:contracts": "vitest run",
     "test": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test",
     "build": "pnpm -r --filter './packages/*' --if-present run build",
     "playground:vite:build": "pnpm --dir playground/vite build",
@@ -23,6 +24,7 @@
     "@types/node": "catalog:",
     "fallow": "2.41.0",
     "oxlint": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
