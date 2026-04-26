@@ -68,9 +68,8 @@ export interface WorkflowStartOptions {
   id?: string
 }
 
-export interface WorkflowStartInput<TPayload = unknown> {
-  id?: string
-  payload?: TPayload
+export interface WorkflowDeferOptions extends WorkflowStartOptions {
+  deferred?: boolean
 }
 
 export interface WorkflowDefinitionRegistry {

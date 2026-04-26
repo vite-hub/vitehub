@@ -25,6 +25,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./nitro": "./dist/nitro.js",
+    "./runtime/cloudflare-runner": "./dist/runtime/cloudflare-runner.js",
     "./runtime/cloudflare-shared": "./dist/runtime/cloudflare-shared.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",

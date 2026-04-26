@@ -7,6 +7,7 @@
   },
   "dependencies": {
     "@vitehub/blob": "workspace:*",
+    "@vitehub/internal": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
     "@vitehub/sandbox": "workspace:*",

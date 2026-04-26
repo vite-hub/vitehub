@@ -1,10 +1,11 @@
 import { resolve } from "node:path"
 
+import { getViteMode, VITEHUB_MODES } from "@vitehub/internal/build/mode"
 import { defineConfig } from "vite"
 
-const buildMode = process.env.VITEHUB_VITE_MODE || "queue"
-const blobOnly = buildMode === "blob"
-const workflowOnly = buildMode === "workflow"
+const buildMode = getViteMode() || VITEHUB_MODES.queue
+const blobOnly = buildMode === VITEHUB_MODES.blob
+const workflowOnly = buildMode === VITEHUB_MODES.workflow
 const input = blobOnly
   ? "src/server.blob.ts"
   : workflowOnly

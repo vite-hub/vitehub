@@ -17,6 +17,7 @@ export type {
   WorkflowDefinition,
   WorkflowDefinitionOptions,
   WorkflowDefinitionRegistry,
+  WorkflowDeferOptions,
   WorkflowExecutionContext,
   WorkflowHandler,
   WorkflowModuleOptions,
@@ -25,6 +26,5 @@ export type {
   WorkflowRun,
   WorkflowRunStatus,
   WorkflowSharedOptions,
-  WorkflowStartInput,
   WorkflowStartOptions,
 } from "./types.ts"

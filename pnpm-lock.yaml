@@ -612,6 +612,9 @@ importers:
       '@vitehub/blob':
         specifier: workspace:*
         version: link:../../packages/blob
+      '@vitehub/internal':
+        specifier: workspace:*
+        version: link:../../packages/internal
       '@vitehub/kv':
         specifier: workspace:*
         version: link:../../packages/kv

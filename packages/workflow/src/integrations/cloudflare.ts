@@ -1,9 +1,13 @@
+import { encodeNameHex } from "@vitehub/internal/integrations/hex"
+
+import type { DiscoveredWorkflowDefinition } from "../types.ts"
+
 export function getCloudflareWorkflowBindingName(name: string): string {
-  return `WORKFLOW_${Buffer.from(name).toString("hex").toUpperCase()}`
+  return `WORKFLOW_${encodeNameHex(name).toUpperCase()}`
 }
 
 export function getCloudflareWorkflowName(name: string): string {
-  return `workflow--${Buffer.from(name).toString("hex")}`
+  return `workflow--${encodeNameHex(name)}`
 }
 
 export function getCloudflareWorkflowClassName(name: string): string {
@@ -15,4 +19,21 @@ export function getCloudflareWorkflowClassName(name: string): string {
     || "Default"
 
   return `ViteHub${suffix}Workflow`
+}
+
+export interface CloudflareWorkflowBindingDescriptor {
+  binding: string
+  class_name: string
+  name: string
+}
+
+export function createCloudflareWorkflowBindings(definitions: DiscoveredWorkflowDefinition[]): CloudflareWorkflowBindingDescriptor[] | undefined {
+  if (!definitions.length) {
+    return undefined
+  }
+  return definitions.map(definition => ({
+    binding: getCloudflareWorkflowBindingName(definition.name),
+    class_name: getCloudflareWorkflowClassName(definition.name),
+    name: getCloudflareWorkflowName(definition.name),
+  }))
 }

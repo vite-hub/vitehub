@@ -43,13 +43,7 @@ const run = await runWorkflow('welcome', {
 Use a stable id when the caller needs to poll the run later:
 
 ```ts
-const run = await runWorkflow('welcome', {
-  id: 'welcome-signup-42',
-  payload: {
-    email: 'ava@example.com',
-    marker: 'signup-42',
-  },
-})
+const run = await runWorkflow('welcome', { email: 'ava@example.com', marker: 'signup-42' }, { id: 'welcome-signup-42' })
 ```
 
 ## Return the run

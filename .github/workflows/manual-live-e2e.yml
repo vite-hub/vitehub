@@ -16,6 +16,22 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
+      - name: Build vitehub packages
+        run: pnpm -r --filter '@vitehub/blob' --filter '@vitehub/kv' --filter '@vitehub/queue' --filter '@vitehub/sandbox' --filter '@vitehub/workflow' build
+
+      - name: Upload package builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitehub-package-dist
+          path: |
+            packages/blob/dist
+            packages/kv/dist
+            packages/queue/dist
+            packages/sandbox/dist
+            packages/workflow/dist
+          retention-days: 1
+          if-no-files-found: error
+
       - name: Ensure Cloudflare Queues
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -50,11 +66,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      - run: pnpm --filter @vitehub/blob build
-      - run: pnpm --filter @vitehub/kv build
-      - run: pnpm --filter @vitehub/queue build
-      - run: pnpm --filter @vitehub/sandbox build
-      - run: pnpm --filter @vitehub/workflow build
+      - name: Download package builds
+        uses: actions/download-artifact@v4
+        with:
+          name: vitehub-package-dist
+          path: .
 
       - name: Prepare Vercel project
         id: prepare_vercel
@@ -212,6 +228,9 @@ jobs:
           echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
           if [ -n "$VERCEL_PROTECTION_BYPASS" ]; then
             echo "protection_bypass=$VERCEL_PROTECTION_BYPASS" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "GitHub Production secret VERCEL_PROTECTION_BYPASS must be set on main." >&2
+            exit 1
           fi
 
       - name: Build Blob Vite (cloudflare)

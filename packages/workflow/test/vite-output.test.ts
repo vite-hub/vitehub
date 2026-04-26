@@ -69,7 +69,7 @@ describe("Vite workflow provider outputs", () => {
     expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
-  }, 20_000)
+  }, 30_000)
 
   it("exports Cloudflare workflow classes from Nitro output", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-playground-")

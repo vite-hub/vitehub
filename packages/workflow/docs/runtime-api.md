@@ -62,25 +62,18 @@ Options:
 | --- | --- | --- |
 | `id` | `string` | Optional definition id reserved for provider adapters. |
 
-## `runWorkflow(name, input?, options?)`
+## `runWorkflow(name, payload?, options?)`
 
 Starts a workflow and returns normalized run metadata.
 
 ```ts
-const run = await runWorkflow('welcome', {
-  email: 'ava@example.com',
-})
+const run = await runWorkflow('welcome', { email: 'ava@example.com' })
 ```
 
-Use an envelope when you need a stable id:
+Pass `id` in options when you need a stable run id:
 
 ```ts
-const run = await runWorkflow('welcome', {
-  id: 'welcome-signup-42',
-  payload: {
-    email: 'ava@example.com',
-  },
-})
+const run = await runWorkflow('welcome', { email: 'ava@example.com' }, { id: 'welcome-signup-42' })
 ```
 
 Return shape:
@@ -103,19 +96,16 @@ Errors:
 | `WORKFLOW_DISABLED` | `workflow: false` disables the runtime. |
 | `WORKFLOW_DEFINITION_NOT_FOUND` | No discovered workflow matches `name`. |
 
-## `deferWorkflow(name, input?, options?)`
+## `deferWorkflow(name, payload?, options?)`
 
-Starts a workflow without awaiting the start promise from the route.
+Starts a workflow and returns the start promise. Useful for fire-and-forget routes that still want to surface errors via `waitUntil()`.
 
 ```ts
-deferWorkflow('welcome', {
-  email: 'ava@example.com',
-})
-
+await deferWorkflow('welcome', { email: 'ava@example.com' })
 return { ok: true }
 ```
 
-`deferWorkflow()` uses the active request `waitUntil()` when the runtime exposes it. It logs start failures because there is no returned promise for the caller to handle.
+`deferWorkflow()` uses the active request `waitUntil()` when the runtime exposes it.
 
 ## `getWorkflowRun(name, id)`
 

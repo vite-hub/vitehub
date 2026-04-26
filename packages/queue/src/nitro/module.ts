@@ -1,8 +1,8 @@
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-discovery"
-import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import { resolve } from "node:path"
-import type { NitroModule, NitroOptions, NitroRuntimeConfig } from "nitro/types"
+import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { discoverQueueDefinitions } from "../discovery.ts"
@@ -28,31 +28,7 @@ function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[])
   }
 }
 
-function mergeQueueImports(current: NitroOptions["imports"]) {
-  if (current === false) {
-    return current
-  }
-
-  const imports = ["defineQueue", "deferQueue", "getQueue", "runQueue"]
-  const existing = current || {}
-  const currentPresets = (Array.isArray(existing.presets) ? [...existing.presets] : []) as Array<{ from?: string, imports?: string[] }>
-  const queuePreset = currentPresets.find(entry => entry?.from === "@vitehub/queue")
-
-  if (queuePreset && Array.isArray(queuePreset.imports)) {
-    const seen = new Set(queuePreset.imports)
-    queuePreset.imports.push(...imports.filter(name => !seen.has(name)))
-  } else if (!queuePreset) {
-    currentPresets.push({
-      from: "@vitehub/queue",
-      imports,
-    })
-  }
-
-  return {
-    ...existing,
-    presets: currentPresets,
-  }
-}
+const QUEUE_NITRO_IMPORTS_PRESET = { from: "@vitehub/queue", imports: ["defineQueue", "deferQueue", "getQueue", "runQueue"] }
 
 function createNitroQueueRegistryPath(rootDir: string, buildDir: string) {
   return resolve(rootDir, buildDir, ...generatedDirSegments, "nitro-registry.mjs")
@@ -183,7 +159,7 @@ const queueNitroModule: NitroModule = {
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
     if (!importsExplicitlyDisabled) {
-      nitro.options.imports = mergeQueueImports(nitro.options.imports === false ? {} : nitro.options.imports)
+      nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, QUEUE_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
     }
 
     if (!resolved) {

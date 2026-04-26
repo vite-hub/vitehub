@@ -1,6 +1,6 @@
 import { defineEventHandler, readValidatedBody } from "h3"
 import * as v from "valibot"
-import { runWorkflow } from "@vitehub/workflow"
+import { deferWorkflow } from "@vitehub/workflow"
 
 const workflowName = "welcome"
 const workflowBody = v.optional(v.object({
@@ -12,14 +12,9 @@ const workflowBody = v.optional(v.object({
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.headers.get("x-vitehub-e2e-marker") || undefined
-  const id = body?.id || marker || `welcome-${Date.now().toString(36)}`
-  const payload = {
-    email: body?.email || "ava@example.com",
-    marker,
-  }
-
+  const id = body?.id || marker
   return {
     ok: true,
-    result: await runWorkflow(workflowName, { id, payload }),
+    result: await deferWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id }),
   }
 })

@@ -1,3 +1,6 @@
+import { getCloudflareEnv, resolveWaitUntil } from "@vitehub/internal/runtime/cloudflare-env"
+import { randomId } from "@vitehub/internal/runtime/random"
+
 import { normalizeWorkflowOptions } from "../config.ts"
 import { WorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
@@ -5,69 +8,11 @@ import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
 import { getWorkflowRunState, getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRun } from "./state.ts"
 
-import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowProviderOptions, WorkflowRun, WorkflowRunStatus, WorkflowStartInput, WorkflowStartOptions } from "../types.ts"
-
-function randomId() {
-  return `wrun_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
-}
-
-function getCloudflareEnv(event: unknown) {
-  const target = event as {
-    context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }
-    env?: Record<string, unknown>
-    req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } }
-  } | undefined
-  return target?.env
-    || target?.context?.cloudflare?.env
-    || target?.context?._platform?.cloudflare?.env
-    || target?.req?.runtime?.cloudflare?.env
-    || (globalThis as { __env__?: Record<string, unknown> }).__env__
-}
+import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDeferOptions, WorkflowProviderOptions, WorkflowRun, WorkflowRunStatus, WorkflowStartOptions } from "../types.ts"
 
 function resolveCloudflareBinding(binding: string | undefined, name: string) {
   const bindingName = binding || getCloudflareWorkflowBindingName(name)
   return getCloudflareEnv(getWorkflowRuntimeEvent())?.[bindingName] as CloudflareWorkflowBinding | undefined
-}
-
-function resolveWaitUntil(event: unknown): ((promise: Promise<unknown>) => void) | undefined {
-  const target = event as {
-    waitUntil?: (promise: Promise<unknown>) => void
-    context?: {
-      waitUntil?: (promise: Promise<unknown>) => void
-      cloudflare?: {
-        context?: { waitUntil?: (promise: Promise<unknown>) => void }
-        waitUntil?: (promise: Promise<unknown>) => void
-      }
-      _platform?: {
-        cloudflare?: {
-          context?: { waitUntil?: (promise: Promise<unknown>) => void }
-          waitUntil?: (promise: Promise<unknown>) => void
-        }
-      }
-    }
-    req?: {
-      waitUntil?: (promise: Promise<unknown>) => void
-      runtime?: {
-        cloudflare?: {
-          context?: { waitUntil?: (promise: Promise<unknown>) => void }
-          waitUntil?: (promise: Promise<unknown>) => void
-        }
-      }
-    }
-  } | undefined
-
-  const bindWaitUntil = (owner: { waitUntil?: (promise: Promise<unknown>) => void } | undefined) =>
-    typeof owner?.waitUntil === "function" ? owner.waitUntil.bind(owner) : undefined
-
-  return bindWaitUntil(target)
-    || bindWaitUntil(target?.context)
-    || bindWaitUntil(target?.context?.cloudflare)
-    || bindWaitUntil(target?.context?.cloudflare?.context)
-    || bindWaitUntil(target?.context?._platform?.cloudflare)
-    || bindWaitUntil(target?.context?._platform?.cloudflare?.context)
-    || bindWaitUntil(target?.req)
-    || bindWaitUntil(target?.req?.runtime?.cloudflare)
-    || bindWaitUntil(target?.req?.runtime?.cloudflare?.context)
 }
 
 function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
@@ -77,21 +22,6 @@ function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
   }
 
   return config || normalizeWorkflowOptions(undefined, { hosting: "vercel" })!
-}
-
-function normalizeStartInput<TPayload>(input?: TPayload | WorkflowStartInput<TPayload>, options: WorkflowStartOptions = {}) {
-  if (input && typeof input === "object" && !Array.isArray(input) && ("payload" in input || "id" in input)) {
-    const envelope = input as WorkflowStartInput<TPayload>
-    return {
-      id: options.id || envelope.id || randomId(),
-      payload: envelope.payload as TPayload,
-    }
-  }
-
-  return {
-    id: options.id || randomId(),
-    payload: input as TPayload,
-  }
 }
 
 async function runDefinition<TPayload, TResult>(name: string, provider: WorkflowProviderOptions["provider"], id: string, payload: TPayload, step?: unknown) {
@@ -113,23 +43,20 @@ async function runDefinition<TPayload, TResult>(name: string, provider: Workflow
   }) as TResult
 }
 
+const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
+  complete: "completed",
+  completed: "completed",
+  errored: "failed",
+  failed: "failed",
+  queued: "queued",
+  running: "running",
+  success: "completed",
+  terminated: "completed",
+}
+
 function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
   const value = typeof status === "object" && status ? (status as { status?: unknown }).status : status
-  switch (String(value || "").toLowerCase()) {
-    case "queued":
-    case "running":
-    case "completed":
-    case "failed":
-      return String(value).toLowerCase() as WorkflowRunStatus
-    case "complete":
-    case "success":
-    case "terminated":
-      return "completed"
-    case "errored":
-      return "failed"
-    default:
-      return "unknown"
-  }
+  return cloudflareStatusMap[String(value || "").toLowerCase()] || "unknown"
 }
 
 export async function createWorkflow(options: WorkflowProviderOptions): Promise<WorkflowProviderOptions> {
@@ -138,8 +65,8 @@ export async function createWorkflow(options: WorkflowProviderOptions): Promise<
 
 export async function runWorkflow<TPayload = unknown, TResult = unknown>(
   name: string,
-  input?: TPayload | WorkflowStartInput<TPayload>,
-  options: WorkflowStartOptions = {},
+  payload?: TPayload,
+  options: WorkflowDeferOptions = {},
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const config = getActiveWorkflowConfig()
   if (config === false) {
@@ -149,34 +76,34 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
     })
   }
 
-  const normalized = normalizeStartInput(input, options)
+  const id = options.id || randomId("wrun")
   if (config.provider === "cloudflare") {
     const binding = resolveCloudflareBinding(config.binding, name)
     if (binding) {
-      const instance = await binding.create({ id: normalized.id, params: normalized.payload })
+      const instance = await binding.create({ id, params: payload })
       return {
         id: instance.id,
-        metadata: await instance.status().catch(() => undefined),
-        payload: normalized.payload,
+        metadata: await instance.status(),
+        payload,
         provider: "cloudflare",
         status: "queued",
       }
     }
   }
 
-  const run = runDefinition<TPayload, TResult>(name, config.provider, normalized.id, normalized.payload)
+  const run = runDefinition<TPayload, TResult>(name, config.provider, id, payload as TPayload)
     .then(result => ({ result, status: "completed" as const }))
     .catch(error => ({ error, status: "failed" as const }))
-  setWorkflowRun(normalized.id, run)
-  const waitUntil = (options as WorkflowStartOptions & { deferred?: boolean }).deferred ? undefined : resolveWaitUntil(getWorkflowRuntimeEvent())
+  setWorkflowRun(id, run)
+  const waitUntil = options.deferred ? undefined : resolveWaitUntil(getWorkflowRuntimeEvent())
   if (waitUntil) {
     waitUntil(run)
   }
 
   return {
-    id: normalized.id,
+    id,
     metadata: config.provider === "vercel" ? { workflow: getVercelWorkflowName(name) } : undefined,
-    payload: normalized.payload,
+    payload,
     provider: config.provider,
     status: "queued",
   }
@@ -226,14 +153,14 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
 
 export function deferWorkflow<TPayload = unknown>(
   name: string,
-  input?: TPayload | WorkflowStartInput<TPayload>,
+  payload?: TPayload,
   options: WorkflowStartOptions = {},
-): void {
+): Promise<WorkflowRun<TPayload>> {
   const request = getWorkflowRuntimeEvent()
-  const promise = runWithWorkflowRuntimeEvent(request, () => runWorkflow(name, input, { ...options, deferred: true } as WorkflowStartOptions))
-    .catch(error => console.error(`[vitehub] Deferred workflow dispatch failed for "${name}"`, error))
+  const promise = runWithWorkflowRuntimeEvent(request, () => runWorkflow<TPayload>(name, payload, { ...options, deferred: true }))
   const waitUntil = resolveWaitUntil(request)
-  if (typeof waitUntil === "function") {
+  if (waitUntil) {
     waitUntil(promise)
   }
+  return promise
 }

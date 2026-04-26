@@ -2,12 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { deferWorkflow, getWorkflowRun, runWorkflow } from "../src/runtime/client.ts"
-import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
 beforeEach(() => {
-  setWorkflowRuntimeConfig(undefined)
-  setWorkflowRuntimeRegistry(undefined)
-  enterWorkflowRuntimeEvent(undefined)
+  resetWorkflowRuntime()
 })
 
 describe("workflow runtime", () => {
@@ -15,9 +13,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: {
-          handler: async ({ payload }) => ({ payload }),
-        },
+        default: { handler: async ({ payload }) => ({ payload }) },
       }),
     })
 
@@ -36,24 +32,18 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeRegistry({})
 
     const run = await runWorkflow("missing", {})
-    await expect(getWorkflowRun("missing", run.id)).resolves.toMatchObject({
-      status: "failed",
-    })
+    await expect(getWorkflowRun("missing", run.id)).resolves.toMatchObject({ status: "failed" })
   })
 
   it("uses waitUntil for deferred workflow dispatch", async () => {
     const waitUntil = vi.fn()
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
-      welcome: async () => ({
-        default: {
-          handler: async () => ({ ok: true }),
-        },
-      }),
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
     enterWorkflowRuntimeEvent({ waitUntil })
 
-    deferWorkflow("welcome", {})
+    await deferWorkflow("welcome", {})
 
     expect(waitUntil).toHaveBeenCalledTimes(1)
     await waitUntil.mock.calls[0]?.[0]
@@ -68,21 +58,14 @@ describe("workflow runtime", () => {
 
     setWorkflowRuntimeConfig({ provider: "cloudflare" })
     setWorkflowRuntimeRegistry({
-      welcome: async () => ({
-        default: {
-          handler: async () => ({ ok: true }),
-        },
-      }),
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
     enterWorkflowRuntimeEvent({
       req: {
         runtime: {
           cloudflare: {
             env: {
-              [getCloudflareWorkflowBindingName("welcome")]: {
-                create,
-                get: vi.fn(),
-              },
+              [getCloudflareWorkflowBindingName("welcome")]: { create, get: vi.fn() },
             },
           },
         },
@@ -90,7 +73,7 @@ describe("workflow runtime", () => {
       },
     })
 
-    deferWorkflow("welcome", { id: "welcome-1", payload: { email: "ava@example.com" } })
+    await deferWorkflow("welcome", { email: "ava@example.com" }, { id: "welcome-1" })
 
     expect(waitUntil).toHaveBeenCalledTimes(1)
     await waitUntil.mock.calls[0]?.[0]

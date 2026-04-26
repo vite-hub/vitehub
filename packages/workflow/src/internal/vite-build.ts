@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
 import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
+import { VITEHUB_MODES, getViteMode } from "@vitehub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
 import { resolveUserAppEntry, toSafeAppName } from "@vitehub/internal/build/user-entry"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
@@ -10,7 +11,7 @@ import { createRuntimeRegistryContents } from "@vitehub/internal/definition-disc
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
-import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../integrations/cloudflare.ts"
+import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
 import type { DiscoveredWorkflowDefinition, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
 
@@ -21,11 +22,13 @@ const productName = "workflow"
 const generatedRegistryFileName = "registry.mjs"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
-const WORKFLOW_ENTRY_NAMES_DEFAULT = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
-const WORKFLOW_ENTRY_NAMES_PRIORITIZED = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs", ...WORKFLOW_ENTRY_NAMES_DEFAULT] as const
+const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
+const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
 
 function resolveWorkflowUserAppEntry(rootDir: string) {
-  const names = process.env.VITEHUB_VITE_MODE === "workflow" ? WORKFLOW_ENTRY_NAMES_PRIORITIZED : WORKFLOW_ENTRY_NAMES_DEFAULT
+  const names = getViteMode() === VITEHUB_MODES.workflow
+    ? [...WORKFLOW_PRIORITY_NAMES, ...WORKFLOW_ENTRY_BASE_NAMES]
+    : [...WORKFLOW_ENTRY_BASE_NAMES]
   return resolveUserAppEntry(rootDir, { names })
 }
 
@@ -66,38 +69,6 @@ interface CloudflareWorkflowConfig {
   workflows?: Array<{ binding: string, class_name: string, name: string }>
 }
 
-function createCloudflareWorkflowBindings(definitions: DiscoveredWorkflowDefinition[]) {
-  if (!definitions.length) {
-    return undefined
-  }
-
-  return definitions.map(definition => ({
-    binding: getCloudflareWorkflowBindingName(definition.name),
-    class_name: getCloudflareWorkflowClassName(definition.name),
-    name: getCloudflareWorkflowName(definition.name),
-  }))
-}
-
-function renderCloudflareWorkflowRunner(workflowConfig: unknown) {
-  return [
-    "export async function runViteHubWorkflowDefinition(name, env, event, step) {",
-    `    setWorkflowRuntimeConfig(${JSON.stringify(workflowConfig, null, 2)})`,
-    `    setWorkflowRuntimeRegistry(workflowRegistry)`,
-    "    setActiveCloudflareEnv(env || {})",
-    "    const definition = await loadWorkflowDefinition(name)",
-    "    if (!definition) throw new Error('Missing workflow definition.')",
-    `    return await runWithWorkflowRuntimeEvent({ env, step }, () => definition.handler({`,
-    `      id: event?.instanceId || event?.id,`,
-    `      name,`,
-    `      payload: event?.payload,`,
-    `      provider: "cloudflare",`,
-    `      step,`,
-    `    }))`,
-    "}",
-    "",
-  ].join("\n")
-}
-
 function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition[]) {
   return [
     `import { WorkflowEntrypoint, waitUntil as viteHubWaitUntil } from "cloudflare:workers"`,
@@ -123,36 +94,40 @@ function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition
     "",
     "export default viteHubWorker",
     "",
-  ].flat().join("\n")
+  ].join("\n")
 }
 
 function renderProviderEntry(
   spec: ProviderEntrySpec,
   entryFile: string,
-  registryFile: string,
-  definitions: DiscoveredWorkflowDefinition[],
   userAppEntry: string | undefined,
-  workflowConfig: unknown,
+  serializedWorkflowConfig: string,
 ) {
   const imports = [
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
     `import workflowRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
   ]
   if (spec.name === "cloudflare") {
-    imports.push(`import { setActiveCloudflareEnv } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/cloudflare-shared")))}`)
-    imports.push(`import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/state")))}`)
+    imports.push(`import { runCloudflareWorkflow } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/cloudflare-runner")))}`)
   }
   if (userAppEntry) {
     imports.push(`import workflowApp from ${JSON.stringify(createImportPath(entryFile, userAppEntry))}`)
   }
 
+  const cloudflareDispatcher = spec.name === "cloudflare"
+    ? [
+        "",
+        "export async function runViteHubWorkflowDefinition(name, env, event, step) {",
+        "  return await runCloudflareWorkflow({ config: workflowConfig, env: env || {}, event, name, registry: workflowRegistry, step })",
+        "}",
+      ]
+    : []
+
   return [
     ...imports,
     "",
-    ...(spec.name === "cloudflare"
-      ? [renderCloudflareWorkflowRunner(workflowConfig)]
-      : []),
-    `const workflowConfig = ${JSON.stringify(workflowConfig, null, 2)}`,
+    `const workflowConfig = ${serializedWorkflowConfig}`,
+    ...cloudflareDispatcher,
     "",
     `export default ${spec.factory}({`,
     userAppEntry ? "  app: workflowApp," : "",
@@ -160,7 +135,7 @@ function renderProviderEntry(
     "  workflow: workflowConfig,",
     "})",
     "",
-  ].flat().filter(Boolean).join("\n")
+  ].filter(Boolean).join("\n")
 }
 
 async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOptions | undefined) {
@@ -174,12 +149,13 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
   const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", vercel: "" }
-  for (const spec of providerEntrySpecs) {
+  await Promise.all(providerEntrySpecs.map(async (spec) => {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const workflowConfig = normalizeWorkflowOptions(workflow, { hosting: spec.hosting }) || false
-    await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, definitions, userAppEntry, workflowConfig), "utf8")
+    const serialized = JSON.stringify(workflowConfig, null, 2)
+    await writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry, serialized), "utf8")
     entryFiles[spec.name] = entryFile
-  }
+  }))
 
   return {
     cloudflareWorkerFile: entryFiles.cloudflare,
@@ -198,29 +174,29 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
   const workflows = createCloudflareWorkflowBindings(artifacts.definitions)
 
   await rm(outputRoot, { force: true, recursive: true })
-  if (staticIndex) {
-    await copyClientOutput(clientDir, resolve(rootDir, "dist", "client"))
-  }
-
   await mkdir(outputRoot, { recursive: true })
 
-  await bundleEsmEntry(artifacts.cloudflareWorkerFile, workerOutfile, {
-    conditions: ["workerd", "worker", "browser", "default"],
-    external: [
-      "@cloudflare/sandbox",
-      "@vercel/blob",
-      "@vercel/functions",
-      "@vercel/queue",
-      "@vercel/sandbox",
-      "cloudflare:workers",
-      "node:async_hooks",
-      "workflow",
-      "workflow/api",
-      "workflow/runtime",
-    ],
-    format: "esm",
-    platform: "neutral",
-  })
+  await Promise.all([
+    staticIndex ? copyClientOutput(clientDir, resolve(rootDir, "dist", "client")) : Promise.resolve(),
+    bundleEsmEntry(artifacts.cloudflareWorkerFile, workerOutfile, {
+      conditions: ["workerd", "worker", "browser", "default"],
+      external: [
+        "@cloudflare/sandbox",
+        "@vercel/blob",
+        "@vercel/functions",
+        "@vercel/queue",
+        "@vercel/sandbox",
+        "cloudflare:workers",
+        "node:async_hooks",
+        "workflow",
+        "workflow/api",
+        "workflow/runtime",
+      ],
+      format: "esm",
+      platform: "neutral",
+    }),
+  ])
+
   await writeFile(resolve(outputRoot, "index.js"), renderCloudflareWorkerWrapper(artifacts.definitions), "utf8")
 
   const wranglerConfig: CloudflareWorkflowConfig = {
@@ -246,23 +222,23 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, artifact
   await rm(outputRoot, { force: true, recursive: true })
   await mkdir(serverDir, { recursive: true })
 
-  await bundleEsmEntry(artifacts.vercelServerFile, serverEntry, {
-    external: ["@cloudflare/sandbox", "cloudflare:workers", "workflow", "workflow/api", "workflow/runtime"],
-    format: "esm",
-    platform: "node",
-  })
-
-  await writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
-  await writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8")
-
-  if (staticIndex) {
-    await copyClientOutput(clientDir, resolve(outputRoot, "static"))
-  }
+  await Promise.all([
+    bundleEsmEntry(artifacts.vercelServerFile, serverEntry, {
+      external: ["@cloudflare/sandbox", "cloudflare:workers", "workflow", "workflow/api", "workflow/runtime"],
+      format: "esm",
+      platform: "node",
+    }),
+    writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
+    writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8"),
+    staticIndex ? copyClientOutput(clientDir, resolve(outputRoot, "static")) : Promise.resolve(),
+  ])
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedWorkflowArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow)
-  await writeCloudflareOutput(options.rootDir, options.clientOutDir, artifacts)
-  await writeVercelOutput(options.rootDir, options.clientOutDir, artifacts)
+  await Promise.all([
+    writeCloudflareOutput(options.rootDir, options.clientOutDir, artifacts),
+    writeVercelOutput(options.rootDir, options.clientOutDir, artifacts),
+  ])
   return artifacts
 }

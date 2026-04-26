@@ -112,24 +112,10 @@ await runWorkflow('welcome', {
 
 ## Start with a stable run id
 
-Pass an envelope with `id` and `payload` when the caller needs to persist or poll a known id:
+Pass the id in options when the caller needs to persist or poll a known id:
 
 ```ts
-await runWorkflow('welcome', {
-  id: 'welcome-signup-42',
-  payload: {
-    email: 'ava@example.com',
-    marker: 'signup-42',
-  },
-})
-```
-
-You can also pass the id in options:
-
-```ts
-await runWorkflow('welcome', payload, {
-  id: 'welcome-signup-42',
-})
+await runWorkflow('welcome', payload, { id: 'welcome-signup-42' })
 ```
 
 ## Defer dispatch until after the response
@@ -139,17 +125,13 @@ Use `deferWorkflow()` when the route should return immediately and start dispatc
 ```ts
 import { deferWorkflow } from '@vitehub/workflow'
 
-export default defineEventHandler(() => {
-  deferWorkflow('welcome', {
-    email: 'ava@example.com',
-    marker: 'signup-42',
-  })
-
+export default defineEventHandler(async () => {
+  await deferWorkflow('welcome', { email: 'ava@example.com', marker: 'signup-42' })
   return { ok: true }
 })
 ```
 
-`deferWorkflow()` uses `waitUntil()` when the runtime provides it. If no request context is available, the start still runs as an async task and failures are logged.
+`deferWorkflow()` returns the start promise and uses `waitUntil()` when the runtime provides it.
 
 ## Observe a run
 

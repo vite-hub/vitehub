@@ -22,18 +22,14 @@ export interface WorkflowCloudflareWorker {
 
 export function createWorkflowCloudflareWorker(options: WorkflowCloudflareWorkerOptions = {}): WorkflowCloudflareWorker {
   const workflowConfig = options.workflow === false ? false : normalizeWorkflowOptions(options.workflow, { hosting: "cloudflare" })!
-  const registry = options.registry
+  setWorkflowRuntimeConfig(workflowConfig)
+  setWorkflowRuntimeRegistry(options.registry)
+
   const defaultHandler = toWebHandler(new H3())
   const appHandler = resolveWorkflowAppFetch(options.app)
 
-  const applyRuntimeState = () => {
-    setWorkflowRuntimeConfig(workflowConfig)
-    setWorkflowRuntimeRegistry(registry)
-  }
-
   return {
     async fetch(request, env, context) {
-      applyRuntimeState()
       setActiveCloudflareEnv(env)
       const runtimeEvent = createCloudflareRuntimeEvent(env, context)
       return await runWithWorkflowRuntimeEvent(runtimeEvent, () => Promise.resolve(appHandler ? appHandler(request, runtimeEvent.context) : defaultHandler(request, runtimeEvent.context)))

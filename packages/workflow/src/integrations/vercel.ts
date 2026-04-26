@@ -1,3 +1,5 @@
+import { encodeNameHex } from "@vitehub/internal/integrations/hex"
+
 export function getVercelWorkflowName(name: string): string {
-  return `workflow--${Buffer.from(name).toString("hex")}`
+  return `workflow--${encodeNameHex(name)}`
 }

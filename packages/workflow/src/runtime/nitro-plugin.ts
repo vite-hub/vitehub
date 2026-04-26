@@ -8,19 +8,11 @@ import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntime
 import type { ResolvedWorkflowOptions } from "../types.ts"
 
 const workflowNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin((nitroApp) => {
-  const runtimeConfig = useRuntimeConfig() as {
-    workflow?: false | ResolvedWorkflowOptions
-  }
-
-  const applyRuntimeState = () => {
-    setWorkflowRuntimeConfig(runtimeConfig.workflow)
-    setWorkflowRuntimeRegistry(workflowRegistry)
-  }
-
-  applyRuntimeState()
+  const runtimeConfig = useRuntimeConfig() as { workflow?: false | ResolvedWorkflowOptions }
+  setWorkflowRuntimeConfig(runtimeConfig.workflow)
+  setWorkflowRuntimeRegistry(workflowRegistry)
 
   nitroApp.hooks.hook("request", (event) => {
-    applyRuntimeState()
     enterWorkflowRuntimeEvent(event)
   })
 })
