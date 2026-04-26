@@ -83,11 +83,12 @@ export function getShowcaseFiles(
 
   let files = (example.files[resolvedFramework] || []).map((file) => {
     const configurePath = modeConfig.phases.configure || getFrameworkConfigPath(resolvedFramework);
+    const configOverride = provider?.configOverrides?.[resolvedFramework] || provider?.configOverride;
 
-    if (provider?.configOverride && file.path === configurePath) {
+    if (configOverride && file.path === configurePath) {
       return {
         ...file,
-        code: generateFrameworkConfig(resolvedFramework, example.pkg, provider.configOverride) || file.code,
+        code: generateFrameworkConfig(resolvedFramework, example.pkg, configOverride) || file.code,
       };
     }
 

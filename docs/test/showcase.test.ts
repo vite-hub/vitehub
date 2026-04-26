@@ -241,7 +241,10 @@ describe("showcase examples", () => {
       "src/release-notes.sandbox.ts",
       "src/server.ts",
     ]);
-    expect(cloudflareFiles.find(file => file.path === "vite.config.ts")?.code).toContain("provider: 'cloudflare'");
+    const cloudflareViteConfig = cloudflareFiles.find(file => file.path === "vite.config.ts")?.code;
+    expect(cloudflareViteConfig).toContain("appType: 'custom'");
+    expect(cloudflareViteConfig).toContain("input: new URL('src/server.ts', import.meta.url).pathname");
+    expect(cloudflareViteConfig).toContain("provider: 'cloudflare'");
 
     const vercelFiles = getShowcaseFiles(sandbox!, "nitro", "vercel");
     expect(vercelFiles.slice(0, 3).map(file => file.path)).toEqual([
@@ -249,7 +252,10 @@ describe("showcase examples", () => {
       "server/sandboxes/release-notes.ts",
       "server/api/release-notes.post.ts",
     ]);
-    expect(vercelFiles.find(file => file.path === "nitro.config.ts")?.code).toContain("provider: 'vercel'");
+    const vercelNitroConfig = vercelFiles.find(file => file.path === "nitro.config.ts")?.code;
+    expect(vercelNitroConfig).toContain("provider: 'vercel'");
+    expect(vercelNitroConfig).not.toContain("appType");
+    expect(vercelNitroConfig).not.toContain("rollupOptions");
     expect(vercelFiles.find(file => file.path === "env.example")?.code).toContain("VERCEL_TOKEN=<vercel-token>");
   });
 
