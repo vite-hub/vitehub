@@ -34,6 +34,7 @@ dynamicallyLoaded = [
   "playground/vite/server/**",
   "playground/vite/src/server.ts",
   "playground/vite/src/server.blob.ts",
+  "playground/vite/src/server-workflow.ts",
   "playground/vite/src/**/*.queue.ts",
   "playground/vite/src/**/*.workflow.ts",
 ]
