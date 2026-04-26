@@ -8,7 +8,7 @@ const workflowOnly = buildMode === "workflow"
 const input = blobOnly
   ? "src/server.blob.ts"
   : workflowOnly
-    ? "src/server.workflow.ts"
+    ? "src/server-workflow.ts"
     : "src/server.ts"
 
 export default defineConfig(async () => {

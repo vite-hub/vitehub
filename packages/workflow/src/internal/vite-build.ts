@@ -21,6 +21,13 @@ const productName = "workflow"
 const generatedRegistryFileName = "registry.mjs"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
+const WORKFLOW_ENTRY_NAMES_DEFAULT = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
+const WORKFLOW_ENTRY_NAMES_PRIORITIZED = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs", ...WORKFLOW_ENTRY_NAMES_DEFAULT] as const
+
+function resolveWorkflowUserAppEntry(rootDir: string) {
+  const names = process.env.VITEHUB_VITE_MODE === "workflow" ? WORKFLOW_ENTRY_NAMES_PRIORITIZED : WORKFLOW_ENTRY_NAMES_DEFAULT
+  return resolveUserAppEntry(rootDir, { names })
+}
 
 interface ProviderEntrySpec {
   name: WorkflowProvider
@@ -71,27 +78,45 @@ function createCloudflareWorkflowBindings(definitions: DiscoveredWorkflowDefinit
   }))
 }
 
-function renderCloudflareWorkflowClass(entryFile: string, registryFile: string, definition: DiscoveredWorkflowDefinition, workflowConfig: unknown) {
-  const className = getCloudflareWorkflowClassName(definition.name)
+function renderCloudflareWorkflowRunner(workflowConfig: unknown) {
   return [
-    `export class ${className} extends WorkflowEntrypoint {`,
-    "  async run(event, step) {",
+    "export async function runViteHubWorkflowDefinition(name, env, event, step) {",
     `    setWorkflowRuntimeConfig(${JSON.stringify(workflowConfig, null, 2)})`,
     `    setWorkflowRuntimeRegistry(workflowRegistry)`,
-    "    setActiveCloudflareEnv(this.env || {})",
-    `    const definition = await loadWorkflowDefinition(${JSON.stringify(definition.name)})`,
+    "    setActiveCloudflareEnv(env || {})",
+    "    const definition = await loadWorkflowDefinition(name)",
     "    if (!definition) throw new Error('Missing workflow definition.')",
-    `    return await runWithWorkflowRuntimeEvent({ env: this.env, step }, () => definition.handler({`,
+    `    return await runWithWorkflowRuntimeEvent({ env, step }, () => definition.handler({`,
     `      id: event?.instanceId || event?.id,`,
-    `      name: ${JSON.stringify(definition.name)},`,
+    `      name,`,
     `      payload: event?.payload,`,
     `      provider: "cloudflare",`,
     `      step,`,
     `    }))`,
-    "  }",
     "}",
     "",
   ].join("\n")
+}
+
+function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition[]) {
+  return [
+    `import { WorkflowEntrypoint } from "cloudflare:workers"`,
+    `import worker, { runViteHubWorkflowDefinition } from "./worker.mjs"`,
+    "",
+    ...definitions.map((definition) => {
+      const className = getCloudflareWorkflowClassName(definition.name)
+      return [
+        `export class ${className} extends WorkflowEntrypoint {`,
+        "  async run(event, step) {",
+        `    return await runViteHubWorkflowDefinition(${JSON.stringify(definition.name)}, this.env || {}, event, step)`,
+        "  }",
+        "}",
+        "",
+      ].join("\n")
+    }),
+    "export default worker",
+    "",
+  ].flat().join("\n")
 }
 
 function renderProviderEntry(
@@ -107,7 +132,6 @@ function renderProviderEntry(
     `import workflowRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
   ]
   if (spec.name === "cloudflare") {
-    imports.unshift(`import { WorkflowEntrypoint } from "cloudflare:workers"`)
     imports.push(`import { setActiveCloudflareEnv } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/cloudflare-shared")))}`)
     imports.push(`import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/state")))}`)
   }
@@ -119,7 +143,7 @@ function renderProviderEntry(
     ...imports,
     "",
     ...(spec.name === "cloudflare"
-      ? definitions.map(definition => renderCloudflareWorkflowClass(entryFile, registryFile, definition, workflowConfig))
+      ? [renderCloudflareWorkflowRunner(workflowConfig)]
       : []),
     `const workflowConfig = ${JSON.stringify(workflowConfig, null, 2)}`,
     "",
@@ -138,7 +162,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir })
-  const userAppEntry = resolveUserAppEntry(rootDir)
+  const userAppEntry = resolveWorkflowUserAppEntry(rootDir)
 
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
@@ -162,7 +186,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
 async function writeCloudflareOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedWorkflowArtifacts) {
   const clientDir = resolve(rootDir, clientOutDir)
   const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir))
-  const workerOutfile = resolve(outputRoot, "index.js")
+  const workerOutfile = resolve(outputRoot, "worker.mjs")
   const staticIndex = hasStaticIndex(clientDir)
   const workflows = createCloudflareWorkflowBindings(artifacts.definitions)
 
@@ -190,6 +214,7 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
     format: "esm",
     platform: "neutral",
   })
+  await writeFile(resolve(outputRoot, "index.js"), renderCloudflareWorkerWrapper(artifacts.definitions), "utf8")
 
   const wranglerConfig: CloudflareWorkflowConfig = {
     compatibility_date: defaultCompatibilityDate,

@@ -49,18 +49,22 @@ describe("Vite workflow provider outputs", () => {
     })
 
     const cloudflareWorker = join(rootDir, "dist", "vite", "index.js")
+    const cloudflareWorkerBundle = join(rootDir, "dist", "vite", "worker.mjs")
     const cloudflareConfig = join(rootDir, "dist", "vite", "wrangler.json")
     const vercelConfig = join(rootDir, ".vercel", "output", "config.json")
     const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
     const wrangler = JSON.parse(await readFile(cloudflareConfig, "utf8"))
 
     expect(existsSync(cloudflareWorker)).toBe(true)
+    expect(existsSync(cloudflareWorkerBundle)).toBe(true)
     expect(wrangler.workflows).toContainEqual({
       binding: "WORKFLOW_77656C636F6D65",
       class_name: "ViteHubWelcomeWorkflow",
       name: "workflow--77656c636f6d65",
     })
-    expect(await readFile(cloudflareWorker, "utf8")).toContain("ViteHubWelcomeWorkflow")
+    expect(wrangler.workflows).toHaveLength(1)
+    expect(await readFile(cloudflareWorker, "utf8")).toContain("export class ViteHubWelcomeWorkflow extends WorkflowEntrypoint")
+    expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
   }, 20_000)
