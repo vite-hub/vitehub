@@ -1,101 +1,191 @@
 ---
 title: Blob
-description: Blob storage for Vite and Nitro apps with local files, Cloudflare R2, and Vercel Blob.
+description: Store, list, read, serve, and delete files from Vite and Nitro server code with one provider-neutral Blob API.
 navigation.title: Overview
 navigation.order: 0
 icon: i-lucide-files
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/blob` gives Vite and Nitro server apps one Blob API that works across local files, Cloudflare R2, and Vercel Blob.
+`@vitehub/blob` gives Vite and Nitro apps one server-side Blob API for local files, Cloudflare R2, and Vercel Blob.
 
-## Start here
+Use Blob when routes need to accept user files, write generated assets, list stored objects, or stream a stored file back through the application.
 
-Start with [Quickstart](./quickstart) to get Blob working locally first. It uses the `fs` driver, stores files in `.data/blob`, and keeps the first routes small so you can verify reads and writes before choosing a hosted provider.
+::code-group
+```ts [server/api/avatar.put.ts]
+import { createError, defineEventHandler, readFormData } from 'h3'
+import { blob, ensureBlob } from '@vitehub/blob'
 
-::fw{vite}
-On Vite, the `hubBlob()` plugin owns Blob config resolution and emits provider-specific output for Cloudflare and Vercel builds.
+export default defineEventHandler(async (event) => {
+  const form = await readFormData(event)
+  const file = form.get('file')
+
+  if (!(file instanceof Blob)) {
+    throw createError({ statusCode: 400, statusMessage: 'Expected a file upload.' })
+  }
+
+  ensureBlob(file, { maxSize: '1MB', types: ['image'] })
+
+  return await blob.put('avatar.png', file, {
+    addRandomSuffix: true,
+    prefix: 'avatars',
+  })
+})
+```
+
+```json [Response]
+{
+  "pathname": "avatars/avatar-a1b2c3d4.png",
+  "contentType": "image/png",
+  "size": 8421,
+  "httpEtag": "\"6f1d...\"",
+  "uploadedAt": "2026-04-26T12:00:00.000Z",
+  "httpMetadata": {
+    "contentType": "image/png"
+  },
+  "customMetadata": {}
+}
+```
 ::
 
-::fw{nitro}
-On Nitro, the `@vitehub/blob/nitro` module resolves Blob config into runtime storage and wires provider-specific bindings for Cloudflare and Vercel presets.
+## What Blob Solves
+
+Object storage APIs differ by platform. Blob keeps route code focused on pathnames, bodies, metadata, and streams while the active driver handles provider details.
+
+::card-group
+  :::card
+  ---
+  icon: i-lucide-upload
+  title: Portable writes
+  ---
+  Store strings, `Blob`s, `ArrayBuffer`s, typed arrays, or streams with the same `blob.put()` call.
+  :::
+
+  :::card
+  ---
+  icon: i-lucide-folder-search
+  title: Listings and metadata
+  ---
+  Page through objects with `prefix`, `limit`, `cursor`, and folded folder-style listings.
+  :::
+
+  :::card
+  ---
+  icon: i-lucide-send
+  title: Route streaming
+  ---
+  Serve stored files from H3 routes with content headers set by `blob.serve()`.
+  :::
+
+  :::card
+  ---
+  icon: i-lucide-shield-check
+  title: Upload checks
+  ---
+  Reject files by MIME type or size before they reach storage with `ensureBlob()`.
+  :::
 ::
 
-## Automatic configuration
+## One Portable Flow
+
+The same shape works across supported runtimes:
+
+1. Install `@vitehub/blob`.
+2. Register `hubBlob()` for Vite or `@vitehub/blob/nitro` for Nitro.
+3. Choose a storage driver or let hosting inference pick one.
+4. Use `blob.put()`, `blob.list()`, `blob.get()`, `blob.head()`, `blob.del()`, and `blob.serve()` from server routes.
+5. Move provider-specific tokens, bindings, and bucket names into config or environment.
+
+::callout{icon="i-lucide-info" color="info"}
+Blob is a server-side API. Import `blob` from server routes, handlers, or build-generated server entries, not from browser code.
+::
+
+## Storage Resolution
 
 ViteHub resolves Blob storage in this order:
 
 1. Explicit `blob.driver` config wins.
-2. Cloudflare hosting resolves `cloudflare-r2` and preserves implicit `binding` and `bucketName` overrides.
+2. Cloudflare hosting resolves `cloudflare-r2`.
 3. `BLOB_READ_WRITE_TOKEN` resolves `vercel-blob`.
 4. Vercel hosting resolves `vercel-blob`.
 5. Everything else falls back to `fs` at `.data/blob`.
 
-This matches `normalizeBlobOptions`, so the docs and runtime behavior stay aligned.
+## Supported Storage Paths
 
-## Supported provider paths
+::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Local filesystem
+  description: Use the fs driver for local development and non-hosted server storage.
+  icon: i-lucide-hard-drive
+  to: ./quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Cloudflare R2
+  description: Store blobs through an R2 binding on Cloudflare Workers or Pages.
+  icon: i-simple-icons-cloudflare
+  to: ./providers/cloudflare
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Vercel Blob
+  description: Store blobs through Vercel Blob with BLOB_READ_WRITE_TOKEN.
+  icon: i-simple-icons-vercel
+  to: ./providers/vercel
+  ---
+  :::
+::
 
-### Local / other
+## Start Here
 
-Use this path when you want the simplest development setup or when no higher-priority hosted configuration is present. The resolved driver is `fs`, and files are stored in `.data/blob`.
+Start with [Quickstart](./quickstart) for a local `fs` setup. Use the [primitive comparison](../compare) when you are choosing between Blob, KV, Queue, Sandbox, and inline response data.
 
-### Cloudflare R2
-
-Use this path when your app deploys to Cloudflare or when you explicitly set `blob.driver = 'cloudflare-r2'`. Blob resolves storage through an R2 binding.
-
-Read [Cloudflare](./providers/cloudflare) for bindings, `bucketName`, and local-development behavior.
-
-### Vercel Blob
-
-Use this path when your app deploys to Vercel or when `BLOB_READ_WRITE_TOKEN` is available. The resolved driver is `vercel-blob`.
-
-Read [Vercel](./providers/vercel) for the runtime token requirement, current public-access support, and package setup.
-
-## What stays portable
-
-These pieces stay stable when you change providers:
-
-- the top-level `blob` config key
-- the runtime handle `blob`
-- call sites that use `blob.list()`, `blob.get()`, `blob.put()`, `blob.head()`, `blob.del()`, `blob.delete()`, and `blob.serve()`
-- input validation with `ensureBlob()`
-
-## Next steps
+## Next Steps
 
 ::u-page-grid{class="pb-2"}
   :::u-page-card
   ---
   title: Quickstart
-  description: Get a first working local Blob setup.
+  description: Register Blob, write one object, list it, and verify the JSON result.
   to: ./quickstart
   ---
   :::
   :::u-page-card
   ---
   title: Usage
-  description: Store, list, read, serve, and delete blobs.
+  description: Use pathnames, metadata, pagination, serving, deletes, and upload validation.
   to: ./usage
   ---
   :::
   :::u-page-card
   ---
+  title: Store a blob
+  description: Accept an upload or JSON body and write it through the portable runtime API.
+  to: ./guides/store-a-blob
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Serve a blob
+  description: Stream stored files from routes with provider-neutral headers.
+  to: ./guides/serve-a-blob
+  ---
+  :::
+  :::u-page-card
+  ---
   title: Runtime API
-  description: Review exports, methods, and config types.
+  description: Review exports, method signatures, option fields, and config types.
   to: ./runtime-api
   ---
   :::
   :::u-page-card
   ---
-  title: Cloudflare
-  description: Configure Blob storage against a Cloudflare R2 binding.
-  to: ./providers/cloudflare
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Vercel
-  description: Configure Blob storage against Vercel Blob.
-  to: ./providers/vercel
+  title: Troubleshooting
+  description: Fix disabled runtime config, missing R2 bindings, Vercel tokens, and failed lookups.
+  to: ./troubleshooting
   ---
   :::
 ::

@@ -1,75 +1,124 @@
 ---
 title: Blob usage
-description: Store, list, read, serve, and delete blobs from Vite or Nitro server routes.
+description: Practical patterns for pathnames, writes, metadata, listings, serving, deletes, and upload validation.
 navigation.title: Usage
+navigation.order: 3
+icon: i-lucide-workflow
 frameworks: [vite, nitro]
 ---
 
-## Import Blob
+After the quickstart works, most Blob code falls into six patterns: write a body, validate uploads, list by prefix, read metadata, stream a response, and delete stale objects.
+
+## Import the Runtime Handle
 
 ```ts
-import { blob } from '@vitehub/blob'
+import { blob, ensureBlob } from '@vitehub/blob'
 ```
 
-## List blobs
+Use this import from server-side code. Provider setup belongs in Vite or Nitro config.
+
+## Write Stable Pathnames
+
+`blob.put()` normalizes leading slashes and decodes URL-encoded pathnames once before the active driver receives them.
 
 ```ts
-import { blob } from '@vitehub/blob'
+const stored = await blob.put('avatars/user-1.png', file, {
+  contentType: 'image/png',
+  customMetadata: {
+    owner: 'user-1',
+  },
+})
+```
 
-const page = await blob.list({
-  folded: true,
+The returned `BlobObject` includes the final `pathname`. Read that value when you use `prefix` or `addRandomSuffix`.
+
+```ts
+const stored = await blob.put('avatar.png', file, {
+  addRandomSuffix: true,
+  prefix: 'avatars',
+})
+
+return { pathname: stored.pathname }
+```
+
+## Validate Uploads Before Writing
+
+Use `ensureBlob()` when user-provided files must match a size or type rule.
+
+```ts
+ensureBlob(file, {
+  maxSize: '1MB',
+  types: ['image'],
+})
+```
+
+`types` accepts broad groups such as `image`, `video`, `audio`, `text`, and `pdf`, or exact MIME types such as `image/png`.
+
+::callout{icon="i-lucide-alert-triangle" color="warning"}
+`ensureBlob()` requires at least one of `maxSize` or `types`. It throws an H3 `400` error when validation fails.
+::
+
+## List by Prefix
+
+Use `prefix` to scope results and `limit` to control page size.
+
+```ts
+const firstPage = await blob.list({
   limit: 20,
   prefix: 'avatars/',
 })
 ```
 
-`blob.list()` returns `blobs`, optional `folders`, and `hasMore`. When `hasMore` is `true`, pass the returned `cursor` into the next call to continue the listing. Use `folded: true` when you want folder-style results instead of one flat list.
-
-## Write a blob
+When `hasMore` is true, pass the returned `cursor` into the next call:
 
 ```ts
-import { blob } from '@vitehub/blob'
-
-await blob.put('avatar.png', file, {
-  addRandomSuffix: true,
-  contentType: 'image/png',
-  customMetadata: { owner: 'user-1' },
-  prefix: 'avatars',
+const nextPage = await blob.list({
+  cursor: firstPage.cursor,
+  limit: 20,
+  prefix: 'avatars/',
 })
 ```
 
-`blob.put()` normalizes the pathname, guesses `contentType` from the pathname when you omit it, prepends `prefix` when present, and can add a short random suffix to reduce collisions. `access` is part of the options shape, but the current Vercel path only supports public writes.
-
-## Read metadata
+Use `folded: true` when UI code needs folder-style groupings:
 
 ```ts
-import { blob } from '@vitehub/blob'
+const page = await blob.list({
+  folded: true,
+  prefix: 'assets/',
+})
 
-const file = await blob.head('avatars/user-1.txt')
+return {
+  folders: page.folders || [],
+  blobs: page.blobs,
+}
 ```
 
-`blob.head()` returns one `BlobObject` or throws a `404` when the pathname does not exist.
+## Read Metadata and Bodies
 
-## Read body
+Use `head()` when you only need metadata:
 
 ```ts
-import { blob } from '@vitehub/blob'
-
-const file = await blob.get('avatars/user-1.txt')
-const text = file ? await file.text() : null
+const meta = await blob.head('avatars/user-1.png')
 ```
 
-Use `blob.get()` when you want the body. Unlike `head()`, it returns `null` for a missing pathname.
+`head()` throws a `404` when the pathname does not exist. Use `get()` when missing objects should return `null`:
 
-## Serve a blob
+```ts
+const file = await blob.get('avatars/user-1.png')
+const bytes = file ? await file.arrayBuffer() : null
+```
+
+## Serve Stored Files
+
+`blob.serve()` loads the body, sets `Content-Length`, sets `Content-Type`, and sets `etag` when the active driver provides one.
 
 ```ts
 import { createError, defineEventHandler, getQuery } from 'h3'
-
 import { blob } from '@vitehub/blob'
 
 export default defineEventHandler(async (event) => {
   const pathname = getQuery(event).pathname
+
   if (typeof pathname !== 'string' || pathname.length === 0) {
     throw createError({ statusCode: 400, statusMessage: 'Missing pathname' })
   }
@@ -78,28 +127,63 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`blob.serve()` is the small route helper for file delivery. It sets `Content-Length` and `Content-Type`, and it sets `etag` when the active driver provides one. Range requests and cache policy are not yet documented as a package-level contract.
+## Delete One or Many Objects
 
-## Delete a blob
-
-```ts
-import { blob } from '@vitehub/blob'
-
-await blob.del('avatars/user-1.txt')
-await blob.delete(['avatars/user-2.txt', 'avatars/user-3.txt'])
-```
-
-`blob.del()` and `blob.delete()` are aliases. Both accept one pathname or an array of pathnames.
-
-## Validate before storing
+`del()` and `delete()` are aliases.
 
 ```ts
-import { ensureBlob } from '@vitehub/blob'
+await blob.del('avatars/user-1.png')
 
-ensureBlob(file, {
-  maxSize: '1MB',
-  types: ['image'],
-})
+await blob.delete([
+  'avatars/user-2.png',
+  'avatars/user-3.png',
+])
 ```
 
-`ensureBlob()` throws an `h3` `400` error when the input does not match the declared size or type rules. Set at least one of `maxSize` or `types`.
+## Keep Routes Provider-Neutral
+
+The route should not know whether local files, Cloudflare R2, or Vercel Blob is active.
+
+```ts
+const stored = await blob.put(pathname, file)
+const page = await blob.list({ prefix: 'avatars/' })
+```
+
+Provider details belong in config:
+
+::tabs{sync="provider"}
+  :::tabs-item{label="Local" icon="i-lucide-hard-drive" class="p-4"}
+    ```ts
+    blob: {
+      driver: 'fs',
+      base: '.data/blob',
+    }
+    ```
+  :::
+
+  :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
+    ```ts
+    blob: {
+      driver: 'cloudflare-r2',
+      binding: 'BLOB',
+      bucketName: 'assets',
+    }
+    ```
+  :::
+
+  :::tabs-item{label="Vercel" icon="i-simple-icons-vercel" class="p-4"}
+    ```ts
+    blob: {
+      driver: 'vercel-blob',
+      access: 'public',
+    }
+    ```
+  :::
+::
+
+## Next Steps
+
+- Use [Store a blob](./guides/store-a-blob) for upload and JSON-body examples.
+- Use [Serve a blob](./guides/serve-a-blob) for file delivery routes.
+- Use [Validate uploads](./guides/validate-uploads) before writing user files.
+- Use [Runtime API](./runtime-api) for exact method and option names.

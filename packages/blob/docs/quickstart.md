@@ -1,26 +1,45 @@
 ---
 title: Blob quickstart
-description: Read and write a first blob with the local filesystem driver.
+description: Register Blob, write one local object, list stored objects, and verify the JSON result.
 navigation.title: Quickstart
 navigation.order: 1
-icon: i-lucide-rocket
+icon: i-lucide-zap
 frameworks: [vite, nitro]
 ---
 
-This quickstart uses the local `fs` driver so you can get Blob working with the least setup first. Files are stored in `.data/blob`.
+This guide creates two routes: one writes `notes/example.txt`, and one lists stored blobs. It uses the local `fs` driver so the first setup works without provider credentials.
+
+Files are written under `.data/blob`. The route code stays the same when you later switch to Cloudflare R2 or Vercel Blob.
+
+::code-collapse
+
+```txt [Prompt]
+Set up @vitehub/blob in this app.
+
+- Install @vitehub/blob
+- Register hubBlob() for Vite or @vitehub/blob/nitro for Nitro
+- Configure blob.driver as fs with base .data/blob
+- Add a PUT route that writes notes/example.txt with blob.put()
+- Add a GET route that returns blob.list({ limit: 10 })
+- Verify the PUT response and GET listing
+
+Docs: /docs/vite/blob/quickstart or /docs/nitro/blob/quickstart
+```
+
+::
 
 ::steps
 
-### Install the package
+### Install Blob
 
 ```bash
 pnpm add @vitehub/blob
 ```
 
-### Register Blob
+### Register the Integration
 
 ::fw{id="vite:dev vite:build"}
-The Vite plugin is the Blob config primitive:
+Register the Vite plugin and choose the local filesystem driver:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -37,7 +56,7 @@ export default defineConfig({
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Register the Nitro module with the same local driver:
+Register the Nitro module and choose the local filesystem driver:
 
 ```ts [nitro.config.ts]
 import { defineNitroConfig } from 'nitro/config'
@@ -52,19 +71,29 @@ export default defineNitroConfig({
 ```
 ::
 
-### Add a list route
+### Add the Routes
 
 ::fw{id="vite:dev vite:build"}
+Add a Vite server entry with a write route and a list route:
+
 ```ts [src/server.ts]
 import { H3, readBody } from 'h3'
 import { blob } from '@vitehub/blob'
 
 const app = new H3()
 
-app.get('/api/blob', async () => await blob.list({ limit: 10 }))
 app.put('/api/blob', async (event) => {
   const body = await readBody<{ pathname?: string, value?: string }>(event)
-  return await blob.put(body?.pathname || 'notes/example.txt', body?.value || 'hello world')
+
+  return await blob.put(
+    body.pathname || 'notes/example.txt',
+    body.value || 'hello world',
+    { contentType: 'text/plain; charset=utf-8' },
+  )
+})
+
+app.get('/api/blob', async () => {
+  return await blob.list({ limit: 10 })
 })
 
 export default app
@@ -72,60 +101,113 @@ export default app
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-```ts [server/api/blob.get.ts]
-import { defineEventHandler } from 'h3'
+Add a Nitro route that writes one blob:
 
-import { blob } from '@vitehub/blob'
-
-export default defineEventHandler(async () => await blob.list({ limit: 10 }))
-```
-::
-
-### Add a write route
-
-::fw{id="nitro:dev nitro:build"}
 ```ts [server/api/blob.put.ts]
 import { defineEventHandler, readBody } from 'h3'
-
 import { blob } from '@vitehub/blob'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ pathname?: string, value?: string }>(event)
-  return await blob.put(body?.pathname || 'notes/example.txt', body?.value || 'hello world')
+
+  return await blob.put(
+    body.pathname || 'notes/example.txt',
+    body.value || 'hello world',
+    { contentType: 'text/plain; charset=utf-8' },
+  )
+})
+```
+
+Add a second route that lists stored blobs:
+
+```ts [server/api/blob.get.ts]
+import { defineEventHandler } from 'h3'
+import { blob } from '@vitehub/blob'
+
+export default defineEventHandler(async () => {
+  return await blob.list({ limit: 10 })
 })
 ```
 ::
 
-### Run the example
+### Verify the Write
 
-::fw{id="vite:dev vite:build"}
-Start your Vite server and call the route:
+Start the app, then write a blob:
 
 ```bash
-pnpm vite
-curl http://localhost:3000/api/blob
 curl -X PUT http://localhost:3000/api/blob \
   -H 'content-type: application/json' \
   -d '{"pathname":"notes/example.txt","value":"hello world"}'
 ```
-::
 
-::fw{id="nitro:dev nitro:build"}
-Start Nitro and call the routes:
+The route returns stored metadata:
+
+```json
+{
+  "pathname": "notes/example.txt",
+  "contentType": "text/plain; charset=utf-8",
+  "size": 11,
+  "httpEtag": "\"2aae6c35c94fcfb415dbe95f408b9ce91ee846ed\"",
+  "uploadedAt": "2026-04-26T12:00:00.000Z",
+  "httpMetadata": {
+    "contentType": "text/plain; charset=utf-8"
+  },
+  "customMetadata": {}
+}
+```
+
+### Verify the Listing
 
 ```bash
-pnpm nitro dev
 curl http://localhost:3000/api/blob
-curl -X PUT http://localhost:3000/api/blob \
-  -H 'content-type: application/json' \
-  -d '{"pathname":"notes/example.txt","value":"hello world"}'
 ```
-::
+
+The route returns a page of blobs:
+
+```json
+{
+  "blobs": [
+    {
+      "pathname": "notes/example.txt",
+      "contentType": "text/plain; charset=utf-8",
+      "size": 11
+    }
+  ],
+  "hasMore": false
+}
+```
 
 ::
 
-## What to read next
+## What to Read Next
 
-- Use [Usage](./usage) for pagination, metadata, `blob.serve()`, and delete patterns.
-- Use [Runtime API](./runtime-api) to review the shared handle, config shapes, and helper types.
-- Use [Cloudflare](./providers/cloudflare) or [Vercel](./providers/vercel) when you want hosted Blob storage instead of local files.
+::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Store a blob
+  description: Write uploads, JSON bodies, metadata, prefixes, and randomized filenames.
+  to: ./guides/store-a-blob
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Serve a blob
+  description: Return stored objects from H3 routes with content headers.
+  to: ./guides/serve-a-blob
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Cloudflare
+  description: Switch the same route code to Cloudflare R2.
+  to: ./providers/cloudflare
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Vercel
+  description: Switch the same route code to Vercel Blob.
+  to: ./providers/vercel
+  ---
+  :::
+::

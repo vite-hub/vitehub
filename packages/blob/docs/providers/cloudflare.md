@@ -1,28 +1,30 @@
 ---
 title: Cloudflare R2
-description: Configure @vitehub/blob for Cloudflare Workers and Pages with R2 bindings on Vite or Nitro.
+description: Configure @vitehub/blob to store objects through Cloudflare R2 bindings.
 navigation.title: Cloudflare
 navigation.group: Providers
 navigation.order: 10
-icon: i-logos-cloudflare-icon
+icon: i-simple-icons-cloudflare
 frameworks: [vite, nitro]
 ---
 
-Use the Cloudflare path when your Vite or Nitro app deploys to Cloudflare and Blob storage should resolve through an R2 binding.
+Use the Cloudflare provider when Blob storage should resolve through a Cloudflare R2 bucket.
 
-::callout{to="https://developers.cloudflare.com/workers/local-development/bindings-per-env/"}
-Cloudflare local development runs through bindings. R2 is available in local simulation and remote-binding modes.
-::
+Cloudflare needs two pieces: an R2 bucket bound to the runtime and Blob config that uses the same binding name.
 
-## Setup checklist
+::steps{level="2"}
 
-1. Create an R2 bucket in Cloudflare.
-2. Bind that bucket to your Worker or Pages project.
-3. Configure `blob` so ViteHub uses the same binding name and bucket metadata.
+## Create and Bind an R2 Bucket
 
-## Configure the provider
+Create an R2 bucket in Cloudflare, then bind it to the Worker or Pages project that runs your app.
+
+ViteHub looks for a binding named `BLOB` by default.
+
+## Configure Blob
 
 ::fw{id="vite:dev vite:build"}
+Register the Vite plugin and set `blob.driver` to `cloudflare-r2`:
+
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { hubBlob } from '@vitehub/blob/vite'
@@ -32,13 +34,15 @@ export default defineConfig({
   blob: {
     driver: 'cloudflare-r2',
     binding: 'BLOB',
-    bucketName: '<bucket-name>',
+    bucketName: 'assets',
   },
 })
 ```
 ::
 
 ::fw{id="nitro:dev nitro:build"}
+Register the Nitro module and set `blob.driver` to `cloudflare-r2`:
+
 ```ts [nitro.config.ts]
 import { defineNitroConfig } from 'nitro/config'
 
@@ -47,28 +51,95 @@ export default defineNitroConfig({
   blob: {
     driver: 'cloudflare-r2',
     binding: 'BLOB',
-    bucketName: '<bucket-name>',
+    bucketName: 'assets',
   },
 })
 ```
 ::
 
-## Bindings and generated config
+## Use a Different Binding Name
 
-`binding` defaults to `BLOB`. Set `bucketName` when you want ViteHub to emit the R2 bucket into generated `wrangler.json` output for Cloudflare builds.
+Set `binding` when your R2 binding does not use the default `BLOB` name.
 
-If you omit explicit Blob config, Cloudflare hosting still resolves `cloudflare-r2` automatically. Implicit `binding` and `bucketName` overrides are preserved when you pass them without a `driver`.
+```ts
+blob: {
+  driver: 'cloudflare-r2',
+  binding: 'FILES',
+  bucketName: 'assets',
+}
+```
 
-::fw{vite}
-For build-time auto-resolution without inline config, set `BLOB_BUCKET_NAME` or `CLOUDFLARE_R2_BUCKET_NAME` in the environment used for `vite build`.
+At runtime, the Cloudflare driver reads that binding from the active request environment. If the binding is missing, Blob throws:
+
+```txt
+R2 binding "FILES" not found
+```
+
+## Generate Cloudflare Output
+
+When `bucketName` is set, ViteHub can emit the R2 bucket binding into generated Cloudflare output.
+
+::fw{id="vite:build"}
+Vite builds write a generated `wrangler.json` for the Cloudflare output. The R2 binding is included when Blob resolves a Cloudflare R2 store with `bucketName`.
 ::
 
-## Local development
+::fw{id="nitro:build"}
+The Nitro module adds the R2 bucket to `nitro.options.cloudflare.wrangler.r2_buckets` when Blob resolves a Cloudflare R2 store with `bucketName`.
+::
 
-Blob uses the Cloudflare binding model directly. The configured `binding` name is the runtime lookup key, and local development uses the same name that production output uses. By default, Wrangler simulates R2 locally; use remote bindings only when you want development requests to hit a real bucket.
+You can also provide the bucket name with an environment variable during config resolution:
 
-## Related pages
+```bash
+BLOB_BUCKET_NAME=assets
+```
 
-- [Overview](../index)
+`CLOUDFLARE_R2_BUCKET_NAME` is also supported.
+
+## Use Hosting Inference
+
+On Cloudflare hosting, Blob resolves `cloudflare-r2` automatically when no explicit `driver` is configured.
+
+```ts
+blob: {
+  binding: 'BLOB',
+  bucketName: 'assets',
+}
+```
+
+Cloudflare hosting takes precedence over Vercel Blob environment inference.
+
+::
+
+## Verify the Provider
+
+Call a route that writes a known object:
+
+```bash
+curl -X PUT http://localhost:3000/api/blob \
+  -H 'content-type: application/json' \
+  -d '{"pathname":"notes/cloudflare.txt","value":"stored in r2"}'
+```
+
+A successful response includes the R2 object pathname:
+
+```json
+{
+  "pathname": "notes/cloudflare.txt",
+  "contentType": "text/plain; charset=utf-8",
+  "size": 12
+}
+```
+
+## Common Failures
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `R2 binding "BLOB" not found` | The runtime request environment does not include the configured R2 binding. | Add the binding in Cloudflare or set `blob.binding` to the existing binding name. |
+| Generated output has no R2 bucket binding | Blob resolved Cloudflare R2 without `bucketName`. | Set `blob.bucketName`, `BLOB_BUCKET_NAME`, or `CLOUDFLARE_R2_BUCKET_NAME`. |
+| Local development writes to `.data/blob` instead of R2 | Hosting inference did not detect Cloudflare. | Set `blob.driver` to `cloudflare-r2` explicitly. |
+
+## Related Pages
+
 - [Quickstart](../quickstart)
-- [Runtime API](../runtime-api)
+- [Store a blob](../guides/store-a-blob)
+- [Troubleshooting](../troubleshooting)
