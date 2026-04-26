@@ -1,7 +1,7 @@
 import { H3, readValidatedBody } from "h3"
 import * as v from "valibot"
 
-import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vitehub/workflow"
+import { getWorkflowRun, runWorkflow } from "@vitehub/workflow"
 
 const app = new H3()
 const workflowName = "welcome"
@@ -40,13 +40,9 @@ app.post("/api/workflows/welcome-defer", async (event) => {
     marker,
   }
 
-  deferWorkflow(workflowName, { id, payload })
   return {
     ok: true,
-    result: {
-      id,
-      status: "queued",
-    },
+    result: await runWorkflow(workflowName, { id, payload }),
   }
 })
 

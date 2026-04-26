@@ -1,6 +1,6 @@
 import { defineEventHandler, readValidatedBody } from "h3"
 import * as v from "valibot"
-import { deferWorkflow } from "@vitehub/workflow"
+import { runWorkflow } from "@vitehub/workflow"
 
 const workflowName = "welcome"
 const workflowBody = v.optional(v.object({
@@ -18,12 +18,8 @@ export default defineEventHandler(async (event) => {
     marker,
   }
 
-  deferWorkflow(workflowName, { id, payload })
   return {
     ok: true,
-    result: {
-      id,
-      status: "queued",
-    },
+    result: await runWorkflow(workflowName, { id, payload }),
   }
 })

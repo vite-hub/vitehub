@@ -178,6 +178,7 @@ jobs:
         if: matrix.framework == 'vite' && matrix.provider == 'vercel'
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           APP_DIR="playground/vite"
@@ -186,6 +187,10 @@ jobs:
           if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
             echo "GitHub Production secret BLOB_READ_WRITE_TOKEN must be set." >&2
             exit 1
+          fi
+
+          if [ -n "$VERCEL_PROTECTION_BYPASS" ]; then
+            echo "::add-mask::$VERCEL_PROTECTION_BYPASS"
           fi
 
           npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
@@ -202,36 +207,12 @@ jobs:
           npx vercel env rm BLOB_READ_WRITE_TOKEN production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
           printf '%s' "$BLOB_READ_WRITE_TOKEN" | npx vercel env add BLOB_READ_WRITE_TOKEN production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
-          BYPASS_SECRET=$(openssl rand -hex 16)
-          echo "::add-mask::$BYPASS_SECRET"
-          VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" BYPASS_SECRET="$BYPASS_SECRET" node <<'EOF'
-          const projectId = process.env.VERCEL_PROJECT_ID
-          const scope = process.env.VERCEL_ORG_ID
-          const token = process.env.VERCEL_TOKEN
-          const secret = process.env.BYPASS_SECRET
-          const url = new URL(`https://api.vercel.com/v1/projects/${projectId}/protection-bypass`)
-          if (scope?.startsWith('team_'))
-            url.searchParams.set('teamId', scope)
-          else if (scope)
-            url.searchParams.set('slug', scope)
-
-          const response = await fetch(url, {
-            body: JSON.stringify({ generate: { secret } }),
-            headers: {
-              authorization: `Bearer ${token}`,
-              'content-type': 'application/json',
-            },
-            method: 'PATCH',
-          })
-          if (!response.ok) {
-            throw new Error(`Failed to configure Vercel protection bypass: ${response.status} ${await response.text()}`)
-          }
-          EOF
-
           echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
           echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
           echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
-          echo "protection_bypass=$BYPASS_SECRET" >> "$GITHUB_OUTPUT"
+          if [ -n "$VERCEL_PROTECTION_BYPASS" ]; then
+            echo "protection_bypass=$VERCEL_PROTECTION_BYPASS" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build Blob Vite (cloudflare)
         if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
