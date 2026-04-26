@@ -1,80 +1,37 @@
-import { createHash, randomUUID } from 'node:crypto'
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS } from '../internal/shared/cloudflare-retry'
-import { getCloudflareEnv } from '../internal/shared/provider-detection'
 import {
   createResourceRuntime,
   type ProviderPort,
   type ResourceRuntimeContext,
 } from '../internal/shared/resource-runtime'
-import type {
-  AgentSandboxConfig,
-  SandboxDefinitionOptions,
-  SandboxDefinitionProviderOptions,
-  SandboxExecutionOptions,
-  SandboxRunResult,
-} from '../module-types'
-import { getSandboxFeatureProvider } from '../module-types'
 import { SandboxError } from '../sandbox/errors'
 import { detectSandbox, isSandboxAvailable } from '../sandbox/providers/shared'
-import type { SandboxClient, SandboxProvider, SandboxProviderOptions } from '../sandbox/types'
 import { loadSandboxRuntimeProvider } from 'virtual:vitehub-sandbox-provider-loader'
 import { validateSandboxConfig } from '../sandbox/validation'
 import { executeSandboxDefinition } from './execute'
+import { readSandboxErrorMetadata, toSandboxError } from './error-normalization'
+import {
+  assertSandboxDefinitionOptions,
+  createCloudflareExecutionSandboxId,
+  resolveRuntimeProvider,
+  resolveSandboxProvider,
+  withSandboxProvider,
+  type SandboxEvent,
+} from './provider-resolution'
 import { err, ok } from './result'
 import { getSandboxRuntimeConfig, getSandboxRuntimeRegistry, type SandboxRegistryEntry } from './state'
 import sandboxRegistry from 'virtual:vitehub-sandbox-registry'
 
-type SandboxEvent = {
-  context?: {
-    cloudflare?: { env?: Record<string, unknown> }
-    _platform?: { cloudflare?: { env?: Record<string, unknown> } }
-  }
-}
+import type {
+  AgentSandboxConfig,
+  SandboxDefinitionOptions,
+  SandboxExecutionOptions,
+  SandboxRunResult,
+} from '../module-types'
+import { getSandboxFeatureProvider } from '../module-types'
+import type { SandboxClient, SandboxProviderOptions } from '../sandbox/types'
 
 type SandboxRuntimeContext = ResourceRuntimeContext<AgentSandboxConfig, SandboxRegistryEntry, SandboxEvent>
-
-function readSandboxErrorMetadata(error: unknown) {
-  if (!error || typeof error !== 'object')
-    return undefined
-
-  const metadata = error as {
-    code?: unknown
-    provider?: unknown
-    cause?: unknown
-    details?: unknown
-  }
-
-  return {
-    code: typeof metadata.code === 'string' ? metadata.code : undefined,
-    provider: typeof metadata.provider === 'string' ? metadata.provider : undefined,
-    cause: metadata.cause,
-    details: typeof metadata.details === 'object' && metadata.details !== null
-      ? metadata.details as Record<string, unknown>
-      : undefined,
-  }
-}
-
-function toSandboxError(error: unknown) {
-  if (error instanceof SandboxError)
-    return error
-
-  const metadata = readSandboxErrorMetadata(error)
-  if (error instanceof Error) {
-    return new SandboxError(error.message, {
-      code: metadata?.code || 'SANDBOX_RUNTIME_ERROR',
-      provider: metadata?.provider,
-      details: metadata?.details,
-      cause: metadata?.cause ?? error,
-    })
-  }
-
-  return new SandboxError(String(error), {
-    code: metadata?.code || 'SANDBOX_RUNTIME_ERROR',
-    provider: metadata?.provider,
-    details: metadata?.details,
-    cause: metadata?.cause ?? error,
-  })
-}
 
 function isRetriableCloudflareSandboxError(error: unknown) {
   const sandboxError = error instanceof SandboxError ? error : undefined
@@ -95,74 +52,6 @@ function isRetriableCloudflareSandboxError(error: unknown) {
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function createCloudflareExecutionSandboxId(name: string, sandboxId?: string) {
-  if (sandboxId)
-    return sandboxId
-
-  const hash = createHash('sha256')
-    .update(`${name}:${randomUUID()}`)
-    .digest('hex')
-    .slice(0, 24)
-
-  return `vitehub-${name.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}-${hash}`
-}
-
-export function resolveRuntimeProvider(provider?: SandboxDefinitionProviderOptions, event?: SandboxEvent) {
-  if (provider?.provider)
-    return provider.provider
-
-  const envProvider = typeof process !== 'undefined' ? process.env?.SANDBOX_PROVIDER : undefined
-  if (envProvider === 'cloudflare' || envProvider === 'vercel')
-    return envProvider
-
-  if (getCloudflareEnv(event))
-    return 'cloudflare'
-
-  const detected = detectSandbox()
-  if (detected.type === 'cloudflare' || detected.type === 'vercel')
-    return detected.type
-
-  throw new SandboxError('Sandbox provider could not be inferred. Configure `sandbox.provider` as `cloudflare` or `vercel`.', {
-    code: 'SANDBOX_PROVIDER_REQUIRED',
-  })
-}
-
-const allowedDefinitionKeys = new Set(['timeout', 'env', 'runtime'])
-
-function assertSandboxDefinitionOptions(local: SandboxDefinitionOptions) {
-  const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
-  if (invalidKeys.length > 0)
-    throw new TypeError(`[vitehub] Sandbox definition options only support timeout, env, runtime. Unsupported: ${invalidKeys.join(', ')}`)
-}
-
-async function resolveSandboxProvider(
-  provider: SandboxProvider,
-  providerOptions: SandboxDefinitionProviderOptions & { provider: SandboxProvider },
-  local: SandboxDefinitionOptions,
-  context: { event?: SandboxEvent },
-) {
-  const runtimeProvider = await loadSandboxRuntimeProvider(provider)
-  const resolvedProvider = await runtimeProvider.resolveSandboxProvider({
-    local,
-    provider: providerOptions,
-  }, context) as SandboxProviderOptions
-
-  return {
-    createSandboxClient: runtimeProvider.createSandboxClient,
-    resolvedProvider,
-  }
-}
-
-function withSandboxProvider(
-  provider: SandboxProvider,
-  options?: SandboxDefinitionProviderOptions,
-) {
-  return {
-    ...options,
-    provider,
-  } as SandboxDefinitionProviderOptions & { provider: SandboxProvider }
 }
 
 export async function createSandboxWithConfig(
@@ -319,4 +208,5 @@ export async function runSandboxRuntime<TPayload = unknown, TResult = unknown>(
 export {
   detectSandbox,
   isSandboxAvailable,
+  resolveRuntimeProvider,
 }
