@@ -1,6 +1,6 @@
 ---
 title: Vercel Blob
-description: Configure @vitehub/blob for Vercel using Vercel Blob storage on Vite or Nitro.
+description: Configure @vitehub/blob to store objects through Vercel Blob.
 navigation.title: Vercel
 navigation.group: Providers
 navigation.order: 20
@@ -8,27 +8,33 @@ icon: i-simple-icons-vercel
 frameworks: [vite, nitro]
 ---
 
-Use the Vercel path when your Vite or Nitro app deploys to Vercel and Blob storage should resolve through `BLOB_READ_WRITE_TOKEN`.
+Use the Vercel provider when Blob storage should resolve through Vercel Blob.
 
-::callout{to="https://vercel.com/docs/vercel-blob"}
-Vercel Blob is a hosted object store. Create or connect a Blob store in Vercel first, then provide `BLOB_READ_WRITE_TOKEN` at runtime.
-::
+Vercel needs the optional `@vercel/blob` peer dependency and a `BLOB_READ_WRITE_TOKEN` available at runtime.
 
-## Install the SDK
+::steps{level="2"}
+
+## Install the Provider SDK
 
 ```bash
 pnpm add @vitehub/blob @vercel/blob
 ```
 
-## Configure the provider
+## Add the Runtime Token
 
-Set the runtime token in your environment:
+Set the token in the environment where the app runs:
 
 ```bash [.env]
 BLOB_READ_WRITE_TOKEN=<blob-read-write-token>
 ```
 
+ViteHub masks this value in generated build output and rehydrates it from `BLOB_READ_WRITE_TOKEN` at runtime.
+
+## Configure Blob
+
 ::fw{id="vite:dev vite:build"}
+Register the Vite plugin and set `blob.driver` to `vercel-blob`:
+
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { hubBlob } from '@vitehub/blob/vite'
@@ -37,12 +43,15 @@ export default defineConfig({
   plugins: [hubBlob()],
   blob: {
     driver: 'vercel-blob',
+    access: 'public',
   },
 })
 ```
 ::
 
 ::fw{id="nitro:dev nitro:build"}
+Register the Nitro module and set `blob.driver` to `vercel-blob`:
+
 ```ts [nitro.config.ts]
 import { defineNitroConfig } from 'nitro/config'
 
@@ -50,27 +59,70 @@ export default defineNitroConfig({
   modules: ['@vitehub/blob/nitro'],
   blob: {
     driver: 'vercel-blob',
+    access: 'public',
   },
 })
 ```
 ::
 
-## Runtime token behavior
+## Use Hosting or Token Inference
 
-If you omit explicit Blob config, Vercel hosting still resolves `vercel-blob` automatically. Build output masks the token, and the runtime rehydrates it from `BLOB_READ_WRITE_TOKEN`. If the env var is missing at runtime, Blob throws an explicit error instead of silently using the masked placeholder.
+If `BLOB_READ_WRITE_TOKEN` is available, Blob resolves `vercel-blob` automatically. Vercel hosting also resolves `vercel-blob` when no higher-priority Cloudflare hosting signal is present.
 
-## Access model
+You can keep config minimal:
 
-ViteHub supports public and private Vercel Blob stores with `@vercel/blob` 2.3 or newer. Public stores can serve Blob URLs directly. Private stores use the Vercel Blob SDK for reads so `blob.get()` and `blob.serve()` can stream content through your app with `BLOB_READ_WRITE_TOKEN`.
+```ts
+blob: {}
+```
 
-Blob still preserves the portable API surface:
+Or omit the `blob` key after registering the integration.
 
-- pathnames may include `/` to model folders in listings
-- `list()` supports `prefix`, pagination, and folded listings
-- `get()`, `head()`, and `serve()` work through the active Vercel Blob store
+## Configure Access
 
-## Related pages
+`access` defaults to `public`.
 
-- [Overview](../index)
+```ts
+blob: {
+  driver: 'vercel-blob',
+  access: 'private',
+}
+```
+
+The Vercel driver passes `access` to `@vercel/blob`. When a public write targets a private connected store, Blob retries the write with private access. Reads use the access mode inferred from the stored URL when available.
+
+::
+
+## Verify the Provider
+
+Call a route that writes a known object:
+
+```bash
+curl -X PUT http://localhost:3000/api/blob \
+  -H 'content-type: application/json' \
+  -d '{"pathname":"notes/vercel.txt","value":"stored in vercel blob"}'
+```
+
+A successful response includes the Vercel Blob pathname and may include a provider URL:
+
+```json
+{
+  "pathname": "notes/vercel.txt",
+  "contentType": "text/plain; charset=utf-8",
+  "size": 21,
+  "url": "https://..."
+}
+```
+
+## Common Failures
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `Missing runtime environment variable \`BLOB_READ_WRITE_TOKEN\` for Vercel Blob.` | The build config resolved Vercel Blob, but the runtime token is missing. | Set `BLOB_READ_WRITE_TOKEN` and restart or redeploy. |
+| `Cannot find package '@vercel/blob'` | The optional provider SDK is not installed. | Run `pnpm add @vercel/blob`. |
+| Vercel hosting warns that `fs` is configured | Vercel hosting requires Vercel Blob-backed storage. | Remove explicit `fs` config or set `blob.driver` to `vercel-blob`. |
+
+## Related Pages
+
 - [Quickstart](../quickstart)
-- [Runtime API](../runtime-api)
+- [Store a blob](../guides/store-a-blob)
+- [Troubleshooting](../troubleshooting)
