@@ -1,5 +1,5 @@
 import { readRequestPayload, runSandbox } from "@vitehub/sandbox"
-import type { ReleaseNotesPayload } from "../../sandboxes/release-notes"
+import type { ReleaseNotesPayload } from "../sandboxes/release-notes"
 
 export default defineEventHandler(async (event) => {
   const payload = await readRequestPayload<ReleaseNotesPayload>(event, { notes: "" }) as ReleaseNotesPayload
