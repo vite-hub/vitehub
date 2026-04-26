@@ -6,6 +6,7 @@
   },
   "dependencies": {
     "@vitehub/workflow": "workspace:*",
+    "h3": "catalog:",
     "vite": "catalog:"
   }
 }

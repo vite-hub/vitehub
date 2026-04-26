@@ -12,7 +12,6 @@ export default defineNitroConfig({
   ignore: workflowEnabled
     ? []
     : [
-        "api/tests/workflow.*",
         "api/workflows/**",
         "workflows/**",
       ],

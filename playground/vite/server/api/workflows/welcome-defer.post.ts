@@ -1,29 +1,29 @@
-import { defineEventHandler, getRequestURL, readValidatedBody } from "h3"
+import { defineEventHandler, readValidatedBody } from "h3"
 import * as v from "valibot"
-import { deferWorkflow, runWorkflow } from "@vitehub/workflow"
-import { runInBackground } from "../../../../_shared/queue-test"
-import { resolveTrustedWorkflowMarkerCallbackUrl } from "../../../../_shared/workflow-test"
+import { deferWorkflow } from "@vitehub/workflow"
 
 const workflowName = "welcome"
 const workflowBody = v.optional(v.object({
-  callbackUrl: v.optional(v.string()),
   email: v.optional(v.string()),
+  id: v.optional(v.string()),
   marker: v.optional(v.string()),
 }), {})
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.headers.get("x-vitehub-e2e-marker") || undefined
-  const callbackUrl = marker ? resolveTrustedWorkflowMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
+  const id = body?.id || marker || `welcome-${Date.now().toString(36)}`
   const payload = {
     email: body?.email || "ava@example.com",
-    callbackUrl,
     marker,
   }
 
-  if (!runInBackground(event, () => runWorkflow(workflowName, payload))) {
-    deferWorkflow(workflowName, payload)
+  deferWorkflow(workflowName, { id, payload })
+  return {
+    ok: true,
+    result: {
+      id,
+      status: "queued",
+    },
   }
-
-  return { ok: true }
 })

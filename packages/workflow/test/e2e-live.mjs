@@ -75,8 +75,8 @@ async function requestJson(url, init) {
   return body
 }
 
-function createWorkflowBody(marker, callbackUrl) {
-  return JSON.stringify({ callbackUrl, email: "ava@example.com", marker })
+function createWorkflowBody(marker) {
+  return JSON.stringify({ email: "ava@example.com", id: marker, marker })
 }
 
 function createRunConfig(args) {
@@ -106,9 +106,9 @@ async function verifyApp(url) {
   }
 }
 
-async function triggerWorkflow(url, marker, callbackUrl) {
+async function triggerWorkflow(url, marker) {
   const directResponse = await requestJson(new URL("/api/workflows/welcome", url), {
-    body: createWorkflowBody(marker, callbackUrl),
+    body: createWorkflowBody(marker),
     headers: {
       "content-type": "application/json",
     },
@@ -118,70 +118,75 @@ async function triggerWorkflow(url, marker, callbackUrl) {
   if (!directResponse?.ok || !directResponse?.result?.id) {
     throw new Error(`Unexpected direct workflow response: ${JSON.stringify(directResponse)}`)
   }
+
+  return directResponse.result.id
 }
 
-async function triggerDeferredWorkflow(url, marker, callbackUrl) {
+async function triggerDeferredWorkflow(url, marker) {
   const deferResponse = await requestJson(new URL("/api/workflows/welcome-defer", url), {
-    body: createWorkflowBody(marker, callbackUrl),
+    body: createWorkflowBody(marker),
     headers: {
       "content-type": "application/json",
     },
     method: "POST",
   })
 
-  if (!deferResponse?.ok) {
+  if (!deferResponse?.ok || !deferResponse?.result?.id) {
     throw new Error(`Unexpected deferred workflow response: ${JSON.stringify(deferResponse)}`)
   }
+
+  return deferResponse.result.id
 }
 
-async function waitForMarker(url, marker, timeoutMs) {
+async function waitForWorkflowRun(url, id, timeoutMs) {
   const startedAt = Date.now()
-  let lastSeen = false
+  let lastStatus = "unknown"
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const payload = await requestJson(new URL(`/api/tests/workflow?marker=${encodeURIComponent(marker)}`, url))
-      if (payload?.ok && payload?.seen === true) {
+      const payload = await requestJson(new URL(`/api/workflows/welcome/${encodeURIComponent(id)}`, url))
+      if (payload?.status === "completed") {
         return
       }
-      lastSeen = payload?.seen === true
-    } catch {
-      lastSeen = false
+      if (payload?.status === "failed") {
+        throw new Error(`Workflow run ${id} failed: ${JSON.stringify(payload)}`)
+      }
+      lastStatus = payload?.status || "unknown"
+    } catch (error) {
+      lastStatus = error instanceof Error ? error.message : String(error)
     }
 
     await sleep(1_000)
   }
 
-  throw new Error(JSON.stringify({ marker, seen: lastSeen }))
+  throw new Error(JSON.stringify({ id, status: lastStatus }))
 }
 
-async function waitForCompletion(run) {
+async function waitForCompletion(run, ids) {
   const failures = []
 
-  for (const marker of [run.directMarker, run.deferMarker]) {
+  for (const id of ids) {
     try {
-      await waitForMarker(run.url, marker, run.timeoutMs)
+      await waitForWorkflowRun(run.url, id, run.timeoutMs)
     } catch (error) {
       failures.push(error instanceof Error ? error.message : String(error))
     }
   }
 
   if (failures.length > 0) {
-    throw new Error(`Workflow markers were not observed: ${failures.join(", ")}`)
+    throw new Error(`Workflow runs did not complete: ${failures.join(", ")}`)
   }
 }
 
 async function main() {
   const run = createRunConfig(parseArgs(process.argv.slice(2)))
-  const callbackUrl = new URL("/api/tests/workflow", run.url).toString()
 
   await verifyApp(run.url)
-  const pendingCompletion = waitForCompletion(run)
-  await triggerWorkflow(run.url, run.directMarker, callbackUrl)
-  await triggerDeferredWorkflow(run.url, run.deferMarker, callbackUrl)
-  await pendingCompletion
+  const directId = await triggerWorkflow(run.url, run.directMarker)
+  const deferId = await triggerDeferredWorkflow(run.url, run.deferMarker)
+  await waitForCompletion(run, [directId, deferId])
 
-  console.log(JSON.stringify({ ...run, ok: true }))
+  console.log(JSON.stringify({ ...run, deferId, directId, ok: true }))
 }
 
 main().catch((error) => {

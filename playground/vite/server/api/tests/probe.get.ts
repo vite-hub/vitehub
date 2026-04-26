@@ -6,7 +6,6 @@ export default defineEventHandler((event) => {
     hosting?: string
     kv?: { store?: { driver?: string } } | false
     sandbox?: { provider?: string } | false
-    workflow?: { provider?: string } | false
   }
   const { kv } = runtimeConfig
   if (getQuery(event).sandbox) {
@@ -24,28 +23,6 @@ export default defineEventHandler((event) => {
     return {
       ok: true,
       feature: "sandbox",
-      hasWaitUntil: typeof event.req.waitUntil === "function",
-      hosting,
-      provider,
-      runtime: event.req.runtime?.name || null,
-    }
-  }
-
-  if (getQuery(event).workflow) {
-    const isCloudflare = event.req.runtime?.name === "cloudflare"
-      || !!event.context.cloudflare?.env
-      || !!event.context._platform?.cloudflare?.env
-    const provider = (runtimeConfig.workflow && typeof runtimeConfig.workflow === "object" ? runtimeConfig.workflow.provider : null)
-      || (isCloudflare ? "cloudflare" : null)
-      || (process.env.VERCEL || process.env.VERCEL_URL ? "vercel" : null)
-    const hosting = runtimeConfig.hosting
-      || process.env.NITRO_PRESET
-      || (isCloudflare ? "cloudflare-module" : null)
-      || (process.env.VERCEL || process.env.VERCEL_URL ? "vercel" : null)
-
-    return {
-      ok: true,
-      feature: "workflow",
       hasWaitUntil: typeof event.req.waitUntil === "function",
       hosting,
       provider,
