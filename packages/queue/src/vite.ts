@@ -1,70 +1,48 @@
-import queueNitroModule from "./nitro/module.ts"
+import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
 import { generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
+import queueNitroModule from "./nitro/module.ts"
 
 import type { QueueModuleOptions } from "./types.ts"
 import type { NitroModule } from "nitro/types"
-import type { Plugin } from "vite"
+import type { Plugin, ResolvedConfig } from "vite"
 
 export type QueueVitePlugin = Plugin & { nitro: NitroModule }
 
 export { createCloudflareQueueConfig, type CloudflareQueueConfig, type CloudflareQueueConfigOptions } from "./internal/vite-build.ts"
 
-function mergeNoExternal(current: boolean | string | RegExp | (string | RegExp)[] | undefined) {
-  if (current === true) {
-    return true
-  }
-
-  if (!current) {
-    return [queuePackageName]
-  }
-
-  const values = Array.isArray(current) ? current : [current]
-  return values.some(value => value === queuePackageName) ? values : [...values, queuePackageName]
-}
-
-function isQueueServerEnvironment(name: string, config: { consumer?: string }) {
-  return name === "ssr" || config.consumer === "server"
-}
+const mergeNoExternal = createNoExternalMerger(queuePackageName)
 
 export function hubQueue(): QueueVitePlugin {
-  let clientOutDir = "dist"
+  let resolved: ResolvedConfig | undefined
   let queue: QueueModuleOptions | undefined
-  let rootDir = process.cwd()
-  let command: "build" | "serve" = "serve"
 
   return {
     name: "@vitehub/queue/vite",
     nitro: queueNitroModule,
-    config(config, env) {
+    config(config) {
       queue = config.queue
-      command = env.command
     },
     configResolved(config) {
-      clientOutDir = config.build.outDir
+      resolved = config
       queue = config.queue ?? queue
-      rootDir = config.root
     },
     configEnvironment(name, config) {
-      if (!isQueueServerEnvironment(name, config)) {
+      if (!isServerEnvironment(name, config)) {
         return
       }
-
       return {
-        resolve: {
-          noExternal: mergeNoExternal(config.resolve?.noExternal),
-        },
+        resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
     async closeBundle() {
-      if (command === "serve") {
+      if (!resolved || resolved.command === "serve") {
         return
       }
-
       await generateProviderOutputs({
-        clientOutDir,
+        clientOutDir: resolved.build.outDir,
         queue,
-        rootDir,
+        rootDir: resolved.root,
       })
     },
   }

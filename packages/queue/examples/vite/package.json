@@ -6,6 +6,7 @@
   },
   "dependencies": {
     "@vitehub/queue": "workspace:*",
+    "h3": "catalog:",
     "vite": "catalog:"
   }
 }

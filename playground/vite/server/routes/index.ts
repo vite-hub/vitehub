@@ -3,4 +3,5 @@ import { defineEventHandler } from "h3"
 export default defineEventHandler(() => ({
   ok: true,
   queue: "welcome-email",
+  workflow: "welcome",
 }))

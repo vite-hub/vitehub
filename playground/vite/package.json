@@ -7,9 +7,11 @@
   },
   "dependencies": {
     "@vitehub/blob": "workspace:*",
+    "@vitehub/internal": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
     "@vitehub/sandbox": "workspace:*",
+    "@vitehub/workflow": "workspace:*",
     "h3": "catalog:",
     "nitro": "catalog:",
     "valibot": "catalog:",

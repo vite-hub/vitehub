@@ -1,3 +1,5 @@
+import { getCloudflareEnv, resolveWaitUntil } from "@vitehub/internal/runtime/cloudflare-env"
+
 import { normalizeQueueOptions } from "../config.ts"
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { QueueError } from "../errors.ts"
@@ -8,19 +10,6 @@ import { getQueueClientCache, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQ
 
 import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 
-function getCloudflareEnv(event: unknown) {
-  const target = event as {
-    context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }
-    env?: Record<string, unknown>
-    req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } }
-  } | undefined
-  return target?.env
-    || target?.context?.cloudflare?.env
-    || target?.context?._platform?.cloudflare?.env
-    || target?.req?.runtime?.cloudflare?.env
-    || (globalThis as { __env__?: Record<string, unknown> }).__env__
-}
-
 function resolveCloudflareBinding(binding: string | CloudflareQueueClient["binding"] | undefined, name: string) {
   if (binding && typeof binding !== "string") {
     return binding
@@ -29,45 +18,6 @@ function resolveCloudflareBinding(binding: string | CloudflareQueueClient["bindi
   const bindingName = binding || getCloudflareQueueBindingName(name)
   const resolved = getCloudflareEnv(getQueueRuntimeEvent())?.[bindingName] as CloudflareQueueClient["binding"] | undefined
   return resolved || bindingName
-}
-
-function resolveWaitUntil(event: unknown): ((promise: Promise<unknown>) => void) | undefined {
-  const target = event as {
-    waitUntil?: (promise: Promise<unknown>) => void
-    context?: {
-      waitUntil?: (promise: Promise<unknown>) => void
-      cloudflare?: {
-        context?: { waitUntil?: (promise: Promise<unknown>) => void }
-        waitUntil?: (promise: Promise<unknown>) => void
-      }
-      _platform?: {
-        cloudflare?: {
-          context?: { waitUntil?: (promise: Promise<unknown>) => void }
-          waitUntil?: (promise: Promise<unknown>) => void
-        }
-      }
-    }
-    req?: {
-      runtime?: {
-        cloudflare?: {
-          context?: { waitUntil?: (promise: Promise<unknown>) => void }
-          waitUntil?: (promise: Promise<unknown>) => void
-        }
-      }
-    }
-  } | undefined
-
-  const bindWaitUntil = (owner: { waitUntil?: (promise: Promise<unknown>) => void } | undefined) =>
-    typeof owner?.waitUntil === "function" ? owner.waitUntil.bind(owner) : undefined
-
-  return bindWaitUntil(target)
-    || bindWaitUntil(target?.context)
-    || bindWaitUntil(target?.context?.cloudflare)
-    || bindWaitUntil(target?.context?.cloudflare?.context)
-    || bindWaitUntil(target?.context?._platform?.cloudflare)
-    || bindWaitUntil(target?.context?._platform?.cloudflare?.context)
-    || bindWaitUntil(target?.req?.runtime?.cloudflare)
-    || bindWaitUntil(target?.req?.runtime?.cloudflare?.context)
 }
 
 function toProviderOptions(name: string, config: ResolvedQueueOptions): QueueProviderOptions {

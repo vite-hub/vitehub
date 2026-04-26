@@ -1,23 +1,54 @@
 import { resolve } from "node:path"
 
+import { getViteMode, VITEHUB_MODES } from "@vitehub/internal/build/mode"
 import { defineConfig } from "vite"
 
-import { hubBlob } from "@vitehub/blob/vite"
-import { hubKv } from "@vitehub/kv/vite"
-import { hubQueue } from "@vitehub/queue/vite"
+const buildMode = getViteMode() || VITEHUB_MODES.queue
+const blobOnly = buildMode === VITEHUB_MODES.blob
+const workflowOnly = buildMode === VITEHUB_MODES.workflow
+const input = blobOnly
+  ? "src/server.blob.ts"
+  : workflowOnly
+    ? "src/server-workflow.ts"
+    : "src/server.ts"
 
-const buildMode = process.env.VITEHUB_VITE_MODE || "queue"
-const blobOnly = buildMode === "blob"
-const input = blobOnly ? "src/server.blob.ts" : "src/server.ts"
-
-export default defineConfig({
-  appType: "custom",
-  build: {
-    outDir: "dist/client",
-    rollupOptions: {
-      input: resolve(import.meta.dirname, input),
+export default defineConfig(async () => {
+  const baseConfig = {
+    appType: "custom" as const,
+    build: {
+      outDir: "dist/client",
+      rollupOptions: {
+        input: resolve(import.meta.dirname, input),
+      },
     },
-  },
-  plugins: blobOnly ? [hubBlob()] : [hubQueue(), hubKv()],
-  ...(blobOnly ? { blob: {} } : { queue: {} }),
+  }
+
+  if (blobOnly) {
+    const { hubBlob } = await import("@vitehub/blob/vite")
+    return {
+      ...baseConfig,
+      blob: {},
+      plugins: [hubBlob()],
+    }
+  }
+
+  if (workflowOnly) {
+    const { hubWorkflow } = await import("@vitehub/workflow/vite")
+    return {
+      ...baseConfig,
+      plugins: [hubWorkflow()],
+      workflow: {},
+    }
+  }
+
+  const [{ hubKv }, { hubQueue }] = await Promise.all([
+    import("@vitehub/kv/vite"),
+    import("@vitehub/queue/vite"),
+  ])
+
+  return {
+    ...baseConfig,
+    plugins: [hubQueue(), hubKv()],
+    queue: {},
+  }
 })

@@ -177,6 +177,41 @@ describe("cloudflare queue runtime", () => {
 
     expect(owner.calls).toBe(1)
   })
+
+  it("uses Nitro request waitUntil for deferred Cloudflare queue dispatch", async () => {
+    const send = vi.fn(async () => {})
+    const sendBatch = vi.fn(async () => {})
+    const waitUntil = vi.fn()
+
+    setQueueRuntimeConfig({ provider: "cloudflare" })
+    setQueueRuntimeRegistry({
+      welcome: async () => ({
+        default: {
+          handler: async () => {},
+        },
+      }),
+    })
+
+    await runWithQueueRuntimeEvent({
+      req: {
+        runtime: {
+          cloudflare: {
+            env: {
+              [getCloudflareQueueBindingName("welcome")]: { send, sendBatch },
+            },
+          },
+        },
+        waitUntil,
+      },
+    }, async () => {
+      deferQueue("welcome", { email: "ava@example.com" })
+      await Promise.resolve()
+    })
+
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+    await waitUntil.mock.calls[0]?.[0]
+    expect(send).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("vercel provider", () => {
