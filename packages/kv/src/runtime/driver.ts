@@ -6,6 +6,15 @@ import { resolveRuntimeKVOptions } from "./upstash.ts"
 type DriverFactory = (options: object) => Driver
 type AnyRecord = Record<PropertyKey, unknown>
 
+const lazyDriverMethods = new Set<PropertyKey>([
+  "clear",
+  "getItem",
+  "getKeys",
+  "hasItem",
+  "removeItem",
+  "setItem",
+])
+
 const driverLoaders = {
   "cloudflare-kv-binding": () => import("unstorage/drivers/cloudflare-kv-binding"),
   "fs-lite": () => import("unstorage/drivers/fs-lite"),
@@ -36,6 +45,7 @@ export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions): Driv
           return fn?.call(driver)
         }
       }
+      if (!lazyDriverMethods.has(prop)) return undefined
       return async (...args: unknown[]) => {
         const driver = await resolve() as unknown as AnyRecord
         const method = driver[prop] as ((this: unknown, ...args: unknown[]) => unknown) | undefined
