@@ -1,4 +1,6 @@
-import { isPlainObject } from '@vitehub/internal/object'
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
 
 export function cloneFeatureOptions<T extends object>(feature: string, options: T): T {
   if (!isPlainObject(options))
