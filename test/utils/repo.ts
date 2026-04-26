@@ -6,7 +6,7 @@ export const packageNames = ["kv", "blob", "queue", "sandbox"] as const
 
 export type PackageName = (typeof packageNames)[number]
 
-export type PackageManifest = {
+type PackageManifest = {
   name?: string
   description?: string
   license?: string
