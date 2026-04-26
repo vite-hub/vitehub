@@ -63,7 +63,9 @@ describe("Vite workflow provider outputs", () => {
       name: "workflow--77656c636f6d65",
     })
     expect(wrangler.workflows).toHaveLength(1)
-    expect(await readFile(cloudflareWorker, "utf8")).toContain("export class ViteHubWelcomeWorkflow extends WorkflowEntrypoint")
+    const cloudflareWorkerContents = await readFile(cloudflareWorker, "utf8")
+    expect(cloudflareWorkerContents).toContain("waitUntil as viteHubWaitUntil")
+    expect(cloudflareWorkerContents).toContain("export class ViteHubWelcomeWorkflow extends WorkflowEntrypoint")
     expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)

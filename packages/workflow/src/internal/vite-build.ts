@@ -100,7 +100,7 @@ function renderCloudflareWorkflowRunner(workflowConfig: unknown) {
 
 function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition[]) {
   return [
-    `import { WorkflowEntrypoint } from "cloudflare:workers"`,
+    `import { WorkflowEntrypoint, waitUntil as viteHubWaitUntil } from "cloudflare:workers"`,
     `import worker, { runViteHubWorkflowDefinition } from "./worker.mjs"`,
     "",
     ...definitions.map((definition) => {
@@ -114,7 +114,14 @@ function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition
         "",
       ].join("\n")
     }),
-    "export default worker",
+    "const viteHubWorker = {",
+    "  async fetch(request, env, context) {",
+    "    const waitUntil = typeof viteHubWaitUntil === \"function\" ? viteHubWaitUntil : context?.waitUntil?.bind(context)",
+    "    return await worker.fetch(request, env, waitUntil ? { ...context, waitUntil } : context)",
+    "  }",
+    "}",
+    "",
+    "export default viteHubWorker",
     "",
   ].flat().join("\n")
 }
