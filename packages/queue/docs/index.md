@@ -139,7 +139,7 @@ The queue name comes from the path under `server/queues`, without the file exten
 
 ## Start here
 
-Start with [Quickstart](./quickstart) for the smallest complete setup. Use [When to use Queue](./when-to-use) when you are deciding between inline request code, Sandbox, cron, and Queue.
+Start with [Quickstart](./quickstart) for the smallest complete setup. Use the [primitive comparison](../compare) when you are deciding between KV, Blob, Queue, Sandbox, or inline request code.
 
 ## Next steps
 

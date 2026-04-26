@@ -137,10 +137,3 @@ export default defineQueue(handler, {
 ```
 
 **Verify:** Check runtime logs after calling the route that uses `deferQueue()`.
-
-## Related pages
-
-- [Quickstart](./quickstart)
-- [Usage](./usage)
-- [Cloudflare](./providers/cloudflare)
-- [Vercel](./providers/vercel)

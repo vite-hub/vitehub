@@ -8,7 +8,41 @@ icon: i-lucide-send
 frameworks: [vite, nitro]
 ---
 
-This guide focuses on the producer-side call. It assumes Queue is already registered and a `welcome-email` definition exists.
+This guide defines a `welcome-email` queue, then calls it from a server route. It assumes Queue is already registered in Vite or Nitro config.
+
+## Define the queue
+
+Create one queue definition with the payload shape the producer will send.
+
+::fw{id="vite:dev vite:build"}
+```ts [src/welcome-email.queue.ts]
+import { defineQueue } from '@vitehub/queue'
+
+export type WelcomeEmailPayload = {
+  email: string
+  template: 'default' | 'vip'
+}
+
+export default defineQueue<WelcomeEmailPayload>(async (job) => {
+  console.log(`Send ${job.payload.template} welcome email to ${job.payload.email}`)
+})
+```
+::
+
+::fw{id="nitro:dev nitro:build"}
+```ts [server/queues/welcome-email.ts]
+import { defineQueue } from '@vitehub/queue'
+
+export type WelcomeEmailPayload = {
+  email: string
+  template: 'default' | 'vip'
+}
+
+export default defineQueue<WelcomeEmailPayload>(async (job) => {
+  console.log(`Send ${job.payload.template} welcome email to ${job.payload.email}`)
+})
+```
+::
 
 ## Call pattern
 
@@ -114,9 +148,3 @@ Expected response:
 | Expecting `runQueue()` to return the handler result | Treat it as a provider send result only. |
 | Calling a name that does not match discovery | Check the queue file path and generated queue name. |
 | Passing provider-only fields everywhere | Keep `contentType`, `idempotencyKey`, `region`, and `retentionSeconds` close to provider-aware code. |
-
-## Related pages
-
-- [Quickstart](../quickstart)
-- [Usage](../usage)
-- [Runtime API](../runtime-api)

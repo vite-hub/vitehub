@@ -175,9 +175,3 @@ Successful publishing returns a queued result:
 | `Cloudflare queue binding names require request-scoped runtime resolution` | A binding name was used outside a request/runtime context. | Run inside Cloudflare, or pass a direct binding object for tests. |
 | `Invalid Cloudflare queue binding` | The resolved binding does not expose `send()` and `sendBatch()`. | Check the binding name and Cloudflare queue configuration. |
 | `Cloudflare queue does not support enqueue options` | The send envelope includes Vercel-only fields. | Remove `idempotencyKey` and `retentionSeconds`. |
-
-## Related pages
-
-- [Quickstart](../quickstart)
-- [Handle provider delivery](../guides/handle-provider-delivery)
-- [Troubleshooting](../troubleshooting)

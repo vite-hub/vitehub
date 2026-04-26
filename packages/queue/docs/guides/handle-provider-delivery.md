@@ -106,9 +106,3 @@ Most apps use the generated output. Use provider helpers only when wiring custom
     ```
   :::
 ::
-
-## Related pages
-
-- [Cloudflare](../providers/cloudflare)
-- [Vercel](../providers/vercel)
-- [Runtime API](../runtime-api)

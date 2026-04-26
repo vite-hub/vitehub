@@ -216,9 +216,3 @@ The route returns the enqueue result:
 ```
 
 ::
-
-## What to read next
-
-- Use [Usage](./usage) for `deferQueue()`, enqueue envelopes, and provider clients.
-- Use [Runtime API](./runtime-api) for exact exports, options, and types.
-- Use [Cloudflare](./providers/cloudflare) or [Vercel](./providers/vercel) for provider-specific setup.

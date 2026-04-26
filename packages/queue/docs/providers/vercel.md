@@ -174,9 +174,3 @@ Successful publishing returns a queued result:
 | `VERCEL_QUEUE_REGION_REQUIRED` | No region was configured or detected. | Set `queue.region`, `QUEUE_REGION`, or `VERCEL_REGION`. |
 | `Vercel queue topics are derived from discovered queue names` | A direct Vercel client was created without a topic. | Use `getQueue(name)` or pass a topic to `createQueueClient()`. |
 | `Vercel queue does not support enqueue options: contentType` | The send envelope includes a Cloudflare-only field. | Remove `contentType`. |
-
-## Related pages
-
-- [Quickstart](../quickstart)
-- [Handle provider delivery](../guides/handle-provider-delivery)
-- [Troubleshooting](../troubleshooting)
