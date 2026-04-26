@@ -6,6 +6,8 @@ import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
 
+import { getCloudflareWorkflowClassName } from "../src/integrations/cloudflare.ts"
+
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const tempDirs: string[] = []
@@ -54,18 +56,19 @@ describe("Vite workflow provider outputs", () => {
     const vercelConfig = join(rootDir, ".vercel", "output", "config.json")
     const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
     const wrangler = JSON.parse(await readFile(cloudflareConfig, "utf8"))
+    const className = getCloudflareWorkflowClassName("welcome")
 
     expect(existsSync(cloudflareWorker)).toBe(true)
     expect(existsSync(cloudflareWorkerBundle)).toBe(true)
     expect(wrangler.workflows).toContainEqual({
       binding: "WORKFLOW_77656C636F6D65",
-      class_name: "ViteHubWelcomeWorkflow",
+      class_name: className,
       name: "workflow--77656c636f6d65",
     })
     expect(wrangler.workflows).toHaveLength(1)
     const cloudflareWorkerContents = await readFile(cloudflareWorker, "utf8")
     expect(cloudflareWorkerContents).toContain("waitUntil as viteHubWaitUntil")
-    expect(cloudflareWorkerContents).toContain("export class ViteHubWelcomeWorkflow extends WorkflowEntrypoint")
+    expect(cloudflareWorkerContents).toContain(`export class ${className} extends WorkflowEntrypoint`)
     expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
@@ -82,13 +85,14 @@ describe("Vite workflow provider outputs", () => {
     const serverEntry = join(rootDir, ".output", "server", "index.mjs")
     const wrangler = JSON.parse(await readFile(join(rootDir, ".output", "server", "wrangler.json"), "utf8"))
     const serverEntryContents = await readFile(serverEntry, "utf8")
+    const className = getCloudflareWorkflowClassName("welcome")
 
     expect(wrangler.workflows).toContainEqual({
       binding: "WORKFLOW_77656C636F6D65",
-      class_name: "ViteHubWelcomeWorkflow",
+      class_name: className,
       name: "workflow--77656c636f6d65",
     })
     expect(serverEntryContents).toContain("globalThis.__vitehubRunNitroWorkflowDefinition")
-    expect(serverEntryContents).toContain("export class ViteHubWelcomeWorkflow extends ViteHubWorkflowEntrypoint")
+    expect(serverEntryContents).toContain(`export class ${className} extends ViteHubWorkflowEntrypoint`)
   }, 30_000)
 })

@@ -20,10 +20,12 @@ describe("workflow runtime", () => {
     const run = await runWorkflow("welcome", { message: "hello" })
     expect(run).toMatchObject({ provider: "vercel", status: "queued" })
 
-    await expect(getWorkflowRun("welcome", run.id)).resolves.toMatchObject({
-      provider: "vercel",
-      result: { payload: { message: "hello" } },
-      status: "completed",
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("welcome", run.id)).resolves.toMatchObject({
+        provider: "vercel",
+        result: { payload: { message: "hello" } },
+        status: "completed",
+      })
     })
   })
 
@@ -31,8 +33,65 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({})
 
-    const run = await runWorkflow("missing", {})
-    await expect(getWorkflowRun("missing", run.id)).resolves.toMatchObject({ status: "failed" })
+    await expect(runWorkflow("missing", {})).rejects.toMatchObject({
+      code: "WORKFLOW_DEFINITION_NOT_FOUND",
+    })
+  })
+
+  it("returns nonblocking status while local workflow runs are pending", async () => {
+    let resolveRun: ((value: { ok: boolean }) => void) | undefined
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: {
+          handler: () => new Promise(resolve => {
+            resolveRun = resolve
+          }),
+        },
+      }),
+    })
+
+    const run = await runWorkflow("welcome", {})
+    await expect(getWorkflowRun("welcome", run.id)).resolves.toMatchObject({ status: "running" })
+
+    resolveRun?.({ ok: true })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("welcome", run.id)).resolves.toMatchObject({
+        result: { ok: true },
+        status: "completed",
+      })
+    })
+    await expect(getWorkflowRun("welcome", run.id)).resolves.toMatchObject({
+      result: { ok: true },
+      status: "completed",
+    })
+  })
+
+  it("scopes local workflow runs by name", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      one: async () => ({ default: { handler: async () => "one" } }),
+      two: async () => ({ default: { handler: async () => "two" } }),
+    })
+
+    await runWorkflow("one", {}, { id: "shared" })
+    await runWorkflow("two", {}, { id: "shared" })
+    await Promise.resolve()
+
+    await expect(getWorkflowRun("one", "shared")).resolves.toMatchObject({ result: "one" })
+    await expect(getWorkflowRun("two", "shared")).resolves.toMatchObject({ result: "two" })
+  })
+
+  it("rejects invalid workflow module shapes as missing definitions", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ named: { handler: async () => ({ ok: true }) } }) as never,
+    })
+
+    await expect(runWorkflow("welcome", {})).rejects.toMatchObject({
+      code: "WORKFLOW_DEFINITION_NOT_FOUND",
+    })
   })
 
   it("uses waitUntil for deferred workflow dispatch", async () => {

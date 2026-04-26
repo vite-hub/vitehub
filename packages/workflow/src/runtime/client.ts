@@ -24,7 +24,7 @@ function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
   return config || normalizeWorkflowOptions(undefined, { hosting: "vercel" })!
 }
 
-async function runDefinition<TPayload, TResult>(name: string, provider: WorkflowProviderOptions["provider"], id: string, payload: TPayload, step?: unknown) {
+async function loadRequiredWorkflowDefinition(name: string) {
   const definition = await loadWorkflowDefinition(name)
   if (!definition) {
     throw new WorkflowError(`Unknown workflow definition: ${name}`, {
@@ -33,14 +33,7 @@ async function runDefinition<TPayload, TResult>(name: string, provider: Workflow
       httpStatus: 404,
     })
   }
-
-  return await definition.handler({
-    id,
-    name,
-    payload,
-    provider,
-    step,
-  }) as TResult
+  return definition
 }
 
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
@@ -80,7 +73,12 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
   if (config.provider === "cloudflare") {
     const binding = resolveCloudflareBinding(config.binding, name)
     if (binding) {
-      const instance = await binding.create({ id, params: payload })
+      const start = binding.create({ id, params: payload })
+      const waitUntil = options.deferred ? resolveWaitUntil(getWorkflowRuntimeEvent()) : undefined
+      if (waitUntil) {
+        waitUntil(start)
+      }
+      const instance = await start
       return {
         id: instance.id,
         metadata: await instance.status(),
@@ -91,13 +89,19 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
     }
   }
 
-  const run = runDefinition<TPayload, TResult>(name, config.provider, id, payload as TPayload)
+  const definition = await loadRequiredWorkflowDefinition(name)
+  const run = Promise.resolve(definition.handler({
+    id,
+    name,
+    payload: payload as TPayload,
+    provider: config.provider,
+  }) as TResult | Promise<TResult>)
     .then(result => ({ result, status: "completed" as const }))
     .catch(error => ({ error, status: "failed" as const }))
-  setWorkflowRun(id, run)
-  const waitUntil = options.deferred ? undefined : resolveWaitUntil(getWorkflowRuntimeEvent())
+  const runState = setWorkflowRun(name, id, run)
+  const waitUntil = resolveWaitUntil(getWorkflowRuntimeEvent())
   if (waitUntil) {
-    waitUntil(run)
+    waitUntil(runState.promise)
   }
 
   return {
@@ -132,15 +136,21 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
     }
   }
 
-  const run = getWorkflowRunState(id)
-  if (run && typeof (run as Promise<unknown>).then === "function") {
-    const resolved = await run as { result?: TResult, status: WorkflowRunStatus, error?: unknown }
+  const run = getWorkflowRunState(name, id)
+  if (run) {
+    if (run.status === "running") {
+      return {
+        id,
+        provider: config.provider,
+        status: "running",
+      }
+    }
     return {
       id,
-      metadata: resolved.error,
+      metadata: run.error,
       provider: config.provider,
-      result: resolved.result,
-      status: resolved.status,
+      result: run.result as TResult,
+      status: run.status,
     }
   }
 
@@ -157,10 +167,5 @@ export function deferWorkflow<TPayload = unknown>(
   options: WorkflowStartOptions = {},
 ): Promise<WorkflowRun<TPayload>> {
   const request = getWorkflowRuntimeEvent()
-  const promise = runWithWorkflowRuntimeEvent(request, () => runWorkflow<TPayload>(name, payload, { ...options, deferred: true }))
-  const waitUntil = resolveWaitUntil(request)
-  if (waitUntil) {
-    waitUntil(promise)
-  }
-  return promise
+  return runWithWorkflowRuntimeEvent(request, () => runWorkflow<TPayload>(name, payload, { ...options, deferred: true }))
 }

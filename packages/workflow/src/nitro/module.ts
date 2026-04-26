@@ -124,16 +124,16 @@ const workflowNitroModule: NitroModule = {
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, WORKFLOW_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
     }
 
-    if (!resolved) {
-      return
-    }
-
     nitro.options.plugins ||= []
     if (!nitro.options.plugins.includes(runtimeFiles.pluginFile)) {
       nitro.options.plugins.push(runtimeFiles.pluginFile)
     }
 
-    const workflows = createCloudflareWorkflowBindings(runtimeFiles.definitions)
+    if (!resolved) {
+      return
+    }
+
+    const workflows = createCloudflareWorkflowBindings(runtimeFiles.definitions, resolved)
     if (workflows && nitro.options.preset?.includes("cloudflare")) {
       nitro.options.cloudflare ||= {}
       nitro.options.cloudflare.wrangler ||= {}

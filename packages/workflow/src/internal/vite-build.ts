@@ -13,7 +13,7 @@ import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
-import type { DiscoveredWorkflowDefinition, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
+import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
 
 export const workflowPackageName = "@vitehub/workflow"
 const defaultCompatibilityDate = "2026-04-20"
@@ -45,8 +45,13 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
   { name: "vercel", entryFile: "vercel-server.mjs", runtimeModule: "runtime/vercel-vite", factory: "createWorkflowVercelServer", hosting: "vercel" },
 ]
 
+function resolveWorkflowConfig(workflow: WorkflowModuleOptions | undefined, hosting: string): false | ResolvedWorkflowOptions {
+  return normalizeWorkflowOptions(workflow, { hosting }) ?? false
+}
+
 interface GeneratedWorkflowArtifacts {
   cloudflareWorkerFile: string
+  cloudflareWorkflowConfig: false | ResolvedWorkflowOptions
   definitions: DiscoveredWorkflowDefinition[]
   generatedDir: string
   registryFile: string
@@ -71,7 +76,7 @@ interface CloudflareWorkflowConfig {
 
 function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition[]) {
   return [
-    `import { WorkflowEntrypoint, waitUntil as viteHubWaitUntil } from "cloudflare:workers"`,
+    definitions.length ? `import { WorkflowEntrypoint, waitUntil as viteHubWaitUntil } from "cloudflare:workers"` : `import { waitUntil as viteHubWaitUntil } from "cloudflare:workers"`,
     `import worker, { runViteHubWorkflowDefinition } from "./worker.mjs"`,
     "",
     ...definitions.map((definition) => {
@@ -145,13 +150,16 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir })
   const userAppEntry = resolveWorkflowUserAppEntry(rootDir)
+  const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
   const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", vercel: "" }
   await Promise.all(providerEntrySpecs.map(async (spec) => {
     const entryFile = resolve(generatedDir, spec.entryFile)
-    const workflowConfig = normalizeWorkflowOptions(workflow, { hosting: spec.hosting }) || false
+    const workflowConfig = spec.name === "cloudflare"
+      ? cloudflareWorkflowConfig
+      : resolveWorkflowConfig(workflow, spec.hosting)
     const serialized = JSON.stringify(workflowConfig, null, 2)
     await writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry, serialized), "utf8")
     entryFiles[spec.name] = entryFile
@@ -159,6 +167,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
 
   return {
     cloudflareWorkerFile: entryFiles.cloudflare,
+    cloudflareWorkflowConfig,
     definitions,
     generatedDir,
     registryFile,
@@ -171,7 +180,8 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
   const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir))
   const workerOutfile = resolve(outputRoot, "worker.mjs")
   const staticIndex = hasStaticIndex(clientDir)
-  const workflows = createCloudflareWorkflowBindings(artifacts.definitions)
+  const workflowDefinitions = artifacts.cloudflareWorkflowConfig ? artifacts.definitions : []
+  const workflows = createCloudflareWorkflowBindings(workflowDefinitions, artifacts.cloudflareWorkflowConfig)
 
   await rm(outputRoot, { force: true, recursive: true })
   await mkdir(outputRoot, { recursive: true })
@@ -197,7 +207,7 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
     }),
   ])
 
-  await writeFile(resolve(outputRoot, "index.js"), renderCloudflareWorkerWrapper(artifacts.definitions), "utf8")
+  await writeFile(resolve(outputRoot, "index.js"), renderCloudflareWorkerWrapper(workflowDefinitions), "utf8")
 
   const wranglerConfig: CloudflareWorkflowConfig = {
     compatibility_date: defaultCompatibilityDate,
