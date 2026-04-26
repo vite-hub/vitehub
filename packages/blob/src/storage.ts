@@ -2,7 +2,7 @@ import { createError, setHeader } from "h3"
 
 import { toArray } from "@vitehub/internal/arrays"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobObject, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
+import type { BlobDriverAdapter, BlobListOptions, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
 
 function normalizePathname(pathname: string): string {
   try {

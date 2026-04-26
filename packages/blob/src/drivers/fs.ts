@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto"
-import { existsSync } from "node:fs"
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { dirname, join, relative, resolve, sep } from "pathe"
 
 import { toArray } from "@vitehub/internal/arrays"
 
@@ -57,40 +56,35 @@ async function writeMetadata(file: string, metadata: FsBlobMetadata) {
 }
 
 async function toBuffer(body: BlobPutBody): Promise<Buffer> {
-  if (typeof body === "string") {
-    return Buffer.from(body)
-  }
-
-  if (body instanceof ArrayBuffer) {
-    return Buffer.from(body)
-  }
-
-  if (ArrayBuffer.isView(body)) {
-    return Buffer.from(body.buffer, body.byteOffset, body.byteLength)
-  }
-
-  const arrayBuffer = await new Response(body as any).arrayBuffer()
-  return Buffer.from(arrayBuffer)
+  if (typeof body === "string") return Buffer.from(body)
+  if (body instanceof ArrayBuffer) return Buffer.from(body)
+  if (ArrayBuffer.isView(body)) return Buffer.from(body.buffer, body.byteOffset, body.byteLength)
+  return Buffer.from(await new Response(body as Blob | ReadableStream<Uint8Array>).arrayBuffer())
 }
 
-async function collectFiles(dir: string, files: string[] = []): Promise<string[]> {
-  if (!existsSync(dir)) {
-    return files
+async function collectFiles(base: string): Promise<string[]> {
+  try {
+    const entries = await readdir(base, { recursive: true, withFileTypes: true })
+    return entries
+      .filter(entry => entry.isFile() && !entry.name.endsWith(".meta.json"))
+      .map(entry => join(entry.parentPath ?? base, entry.name))
   }
-
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const absolute = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      await collectFiles(absolute, files)
-      continue
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return []
     }
 
-    if (!entry.name.endsWith(".meta.json")) {
-      files.push(absolute)
-    }
+    throw error
   }
+}
 
-  return files
+function encodeCursor(value: number) {
+  return Buffer.from(String(value)).toString("base64url")
+}
+
+function decodeCursor(cursor: string | undefined) {
+  const parsed = Number.parseInt(Buffer.from(cursor || "", "base64url").toString("utf8") || "0")
+  return Number.isFinite(parsed) ? parsed : 0
 }
 
 export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdapter<ResolvedFsBlobStoreConfig> {
@@ -147,16 +141,15 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         .filter(pathname => !prefix || pathname.startsWith(prefix))
         .sort((left, right) => left.localeCompare(right))
 
+      const limit = listOptions.limit ?? 1000
+      const start = decodeCursor(listOptions.cursor)
+
       if (listOptions.folded) {
         const folders = new Set<string>()
         const blobs: BlobObject[] = []
-        const limit = listOptions.limit ?? 1000
-        const cursor = Number.parseInt(Buffer.from(listOptions.cursor || "", "base64url").toString("utf8") || "0")
-        const start = Number.isFinite(cursor) ? cursor : 0
-        const values = allFiles.slice(start)
         let consumed = start
 
-        for (const pathname of values) {
+        for (const pathname of allFiles.slice(start)) {
           consumed += 1
           const remainder = prefix ? pathname.slice(prefix.length).replace(/^\/+/, "") : pathname
           const firstSlash = remainder.indexOf("/")
@@ -167,32 +160,25 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
           }
 
           const meta = await this.head(pathname)
-          if (meta) {
-            blobs.push(meta)
-          }
-          if (blobs.length >= limit) {
-            break
-          }
+          if (meta) blobs.push(meta)
+          if (blobs.length >= limit) break
         }
 
         return {
           blobs,
-          cursor: consumed < allFiles.length ? Buffer.from(String(consumed)).toString("base64url") : undefined,
+          cursor: consumed < allFiles.length ? encodeCursor(consumed) : undefined,
           folders: [...folders].sort((left, right) => left.localeCompare(right)),
           hasMore: consumed < allFiles.length,
         }
       }
 
-      const limit = listOptions.limit ?? 1000
-      const cursor = Number.parseInt(Buffer.from(listOptions.cursor || "", "base64url").toString("utf8") || "0")
-      const start = Number.isFinite(cursor) ? cursor : 0
       const slice = allFiles.slice(start, start + limit)
       const blobs = (await Promise.all(slice.map(pathname => this.head(pathname)))).filter(Boolean) as BlobObject[]
       const next = start + slice.length
 
       return {
         blobs,
-        cursor: next < allFiles.length ? Buffer.from(String(next)).toString("base64url") : undefined,
+        cursor: next < allFiles.length ? encodeCursor(next) : undefined,
         hasMore: next < allFiles.length,
       }
     },
@@ -201,21 +187,16 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       await mkdir(dirname(file), { recursive: true })
       const buffer = await toBuffer(body)
       const httpEtag = `"${createHash("sha1").update(buffer).digest("hex")}"`
+      const metadata: FsBlobMetadata = {
+        contentType: putOptions.contentType,
+        customMetadata: putOptions.customMetadata,
+        httpEtag,
+        size: buffer.byteLength,
+        uploadedAt: new Date().toISOString(),
+      }
       await writeFile(file, buffer)
-      await writeMetadata(file, {
-        contentType: putOptions.contentType,
-        customMetadata: putOptions.customMetadata,
-        httpEtag,
-        size: buffer.byteLength,
-        uploadedAt: new Date().toISOString(),
-      })
-      return createObject(normalizePathname(pathname), {
-        contentType: putOptions.contentType,
-        customMetadata: putOptions.customMetadata,
-        httpEtag,
-        size: buffer.byteLength,
-        uploadedAt: new Date().toISOString(),
-      }, buffer.byteLength)
+      await writeMetadata(file, metadata)
+      return createObject(normalizePathname(pathname), metadata, buffer.byteLength)
     },
   }
 }

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -13,6 +13,18 @@ afterEach(async () => {
 })
 
 describe("fs blob driver", () => {
+  it("rejects listings when the base points at a file", async () => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
+    tempDirs.push(base)
+
+    const fileBase = join(base, "not-a-directory")
+    await writeFile(fileBase, "contents")
+
+    const driver = createDriver({ base: fileBase, driver: "fs" })
+
+    await expect(driver.list()).rejects.toMatchObject({ code: "ENOTDIR" })
+  })
+
   it("returns a cursor for folded listings that stop before the end", async () => {
     const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
     tempDirs.push(base)
