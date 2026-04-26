@@ -35,6 +35,7 @@ type DocsExampleProvider = {
   icon: string;
   darkInvert?: boolean;
   configOverride?: string;
+  configOverrides?: Partial<Record<Framework, string>>;
   envOverride?: string;
   hiddenFiles?: string[];
 };

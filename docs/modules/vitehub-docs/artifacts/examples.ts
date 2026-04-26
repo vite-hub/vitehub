@@ -185,6 +185,7 @@ function normalizeProvider(raw: string | Record<string, unknown>) {
     icon: typeof provider.icon === "string" ? provider.icon : `i-logos-${id}-icon`,
     darkInvert: typeof provider.darkInvert === "boolean" ? provider.darkInvert : darkInvertProviders.has(id),
     ...(provider.configOverride ? { configOverride: String(provider.configOverride) } : {}),
+    ...(provider.configOverrides && typeof provider.configOverrides === "object" ? { configOverrides: provider.configOverrides as Record<string, string> } : {}),
     ...(provider.envOverride ? { envOverride: String(provider.envOverride) } : {}),
     ...(provider.hiddenFiles ? { hiddenFiles: provider.hiddenFiles as string[] } : {}),
   };
