@@ -1,3 +1,6 @@
+import { appendFile } from "node:fs/promises"
+import { join } from "node:path"
+
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-discovery"
 import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
@@ -68,9 +71,27 @@ function createNitroWorkflowPluginContents(file: string, registryFile: string) {
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
     "import { useRuntimeConfig } from \"nitro/runtime-config\"",
     "",
-    "import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from \"@vitehub/workflow/runtime/state\"",
+    "import { enterWorkflowRuntimeEvent, loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from \"@vitehub/workflow/runtime/state\"",
     "",
     `import workflowRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    "",
+    "async function runNitroWorkflowDefinition(name, env, event, step) {",
+    "  const runtimeConfig = useRuntimeConfig()",
+    "  setWorkflowRuntimeConfig(runtimeConfig.workflow)",
+    "  setWorkflowRuntimeRegistry(workflowRegistry)",
+    "  globalThis.__env__ = env || {}",
+    "  const definition = await loadWorkflowDefinition(name)",
+    "  if (!definition) throw new Error(`Missing workflow definition: ${name}`)",
+    "  return await runWithWorkflowRuntimeEvent({ env, step }, () => definition.handler({",
+    "    id: event?.instanceId || event?.id,",
+    "    name,",
+    "    payload: event?.payload,",
+    "    provider: \"cloudflare\",",
+    "    step,",
+    "  }))",
+    "}",
+    "",
+    "globalThis.__vitehubRunNitroWorkflowDefinition = runNitroWorkflowDefinition",
     "",
     "const workflowNitroPlugin = defineNitroPlugin((nitroApp) => {",
     "  const runtimeConfig = useRuntimeConfig()",
@@ -89,6 +110,29 @@ function createNitroWorkflowPluginContents(file: string, registryFile: string) {
     "export default workflowNitroPlugin",
     "",
   ].join("\n")
+}
+
+function createCloudflareWorkflowClassExports(definitions: DiscoveredWorkflowDefinition[]) {
+  if (!definitions.length) {
+    return ""
+  }
+
+  return [
+    "",
+    "import { WorkflowEntrypoint as ViteHubWorkflowEntrypoint } from \"cloudflare:workers\"",
+    "",
+    ...definitions.map((definition) => {
+      const className = getCloudflareWorkflowClassName(definition.name)
+      return [
+        `export class ${className} extends ViteHubWorkflowEntrypoint {`,
+        "  async run(event, step) {",
+        `    return await globalThis.__vitehubRunNitroWorkflowDefinition(${JSON.stringify(definition.name)}, this.env || {}, event, step)`,
+        "  }",
+        "}",
+        "",
+      ].join("\n")
+    }),
+  ].flat().join("\n")
 }
 
 async function writeNitroWorkflowRuntimeFiles(nitro: { options: { buildDir: string, rootDir: string, scanDirs: string[] } }) {
@@ -160,6 +204,18 @@ const workflowNitroModule: NitroModule = {
     })
     nitro.hooks.hook("dev:reload", async () => {
       runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro)
+    })
+    nitro.hooks.hook("compiled", async (currentNitro: any) => {
+      if (!currentNitro.options.preset?.includes("cloudflare")) {
+        return
+      }
+
+      const classExports = createCloudflareWorkflowClassExports(runtimeFiles.definitions)
+      if (!classExports) {
+        return
+      }
+
+      await appendFile(join(currentNitro.options.output.serverDir, "index.mjs"), classExports, "utf8")
     })
   },
 }

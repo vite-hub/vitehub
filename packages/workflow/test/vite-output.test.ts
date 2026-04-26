@@ -68,4 +68,25 @@ describe("Vite workflow provider outputs", () => {
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
   }, 20_000)
+
+  it("exports Cloudflare workflow classes from Nitro output", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-playground-")
+
+    await execFileAsync("pnpm", ["exec", "nitro", "build", "--preset", "cloudflare-module"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_NITRO_MODE: "workflow" },
+    })
+
+    const serverEntry = join(rootDir, ".output", "server", "index.mjs")
+    const wrangler = JSON.parse(await readFile(join(rootDir, ".output", "server", "wrangler.json"), "utf8"))
+    const serverEntryContents = await readFile(serverEntry, "utf8")
+
+    expect(wrangler.workflows).toContainEqual({
+      binding: "WORKFLOW_77656C636F6D65",
+      class_name: "ViteHubWelcomeWorkflow",
+      name: "workflow--77656c636f6d65",
+    })
+    expect(serverEntryContents).toContain("globalThis.__vitehubRunNitroWorkflowDefinition")
+    expect(serverEntryContents).toContain("export class ViteHubWelcomeWorkflow extends ViteHubWorkflowEntrypoint")
+  }, 30_000)
 })
