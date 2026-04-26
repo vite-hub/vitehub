@@ -1,25 +1,23 @@
 ---
 title: Cloudflare KV
-description: Configure @vitehub/kv for Cloudflare Workers and Pages using KV bindings.
+description: Configure @vitehub/kv for Cloudflare Workers and Pages using Cloudflare KV bindings.
 navigation.title: Cloudflare
 navigation.group: Providers
 navigation.order: 10
-icon: i-logos-cloudflare-icon
+icon: i-simple-icons-cloudflare
+frameworks: [vite, nitro, nuxt]
 ---
 
-Use this path when you deploy KV-backed code to Cloudflare or when you want to configure Cloudflare KV explicitly.
+Use the Cloudflare provider when runtime KV should read and write through a Cloudflare KV namespace.
 
-## Supported deployment targets
+Cloudflare needs a KV binding. ViteHub defaults that binding name to `KV` and can add the Wrangler namespace entry when `namespaceId` is available.
 
-- Cloudflare Workers
-- Cloudflare Pages
+::steps{level="2"}
 
-## Configuration
-
-Set `kv.driver` to `cloudflare-kv-binding`. The binding name defaults to `KV`, and `namespaceId` should match your Cloudflare KV namespace.
+## Configure KV
 
 ::fw{id="vite:dev vite:build"}
-The Vite plugin owns KV config resolution. Use Nitro or Nuxt for runtime access to the `kv` handle.
+Register the Vite plugin and set `kv.driver` to `cloudflare-kv-binding`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -37,6 +35,8 @@ export default defineConfig({
 ::
 
 ::fw{id="nitro:dev nitro:build"}
+Register the Nitro module and set `kv.driver` to `cloudflare-kv-binding`:
+
 ```ts [nitro.config.ts]
 import { defineNitroConfig } from 'nitro/config'
 
@@ -52,6 +52,8 @@ export default defineNitroConfig({
 ::
 
 ::fw{id="nuxt:dev nuxt:build"}
+Register the Nuxt module and set `kv.driver` to `cloudflare-kv-binding`:
+
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['@vitehub/kv/nuxt'],
@@ -64,18 +66,98 @@ export default defineNuxtConfig({
 ```
 ::
 
-## Bindings
+## Set the Namespace ID
 
-Cloudflare uses [bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/) to connect your worker to platform resources. `@vitehub/kv` uses a KV binding and defaults that binding name to `KV` unless you override it.
+Pass `namespaceId` in config:
 
-If you do not set `namespaceId` directly, the resolver can also read it from `KV_NAMESPACE_ID`.
+```ts
+kv: {
+  driver: 'cloudflare-kv-binding',
+  namespaceId: '<kv-namespace-id>',
+}
+```
 
-## What this page does not cover
+Or set `KV_NAMESPACE_ID` in the build environment:
 
-This page only covers the Cloudflare KV path exposed by `@vitehub/kv`. It does not document generic Cloudflare storage features beyond this driver.
+```bash
+KV_NAMESPACE_ID=<kv-namespace-id>
+```
 
-## Related
+When `namespaceId` is present, the Nitro module adds the namespace to Cloudflare Wrangler config:
 
-- [Overview](../index)
+```ts
+cloudflare: {
+  wrangler: {
+    kv_namespaces: [
+      { binding: 'KV', id: '<kv-namespace-id>' },
+    ],
+  },
+}
+```
+
+## Use a Custom Binding Name
+
+The default binding is `KV`. Set `binding` when the Cloudflare resource uses another name:
+
+```ts
+kv: {
+  driver: 'cloudflare-kv-binding',
+  binding: 'APP_KV',
+  namespaceId: '<kv-namespace-id>',
+}
+```
+
+The runtime driver reads from that Cloudflare binding.
+
+## Let Hosting Select Cloudflare
+
+When hosting resolves to Cloudflare and no explicit driver is set, ViteHub selects `cloudflare-kv-binding` automatically:
+
+```ts
+export default defineNitroConfig({
+  modules: ['@vitehub/kv/nitro'],
+})
+```
+
+Explicit `kv.driver` still wins. Use explicit config when you want local `fs-lite` behavior or need a custom binding.
+
+## Verify the Provider
+
+Write a value:
+
+```bash
+curl -X PUT https://<your-worker>/api/settings
+```
+
+Read it back:
+
+```bash
+curl https://<your-worker>/api/settings
+```
+
+Expected response:
+
+```json
+{
+  "settings": {
+    "enabled": true
+  }
+}
+```
+
+::
+
+## Common Failures
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Reads always return `null` after deploy | The Worker is bound to the wrong namespace or binding name. | Check `binding`, `namespaceId`, and Cloudflare deployment config. |
+| Local development stores files instead of Cloudflare data | Hosting was not detected as Cloudflare. | Set `kv.driver` to `cloudflare-kv-binding` explicitly. |
+| Wrangler namespace config is missing | `namespaceId` was not configured and `KV_NAMESPACE_ID` was not set. | Add `namespaceId` or set `KV_NAMESPACE_ID`. |
+
+## Related Pages
+
 - [Quickstart](../quickstart)
-- [Usage](../usage)
+- [Choose a driver](../guides/choose-a-driver)
+- [Runtime API](../runtime-api)
+- [Troubleshooting](../troubleshooting)

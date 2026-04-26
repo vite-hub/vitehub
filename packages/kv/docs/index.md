@@ -1,105 +1,195 @@
 ---
 title: KV
-description: Set up key-value storage through one shared runtime handle.
+description: Read and write key-value data through one portable runtime handle across Vite, Nitro, and Nuxt.
 navigation.title: Overview
+navigation.order: 0
 icon: i-lucide-database-zap
+frameworks: [vite, nitro, nuxt]
 ---
 
-`@vitehub/kv` starts with a Vite plugin that resolves KV config for Vite environments. Nitro installs that Vite primitive and mounts the runtime storage handle; Nuxt installs the Nitro adapter.
+`@vitehub/kv` gives Vite, Nitro, and Nuxt apps one `kv` handle for application state that fits a key-value shape.
 
-## Getting started
+Use KV when route code needs to read or write small JSON-serializable values without carrying provider-specific SDK calls through the app. The provider choice stays in config. Runtime code keeps the same `kv.get()`, `kv.set()`, and `kv.del()` calls.
 
-Start with [Quickstart](./quickstart) to get KV working locally first. It uses `fs-lite`, so you can verify config through Vite and read or write keys through the Nitro or Nuxt runtime adapters before choosing a hosted provider.
+::code-group
+```ts [server/api/settings.put.ts]
+import { kv } from '@vitehub/kv'
 
-## Automatic configuration
+export default defineEventHandler(async () => {
+  await kv.set('settings', {
+    theme: 'system',
+    onboardingComplete: true,
+  })
 
-ViteHub resolves the KV driver in this order:
+  return { ok: true }
+})
+```
 
-1. Explicit `kv.driver` config wins.
-2. Upstash env vars win if present.
-3. Cloudflare hosting defaults to `cloudflare-kv-binding`.
-4. Everything else falls back to `fs-lite`.
+```ts [server/api/settings.get.ts]
+import { kv } from '@vitehub/kv'
 
-This mirrors the actual resolution logic in `normalizeKVOptions`, so the docs match the runtime behavior.
+export default defineEventHandler(async () => {
+  return {
+    settings: await kv.get('settings'),
+  }
+})
+```
 
-## Supported provider paths
+```json [Response]
+{
+  "settings": {
+    "theme": "system",
+    "onboardingComplete": true
+  }
+}
+```
+::
 
-### Vercel / Upstash
+## What KV Solves
 
-Use this path when your app has Upstash REST credentials available, including the Vercel `KV_REST_API_*` env vars. The resolved driver is `upstash`.
+Provider storage SDKs are useful, but they couple route code to deployment infrastructure.
 
-Read [Vercel](./providers/vercel) for the full setup, supported env vars, and fallback behavior.
+KV puts the provider behind the Nitro storage mount:
 
-### Cloudflare KV
+::card-group
+  :::card
+  ---
+  icon: i-lucide-key-round
+  title: Portable runtime calls
+  ---
+  Use the same `kv` handle for local development, Cloudflare KV, and Upstash-backed Vercel deployments.
+  :::
 
-Use this path when Cloudflare hosting is detected or when you explicitly set `kv.driver = 'cloudflare-kv-binding'`. The resolved driver is `cloudflare-kv-binding`.
+  :::card
+  ---
+  icon: i-lucide-route
+  title: Config-based routing
+  ---
+  Pick `fs-lite`, `cloudflare-kv-binding`, or `upstash` in config or let ViteHub infer the driver.
+  :::
 
-Read [Cloudflare](./providers/cloudflare) for bindings, `namespaceId`, and framework-specific examples.
+  :::card
+  ---
+  icon: i-lucide-database
+  title: Nitro storage backing
+  ---
+  Mount the active driver as Nitro storage at `kv`, then expose a small typed wrapper.
+  :::
 
-### Local / other
+  :::card
+  ---
+  icon: i-lucide-shield-check
+  title: Secret-safe Upstash setup
+  ---
+  Keep Upstash credentials in runtime environment variables instead of serializing them into build output.
+  :::
+::
 
-Use this path when no higher-priority config is found. The resolved driver is `fs-lite`, and data is stored locally in `.data/kv`.
+## One Portable Flow
 
-If you want to stay local or use the simplest development path, start with [Quickstart](./quickstart).
+The same shape works across supported frameworks:
 
-## Manual configuration
+1. Install `@vitehub/kv`.
+2. Register `hubKv()`, `@vitehub/kv/nitro`, or `@vitehub/kv/nuxt`.
+3. Choose a driver or let ViteHub resolve one.
+4. Import `kv` from `@vitehub/kv` in server/runtime code.
+5. Read and write values with `get`, `set`, `has`, `del`, `keys`, and `clear`.
 
-Set `kv.driver` explicitly to bypass auto-resolution. See [Cloudflare](./providers/cloudflare), [Vercel](./providers/vercel), or [Quickstart](./quickstart) for per-driver config examples.
+::callout{icon="i-lucide-info" color="info"}
+Provider-specific setup belongs in framework config and deployment environment variables. Application call sites should stay provider-neutral unless you intentionally pass driver-specific options.
+::
 
-## What stays portable
+## Driver Routing
 
-These pieces stay stable when you change providers:
+ViteHub resolves KV config in this order:
 
-- the top-level `kv` config key
-- the runtime handle `kv`
-- the app-level call sites that use `kv.get()`, `kv.set()`, `kv.del()`, `kv.clear()`, and `kv.keys()`
+| Priority | Signal | Resolved driver |
+| --- | --- | --- |
+| 1 | Explicit `kv.driver` | The configured driver |
+| 2 | `KV_REST_API_URL` and `KV_REST_API_TOKEN` | `upstash` |
+| 3 | `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` | `upstash` |
+| 4 | Vercel hosting | `upstash` |
+| 5 | Cloudflare hosting | `cloudflare-kv-binding` |
+| 6 | Everything else | `fs-lite` |
 
-## Fallback behavior
+Explicit config always wins. That means you can force `fs-lite` locally, force Cloudflare for a Worker, or force Upstash for any runtime.
 
-If no explicit config, supported env vars, or Cloudflare hosting signal is found, KV falls back to `fs-lite` and stores data in `.data/kv`.
+## Framework Support
 
-## Next steps
+::fw{id="vite:dev vite:build"}
+Vite registers `hubKv()` and exposes resolved config through `virtual:@vitehub/kv/config`.
+
+Use this path when Vite owns the app setup. Runtime access to `kv` still depends on a Nitro-compatible server runtime.
+::
+
+::fw{id="nitro:dev nitro:build"}
+Nitro registers `@vitehub/kv/nitro`, writes resolved config to runtime config, mounts storage at `kv`, and aliases `@vitehub/kv` to the runtime implementation.
+::
+
+::fw{id="nuxt:dev nuxt:build"}
+Nuxt registers `@vitehub/kv/nuxt`, which installs the Nitro module and forwards top-level `kv` config to Nitro.
+::
+
+## Supported Providers
 
 ::u-page-grid{class="pb-2"}
   :::u-page-card
   ---
-  title: Quickstart
-  description: Get a first working local KV setup.
-  to: ./quickstart
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Usage
-  description: Use the KV runtime handle like an SDK.
-  to: ./usage
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Runtime API
-  description: Review exports, methods, and config types.
-  to: ./runtime-api
-  ---
-  :::
-  :::u-page-card
-  ---
   title: Cloudflare
-  description: Configure the Cloudflare KV path.
+  description: Use Cloudflare KV bindings with Workers or Pages.
+  icon: i-simple-icons-cloudflare
   to: ./providers/cloudflare
   ---
   :::
   :::u-page-card
   ---
   title: Vercel
-  description: Configure the Upstash-backed Vercel path.
+  description: Use Vercel with the Upstash-backed KV driver.
+  icon: i-simple-icons-vercel
   to: ./providers/vercel
+  ---
+  :::
+::
+
+## Start Here
+
+Start with [Quickstart](./quickstart) for a complete local setup. Use the [primitive comparison](../compare) when you are deciding between KV, Blob, Queue, Sandbox, or a database.
+
+## Next Steps
+
+::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Quickstart
+  description: Configure KV and read back a settings value.
+  to: ./quickstart
   ---
   :::
   :::u-page-card
   ---
-  title: NuxtHub KV migration
-  description: Map NuxtHub KV docs and config to ViteHub.
+  title: Usage
+  description: Use keys, prefixes, deletes, lists, clears, and provider-specific options.
+  to: ./usage
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Runtime API
+  description: Review exports, config shapes, methods, and virtual modules.
+  to: ./runtime-api
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Troubleshooting
+  description: Fix missing mounts, provider routing, bindings, and Upstash credentials.
+  to: ./troubleshooting
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: NuxtHub migration
+  description: Move existing NuxtHub KV apps to ViteHub KV.
   to: ./migration-from-nuxthub
   ---
   :::
