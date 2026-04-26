@@ -147,9 +147,3 @@ Successful execution returns a normal Sandbox result:
 | `Sandbox provider could not be inferred` | No provider was configured and no Cloudflare environment was detected. | Set `sandbox.provider` to `cloudflare`. |
 | `Cloudflare sandbox requires the "SANDBOX" binding` | The binding is missing from the request environment. | Add the binding or set `sandbox.binding` to the binding name you already use. |
 | Provider package warning during build | `@cloudflare/sandbox` is not installed. | Run `pnpm add @cloudflare/sandbox`. |
-
-## Related pages
-
-- [Quickstart](../quickstart)
-- [Reuse a sandbox](../guides/reuse-a-sandbox)
-- [Troubleshooting](../troubleshooting)

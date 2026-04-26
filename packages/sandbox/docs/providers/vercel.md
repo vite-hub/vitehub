@@ -135,9 +135,3 @@ Successful execution returns a normal Sandbox result:
 | `Sandbox provider could not be inferred` | No provider was configured and Vercel was not detected. | Set `sandbox.provider` to `vercel`. |
 | Vercel sandbox cannot create a runtime | Credentials are missing or incomplete. | Set token, team ID, and project ID through env vars or config. |
 | Provider package warning during build | `@vercel/sandbox` is not installed. | Run `pnpm add @vercel/sandbox`. |
-
-## Related pages
-
-- [Quickstart](../quickstart)
-- [Runtime API](../runtime-api)
-- [Troubleshooting](../troubleshooting)

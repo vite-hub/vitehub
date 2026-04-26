@@ -149,10 +149,3 @@ Nitro discovers `server/sandboxes/**`. `server/sandboxes/release-notes.ts` becom
 **Fix:** Move the file into the discovery path or update the `runSandbox()` name.
 
 **Verify:** Rebuild or restart dev mode, then call the route again.
-
-## Related pages
-
-- [Quickstart](./quickstart)
-- [Cloudflare](./providers/cloudflare)
-- [Vercel](./providers/vercel)
-- [Runtime API](./runtime-api)

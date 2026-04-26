@@ -248,36 +248,3 @@ The route returns the sandbox result:
 ```
 
 ::
-
-## What to read next
-
-::u-page-grid{class="pb-2"}
-  :::u-page-card
-  ---
-  title: Run a sandbox
-  description: Focus on the route-side call pattern and result handling.
-  to: ./guides/run-a-sandbox
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Validate payloads
-  description: Validate request input before it reaches the sandbox definition.
-  to: ./guides/validate-payloads
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Cloudflare setup
-  description: Configure bindings and provider options for Cloudflare.
-  to: ./providers/cloudflare
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Vercel setup
-  description: Configure credentials and runtime options for Vercel.
-  to: ./providers/vercel
-  ---
-  :::
-::

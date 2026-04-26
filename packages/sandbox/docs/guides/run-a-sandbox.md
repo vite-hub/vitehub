@@ -111,9 +111,3 @@ Expected response:
 | Reading `result.value` before checking `isErr()` | Return or throw from the error branch first. |
 | Putting provider logic in the route | Put `provider`, credentials, and bindings in config. |
 | Passing raw user input directly | Validate with [Validate payloads](./validate-payloads). |
-
-## Related pages
-
-- [Quickstart](../quickstart)
-- [Usage](../usage)
-- [Runtime API](../runtime-api)

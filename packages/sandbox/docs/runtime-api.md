@@ -234,10 +234,3 @@ The top-level config key is `sandbox`.
     ```
   :::
 ::
-
-## Related pages
-
-- [Quickstart](./quickstart)
-- [Usage](./usage)
-- [Cloudflare](./providers/cloudflare)
-- [Vercel](./providers/vercel)
