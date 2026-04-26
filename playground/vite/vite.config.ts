@@ -5,6 +5,7 @@ import { defineConfig } from "vite"
 import { hubBlob } from "@vitehub/blob/vite"
 import { hubKv } from "@vitehub/kv/vite"
 import { hubQueue } from "@vitehub/queue/vite"
+import { hubWorkflow } from "@vitehub/workflow/vite"
 
 const buildMode = process.env.VITEHUB_VITE_MODE || "queue"
 const blobOnly = buildMode === "blob"
@@ -18,6 +19,6 @@ export default defineConfig({
       input: resolve(import.meta.dirname, input),
     },
   },
-  plugins: blobOnly ? [hubBlob()] : [hubQueue(), hubKv()],
-  ...(blobOnly ? { blob: {} } : { queue: {} }),
+  plugins: blobOnly ? [hubBlob()] : [hubQueue(), hubKv(), hubWorkflow()],
+  ...(blobOnly ? { blob: {} } : { queue: {}, workflow: {} }),
 })

@@ -54,6 +54,7 @@ jobs:
       - run: pnpm --filter @vitehub/kv build
       - run: pnpm --filter @vitehub/queue build
       - run: pnpm --filter @vitehub/sandbox build
+      - run: pnpm --filter @vitehub/workflow build
 
       - name: Prepare Vercel project
         id: prepare_vercel
@@ -164,6 +165,11 @@ jobs:
 
       - name: Sandbox Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
         run: pnpm --dir packages/sandbox test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "${{ steps.url.outputs.url }}"
+
+      - name: Workflow Live E2E (${{ matrix.provider }} × vite)
+        if: matrix.framework == 'vite'
+        timeout-minutes: 5
+        run: node packages/workflow/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
       - name: Prepare Vercel Blob project
         id: prepare_vercel_blob
