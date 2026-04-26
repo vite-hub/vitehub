@@ -1,25 +1,30 @@
-import type { NitroModule } from 'nitro/types'
-import type { ConfigEnv, Plugin, UserConfig } from 'vite'
-import { existsSync } from 'node:fs'
-import { cp, mkdir } from 'node:fs/promises'
-import { Readable } from 'node:stream'
-import { resolve as resolvePath } from 'pathe'
 import {
-  buildFeatureViteContext,
   createFeatureEngine,
   createFeatureNitroBridge,
   type FeatureEngine,
+  type FeatureModuleContext,
   type FeatureStateSource,
   type FeatureViteContext,
   type FeatureViteSetupResult,
 } from './feature-engine'
+import { mergeUserConfigs } from './vite/config-merge'
+import {
+  createNitroRouteMatcher,
+  copyViteBuildOutputToNitroPublicDir,
+  isFeatureDefinitionChange,
+  loadNitroBuilder,
+  resolveNitroOptions,
+  sendFetchResponse,
+  type NitroBuilderModule,
+  type ViteNitroConfig,
+} from './vite/nitro-integration'
+import { resolveFeatureViteState, type ResolvedFeatureViteState } from './vite/virtual-modules'
+
+import type { NitroModule } from 'nitro/types'
+import type { ConfigEnv, Plugin } from 'vite'
 
 export type { FeatureViteContext, FeatureViteSetupResult } from './feature-engine'
-
-export interface FeatureViteState<TConfig> extends FeatureViteContext<TConfig> {
-  virtualModules: Map<string, string>
-  resolvedIds: Map<string, string>
-}
+export type { FeatureViteState } from './vite/virtual-modules'
 
 export interface FeatureBridgeBundle {
   vite: Plugin
@@ -37,247 +42,7 @@ type ViteFeatureFactoryOptions<TOptions, TInput, TConfig = TInput> = {
   assignRuntimeConfig?: (runtimeConfig: Record<string, unknown>, config: TConfig) => void
   readOptions: (config: Record<string, unknown>, env: ConfigEnv) => TOptions | undefined
   setup?: (context: FeatureViteContext<TConfig>) => Promise<FeatureViteSetupResult | void> | FeatureViteSetupResult | void
-  setupNitro?: (nitro: Parameters<NonNullable<NitroModule['setup']>>[0], context: import('./feature-engine').FeatureModuleContext<TConfig>) => void | Promise<void>
-}
-
-type ResolvedFeatureViteState<TConfig> = FeatureViteState<TConfig> & {
-  extraConfig?: UserConfig
-}
-
-type ViteNitroHandler = {
-  route: string
-  method?: string
-  handler: string
-}
-
-type ViteNitroConfig = {
-  alias?: Record<string, string>
-  compatibilityDate?: string
-  handlers?: ViteNitroHandler[]
-  imports?: Record<string, unknown> | false
-  modules?: NitroModule[]
-  plugins?: string[]
-  preset?: string
-  publicAssets?: Array<{
-    baseURL?: string
-    dir: string
-    fallthrough?: boolean
-    maxAge?: number
-  }>
-  runtimeConfig?: Record<string, unknown>
-}
-
-type NitroBuilderModule = typeof import('nitro/builder')
-
-function createStateModuleId(feature: string) {
-  return `virtual:vitehub/${feature}`
-}
-
-function createResolvedVirtualModuleId(feature: string, key: string) {
-  return `\0vitehub:${feature}:${key}`
-}
-
-function mergeUserConfigs(base: UserConfig, extra?: UserConfig) {
-  if (!extra)
-    return base
-
-  return {
-    ...extra,
-    ...base,
-    define: {
-      ...extra.define,
-      ...base.define,
-    },
-    resolve: {
-      ...extra.resolve,
-      ...base.resolve,
-      alias: {
-        ...(typeof extra.resolve?.alias === 'object' && !Array.isArray(extra.resolve.alias) ? extra.resolve.alias : {}),
-        ...(typeof base.resolve?.alias === 'object' && !Array.isArray(base.resolve.alias) ? base.resolve.alias : {}),
-      },
-    },
-  } satisfies UserConfig
-}
-
-let nitroBuilderPromise: Promise<NitroBuilderModule> | undefined
-
-async function loadNitroBuilder() {
-  nitroBuilderPromise ||= import('nitro/builder').catch((error) => {
-    throw new Error('[vitehub] Vite projects with `nitro.handlers` require `nitro` to be installed.', {
-      cause: error,
-    })
-  })
-
-  return await nitroBuilderPromise
-}
-
-function resolveNitroOptions(
-  rootDir: string,
-  configKey: string,
-  state: ResolvedFeatureViteState<unknown>,
-  nitro: ViteNitroConfig | undefined,
-  featureNitroModule: NitroModule | undefined,
-  dev: boolean,
-) {
-  const distDir = resolvePath(rootDir, typeof state.extraConfig?.build?.outDir === 'string'
-    ? state.extraConfig.build.outDir
-    : 'dist')
-  const srcDir = existsSync(resolvePath(rootDir, 'src')) ? 'src' : undefined
-  const handlers = Array.isArray(nitro?.handlers) ? nitro.handlers : []
-  const modules = [
-    ...(featureNitroModule ? [featureNitroModule] : []),
-    ...((nitro?.modules ?? []).filter(Boolean)),
-  ]
-
-  return {
-    [configKey]: state.config,
-    alias: nitro?.alias,
-    compatibilityDate: nitro?.compatibilityDate,
-    dev,
-    handlers,
-    imports: nitro?.imports,
-    modules,
-    plugins: nitro?.plugins,
-    preset: process.env.NITRO_PRESET || nitro?.preset || 'node-server',
-    publicAssets: [
-      {
-        baseURL: '/',
-        dir: distDir,
-        fallthrough: true,
-        maxAge: 0,
-      },
-      ...(nitro?.publicAssets ?? []).map(asset => ({
-        ...asset,
-        maxAge: asset.maxAge ?? 0,
-      })),
-    ],
-    rootDir,
-    runtimeConfig: mergeRuntimeConfig(state.runtimeConfig, nitro?.runtimeConfig, configKey),
-    srcDir,
-  }
-}
-
-function mergeRuntimeConfig(
-  stateRuntimeConfig: Record<string, unknown>,
-  nitroRuntimeConfig: Record<string, unknown> | undefined,
-  configKey: string,
-) {
-  const stateFeatureConfig = stateRuntimeConfig[configKey]
-  const nitroFeatureConfig = nitroRuntimeConfig?.[configKey]
-
-  return {
-    ...stateRuntimeConfig,
-    ...nitroRuntimeConfig,
-    ...(stateFeatureConfig
-      && typeof stateFeatureConfig === 'object'
-      && !Array.isArray(stateFeatureConfig)
-      && nitroFeatureConfig
-      && typeof nitroFeatureConfig === 'object'
-      && !Array.isArray(nitroFeatureConfig)
-      ? {
-          [configKey]: {
-            ...stateFeatureConfig,
-            ...nitroFeatureConfig,
-          },
-        }
-      : {}),
-  }
-}
-
-function isFeatureDefinitionChange(feature: string, file: string) {
-  if (feature === 'sandbox')
-    return /\.sandbox\.[cm]?[jt]s$/i.test(file)
-
-  return false
-}
-
-function createNitroRouteMatcher(handlers: ViteNitroHandler[]) {
-  const entries = handlers.map((handler) => {
-    const source = handler.route
-      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      .replace(/\\\[\.{3}[^/\\]+\]/g, '.+')
-      .replace(/\\\[[^/\\]+\]/g, '[^/]+')
-      .replace(/:([^/]+)/g, '[^/]+')
-
-    return {
-      method: handler.method?.toUpperCase(),
-      pattern: new RegExp(`^${source}/?$`),
-    }
-  })
-
-  return (method: string, url: string) => {
-    const pathname = new URL(url, 'http://vitehub.local').pathname
-    return entries.some(entry => (!entry.method || entry.method === method) && entry.pattern.test(pathname))
-  }
-}
-
-async function copyViteBuildOutputToNitroPublicDir(
-  nitro: Awaited<ReturnType<NitroBuilderModule['createNitro']>>,
-  rootDir: string,
-  outDir: string | undefined,
-) {
-  const distDir = resolvePath(rootDir, outDir || 'dist')
-  if (!existsSync(distDir))
-    return
-
-  await mkdir(nitro.options.output.publicDir, { recursive: true })
-  await cp(distDir, nitro.options.output.publicDir, {
-    force: true,
-    recursive: true,
-  })
-}
-
-async function sendFetchResponse(res: import('node:http').ServerResponse, response: Response) {
-  res.statusCode = response.status
-  res.statusMessage = response.statusText
-
-  for (const [name, value] of response.headers) {
-    res.setHeader(name, value)
-  }
-
-  if (!response.body) {
-    res.end()
-    return
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    Readable.fromWeb(response.body as ReadableStream<Uint8Array>)
-      .on('error', reject)
-      .pipe(res)
-      .on('finish', resolve)
-      .on('error', reject)
-  })
-}
-
-function createStateModuleContents<TConfig>(
-  feature: string,
-  configKey: string,
-  state: FeatureViteContext<TConfig>,
-) {
-  const payload = {
-    feature,
-    configKey,
-    config: state.config,
-    runtimeConfig: state.runtimeConfig,
-    hosting: state.hosting,
-    rootDir: state.rootDir,
-    mode: state.mode,
-    command: state.command,
-  }
-
-  return [
-    `const state = ${JSON.stringify(payload, null, 2)}`,
-    'export const feature = state.feature',
-    'export const configKey = state.configKey',
-    'export const config = state.config',
-    'export const runtimeConfig = state.runtimeConfig',
-    'export const hosting = state.hosting',
-    'export const rootDir = state.rootDir',
-    'export const mode = state.mode',
-    'export const command = state.command',
-    'export default state',
-    '',
-  ].join('\n')
+  setupNitro?: (nitro: Parameters<NonNullable<NitroModule['setup']>>[0], context: FeatureModuleContext<TConfig>) => void | Promise<void>
 }
 
 function normalizeViteEngine<TOptions, TInput, TConfig>(
@@ -303,33 +68,6 @@ function normalizeViteEngine<TOptions, TInput, TConfig>(
     setupVite: options.setup,
     setupNitro: options.setupNitro,
   })
-}
-
-async function resolveFeatureViteState<TOptions, TInput, TConfig>(
-  engine: FeatureEngine<TOptions, TInput, TConfig>,
-  userConfig: Record<string, unknown>,
-  env: ConfigEnv,
-): Promise<ResolvedFeatureViteState<TConfig> | undefined> {
-  const context = await buildFeatureViteContext(engine, userConfig, env)
-  if (!context)
-    return undefined
-
-  const setupResult = await engine.setupVite?.(context)
-  const modules = new Map<string, string>()
-  const resolvedIds = new Map<string, string>()
-
-  const stateModuleId = createStateModuleId(engine.feature)
-  modules.set(stateModuleId, createStateModuleContents(engine.feature, engine.configKey, context))
-  const resolvedStateModuleId = createResolvedVirtualModuleId(engine.feature, 'state')
-  modules.set(resolvedStateModuleId, modules.get(stateModuleId)!)
-  resolvedIds.set(stateModuleId, resolvedStateModuleId)
-
-  return {
-    ...context,
-    virtualModules: modules,
-    resolvedIds,
-    extraConfig: setupResult && 'config' in setupResult ? setupResult.config : undefined,
-  }
 }
 
 export function createFeatureBridgeBundle<TOptions, TInput, TConfig = TInput>(
