@@ -14,9 +14,14 @@ type DocsSectionLink = {
   active: boolean;
 };
 
-function createNavigationGroup(title: string, items: ContentNavigationItem[]) {
+function createNavigationGroup(title: string, items: ContentNavigationItem[], options: { defaultOpen?: boolean } = {}) {
   if (!items.length) return null;
-  return { title, path: items[0]?.path || "/docs", children: items } satisfies ContentNavigationItem;
+  return {
+    title,
+    path: items[0]?.path || "/docs",
+    children: items,
+    ...(options.defaultOpen !== undefined && { defaultOpen: options.defaultOpen }),
+  } satisfies ContentNavigationItem;
 }
 
 function isPathExact(itemPath: string, currentPath: string) {
@@ -92,6 +97,7 @@ function buildSectionSidebarNavigation(section: DocsSection, framework: Framewor
       .map(([group, items]) => createNavigationGroup(
         group,
         items.map(page => toNavigationItem({ title: page.title, path: getDocsPath(section.id, framework, page.id), icon: page.icon }, currentPath)),
+        { defaultOpen: group === "Providers" },
       )),
   ];
 
