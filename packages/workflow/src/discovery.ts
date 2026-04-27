@@ -1,4 +1,4 @@
-import { relative, resolve } from "node:path"
+import { normalize, relative, resolve } from "pathe"
 
 import {
   listSourceFiles,
@@ -13,17 +13,18 @@ import type { DiscoveredWorkflowDefinition } from "./types.ts"
 const workflowSuffixPattern = /\.workflow\.(?:c|m)?[jt]s$/i
 
 function normalizeSuffixWorkflowName(rootDir: string, file: string) {
-  const relativePath = relative(rootDir, file).replace(/\\/g, "/")
+  const relativePath = relative(rootDir, file)
   const normalized = relativePath.replace(workflowSuffixPattern, "")
   return normalized.startsWith("src/") ? normalized.slice("src/".length) : normalized
 }
 
 function scanRoot(rootDir: string): DiscoveredWorkflowDefinition[] {
   const definitions = new Map<string, DiscoveredWorkflowDefinition>()
-  const serverWorkflowDir = resolve(rootDir, "server", "workflows")
+  const serverWorkflowDir = normalize(resolve(rootDir, "server", "workflows"))
 
   for (const file of listSourceFiles(rootDir)) {
-    if (file.startsWith(`${serverWorkflowDir}/`) || file === serverWorkflowDir) {
+    const normalizedFile = normalize(file)
+    if (normalizedFile.startsWith(`${serverWorkflowDir}/`) || normalizedFile === serverWorkflowDir) {
       const name = normalizePathDefinitionName(serverWorkflowDir, file)
       if (name) {
         registerDefinition(definitions, { handler: file, name, source: "nitro-server-workflows" }, "workflow")
