@@ -149,6 +149,44 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("validates Cloudflare workflow names before binding dispatch", async () => {
+    const create = vi.fn()
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: {
+        runtime: {
+          cloudflare: {
+            env: {
+              WORKFLOW_CUSTOM: { create, get: vi.fn() },
+            },
+          },
+        },
+      },
+    })
+
+    await expect(runWorkflow("welcom", {}, { id: "typo" })).rejects.toMatchObject({
+      code: "WORKFLOW_DEFINITION_NOT_FOUND",
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("returns unknown when persisted Vercel run state is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("upstash unavailable")
+    }))
+    process.env.KV_REST_API_URL = "https://example.upstash.io"
+    process.env.KV_REST_API_TOKEN = "token"
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    await expect(getWorkflowRun("welcome", "missing")).resolves.toMatchObject({
+      provider: "vercel",
+      status: "unknown",
+    })
+  })
+
   it("records synchronous workflow handler failures", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({

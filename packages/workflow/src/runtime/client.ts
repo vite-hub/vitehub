@@ -71,6 +71,7 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
   }
 
   const id = options.id || randomId("wrun")
+  const definition = await loadRequiredWorkflowDefinition(name)
   if (config.provider === "cloudflare") {
     const binding = resolveCloudflareBinding(config.binding, name)
     if (binding) {
@@ -90,7 +91,6 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
     }
   }
 
-  const definition = await loadRequiredWorkflowDefinition(name)
   const run = Promise.resolve()
     .then(() => definition.handler({
       id,

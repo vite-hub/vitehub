@@ -29,19 +29,24 @@ async function command<T>(body: unknown[]): Promise<T | undefined> {
     return undefined
   }
 
-  const response = await fetch(config.url, {
-    body: JSON.stringify(body),
-    headers: {
-      authorization: `Bearer ${config.token}`,
-      "content-type": "application/json",
-    },
-    method: "POST",
-  })
-  if (!response.ok) {
+  try {
+    const response = await fetch(config.url, {
+      body: JSON.stringify(body),
+      headers: {
+        authorization: `Bearer ${config.token}`,
+        "content-type": "application/json",
+      },
+      method: "POST",
+    })
+    if (!response.ok) {
+      return undefined
+    }
+    const payload = await response.json() as { result?: T }
+    return payload.result
+  }
+  catch {
     return undefined
   }
-  const payload = await response.json() as { result?: T }
-  return payload.result
 }
 
 export async function setVercelWorkflowRunState(name: string, id: string, run: PersistedWorkflowRun): Promise<void> {
