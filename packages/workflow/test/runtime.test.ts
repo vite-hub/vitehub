@@ -149,6 +149,28 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("records synchronous workflow handler failures", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: {
+          handler: () => {
+            throw new Error("invalid payload")
+          },
+        },
+      }),
+    })
+
+    const run = await runWorkflow("welcome", {}, { id: "sync-failure" })
+    expect(run).toMatchObject({ status: "queued" })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("welcome", "sync-failure")).resolves.toMatchObject({
+        status: "failed",
+      })
+    })
+  })
+
   it("uses waitUntil for deferred workflow dispatch", async () => {
     const waitUntil = vi.fn()
     setWorkflowRuntimeConfig({ provider: "vercel" })
@@ -194,6 +216,31 @@ describe("workflow runtime", () => {
     expect(create).toHaveBeenCalledWith({
       id: "welcome-1",
       params: { email: "ava@example.com" },
+    })
+  })
+
+  it("treats terminated Cloudflare workflow runs as failed", async () => {
+    const get = vi.fn(async (id: string) => ({
+      id,
+      status: vi.fn(async () => ({ status: "terminated" })),
+    }))
+
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    enterWorkflowRuntimeEvent({
+      req: {
+        runtime: {
+          cloudflare: {
+            env: {
+              [getCloudflareWorkflowBindingName("welcome")]: { create: vi.fn(), get },
+            },
+          },
+        },
+      },
+    })
+
+    await expect(getWorkflowRun("welcome", "terminated-1")).resolves.toMatchObject({
+      provider: "cloudflare",
+      status: "failed",
     })
   })
 })

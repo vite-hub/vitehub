@@ -180,8 +180,11 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
   const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir))
   const workerOutfile = resolve(outputRoot, "worker.mjs")
   const staticIndex = hasStaticIndex(clientDir)
-  const workflowDefinitions = artifacts.cloudflareWorkflowConfig ? artifacts.definitions : []
-  const workflows = createCloudflareWorkflowBindings(workflowDefinitions, artifacts.cloudflareWorkflowConfig)
+  const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
+    ? artifacts.cloudflareWorkflowConfig
+    : false
+  const workflowDefinitions = workflowConfig ? artifacts.definitions : []
+  const workflows = createCloudflareWorkflowBindings(workflowDefinitions, workflowConfig)
 
   await rm(outputRoot, { force: true, recursive: true })
   await mkdir(outputRoot, { recursive: true })

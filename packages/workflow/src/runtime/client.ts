@@ -45,7 +45,7 @@ const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
   queued: "queued",
   running: "running",
   success: "completed",
-  terminated: "completed",
+  terminated: "failed",
 }
 
 function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
@@ -91,12 +91,13 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
   }
 
   const definition = await loadRequiredWorkflowDefinition(name)
-  const run = Promise.resolve(definition.handler({
-    id,
-    name,
-    payload: payload as TPayload,
-    provider: config.provider,
-  }) as TResult | Promise<TResult>)
+  const run = Promise.resolve()
+    .then(() => definition.handler({
+      id,
+      name,
+      payload: payload as TPayload,
+      provider: config.provider,
+    }) as TResult | Promise<TResult>)
     .then(result => ({ result, status: "completed" as const }))
     .catch(error => ({ error, status: "failed" as const }))
   const runState = setWorkflowRun(name, id, run)

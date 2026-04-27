@@ -133,7 +133,9 @@ const workflowNitroModule: NitroModule = {
       return
     }
 
-    const workflows = createCloudflareWorkflowBindings(runtimeFiles.definitions, resolved)
+    const workflows = resolved.provider === "cloudflare"
+      ? createCloudflareWorkflowBindings(runtimeFiles.definitions, resolved)
+      : undefined
     if (workflows && nitro.options.preset?.includes("cloudflare")) {
       nitro.options.cloudflare ||= {}
       nitro.options.cloudflare.wrangler ||= {}
@@ -153,7 +155,7 @@ const workflowNitroModule: NitroModule = {
       runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro)
     })
     nitro.hooks.hook("compiled", async (currentNitro) => {
-      if (!currentNitro.options.preset?.includes("cloudflare")) {
+      if (resolved.provider !== "cloudflare" || !currentNitro.options.preset?.includes("cloudflare")) {
         return
       }
       const classExports = createCloudflareWorkflowClassExports(runtimeFiles.definitions)

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
@@ -94,5 +94,39 @@ describe("Vite workflow provider outputs", () => {
     })
     expect(serverEntryContents).toContain("globalThis.__vitehubRunNitroWorkflowDefinition")
     expect(serverEntryContents).toContain(`export class ${className} extends ViteHubWorkflowEntrypoint`)
+  }, 30_000)
+
+  it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
+    const viteConfig = join(rootDir, "vite.config.ts")
+    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replace("workflow: {},", "workflow: { provider: \"vercel\" },"))
+
+    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
+    })
+
+    const wrangler = JSON.parse(await readFile(join(rootDir, "dist", "vite", "wrangler.json"), "utf8"))
+    const cloudflareWorkerContents = await readFile(join(rootDir, "dist", "vite", "index.js"), "utf8")
+
+    expect(wrangler.workflows).toBeUndefined()
+    expect(cloudflareWorkerContents).not.toContain("extends WorkflowEntrypoint")
+  }, 30_000)
+
+  it("does not emit Nitro Cloudflare workflow artifacts for Vercel provider overrides", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-vercel-override-")
+    const nitroConfig = join(rootDir, "nitro.config.ts")
+    await writeFile(nitroConfig, (await readFile(nitroConfig, "utf8")).replace("workflow: workflowEnabled ? {} : false,", "workflow: workflowEnabled ? { provider: \"vercel\" } : false,"))
+
+    await execFileAsync("pnpm", ["exec", "nitro", "build", "--preset", "cloudflare-module"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_NITRO_MODE: "workflow" },
+    })
+
+    const wrangler = JSON.parse(await readFile(join(rootDir, ".output", "server", "wrangler.json"), "utf8"))
+    const serverEntryContents = await readFile(join(rootDir, ".output", "server", "index.mjs"), "utf8")
+
+    expect(wrangler.workflows).toBeUndefined()
+    expect(serverEntryContents).not.toContain("extends ViteHubWorkflowEntrypoint")
   }, 30_000)
 })

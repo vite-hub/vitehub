@@ -53,6 +53,9 @@ export function createCloudflareWorkflowBindings(
   if (!definitions.length) {
     return undefined
   }
+  if (definitions.length > 1 && options && (options.binding || options.name)) {
+    throw new TypeError("Cloudflare workflow binding and name overrides are only supported when one workflow is discovered.")
+  }
   return definitions.map(definition => ({
     binding: definitions.length === 1 && options ? options.binding || getCloudflareWorkflowBindingName(definition.name) : getCloudflareWorkflowBindingName(definition.name),
     class_name: getCloudflareWorkflowClassName(definition.name),

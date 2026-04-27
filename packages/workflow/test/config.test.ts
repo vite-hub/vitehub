@@ -48,4 +48,14 @@ describe("workflow config", () => {
       name: "workflow-custom",
     }])
   })
+
+  it("rejects Cloudflare binding overrides for multiple workflows", () => {
+    expect(() => createCloudflareWorkflowBindings(
+      [
+        { handler: "/tmp/welcome.ts", name: "welcome" },
+        { handler: "/tmp/receipt.ts", name: "receipt" },
+      ],
+      { binding: "WORKFLOW_CUSTOM" },
+    )).toThrow(/only supported when one workflow is discovered/)
+  })
 })
