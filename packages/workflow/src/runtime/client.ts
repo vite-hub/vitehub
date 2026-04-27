@@ -7,6 +7,7 @@ import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
 import { getWorkflowRunState, getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRun } from "./state.ts"
+import { getVercelWorkflowRunState, setVercelWorkflowRunState } from "./vercel-state.ts"
 
 import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDeferOptions, WorkflowProviderOptions, WorkflowRun, WorkflowRunStatus, WorkflowStartOptions } from "../types.ts"
 
@@ -99,10 +100,17 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
     .then(result => ({ result, status: "completed" as const }))
     .catch(error => ({ error, status: "failed" as const }))
   const runState = setWorkflowRun(name, id, run)
+  const persistStarted = config.provider === "vercel"
+    ? setVercelWorkflowRunState(name, id, { status: "running" }).catch(() => {})
+    : Promise.resolve()
+  const persistFinished = config.provider === "vercel"
+    ? runState.promise.then(result => setVercelWorkflowRunState(name, id, result)).catch(() => {})
+    : Promise.resolve()
   const waitUntil = resolveWaitUntil(getWorkflowRuntimeEvent())
   if (waitUntil) {
-    waitUntil(runState.promise)
+    waitUntil(Promise.all([runState.promise, persistFinished]))
   }
+  await persistStarted
 
   return {
     id,
@@ -151,6 +159,19 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
       provider: config.provider,
       result: run.result as TResult,
       status: run.status,
+    }
+  }
+
+  if (config.provider === "vercel") {
+    const persisted = await getVercelWorkflowRunState(name, id)
+    if (persisted) {
+      return {
+        id,
+        metadata: persisted.error,
+        provider: "vercel",
+        result: persisted.result as TResult,
+        status: persisted.status,
+      }
     }
   }
 

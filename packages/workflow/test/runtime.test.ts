@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { deferWorkflow, getWorkflowRun, runWorkflow } from "../src/runtime/client.ts"
@@ -6,7 +6,33 @@ import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConf
 
 beforeEach(() => {
   resetWorkflowRuntime()
+  delete process.env.KV_REST_API_URL
+  delete process.env.KV_REST_API_TOKEN
 })
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+function mockUpstash() {
+  const store = new Map<string, string>()
+  const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    const command = JSON.parse(String(init?.body || "[]")) as string[]
+    const [operation, key, value] = command
+    if (operation === "SET") {
+      store.set(key, value)
+      return Response.json({ result: "OK" })
+    }
+    if (operation === "GET") {
+      return Response.json({ result: store.get(key) || null })
+    }
+    return Response.json({ result: null })
+  })
+  vi.stubGlobal("fetch", fetch)
+  process.env.KV_REST_API_URL = "https://example.upstash.io"
+  process.env.KV_REST_API_TOKEN = "token"
+  return { fetch, store }
+}
 
 describe("workflow runtime", () => {
   it("runs registered definitions through the Vercel provider", async () => {
@@ -81,6 +107,35 @@ describe("workflow runtime", () => {
 
     await expect(getWorkflowRun("one", "shared")).resolves.toMatchObject({ result: "one" })
     await expect(getWorkflowRun("two", "shared")).resolves.toMatchObject({ result: "two" })
+  })
+
+  it("reads persisted Vercel run state when local memory misses", async () => {
+    mockUpstash()
+    let resolveRun: ((value: { ok: boolean }) => void) | undefined
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: {
+          handler: () => new Promise(resolve => {
+            resolveRun = resolve
+          }),
+        },
+      }),
+    })
+
+    await runWorkflow("welcome", {}, { id: "persisted" })
+    resetWorkflowRuntime()
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    await expect(getWorkflowRun("welcome", "persisted")).resolves.toMatchObject({ status: "running" })
+    resolveRun?.({ ok: true })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("welcome", "persisted")).resolves.toMatchObject({
+        result: { ok: true },
+        status: "completed",
+      })
+    })
   })
 
   it("rejects invalid workflow module shapes as missing definitions", async () => {
