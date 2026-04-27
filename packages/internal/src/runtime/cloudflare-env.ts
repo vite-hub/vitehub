@@ -40,13 +40,64 @@ export function getActiveCloudflareBinding<T>(name: string): T | undefined {
   return getActiveCloudflareEnv()?.[name] as T | undefined
 }
 
+interface CloudflareEnvCarrier {
+  context?: { cloudflare?: { env?: CloudflareWorkerEnv }, _platform?: { cloudflare?: { env?: CloudflareWorkerEnv } } }
+  env?: CloudflareWorkerEnv
+  req?: { runtime?: { cloudflare?: { env?: CloudflareWorkerEnv } } }
+}
+
+export function getCloudflareEnv(event: unknown): CloudflareWorkerEnv | undefined {
+  const target = event as CloudflareEnvCarrier | undefined
+  return target?.env
+    || target?.context?.cloudflare?.env
+    || target?.context?._platform?.cloudflare?.env
+    || target?.req?.runtime?.cloudflare?.env
+    || getActiveCloudflareEnv()
+}
+
+type WaitUntilFn = (promise: Promise<unknown>) => void
+
+interface WaitUntilCarrier {
+  waitUntil?: WaitUntilFn
+  context?: {
+    waitUntil?: WaitUntilFn
+    cloudflare?: { context?: { waitUntil?: WaitUntilFn }, waitUntil?: WaitUntilFn }
+    _platform?: { cloudflare?: { context?: { waitUntil?: WaitUntilFn }, waitUntil?: WaitUntilFn } }
+  }
+  req?: {
+    waitUntil?: WaitUntilFn
+    runtime?: { cloudflare?: { context?: { waitUntil?: WaitUntilFn }, waitUntil?: WaitUntilFn } }
+  }
+}
+
+export function resolveWaitUntil(event: unknown): WaitUntilFn | undefined {
+  const target = event as WaitUntilCarrier | undefined
+  const owners = [
+    target,
+    target?.context,
+    target?.context?.cloudflare,
+    target?.context?.cloudflare?.context,
+    target?.context?._platform?.cloudflare,
+    target?.context?._platform?.cloudflare?.context,
+    target?.req,
+    target?.req?.runtime?.cloudflare,
+    target?.req?.runtime?.cloudflare?.context,
+  ]
+  for (const owner of owners) {
+    if (typeof owner?.waitUntil === "function") {
+      return owner.waitUntil.bind(owner)
+    }
+  }
+  return undefined
+}
+
 export interface CloudflareRuntimeEvent {
   context: {
     cloudflare: { context: CloudflareWorkerExecutionContext | undefined, env: CloudflareWorkerEnv }
-    waitUntil?: (promise: Promise<unknown>) => void
+    waitUntil?: WaitUntilFn
   }
   env: CloudflareWorkerEnv
-  waitUntil?: (promise: Promise<unknown>) => void
+  waitUntil?: WaitUntilFn
 }
 
 export function createCloudflareRuntimeEvent(

@@ -16,6 +16,22 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
+      - name: Build vitehub packages
+        run: pnpm -r --filter '@vitehub/blob' --filter '@vitehub/kv' --filter '@vitehub/queue' --filter '@vitehub/sandbox' --filter '@vitehub/workflow' build
+
+      - name: Upload package builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitehub-package-dist
+          path: |
+            packages/blob/dist
+            packages/kv/dist
+            packages/queue/dist
+            packages/sandbox/dist
+            packages/workflow/dist
+          retention-days: 1
+          if-no-files-found: error
+
       - name: Ensure Cloudflare Queues
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -50,10 +66,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      - run: pnpm --filter @vitehub/blob build
-      - run: pnpm --filter @vitehub/kv build
-      - run: pnpm --filter @vitehub/queue build
-      - run: pnpm --filter @vitehub/sandbox build
+      - name: Download package builds
+        uses: actions/download-artifact@v4
+        with:
+          name: vitehub-package-dist
+          path: packages
 
       - name: Prepare Vercel project
         id: prepare_vercel
@@ -104,6 +121,7 @@ jobs:
         if: matrix.provider == 'cloudflare'
         env:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          VITEHUB_NITRO_MODE: ${{ matrix.framework == 'vite' && 'workflow' || '' }}
         run: pnpm --dir playground/${{ matrix.framework }} exec nitro build --preset cloudflare-module
 
       - name: Build (vercel × ${{ matrix.framework }})
@@ -112,6 +130,7 @@ jobs:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VITEHUB_NITRO_MODE: ${{ matrix.framework == 'vite' && 'workflow' || '' }}
         run: |
           APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm exec nitro build --preset vercel
@@ -165,11 +184,17 @@ jobs:
       - name: Sandbox Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
         run: pnpm --dir packages/sandbox test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "${{ steps.url.outputs.url }}"
 
+      - name: Workflow Live E2E (${{ matrix.provider }} × vite)
+        if: matrix.framework == 'vite'
+        timeout-minutes: 5
+        run: node packages/workflow/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
+
       - name: Prepare Vercel Blob project
         id: prepare_vercel_blob
         if: matrix.framework == 'vite' && matrix.provider == 'vercel'
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           APP_DIR="playground/vite"
@@ -178,6 +203,10 @@ jobs:
           if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
             echo "GitHub Production secret BLOB_READ_WRITE_TOKEN must be set." >&2
             exit 1
+          fi
+
+          if [ -n "$VERCEL_PROTECTION_BYPASS" ]; then
+            echo "::add-mask::$VERCEL_PROTECTION_BYPASS"
           fi
 
           npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
@@ -194,36 +223,15 @@ jobs:
           npx vercel env rm BLOB_READ_WRITE_TOKEN production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
           printf '%s' "$BLOB_READ_WRITE_TOKEN" | npx vercel env add BLOB_READ_WRITE_TOKEN production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
-          BYPASS_SECRET=$(openssl rand -hex 16)
-          echo "::add-mask::$BYPASS_SECRET"
-          VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" BYPASS_SECRET="$BYPASS_SECRET" node <<'EOF'
-          const projectId = process.env.VERCEL_PROJECT_ID
-          const scope = process.env.VERCEL_ORG_ID
-          const token = process.env.VERCEL_TOKEN
-          const secret = process.env.BYPASS_SECRET
-          const url = new URL(`https://api.vercel.com/v1/projects/${projectId}/protection-bypass`)
-          if (scope?.startsWith('team_'))
-            url.searchParams.set('teamId', scope)
-          else if (scope)
-            url.searchParams.set('slug', scope)
-
-          const response = await fetch(url, {
-            body: JSON.stringify({ generate: { secret } }),
-            headers: {
-              authorization: `Bearer ${token}`,
-              'content-type': 'application/json',
-            },
-            method: 'PATCH',
-          })
-          if (!response.ok) {
-            throw new Error(`Failed to configure Vercel protection bypass: ${response.status} ${await response.text()}`)
-          }
-          EOF
-
           echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
           echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
           echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
-          echo "protection_bypass=$BYPASS_SECRET" >> "$GITHUB_OUTPUT"
+          if [ -n "$VERCEL_PROTECTION_BYPASS" ]; then
+            echo "protection_bypass=$VERCEL_PROTECTION_BYPASS" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "GitHub Production secret VERCEL_PROTECTION_BYPASS must be set on main." >&2
+            exit 1
+          fi
 
       - name: Build Blob Vite (cloudflare)
         if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
@@ -234,7 +242,7 @@ jobs:
         run: pnpm --dir playground/vite build
 
       - name: Build Blob Vite (vercel)
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
+        if: matrix.framework == 'vite' && matrix.provider == 'vercel' && steps.prepare_vercel_blob.outputs.protection_bypass != ''
         env:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel_blob.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel_blob.outputs.project_id }}
@@ -257,7 +265,7 @@ jobs:
 
       - name: Deploy Blob Vercel
         id: deploy_blob_vercel
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
+        if: matrix.framework == 'vite' && matrix.provider == 'vercel' && steps.prepare_vercel_blob.outputs.protection_bypass != ''
         env:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel_blob.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel_blob.outputs.project_id }}
@@ -273,7 +281,7 @@ jobs:
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Blob Live E2E (vite × ${{ matrix.provider }})
-        if: matrix.framework == 'vite'
+        if: matrix.framework == 'vite' && (matrix.provider != 'vercel' || steps.prepare_vercel_blob.outputs.protection_bypass != '')
         env:
           VERCEL_PROTECTION_BYPASS: ${{ steps.prepare_vercel_blob.outputs.protection_bypass }}
         run: |

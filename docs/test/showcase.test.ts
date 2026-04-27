@@ -135,7 +135,7 @@ describe("showcase examples", () => {
     expect(getShowcasePhasePaths(queue!, "vite", "build")).toEqual({
       configure: "vite.config.ts",
       define: "src/welcome-email.queue.ts",
-      run: "src/main.ts",
+      run: "src/server.ts",
     });
     expect(getShowcasePhasePaths(queue!, "nitro", "build")).toEqual({
       configure: "nitro.config.ts",
@@ -178,12 +178,11 @@ describe("showcase examples", () => {
     const queue = getShowcaseExamples().find(example => example.docsPath === "queue");
     expect(queue).toBeTruthy();
 
-    expect(getShowcaseFiles(queue!, "vite", "build").slice(0, 5).map(file => file.path)).toEqual([
+    expect(getShowcaseFiles(queue!, "vite", "build").slice(0, 4).map(file => file.path)).toEqual([
       "vite.config.ts",
       "src/welcome-email.queue.ts",
-      "src/main.ts",
       "src/server.ts",
-      "index.html",
+      "package.json",
     ]);
 
     expect(getShowcaseFiles(queue!, "nitro", "build").slice(0, 4).map(file => file.path)).toEqual([

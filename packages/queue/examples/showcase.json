@@ -27,11 +27,9 @@
           "phases": {
             "configure": "vite.config.ts",
             "define": "src/welcome-email.queue.ts",
-            "run": "src/main.ts"
+            "run": "src/server.ts"
           },
           "supplementalFiles": [
-            "src/server.ts",
-            "index.html",
             "package.json"
           ]
         },
@@ -39,11 +37,9 @@
           "phases": {
             "configure": "vite.config.ts",
             "define": "src/welcome-email.queue.ts",
-            "run": "src/main.ts"
+            "run": "src/server.ts"
           },
           "supplementalFiles": [
-            "src/server.ts",
-            "index.html",
             "package.json"
           ]
         }

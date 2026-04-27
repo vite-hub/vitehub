@@ -1,4 +1,5 @@
-import { existsSync, readdirSync } from "node:fs"
+import type { Dirent } from "node:fs"
+import { readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 
@@ -12,13 +13,21 @@ export interface DiscoveredDefinition {
   source?: string
 }
 
-export function listMatchingFiles(root: string, predicate: (name: string) => boolean): string[] {
-  if (!existsSync(root)) {
-    return []
+function readDirEntries(root: string): Dirent[] {
+  try {
+    return readdirSync(root, { withFileTypes: true })
   }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return []
+    }
+    throw error
+  }
+}
 
+export function listMatchingFiles(root: string, predicate: (name: string) => boolean): string[] {
   const files: string[] = []
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
+  for (const entry of readDirEntries(root)) {
     if (entry.name.startsWith(".")) {
       continue
     }
