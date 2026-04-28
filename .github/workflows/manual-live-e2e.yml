@@ -341,12 +341,12 @@ jobs:
       - name: Build DB Vite (vercel)
         if: matrix.framework == 'vite' && matrix.provider == 'vercel'
         env:
-          VERCEL_ORG_ID: ${{ steps.prepare_vercel_db.outputs.org_id }}
-          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel_db.outputs.project_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          VITEHUB_HOSTING: vercel
+          VITEHUB_VITE_MODE: db
         run: |
-          APP_DIR="${{ steps.prepare_vercel_db.outputs.app_dir }}"
-          npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- sh -c 'VITEHUB_VITE_MODE=db VITEHUB_HOSTING=vercel pnpm build'
+          pnpm --dir playground/vite build
 
       - name: Deploy DB Cloudflare
         id: deploy_db_cloudflare

@@ -9,15 +9,15 @@ function isRemoteUrl(url: string) {
 }
 
 export function createHostedDrizzleDb<TSchema extends Record<string, unknown>>(dbConfig: ResolvedDrizzleDBConfig, schema: TSchema) {
-  if (!isRemoteUrl(dbConfig.connection.url)) {
-    throw new Error("[vitehub] Hosted DB outputs require a remote libSQL URL. Set `db.connection.url` to a hosted libSQL endpoint before deploying to Cloudflare or Vercel.")
-  }
-
   let dbInstance: LibSQLDatabase<TSchema> | undefined
 
   function getDb() {
     if (dbInstance) {
       return dbInstance
+    }
+
+    if (!isRemoteUrl(dbConfig.connection.url)) {
+      throw new Error("[vitehub] Hosted DB outputs require a remote libSQL URL. Set `db.connection.url` to a hosted libSQL endpoint before deploying to Cloudflare or Vercel.")
     }
 
     dbInstance = drizzle({

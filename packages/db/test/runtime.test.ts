@@ -66,3 +66,23 @@ describe("drizzle runtime", () => {
     expect(rows).toEqual([{ id: 1, title: "runtime note" }])
   })
 })
+
+describe("hosted drizzle runtime", () => {
+  it("defers hosted URL validation until the database is used", async () => {
+    const { createHostedDrizzleDb } = await import("../src/runtime/hosted.ts")
+
+    const db = createHostedDrizzleDb({
+      connection: {
+        url: "file:.data/db.sqlite",
+      },
+      dialect: "sqlite",
+      drizzle: {
+        migrationsDirs: [],
+        schemaPaths: [],
+      },
+      orm: "drizzle",
+    }, schema)
+
+    expect(() => db.run).toThrow("Hosted DB outputs require a remote libSQL URL")
+  })
+})
