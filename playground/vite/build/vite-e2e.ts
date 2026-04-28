@@ -219,12 +219,32 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
   ].join("\n")
 }
 
+function renderQueueRuntimeModule(file: string) {
+  return [
+    `export { defineQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/definition.ts")))}`,
+    `export { createQueueMessageId } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/enqueue.ts")))}`,
+    `export { QueueError } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/errors.ts")))}`,
+    `export { createQueueClient, deferQueue, getQueue, runQueue } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/client.ts")))}`,
+    "",
+  ].join("\n")
+}
+
 function renderSandboxRuntimeModule(file: string) {
   return [
     `export { defineSandbox } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxPackageDir, "runtime/registry")))}`,
     `export { runSandbox } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxPackageDir, "runtime/public")))}`,
     `export { readValidatedPayload, validatePayload } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxPackageDir, "runtime/validation")))}`,
     `export { readRequestPayload } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxPackageDir, "internal/shared/request-payload")))}`,
+    "",
+  ].join("\n")
+}
+
+function renderWorkflowRuntimeModule(file: string) {
+  return [
+    `export { defineWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/definition.ts")))}`,
+    `export { WorkflowError } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/errors.ts")))}`,
+    `export { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/client.ts")))}`,
+    `export { readRequestPayload, readValidatedPayload, validatePayload } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/payload.ts")))}`,
     "",
   ].join("\n")
 }
@@ -310,10 +330,22 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     alias["@vitehub/kv"] = kvRuntimeFile
   }
 
+  if (typeof options.queue !== "undefined") {
+    const queueRuntimeFile = resolve(generatedDir, "queue-runtime.mjs")
+    await writeFile(queueRuntimeFile, renderQueueRuntimeModule(queueRuntimeFile), "utf8")
+    alias["@vitehub/queue"] = queueRuntimeFile
+  }
+
   if (typeof options.sandbox !== "undefined") {
     const sandboxRuntimeFile = resolve(generatedDir, "sandbox-runtime.mjs")
     await writeFile(sandboxRuntimeFile, renderSandboxRuntimeModule(sandboxRuntimeFile), "utf8")
     alias["@vitehub/sandbox"] = sandboxRuntimeFile
+  }
+
+  if (typeof options.workflow !== "undefined") {
+    const workflowRuntimeFile = resolve(generatedDir, "workflow-runtime.mjs")
+    await writeFile(workflowRuntimeFile, renderWorkflowRuntimeModule(workflowRuntimeFile), "utf8")
+    alias["@vitehub/workflow"] = workflowRuntimeFile
   }
 
   let sandboxConfig: false | AgentSandboxConfig | undefined
@@ -342,6 +374,10 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     alias["#vitehub-sandbox-registry"] = sandboxRegistryFile
     alias["virtual:vitehub-sandbox-provider-loader"] = sandboxProviderLoaderFile
     alias["#vitehub-sandbox-provider-loader"] = sandboxProviderLoaderFile
+
+    if (sandboxProvider === "cloudflare") {
+      alias["@cloudflare/sandbox"] = resolvePackageDependency(sandboxPackageDir, "@cloudflare/sandbox")
+    }
   }
 
   return {
@@ -365,7 +401,8 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `import { resolveAppFetch } from ${JSON.stringify(createImportPath(file, resolveApp))}`,
     `import { clearActiveCloudflareEnv, createCloudflareRuntimeEvent, runWithActiveCloudflareEnv, setActiveCloudflareEnv } from ${JSON.stringify(createImportPath(file, cloudflareEnv))}`,
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
-    `import { createCloudflareQueueBatchHandler, getCloudflareQueueDefinitionName } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/index.ts")))}`,
+    `import { createCloudflareQueueBatchHandler } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/providers/cloudflare.ts")))}`,
+    `import { getCloudflareQueueDefinitionName } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/integrations/cloudflare.ts")))}`,
     `import { createQueueJob } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/cloudflare-shared.ts")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
     `import { runCloudflareWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/cloudflare-runner.ts")))}`,
@@ -573,13 +610,12 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
     alias: artifacts.alias,
     conditions: ["workerd", "worker", "browser", "default"],
     external: [
-      "@cloudflare/sandbox",
       "@vercel/blob",
-      "@vercel/functions",
       "@vercel/queue",
       "@vercel/sandbox",
       "cloudflare:workers",
       "node:async_hooks",
+      "node:path/posix",
       "workflow",
       "workflow/api",
       "workflow/runtime",

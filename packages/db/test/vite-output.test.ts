@@ -12,7 +12,11 @@ const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
+  const workspacePackagesDir = resolve(playgroundDir, "../../packages")
   await mkdir(baseDir, { recursive: true })
+  if (!existsSync(join(baseDir, "packages"))) {
+    await symlink(workspacePackagesDir, join(baseDir, "packages"), "dir")
+  }
   const rootDir = await mkdtemp(join(baseDir, prefix))
   tempDirs.push(rootDir)
   return rootDir
@@ -25,6 +29,7 @@ async function createPlaygroundCopy(prefix: string) {
 
   await mkdir(rootDir, { recursive: true })
   await cp(join(playgroundDir, "package.json"), join(rootDir, "package.json"))
+  await cp(join(playgroundDir, "build"), join(rootDir, "build"), { recursive: true })
   await cp(join(playgroundDir, "vite.config.ts"), join(rootDir, "vite.config.ts"))
   await cp(join(playgroundDir, "src"), join(rootDir, "src"), { recursive: true })
   await symlink(nodeModules, join(rootDir, "node_modules"), "dir")
