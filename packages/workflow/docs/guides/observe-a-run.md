@@ -2,7 +2,8 @@
 title: Observe a workflow run
 description: Read normalized workflow status and result metadata from a route.
 navigation.title: Observe a Run
-navigation.order: 1
+navigation.group: Guides
+navigation.order: 31
 icon: i-lucide-search-check
 frameworks: [vite, nitro]
 ---
@@ -15,6 +16,36 @@ const run = await getWorkflowRun('welcome', id)
 
 ## Add a status route
 
+Every status route follows the same shape:
+
+1. Read the workflow run id from the request path.
+2. Return `getWorkflowRun(name, id)`.
+3. Map missing ids to the framework's normal error response.
+
+::fw{id="vite:dev vite:build"}
+```ts [src/server.ts]
+import { createError, H3 } from 'h3'
+import { getWorkflowRun } from '@vitehub/workflow'
+
+const app = new H3()
+
+app.get('/api/workflow/:id', async (event) => {
+  const id = event.context.params?.id
+  if (!id) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Missing workflow run id.',
+    })
+  }
+
+  return await getWorkflowRun('welcome', id)
+})
+
+export default app
+```
+::
+
+::fw{id="nitro:dev nitro:build"}
 ```ts [server/api/workflow/[id].get.ts]
 import { getWorkflowRun } from '@vitehub/workflow'
 
@@ -30,6 +61,7 @@ export default defineEventHandler(async (event) => {
   return await getWorkflowRun('welcome', id)
 })
 ```
+::
 
 ## Handle status values
 
