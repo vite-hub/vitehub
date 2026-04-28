@@ -5,6 +5,7 @@ import type { NitroConfig } from "nitro/types"
 import type { WorkflowModuleOptions } from "../types.ts"
 
 const NITRO_MODULE_ID = "@vitehub/workflow/nitro"
+type WorkflowNuxtModuleOptions = Exclude<WorkflowModuleOptions, false>
 
 function installWorkflowNitroModule(nitro: NitroConfig, workflow: WorkflowModuleOptions | undefined) {
   nitro.modules ||= []
@@ -16,7 +17,7 @@ function installWorkflowNitroModule(nitro: NitroConfig, workflow: WorkflowModule
   }
 }
 
-const workflowNuxtModule: NuxtModule<WorkflowModuleOptions, WorkflowModuleOptions, false> = defineNuxtModule<WorkflowModuleOptions>({
+const workflowNuxtModule: NuxtModule<WorkflowNuxtModuleOptions, WorkflowNuxtModuleOptions, false> = defineNuxtModule<WorkflowNuxtModuleOptions>({
   meta: { configKey: "workflow", name: "@vitehub/workflow/nuxt" },
   setup(inlineOptions, nuxt) {
     const topLevel = nuxt.options.workflow
