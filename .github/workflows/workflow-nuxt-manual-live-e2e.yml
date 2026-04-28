@@ -45,7 +45,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: vitehub-workflow-dist
-          path: packages/workflow
+          path: packages/workflow/dist
 
       - name: Prepare Vercel project
         id: prepare_vercel
