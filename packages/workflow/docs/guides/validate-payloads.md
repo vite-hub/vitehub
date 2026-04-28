@@ -2,7 +2,8 @@
 title: Validate workflow payloads
 description: Parse and validate request payloads before starting a workflow.
 navigation.title: Validate Payloads
-navigation.order: 2
+navigation.group: Guides
+navigation.order: 32
 icon: i-lucide-badge-check
 frameworks: [vite, nitro]
 ---
@@ -48,7 +49,7 @@ export default {
 
 ## Validate inside framework routes
 
-Framework helpers are still a good fit when they already expose validated body parsing:
+Framework helpers are still a good fit when they already expose validated body parsing.
 
 ```ts
 import { runWorkflow, validatePayload } from '@vitehub/workflow'
@@ -64,5 +65,52 @@ export default defineEventHandler(async (event) => {
   }
 })
 ```
+
+## Full route examples
+
+::fw{id="vite:dev vite:build"}
+```ts [src/server.ts]
+import { H3, readBody } from 'h3'
+import { runWorkflow, validatePayload } from '@vitehub/workflow'
+import { z } from 'zod'
+
+const welcomePayload = z.object({
+  email: z.string().email(),
+  marker: z.string().optional(),
+})
+
+const app = new H3()
+
+app.post('/api/welcome', async (event) => {
+  const rawPayload = await readBody(event)
+  const payload = await validatePayload(rawPayload, welcomePayload)
+  const run = await runWorkflow('welcome', payload)
+
+  return { ok: true, run }
+})
+
+export default app
+```
+::
+
+::fw{id="nitro:dev nitro:build"}
+```ts [server/api/welcome.post.ts]
+import { runWorkflow, validatePayload } from '@vitehub/workflow'
+import { z } from 'zod'
+
+const welcomePayload = z.object({
+  email: z.string().email(),
+  marker: z.string().optional(),
+})
+
+export default defineEventHandler(async (event) => {
+  const rawPayload = await readBody(event)
+  const payload = await validatePayload(rawPayload, welcomePayload)
+  const run = await runWorkflow('welcome', payload)
+
+  return { ok: true, run }
+})
+```
+::
 
 The validation helpers throw the parser or schema error directly so the route can map it to the framework's normal error response.
