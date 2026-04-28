@@ -48,7 +48,12 @@ export default defineConfig(async () => {
     const { hubDb } = await import("@vitehub/db/vite")
     return {
       ...baseConfig,
-      db: {},
+      db: {
+        connection: {
+          authToken: process.env.TURSO_AUTH_TOKEN,
+          url: process.env.TURSO_DATABASE_URL,
+        },
+      },
       plugins: [hubDb()],
     }
   }

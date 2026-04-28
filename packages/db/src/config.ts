@@ -91,6 +91,10 @@ export function normalizeDBOptions(options?: DBModuleOptions): ResolvedDrizzleDB
   if (typeof url !== "undefined" && (typeof url !== "string" || url.trim().length === 0)) {
     throw new TypeError("`db.connection.url` must be a non-empty string when provided.")
   }
+  const authToken = input.connection?.authToken
+  if (typeof authToken !== "undefined" && (typeof authToken !== "string" || authToken.trim().length === 0)) {
+    throw new TypeError("`db.connection.authToken` must be a non-empty string when provided.")
+  }
 
   const casing = input.drizzle?.casing
   if (typeof casing !== "undefined" && casing !== "snake_case" && casing !== "camelCase") {
@@ -99,6 +103,7 @@ export function normalizeDBOptions(options?: DBModuleOptions): ResolvedDrizzleDB
 
   return {
     connection: {
+      authToken: authToken?.trim() || undefined,
       url: url?.trim() || "file:.data/db/sqlite.db",
     },
     dialect: "sqlite",

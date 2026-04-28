@@ -247,7 +247,16 @@ importers:
       '@libsql/client':
         specifier: 'catalog:'
         version: 0.15.15
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.28.0
+      h3:
+        specifier: 'catalog:'
+        version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
     devDependencies:
+      '@vitehub/internal':
+        specifier: workspace:*
+        version: link:../internal
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)

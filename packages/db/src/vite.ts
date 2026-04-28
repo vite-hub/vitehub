@@ -1,9 +1,12 @@
+import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
+
+import { dbPackageName, generateProviderOutputs } from "./internal/vite-build.ts"
 import {
   resolveDBViteConfig,
 } from "./config.ts"
 
 import type { DBModuleOptions, ResolvedDBViteConfig } from "./types.ts"
-import type { Plugin } from "vite"
+import type { Plugin, ResolvedConfig } from "vite"
 
 export const DB_VIRTUAL_CONFIG_ID = "virtual:@vitehub/db/config"
 export const DB_VIRTUAL_SCHEMA_ID = "virtual:@vitehub/db/schema"
@@ -17,6 +20,8 @@ export interface DBVitePluginAPI {
 }
 
 export type DBVitePlugin = Plugin & { api: DBVitePluginAPI }
+
+const mergeNoExternal = createNoExternalMerger(dbPackageName)
 
 function serializeConfig(config: ResolvedDBViteConfig | undefined) {
   return `export default ${JSON.stringify(config)};\n`
@@ -47,6 +52,7 @@ function serializeSchemaModule(config: ResolvedDBViteConfig | undefined) {
 }
 
 export function hubDb(options?: DBModuleOptions): DBVitePlugin {
+  let resolved: ResolvedConfig | undefined
   let runtimeConfig = resolveDBViteConfig(options)
   const getConfig = () => runtimeConfig
 
@@ -54,7 +60,17 @@ export function hubDb(options?: DBModuleOptions): DBVitePlugin {
     name: DB_VITE_PLUGIN_NAME,
     api: { getConfig },
     configResolved(config) {
+      resolved = config
       runtimeConfig = resolveDBViteConfig(config.db ?? options, config.root)
+    },
+    configEnvironment(name, config) {
+      if (!isServerEnvironment(name, config)) {
+        return
+      }
+
+      return {
+        resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
+      }
     },
     handleHotUpdate(context) {
       if (!runtimeConfig) {
@@ -91,6 +107,17 @@ export function hubDb(options?: DBModuleOptions): DBVitePlugin {
       if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) {
         return serializeSchemaModule(getConfig())
       }
+    },
+    async closeBundle() {
+      if (!resolved || !runtimeConfig || resolved.command === "serve") {
+        return
+      }
+
+      await generateProviderOutputs({
+        clientOutDir: resolved.build.outDir,
+        rootDir: resolved.root,
+        runtimeConfig,
+      })
     },
   }
 }

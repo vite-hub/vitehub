@@ -17,6 +17,10 @@ function resolveSqliteUrl(url: string) {
     return url
   }
 
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url) || /^libsql:/i.test(url)) {
+    return url
+  }
+
   if (url.startsWith("file:")) {
     const path = url.slice("file:".length)
     mkdirSync(dirname(path), { recursive: true })
@@ -40,6 +44,7 @@ function getDb() {
   dbInstance = drizzle({
     casing: dbConfig.drizzle.casing,
     client: createClient({
+      authToken: dbConfig.connection.authToken,
       url: resolveSqliteUrl(dbConfig.connection.url),
     }),
     schema,

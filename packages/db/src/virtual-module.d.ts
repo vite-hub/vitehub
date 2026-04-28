@@ -2,6 +2,7 @@ declare module "virtual:@vitehub/db/config" {
   const config: {
     db: {
       connection: {
+        authToken?: string
         url: string
       }
       drizzle: {

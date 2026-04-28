@@ -6,11 +6,17 @@ export default defineConfig({
     { from: "src/drizzle-subpath.d.ts", rename: "drizzle-subpath.d.ts", to: "dist" },
     { from: "src/virtual-module.d.ts", rename: "virtual-module.d.ts", to: "dist" },
   ],
+  deps: {
+    alwaysBundle: [/^@vitehub\/internal/],
+  },
   dts: true,
   entry: [
     "src/index.ts",
     "src/drizzle.ts",
     "src/vite.ts",
+    "src/runtime/cloudflare-vite.ts",
+    "src/runtime/hosted.ts",
+    "src/runtime/vercel-vite.ts",
   ],
   exports: {
     inlinedDependencies: false,

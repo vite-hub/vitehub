@@ -22,7 +22,7 @@ afterEach(async () => {
 describe("normalizeDBOptions", () => {
   it("uses the local sqlite default when db config is omitted", () => {
     expect(normalizeDBOptions()).toEqual({
-      connection: { url: "file:.data/db/sqlite.db" },
+      connection: { authToken: undefined, url: "file:.data/db/sqlite.db" },
       dialect: "sqlite",
       drizzle: {
         casing: undefined,
@@ -35,6 +35,10 @@ describe("normalizeDBOptions", () => {
 
   it("rejects unsupported orm values", () => {
     expect(() => normalizeDBOptions({ orm: "prisma" as never })).toThrow("`db.orm` must be `drizzle`.")
+  })
+
+  it("rejects empty auth tokens", () => {
+    expect(() => normalizeDBOptions({ connection: { authToken: " " } })).toThrow("`db.connection.authToken`")
   })
 
   it("rejects unsupported dialect values", () => {

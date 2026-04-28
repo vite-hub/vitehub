@@ -4,6 +4,7 @@ export interface DrizzleDBConfig {
   orm?: "drizzle"
   dialect?: "sqlite"
   connection?: {
+    authToken?: string
     url?: string
   }
   drizzle?: {
@@ -19,6 +20,7 @@ export interface ResolvedDrizzleDBConfig {
   orm: "drizzle"
   dialect: "sqlite"
   connection: {
+    authToken?: string
     url: string
   }
   drizzle: {
