@@ -29,6 +29,8 @@ dynamicallyLoaded = [
   "packages/sandbox/examples/**/src/**/*.sandbox.ts",
   "playground/nitro/nitro.config.ts",
   "playground/nitro/server/**",
+  "playground/nuxt/nuxt.config.ts",
+  "playground/nuxt/server/**",
   "playground/_shared/api/tests/**",
   "playground/vite/nitro.config.ts",
   "playground/vite/server/**",
