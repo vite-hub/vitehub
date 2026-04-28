@@ -1,5 +1,5 @@
-import { createClient } from "@libsql/client"
-import { drizzle } from "drizzle-orm/libsql"
+import { createClient } from "@libsql/client/http"
+import { drizzle } from "drizzle-orm/libsql/http"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 
 import type { ResolvedDrizzleDBConfig } from "../types.ts"
