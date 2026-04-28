@@ -1,3 +1,4 @@
+import { getViteMode, VITEHUB_MODES } from "@vitehub/internal/build/mode"
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
 import { dbPackageName, generateProviderOutputs } from "./internal/vite-build.ts"
@@ -109,7 +110,7 @@ export function hubDb(options?: DBModuleOptions): DBVitePlugin {
       }
     },
     async closeBundle() {
-      if (!resolved || !runtimeConfig || resolved.command === "serve") {
+      if (!resolved || !runtimeConfig || resolved.command === "serve" || getViteMode() === VITEHUB_MODES.e2e) {
         return
       }
 

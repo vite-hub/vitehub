@@ -1,6 +1,6 @@
 import { getSandbox as getCloudflareSandbox } from '@cloudflare/sandbox'
 import type { CloudflareSandboxClient, CloudflareSandboxProviderOptions, CloudflareSandboxStub } from '../types'
-import { CloudflareSandboxAdapter } from '../adapters'
+import { CloudflareSandboxAdapter } from '../adapters/cloudflare'
 import { SandboxError } from '../errors'
 
 export async function createCloudflareSandboxClient(provider: CloudflareSandboxProviderOptions): Promise<CloudflareSandboxClient> {

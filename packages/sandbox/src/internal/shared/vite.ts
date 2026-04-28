@@ -7,6 +7,7 @@ import {
   type FeatureViteContext,
   type FeatureViteSetupResult,
 } from './feature-engine'
+import { getViteMode, VITEHUB_MODES } from '@vitehub/internal/build/mode'
 import { mergeUserConfigs } from './vite/config-merge'
 import {
   createNitroRouteMatcher,
@@ -207,7 +208,7 @@ export function createFeatureBridgeBundle<TOptions, TInput, TConfig = TInput>(
     },
     async closeBundle() {
       const nitroConfig = rawConfig.nitro as ViteNitroConfig | undefined
-      if (!state || !nitroConfig?.handlers?.length || rawEnv.command !== 'build')
+      if (!state || !nitroConfig?.handlers?.length || rawEnv.command !== 'build' || getViteMode() === VITEHUB_MODES.e2e)
         return
 
       const nitroBuilder = await loadNitroBuilder()

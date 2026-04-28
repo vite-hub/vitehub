@@ -1,3 +1,4 @@
+import { getViteMode, VITEHUB_MODES } from "@vitehub/internal/build/mode"
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
 import { generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
@@ -36,7 +37,7 @@ export function hubQueue(): QueueVitePlugin {
       }
     },
     async closeBundle() {
-      if (!resolved || resolved.command === "serve") {
+      if (!resolved || resolved.command === "serve" || getViteMode() === VITEHUB_MODES.e2e) {
         return
       }
       await generateProviderOutputs({

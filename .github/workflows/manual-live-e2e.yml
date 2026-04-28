@@ -20,7 +20,7 @@ jobs:
         run: pnpm -r --filter '@vitehub/blob' --filter '@vitehub/db' --filter '@vitehub/kv' --filter '@vitehub/queue' --filter '@vitehub/sandbox' --filter '@vitehub/workflow' build
 
       - name: Upload package builds
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: vitehub-package-dist
           path: |
@@ -68,7 +68,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Download package builds
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: vitehub-package-dist
           path: packages
@@ -115,26 +115,84 @@ jobs:
           esac
 
           echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
+          echo "kv_token=$KV_TOKEN" >> "$GITHUB_OUTPUT"
+          echo "kv_url=$KV_URL" >> "$GITHUB_OUTPUT"
           echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
           echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Build (cloudflare × ${{ matrix.framework }})
-        if: matrix.provider == 'cloudflare'
+      - name: Prepare Vercel Vite env
+        id: prepare_vercel_vite
+        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
         env:
-          KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
-          VITEHUB_NITRO_MODE: ${{ matrix.framework == 'vite' && 'workflow' || '' }}
-        run: pnpm --dir playground/${{ matrix.framework }} exec nitro build --preset cloudflare-module
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
+          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VITE_SANDBOX_PROJECT_ID: ${{ secrets.VITE_SANDBOX_PROJECT_ID }}
+          VITE_SANDBOX_TEAM_ID: ${{ secrets.VITE_SANDBOX_TEAM_ID }}
+          VITE_SANDBOX_TOKEN: ${{ secrets.VITE_SANDBOX_TOKEN }}
+        run: |
+          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
 
-      - name: Build (vercel × ${{ matrix.framework }})
-        if: matrix.provider == 'vercel'
+          for required in BLOB_READ_WRITE_TOKEN TURSO_DATABASE_URL TURSO_AUTH_TOKEN VITE_SANDBOX_TOKEN VITE_SANDBOX_TEAM_ID VITE_SANDBOX_PROJECT_ID; do
+            if [ -z "${!required}" ]; then
+              echo "GitHub Production secret ${required} must be set." >&2
+              exit 1
+            fi
+          done
+
+          for env_name in BLOB_READ_WRITE_TOKEN TURSO_DATABASE_URL TURSO_AUTH_TOKEN VITE_SANDBOX_TOKEN VITE_SANDBOX_TEAM_ID VITE_SANDBOX_PROJECT_ID; do
+            npx vercel env rm "$env_name" production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            printf '%s' "${!env_name}" | npx vercel env add "$env_name" production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+          done
+
+          if [ -n "$VERCEL_PROTECTION_BYPASS" ]; then
+            echo "::add-mask::$VERCEL_PROTECTION_BYPASS"
+            echo "protection_bypass=$VERCEL_PROTECTION_BYPASS" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Nitro (cloudflare)
+        if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
+        run: pnpm --dir playground/nitro exec nitro build --preset cloudflare-module
+
+      - name: Build Nitro (vercel)
+        if: matrix.framework == 'nitro' && matrix.provider == 'vercel'
         env:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VITEHUB_NITRO_MODE: ${{ matrix.framework == 'vite' && 'workflow' || '' }}
         run: |
           APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm exec nitro build --preset vercel
+
+      - name: Build Vite E2E (cloudflare)
+        if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
+        env:
+          BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          VITEHUB_HOSTING: cloudflare
+          VITEHUB_VITE_MODE: e2e
+        run: pnpm --dir playground/vite build
+
+      - name: Build Vite E2E (vercel)
+        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          KV_REST_API_TOKEN: ${{ steps.prepare_vercel.outputs.kv_token }}
+          KV_REST_API_URL: ${{ steps.prepare_vercel.outputs.kv_url }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          VITEHUB_HOSTING: vercel
+          VITEHUB_VITE_MODE: e2e
+          VITE_SANDBOX_PROJECT_ID: ${{ secrets.VITE_SANDBOX_PROJECT_ID }}
+          VITE_SANDBOX_TEAM_ID: ${{ secrets.VITE_SANDBOX_TEAM_ID }}
+          VITE_SANDBOX_TOKEN: ${{ secrets.VITE_SANDBOX_TOKEN }}
+        run: pnpm --dir playground/vite build
 
       - name: Deploy Cloudflare
         id: deploy_cloudflare
@@ -145,7 +203,13 @@ jobs:
           CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
         run: |
           WORKER_NAME="vitehub-playground-${{ matrix.framework }}"
-          npx wrangler --cwd "playground/${{ matrix.framework }}/.output/server" deploy --config wrangler.json --name "$WORKER_NAME"
+          if [ "${{ matrix.framework }}" = "vite" ]; then
+            DEPLOY_DIR="playground/vite/dist/vite"
+          else
+            DEPLOY_DIR="playground/nitro/.output/server"
+          fi
+
+          npx wrangler --cwd "$DEPLOY_DIR" deploy --config wrangler.json --name "$WORKER_NAME"
           echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
           echo "worker=$WORKER_NAME" >> "$GITHUB_OUTPUT"
 
@@ -189,173 +253,12 @@ jobs:
         timeout-minutes: 5
         run: node packages/workflow/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
-      - name: Prepare Vercel Blob env
-        id: prepare_vercel_blob
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
-        env:
-          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-          VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
-          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
-          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
-
-          if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
-            echo "GitHub Production secret BLOB_READ_WRITE_TOKEN must be set." >&2
-            exit 1
-          fi
-
-          if [ -n "$VERCEL_PROTECTION_BYPASS" ]; then
-            echo "::add-mask::$VERCEL_PROTECTION_BYPASS"
-          fi
-
-          npx vercel env rm BLOB_READ_WRITE_TOKEN production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
-          printf '%s' "$BLOB_READ_WRITE_TOKEN" | npx vercel env add BLOB_READ_WRITE_TOKEN production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
-
-          if [ -n "$VERCEL_PROTECTION_BYPASS" ]; then
-            echo "protection_bypass=$VERCEL_PROTECTION_BYPASS" >> "$GITHUB_OUTPUT"
-          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            echo "GitHub Production secret VERCEL_PROTECTION_BYPASS must be set on main." >&2
-            exit 1
-          fi
-
-      - name: Prepare Vercel DB env
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
-        env:
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
-          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
-
-          if [ -z "$TURSO_DATABASE_URL" ] || [ -z "$TURSO_AUTH_TOKEN" ]; then
-            echo "GitHub Production secrets TURSO_DATABASE_URL and TURSO_AUTH_TOKEN must both be set." >&2
-            exit 1
-          fi
-
-          npx vercel env rm TURSO_DATABASE_URL production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
-          printf '%s' "$TURSO_DATABASE_URL" | npx vercel env add TURSO_DATABASE_URL production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
-          npx vercel env rm TURSO_AUTH_TOKEN production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || true
-          printf '%s' "$TURSO_AUTH_TOKEN" | npx vercel env add TURSO_AUTH_TOKEN production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
-
-      - name: Build Blob Vite (cloudflare)
-        if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
-        env:
-          BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
-          VITEHUB_VITE_MODE: blob
-          VITEHUB_HOSTING: cloudflare
-        run: pnpm --dir playground/vite build
-
-      - name: Build Blob Vite (vercel)
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel' && steps.prepare_vercel_blob.outputs.protection_bypass != ''
-        env:
-          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
-          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
-          npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- sh -c 'VITEHUB_VITE_MODE=blob VITEHUB_HOSTING=vercel pnpm build'
-
-      - name: Deploy Blob Cloudflare
-        id: deploy_blob_cloudflare
-        if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
-        run: |
-          WORKER_NAME="vitehub-playground-vite"
-          npx wrangler --cwd "playground/vite/dist/vite" deploy --config wrangler.json --name "$WORKER_NAME"
-          echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy Blob Vercel
-        id: deploy_blob_vercel
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel' && steps.prepare_vercel_blob.outputs.protection_bypass != ''
-        env:
-          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
-          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
-          DEPLOYMENT_URL=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
-          if [ -z "$DEPLOYMENT_URL" ]; then
-            echo "Failed to capture Blob Vercel deployment URL." >&2
-            exit 1
-          fi
-
-          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-
       - name: Blob Live E2E (vite × ${{ matrix.provider }})
-        if: matrix.framework == 'vite' && (matrix.provider != 'vercel' || steps.prepare_vercel_blob.outputs.protection_bypass != '')
+        if: matrix.framework == 'vite'
         env:
-          VERCEL_PROTECTION_BYPASS: ${{ steps.prepare_vercel_blob.outputs.protection_bypass }}
-        run: |
-          if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            BLOB_URL="${{ steps.deploy_blob_cloudflare.outputs.url }}"
-          else
-            BLOB_URL="${{ steps.deploy_blob_vercel.outputs.url }}"
-          fi
-
-          pnpm --dir packages/blob test:e2e --mode live --url "$BLOB_URL"
-
-      - name: Build DB Vite (cloudflare)
-        if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
-        env:
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          VITEHUB_HOSTING: cloudflare
-          VITEHUB_VITE_MODE: db
-        run: pnpm --dir playground/vite build
-
-      - name: Build DB Vite (vercel)
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
-        env:
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          VITEHUB_HOSTING: vercel
-          VITEHUB_VITE_MODE: db
-        run: |
-          pnpm --dir playground/vite build
-
-      - name: Deploy DB Cloudflare
-        id: deploy_db_cloudflare
-        if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
-        run: |
-          WORKER_NAME="vitehub-playground-vite"
-          npx wrangler --cwd "playground/vite/dist/vite" deploy --config wrangler.json --name "$WORKER_NAME"
-          echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy DB Vercel
-        id: deploy_db_vercel
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
-        env:
-          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
-          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
-          DEPLOYMENT_URL=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
-          if [ -z "$DEPLOYMENT_URL" ]; then
-            echo "Failed to capture DB Vercel deployment URL." >&2
-            exit 1
-          fi
-
-          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          VERCEL_PROTECTION_BYPASS: ${{ steps.prepare_vercel_vite.outputs.protection_bypass }}
+        run: pnpm --dir packages/blob test:e2e --mode live --url "${{ steps.url.outputs.url }}"
 
       - name: DB Live E2E (vite × ${{ matrix.provider }})
         if: matrix.framework == 'vite'
-        run: |
-          if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            DB_URL="${{ steps.deploy_db_cloudflare.outputs.url }}"
-          else
-            DB_URL="${{ steps.deploy_db_vercel.outputs.url }}"
-          fi
-
-          pnpm --dir packages/db test:e2e --url "$DB_URL"
+        run: pnpm --dir packages/db test:e2e --url "${{ steps.url.outputs.url }}"

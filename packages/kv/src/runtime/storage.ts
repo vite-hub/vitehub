@@ -1,4 +1,10 @@
+import { readEnv } from "@vitehub/internal/env"
+import { getActiveCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+
+import { normalizeKVOptions } from "../config.ts"
 import type { KVStorage } from "../types.ts"
+import type { ResolvedKVModuleOptions } from "../types.ts"
+import { createHostedKVStorage } from "./hosted-storage.ts"
 
 interface RuntimeStorage {
   clear(base?: string, options?: unknown): Promise<void>
@@ -11,8 +17,32 @@ interface RuntimeStorage {
 
 let storagePromise: Promise<RuntimeStorage> | undefined
 
+async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | undefined> {
+  const virtualConfigId = "virtual:@vitehub/kv/config"
+
+  try {
+    const module = await import(
+      /* @vite-ignore */
+      virtualConfigId
+    ) as { kv: false | ResolvedKVModuleOptions }
+    return module.kv
+  }
+  catch {
+    const env = typeof process !== "undefined" ? process.env : {}
+    const hosting = getActiveCloudflareEnv()
+      ? "cloudflare"
+      : readEnv(env, "VITEHUB_HOSTING", "NITRO_PRESET") || (readEnv(env, "KV_REST_API_URL", "UPSTASH_REDIS_REST_URL") ? "vercel" : undefined)
+    return normalizeKVOptions(undefined, { env, hosting }) || false
+  }
+}
+
 async function resolveStorage() {
-  storagePromise ||= import("nitro/storage").then(module => module.useStorage("kv") as RuntimeStorage)
+  storagePromise ||= import("nitro/storage")
+    .then(module => module.useStorage("kv") as RuntimeStorage)
+    .catch(async () => {
+      const config = await resolveHostedConfig()
+      return createHostedKVStorage(config) as unknown as RuntimeStorage
+    })
   return storagePromise
 }
 

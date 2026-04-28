@@ -1,3 +1,5 @@
+import { getViteMode, VITEHUB_MODES } from "@vitehub/internal/build/mode"
+
 import blobNitroModule from "./nitro/module.ts"
 import { generateProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
 import {
@@ -81,7 +83,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       }
     },
     async closeBundle() {
-      if (command === "serve") {
+      if (command === "serve" || getViteMode() === VITEHUB_MODES.e2e) {
         return
       }
 

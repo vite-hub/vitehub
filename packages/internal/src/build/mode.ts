@@ -3,6 +3,7 @@ export const VITEHUB_NITRO_MODE_KEY = "VITEHUB_NITRO_MODE"
 export const VITEHUB_HOSTING_KEY = "VITEHUB_HOSTING"
 
 export const VITEHUB_MODES = {
+  e2e: "e2e",
   blob: "blob",
   db: "db",
   kv: "kv",
