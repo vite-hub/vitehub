@@ -1,7 +1,7 @@
 {
   "name": "@vitehub/workflow",
   "version": "0.0.0",
-  "description": "Workflow primitives and Vite integration for ViteHub.",
+  "description": "Workflow primitives and Vite, Nitro, and Nuxt integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -15,6 +15,7 @@
     "vitehub",
     "vite",
     "nitro",
+    "nuxt",
     "workflow",
     "cloudflare",
     "vercel"
@@ -25,6 +26,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./nitro": "./dist/nitro.js",
+    "./nuxt": "./dist/nuxt.js",
     "./runtime/cloudflare-runner": "./dist/runtime/cloudflare-runner.js",
     "./runtime/cloudflare-shared": "./dist/runtime/cloudflare-shared.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
@@ -46,6 +48,7 @@
     "test:e2e": "node ./test/e2e-live.mjs"
   },
   "dependencies": {
+    "@nuxt/kit": "catalog:",
     "@vercel/functions": "catalog:",
     "defu": "catalog:",
     "esbuild": "catalog:",
@@ -69,6 +72,7 @@
     }
   },
   "devDependencies": {
+    "@nuxt/schema": "catalog:",
     "@types/node": "catalog:",
     "@vitehub/internal": "workspace:*",
     "nitro": "catalog:",

@@ -4,7 +4,7 @@ description: Runtime functions, helper exports, options, and normalized run type
 navigation.title: Runtime API
 navigation.order: 4
 icon: i-lucide-braces
-frameworks: [vite, nitro]
+frameworks: [vite, nitro, nuxt]
 ---
 
 Runtime code imports from `@vitehub/workflow`:
@@ -33,6 +33,14 @@ Nitro config imports the module by name:
 ```ts
 export default defineNitroConfig({
   modules: ['@vitehub/workflow/nitro'],
+})
+```
+
+Nuxt config imports the module by name and forwards top-level workflow config to Nitro:
+
+```ts
+export default defineNuxtConfig({
+  modules: ['@vitehub/workflow/nuxt'],
 })
 ```
 
@@ -155,7 +163,7 @@ const workflow = await createWorkflow({
 
 ## Config options
 
-`workflow` can be configured in Vite or Nitro config:
+`workflow` can be configured in Vite, Nitro, or Nuxt config:
 
 ```ts
 workflow: {

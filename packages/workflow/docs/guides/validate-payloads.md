@@ -4,7 +4,7 @@ description: Parse and validate request payloads before starting a workflow.
 navigation.title: Validate Payloads
 navigation.order: 2
 icon: i-lucide-badge-check
-frameworks: [vite, nitro]
+frameworks: [vite, nitro, nuxt]
 ---
 
 Validate payloads before calling `runWorkflow()` so workflow definitions can focus on background work instead of request cleanup.

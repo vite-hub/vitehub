@@ -23,34 +23,56 @@ function createNitroWorkflowRegistryPath(rootDir: string, buildDir: string) {
 }
 
 function createNitroWorkflowPluginPath(rootDir: string, buildDir: string) {
-  return resolve(rootDir, buildDir, "vitehub", "workflow", "nitro-plugin.ts")
+  return resolve(rootDir, buildDir, "vitehub", "workflow", "nitro-plugin.mjs")
 }
 
 function resolveNitroWorkflowScanDirs(rootDir: string, scanDirs: string[] | undefined) {
   return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
 }
 
-function createNitroWorkflowPluginContents(file: string, registryFile: string) {
+function resolveWorkflowNitroPluginImportSource(nitro: Nitro) {
+  return nitro.options.framework?.name === "nuxt"
+    ? {
+        defineNitroPlugin: "defineNitroPlugin",
+        importSource: "nitro/runtime",
+        useRuntimeConfig: "useRuntimeConfig",
+      }
+    : {
+        defineNitroPlugin: "definePlugin as defineNitroPlugin",
+        importSource: "nitro",
+        useRuntimeConfig: undefined,
+      }
+}
+
+function createNitroWorkflowPluginContents(file: string, registryFile: string, nitro: Nitro) {
+  const { defineNitroPlugin, importSource, useRuntimeConfig } = resolveWorkflowNitroPluginImportSource(nitro)
+  const nitroRuntimeConfigImport = useRuntimeConfig
+    ? `import { ${defineNitroPlugin}, ${useRuntimeConfig} } from ${JSON.stringify(importSource)}`
+    : `import { ${defineNitroPlugin} } from ${JSON.stringify(importSource)}\nimport { useRuntimeConfig } from "nitro/runtime-config"`
+
   return [
-    "import { definePlugin as defineNitroPlugin } from \"nitro\"",
-    "import { useRuntimeConfig } from \"nitro/runtime-config\"",
+    nitroRuntimeConfigImport,
     "",
     "import { runCloudflareWorkflow } from \"@vitehub/workflow/runtime/cloudflare-runner\"",
     "import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from \"@vitehub/workflow/runtime/state\"",
     "",
     `import workflowRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
-    "export async function runNitroWorkflowDefinition(name, env, event, step) {",
-    "  const runtimeConfig = useRuntimeConfig()",
-    "  return await runCloudflareWorkflow({ config: runtimeConfig.workflow, env: env || {}, event, name, registry: workflowRegistry, step })",
-    "}",
-    "",
-    "globalThis.__vitehubRunNitroWorkflowDefinition = runNitroWorkflowDefinition",
-    "",
     "const workflowNitroPlugin = defineNitroPlugin((nitroApp) => {",
     "  const runtimeConfig = useRuntimeConfig()",
-    "  setWorkflowRuntimeConfig(runtimeConfig.workflow)",
+    "  const workflowConfig = runtimeConfig?.workflow",
+    "  setWorkflowRuntimeConfig(workflowConfig)",
     "  setWorkflowRuntimeRegistry(workflowRegistry)",
+    "  globalThis.__vitehubRunNitroWorkflowDefinition = async (name, env, event, step) => {",
+    "    return await runCloudflareWorkflow({",
+    "      config: workflowConfig,",
+    "      env: env || {},",
+    "      event,",
+    "      name,",
+    "      registry: workflowRegistry,",
+    "      step,",
+    "    })",
+    "  }",
     "",
     "  nitroApp.hooks.hook(\"request\", (event) => {",
     "    enterWorkflowRuntimeEvent(event)",
@@ -85,7 +107,11 @@ function createCloudflareWorkflowClassExports(definitions: DiscoveredWorkflowDef
   ].flat().join("\n")
 }
 
-interface RuntimeFiles { definitions: DiscoveredWorkflowDefinition[], pluginFile: string, registryFile: string }
+interface RuntimeFiles {
+  definitions: DiscoveredWorkflowDefinition[]
+  pluginFile: string
+  registryFile: string
+}
 
 async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFiles> {
   const registryFile = createNitroWorkflowRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
@@ -95,10 +121,8 @@ async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFile
     scanDirs: resolveNitroWorkflowScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
 
-  await Promise.all([
-    writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
-    writeFileIfChanged(pluginFile, createNitroWorkflowPluginContents(pluginFile, registryFile)),
-  ])
+  await writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions))
+  await writeFileIfChanged(pluginFile, createNitroWorkflowPluginContents(pluginFile, registryFile, nitro))
 
   return { definitions, pluginFile, registryFile }
 }
@@ -125,8 +149,9 @@ const workflowNitroModule: NitroModule = {
     }
 
     nitro.options.plugins ||= []
-    if (!nitro.options.plugins.includes(runtimeFiles.pluginFile)) {
-      nitro.options.plugins.push(runtimeFiles.pluginFile)
+    const plugin = runtimeFiles.pluginFile
+    if (!nitro.options.plugins.includes(plugin)) {
+      nitro.options.plugins.push(plugin)
     }
 
     if (!resolved) {

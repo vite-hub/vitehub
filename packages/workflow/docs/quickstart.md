@@ -4,7 +4,7 @@ description: Register Workflow, define a welcome flow, start a run from a route,
 navigation.title: Quickstart
 navigation.order: 1
 icon: i-lucide-zap
-frameworks: [vite, nitro]
+frameworks: [vite, nitro, nuxt]
 ---
 
 This guide creates one `welcome` workflow. The route accepts a payload, starts a workflow run, and returns the normalized run metadata.
@@ -17,13 +17,13 @@ The provider is the only part that changes between Cloudflare and Vercel. The wo
 Set up @vitehub/workflow in this app.
 
 - Install @vitehub/workflow
-- Register hubWorkflow() for Vite or @vitehub/workflow/nitro for Nitro
+- Register hubWorkflow() for Vite, @vitehub/workflow/nitro for Nitro, or @vitehub/workflow/nuxt for Nuxt
 - Configure workflow.provider as cloudflare or vercel
 - Define welcome as a discovered workflow
 - Call runWorkflow('welcome', payload) from a route
 - Return the workflow run to the caller
 
-Docs: /docs/vite/workflow/quickstart or /docs/nitro/workflow/quickstart
+Docs: /docs/vite/workflow/quickstart, /docs/nitro/workflow/quickstart, or /docs/nuxt/workflow/quickstart
 ```
 
 ::
@@ -104,6 +104,34 @@ Register the Nitro module and choose the provider:
     ```
   :::
 ::
+
+::fw{id="nuxt:dev nuxt:build"}
+Register the Nuxt module and choose the provider:
+
+::tabs{sync="provider"}
+  :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
+    ```ts [nuxt.config.ts]
+    export default defineNuxtConfig({
+      modules: ['@vitehub/workflow/nuxt'],
+      workflow: {
+        provider: 'cloudflare',
+      },
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Vercel" icon="i-simple-icons-vercel" class="p-4"}
+    ```ts [nuxt.config.ts]
+    export default defineNuxtConfig({
+      modules: ['@vitehub/workflow/nuxt'],
+      workflow: {
+        provider: 'vercel',
+      },
+    })
+    ```
+  :::
+::
+::
 ::
 
 ### Define the workflow
@@ -130,8 +158,8 @@ export default defineWorkflow<WelcomePayload>(async ({ id, payload, provider }) 
 ```
 ::
 
-::fw{id="nitro:dev nitro:build"}
-Create a discovered Nitro workflow file:
+::fw{id="nitro:dev nitro:build nuxt:dev nuxt:build"}
+Create a discovered Nitro or Nuxt workflow file:
 
 ```ts [server/workflows/welcome.ts]
 import { defineWorkflow } from '@vitehub/workflow'
@@ -175,8 +203,8 @@ export default app
 ```
 ::
 
-::fw{id="nitro:dev nitro:build"}
-Add a Nitro route that reads the request body and starts the named workflow:
+::fw{id="nitro:dev nitro:build nuxt:dev nuxt:build"}
+Add a Nitro or Nuxt route that reads the request body and starts the named workflow:
 
 ```ts [server/api/welcome.post.ts]
 import { runWorkflow } from '@vitehub/workflow'

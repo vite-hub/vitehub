@@ -1,0 +1,130 @@
+name: workflow nuxt manual live e2e
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: workflow-nuxt-manual-live-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    name: setup
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - name: Build workflow package
+        run: pnpm --filter @vitehub/workflow build
+
+      - name: Upload workflow package build
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitehub-workflow-dist
+          path: packages/workflow/dist
+          retention-days: 1
+          if-no-files-found: error
+
+  live-e2e:
+    name: live e2e
+    needs: setup
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [cloudflare, vercel]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - name: Download workflow package build
+        uses: actions/download-artifact@v4
+        with:
+          name: vitehub-workflow-dist
+          path: packages/workflow
+
+      - name: Prepare Vercel project
+        id: prepare_vercel
+        if: matrix.provider == 'vercel'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          APP_DIR="playground/nuxt"
+          PROJECT_NAME="vitehub-playground-nuxt"
+
+          npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
+
+          readarray -t VERCEL_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$APP_DIR")
+          VERCEL_ORG_ID="${VERCEL_CONFIG[0]}"
+          VERCEL_PROJECT_ID="${VERCEL_CONFIG[1]}"
+
+          if [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "Failed to read linked Vercel project metadata." >&2
+            exit 1
+          fi
+
+          echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
+          echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
+          echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Build (cloudflare × nuxt)
+        if: matrix.provider == 'cloudflare'
+        env:
+          NITRO_PRESET: cloudflare-module
+        run: pnpm --dir playground/nuxt exec nuxi build
+
+      - name: Build (vercel × nuxt)
+        if: matrix.provider == 'vercel'
+        env:
+          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
+          npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- sh -c 'NITRO_PRESET=vercel pnpm exec nuxi build'
+
+      - name: Deploy Cloudflare
+        id: deploy_cloudflare
+        if: matrix.provider == 'cloudflare'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
+        run: |
+          WORKER_NAME="vitehub-playground-nuxt"
+          npx wrangler --cwd "playground/nuxt/.output/server" deploy --config wrangler.json --name "$WORKER_NAME"
+          echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Vercel
+        id: deploy_vercel
+        if: matrix.provider == 'vercel'
+        env:
+          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
+          DEPLOYMENT_URL=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            echo "Failed to capture Vercel deployment URL." >&2
+            exit 1
+          fi
+
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve deployment URL
+        id: url
+        run: |
+          if [ "${{ matrix.provider }}" = "cloudflare" ]; then
+            echo "url=${{ steps.deploy_cloudflare.outputs.url }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${{ steps.deploy_vercel.outputs.url }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Workflow Live E2E (${{ matrix.provider }} × nuxt)
+        timeout-minutes: 5
+        run: node packages/workflow/test/e2e-live.mjs --framework "nuxt" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"

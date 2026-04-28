@@ -1,13 +1,13 @@
 ---
 title: Workflow
-description: Run durable, provider-backed workflows from Vite and Nitro with one portable API.
+description: Run durable, provider-backed workflows from Vite, Nitro, and Nuxt with one portable API.
 navigation.title: Overview
 navigation.order: 0
 icon: i-lucide-workflow
-frameworks: [vite, nitro]
+frameworks: [vite, nitro, nuxt]
 ---
 
-`@vitehub/workflow` gives Vite and Nitro apps one way to define long-running work, start a named workflow from request code, and observe the run through Cloudflare Workflows or Vercel.
+`@vitehub/workflow` gives Vite, Nitro, and Nuxt apps one way to define long-running work, start a named workflow from request code, and observe the run through Cloudflare Workflows or Vercel.
 
 Use Workflow when background work has multiple steps, needs a stable run id, or should be visible after the request that started it has already returned.
 
@@ -96,7 +96,7 @@ Workflow keeps that boundary explicit:
 
 The same application shape works across providers:
 
-1. Register the Vite plugin or Nitro module.
+1. Register the Vite plugin, Nitro module, or Nuxt module.
 2. Choose `cloudflare` or `vercel` in `workflow.provider`.
 3. Define a named workflow with `defineWorkflow()`.
 4. Start it with `runWorkflow(name, payload)`.
@@ -114,10 +114,24 @@ Vite discovers workflow definitions from `*.workflow.ts` files and `server/workf
 The workflow name comes from the path without the `.workflow` suffix. `src/email/welcome.workflow.ts` becomes `email/welcome`. `server/workflows/welcome.ts` becomes `welcome`.
 ::
 
-::fw{id="nitro:dev nitro:build"}
-Nitro discovers workflow definitions from `server/workflows/**`.
+::fw{id="nitro:dev nitro:build nuxt:dev nuxt:build"}
+Nitro and Nuxt discover workflow definitions from `server/workflows/**`.
 
 The workflow name comes from the path under `server/workflows`, without the file extension. `server/workflows/email/welcome.ts` becomes `email/welcome`.
+::
+
+## Framework support
+
+::fw{id="vite:dev vite:build"}
+Vite registers `hubWorkflow()` and emits provider-specific deployment output while keeping runtime calls at `runWorkflow()`, `deferWorkflow()`, and `getWorkflowRun()`.
+::
+
+::fw{id="nitro:dev nitro:build"}
+Nitro registers `@vitehub/workflow/nitro`, writes resolved workflow config to runtime config, generates the workflow registry, and emits provider-specific deployment artifacts.
+::
+
+::fw{id="nuxt:dev nuxt:build"}
+Nuxt registers `@vitehub/workflow/nuxt`, which installs the Nitro module and forwards top-level `workflow` config to Nitro.
 ::
 
 ## Supported providers

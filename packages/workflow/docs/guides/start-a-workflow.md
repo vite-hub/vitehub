@@ -4,7 +4,7 @@ description: Start a named workflow with a payload, stable id, and provider-neut
 navigation.title: Start a Workflow
 navigation.order: 0
 icon: i-lucide-play
-frameworks: [vite, nitro]
+frameworks: [vite, nitro, nuxt]
 ---
 
 Use `runWorkflow()` when the route should wait until the provider accepts the workflow start.

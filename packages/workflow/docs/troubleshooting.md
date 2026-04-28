@@ -4,7 +4,7 @@ description: Fix unknown workflows, disabled runtime config, missing Cloudflare 
 navigation.title: Troubleshooting
 navigation.order: 5
 icon: i-lucide-wrench
-frameworks: [vite, nitro]
+frameworks: [vite, nitro, nuxt]
 ---
 
 Most Workflow issues come from discovery paths, provider config, or deployment output that does not match the selected provider.
@@ -21,7 +21,7 @@ Check the discovered file path:
 - `server/workflows/welcome.ts` is named `welcome`
 ::
 
-::fw{id="nitro:dev nitro:build"}
+::fw{id="nitro:dev nitro:build nuxt:dev nuxt:build"}
 - `server/workflows/welcome.ts` is named `welcome`
 - `server/workflows/email/welcome.ts` is named `email/welcome`
 ::

@@ -69,6 +69,32 @@
           ]
         }
       }
+    },
+    "nuxt": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nuxt.config.ts",
+            "define": "server/workflows/welcome.ts",
+            "run": "server/api/welcome.post.ts"
+          },
+          "supplementalFiles": [
+            "server/api/workflow/[id].get.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nuxt.config.ts",
+            "define": "server/workflows/welcome.ts",
+            "run": "server/api/welcome.post.ts"
+          },
+          "supplementalFiles": [
+            "server/api/workflow/[id].get.ts",
+            "package.json"
+          ]
+        }
+      }
     }
   }
 }

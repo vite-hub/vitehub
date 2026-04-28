@@ -1,0 +1,16 @@
+{
+  "name": "playground-nuxt",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxi build",
+    "dev": "nuxi dev"
+  },
+  "dependencies": {
+    "@vitehub/workflow": "workspace:*",
+    "h3": "catalog:",
+    "nitro": "catalog:",
+    "nuxt": "catalog:",
+    "valibot": "catalog:"
+  }
+}

@@ -4,7 +4,7 @@ description: Read normalized workflow status and result metadata from a route.
 navigation.title: Observe a Run
 navigation.order: 1
 icon: i-lucide-search-check
-frameworks: [vite, nitro]
+frameworks: [vite, nitro, nuxt]
 ---
 
 Use `getWorkflowRun()` when a caller has a workflow name and run id.

@@ -4,7 +4,7 @@ description: Practical patterns for typed payloads, workflow starts, deferred di
 navigation.title: Usage
 navigation.order: 3
 icon: i-lucide-workflow
-frameworks: [vite, nitro]
+frameworks: [vite, nitro, nuxt]
 ---
 
 After the quickstart works, most Workflow code falls into four patterns: define a typed flow, start it from request code, choose whether dispatch is awaited or deferred, and check the normalized run later.
@@ -36,7 +36,7 @@ export default defineWorkflow<WelcomePayload, WelcomeResult>(async ({ payload })
 ```
 ::
 
-::fw{id="nitro:dev nitro:build"}
+::fw{id="nitro:dev nitro:build nuxt:dev nuxt:build"}
 ```ts [server/workflows/welcome.ts]
 import { defineWorkflow } from '@vitehub/workflow'
 
@@ -189,7 +189,7 @@ Workflow names always come from discovered files:
 - `server/workflows/welcome.ts` becomes `welcome`
 ::
 
-::fw{id="nitro:dev nitro:build"}
+::fw{id="nitro:dev nitro:build nuxt:dev nuxt:build"}
 - `server/workflows/welcome.ts` becomes `welcome`
 - `server/workflows/email/welcome.ts` becomes `email/welcome`
 ::

@@ -5,7 +5,7 @@ navigation.title: Cloudflare
 navigation.group: Providers
 navigation.order: 0
 icon: i-simple-icons-cloudflare
-frameworks: [vite, nitro]
+frameworks: [vite, nitro, nuxt]
 ---
 
 Cloudflare hosting selects the Cloudflare provider automatically. You can also set it explicitly when local builds should emit Cloudflare output.
@@ -31,6 +31,17 @@ Cloudflare hosting selects the Cloudflare provider automatically. You can also s
 
     export default defineNitroConfig({
       modules: ['@vitehub/workflow/nitro'],
+      workflow: {
+        provider: 'cloudflare',
+      },
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Nuxt" icon="i-simple-icons-nuxtdotjs" class="p-4"}
+    ```ts [nuxt.config.ts]
+    export default defineNuxtConfig({
+      modules: ['@vitehub/workflow/nuxt'],
       workflow: {
         provider: 'cloudflare',
       },

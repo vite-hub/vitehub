@@ -5,7 +5,7 @@ navigation.title: Vercel
 navigation.group: Providers
 navigation.order: 1
 icon: i-simple-icons-vercel
-frameworks: [vite, nitro]
+frameworks: [vite, nitro, nuxt]
 ---
 
 Vercel is the default provider when hosting is not Cloudflare. Set it explicitly when you want local builds to match Vercel deployment output.
@@ -31,6 +31,17 @@ Vercel is the default provider when hosting is not Cloudflare. Set it explicitly
 
     export default defineNitroConfig({
       modules: ['@vitehub/workflow/nitro'],
+      workflow: {
+        provider: 'vercel',
+      },
+    })
+    ```
+  :::
+
+  :::tabs-item{label="Nuxt" icon="i-simple-icons-nuxtdotjs" class="p-4"}
+    ```ts [nuxt.config.ts]
+    export default defineNuxtConfig({
+      modules: ['@vitehub/workflow/nuxt'],
       workflow: {
         provider: 'vercel',
       },
