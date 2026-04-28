@@ -29,7 +29,7 @@ const payload = await validatePayload(rawPayload, (value) => {
 `validatePayload()` and `readValidatedPayload()` accept schema objects with `parse()` or `safeParse()`.
 
 ```ts
-import { readValidatedPayload, runWorkflow } from '@vitehub/workflow'
+import { validatePayload } from '@vitehub/workflow'
 import { z } from 'zod'
 
 const welcomePayload = z.object({
@@ -37,34 +37,12 @@ const welcomePayload = z.object({
   marker: z.string().optional(),
 })
 
-export default {
-  async fetch(request: Request) {
-    const payload = await readValidatedPayload(request, welcomePayload)
-    const run = await runWorkflow('welcome', payload)
-
-    return Response.json({ ok: true, run })
-  },
-}
+const payload = await validatePayload(rawPayload, welcomePayload)
 ```
 
 ## Validate inside framework routes
 
-Framework helpers are still a good fit when they already expose validated body parsing.
-
-```ts
-import { runWorkflow, validatePayload } from '@vitehub/workflow'
-import { readBody } from 'h3'
-
-export default defineEventHandler(async (event) => {
-  const rawPayload = await readBody(event)
-  const payload = await validatePayload(rawPayload, welcomePayload)
-
-  return {
-    ok: true,
-    run: await runWorkflow('welcome', payload),
-  }
-})
-```
+Framework helpers are still a good fit when they already expose body parsing. Read the request body with the framework helper, validate the parsed value, then call `runWorkflow()`.
 
 ## Full route examples
 

@@ -26,9 +26,9 @@ export type WelcomePayload = {
 export default defineWorkflow<WelcomePayload>(async ({ id, payload, provider }) => {
   return {
     id,
-    provider,
-    message: `Welcome ${payload.email}`,
     marker: payload.marker,
+    message: `Welcome ${payload.email}`,
+    provider,
   }
 })
 ```
@@ -117,3 +117,28 @@ export default defineEventHandler(async (event) => {
 ::
 
 The returned `id` is the value to store when the user needs a status page, receipt, or polling endpoint.
+
+## Verify the route
+
+```bash
+curl -X POST http://localhost:3000/api/welcome \
+  -H 'content-type: application/json' \
+  -d '{"email":"ava@example.com","marker":"signup-42"}'
+```
+
+Expected response:
+
+```json
+{
+  "ok": true,
+  "payload": {
+    "email": "ava@example.com",
+    "marker": "signup-42"
+  },
+  "run": {
+    "id": "wrun_lvn4hx4f_x8k2p9s1",
+    "provider": "vercel",
+    "status": "queued"
+  }
+}
+```
