@@ -41,6 +41,20 @@ describe("normalizeDBOptions", () => {
     expect(() => normalizeDBOptions({ connection: { authToken: " " } })).toThrow("`db.connection.authToken`")
   })
 
+  it("strips matching outer quotes from connection values", () => {
+    expect(normalizeDBOptions({
+      connection: {
+        authToken: " 'quoted-token' ",
+        url: " \"libsql://example.turso.io\" ",
+      },
+    })).toMatchObject({
+      connection: {
+        authToken: "quoted-token",
+        url: "libsql://example.turso.io",
+      },
+    })
+  })
+
   it("rejects unsupported dialect values", () => {
     expect(() => normalizeDBOptions({ dialect: "postgresql" as never })).toThrow("`db.dialect` must be `sqlite`")
   })

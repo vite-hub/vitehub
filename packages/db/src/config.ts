@@ -27,6 +27,18 @@ function readStringList(value: unknown, label: string) {
   return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
 }
 
+function normalizeConnectionValue(value: string) {
+  const trimmed = value.trim()
+  if (
+    trimmed.length >= 2
+    && ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1).trim()
+  }
+
+  return trimmed
+}
+
 function resolveDefaultSchemaPaths(rootDir: string) {
   const schemaPaths: string[] = []
   const schemaEntry = resolve(rootDir, "src/db/schema.ts")
@@ -87,12 +99,20 @@ export function normalizeDBOptions(options?: DBModuleOptions): ResolvedDrizzleDB
     assertPlainObject(input.drizzle, "db.drizzle")
   }
 
-  const url = input.connection?.url
-  if (typeof url !== "undefined" && (typeof url !== "string" || url.trim().length === 0)) {
+  const rawUrl = input.connection?.url
+  if (typeof rawUrl !== "undefined" && (typeof rawUrl !== "string" || rawUrl.trim().length === 0)) {
     throw new TypeError("`db.connection.url` must be a non-empty string when provided.")
   }
-  const authToken = input.connection?.authToken
-  if (typeof authToken !== "undefined" && (typeof authToken !== "string" || authToken.trim().length === 0)) {
+  const rawAuthToken = input.connection?.authToken
+  if (typeof rawAuthToken !== "undefined" && (typeof rawAuthToken !== "string" || rawAuthToken.trim().length === 0)) {
+    throw new TypeError("`db.connection.authToken` must be a non-empty string when provided.")
+  }
+  const url = typeof rawUrl === "string" ? normalizeConnectionValue(rawUrl) : undefined
+  if (typeof rawUrl !== "undefined" && !url) {
+    throw new TypeError("`db.connection.url` must be a non-empty string when provided.")
+  }
+  const authToken = typeof rawAuthToken === "string" ? normalizeConnectionValue(rawAuthToken) : undefined
+  if (typeof rawAuthToken !== "undefined" && !authToken) {
     throw new TypeError("`db.connection.authToken` must be a non-empty string when provided.")
   }
 
@@ -103,8 +123,8 @@ export function normalizeDBOptions(options?: DBModuleOptions): ResolvedDrizzleDB
 
   return {
     connection: {
-      authToken: authToken?.trim() || undefined,
-      url: url?.trim() || "file:.data/db/sqlite.db",
+      authToken: authToken || undefined,
+      url: url || "file:.data/db/sqlite.db",
     },
     dialect: "sqlite",
     drizzle: {

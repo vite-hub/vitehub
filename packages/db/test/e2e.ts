@@ -12,6 +12,15 @@ assert.ok(values.url, "--url required")
 
 const base = new URL(String(values.url))
 
+async function assertStatus(response: Response, expected: number) {
+  if (response.status === expected) {
+    return
+  }
+
+  const body = await response.text()
+  assert.fail(`Expected status ${expected}, got ${response.status}. Body: ${body}`)
+}
+
 const create = await fetch(new URL("/api/db", base), {
   method: "POST",
   headers: {
@@ -20,13 +29,13 @@ const create = await fetch(new URL("/api/db", base), {
   body: JSON.stringify({ title: `db-e2e-${Date.now().toString(36)}` }),
 })
 
-assert.equal(create.status, 200)
+await assertStatus(create, 200)
 const created = await create.json() as { note?: { id?: number, title?: string }, ok?: boolean }
 assert.equal(created.ok, true)
 assert.equal(typeof created.note?.id, "number")
 
 const list = await fetch(new URL("/api/db", base))
-assert.equal(list.status, 200)
+await assertStatus(list, 200)
 const payload = await list.json() as { notes?: Array<{ id: number, title: string }>, ok?: boolean }
 assert.equal(payload.ok, true)
 assert.ok(payload.notes?.some(note => note.id === created.note?.id))
