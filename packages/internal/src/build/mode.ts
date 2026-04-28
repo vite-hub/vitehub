@@ -4,6 +4,7 @@ export const VITEHUB_HOSTING_KEY = "VITEHUB_HOSTING"
 
 export const VITEHUB_MODES = {
   blob: "blob",
+  db: "db",
   kv: "kv",
   queue: "queue",
   sandbox: "sandbox",

@@ -5,9 +5,12 @@ import { defineConfig } from "vite"
 
 const buildMode = getViteMode() || VITEHUB_MODES.queue
 const blobOnly = buildMode === VITEHUB_MODES.blob
+const dbOnly = buildMode === VITEHUB_MODES.db
 const workflowOnly = buildMode === VITEHUB_MODES.workflow
 const input = blobOnly
   ? "src/server.blob.ts"
+  : dbOnly
+    ? "src/server.db.ts"
   : workflowOnly
     ? "src/server-workflow.ts"
     : "src/server.ts"
@@ -38,6 +41,15 @@ export default defineConfig(async () => {
       ...baseConfig,
       plugins: [hubWorkflow()],
       workflow: {},
+    }
+  }
+
+  if (dbOnly) {
+    const { hubDb } = await import("@vitehub/db/vite")
+    return {
+      ...baseConfig,
+      db: {},
+      plugins: [hubDb()],
     }
   }
 

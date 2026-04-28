@@ -10,6 +10,7 @@ catalog:
   '@nuxt/schema': ^4.4.2
   '@oku-ui/motion': ^0.4.3
   '@cloudflare/sandbox': ^0.8.11
+  '@libsql/client': ^0.15.15
   '@types/node': ^25.6.0
   '@upstash/redis': ^1.37.0
   '@vercel/blob': ^2.3.3
@@ -20,6 +21,7 @@ catalog:
   better-sqlite3: ^12.9.0
   consola: ^3.4.2
   defu: ^6.1.4
+  drizzle-orm: ^0.44.7
   docus: ^5.9.0
   esbuild: ^0.28.0
   exsolve: ^1.0.8
