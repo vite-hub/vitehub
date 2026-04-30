@@ -41,6 +41,14 @@ Choose the primitive for the runtime behavior you need. Provider setup comes aft
 ::u-page-grid{class="pb-2"}
   :::u-page-card
   ---
+  title: DB
+  description: Model relational app data with a default Drizzle database and optional named databases.
+  icon: i-lucide-database
+  to: ../db
+  ---
+  :::
+  :::u-page-card
+  ---
   title: Blob
   description: Store uploads, generated assets, exports, images, and other file-shaped data.
   icon: i-lucide-files

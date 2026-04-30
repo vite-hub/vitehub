@@ -1,9 +1,12 @@
 export type {
+  CloudflareD1BindingConfig,
   DBModuleOptions,
-  DrizzleDBConfig,
+  DBModulePublicOptions,
   DrizzleCasing,
+  DrizzleDatabaseEntryConfig,
+  ResolvedCloudflareD1BindingConfig,
   ResolvedDBViteConfig,
-  ResolvedDrizzleDBConfig,
+  ResolvedDrizzleDatabaseConfig,
 } from "./types.ts"
 
 export {

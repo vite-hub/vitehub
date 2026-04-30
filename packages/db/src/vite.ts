@@ -1,20 +1,19 @@
 import { getViteMode, VITEHUB_MODES } from "@vitehub/internal/build/mode"
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
+import { resolveDBViteConfig } from "./config.ts"
+import { serializeSchemaObject } from "./internal/schema-serializer.ts"
 import { dbPackageName, generateProviderOutputs } from "./internal/vite-build.ts"
-import {
-  resolveDBViteConfig,
-} from "./config.ts"
 
-import type { DBModuleOptions, ResolvedDBViteConfig } from "./types.ts"
+import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 import type { Plugin, ResolvedConfig } from "vite"
 
-export const DB_VIRTUAL_CONFIG_ID = "virtual:@vitehub/db/config"
 export const DB_VIRTUAL_SCHEMA_ID = "virtual:@vitehub/db/schema"
+export const DB_VIRTUAL_DATABASES_ID = "virtual:@vitehub/db/databases"
 export const DB_VITE_PLUGIN_NAME = "@vitehub/db/vite"
 
-const RESOLVED_DB_VIRTUAL_CONFIG_ID = `\0${DB_VIRTUAL_CONFIG_ID}`
 const RESOLVED_DB_VIRTUAL_SCHEMA_ID = `\0${DB_VIRTUAL_SCHEMA_ID}`
+const RESOLVED_DB_VIRTUAL_DATABASES_ID = `\0${DB_VIRTUAL_DATABASES_ID}`
 
 export interface DBVitePluginAPI {
   getConfig: () => ResolvedDBViteConfig | undefined
@@ -24,37 +23,46 @@ export type DBVitePlugin = Plugin & { api: DBVitePluginAPI }
 
 const mergeNoExternal = createNoExternalMerger(dbPackageName)
 
-function serializeConfig(config: ResolvedDBViteConfig | undefined) {
-  return `export default ${JSON.stringify(config)};\n`
-}
-
 function serializeSchemaModule(config: ResolvedDBViteConfig | undefined) {
-  if (!config?.schemaPaths.length) {
-    return [
-      "throw new Error(",
-      JSON.stringify("[vitehub] No Drizzle schema files found. Create `src/db/schema.ts` or set `db.drizzle.schemaPaths`."),
-      ");",
-      "",
-    ].join("\n")
-  }
-
-  const imports = config.schemaPaths.map((file, index) => `import * as schema${index} from ${JSON.stringify(file)};`)
-  const exports = config.schemaPaths.map(file => `export * from ${JSON.stringify(file)};`)
-  const schemaRefs = config.schemaPaths.map((_, index) => `schema${index}`)
-
+  const defaultSchemaPaths = config?.schemaPathsByDatabase.default || []
   return [
-    ...imports,
-    ...exports,
-    `const schema = Object.assign({}, ${schemaRefs.join(", ")});`,
+    serializeSchemaObject(defaultSchemaPaths, "schema", true),
     "export { schema };",
     "export default schema;",
     "",
   ].join("\n")
 }
 
-export function hubDb(options?: DBModuleOptions): DBVitePlugin {
+function serializeDatabasesModule(config: ResolvedDBViteConfig | undefined) {
+  if (!config) {
+    return "export default {};\n"
+  }
+
+  const schemaBlocks = config.databaseNames.map((name, index) => serializeSchemaObject(
+    config.schemaPathsByDatabase[name] || [],
+    `schema_${index}`,
+  ))
+  const entries = config.databaseNames.map((name, index) => [
+    `  ${JSON.stringify(name)}: {`,
+    `    config: ${JSON.stringify(config.databases[name], null, 4)},`,
+    `    schema: schema_${index},`,
+    "  },",
+  ].join("\n"))
+
+  return [
+    ...schemaBlocks,
+    "export const databases = {",
+    ...entries,
+    "}",
+    "",
+    "export default databases",
+    "",
+  ].join("\n")
+}
+
+export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
-  let runtimeConfig = resolveDBViteConfig(options)
+  let runtimeConfig: ResolvedDBViteConfig | undefined
   const getConfig = () => runtimeConfig
 
   return {
@@ -63,6 +71,10 @@ export function hubDb(options?: DBModuleOptions): DBVitePlugin {
     configResolved(config) {
       resolved = config
       runtimeConfig = resolveDBViteConfig(config.db ?? options, config.root)
+
+      if (runtimeConfig && !runtimeConfig.schemaPathsByDatabase.default?.length) {
+        throw new Error("[vitehub] No Drizzle schema files found. Create `src/db/schema.ts` or set `db.drizzle.schemaPaths`.")
+      }
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -78,35 +90,36 @@ export function hubDb(options?: DBModuleOptions): DBVitePlugin {
         return
       }
 
-      const isSchemaUpdate = runtimeConfig.schemaPaths.includes(context.file)
-        || context.file.includes("/src/db/")
+      const dbDir = `${runtimeConfig.rootDir}/src/db/`
+      const isSchemaUpdate = Object.values(runtimeConfig.schemaPathsByDatabase).some(paths => paths.includes(context.file))
+        || context.file.startsWith(dbDir)
       if (!isSchemaUpdate) {
         return
       }
 
-      const configModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_CONFIG_ID)
       const schemaModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_SCHEMA_ID)
-      if (configModule) {
-        context.server.moduleGraph.invalidateModule(configModule)
-      }
+      const databasesModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DATABASES_ID)
       if (schemaModule) {
         context.server.moduleGraph.invalidateModule(schemaModule)
       }
+      if (databasesModule) {
+        context.server.moduleGraph.invalidateModule(databasesModule)
+      }
     },
     resolveId(id) {
-      if (id === DB_VIRTUAL_CONFIG_ID) {
-        return RESOLVED_DB_VIRTUAL_CONFIG_ID
-      }
       if (id === DB_VIRTUAL_SCHEMA_ID) {
         return RESOLVED_DB_VIRTUAL_SCHEMA_ID
       }
+      if (id === DB_VIRTUAL_DATABASES_ID) {
+        return RESOLVED_DB_VIRTUAL_DATABASES_ID
+      }
     },
     load(id) {
-      if (id === RESOLVED_DB_VIRTUAL_CONFIG_ID) {
-        return serializeConfig(getConfig())
-      }
       if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) {
         return serializeSchemaModule(getConfig())
+      }
+      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) {
+        return serializeDatabasesModule(getConfig())
       }
     },
     async closeBundle() {
@@ -125,6 +138,6 @@ export function hubDb(options?: DBModuleOptions): DBVitePlugin {
 
 declare module "vite" {
   interface UserConfig {
-    db?: DBModuleOptions
+    db?: DBModulePublicOptions
   }
 }

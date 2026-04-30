@@ -56,6 +56,10 @@ describe("unified vite e2e hosted outputs", () => {
         KV_NAMESPACE_ID: "kv-namespace",
         TURSO_AUTH_TOKEN: "token",
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
+        TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
+        VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+        VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+        VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
         VITEHUB_HOSTING: "cloudflare",
         VITEHUB_VITE_MODE: "e2e",
       },
@@ -78,6 +82,21 @@ describe("unified vite e2e hosted outputs", () => {
       binding: "BLOB",
       bucket_name: "assets",
     })
+    expect(cloudflareConfig.d1_databases).toEqual([
+      expect.objectContaining({
+        binding: "DB",
+        database_id: "primary-d1-id",
+      }),
+      expect.objectContaining({
+        binding: "DB_ANALYTICS",
+        database_id: "analytics-d1-id",
+      }),
+    ])
+    expect(cloudflareConfig.name).toBe("vitehub-playground-vite")
+    expect(cloudflareConfig.containers).toContainEqual(expect.objectContaining({
+      class_name: "Sandbox",
+      name: "vitehub-playground-vite-sandbox",
+    }))
     expect(cloudflareConfig.workflows).toHaveLength(1)
     expect(cloudflareConfig.queues?.producers).toHaveLength(1)
     expect(cloudflareConfig.queues?.consumers).toHaveLength(1)
@@ -96,6 +115,7 @@ describe("unified vite e2e hosted outputs", () => {
         KV_REST_API_TOKEN: "kv-token",
         KV_REST_API_URL: "https://upstash.example.com",
         TURSO_AUTH_TOKEN: "token",
+        TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
         VITEHUB_HOSTING: "vercel",
         VITEHUB_VITE_MODE: "e2e",
@@ -115,6 +135,7 @@ describe("unified vite e2e hosted outputs", () => {
     expect(existsSync(vercelServer)).toBe(true)
     expect(existsSync(vercelConsumer)).toBe(true)
     expect(vercelServerContents).toContain("/api/db")
+    expect(vercelServerContents).toContain("/api/db/analytics")
     expect(vercelServerContents).toContain("/api/blob")
     expect(vercelServerContents).toContain("/api/workflows/welcome")
     expect(vercelConsumerContents).toContain("waitUntil")

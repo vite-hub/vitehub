@@ -17,6 +17,7 @@
     "./runtime/app": "./src/runtime/app.ts",
     "./runtime/cloudflare-env": "./src/runtime/cloudflare-env.ts",
     "./runtime/random": "./src/runtime/random.ts",
+    "./build/cloudflare": "./src/build/cloudflare.ts",
     "./build/mode": "./src/build/mode.ts",
     "./build/paths": "./src/build/paths.ts",
     "./build/esbuild": "./src/build/esbuild.ts",

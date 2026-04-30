@@ -3,42 +3,101 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { sql } from "drizzle-orm"
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { setActiveCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
 
-const schema = {
+const defaultSchema = {
   notes: sqliteTable("notes", {
     id: integer("id").primaryKey({ autoIncrement: true }),
     title: text("title").notNull(),
   }),
 }
 
+const analyticsSchema = {
+  analyticsEvents: sqliteTable("analytics_events", {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+  }),
+}
+
 const runtimeState = {
+  analyticsDbPath: "",
   dbPath: "",
-};
+}
 
-(vi.mock as any)("virtual:@vitehub/db/schema", () => ({
-  ...schema,
-  default: schema,
-}), { virtual: true });
-
-(vi.mock as any)("virtual:@vitehub/db/config", () => ({
-  default: {
-    db: {
-      connection: {
-        get url() {
-          return runtimeState.dbPath
+function createFakeD1Binding() {
+  return {
+    batch: async () => [],
+    prepare() {
+      return {
+        bind() {
+          return {
+            all: async () => ({ results: [] }),
+            raw: async () => [],
+            run: async () => ({}),
+          }
         },
+      }
+    },
+  }
+}
+
+;(vi.mock as any)("virtual:@vitehub/db/schema", () => ({
+  ...defaultSchema,
+  default: defaultSchema,
+}), { virtual: true })
+
+;(vi.mock as any)("virtual:@vitehub/db/databases", () => ({
+  default: {
+    analytics: {
+      config: {
+        cloudflare: {
+          binding: "DB_ANALYTICS",
+        },
+        connection: {
+          get url() {
+            return runtimeState.analyticsDbPath || undefined
+          },
+        },
+        dialect: "sqlite",
+        drizzle: {
+          casing: undefined,
+          migrationsDirs: ["src/db/analytics/migrations"],
+          schemaPaths: [],
+        },
+        name: "analytics",
+        orm: "drizzle",
       },
-      drizzle: {},
+      schema: analyticsSchema,
+    },
+    default: {
+      config: {
+        connection: {
+          get url() {
+            return runtimeState.dbPath
+          },
+        },
+        dialect: "sqlite",
+        drizzle: {
+          casing: undefined,
+          migrationsDirs: ["src/db/migrations"],
+          schemaPaths: [],
+        },
+        name: "default",
+        orm: "drizzle",
+      },
+      schema: defaultSchema,
     },
   },
-}), { virtual: true });
+}), { virtual: true })
 
 let tempDir = ""
 
 afterEach(async () => {
+  runtimeState.analyticsDbPath = ""
   runtimeState.dbPath = ""
+  setActiveCloudflareEnv(undefined)
   vi.resetModules()
   if (tempDir) {
     await rm(tempDir, { force: true, recursive: true })
@@ -47,23 +106,49 @@ afterEach(async () => {
 })
 
 describe("drizzle runtime", () => {
-  it("creates a local sqlite database and serves the configured schema", async () => {
+  it("keeps db as the default database alias and serves named schemas independently", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vitehub-db-runtime-"))
     runtimeState.dbPath = `file:${join(tempDir, "db.sqlite")}`
+    runtimeState.analyticsDbPath = `file:${join(tempDir, "analytics.sqlite")}`
 
-    const { db } = await import("../src/runtime/drizzle-runtime.ts")
+    const { databases, db } = await import("../src/drizzle.ts")
 
-    await db.run(sql`
+    expect(db).toBe(databases.default.db)
+
+    await databases.default.db.run(sql`
       create table if not exists notes (
         id integer primary key autoincrement,
         title text not null
       )
     `)
+    await databases.analytics.db.run(sql`
+      create table if not exists analytics_events (
+        id integer primary key autoincrement,
+        name text not null
+      )
+    `)
 
-    await db.insert(schema.notes).values({ title: "runtime note" })
+    await databases.default.db.insert(defaultSchema.notes).values({ title: "runtime note" })
+    await databases.analytics.db.insert(analyticsSchema.analyticsEvents).values({ name: "page-view" })
 
-    const rows = await db.select().from(schema.notes)
-    expect(rows).toEqual([{ id: 1, title: "runtime note" }])
+    expect(await databases.default.db.select().from(defaultSchema.notes)).toEqual([{ id: 1, title: "runtime note" }])
+    expect(await databases.analytics.db.select().from(analyticsSchema.analyticsEvents)).toEqual([{ id: 1, name: "page-view" }])
+  })
+
+  it("prefers an active Cloudflare D1 binding over the configured fallback URL", async () => {
+    runtimeState.analyticsDbPath = "file:.data/analytics.sqlite"
+    const binding = createFakeD1Binding()
+    setActiveCloudflareEnv({ DB_ANALYTICS: binding })
+
+    const { databases } = await import("../src/runtime/drizzle-runtime.ts")
+
+    expect((databases.analytics.db as { $client?: unknown }).$client).toBe(binding)
+  })
+
+  it("throws when a named database has neither an active binding nor a fallback URL", async () => {
+    const { databases } = await import("../src/runtime/drizzle-runtime.ts")
+
+    expect(() => databases.analytics.db.run).toThrow("Database \"analytics\" requires a Cloudflare D1 binding or `db.connection.url`.")
   })
 })
 
@@ -80,9 +165,33 @@ describe("hosted drizzle runtime", () => {
         migrationsDirs: [],
         schemaPaths: [],
       },
+      name: "default",
       orm: "drizzle",
-    }, schema)
+    }, defaultSchema)
 
-    expect(() => db.run).toThrow("Hosted DB outputs require a remote libSQL URL")
+    expect(() => db.run).toThrow("Hosted DB \"default\" requires a Cloudflare D1 binding or a remote libSQL URL")
+  })
+
+  it("uses the active Cloudflare binding when hosted outputs run on Cloudflare", async () => {
+    const binding = createFakeD1Binding()
+    setActiveCloudflareEnv({ DB_ANALYTICS: binding })
+
+    const { createHostedDrizzleDb } = await import("../src/runtime/hosted.ts")
+    const db = createHostedDrizzleDb({
+      cloudflare: {
+        binding: "DB_ANALYTICS",
+        databaseId: "analytics-d1-id",
+        migrationsDir: "src/db/analytics/migrations",
+      },
+      dialect: "sqlite",
+      drizzle: {
+        migrationsDirs: ["src/db/analytics/migrations"],
+        schemaPaths: [],
+      },
+      name: "analytics",
+      orm: "drizzle",
+    }, analyticsSchema)
+
+    expect((db as { $client?: unknown }).$client).toBe(binding)
   })
 })

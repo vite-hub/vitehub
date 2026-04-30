@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises"
-import { join, resolve } from "node:path"
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { execFile } from "node:child_process"
+import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
@@ -42,30 +42,84 @@ afterAll(async () => {
 })
 
 describe("Vite db provider outputs", () => {
-  it("builds the playground and emits Cloudflare and Vercel outputs", async () => {
+  it("builds the playground and emits multi-database Cloudflare and Vercel outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-db-vite-playground-")
 
     await execFileAsync("pnpm", ["exec", "vite", "build"], {
       cwd: rootDir,
       env: {
         ...process.env,
+        TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
         TURSO_AUTH_TOKEN: "token",
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
+        VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+        VITEHUB_D1_DATABASE_ID: "primary-d1-id",
         VITEHUB_VITE_MODE: "db",
       },
     })
 
     const cloudflareWorker = join(rootDir, "dist", "vite", "index.js")
-    const cloudflareConfig = join(rootDir, "dist", "vite", "wrangler.json")
+    const cloudflareConfig = JSON.parse(await readFile(join(rootDir, "dist", "vite", "wrangler.json"), "utf8"))
     const vercelConfig = join(rootDir, ".vercel", "output", "config.json")
     const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
 
     expect(existsSync(cloudflareWorker)).toBe(true)
-    expect(await readFile(cloudflareConfig, "utf8")).toContain("\"main\": \"index.js\"")
+    expect(cloudflareConfig.d1_databases).toEqual([
+      expect.objectContaining({
+        binding: "DB",
+        database_id: "primary-d1-id",
+      }),
+      expect.objectContaining({
+        binding: "DB_ANALYTICS",
+        database_id: "analytics-d1-id",
+      }),
+    ])
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
     const vercelServerCode = await readFile(vercelServer, "utf8")
     expect(vercelServerCode).toContain("libsql://db.example.turso.io")
+    expect(vercelServerCode).toContain("libsql://analytics.example.turso.io")
+    expect(vercelServerCode).toContain("/api/db/analytics")
     expect(vercelServerCode).not.toContain("@libsql/linux-x64-gnu")
+  }, 30_000)
+
+  it("fails the hosted build when a named D1 database has no Vercel fallback URL", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-db-vite-d1-only-")
+    const viteConfigPath = join(rootDir, "vite.config.ts")
+    const viteConfig = await readFile(viteConfigPath, "utf8")
+    await writeFile(
+      viteConfigPath,
+      viteConfig.replaceAll(
+        [
+          "    analytics: {",
+          "      connection: {",
+          "        authToken: process.env.TURSO_AUTH_TOKEN,",
+          "        url: process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL,",
+          "      },",
+        ].join("\n"),
+        "    analytics: {",
+      ),
+      "utf8",
+    )
+
+    let error: Error | undefined
+    try {
+      await execFileAsync("pnpm", ["exec", "vite", "build"], {
+        cwd: rootDir,
+        env: {
+          ...process.env,
+          TURSO_AUTH_TOKEN: "token",
+          TURSO_DATABASE_URL: "libsql://db.example.turso.io",
+          VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+          VITEHUB_VITE_MODE: "db",
+        },
+      })
+    }
+    catch (caught) {
+      error = caught as Error
+    }
+
+    expect(error).toBeTruthy()
+    expect((error as { stderr?: string; message?: string } | undefined)?.stderr || (error as { message?: string } | undefined)?.message || String(error)).toContain("Vercel output requires `db.connection.url` for D1-only databases: analytics")
   }, 30_000)
 })

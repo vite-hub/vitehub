@@ -12,6 +12,7 @@ async function createTempProject() {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-config-"))
   tempDirs.push(rootDir)
   await mkdir(join(rootDir, "src/db/schema"), { recursive: true })
+  await mkdir(join(rootDir, "src/db/analytics/schema"), { recursive: true })
   return rootDir
 }
 
@@ -29,6 +30,7 @@ describe("normalizeDBOptions", () => {
         migrationsDirs: ["src/db/migrations"],
         schemaPaths: [],
       },
+      name: "default",
       orm: "drizzle",
     })
   })
@@ -61,10 +63,61 @@ describe("normalizeDBOptions", () => {
 })
 
 describe("resolveDBViteConfig", () => {
-  it("discovers default schema files and merges explicit schemaPaths", async () => {
+  it("discovers default and named schema files with separate defaults", async () => {
     const rootDir = await createTempProject()
     await writeFile(join(rootDir, "src/db/schema.ts"), "export const rootSchema = true\n")
     await writeFile(join(rootDir, "src/db/schema/notes.ts"), "export const notesSchema = true\n")
+    await writeFile(join(rootDir, "src/db/analytics/schema.ts"), "export const analyticsSchema = true\n")
+    await writeFile(join(rootDir, "src/db/analytics/schema/events.ts"), "export const analyticsEvents = true\n")
+
+    const resolved = resolveDBViteConfig({
+      databases: {
+        analytics: {},
+      },
+    }, rootDir)
+
+    expect(resolved?.databaseNames).toEqual(["default", "analytics"])
+    expect(resolved?.databases.default.connection?.url).toBe("file:.data/db/sqlite.db")
+    expect(resolved?.databases.analytics?.connection?.url).toBe("file:.data/db/analytics.sqlite.db")
+    expect(resolved?.schemaPathsByDatabase.default).toEqual([
+      join(rootDir, "src/db/schema.ts"),
+      join(rootDir, "src/db/schema/notes.ts"),
+    ])
+    expect(resolved?.schemaPathsByDatabase.analytics).toEqual([
+      join(rootDir, "src/db/analytics/schema.ts"),
+      join(rootDir, "src/db/analytics/schema/events.ts"),
+    ])
+    expect(resolved?.databases.analytics?.drizzle.migrationsDirs).toEqual(["src/db/analytics/migrations"])
+    expect(resolved?.databases.analytics?.cloudflare).toBeUndefined()
+  })
+
+  it("keeps cloudflare-only named databases D1-only until a fallback is configured", async () => {
+    const rootDir = await createTempProject()
+    await writeFile(join(rootDir, "src/db/schema.ts"), "export const rootSchema = true\n")
+
+    const resolved = resolveDBViteConfig({
+      databases: {
+        analytics: {
+          cloudflare: {
+            databaseId: "analytics-d1-id",
+          },
+        },
+      },
+    }, rootDir)
+
+    expect(resolved?.databases.analytics).toMatchObject({
+      cloudflare: {
+        binding: "DB_ANALYTICS",
+        databaseId: "analytics-d1-id",
+        migrationsDir: "src/db/analytics/migrations",
+      },
+    })
+    expect(resolved?.databases.analytics?.connection).toBeUndefined()
+  })
+
+  it("merges explicit schema paths into the matching database", async () => {
+    const rootDir = await createTempProject()
+    await writeFile(join(rootDir, "src/db/schema.ts"), "export const rootSchema = true\n")
     await writeFile(join(rootDir, "src/custom.ts"), "export const customSchema = true\n")
 
     const resolved = resolveDBViteConfig({
@@ -73,10 +126,9 @@ describe("resolveDBViteConfig", () => {
       },
     }, rootDir)
 
-    expect(resolved?.schemaPaths).toEqual([
+    expect(resolved?.schemaPathsByDatabase.default).toEqual([
       join(rootDir, "src/custom.ts"),
       join(rootDir, "src/db/schema.ts"),
-      join(rootDir, "src/db/schema/notes.ts"),
     ])
   })
 
@@ -87,6 +139,16 @@ describe("resolveDBViteConfig", () => {
       drizzle: {
         schemaPaths: ["src/missing.ts"],
       },
-    }, rootDir)).toThrow("Drizzle schema path not found")
+    }, rootDir)).toThrow("Database \"default\" schema path not found")
+  })
+
+  it("rejects reserved default keys inside db.databases", async () => {
+    const rootDir = await createTempProject()
+
+    expect(() => resolveDBViteConfig({
+      databases: {
+        default: {},
+      },
+    } as never, rootDir)).toThrow("`db.databases.default` is reserved")
   })
 })

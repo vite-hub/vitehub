@@ -2,20 +2,23 @@ import { readEnv } from "@vitehub/internal/env"
 import { getActiveCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
 
 import { normalizeKVOptions } from "../config.ts"
-import type { KVStorage } from "../types.ts"
-import type { ResolvedKVModuleOptions } from "../types.ts"
-import { createHostedKVStorage } from "./hosted-storage.ts"
-
-interface RuntimeStorage {
-  clear(base?: string, options?: unknown): Promise<void>
-  getItem<T = unknown>(key: string, options?: unknown): Promise<T | null>
-  getKeys(base?: string, options?: unknown): Promise<string[]>
-  hasItem(key: string, options?: unknown): Promise<boolean>
-  removeItem(key: string, options?: unknown): Promise<void>
-  setItem<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
-}
+import type { KVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import { createHostedKVStorage, type RuntimeStorage } from "./hosted-storage.ts"
 
 let storagePromise: Promise<RuntimeStorage> | undefined
+
+function inferHosting(env: Record<string, string | undefined>) {
+  if (getActiveCloudflareEnv()) {
+    return "cloudflare"
+  }
+
+  const explicit = readEnv(env, "VITEHUB_HOSTING", "NITRO_PRESET")
+  if (explicit) {
+    return explicit
+  }
+
+  return readEnv(env, "KV_REST_API_URL", "UPSTASH_REDIS_REST_URL") ? "vercel" : undefined
+}
 
 async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | undefined> {
   const virtualConfigId = "virtual:@vitehub/kv/config"
@@ -27,12 +30,13 @@ async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | 
     ) as { kv: false | ResolvedKVModuleOptions }
     return module.kv
   }
-  catch {
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    if (code !== "MODULE_NOT_FOUND" && code !== "ERR_MODULE_NOT_FOUND") {
+      throw error
+    }
     const env = typeof process !== "undefined" ? process.env : {}
-    const hosting = getActiveCloudflareEnv()
-      ? "cloudflare"
-      : readEnv(env, "VITEHUB_HOSTING", "NITRO_PRESET") || (readEnv(env, "KV_REST_API_URL", "UPSTASH_REDIS_REST_URL") ? "vercel" : undefined)
-    return normalizeKVOptions(undefined, { env, hosting }) || false
+    return normalizeKVOptions(undefined, { env, hosting: inferHosting(env) }) || false
   }
 }
 

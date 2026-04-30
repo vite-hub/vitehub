@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 
 import { normalizeBlobOptions } from "../../../packages/blob/src/config.ts"
 import { resolveDBViteConfig } from "../../../packages/db/src/config.ts"
+import { serializeSchemaObject } from "../../../packages/db/src/internal/schema-serializer.ts"
 import { configureCloudflareKV } from "../../../packages/kv/src/integrations/cloudflare.ts"
 import { normalizeKVOptions } from "../../../packages/kv/src/config.ts"
 import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
@@ -20,6 +21,7 @@ import { finalizeCloudflareWranglerConfig } from "../../../packages/sandbox/src/
 import { normalizeWorkflowOptions } from "../../../packages/workflow/src/config.ts"
 import { discoverWorkflowDefinitions } from "../../../packages/workflow/src/discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../../../packages/workflow/src/integrations/cloudflare.ts"
+import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
 import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
 import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vitehub/internal/build/paths"
@@ -46,13 +48,13 @@ const sandboxPackageDir = resolve(packagesDir, "sandbox")
 const workflowPackageDir = resolve(packagesDir, "workflow")
 const viteE2EProductName = "vite-e2e"
 
-type HostedProvider = "cloudflare" | "vercel"
+export type HostedProvider = "cloudflare" | "vercel"
 
 export interface ViteE2EComposerOptions {
   blob?: false | ResolvedBlobModuleOptions
   clientOutDir: string
   db?: ResolvedDBViteConfig
-  hosting: string
+  hosting: HostedProvider
   kv?: false | ResolvedKVModuleOptions
   rootDir: string
   sandbox?: false | AgentSandboxConfig
@@ -65,6 +67,7 @@ interface CloudflareWranglerConfig {
   compatibility_date: string
   compatibility_flags: string[]
   containers?: Array<Record<string, unknown>>
+  d1_databases?: Array<Record<string, unknown>>
   durable_objects?: { bindings?: Array<Record<string, unknown>> }
   kv_namespaces?: Array<Record<string, unknown>>
   main: string
@@ -95,6 +98,11 @@ function resolveHostedProvider(hosting: string): HostedProvider {
   throw new TypeError(`[vitehub] Unsupported hosted e2e provider: ${hosting || "<empty>"}`)
 }
 
+function resolveCloudflareWorkerName(rootDir: string) {
+  const workerName = process.env.VITEHUB_CLOUDFLARE_WORKER_NAME?.trim()
+  return workerName || toSafeAppName(rootDir)
+}
+
 function resolvePackageRuntime(packageDir: string, modulePath: string) {
   return resolve(packageDir, "src", `${modulePath}.ts`)
 }
@@ -103,29 +111,33 @@ function resolvePackageDependency(packageDir: string, specifier: string) {
   return createRequire(resolve(packageDir, "package.json")).resolve(specifier)
 }
 
-function serializeDbSchemaModule(schemaPaths: string[]) {
-  const imports = schemaPaths.map((file, index) => `import * as schema${index} from ${JSON.stringify(file)};`)
-  const exports = schemaPaths.map(file => `export * from ${JSON.stringify(file)};`)
-  const refs = schemaPaths.map((_, index) => `schema${index}`)
-
-  return [
-    ...imports,
-    ...exports,
-    `const schema = Object.assign({}, ${refs.join(", ")});`,
-    "export { schema };",
-    "export default schema;",
-    "",
-  ].join("\n")
+function resolveSandboxClassName(config: { className?: unknown } | undefined) {
+  return typeof config?.className === "string" ? config.className : defaultCloudflareSandboxClassName
 }
 
 function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
+  const schemaBlocks = config.databaseNames.map((name, index) => serializeSchemaObject(
+    config.schemaPathsByDatabase[name] || [],
+    `schema_${index}`,
+    name === "default",
+  ))
+  const databaseEntries = config.databaseNames.map((name, index) => [
+    `  ${JSON.stringify(name)}: {`,
+    `    db: createHostedDrizzleDb(${JSON.stringify(config.databases[name], null, 4)}, schema_${index}),`,
+    `    schema: schema_${index},`,
+    "  },",
+  ].join("\n"))
+
   return [
     `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/hosted")))}`,
     "",
-    serializeDbSchemaModule(config.schemaPaths),
-    `const dbConfig = ${JSON.stringify(config.db, null, 2)}`,
+    ...schemaBlocks,
+    "export const databases = {",
+    ...databaseEntries,
+    "}",
     "",
-    "export const db = createHostedDrizzleDb(dbConfig, schema)",
+    "export const db = databases.default.db",
+    "export const schema = databases.default.schema",
     "",
   ].join("\n")
 }
@@ -300,75 +312,82 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     ? discoverNitroSandboxDefinitions([resolve(options.rootDir, "server")])
     : []
 
+  const runtimeWrites: Promise<void>[] = []
+
   let queueRegistryFile: string | undefined
   if (queueDefinitions.length) {
     queueRegistryFile = resolve(generatedDir, "queue-registry.mjs")
-    await writeFile(queueRegistryFile, createRuntimeRegistryContents(queueRegistryFile, queueDefinitions), "utf8")
+    runtimeWrites.push(writeFile(queueRegistryFile, createRuntimeRegistryContents(queueRegistryFile, queueDefinitions), "utf8"))
   }
 
   let workflowRegistryFile: string | undefined
   if (workflowDefinitions.length) {
     workflowRegistryFile = resolve(generatedDir, "workflow-registry.mjs")
-    await writeFile(workflowRegistryFile, createRuntimeRegistryContents(workflowRegistryFile, workflowDefinitions), "utf8")
+    runtimeWrites.push(writeFile(workflowRegistryFile, createRuntimeRegistryContents(workflowRegistryFile, workflowDefinitions), "utf8"))
   }
 
   if (options.db) {
     const dbRuntimeFile = resolve(generatedDir, "db-runtime.mjs")
-    await writeFile(dbRuntimeFile, renderDbRuntimeModule(dbRuntimeFile, options.db), "utf8")
     alias["@vitehub/db/drizzle"] = dbRuntimeFile
+    runtimeWrites.push(writeFile(dbRuntimeFile, renderDbRuntimeModule(dbRuntimeFile, options.db), "utf8"))
   }
 
   if (typeof options.blob !== "undefined") {
     const blobRuntimeFile = resolve(generatedDir, "blob-runtime.mjs")
-    await writeFile(blobRuntimeFile, renderBlobRuntimeModule(blobRuntimeFile, options.blob), "utf8")
     alias["@vitehub/blob"] = blobRuntimeFile
+    runtimeWrites.push(writeFile(blobRuntimeFile, renderBlobRuntimeModule(blobRuntimeFile, options.blob), "utf8"))
   }
 
   if (typeof options.kv !== "undefined") {
     const kvRuntimeFile = resolve(generatedDir, "kv-runtime.mjs")
-    await writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8")
     alias["@vitehub/kv"] = kvRuntimeFile
+    runtimeWrites.push(writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"))
   }
 
   if (typeof options.queue !== "undefined") {
     const queueRuntimeFile = resolve(generatedDir, "queue-runtime.mjs")
-    await writeFile(queueRuntimeFile, renderQueueRuntimeModule(queueRuntimeFile), "utf8")
     alias["@vitehub/queue"] = queueRuntimeFile
+    runtimeWrites.push(writeFile(queueRuntimeFile, renderQueueRuntimeModule(queueRuntimeFile), "utf8"))
   }
 
   if (typeof options.sandbox !== "undefined") {
     const sandboxRuntimeFile = resolve(generatedDir, "sandbox-runtime.mjs")
-    await writeFile(sandboxRuntimeFile, renderSandboxRuntimeModule(sandboxRuntimeFile), "utf8")
     alias["@vitehub/sandbox"] = sandboxRuntimeFile
+    runtimeWrites.push(writeFile(sandboxRuntimeFile, renderSandboxRuntimeModule(sandboxRuntimeFile), "utf8"))
   }
 
   if (typeof options.workflow !== "undefined") {
     const workflowRuntimeFile = resolve(generatedDir, "workflow-runtime.mjs")
-    await writeFile(workflowRuntimeFile, renderWorkflowRuntimeModule(workflowRuntimeFile), "utf8")
     alias["@vitehub/workflow"] = workflowRuntimeFile
+    runtimeWrites.push(writeFile(workflowRuntimeFile, renderWorkflowRuntimeModule(workflowRuntimeFile), "utf8"))
   }
+
+  await Promise.all(runtimeWrites)
 
   let sandboxConfig: false | AgentSandboxConfig | undefined
   if (options.sandbox) {
     sandboxConfig = resolveSandboxFeatureConfig(options.sandbox, options.hosting)
     const sandboxProvider = sandboxConfig.provider === "vercel" ? "vercel" : "cloudflare"
-    const emittedDefinitions: Array<{ file: string, name: string }> = []
 
-    for (const definition of sandboxDefinitions) {
-      const source = await readFile(definition._meta.sourcePath, "utf8")
-      const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath)
+    const emittedDefinitions = await Promise.all(sandboxDefinitions.map(async (definition) => {
       const file = resolve(generatedDir, "runtime", "sandbox-definitions", `${toSandboxArtifactName(definition.name)}.mjs`)
-      const definitionOptions = await extractSandboxDefinitionOptions(definition.handler)
+      const [source, definitionOptions] = await Promise.all([
+        readFile(definition._meta.sourcePath, "utf8"),
+        extractSandboxDefinitionOptions(definition.handler),
+      ])
+      const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath)
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, `export default ${JSON.stringify({ bundle, options: definitionOptions ?? undefined })}\n`, "utf8")
-      emittedDefinitions.push({ file, name: definition.name })
-    }
+      return { file, name: definition.name }
+    }))
 
     const sandboxRegistryFile = resolve(generatedDir, "runtime", "sandbox-registry.mjs")
-    await writeFile(sandboxRegistryFile, renderSandboxRegistryModule(emittedDefinitions), "utf8")
-
     const sandboxProviderLoaderFile = resolve(generatedDir, "runtime", "sandbox-provider-loader.mjs")
-    await writeFile(sandboxProviderLoaderFile, renderSandboxProviderLoaderModule(sandboxProviderLoaderFile, sandboxProvider), "utf8")
+
+    await Promise.all([
+      writeFile(sandboxRegistryFile, renderSandboxRegistryModule(emittedDefinitions), "utf8"),
+      writeFile(sandboxProviderLoaderFile, renderSandboxProviderLoaderModule(sandboxProviderLoaderFile, sandboxProvider), "utf8"),
+    ])
 
     alias["virtual:vitehub-sandbox-registry"] = sandboxRegistryFile
     alias["#vitehub-sandbox-registry"] = sandboxRegistryFile
@@ -455,7 +474,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     "",
     ...workflowClassExports,
     artifacts.sandboxConfig && options.sandbox
-      ? `export class ${typeof (artifacts.sandboxConfig as { className?: string }).className === "string" ? (artifacts.sandboxConfig as { className?: string }).className : defaultCloudflareSandboxClassName} extends CloudflareSandbox {}`
+      ? `export class ${resolveSandboxClassName(artifacts.sandboxConfig)} extends CloudflareSandbox {}`
       : "",
     "",
     "const worker = {",
@@ -593,11 +612,32 @@ function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | 
   return [{ binding: config.store.binding, bucket_name: config.store.bucketName }]
 }
 
+function createCloudflareD1Bindings(config: ResolvedDBViteConfig | undefined) {
+  if (!config) {
+    return undefined
+  }
+
+  const bindings = config.databaseNames
+    .map(name => config.databases[name]?.cloudflare)
+    .filter(database => Boolean(database?.databaseId))
+    .map(database => ({
+      binding: database!.binding,
+      database_id: database!.databaseId,
+      ...(database!.databaseName ? { database_name: database!.databaseName } : {}),
+      ...(database!.migrationsDir ? { migrations_dir: database!.migrationsDir } : {}),
+      ...(database!.migrationsTable ? { migrations_table: database!.migrationsTable } : {}),
+      ...(database!.previewDatabaseId ? { preview_database_id: database!.previewDatabaseId } : {}),
+    }))
+
+  return bindings.length ? bindings : undefined
+}
+
 async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts: GeneratedFeatureArtifacts) {
   const clientDir = resolve(options.rootDir, options.clientOutDir)
   const outputRoot = resolve(options.rootDir, "dist", toSafeAppName(options.rootDir))
   const workerEntry = resolve(artifacts.generatedDir, "cloudflare-entry.mjs")
   const staticIndex = hasStaticIndex(clientDir)
+  const workerName = resolveCloudflareWorkerName(options.rootDir)
 
   await writeFile(workerEntry, renderCloudflareEntry(workerEntry, options, artifacts), "utf8")
   await rm(outputRoot, { force: true, recursive: true })
@@ -624,16 +664,21 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
     platform: "neutral",
   })
 
+  const d1Databases = createCloudflareD1Bindings(options.db)
+  const queueBindings = createCloudflareQueueBindings(artifacts.queueDefinitions)
+  const r2Buckets = createCloudflareR2Bindings(options.blob)
+
   const wranglerConfig: CloudflareWranglerConfig = {
-    compatibility_date: "2026-04-20",
+    compatibility_date: defaultCloudflareCompatibilityDate,
     compatibility_flags: ["nodejs_compat"],
+    ...(d1Databases ? { d1_databases: d1Databases } : {}),
     main: "index.js",
-    name: toSafeAppName(options.rootDir),
+    name: workerName,
     observability: { enabled: true },
     ...(staticIndex ? { assets: { directory: "../client", run_worker_first: ["/api/*"] } } : {}),
-    ...(createCloudflareQueueBindings(artifacts.queueDefinitions) ? { queues: createCloudflareQueueBindings(artifacts.queueDefinitions) } : {}),
+    ...(queueBindings ? { queues: queueBindings } : {}),
     ...(artifacts.workflowBindings.length ? { workflows: artifacts.workflowBindings } : {}),
-    ...(createCloudflareR2Bindings(options.blob) ? { r2_buckets: createCloudflareR2Bindings(options.blob) } : {}),
+    ...(r2Buckets ? { r2_buckets: r2Buckets } : {}),
   }
 
   if (options.kv) {
@@ -641,10 +686,12 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
   }
 
   if (artifacts.sandboxConfig && artifacts.sandboxConfig.provider === "cloudflare") {
+    const sandboxClassName = resolveSandboxClassName(artifacts.sandboxConfig)
     configureCloudflareSandbox({ cloudflare: { wrangler: wranglerConfig } as never }, {
       binding: typeof artifacts.sandboxConfig.binding === "string" ? artifacts.sandboxConfig.binding : defaultCloudflareSandboxBinding,
-      className: typeof artifacts.sandboxConfig.className === "string" ? artifacts.sandboxConfig.className : defaultCloudflareSandboxClassName,
+      className: sandboxClassName,
       migrationTag: typeof artifacts.sandboxConfig.migrationTag === "string" ? artifacts.sandboxConfig.migrationTag : defaultCloudflareSandboxMigrationTag,
+      name: toSafeAppName(`${workerName}-${sandboxClassName}`),
     })
     await writeCloudflareSandboxDockerfile(outputRoot)
   }
@@ -676,50 +723,55 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
     platform: "node",
   })
 
-  await writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
-  await writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8")
+  await Promise.all([
+    writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
+    writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8"),
+    staticIndex ? copyClientOutput(clientDir, resolve(outputRoot, "static")) : Promise.resolve(),
+  ])
 
-  if (staticIndex) {
-    await copyClientOutput(clientDir, resolve(outputRoot, "static"))
-  }
-
-  if (!artifacts.queueDefinitions.length || !artifacts.queueRegistryFile) return
+  const queueRegistryFile = artifacts.queueRegistryFile
+  if (!artifacts.queueDefinitions.length || !queueRegistryFile) return
 
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
-  const functionDirs = new Set<string>()
-
-  for (const definition of artifacts.queueDefinitions) {
+  const queueFunctionDirs = artifacts.queueDefinitions.map((definition) => {
     const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_")
     const segments = safeName.split("/")
-    const functionDir = resolve(queueRoot, ...segments, `${segments.at(-1)}.func`)
-    if (functionDirs.has(functionDir)) {
+    return { definition, dir: resolve(queueRoot, ...segments, `${segments.at(-1)}.func`) }
+  })
+
+  const seen = new Set<string>()
+  for (const { definition, dir } of queueFunctionDirs) {
+    if (seen.has(dir)) {
       throw new Error(`[vitehub] Conflicting Vercel queue callback output for "${definition.name}".`)
     }
-    functionDirs.add(functionDir)
+    seen.add(dir)
+  }
 
+  await Promise.all(queueFunctionDirs.map(async ({ definition, dir: functionDir }) => {
     const functionSource = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
-    await writeFile(functionSource, renderVercelQueueWrapper(functionSource, artifacts.queueRegistryFile, definition.name, options.queue), "utf8")
+    await writeFile(functionSource, renderVercelQueueWrapper(functionSource, queueRegistryFile, definition.name, options.queue), "utf8")
     await bundleEsmEntry(functionSource, resolve(functionDir, "index.mjs"), {
       format: "esm",
       platform: "node",
     })
-    await rm(functionSource, { force: true })
-    await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig({
-      memory: 1024,
-      supportsResponseStreaming: false,
-      ...(options.queue && options.queue.provider === "vercel"
-        ? { topics: [{ name: getVercelQueueTopicName(definition.name) }] }
-        : {}),
-    }), null, 2)}\n`, "utf8")
-  }
+    await Promise.all([
+      rm(functionSource, { force: true }),
+      writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig({
+        memory: 1024,
+        supportsResponseStreaming: false,
+        ...(options.queue && options.queue.provider === "vercel"
+          ? { topics: [{ name: getVercelQueueTopicName(definition.name) }] }
+          : {}),
+      }), null, 2)}\n`, "utf8"),
+    ])
+  }))
 }
 
 export async function generateViteE2EOutputs(options: ViteE2EComposerOptions): Promise<void> {
-  const provider = resolveHostedProvider(options.hosting)
   const artifacts = await prepareFeatureArtifacts(options)
 
-  if (provider === "cloudflare") {
+  if (options.hosting === "cloudflare") {
     await writeCloudflareOutput(options, artifacts)
     return
   }
@@ -748,6 +800,7 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
 }
 
 export function resolveViteE2EOptions(rootDir: string, hosting: string) {
+  const provider = resolveHostedProvider(hosting)
   return {
     blob: normalizeBlobOptions(undefined, { hosting }),
     db: resolveDBViteConfig({
@@ -755,7 +808,26 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
         authToken: process.env.TURSO_AUTH_TOKEN,
         url: process.env.TURSO_DATABASE_URL,
       },
+      databases: {
+        analytics: {
+          connection: {
+            authToken: process.env.TURSO_AUTH_TOKEN,
+            url: process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL,
+          },
+          cloudflare: {
+            binding: "DB_ANALYTICS",
+            databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,
+            previewDatabaseId: process.env.VITEHUB_D1_ANALYTICS_PREVIEW_DATABASE_ID,
+          },
+        },
+      },
+      cloudflare: {
+        binding: "DB",
+        databaseId: process.env.VITEHUB_D1_DATABASE_ID,
+        previewDatabaseId: process.env.VITEHUB_D1_PREVIEW_DATABASE_ID,
+      },
     }, rootDir),
+    hosting: provider,
     kv: normalizeKVOptions(undefined, { hosting }),
     queue: normalizeQueueOptions({}, { hosting }) || false,
     sandbox: resolveSandboxFeatureConfig({}, hosting),

@@ -2,15 +2,17 @@ import { mkdir, rm, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
+import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
 import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
 import { resolveUserAppEntry, toSafeAppName } from "@vitehub/internal/build/user-entry"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
 
-import type { ResolvedDBViteConfig } from "../types.ts"
+import { serializeSchemaObject } from "./schema-serializer.ts"
+
+import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
 export const dbPackageName = "@vitehub/db"
-const defaultCompatibilityDate = "2026-04-20"
 const productName = "db"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
@@ -42,38 +44,52 @@ interface GeneratedDBArtifacts {
   vercelServerFile: string
 }
 
+interface CloudflareDBBindingConfig {
+  binding: string
+  database_id: string
+  database_name?: string
+  migrations_dir?: string
+  migrations_table?: string
+  preview_database_id?: string
+}
+
 interface CloudflareDBConfig {
   assets?: { directory?: string, run_worker_first: string[] }
   compatibility_date: string
   compatibility_flags: string[]
+  d1_databases?: CloudflareDBBindingConfig[]
   main: string
   name?: string
   observability: { enabled: true }
 }
 
-function serializeSchemaModule(config: ResolvedDBViteConfig) {
-  const imports = config.schemaPaths.map((file, index) => `import * as schema${index} from ${JSON.stringify(file)};`)
-  const exports = config.schemaPaths.map(file => `export * from ${JSON.stringify(file)};`)
-  const schemaRefs = config.schemaPaths.map((_, index) => `schema${index}`)
-
-  return [
-    ...imports,
-    ...exports,
-    `const schema = Object.assign({}, ${schemaRefs.join(", ")});`,
-    "export { schema };",
-    "export default schema;",
-    "",
-  ].join("\n")
+function serializeDatabaseConfig(database: ResolvedDrizzleDatabaseConfig) {
+  return JSON.stringify(database, null, 4)
 }
 
 function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) {
+  const schemaBlocks = runtimeConfig.databaseNames.map((name, index) => serializeSchemaObject(
+    runtimeConfig.schemaPathsByDatabase[name] || [],
+    `schema_${index}`,
+    name === "default",
+  ))
+  const databaseEntries = runtimeConfig.databaseNames.map((name, index) => [
+    `  ${JSON.stringify(name)}: {`,
+    `    db: createHostedDrizzleDb(${serializeDatabaseConfig(runtimeConfig.databases[name]!)}, schema_${index}),`,
+    `    schema: schema_${index},`,
+    "  },",
+  ].join("\n"))
+
   return [
     `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     "",
-    serializeSchemaModule(runtimeConfig),
-    `const dbConfig = ${JSON.stringify(runtimeConfig.db, null, 2)}`,
+    ...schemaBlocks,
+    "export const databases = {",
+    ...databaseEntries,
+    "}",
     "",
-    "export const db = createHostedDrizzleDb(dbConfig, schema)",
+    "export const db = databases.default.db",
+    "export const schema = databases.default.schema",
     "",
   ].join("\n")
 }
@@ -96,7 +112,7 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, userApp
   ].filter(Boolean).join("\n")
 }
 
-async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig) {
+async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig): Promise<GeneratedDBArtifacts> {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
@@ -106,57 +122,92 @@ async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBVi
   const entryFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
   const runtimeModuleFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
 
-  for (const spec of providerEntrySpecs) {
+  await Promise.all(providerEntrySpecs.map(async (spec) => {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const runtimeModuleFile = resolve(generatedDir, `${spec.name}-runtime.mjs`)
-    await writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry), "utf8")
-    await writeFile(runtimeModuleFile, renderRuntimeModule(runtimeModuleFile, runtimeConfig), "utf8")
     entryFiles[spec.name] = entryFile
     runtimeModuleFiles[spec.name] = runtimeModuleFile
-  }
+    await Promise.all([
+      writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry), "utf8"),
+      writeFile(runtimeModuleFile, renderRuntimeModule(runtimeModuleFile, runtimeConfig), "utf8"),
+    ])
+  }))
 
   return {
     cloudflareWorkerFile: entryFiles.cloudflare,
     generatedDir,
     runtimeModuleFiles,
     vercelServerFile: entryFiles.vercel,
-  } satisfies GeneratedDBArtifacts
+  }
 }
 
-async function writeCloudflareOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedDBArtifacts) {
+function createCloudflareD1Bindings(runtimeConfig: ResolvedDBViteConfig) {
+  return runtimeConfig.databaseNames
+    .map(name => runtimeConfig.databases[name]?.cloudflare)
+    .filter((database): database is NonNullable<ResolvedDBViteConfig["databases"][string]["cloudflare"]> => Boolean(database?.databaseId))
+    .map(database => ({
+      binding: database.binding,
+      database_id: database.databaseId!,
+      ...(database.databaseName ? { database_name: database.databaseName } : {}),
+      ...(database.migrationsDir ? { migrations_dir: database.migrationsDir } : {}),
+      ...(database.migrationsTable ? { migrations_table: database.migrationsTable } : {}),
+      ...(database.previewDatabaseId ? { preview_database_id: database.previewDatabaseId } : {}),
+    }))
+}
+
+function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
+  return runtimeConfig.databaseNames.filter((name) => {
+    const database = runtimeConfig.databases[name]
+    return Boolean(database?.cloudflare?.databaseId) && !database?.connection?.url
+  })
+}
+
+interface ProviderWriteOptions {
+  artifacts: GeneratedDBArtifacts
+  clientOutDir: string
+  rootDir: string
+  runtimeConfig: ResolvedDBViteConfig
+}
+
+async function writeCloudflareOutput({ artifacts, clientOutDir, rootDir, runtimeConfig }: ProviderWriteOptions) {
   const clientDir = resolve(rootDir, clientOutDir)
   const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir))
   const workerOutfile = resolve(outputRoot, "index.js")
   const staticIndex = hasStaticIndex(clientDir)
+  const d1Databases = createCloudflareD1Bindings(runtimeConfig)
 
   await rm(outputRoot, { force: true, recursive: true })
-  if (staticIndex) {
-    await copyClientOutput(clientDir, resolve(rootDir, "dist", "client"))
-  }
-
   await mkdir(outputRoot, { recursive: true })
-  await bundleEsmEntry(artifacts.cloudflareWorkerFile, workerOutfile, {
-    alias: {
-      "@vitehub/db/drizzle": artifacts.runtimeModuleFiles.cloudflare,
-    },
-    conditions: ["workerd", "worker", "browser", "default"],
-    format: "esm",
-    platform: "neutral",
-  })
 
   const wranglerConfig: CloudflareDBConfig = {
-    compatibility_date: defaultCompatibilityDate,
+    compatibility_date: defaultCloudflareCompatibilityDate,
     compatibility_flags: ["nodejs_compat"],
+    ...(d1Databases.length ? { d1_databases: d1Databases } : {}),
     main: "index.js",
     name: toSafeAppName(rootDir),
     observability: { enabled: true },
     ...(staticIndex ? { assets: { directory: "../client", run_worker_first: ["/api/*"] } } : {}),
   }
 
-  await writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8")
+  await Promise.all([
+    bundleEsmEntry(artifacts.cloudflareWorkerFile, workerOutfile, {
+      alias: { "@vitehub/db/drizzle": artifacts.runtimeModuleFiles.cloudflare },
+      conditions: ["workerd", "worker", "browser", "default"],
+      external: ["node:async_hooks"],
+      format: "esm",
+      platform: "neutral",
+    }),
+    writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8"),
+    staticIndex ? copyClientOutput(clientDir, resolve(rootDir, "dist", "client")) : Promise.resolve(),
+  ])
 }
 
-async function writeVercelOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedDBArtifacts) {
+async function writeVercelOutput({ artifacts, clientOutDir, rootDir, runtimeConfig }: ProviderWriteOptions) {
+  const unsupportedDatabases = getVercelUnsupportedDatabases(runtimeConfig)
+  if (unsupportedDatabases.length) {
+    throw new Error(`[vitehub] Vercel output requires \`db.connection.url\` for D1-only databases: ${unsupportedDatabases.join(", ")}.`)
+  }
+
   const clientDir = resolve(rootDir, clientOutDir)
   const outputRoot = resolve(rootDir, ".vercel", "output")
   const serverDir = resolve(outputRoot, "functions", "__server.func")
@@ -166,25 +217,21 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, artifact
   await rm(outputRoot, { force: true, recursive: true })
   await mkdir(serverDir, { recursive: true })
 
-  await bundleEsmEntry(artifacts.vercelServerFile, serverEntry, {
-    alias: {
-      "@vitehub/db/drizzle": artifacts.runtimeModuleFiles.vercel,
-    },
-    format: "esm",
-    platform: "node",
-  })
-
-  await writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
-  await writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8")
-
-  if (staticIndex) {
-    await copyClientOutput(clientDir, resolve(outputRoot, "static"))
-  }
+  await Promise.all([
+    bundleEsmEntry(artifacts.vercelServerFile, serverEntry, {
+      alias: { "@vitehub/db/drizzle": artifacts.runtimeModuleFiles.vercel },
+      format: "esm",
+      platform: "node",
+    }),
+    writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
+    writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8"),
+    staticIndex ? copyClientOutput(clientDir, resolve(outputRoot, "static")) : Promise.resolve(),
+  ])
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedDBArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig)
-  await writeCloudflareOutput(options.rootDir, options.clientOutDir, artifacts)
-  await writeVercelOutput(options.rootDir, options.clientOutDir, artifacts)
+  const writeOptions: ProviderWriteOptions = { artifacts, ...options }
+  await Promise.all([writeCloudflareOutput(writeOptions), writeVercelOutput(writeOptions)])
   return artifacts
 }

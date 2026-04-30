@@ -122,14 +122,6 @@ jobs:
             [kv_token]=KV_REST_API_TOKEN
             [kv_url]=KV_REST_API_URL
           )
-          if [ "${{ matrix.framework }}" = "vite" ]; then
-            REQUIRED_ENV_KEYS[blob_read_write_token]=BLOB_READ_WRITE_TOKEN
-            REQUIRED_ENV_KEYS[turso_auth_token]=TURSO_AUTH_TOKEN
-            REQUIRED_ENV_KEYS[turso_database_url]=TURSO_DATABASE_URL
-            REQUIRED_ENV_KEYS[vite_sandbox_project_id]=VITE_SANDBOX_PROJECT_ID
-            REQUIRED_ENV_KEYS[vite_sandbox_team_id]=VITE_SANDBOX_TEAM_ID
-            REQUIRED_ENV_KEYS[vite_sandbox_token]=VITE_SANDBOX_TOKEN
-          fi
           missing=()
 
           for output_name in "${!REQUIRED_ENV_KEYS[@]}"; do
@@ -201,6 +193,7 @@ jobs:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          VITEHUB_CLOUDFLARE_WORKER_NAME: vitehub-playground-vite
           VITEHUB_HOSTING: cloudflare
           VITEHUB_VITE_MODE: e2e
         run: pnpm --dir playground/vite build
@@ -226,16 +219,16 @@ jobs:
       - name: Build Vite E2E (vercel)
         if: matrix.framework == 'vite' && matrix.provider == 'vercel'
         env:
-          BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_read_write_token }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
           KV_REST_API_TOKEN: ${{ steps.prepare_vercel.outputs.kv_token }}
           KV_REST_API_URL: ${{ steps.prepare_vercel.outputs.kv_url }}
-          TURSO_AUTH_TOKEN: ${{ steps.prepare_vercel.outputs.turso_auth_token }}
-          TURSO_DATABASE_URL: ${{ steps.prepare_vercel.outputs.turso_database_url }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
+          VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VITEHUB_HOSTING: vercel
           VITEHUB_VITE_MODE: e2e
-          VITE_SANDBOX_PROJECT_ID: ${{ steps.prepare_vercel.outputs.vite_sandbox_project_id }}
-          VITE_SANDBOX_TEAM_ID: ${{ steps.prepare_vercel.outputs.vite_sandbox_team_id }}
-          VITE_SANDBOX_TOKEN: ${{ steps.prepare_vercel.outputs.vite_sandbox_token }}
         run: pnpm --dir playground/vite build
 
       - name: Deploy Cloudflare

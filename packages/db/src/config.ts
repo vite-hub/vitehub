@@ -1,13 +1,19 @@
 import { existsSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 
-import type { DBModuleOptions, ResolvedDBViteConfig, ResolvedDrizzleDBConfig } from "./types.ts"
+import { trimmed } from "@vitehub/internal/env"
+import { isPlainObject } from "@vitehub/internal/object"
+
+import type {
+  CloudflareD1BindingConfig,
+  DBModulePublicOptions,
+  DrizzleDatabaseEntryConfig,
+  ResolvedCloudflareD1BindingConfig,
+  ResolvedDBViteConfig,
+  ResolvedDrizzleDatabaseConfig,
+} from "./types.ts"
 
 const schemaFilePattern = /\.[cm]?[jt]s$/i
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
 
 function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!isPlainObject(value)) {
@@ -27,51 +33,196 @@ function readStringList(value: unknown, label: string) {
   return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
 }
 
-function normalizeConnectionValue(value: string) {
-  const trimmed = value.trim()
+function stripWrappingQuotes(value: string) {
   if (
-    trimmed.length >= 2
-    && ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'")))
+    value.length >= 2
+    && ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'")))
   ) {
-    return trimmed.slice(1, -1).trim()
+    return value.slice(1, -1).trim()
   }
 
-  return trimmed
+  return value
 }
 
-function resolveDefaultSchemaPaths(rootDir: string) {
+function normalizeConnectionValue(value: string) {
+  return stripWrappingQuotes(value.trim())
+}
+
+function getDefaultSchemaRoot(rootDir: string, name: string) {
+  return name === "default"
+    ? resolve(rootDir, "src/db")
+    : resolve(rootDir, "src/db", name)
+}
+
+function safeReaddir(dir: string) {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return []
+    }
+    throw error
+  }
+}
+
+function resolveDefaultSchemaPaths(rootDir: string, name: string) {
+  const schemaRoot = getDefaultSchemaRoot(rootDir, name)
   const schemaPaths: string[] = []
-  const schemaEntry = resolve(rootDir, "src/db/schema.ts")
+  const schemaEntry = resolve(schemaRoot, "schema.ts")
   if (existsSync(schemaEntry)) {
     schemaPaths.push(schemaEntry)
   }
 
-  const schemaDir = resolve(rootDir, "src/db/schema")
-  if (!existsSync(schemaDir)) {
-    return schemaPaths
-  }
-
-  for (const entry of readdirSync(schemaDir, { withFileTypes: true })) {
-    if (!entry.isFile() || !schemaFilePattern.test(entry.name)) {
-      continue
+  const schemaDir = resolve(schemaRoot, "schema")
+  for (const entry of safeReaddir(schemaDir)) {
+    if (entry.isFile() && schemaFilePattern.test(entry.name)) {
+      schemaPaths.push(resolve(schemaDir, entry.name))
     }
-    schemaPaths.push(resolve(schemaDir, entry.name))
   }
 
   return schemaPaths
 }
 
-function resolveConfiguredSchemaPaths(rootDir: string, schemaPaths: string[]) {
+function resolveConfiguredSchemaPaths(rootDir: string, schemaPaths: string[], label: string) {
   return schemaPaths.map((entry) => {
     const resolved = resolve(rootDir, entry)
     if (!existsSync(resolved)) {
-      throw new Error(`[vitehub] Drizzle schema path not found: ${entry}`)
+      throw new Error(`[vitehub] ${label} schema path not found: ${entry}`)
     }
     return resolved
   })
 }
 
-export function normalizeDBOptions(options?: DBModuleOptions): ResolvedDrizzleDBConfig | undefined {
+function getDefaultDatabaseUrl(name: string) {
+  return name === "default"
+    ? "file:.data/db/sqlite.db"
+    : `file:.data/db/${name}.sqlite.db`
+}
+
+function getDefaultMigrationsDir(name: string) {
+  return name === "default"
+    ? "src/db/migrations"
+    : `src/db/${name}/migrations`
+}
+
+function getDefaultCloudflareBindingName(name: string) {
+  if (name === "default") {
+    return "DB"
+  }
+
+  const suffix = name
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_")
+    .toUpperCase()
+
+  return `DB_${suffix || "DATABASE"}`
+}
+
+function trimOptionalString(value: unknown, label: string) {
+  if (typeof value === "undefined") {
+    return undefined
+  }
+
+  if (typeof value !== "string") {
+    throw new TypeError(`\`${label}\` must be a non-empty string when provided.`)
+  }
+
+  const normalized = trimmed(value)
+  if (!normalized) {
+    throw new TypeError(`\`${label}\` must be a non-empty string when provided.`)
+  }
+  return stripWrappingQuotes(normalized)
+}
+
+function normalizeCloudflareConfig(
+  value: CloudflareD1BindingConfig | undefined,
+  label: string,
+  name: string,
+  defaultMigrationsDir: string,
+) {
+  if (typeof value === "undefined") {
+    return
+  }
+
+  assertPlainObject(value, label)
+  const binding = trimOptionalString(value.binding, `${label}.binding`) || getDefaultCloudflareBindingName(name)
+  const databaseId = trimOptionalString(value.databaseId, `${label}.databaseId`)
+  const previewDatabaseId = trimOptionalString(value.previewDatabaseId, `${label}.previewDatabaseId`)
+  const databaseName = trimOptionalString(value.databaseName, `${label}.databaseName`)
+  const migrationsDir = trimOptionalString(value.migrationsDir, `${label}.migrationsDir`) || defaultMigrationsDir
+  const migrationsTable = trimOptionalString(value.migrationsTable, `${label}.migrationsTable`)
+
+  return {
+    binding,
+    ...(databaseId ? { databaseId } : {}),
+    ...(previewDatabaseId ? { previewDatabaseId } : {}),
+    ...(databaseName ? { databaseName } : {}),
+    ...(migrationsDir ? { migrationsDir } : {}),
+    ...(migrationsTable ? { migrationsTable } : {}),
+  } satisfies ResolvedCloudflareD1BindingConfig
+}
+
+function hasHostedCloudflareDatabase(config: ResolvedCloudflareD1BindingConfig | undefined) {
+  return Boolean(config?.databaseId || config?.databaseName || config?.previewDatabaseId)
+}
+
+function normalizeDatabaseEntry(
+  entry: DrizzleDatabaseEntryConfig,
+  label: string,
+  name: string,
+): ResolvedDrizzleDatabaseConfig {
+  if (typeof entry.connection !== "undefined") {
+    assertPlainObject(entry.connection, `${label}.connection`)
+  }
+
+  if (typeof entry.cloudflare !== "undefined") {
+    assertPlainObject(entry.cloudflare, `${label}.cloudflare`)
+  }
+
+  if (typeof entry.drizzle !== "undefined") {
+    assertPlainObject(entry.drizzle, `${label}.drizzle`)
+  }
+
+  const url = trimOptionalString(entry.connection?.url, `${label}.connection.url`)
+  const authToken = trimOptionalString(entry.connection?.authToken, `${label}.connection.authToken`)
+
+  if (authToken && !url) {
+    throw new TypeError(`\`${label}.connection.authToken\` requires \`${label}.connection.url\`.`)
+  }
+
+  const casing = entry.drizzle?.casing
+  if (typeof casing !== "undefined" && casing !== "snake_case" && casing !== "camelCase") {
+    throw new TypeError(`\`${label}.drizzle.casing\` must be \`snake_case\` or \`camelCase\`.`)
+  }
+
+  const migrationsDirs = readStringList(entry.drizzle?.migrationsDirs, `${label}.drizzle.migrationsDirs`)
+  const defaultMigrationsDir = getDefaultMigrationsDir(name)
+  const cloudflare = normalizeCloudflareConfig(entry.cloudflare, `${label}.cloudflare`, name, defaultMigrationsDir)
+  const configuredSchemaPaths = readStringList(entry.drizzle?.schemaPaths, `${label}.drizzle.schemaPaths`)
+
+  const connection = url
+    ? { authToken, url }
+    : hasHostedCloudflareDatabase(cloudflare)
+      ? undefined
+      : { authToken: undefined, url: getDefaultDatabaseUrl(name) }
+
+  return {
+    ...(cloudflare ? { cloudflare } : {}),
+    ...(connection ? { connection } : {}),
+    dialect: "sqlite",
+    drizzle: {
+      casing,
+      migrationsDirs: migrationsDirs.length ? migrationsDirs : [defaultMigrationsDir],
+      schemaPaths: configuredSchemaPaths,
+    },
+    name,
+    orm: "drizzle",
+  }
+}
+
+function normalizeDBModuleOptions(options?: DBModulePublicOptions) {
   if (options === false) {
     return
   }
@@ -88,69 +239,55 @@ export function normalizeDBOptions(options?: DBModuleOptions): ResolvedDrizzleDB
 
   const dialect = input.dialect
   if (typeof dialect !== "undefined" && dialect !== "sqlite") {
-    throw new TypeError("`db.dialect` must be `sqlite` in the current Vite slice.")
+    throw new TypeError("`db.dialect` must be `sqlite`.")
   }
 
-  if (typeof input.connection !== "undefined") {
-    assertPlainObject(input.connection, "db.connection")
+  const entries = input.databases
+  if (typeof entries !== "undefined") {
+    assertPlainObject(entries, "db.databases")
+    if ("default" in entries) {
+      throw new TypeError("`db.databases.default` is reserved. Use top-level `db.connection`, `db.drizzle`, and `db.cloudflare` for the default database.")
+    }
   }
 
-  if (typeof input.drizzle !== "undefined") {
-    assertPlainObject(input.drizzle, "db.drizzle")
+  const databases: Record<string, ResolvedDrizzleDatabaseConfig> = {
+    default: normalizeDatabaseEntry(input, "db", "default"),
   }
 
-  const rawUrl = input.connection?.url
-  if (typeof rawUrl !== "undefined" && (typeof rawUrl !== "string" || rawUrl.trim().length === 0)) {
-    throw new TypeError("`db.connection.url` must be a non-empty string when provided.")
-  }
-  const rawAuthToken = input.connection?.authToken
-  if (typeof rawAuthToken !== "undefined" && (typeof rawAuthToken !== "string" || rawAuthToken.trim().length === 0)) {
-    throw new TypeError("`db.connection.authToken` must be a non-empty string when provided.")
-  }
-  const url = typeof rawUrl === "string" ? normalizeConnectionValue(rawUrl) : undefined
-  if (typeof rawUrl !== "undefined" && !url) {
-    throw new TypeError("`db.connection.url` must be a non-empty string when provided.")
-  }
-  const authToken = typeof rawAuthToken === "string" ? normalizeConnectionValue(rawAuthToken) : undefined
-  if (typeof rawAuthToken !== "undefined" && !authToken) {
-    throw new TypeError("`db.connection.authToken` must be a non-empty string when provided.")
-  }
-
-  const casing = input.drizzle?.casing
-  if (typeof casing !== "undefined" && casing !== "snake_case" && casing !== "camelCase") {
-    throw new TypeError("`db.drizzle.casing` must be `snake_case` or `camelCase`.")
+  for (const name of Object.keys(entries || {}).sort()) {
+    const entry = entries?.[name]
+    assertPlainObject(entry, `db.databases.${name}`)
+    databases[name] = normalizeDatabaseEntry(entry, `db.databases.${name}`, name)
   }
 
   return {
-    connection: {
-      authToken: authToken || undefined,
-      url: url || "file:.data/db/sqlite.db",
-    },
-    dialect: "sqlite",
-    drizzle: {
-      casing,
-      migrationsDirs: readStringList(input.drizzle?.migrationsDirs, "db.drizzle.migrationsDirs").length
-        ? readStringList(input.drizzle?.migrationsDirs, "db.drizzle.migrationsDirs")
-        : ["src/db/migrations"],
-      schemaPaths: readStringList(input.drizzle?.schemaPaths, "db.drizzle.schemaPaths"),
-    },
-    orm: "drizzle",
+    databaseNames: Object.keys(databases),
+    databases,
   }
 }
 
-export function resolveDBViteConfig(options?: DBModuleOptions, rootDir = process.cwd()): ResolvedDBViteConfig | undefined {
-  const db = normalizeDBOptions(options)
-  if (!db) {
+export function normalizeDBOptions(options?: DBModulePublicOptions): ResolvedDrizzleDatabaseConfig | undefined {
+  return normalizeDBModuleOptions(options)?.databases.default
+}
+
+export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = process.cwd()): ResolvedDBViteConfig | undefined {
+  const normalized = normalizeDBModuleOptions(options)
+  if (!normalized) {
     return
   }
 
-  const defaultSchemaPaths = resolveDefaultSchemaPaths(rootDir)
-  const configuredSchemaPaths = resolveConfiguredSchemaPaths(rootDir, db.drizzle.schemaPaths)
-  const schemaPaths = [...new Set([...defaultSchemaPaths, ...configuredSchemaPaths])].sort()
+  const schemaPathsByDatabase: Record<string, string[]> = {}
+  for (const name of normalized.databaseNames) {
+    const database = normalized.databases[name]!
+    const defaultSchemaPaths = resolveDefaultSchemaPaths(rootDir, name)
+    const configuredSchemaPaths = resolveConfiguredSchemaPaths(rootDir, database.drizzle.schemaPaths, `Database "${name}"`)
+    schemaPathsByDatabase[name] = [...new Set([...defaultSchemaPaths, ...configuredSchemaPaths])].sort()
+  }
 
   return {
-    db,
+    databaseNames: normalized.databaseNames,
+    databases: normalized.databases,
     rootDir,
-    schemaPaths,
+    schemaPathsByDatabase,
   }
 }

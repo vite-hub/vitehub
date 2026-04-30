@@ -2,60 +2,77 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 
 import { createClient } from "@libsql/client"
-import { drizzle } from "drizzle-orm/libsql"
-import type { LibSQLDatabase } from "drizzle-orm/libsql"
+import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
 
-import config from "virtual:@vitehub/db/config"
-import schema from "virtual:@vitehub/db/schema"
+import databaseEntries from "virtual:@vitehub/db/databases"
 
-type DBSchema = typeof schema
+import {
+  createDrizzleSqliteAdapter,
+  isRemoteSqliteUrl,
+  type RuntimeDrizzleDatabase,
+} from "./drizzle-adapter.ts"
 
-let dbInstance: LibSQLDatabase<DBSchema> | undefined
+import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
-function resolveSqliteUrl(url: string) {
-  if (url === ":memory:") {
+function resolveLocalSqliteUrl(url: string) {
+  if (url === ":memory:" || isRemoteSqliteUrl(url)) {
     return url
   }
 
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url) || /^libsql:/i.test(url)) {
-    return url
-  }
-
-  if (url.startsWith("file:")) {
-    const path = url.slice("file:".length)
-    mkdirSync(dirname(path), { recursive: true })
-    return url
-  }
-
-  mkdirSync(dirname(url), { recursive: true })
+  const path = url.startsWith("file:") ? url.slice("file:".length) : url
+  mkdirSync(dirname(path), { recursive: true })
   return url
 }
 
-function getDb() {
-  if (dbInstance) {
-    return dbInstance
-  }
-
-  const dbConfig = config?.db
-  if (!dbConfig) {
-    throw new Error("[vitehub] `@vitehub/db/drizzle` requires `hubDb()` and `db !== false`.")
-  }
-
-  dbInstance = drizzle({
-    casing: dbConfig.drizzle.casing,
-    client: createClient({
-      authToken: dbConfig.connection.authToken,
-      url: resolveSqliteUrl(dbConfig.connection.url),
-    }),
-    schema,
-  })
-
-  return dbInstance
+interface RuntimeDatabaseModule {
+  config: ResolvedDrizzleDatabaseConfig
+  schema: Record<string, unknown>
 }
 
-export const db = new Proxy({} as LibSQLDatabase<DBSchema>, {
-  get(_, prop) {
-    const value = getDb()[prop as keyof LibSQLDatabase<DBSchema>]
-    return typeof value === "function" ? value.bind(getDb()) : value
-  },
-}) as LibSQLDatabase<DBSchema>
+interface RuntimeDatabaseEntry<TSchema extends Record<string, unknown>> {
+  db: RuntimeDrizzleDatabase<TSchema>
+  schema: TSchema
+}
+
+function createMissingDatabaseProxy<TSchema extends Record<string, unknown>>(name: string) {
+  return new Proxy({} as RuntimeDrizzleDatabase<TSchema>, {
+    get() {
+      throw new Error(name === "default"
+        ? "[vitehub] `@vitehub/db/drizzle` requires `hubDb()` and `db !== false`."
+        : `[vitehub] Database "${name}" is not configured.`)
+    },
+  }) as RuntimeDrizzleDatabase<TSchema>
+}
+
+function createRuntimeDatabase<TSchema extends Record<string, unknown>>(
+  config: ResolvedDrizzleDatabaseConfig | undefined,
+  schema: TSchema,
+  name: string,
+) {
+  if (!config) {
+    return createMissingDatabaseProxy<TSchema>(name)
+  }
+
+  return createDrizzleSqliteAdapter(config, schema, {
+    libsql: { createClient, drizzle: drizzleLibsql as never },
+    missingConnectionMessage: () => `[vitehub] Database "${name}" requires a Cloudflare D1 binding or \`db.connection.url\`.`,
+    requireRemoteUrl: false,
+    resolveLocalUrl: resolveLocalSqliteUrl,
+  })
+}
+
+const runtimeEntries = databaseEntries as Record<string, RuntimeDatabaseModule>
+
+export const databases = Object.fromEntries(
+  Object.entries(runtimeEntries).map(([name, entry]) => [
+    name,
+    {
+      db: createRuntimeDatabase(entry.config, entry.schema, name),
+      schema: entry.schema,
+    } satisfies RuntimeDatabaseEntry<Record<string, unknown>>,
+  ]),
+) as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>> & {
+  default: RuntimeDatabaseEntry<Record<string, unknown>>
+}
+
+export const db = databases.default?.db || createMissingDatabaseProxy("default")

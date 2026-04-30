@@ -3,7 +3,7 @@ import { createStorage } from "unstorage"
 import type { KVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createLazyKVRuntimeDriver } from "./driver.ts"
 
-interface RuntimeStorage {
+export interface RuntimeStorage {
   clear(base?: string, options?: unknown): Promise<void>
   getItem<T = unknown>(key: string, options?: unknown): Promise<T | null>
   getKeys(base?: string, options?: unknown): Promise<string[]>

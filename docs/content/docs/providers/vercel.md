@@ -18,6 +18,13 @@ Use this page to find package-specific Vercel guidance in ViteHub.
 - Provider details: [KV on Vercel](../kv/providers/vercel)
 
 ::fw{id="vite:dev vite:build"}
+### DB
+
+`@vitehub/db` supports Vercel on Vite through hosted libSQL connections, including optional named databases behind the same runtime surface.
+
+- Setup overview: [DB overview](/docs/vite/db)
+- Provider details: [DB on Vercel](/docs/vite/db/providers/vercel)
+
 ### Blob
 
 `@vitehub/blob` supports a Vercel path on Vite and Nitro through the `vercel-blob` driver.

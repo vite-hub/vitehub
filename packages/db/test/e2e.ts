@@ -40,4 +40,27 @@ const payload = await list.json() as { notes?: Array<{ id: number, title: string
 assert.equal(payload.ok, true)
 assert.ok(payload.notes?.some(note => note.id === created.note?.id))
 
-console.log(JSON.stringify({ ok: true, total: payload.notes?.length || 0 }))
+const createAnalyticsEvent = await fetch(new URL("/api/db/analytics", base), {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ name: `analytics-e2e-${Date.now().toString(36)}` }),
+})
+
+await assertStatus(createAnalyticsEvent, 200)
+const createdAnalyticsEvent = await createAnalyticsEvent.json() as { event?: { id?: number, name?: string }, ok?: boolean }
+assert.equal(createdAnalyticsEvent.ok, true)
+assert.equal(typeof createdAnalyticsEvent.event?.id, "number")
+
+const analyticsList = await fetch(new URL("/api/db/analytics", base))
+await assertStatus(analyticsList, 200)
+const analyticsPayload = await analyticsList.json() as { events?: Array<{ id: number, name: string }>, ok?: boolean }
+assert.equal(analyticsPayload.ok, true)
+assert.ok(analyticsPayload.events?.some(event => event.id === createdAnalyticsEvent.event?.id))
+
+console.log(JSON.stringify({
+  analyticsTotal: analyticsPayload.events?.length || 0,
+  ok: true,
+  total: payload.notes?.length || 0,
+}))

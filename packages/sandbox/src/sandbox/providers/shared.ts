@@ -32,8 +32,7 @@ function canResolvePackageSync(specifier: string): boolean {
       runtimeRequire.resolve(specifier)
       return true
     }
-    catch {
-    }
+    catch {}
   }
 
   const metaResolve = (import.meta as ImportMeta & { resolve?: (id: string) => string }).resolve
@@ -41,8 +40,7 @@ function canResolvePackageSync(specifier: string): boolean {
     try {
       return typeof metaResolve(specifier) === 'string'
     }
-    catch {
-    }
+    catch {}
   }
 
   return false

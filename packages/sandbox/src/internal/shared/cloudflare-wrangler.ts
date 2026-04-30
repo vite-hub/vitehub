@@ -35,6 +35,7 @@ function isSameContainer(left: WranglerContainer, right: WranglerContainer) {
     && left.image === right.image
     && left.instance_type === right.instance_type
     && left.max_instances === right.max_instances
+    && left.name === right.name
 }
 
 function isSameDurableObjectBinding(left: WranglerDurableObjectBinding, right: WranglerDurableObjectBinding) {

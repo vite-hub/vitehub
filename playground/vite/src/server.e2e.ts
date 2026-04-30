@@ -3,7 +3,8 @@ import { desc, sql } from "drizzle-orm"
 import * as v from "valibot"
 
 import { blob } from "@vitehub/blob"
-import { db, schema } from "@vitehub/db/drizzle"
+import { databases, db, schema } from "@vitehub/db/drizzle"
+import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
 import { kv } from "@vitehub/kv"
 import { deferQueue, runQueue } from "@vitehub/queue"
 import { runSandbox } from "@vitehub/sandbox"
@@ -27,6 +28,9 @@ const markerBody = v.object({
 const noteBody = v.object({
   title: v.string(),
 })
+const analyticsEventBody = v.object({
+  name: v.string(),
+})
 const queueBody = v.optional(v.object({
   callbackUrl: v.optional(v.string()),
   email: v.optional(v.string()),
@@ -46,19 +50,15 @@ function resolveWorkflowId(body: { id?: string, marker?: string } | undefined, m
   return body?.id || marker
 }
 
-function resolveKVProvider(event: { context: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } } }) {
-  if (event.context.cloudflare?.env || event.context._platform?.cloudflare?.env) {
-    return "cloudflare-kv-binding"
-  }
-
-  return "upstash"
+function resolveKVProvider(event: unknown) {
+  return getCloudflareEnv(event) ? "cloudflare-kv-binding" : "upstash"
 }
 
-function resolveSandboxHosting(event: { context: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }, req: { runtime?: { name?: string }, waitUntil?: unknown } }) {
-  const isCloudflare = event.context.cloudflare?.env || event.context._platform?.cloudflare?.env
-  if (isCloudflare) {
+function resolveSandboxHosting(event: { req: { runtime?: { name?: string }, waitUntil?: unknown } }) {
+  const hasWaitUntil = typeof event.req.waitUntil === "function"
+  if (getCloudflareEnv(event)) {
     return {
-      hasWaitUntil: typeof event.req.waitUntil === "function",
+      hasWaitUntil,
       hosting: "cloudflare-module",
       provider: "cloudflare",
       runtime: event.req.runtime?.name || "cloudflare",
@@ -66,7 +66,7 @@ function resolveSandboxHosting(event: { context: { cloudflare?: { env?: Record<s
   }
 
   return {
-    hasWaitUntil: typeof event.req.waitUntil === "function",
+    hasWaitUntil,
     hosting: "vercel",
     provider: "vercel",
     runtime: event.req.runtime?.name || (process.env.VERCEL ? "vercel" : null),
@@ -78,6 +78,15 @@ async function ensureNotesTable() {
     create table if not exists notes (
       id integer primary key autoincrement,
       title text not null
+    )
+  `)
+}
+
+async function ensureAnalyticsEventsTable() {
+  await databases.analytics.db.run(sql`
+    create table if not exists analytics_events (
+      id integer primary key autoincrement,
+      name text not null
     )
   `)
 }
@@ -156,6 +165,25 @@ app.post("/api/db", async (event) => {
   const body = await readValidatedBody(event, noteBody)
   const result = await db.insert(schema.notes).values({ title: body.title }).returning()
   return { note: result[0], ok: true }
+})
+
+app.get("/api/db/analytics", async () => {
+  await ensureAnalyticsEventsTable()
+  const events = await databases.analytics.db
+    .select()
+    .from(databases.analytics.schema.analyticsEvents)
+    .orderBy(desc(databases.analytics.schema.analyticsEvents.id))
+  return { events, ok: true }
+})
+
+app.post("/api/db/analytics", async (event) => {
+  await ensureAnalyticsEventsTable()
+  const body = await readValidatedBody(event, analyticsEventBody)
+  const result = await databases.analytics.db
+    .insert(databases.analytics.schema.analyticsEvents)
+    .values({ name: body.name })
+    .returning()
+  return { event: result[0], ok: true }
 })
 
 app.get("/api/queues/welcome", () => ({ ok: true, queue: queueName }))
