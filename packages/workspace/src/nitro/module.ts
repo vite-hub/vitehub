@@ -39,6 +39,57 @@ function registryPath(nitro: Nitro) {
   return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/workspace/registry.mjs")
 }
 
+function workspaceNitroConfigTypes() {
+  return `import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "@vitehub/workspace"
+
+declare module "nitro/types" {
+  interface NitroConfig {
+    workspace?: false | WorkspaceModuleOptions
+  }
+
+  interface NitroOptions {
+    workspace?: false | WorkspaceModuleOptions
+    cloudflare?: { wrangler?: { artifacts?: Array<{ binding: string, namespace: string }> } }
+  }
+
+  interface NitroRuntimeConfig {
+    hosting?: string
+    workspace?: false | ResolvedWorkspaceModuleOptions
+  }
+}
+
+declare module "nitropack/types" {
+  interface NitroConfig {
+    workspace?: false | WorkspaceModuleOptions
+  }
+
+  interface NitroOptions {
+    workspace?: false | WorkspaceModuleOptions
+    cloudflare?: { wrangler?: { artifacts?: Array<{ binding: string, namespace: string }> } }
+  }
+
+  interface NitroRuntimeConfig {
+    hosting?: string
+    workspace?: false | ResolvedWorkspaceModuleOptions
+  }
+}
+
+export {}
+`
+}
+
+function installNitroConfigTypes(nitro: Nitro) {
+  nitro.hooks.hook("types:extend", async (types) => {
+    const dtsPath = resolve(nitro.options.buildDir, "types", "vitehub-workspace-nitro.d.ts")
+    await mkdir(dirname(dtsPath), { recursive: true })
+    await writeFile(dtsPath, workspaceNitroConfigTypes(), "utf8")
+    if (types.tsConfig) {
+      types.tsConfig.include ||= []
+      types.tsConfig.include.push(dtsPath)
+    }
+  })
+}
+
 async function writeRegistry(nitro: Nitro) {
   const path = registryPath(nitro)
   const definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
@@ -95,6 +146,7 @@ const workspaceNitroModule: NitroModule = {
 
     const registry = await writeRegistry(nitro)
     nitro.options.alias["#vitehub-workspace-registry"] = registry.path
+    installNitroConfigTypes(nitro)
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
     if (!importsExplicitlyDisabled) {

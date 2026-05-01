@@ -68,9 +68,11 @@ describe("Nitro workspace outputs", () => {
     const cloudflareBuild = await buildPlayground("cloudflare_module")
     const registryFile = join(playgroundDir, ".vitehub/nitro-runtime/workspace/registry.mjs")
     const registryContents = await readFile(registryFile, "utf8")
+    const configTypes = await readFile(join(cloudflareBuild.buildDir, "types", "vitehub-workspace-nitro.d.ts"), "utf8")
     const cloudflareNitroJson = JSON.parse(await readFile(join(cloudflareBuild.outputDir, "nitro.json"), "utf8"))
 
     expect(registryContents).toContain('"docs": async () => import(')
+    expect(configTypes).toContain("workspace?: false | WorkspaceModuleOptions")
     expect(existsSync(join(cloudflareBuild.outputDir, cloudflareNitroJson.serverEntry))).toBe(true)
     const cloudflareWrangler = JSON.parse(await readFile(join(cloudflareBuild.outputDir, "server", "wrangler.json"), "utf8"))
     expect(cloudflareWrangler.artifacts).toEqual([
