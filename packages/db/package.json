@@ -28,6 +28,7 @@
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
+    "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },

@@ -169,7 +169,7 @@ describe("hubDb", () => {
 
     const config = plugin.api.getConfig()!
     config.rootDir = config.rootDir.replaceAll("/", "\\")
-    config.schemaPathsByDatabase.default = config.schemaPathsByDatabase.default.map(path => path.replaceAll("/", "\\"))
+    config.schemaPathsByDatabase.default = config.schemaPathsByDatabase.default.map((path: string) => path.replaceAll("/", "\\"))
 
     const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
       file: string
