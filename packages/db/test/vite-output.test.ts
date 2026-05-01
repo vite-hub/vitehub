@@ -83,7 +83,7 @@ describe("Vite db provider outputs", () => {
     expect(vercelServerCode).not.toContain("@libsql/linux-x64-gnu")
   }, 30_000)
 
-  it("fails the hosted build when a named D1 database has no Vercel fallback URL", async () => {
+  it("fails the hosted build when a named database has no remote Vercel URL", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-db-vite-d1-only-")
     const viteConfigPath = join(rootDir, "vite.config.ts")
     const viteConfig = await readFile(viteConfigPath, "utf8")
@@ -120,6 +120,28 @@ describe("Vite db provider outputs", () => {
     }
 
     expect(error).toBeTruthy()
-    expect((error as { stderr?: string; message?: string } | undefined)?.stderr || (error as { message?: string } | undefined)?.message || String(error)).toContain("Vercel output requires `db.connection.url` for D1-only databases: analytics")
+    expect((error as { stderr?: string; message?: string } | undefined)?.stderr || (error as { message?: string } | undefined)?.message || String(error)).toContain("Vercel output requires a remote libSQL `db.connection.url` for databases: analytics")
+  }, 30_000)
+
+  it("fails the hosted build when the default database falls back to local SQLite", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-db-vite-local-default-")
+
+    let error: Error | undefined
+    try {
+      await execFileAsync("pnpm", ["exec", "vite", "build"], {
+        cwd: rootDir,
+        env: {
+          ...process.env,
+          VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+          VITEHUB_VITE_MODE: "db",
+        },
+      })
+    }
+    catch (caught) {
+      error = caught as Error
+    }
+
+    expect(error).toBeTruthy()
+    expect((error as { stderr?: string; message?: string } | undefined)?.stderr || (error as { message?: string } | undefined)?.message || String(error)).toContain("Vercel output requires a remote libSQL `db.connection.url` for databases: default")
   }, 30_000)
 })

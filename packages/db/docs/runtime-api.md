@@ -67,5 +67,5 @@ For each database entry, ViteHub resolves the runtime in this order:
 ## Hosted Output Rules
 
 - Cloudflare output emits `wrangler.json.d1_databases` for entries that define `cloudflare.databaseId`.
-- Vercel output requires `db.connection.url` for every D1-backed named database that must run there.
+- Vercel output requires a remote libSQL `db.connection.url` for every database that must run there.
 - File-based SQLite defaults are for local Vite runtime, not hosted deployment output.

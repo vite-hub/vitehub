@@ -1,6 +1,6 @@
 ---
 title: Vercel
-description: Use hosted libSQL databases with @vitehub/db on Vercel and understand the D1-only limitation.
+description: Use hosted libSQL databases with @vitehub/db on Vercel and understand the hosted URL requirement.
 navigation.group: Providers
 frameworks: [vite]
 ---
@@ -34,10 +34,10 @@ export default defineConfig({
 
 ## Important Limitation
 
-Vercel output does not run Cloudflare D1 bindings. That means:
+Vercel output does not run Cloudflare D1 bindings or local file-based SQLite paths. That means:
 
-- named databases that should run on Vercel need `connection.url`
-- D1-only named databases are rejected during ViteHub hosted output generation
+- every database that should run on Vercel needs a remote `connection.url`
+- databases that only have Cloudflare D1 metadata or local SQLite defaults are rejected during ViteHub hosted output generation
 - keeping a libSQL fallback URL on a Cloudflare-backed database is the portable option when the same app also targets Vercel
 
 ## Runtime Behavior

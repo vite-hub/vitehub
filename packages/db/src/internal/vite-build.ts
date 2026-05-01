@@ -155,10 +155,14 @@ function createCloudflareD1Bindings(runtimeConfig: ResolvedDBViteConfig) {
     }))
 }
 
+function isRemoteLibsqlConnectionUrl(url: string | undefined) {
+  return typeof url === "string" && /^(?:libsql:|https?:\/\/)/i.test(url)
+}
+
 function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
-    return Boolean(database?.cloudflare?.databaseId) && !database?.connection?.url
+    return !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
 
@@ -205,7 +209,7 @@ async function writeCloudflareOutput({ artifacts, clientOutDir, rootDir, runtime
 async function writeVercelOutput({ artifacts, clientOutDir, rootDir, runtimeConfig }: ProviderWriteOptions) {
   const unsupportedDatabases = getVercelUnsupportedDatabases(runtimeConfig)
   if (unsupportedDatabases.length) {
-    throw new Error(`[vitehub] Vercel output requires \`db.connection.url\` for D1-only databases: ${unsupportedDatabases.join(", ")}.`)
+    throw new Error(`[vitehub] Vercel output requires a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
   }
 
   const clientDir = resolve(rootDir, clientOutDir)

@@ -98,7 +98,7 @@ Cloudflare and Vercel do not share the same database runtime rules:
   :::u-page-card
   ---
   title: Vercel
-  description: Use hosted libSQL URLs and understand the D1-only limitation for Vercel output.
+  description: Use hosted libSQL URLs and understand the hosted URL requirement for Vercel output.
   to: ./providers/vercel
   ---
   :::
