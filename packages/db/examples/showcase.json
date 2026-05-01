@@ -1,0 +1,50 @@
+{
+  "label": "DB",
+  "icon": "i-lucide-database",
+  "order": 2,
+  "defaultPhase": "define",
+  "providers": [
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  db: {\n    cloudflare: {\n      binding: 'DB',\n      databaseName: 'vitehub-notes',\n      databaseId: process.env.VITEHUB_D1_DATABASE_ID,\n    },\n    databases: {\n      analytics: {\n        cloudflare: {\n          binding: 'DB_ANALYTICS',\n          databaseName: 'vitehub-analytics',\n          databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,\n        },\n      },\n    },\n  },",
+      "envOverride": "VITEHUB_D1_DATABASE_ID=<d1-database-id>\nVITEHUB_D1_ANALYTICS_DATABASE_ID=<analytics-d1-database-id>"
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "configOverride": "  db: {\n    connection: {\n      authToken: process.env.TURSO_AUTH_TOKEN,\n      url: process.env.TURSO_DATABASE_URL,\n    },\n    databases: {\n      analytics: {\n        connection: {\n          authToken: process.env.TURSO_AUTH_TOKEN,\n          url: process.env.TURSO_ANALYTICS_DATABASE_URL,\n        },\n      },\n    },\n  },",
+      "envOverride": "TURSO_DATABASE_URL=libsql://example.turso.io\nTURSO_ANALYTICS_DATABASE_URL=libsql://analytics.example.turso.io\nTURSO_AUTH_TOKEN=<turso-auth-token>"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/db/schema.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "src/db/analytics/schema.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/db/schema.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "src/db/analytics/schema.ts",
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}
