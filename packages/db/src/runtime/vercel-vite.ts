@@ -1,4 +1,4 @@
-import { createVercelHostedServer } from "@vitehub/internal/runtime/hosted"
+import { createVercelHostedServer } from "@vitehub/internal/runtime/vercel-hosted"
 
 import type { DBApp } from "./cloudflare-vite.ts"
 

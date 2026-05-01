@@ -1,5 +1,5 @@
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
-import { createVercelHostedServer } from "@vitehub/internal/runtime/hosted"
+import { createVercelHostedServer } from "@vitehub/internal/runtime/vercel-hosted"
 
 import type { QueueApp } from "./_app.ts"
 import { runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "./state.ts"

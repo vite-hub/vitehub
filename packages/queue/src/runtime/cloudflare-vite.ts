@@ -1,4 +1,4 @@
-import { createCloudflareHostedWorker } from "@vitehub/internal/runtime/hosted"
+import { createCloudflareHostedWorker } from "@vitehub/internal/runtime/cloudflare-hosted"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
