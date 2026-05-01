@@ -1,4 +1,4 @@
-/// <reference path="./virtual-module.d.ts" />
+import type {} from "./virtual-module.d.ts"
 
 import schema from "virtual:@vitehub/db/schema"
 

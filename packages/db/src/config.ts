@@ -44,10 +44,6 @@ function stripWrappingQuotes(value: string) {
   return value
 }
 
-function normalizeConnectionValue(value: string) {
-  return stripWrappingQuotes(value.trim())
-}
-
 function getDefaultSchemaRoot(rootDir: string, name: string) {
   return name === "default"
     ? resolve(rootDir, "src/db")

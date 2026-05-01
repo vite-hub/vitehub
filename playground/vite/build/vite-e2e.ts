@@ -10,7 +10,7 @@ import { configureCloudflareKV } from "../../../packages/kv/src/integrations/clo
 import { normalizeKVOptions } from "../../../packages/kv/src/config.ts"
 import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
 import { discoverQueueDefinitions } from "../../../packages/queue/src/discovery.ts"
-import { getCloudflareQueueBindingName, getCloudflareQueueDefinitionName, getCloudflareQueueName } from "../../../packages/queue/src/integrations/cloudflare.ts"
+import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../../../packages/queue/src/integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
 import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, defaultCloudflareSandboxMigrationTag, configureCloudflareSandbox, writeCloudflareSandboxDockerfile } from "../../../packages/sandbox/src/cloudflare.ts"
 import { extractSandboxDefinitionOptions } from "../../../packages/sandbox/src/definition-options.ts"

@@ -11,9 +11,6 @@ export type { ShowcasePhaseId } from "../../shared/showcase";
 
 type ShowcaseExample = DocsExample;
 export type ExampleFile = { path: string; code: string };
-type ShowcaseFrameworkConfig = NonNullable<ShowcaseExample["frameworks"][Framework]>;
-type ShowcaseModeConfig = ShowcaseFrameworkConfig["modes"][UsageMode];
-type ShowcaseProvider = NonNullable<ShowcaseExample["providers"]>[number];
 
 const extensionToLanguage = new Map<string, string>([
   ["ts", "ts"],

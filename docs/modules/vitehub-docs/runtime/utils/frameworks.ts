@@ -15,10 +15,6 @@ export const frameworkLabels = Object.fromEntries(
   frameworkDefs.map(entry => [entry.id, entry.label]),
 ) as Record<Framework, string>;
 
-const frameworkIcons = Object.fromEntries(
-  frameworkDefs.map(entry => [entry.id, entry.icon]),
-) as Record<Framework, string>;
-
 export const frameworkColorIcons = Object.fromEntries(
   frameworkDefs.map(entry => [entry.id, entry.colorIcon]),
 ) as Record<Framework, string>;

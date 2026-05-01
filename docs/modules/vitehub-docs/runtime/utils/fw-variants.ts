@@ -1,7 +1,6 @@
 import type { Ref } from "vue";
 import {
   defaultFramework,
-  frameworkLabels,
   frameworks,
   type Framework,
 } from "./frameworks";
@@ -27,13 +26,6 @@ export const defaultUsageMode: UsageMode = "dev";
 export const usageModeLabels = Object.fromEntries(
   usageModeDefs.map(entry => [entry.id, entry.label]),
 ) as Record<UsageMode, string>;
-const usageModeDescriptions = Object.fromEntries(
-  usageModeDefs.map(entry => [entry.id, entry.description]),
-) as Record<UsageMode, string>;
-const usageModeIcons = Object.fromEntries(
-  usageModeDefs.map(entry => [entry.id, entry.icon]),
-) as Record<UsageMode, string>;
-
 function isFramework(value: string): value is Framework {
   return frameworks.includes(value as Framework);
 }
@@ -129,8 +121,4 @@ export function getFwVariantTabScore(variants: FwVariant[], current: Pick<FwVari
   }
 
   return 2;
-}
-
-function formatFwVariantLabel(variant: Pick<FwVariant, "framework" | "mode">) {
-  return `${frameworkLabels[variant.framework]} ${usageModeLabels[variant.mode]}`;
 }

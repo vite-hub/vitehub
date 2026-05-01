@@ -10,3 +10,5 @@ declare module "virtual:@vitehub/db/databases" {
   }>
   export default databases
 }
+
+export {}
