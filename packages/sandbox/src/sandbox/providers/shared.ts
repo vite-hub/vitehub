@@ -33,6 +33,8 @@ function canResolvePackageSync(specifier: string): boolean {
       return true
     }
     catch {}
+
+    return false
   }
 
   const metaResolve = (import.meta as ImportMeta & { resolve?: (id: string) => string }).resolve
@@ -48,9 +50,9 @@ function canResolvePackageSync(specifier: string): boolean {
 
 export function isSandboxAvailable(provider?: SandboxProvider): boolean {
   if (provider === 'vercel')
-    return isVercel() || canResolvePackageSync('@vercel/sandbox')
+    return canResolvePackageSync('@vercel/sandbox')
   if (provider === 'cloudflare')
-    return isCloudflare() || canResolvePackageSync('@cloudflare/sandbox')
+    return canResolvePackageSync('@cloudflare/sandbox')
 
   const detected = detectSandbox()
   if (detected.type === 'cloudflare' || detected.type === 'vercel')

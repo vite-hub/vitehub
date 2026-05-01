@@ -34,4 +34,29 @@ describe("provider detection", () => {
       },
     })).toBe("cloudflare")
   })
+
+  it("does not mark platform sandboxes available when their SDK cannot resolve", async () => {
+    vi.stubEnv("VERCEL", "1")
+    vi.stubGlobal("require", {
+      resolve: () => {
+        throw new Error("missing")
+      },
+    })
+
+    const { isSandboxAvailable } = await import("../src/sandbox/providers/shared.ts")
+
+    expect(isSandboxAvailable("vercel")).toBe(false)
+    expect(isSandboxAvailable()).toBe(false)
+  })
+
+  it("marks provider sandboxes available when their SDK resolves", async () => {
+    vi.stubGlobal("require", {
+      resolve: (id: string) => id,
+    })
+
+    const { isSandboxAvailable } = await import("../src/sandbox/providers/shared.ts")
+
+    expect(isSandboxAvailable("vercel")).toBe(true)
+    expect(isSandboxAvailable("cloudflare")).toBe(true)
+  })
 })
