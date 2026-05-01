@@ -48,9 +48,9 @@ const sandboxPackageDir = resolve(packagesDir, "sandbox")
 const workflowPackageDir = resolve(packagesDir, "workflow")
 const viteE2EProductName = "vite-e2e"
 
-export type HostedProvider = "cloudflare" | "vercel"
+type HostedProvider = "cloudflare" | "vercel"
 
-export interface ViteE2EComposerOptions {
+interface ViteE2EComposerOptions {
   blob?: false | ResolvedBlobModuleOptions
   clientOutDir: string
   db?: ResolvedDBViteConfig
@@ -799,7 +799,7 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   }))
 }
 
-export async function generateViteE2EOutputs(options: ViteE2EComposerOptions): Promise<void> {
+async function generateViteE2EOutputs(options: ViteE2EComposerOptions): Promise<void> {
   const artifacts = await prepareFeatureArtifacts(options)
 
   if (options.hosting === "cloudflare") {
