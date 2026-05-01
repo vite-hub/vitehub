@@ -10,7 +10,7 @@ import { configureCloudflareKV } from "../../../packages/kv/src/integrations/clo
 import { normalizeKVOptions } from "../../../packages/kv/src/config.ts"
 import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
 import { discoverQueueDefinitions } from "../../../packages/queue/src/discovery.ts"
-import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../../../packages/queue/src/integrations/cloudflare.ts"
+import { getCloudflareQueueBindingName, getCloudflareQueueDefinitionName, getCloudflareQueueName } from "../../../packages/queue/src/integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
 import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, defaultCloudflareSandboxMigrationTag, configureCloudflareSandbox, writeCloudflareSandboxDockerfile } from "../../../packages/sandbox/src/cloudflare.ts"
 import { extractSandboxDefinitionOptions } from "../../../packages/sandbox/src/definition-options.ts"
@@ -48,9 +48,9 @@ const sandboxPackageDir = resolve(packagesDir, "sandbox")
 const workflowPackageDir = resolve(packagesDir, "workflow")
 const viteE2EProductName = "vite-e2e"
 
-type HostedProvider = "cloudflare" | "vercel"
+export type HostedProvider = "cloudflare" | "vercel"
 
-interface ViteE2EComposerOptions {
+export interface ViteE2EComposerOptions {
   blob?: false | ResolvedBlobModuleOptions
   clientOutDir: string
   db?: ResolvedDBViteConfig
@@ -805,7 +805,7 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   }))
 }
 
-async function generateViteE2EOutputs(options: ViteE2EComposerOptions): Promise<void> {
+export async function generateViteE2EOutputs(options: ViteE2EComposerOptions): Promise<void> {
   const artifacts = await prepareFeatureArtifacts(options)
 
   if (options.hosting === "cloudflare") {

@@ -2,7 +2,7 @@ import { appendFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
-import { createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-discovery"
+import { createGeneratedDefinitionPath, createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
@@ -19,11 +19,19 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
 }
 
 function createNitroWorkflowRegistryPath(rootDir: string, buildDir: string) {
-  return resolve(rootDir, buildDir, "vitehub", "workflow", "nitro-registry.mjs")
+  return createGeneratedDefinitionPath(rootDir, {
+    buildDir,
+    fileName: "nitro-registry.mjs",
+    segments: ["vitehub", "workflow"],
+  })
 }
 
 function createNitroWorkflowPluginPath(rootDir: string, buildDir: string) {
-  return resolve(rootDir, buildDir, "vitehub", "workflow", "nitro-plugin.ts")
+  return createGeneratedDefinitionPath(rootDir, {
+    buildDir,
+    fileName: "nitro-plugin.ts",
+    segments: ["vitehub", "workflow"],
+  })
 }
 
 function resolveNitroWorkflowScanDirs(rootDir: string, scanDirs: string[] | undefined) {

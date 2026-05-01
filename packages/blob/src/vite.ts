@@ -1,4 +1,6 @@
-import { getViteMode, VITEHUB_MODES } from "@vitehub/internal/build/mode"
+import { getViteMode } from "@vitehub/internal/build/mode"
+import { shouldSkipViteProviderBuild } from "@vitehub/internal/build/deployment-output"
+import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
 import blobNitroModule from "./nitro/module.ts"
 import { generateProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
@@ -24,22 +26,7 @@ export interface BlobVitePluginAPI {
 
 export type BlobVitePlugin = Plugin & { api: BlobVitePluginAPI, nitro: NitroModule }
 
-function mergeNoExternal(current: boolean | string | RegExp | (string | RegExp)[] | undefined) {
-  if (current === true) {
-    return true
-  }
-
-  if (!current) {
-    return [blobPackageName]
-  }
-
-  const values = Array.isArray(current) ? current : [current]
-  return values.some(value => value === blobPackageName) ? values : [...values, blobPackageName]
-}
-
-function isBlobServerEnvironment(name: string, config: { consumer?: string }) {
-  return name === "ssr" || config.consumer === "server"
-}
+const mergeNoExternal = createNoExternalMerger(blobPackageName)
 
 function serializeVirtualConfig(config: BlobViteRuntimeConfig): string {
   return [
@@ -72,7 +59,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       runtimeConfig = resolveBlobViteConfig(blob)
     },
     configEnvironment(name, config) {
-      if (!isBlobServerEnvironment(name, config)) {
+      if (!isServerEnvironment(name, config)) {
         return
       }
 
@@ -83,7 +70,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       }
     },
     async closeBundle() {
-      if (command === "serve" || getViteMode() === VITEHUB_MODES.e2e) {
+      if (shouldSkipViteProviderBuild(command, getViteMode())) {
         return
       }
 

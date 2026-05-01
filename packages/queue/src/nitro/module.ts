@@ -1,5 +1,5 @@
 import { createImportPath } from "@vitehub/internal/build/paths"
-import { createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-discovery"
+import { createGeneratedDefinitionPath, createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import { resolve } from "node:path"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
@@ -31,11 +31,11 @@ function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[])
 const QUEUE_NITRO_IMPORTS_PRESET = { from: "@vitehub/queue", imports: ["defineQueue", "deferQueue", "getQueue", "runQueue"] }
 
 function createNitroQueueRegistryPath(rootDir: string, buildDir: string) {
-  return resolve(rootDir, buildDir, ...generatedDirSegments, "nitro-registry.mjs")
+  return createGeneratedDefinitionPath(rootDir, { buildDir, fileName: "nitro-registry.mjs", segments: generatedDirSegments })
 }
 
 function createNitroQueuePluginPath(rootDir: string, buildDir: string) {
-  return resolve(rootDir, buildDir, ...generatedDirSegments, "nitro-plugin.ts")
+  return createGeneratedDefinitionPath(rootDir, { buildDir, fileName: "nitro-plugin.ts", segments: generatedDirSegments })
 }
 
 function resolveNitroQueueScanDirs(rootDir: string, scanDirs: string[] | undefined) {

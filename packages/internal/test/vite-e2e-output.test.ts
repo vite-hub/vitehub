@@ -4,16 +4,15 @@ import { execFile } from "node:child_process"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
-const repoRoot = resolve(playgroundDir, "../..")
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
-  const workspacePackagesDir = resolve(repoRoot, "packages")
+  const workspacePackagesDir = resolve(playgroundDir, "../../packages")
   await mkdir(baseDir, { recursive: true })
   if (!existsSync(join(baseDir, "packages"))) {
     await symlink(workspacePackagesDir, join(baseDir, "packages"), "dir")
@@ -44,21 +43,6 @@ async function createPlaygroundCopy(prefix: string) {
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
-
-beforeAll(async () => {
-  await execFileAsync("pnpm", [
-    "--filter", "@vitehub/blob",
-    "--filter", "@vitehub/db",
-    "--filter", "@vitehub/kv",
-    "--filter", "@vitehub/queue",
-    "--filter", "@vitehub/sandbox",
-    "--filter", "@vitehub/workflow",
-    "build",
-  ], {
-    cwd: repoRoot,
-    env: process.env,
-  })
-}, 120_000)
 
 describe("unified vite e2e hosted outputs", () => {
   it("keeps the cloudflare artifact provider-pure and preserves hosted bindings", async () => {

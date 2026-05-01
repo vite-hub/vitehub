@@ -1,11 +1,11 @@
-import { H3, toWebHandler } from "h3"
+import { createCloudflareHostedWorker } from "@vitehub/internal/runtime/hosted"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { createCloudflareQueueBatchHandler } from "../providers/cloudflare.ts"
 
 import { createCloudflareRuntimeEvent, createQueueJob, setActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "./cloudflare-shared.ts"
-import { resolveQueueAppFetch, type QueueApp } from "./_app.ts"
+import type { QueueApp } from "./_app.ts"
 import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "./state.ts"
 
 import type { CloudflareQueueMessageBatch, QueueDefinitionRegistry, ResolvedQueueOptions } from "../types.ts"
@@ -26,8 +26,6 @@ export interface QueueCloudflareWorker {
 export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOptions = {}): QueueCloudflareWorker {
   const queueConfig = options.queue === false ? false : normalizeQueueOptions(options.queue, { hosting: "cloudflare" })!
   const registry = options.registry
-  const defaultHandler = toWebHandler(new H3())
-  const appHandler = resolveQueueAppFetch(options.app)
 
   const applyRuntimeState = () => {
     setQueueRuntimeConfig(queueConfig)
@@ -35,12 +33,16 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
   }
 
   return {
-    async fetch(request, env, context) {
-      applyRuntimeState()
-      setActiveCloudflareEnv(env)
-      const runtimeEvent = createCloudflareRuntimeEvent(env, context)
-      return await runWithQueueRuntimeEvent(runtimeEvent, () => Promise.resolve(appHandler ? appHandler(request, runtimeEvent.context) : defaultHandler(request, runtimeEvent.context)))
-    },
+    ...createCloudflareHostedWorker({
+      app: options.app,
+      label: "queue",
+      async onRequest({ env, executionContext, handle }) {
+        applyRuntimeState()
+        setActiveCloudflareEnv(env)
+        const runtimeEvent = createCloudflareRuntimeEvent(env, executionContext)
+        return await runWithQueueRuntimeEvent(runtimeEvent, () => handle(runtimeEvent.context))
+      },
+    }),
     async queue(batch, env, context) {
       applyRuntimeState()
       setActiveCloudflareEnv(env)

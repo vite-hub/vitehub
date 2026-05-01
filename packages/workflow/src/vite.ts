@@ -1,4 +1,5 @@
-import { getViteMode, VITEHUB_MODES } from "@vitehub/internal/build/mode"
+import { getViteMode } from "@vitehub/internal/build/mode"
+import { shouldSkipViteProviderBuild } from "@vitehub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
 import { generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
@@ -35,7 +36,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
       }
     },
     async closeBundle() {
-      if (!resolved || resolved.command === "serve" || getViteMode() === VITEHUB_MODES.e2e) {
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
       await generateProviderOutputs({

@@ -1,8 +1,8 @@
-import { H3, toWebHandler } from "h3"
+import { createCloudflareHostedWorker } from "@vitehub/internal/runtime/hosted"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 
-import { resolveWorkflowAppFetch, type WorkflowApp } from "./_app.ts"
+import type { WorkflowApp } from "./_app.ts"
 import { createCloudflareRuntimeEvent, setActiveCloudflareEnv, type CloudflareWorkerEnv, type CloudflareWorkerExecutionContext } from "./cloudflare-shared.ts"
 import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
@@ -22,17 +22,15 @@ export interface WorkflowCloudflareWorker {
 
 export function createWorkflowCloudflareWorker(options: WorkflowCloudflareWorkerOptions = {}): WorkflowCloudflareWorker {
   const workflowConfig = options.workflow === false ? false : normalizeWorkflowOptions(options.workflow, { hosting: "cloudflare" })!
-  setWorkflowRuntimeConfig(workflowConfig)
-  setWorkflowRuntimeRegistry(options.registry)
-
-  const defaultHandler = toWebHandler(new H3())
-  const appHandler = resolveWorkflowAppFetch(options.app)
-
-  return {
-    async fetch(request, env, context) {
+  return createCloudflareHostedWorker({
+    app: options.app,
+    label: "workflow",
+    async onRequest({ env, executionContext, handle }) {
+      setWorkflowRuntimeConfig(workflowConfig)
+      setWorkflowRuntimeRegistry(options.registry)
       setActiveCloudflareEnv(env)
-      const runtimeEvent = createCloudflareRuntimeEvent(env, context)
-      return await runWithWorkflowRuntimeEvent(runtimeEvent, () => Promise.resolve(appHandler ? appHandler(request, runtimeEvent.context) : defaultHandler(request, runtimeEvent.context)))
+      const runtimeEvent = createCloudflareRuntimeEvent(env, executionContext)
+      return await runWithWorkflowRuntimeEvent(runtimeEvent, () => handle(runtimeEvent.context))
     },
-  }
+  })
 }

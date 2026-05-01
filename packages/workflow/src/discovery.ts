@@ -1,61 +1,17 @@
 import { normalize, relative, resolve } from "pathe"
 
 import {
-  listSourceFiles,
-  mergeDefinitions,
+  discoverDefinitions,
   normalizePathDefinitionName,
-  registerDefinition,
-  sortDefinitions,
-} from "@vitehub/internal/definition-discovery"
+  normalizeSuffixDefinitionName,
+} from "@vitehub/internal/definition-catalog"
 
 import type { DiscoveredWorkflowDefinition } from "./types.ts"
 
 const workflowSuffixPattern = /\.workflow\.(?:c|m)?[jt]s$/i
 
 function normalizeSuffixWorkflowName(rootDir: string, file: string) {
-  const relativePath = relative(rootDir, file)
-  const normalized = relativePath.replace(workflowSuffixPattern, "")
-  return normalized.startsWith("src/") ? normalized.slice("src/".length) : normalized
-}
-
-function scanRoot(rootDir: string): DiscoveredWorkflowDefinition[] {
-  const definitions = new Map<string, DiscoveredWorkflowDefinition>()
-  const serverWorkflowDir = normalize(resolve(rootDir, "server", "workflows"))
-
-  for (const file of listSourceFiles(rootDir)) {
-    const normalizedFile = normalize(file)
-    if (normalizedFile.startsWith(`${serverWorkflowDir}/`) || normalizedFile === serverWorkflowDir) {
-      const name = normalizePathDefinitionName(serverWorkflowDir, file)
-      if (name) {
-        registerDefinition(definitions, { handler: file, name, source: "nitro-server-workflows" }, "workflow")
-      }
-      continue
-    }
-    if (workflowSuffixPattern.test(file)) {
-      const name = normalizeSuffixWorkflowName(rootDir, file)
-      if (name) {
-        registerDefinition(definitions, { handler: file, name, source: "vite-suffix" }, "workflow")
-      }
-    }
-  }
-
-  return sortDefinitions(definitions)
-}
-
-function scanNitroWorkflowFiles(scanDirs: string[]): DiscoveredWorkflowDefinition[] {
-  const definitions = new Map<string, DiscoveredWorkflowDefinition>()
-
-  for (const scanDir of scanDirs) {
-    const workflowDir = resolve(scanDir, "workflows")
-    for (const file of listSourceFiles(workflowDir)) {
-      const name = normalizePathDefinitionName(workflowDir, file)
-      if (name) {
-        registerDefinition(definitions, { handler: file, name, source: "nitro-server-workflows" }, "workflow")
-      }
-    }
-  }
-
-  return sortDefinitions(definitions)
+  return normalizeSuffixDefinitionName(rootDir, file, workflowSuffixPattern, { stripPrefix: "src/" })
 }
 
 export function discoverWorkflowDefinitions(options:
@@ -63,9 +19,35 @@ export function discoverWorkflowDefinitions(options:
   | { mode: "nitro-server-workflows", scanDirs: string[] }
 ): DiscoveredWorkflowDefinition[] {
   if (options.mode === "nitro-server-workflows") {
-    return scanNitroWorkflowFiles(options.scanDirs)
+    return discoverDefinitions("workflow", [{
+      kind: "directory",
+      scanDirs: options.scanDirs,
+      source: "nitro-server-workflows",
+      subdir: "workflows",
+    }])
   }
 
   const roots = new Set([options.rootDir, ...(options.scanDirs || [])].filter(Boolean))
-  return mergeDefinitions("workflow", ...[...roots].map(scanRoot))
+  return discoverDefinitions("workflow", [
+    {
+      kind: "suffix",
+      normalizeName: normalizeSuffixWorkflowName,
+      pattern: workflowSuffixPattern,
+      roots: [...roots],
+      source: "vite-suffix",
+    },
+    {
+      kind: "directory",
+      normalizeName(directory, file) {
+        const serverWorkflowDir = normalize(directory)
+        const normalizedFile = normalize(file)
+        if (normalizedFile.startsWith(`${serverWorkflowDir}/`) || normalizedFile === serverWorkflowDir) {
+          return normalizePathDefinitionName(serverWorkflowDir, file)
+        }
+      },
+      scanDirs: [...roots].map(root => resolve(root, "server")),
+      source: "nitro-server-workflows",
+      subdir: "workflows",
+    },
+  ])
 }

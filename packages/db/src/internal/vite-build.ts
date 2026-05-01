@@ -1,11 +1,9 @@
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 
-import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
+import { writeCloudflareDeploymentOutput, writeVercelDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
-import { resolveUserAppEntry, toSafeAppName } from "@vitehub/internal/build/user-entry"
-import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
+import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
 import { resolve } from "pathe"
 
 import { serializeSchemaObject } from "./schema-serializer.ts"
@@ -200,36 +198,29 @@ async function writeCloudflareOutput({ artifacts, clientOutDir, rootDir, runtime
     throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseId\` or a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
   }
 
-  const clientDir = resolve(rootDir, clientOutDir)
-  const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir))
-  const workerOutfile = resolve(outputRoot, "index.js")
-  const staticIndex = hasStaticIndex(clientDir)
   const d1Databases = createCloudflareD1Bindings(runtimeConfig)
-
-  await rm(outputRoot, { force: true, recursive: true })
-  await mkdir(outputRoot, { recursive: true })
 
   const wranglerConfig: CloudflareDBConfig = {
     compatibility_date: defaultCloudflareCompatibilityDate,
     compatibility_flags: ["nodejs_compat"],
     ...(d1Databases.length ? { d1_databases: d1Databases } : {}),
     main: "index.js",
-    name: toSafeAppName(rootDir),
     observability: { enabled: true },
-    ...(staticIndex ? { assets: { directory: "../client", run_worker_first: ["/api/*"] } } : {}),
   }
 
-  await Promise.all([
-    bundleEsmEntry(artifacts.cloudflareWorkerFile, workerOutfile, {
+  await writeCloudflareDeploymentOutput({
+    bundleEntry: artifacts.cloudflareWorkerFile,
+    bundleOptions: {
       alias: { "@vitehub/db/drizzle": artifacts.runtimeModuleFiles.cloudflare },
       conditions: ["workerd", "worker", "browser", "default"],
       external: ["node:async_hooks"],
       format: "esm",
       platform: "neutral",
-    }),
-    writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8"),
-    staticIndex ? copyClientOutput(clientDir, resolve(rootDir, "dist", "client")) : Promise.resolve(),
-  ])
+    },
+    clientOutDir,
+    rootDir,
+    wranglerConfig,
+  })
 }
 
 async function writeVercelOutput({ artifacts, clientOutDir, rootDir, runtimeConfig }: ProviderWriteOptions) {
@@ -238,25 +229,16 @@ async function writeVercelOutput({ artifacts, clientOutDir, rootDir, runtimeConf
     throw new Error(`[vitehub] Vercel output requires a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
   }
 
-  const clientDir = resolve(rootDir, clientOutDir)
-  const outputRoot = resolve(rootDir, ".vercel", "output")
-  const serverDir = resolve(outputRoot, "functions", "__server.func")
-  const serverEntry = resolve(serverDir, "index.mjs")
-  const staticIndex = hasStaticIndex(clientDir)
-
-  await rm(outputRoot, { force: true, recursive: true })
-  await mkdir(serverDir, { recursive: true })
-
-  await Promise.all([
-    bundleEsmEntry(artifacts.vercelServerFile, serverEntry, {
+  await writeVercelDeploymentOutput({
+    bundleEntry: artifacts.vercelServerFile,
+    bundleOptions: {
       alias: { "@vitehub/db/drizzle": artifacts.runtimeModuleFiles.vercel },
       format: "esm",
       platform: "node",
-    }),
-    writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
-    writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8"),
-    staticIndex ? copyClientOutput(clientDir, resolve(outputRoot, "static")) : Promise.resolve(),
-  ])
+    },
+    clientOutDir,
+    rootDir,
+  })
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedDBArtifacts> {

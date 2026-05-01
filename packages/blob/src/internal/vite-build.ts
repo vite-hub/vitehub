@@ -1,18 +1,16 @@
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { resolve } from "pathe"
 
-import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
-import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
+import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
+import { writeCloudflareDeploymentOutput, writeVercelDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
-import { resolveUserAppEntry, toSafeAppName } from "@vitehub/internal/build/user-entry"
-import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
+import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../config.ts"
 
 import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../types.ts"
 
 export const blobPackageName = "@vitehub/blob"
-const defaultCompatibilityDate = "2026-04-20"
 const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
@@ -192,71 +190,54 @@ async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | R
 }
 
 async function writeCloudflareOutput(rootDir: string, clientOutDir: string, blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, artifacts: GeneratedBlobArtifacts) {
-  const clientDir = resolve(rootDir, clientOutDir)
-  const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir))
-  const workerOutfile = resolve(outputRoot, "index.js")
-  const staticIndex = hasStaticIndex(clientDir)
   const resolved = resolveBlobConfig(blob, "cloudflare")
 
-  await rm(outputRoot, { force: true, recursive: true })
-  if (staticIndex) {
-    await copyClientOutput(clientDir, resolve(rootDir, "dist", "client"))
-  }
-
-  await mkdir(outputRoot, { recursive: true })
-  await bundleEsmEntry(artifacts.cloudflareWorkerFile, workerOutfile, {
-    alias: {
-      "@vitehub/blob": artifacts.runtimeModuleFiles.cloudflare,
-    },
-    conditions: ["workerd", "worker", "browser", "default"],
-    external: ["@vercel/blob", "node:async_hooks", "virtual:@vitehub/blob/config"],
-    format: "esm",
-    platform: "neutral",
-  })
-
   const wranglerConfig: CloudflareBlobConfig = {
-    compatibility_date: defaultCompatibilityDate,
+    compatibility_date: defaultCloudflareCompatibilityDate,
     compatibility_flags: ["nodejs_compat"],
     main: "index.js",
-    name: toSafeAppName(rootDir),
     observability: { enabled: true },
-    ...(staticIndex ? { assets: { directory: "../client", run_worker_first: ["/api/*"] } } : {}),
     ...(createCloudflareR2Bindings(resolved) ? { r2_buckets: createCloudflareR2Bindings(resolved) } : {}),
   }
 
-  await writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8")
+  await writeCloudflareDeploymentOutput({
+    bundleEntry: artifacts.cloudflareWorkerFile,
+    bundleOptions: {
+      alias: {
+        "@vitehub/blob": artifacts.runtimeModuleFiles.cloudflare,
+      },
+      conditions: ["workerd", "worker", "browser", "default"],
+      external: ["@vercel/blob", "node:async_hooks", "virtual:@vitehub/blob/config"],
+      format: "esm",
+      platform: "neutral",
+    },
+    clientOutDir,
+    rootDir,
+    wranglerConfig,
+  })
 }
 
 async function writeVercelOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedBlobArtifacts) {
-  const clientDir = resolve(rootDir, clientOutDir)
-  const outputRoot = resolve(rootDir, ".vercel", "output")
-  const serverDir = resolve(outputRoot, "functions", "__server.func")
-  const serverEntry = resolve(serverDir, "index.mjs")
-  const staticIndex = hasStaticIndex(clientDir)
-
-  await rm(outputRoot, { force: true, recursive: true })
-  await mkdir(serverDir, { recursive: true })
-
-  await bundleEsmEntry(artifacts.vercelServerFile, serverEntry, {
-    alias: {
-      "@vitehub/blob": artifacts.runtimeModuleFiles.vercel,
+  await writeVercelDeploymentOutput({
+    bundleEntry: artifacts.vercelServerFile,
+    bundleOptions: {
+      alias: {
+        "@vitehub/blob": artifacts.runtimeModuleFiles.vercel,
+      },
+      external: ["virtual:@vitehub/blob/config"],
+      format: "esm",
+      platform: "node",
     },
-    external: ["virtual:@vitehub/blob/config"],
-    format: "esm",
-    platform: "node",
+    clientOutDir,
+    rootDir,
   })
-
-  await writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
-  await writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8")
-
-  if (staticIndex) {
-    await copyClientOutput(clientDir, resolve(outputRoot, "static"))
-  }
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.blob)
-  await writeCloudflareOutput(options.rootDir, options.clientOutDir, options.blob, artifacts)
-  await writeVercelOutput(options.rootDir, options.clientOutDir, artifacts)
+  await Promise.all([
+    writeCloudflareOutput(options.rootDir, options.clientOutDir, options.blob, artifacts),
+    writeVercelOutput(options.rootDir, options.clientOutDir, artifacts),
+  ])
   return artifacts
 }

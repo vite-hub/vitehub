@@ -10,14 +10,17 @@
   "exports": {
     "./env": "./src/env.ts",
     "./arrays": "./src/arrays.ts",
+    "./definition-catalog": "./src/definition-catalog.ts",
     "./definition-discovery": "./src/definition-discovery.ts",
     "./integrations/hex": "./src/integrations/hex.ts",
     "./nitro": "./src/nitro.ts",
     "./object": "./src/object.ts",
     "./runtime/app": "./src/runtime/app.ts",
+    "./runtime/hosted": "./src/runtime/hosted.ts",
     "./runtime/cloudflare-env": "./src/runtime/cloudflare-env.ts",
     "./runtime/random": "./src/runtime/random.ts",
     "./build/cloudflare": "./src/build/cloudflare.ts",
+    "./build/deployment-output": "./src/build/deployment-output.ts",
     "./build/mode": "./src/build/mode.ts",
     "./build/paths": "./src/build/paths.ts",
     "./build/esbuild": "./src/build/esbuild.ts",
@@ -25,6 +28,7 @@
     "./build/vercel-config": "./src/build/vercel-config.ts",
     "./build/user-entry": "./src/build/user-entry.ts",
     "./build/vite": "./src/build/vite.ts",
+    "./workspace-inventory": "./src/workspace-inventory.ts",
     "./test/e2e-live": "./src/test/e2e-live.mjs",
     "./package.json": "./package.json"
   },
@@ -35,6 +39,7 @@
   "dependencies": {
     "esbuild": "^0.27.7",
     "exsolve": "catalog:",
+    "h3": "catalog:",
     "pathe": "catalog:"
   },
   "devDependencies": {

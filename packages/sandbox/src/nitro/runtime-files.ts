@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { createImportPath, generatedDirSegments } from '@vitehub/internal/build/paths'
-import { createRuntimeRegistryContents, sanitizeDefinitionFilename, writeFileIfChanged } from '@vitehub/internal/definition-discovery'
+import { createGeneratedDefinitionPath, createRuntimeRegistryContents, sanitizeDefinitionFilename, writeFileIfChanged } from '@vitehub/internal/definition-catalog'
 
 import { bundleSandboxDefinition } from '../bundle'
 import { extractSandboxDefinitionOptions } from '../definition-options'
@@ -16,15 +16,19 @@ import type { Nitro } from 'nitro/types'
 export const sandboxGeneratedDir = generatedDirSegments('sandbox')
 
 export function createNitroSandboxRegistryPath(rootDir: string, buildDir: string) {
-  return resolve(rootDir, buildDir, ...sandboxGeneratedDir, 'nitro-registry.mjs')
+  return createGeneratedDefinitionPath(rootDir, { buildDir, fileName: 'nitro-registry.mjs', segments: sandboxGeneratedDir })
 }
 
 export function createNitroSandboxPluginPath(rootDir: string, buildDir: string) {
-  return resolve(rootDir, buildDir, ...sandboxGeneratedDir, 'nitro-plugin.ts')
+  return createGeneratedDefinitionPath(rootDir, { buildDir, fileName: 'nitro-plugin.ts', segments: sandboxGeneratedDir })
 }
 
 export function createNitroSandboxDefinitionPath(rootDir: string, buildDir: string, name: string) {
-  return resolve(rootDir, buildDir, ...sandboxGeneratedDir, 'definitions', `${sanitizeDefinitionFilename(name)}.mjs`)
+  return createGeneratedDefinitionPath(rootDir, {
+    buildDir,
+    fileName: `definitions/${sanitizeDefinitionFilename(name)}.mjs`,
+    segments: sandboxGeneratedDir,
+  })
 }
 
 export function createNitroSandboxPluginContents(file: string, registryFile: string) {

@@ -4,7 +4,7 @@ import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
-interface D1PreparedStatement {
+export interface D1PreparedStatement {
   bind: (...params: unknown[]) => {
     all: () => Promise<{ results: Record<string, unknown>[] }>
     raw: () => Promise<unknown[][]>
@@ -12,7 +12,7 @@ interface D1PreparedStatement {
   }
 }
 
-interface D1DatabaseLike {
+export interface D1DatabaseLike {
   batch: (statements: unknown[]) => Promise<Array<{ results: Record<string, unknown>[] }>>
   prepare: (query: string) => D1PreparedStatement
 }
@@ -24,7 +24,7 @@ interface LibsqlClientFactory {
   drizzle: (config: { casing?: "snake_case" | "camelCase", client: unknown, schema: Record<string, unknown> }) => unknown
 }
 
-interface DrizzleSqliteAdapterOptions {
+export interface DrizzleSqliteAdapterOptions {
   libsql: LibsqlClientFactory
   requireRemoteUrl: boolean
   resolveLocalUrl?: (url: string) => string
