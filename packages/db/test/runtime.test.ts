@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { setActiveCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
@@ -48,8 +48,8 @@ function createFakeD1Binding() {
   default: defaultSchema,
 }), { virtual: true })
 
-;(vi.mock as any)("virtual:@vitehub/db/databases", () => ({
-  default: {
+function createRuntimeDatabaseEntries() {
+  return {
     analytics: {
       config: {
         cloudflare: {
@@ -89,8 +89,14 @@ function createFakeD1Binding() {
       },
       schema: defaultSchema,
     },
-  },
-}), { virtual: true })
+  }
+}
+
+beforeEach(() => {
+  ;(vi.doMock as any)("virtual:@vitehub/db/databases", () => ({
+    default: createRuntimeDatabaseEntries(),
+  }), { virtual: true })
+})
 
 let tempDir = ""
 
@@ -106,6 +112,18 @@ afterEach(async () => {
 })
 
 describe("drizzle runtime", () => {
+  it("provides a default fallback entry when the virtual database registry is empty", async () => {
+    ;(vi.doMock as any)("virtual:@vitehub/db/databases", () => ({
+      default: {},
+    }), { virtual: true })
+
+    const { databases, db } = await import("../src/runtime/drizzle-runtime.ts")
+
+    expect(db).toBe(databases.default.db)
+    expect(databases.default.schema).toEqual({})
+    expect(() => databases.default.db.run).toThrow("[vitehub] `@vitehub/db/drizzle` requires `hubDb()` and `db !== false`.")
+  })
+
   it("keeps db as the default database alias and serves named schemas independently", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vitehub-db-runtime-"))
     runtimeState.dbPath = `file:${join(tempDir, "db.sqlite")}`

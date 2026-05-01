@@ -63,7 +63,7 @@ function createRuntimeDatabase<TSchema extends Record<string, unknown>>(
 
 const runtimeEntries = databaseEntries as Record<string, RuntimeDatabaseModule>
 
-export const databases = Object.fromEntries(
+const resolvedDatabases = Object.fromEntries(
   Object.entries(runtimeEntries).map(([name, entry]) => [
     name,
     {
@@ -75,4 +75,16 @@ export const databases = Object.fromEntries(
   default: RuntimeDatabaseEntry<Record<string, unknown>>
 }
 
-export const db = databases.default?.db || createMissingDatabaseProxy("default")
+const defaultDatabaseEntry = resolvedDatabases.default || {
+  db: createMissingDatabaseProxy("default"),
+  schema: {},
+}
+
+export const databases = {
+  ...resolvedDatabases,
+  default: defaultDatabaseEntry,
+} as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>> & {
+  default: RuntimeDatabaseEntry<Record<string, unknown>>
+}
+
+export const db = databases.default.db
