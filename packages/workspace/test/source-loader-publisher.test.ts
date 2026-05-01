@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineWorkspace, loader, publish, registerWorkspace, source, useWorkspace } from "../src/index.ts"
+import type { WorkspaceStore } from "../src/types.ts"
 
 const tempDirs: string[] = []
 
@@ -65,5 +66,38 @@ describe("sources, loaders, and publishers", () => {
     expect(await workspace.glob("**/*")).toHaveLength(3)
     expect(await readFile(join(root, "manifest.json"), "utf8")).toContain('"one.md"')
     expect(await readFile(join(root, "workspace.d.ts"), "utf8")).toContain('virtual:vitehub/workspaces/sources')
+  })
+
+  it("keeps server assets inside the publish directory", async () => {
+    const root = await createRoot()
+    const store: WorkspaceStore = {
+      async glob() {
+        return [{ path: "../escape.txt", type: "file" }]
+      },
+      async readFile() {
+        return { path: "../escape.txt", content: "escape" }
+      },
+      async list() {
+        return []
+      },
+      async stat() {
+        return undefined
+      },
+      async writeFile() {},
+      async mkdir() {},
+      async rm() {},
+      async snapshot() {
+        return { id: "snapshot", createdAt: new Date(0).toISOString(), entries: {} }
+      },
+      async diff() {
+        return { to: "snapshot", entries: [] }
+      },
+    }
+
+    await expect(publish.serverAssets({ dir: "server/assets" }).publish({
+      workspace: defineWorkspace({ name: "escape" }),
+      store,
+      rootDir: root,
+    })).rejects.toThrow("escapes the workspace root")
   })
 })

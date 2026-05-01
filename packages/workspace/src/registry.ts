@@ -1,6 +1,7 @@
 import { WorkspaceNotFoundError } from "./errors.ts"
 import type { Workspace, WorkspaceDefinition } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
+import runtimeRegistry from "#vitehub-workspace-registry"
 
 export type WorkspaceRegistryModule = {
   default?: WorkspaceDefinition
@@ -9,7 +10,7 @@ export type WorkspaceRegistryModule = {
 export type WorkspaceRegistry = Record<string, () => Promise<WorkspaceRegistryModule>>
 
 const definitions = new Map<string, WorkspaceDefinition>()
-let loaders: WorkspaceRegistry = {}
+let loaders: WorkspaceRegistry = runtimeRegistry
 
 export function registerWorkspace(definition: WorkspaceDefinition): void {
   definitions.set(definition.name, definition)

@@ -1,6 +1,7 @@
 import { resolve } from "node:path"
 
 import { files as filesLoader } from "./loaders/files.ts"
+import { getWorkspaceRuntimeConfig } from "./runtime/config.ts"
 import { createLocalWorkspaceStore } from "./stores/local.ts"
 import { createMemoryWorkspaceStore } from "./stores/memory.ts"
 
@@ -11,8 +12,11 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
   if (definition.store?.provider === "memory") return createMemoryWorkspaceStore()
 
   const rootDir = definition.rootDir || process.cwd()
-  const root = definition.store?.root || `.vitehub/workspaces/${definition.name}`
-  return createLocalWorkspaceStore(resolve(rootDir, root))
+  if (definition.store?.root) return createLocalWorkspaceStore(resolve(rootDir, definition.store.root))
+
+  const runtimeConfig = getWorkspaceRuntimeConfig()
+  const root = runtimeConfig ? resolve(runtimeConfig.root, definition.name) : resolve(rootDir, ".vitehub/workspaces", definition.name)
+  return createLocalWorkspaceStore(root)
 }
 
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore): Promise<void> {

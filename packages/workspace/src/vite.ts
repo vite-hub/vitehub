@@ -1,6 +1,6 @@
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
-import { createWorkspaceManifest, discoverWorkspaceDefinitions } from "./discovery.ts"
+import { createWorkspaceManifest, createWorkspaceRegistryContents, discoverWorkspaceDefinitions } from "./discovery.ts"
 import workspaceNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
@@ -10,8 +10,10 @@ import type { WorkspaceModuleOptions } from "./types.ts"
 const WORKSPACE_PACKAGE_NAME = "@vitehub/workspace"
 const WORKSPACES_ID = "virtual:vitehub/workspaces"
 const WORKSPACE_PREFIX = "virtual:vitehub/workspaces/"
+const WORKSPACE_REGISTRY_ID = "#vitehub-workspace-registry"
 const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`
 const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
+const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
 
 export interface WorkspaceVitePluginAPI {
@@ -23,9 +25,12 @@ export type WorkspaceVitePlugin = Plugin & { api: WorkspaceVitePluginAPI, nitro:
 export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
   let resolved: ResolvedConfig | undefined
   let manifest: Awaited<ReturnType<typeof createWorkspaceManifest>> = { workspaces: [] }
+  let registryContents = "export default {}\n"
 
   async function refreshManifest(root: string) {
-    manifest = await createWorkspaceManifest(discoverWorkspaceDefinitions(root))
+    const definitions = discoverWorkspaceDefinitions(root)
+    manifest = await createWorkspaceManifest(definitions)
+    registryContents = createWorkspaceRegistryContents(definitions)
   }
 
   return {
@@ -50,10 +55,12 @@ export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePl
       if (resolved) await refreshManifest(resolved.root)
     },
     resolveId(id) {
+      if (id === WORKSPACE_REGISTRY_ID) return RESOLVED_WORKSPACE_REGISTRY_ID
       if (id === WORKSPACES_ID) return RESOLVED_WORKSPACES_ID
       if (id.startsWith(WORKSPACE_PREFIX)) return `${RESOLVED_WORKSPACE_PREFIX}${id.slice(WORKSPACE_PREFIX.length)}`
     },
     load(id) {
+      if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
       if (id === RESOLVED_WORKSPACES_ID) {
         return `export const workspaces = ${JSON.stringify(manifest.workspaces)};\nexport default { workspaces };\n`
       }

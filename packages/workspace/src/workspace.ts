@@ -1,8 +1,6 @@
 import { WorkspaceError } from "./errors.ts"
 import { createWorkspaceStore, syncWorkspaceDefinition } from "./lifecycle.ts"
 import type {
-  ExecOptions,
-  ExecResult,
   ReadFileOptions,
   Workspace,
   WorkspaceContent,
@@ -27,30 +25,6 @@ function getStore(definition: WorkspaceDefinition) {
 function decodeFile(content: WorkspaceContent, options?: ReadFileOptions) {
   if (options?.encoding === "binary") return content
   return typeof content === "string" ? content : new TextDecoder().decode(content)
-}
-
-function execLocal(command: string, args: string[] = [], options: ExecOptions = {}): Promise<ExecResult> {
-  return new Promise((resolve, reject) => {
-    import("node:child_process").then(({ spawn }) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: { ...process.env, ...options.env },
-      stdio: ["ignore", "pipe", "pipe"],
-    })
-    const stdout: Buffer[] = []
-    const stderr: Buffer[] = []
-    child.stdout.on("data", chunk => stdout.push(Buffer.from(chunk)))
-    child.stderr.on("data", chunk => stderr.push(Buffer.from(chunk)))
-    child.on("error", reject)
-    child.on("close", code => resolve({
-      command,
-      args,
-      exitCode: code ?? 0,
-      stdout: Buffer.concat(stdout).toString("utf8"),
-      stderr: Buffer.concat(stderr).toString("utf8"),
-    }))
-    }).catch(reject)
-  })
 }
 
 export function createWorkspace(definition: WorkspaceDefinition): Workspace {
@@ -95,15 +69,19 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     async diff(options) {
       return await store.diff(options)
     },
-    async open(): Promise<WorkspaceSession> {
-      return {
+    async open(options): Promise<WorkspaceSession> {
+      const session: WorkspaceSession = {
         readFile: workspace.readFile,
         writeFile: workspace.writeFile,
         list: workspace.list,
         glob: workspace.glob,
         diff: workspace.diff,
-        exec: execLocal,
       }
+      if (options?.runtime === "local") {
+        const { execLocal } = await import("./runtimes/local.ts")
+        session.exec = execLocal
+      }
+      return session
     },
     mount(options?: WorkspaceMountOptions): WorkspaceMount {
       const mode = options?.mode || "read-only"

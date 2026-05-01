@@ -43,5 +43,7 @@ describe("hubWorkspace", () => {
     expect(load(rootId)).toContain('"docs"')
     const docsId = resolveId("virtual:vitehub/workspaces/docs")!
     expect(load(docsId)).toContain('"entries":[]')
+    const registryId = resolveId("#vitehub-workspace-registry")!
+    expect(load(registryId)).toContain('"docs": async () => import(')
   })
 })

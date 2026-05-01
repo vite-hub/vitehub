@@ -1,13 +1,18 @@
+import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { readFile, rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
+import { promisify } from "node:util"
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { build, createNitro, prepare } from "nitro/builder"
 
+const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/nitro")
+const repoRoot = resolve(playgroundDir, "../..")
 const testBuildDir = join(playgroundDir, "node_modules", ".workspace-nitro-output-test")
 const testOutputRoot = join(playgroundDir, ".workspace-test-output")
+const playgroundNitroPackages = ["blob", "kv", "queue", "sandbox", "workflow"] as const
 
 async function cleanupPlayground() {
   await rm(testBuildDir, { force: true, recursive: true, maxRetries: 10, retryDelay: 50 })
@@ -46,7 +51,13 @@ async function assertNoNitroInternalVirtualImports(outputDir: string) {
 
 beforeAll(async () => {
   await cleanupPlayground()
-})
+  for (const name of playgroundNitroPackages) {
+    await execFileAsync("pnpm", ["--filter", `@vitehub/${name}`, "build"], {
+      cwd: repoRoot,
+      env: process.env,
+    })
+  }
+}, 120_000)
 
 afterAll(async () => {
   await cleanupPlayground()
