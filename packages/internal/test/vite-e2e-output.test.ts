@@ -4,10 +4,12 @@ import { execFile } from "node:child_process"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
+const repoRoot = resolve(playgroundDir, "../..")
+const workspacePackages = ["blob", "db", "kv", "queue", "sandbox", "workflow"] as const
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -43,6 +45,16 @@ async function createPlaygroundCopy(prefix: string) {
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
+
+beforeAll(async () => {
+  await execFileAsync("pnpm", [
+    ...workspacePackages.flatMap(name => ["--filter", `@vitehub/${name}`]),
+    "build",
+  ], {
+    cwd: repoRoot,
+    env: process.env,
+  })
+}, 120_000)
 
 describe("unified vite e2e hosted outputs", () => {
   it("keeps the cloudflare artifact provider-pure and preserves hosted bindings", async () => {
