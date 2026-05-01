@@ -19,6 +19,13 @@ describe("workspace types", () => {
       loaders: [loader.files()],
       publish: [publish.virtualModule({ id: "virtual:vitehub/workspaces/typed" })],
     })
+    source.github({
+      repo: "acme/app",
+      root: "docs",
+      include: "**/*.md",
+      exclude: "docs/drafts/**",
+      workspaceRoot: "acme/app/docs",
+    })
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
       name: "typed",
