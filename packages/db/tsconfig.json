@@ -11,5 +11,9 @@
     "src/**/*.d.ts",
     "src/**/*.ts",
     "test/**/*.ts"
+  ],
+  "exclude": [
+    "test/types-published.test-d.ts",
+    "test/types-virtual-published.test-d.ts"
   ]
 }
