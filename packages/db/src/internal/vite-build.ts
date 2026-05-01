@@ -163,9 +163,8 @@ function isRemoteLibsqlConnectionUrl(url: string | undefined) {
 function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
-    const cloudflare = database?.cloudflare
-    const requiresD1Binding = Boolean(cloudflare)
-    return requiresD1Binding && !cloudflare?.databaseId && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
+    const hasD1Binding = Boolean(database?.cloudflare?.databaseId)
+    return !hasD1Binding && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
 
