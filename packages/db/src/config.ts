@@ -1,8 +1,8 @@
 import { existsSync, readdirSync } from "node:fs"
-import { resolve } from "node:path"
 
 import { trimmed } from "@vitehub/internal/env"
 import { isPlainObject } from "@vitehub/internal/object"
+import { resolve } from "pathe"
 
 import type {
   CloudflareD1BindingConfig,

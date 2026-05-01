@@ -1,5 +1,4 @@
 import { mkdir, rm, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
 import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
@@ -7,6 +6,7 @@ import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
 import { resolveUserAppEntry, toSafeAppName } from "@vitehub/internal/build/user-entry"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
+import { resolve } from "pathe"
 
 import { serializeSchemaObject } from "./schema-serializer.ts"
 
