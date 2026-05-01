@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@vitehub/db": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "h3": "catalog:",
+    "vite": "catalog:"
+  }
+}

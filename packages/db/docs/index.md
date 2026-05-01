@@ -79,9 +79,27 @@ Cloudflare and Vercel do not share the same database runtime rules:
 - Vercel hosted output requires a remote libSQL URL for every database that must run there.
 - Local Vite runtime can use file-based SQLite paths for the default or named databases.
 
+## Start Here
+
+Start with [Quickstart](./quickstart) for a local Drizzle setup. Use the [primitive comparison](../compare) when you are deciding between KV, Blob, Queue, Sandbox, or a database.
+
 ## Next Steps
 
 ::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Quickstart
+  description: Configure DB, define a schema, write a note, and read it back.
+  to: ./quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Usage
+  description: Use default aliases, named databases, schema discovery, and hosted fallbacks.
+  to: ./usage
+  ---
+  :::
   :::u-page-card
   ---
   title: Runtime API
@@ -101,6 +119,13 @@ Cloudflare and Vercel do not share the same database runtime rules:
   title: Vercel
   description: Use hosted libSQL URLs and understand the D1-only limitation for Vercel output.
   to: ./providers/vercel
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Troubleshooting
+  description: Fix missing schema files, unconfigured databases, and hosted output failures.
+  to: ./troubleshooting
   ---
   :::
 ::
