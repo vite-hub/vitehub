@@ -31,13 +31,12 @@ export default defineNitroConfig({
 ```
 ::
 
-Create `workspaces/docs.ts`:
+Create `src/docs.workspace.ts` for Vite or `server/workspaces/docs.ts` for Nitro:
 
 ```ts
 import { defineWorkspace, loader, source } from '@vitehub/workspace'
 
 export default defineWorkspace({
-  name: 'docs',
   store: {
     provider: 'local',
     root: '.vitehub/workspaces/docs',

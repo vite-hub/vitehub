@@ -1,10 +1,10 @@
 import { registerWorkspace } from "@vitehub/workspace"
-import docsWorkspace from "../../workspaces/docs"
+import docsWorkspace from "../workspaces/docs"
 
 let registered = false
 
 export function ensureDocsWorkspace() {
   if (registered) return
-  registerWorkspace(docsWorkspace)
+  registerWorkspace("docs", docsWorkspace)
   registered = true
 }

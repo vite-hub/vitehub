@@ -222,12 +222,18 @@ export interface WorkspaceDefinition {
   publish?: WorkspacePublisher[]
 }
 
+export type WorkspaceDefinitionInput = Omit<WorkspaceDefinition, "name"> & {
+  name?: never
+}
+
 export interface WorkspaceModuleOptions {
   root?: string
+  syncOnBuild?: boolean | string[]
 }
 
 export interface ResolvedWorkspaceModuleOptions {
   root: string
+  syncOnBuild?: boolean | string[]
 }
 
 export interface Workspace {

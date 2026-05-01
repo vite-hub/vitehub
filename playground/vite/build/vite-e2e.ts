@@ -18,7 +18,7 @@ import { discoverNitroSandboxDefinitions } from "../../../packages/sandbox/src/d
 import { bundleSandboxDefinition } from "../../../packages/sandbox/src/bundle.ts"
 import { resolveSandboxFeatureConfig } from "../../../packages/sandbox/src/feature.ts"
 import { finalizeCloudflareWranglerConfig } from "../../../packages/sandbox/src/internal/shared/cloudflare-wrangler.ts"
-import { discoverWorkspaceDefinitions } from "../../../packages/workspace/src/discovery.ts"
+import { discoverViteWorkspaceDefinitions } from "../../../packages/workspace/src/discovery.ts"
 import { normalizeWorkflowOptions } from "../../../packages/workflow/src/config.ts"
 import { discoverWorkflowDefinitions } from "../../../packages/workflow/src/discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../../../packages/workflow/src/integrations/cloudflare.ts"
@@ -294,16 +294,6 @@ function renderSandboxRegistryModule(definitions: Array<{ name: string, file: st
   ].join("\n")
 }
 
-function renderWorkspaceRegistryModule(file: string, definitions: Array<{ name: string, path: string }>) {
-  return [
-    "const registry = {",
-    ...definitions.map(definition => `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(createImportPath(file, definition.path))}),`),
-    "}",
-    "export default registry",
-    "",
-  ].join("\n")
-}
-
 function renderSandboxProviderLoaderModule(file: string, provider: "cloudflare" | "vercel") {
   const runtimeProviderFile = resolvePackageRuntime(sandboxPackageDir, `runtime/providers/${provider}`)
   const clientProviderFile = resolvePackageRuntime(sandboxPackageDir, `sandbox/providers/${provider}`)
@@ -341,7 +331,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     ? discoverNitroSandboxDefinitions([resolve(options.rootDir, "server")])
     : []
   const workspaceDefinitions = options.workspace
-    ? discoverWorkspaceDefinitions(options.rootDir)
+    ? discoverViteWorkspaceDefinitions(options.rootDir)
     : []
 
   const runtimeWrites: Promise<void>[] = []
@@ -441,7 +431,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   if (workspaceDefinitions.length) {
     workspaceRegistryFile = resolve(generatedDir, "runtime", "workspace-registry.mjs")
     await mkdir(dirname(workspaceRegistryFile), { recursive: true })
-    await writeFile(workspaceRegistryFile, renderWorkspaceRegistryModule(workspaceRegistryFile, workspaceDefinitions), "utf8")
+    await writeFile(workspaceRegistryFile, createRuntimeRegistryContents(workspaceRegistryFile, workspaceDefinitions), "utf8")
     alias["#vitehub-workspace-registry"] = workspaceRegistryFile
   }
 

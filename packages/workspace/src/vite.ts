@@ -1,6 +1,6 @@
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
-import { createWorkspaceManifest, createWorkspaceRegistryContents, discoverWorkspaceDefinitions } from "./discovery.ts"
+import { createWorkspaceManifest, createWorkspaceVirtualRegistryContents, discoverViteWorkspaceDefinitions } from "./discovery.ts"
 import workspaceNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
@@ -28,9 +28,9 @@ export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePl
   let registryContents = "export default {}\n"
 
   async function refreshManifest(root: string) {
-    const definitions = discoverWorkspaceDefinitions(root)
+    const definitions = discoverViteWorkspaceDefinitions(root)
     manifest = await createWorkspaceManifest(definitions)
-    registryContents = createWorkspaceRegistryContents(definitions)
+    registryContents = createWorkspaceVirtualRegistryContents(definitions)
   }
 
   return {

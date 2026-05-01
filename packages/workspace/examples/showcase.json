@@ -25,7 +25,7 @@
         "dev": {
           "phases": {
             "configure": "vite.config.ts",
-            "define": "workspaces/docs.ts",
+            "define": "src/docs.workspace.ts",
             "run": "src/server.ts"
           },
           "supplementalFiles": [
@@ -35,7 +35,7 @@
         "build": {
           "phases": {
             "configure": "vite.config.ts",
-            "define": "workspaces/docs.ts",
+            "define": "src/docs.workspace.ts",
             "run": "src/server.ts"
           },
           "supplementalFiles": [
@@ -49,7 +49,7 @@
         "dev": {
           "phases": {
             "configure": "nitro.config.ts",
-            "define": "workspaces/docs.ts",
+            "define": "server/workspaces/docs.ts",
             "run": "server/api/workspace.get.ts"
           },
           "supplementalFiles": [
@@ -59,7 +59,7 @@
         "build": {
           "phases": {
             "configure": "nitro.config.ts",
-            "define": "workspaces/docs.ts",
+            "define": "server/workspaces/docs.ts",
             "run": "server/api/workspace.get.ts"
           },
           "supplementalFiles": [

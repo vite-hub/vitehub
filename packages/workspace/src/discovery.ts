@@ -1,33 +1,57 @@
-import { existsSync, readdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-interface DiscoveredWorkspaceDefinition {
+import { createRuntimeRegistryContents, discoverDefinitions, normalizeSuffixDefinitionName } from "@vitehub/internal/definition-catalog"
+import type { DefinitionCatalogSource } from "@vitehub/internal/definition-catalog"
+
+export interface DiscoveredWorkspaceDefinition {
+  handler: string
   name: string
   path: string
+  source?: string
 }
 
-function listDefinitionFiles(dir: string) {
-  if (!existsSync(dir)) return []
-  return readdirSync(dir, { withFileTypes: true })
-    .filter(entry => entry.isFile())
-    .filter(entry => /\.[cm]?[tj]s$/.test(entry.name))
-    .map(entry => resolve(dir, entry.name))
-}
+const workspaceSuffixPattern = /\.workspace\.(?:c|m)?[jt]s$/i
+type WorkspaceDefinitionCatalogSource = DefinitionCatalogSource<DiscoveredWorkspaceDefinition>
 
-function definitionName(path: string) {
-  return path.split("/").pop()?.replace(/\.[cm]?[tj]s$/, "") || ""
-}
-
-export function discoverWorkspaceDefinitions(rootDir: string): DiscoveredWorkspaceDefinition[] {
-  const paths = [
-    ...listDefinitionFiles(resolve(rootDir, "workspaces")),
-    ...listDefinitionFiles(resolve(rootDir, "server/workspaces")),
+function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
+  return [
+    {
+      kind: "directory",
+      scanDirs: [resolve(rootDir, "server")],
+      source: "nitro-server-workspaces",
+      subdir: "workspaces",
+      createDefinition: ({ file, name }) => ({ handler: file, name, path: file, source: "nitro-server-workspaces" }),
+    },
   ]
-  return paths.map(path => ({ name: definitionName(path), path })).sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export function createWorkspaceRegistryContents(definitions: DiscoveredWorkspaceDefinition[]): string {
+function viteWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
+  return [
+    {
+      kind: "suffix",
+      normalizeName: (root, file) => normalizeSuffixDefinitionName(root, file, workspaceSuffixPattern, { stripPrefix: "src/" }),
+      pattern: workspaceSuffixPattern,
+      roots: [rootDir],
+      source: "vite-workspace-suffix",
+      createDefinition: ({ file, name }) => ({ handler: file, name, path: file, source: "vite-workspace-suffix" }),
+    },
+  ]
+}
+
+export function discoverNitroWorkspaceDefinitions(rootDir: string): DiscoveredWorkspaceDefinition[] {
+  return discoverDefinitions("workspace", [...nitroWorkspaceSource(rootDir)])
+}
+
+export function discoverViteWorkspaceDefinitions(rootDir: string): DiscoveredWorkspaceDefinition[] {
+  return discoverDefinitions("workspace", [...viteWorkspaceSource(rootDir)])
+}
+
+export function createWorkspaceRegistryContents(registryFile: string, definitions: DiscoveredWorkspaceDefinition[]): string {
+  return createRuntimeRegistryContents(registryFile, definitions)
+}
+
+export function createWorkspaceVirtualRegistryContents(definitions: DiscoveredWorkspaceDefinition[]): string {
   return [
     "const registry = {",
     ...definitions.map(definition => `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(pathToFileURL(definition.path).href)}),`),

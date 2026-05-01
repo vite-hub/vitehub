@@ -1,12 +1,15 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
-import { createWorkspaceRegistryContents, discoverWorkspaceDefinitions } from "../discovery.ts"
+import { createWorkspaceRegistryContents, discoverNitroWorkspaceDefinitions } from "../discovery.ts"
+import { registerWorkspace } from "../registry.ts"
+import { useWorkspace } from "../use.ts"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceModuleOptions } from "../types.ts"
 
 const WORKSPACE_NITRO_IMPORTS_PRESET = {
   from: "@vitehub/workspace",
@@ -21,6 +24,7 @@ function normalizeWorkspaceOptions(options: false | WorkspaceModuleOptions | und
   if (options === false) return false
   return {
     root: resolve(rootDir, options?.root || ".vitehub/workspaces"),
+    syncOnBuild: options?.syncOnBuild,
   }
 }
 
@@ -30,10 +34,34 @@ function registryPath(nitro: Nitro) {
 
 async function writeRegistry(nitro: Nitro) {
   const path = registryPath(nitro)
-  const definitions = discoverWorkspaceDefinitions(nitro.options.rootDir)
+  const definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
   await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, createWorkspaceRegistryContents(definitions), "utf8")
+  await writeFile(path, createWorkspaceRegistryContents(path, definitions), "utf8")
   return { path, definitions }
+}
+
+function shouldSyncWorkspace(syncOnBuild: boolean | string[] | undefined, name: string) {
+  return syncOnBuild === true || (Array.isArray(syncOnBuild) && syncOnBuild.includes(name))
+}
+
+async function syncBuildWorkspaces(nitro: Nitro, options: false | ResolvedWorkspaceModuleOptions) {
+  if (!options || !options.syncOnBuild) return
+
+  const definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
+  for (const definition of definitions) {
+    if (!shouldSyncWorkspace(options.syncOnBuild, definition.name)) continue
+
+    const mod = await import(pathToFileURL(definition.path).href) as { default?: WorkspaceDefinitionInput }
+    if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
+
+    registerWorkspace(definition.name, {
+      ...mod.default,
+      rootDir: mod.default.rootDir || nitro.options.rootDir,
+    })
+
+    const workspace = await useWorkspace(definition.name)
+    await workspace.sync()
+  }
 }
 
 const workspaceNitroModule: NitroModule = {
@@ -65,6 +93,7 @@ const workspaceNitroModule: NitroModule = {
       const next = await writeRegistry(nitro)
       nitro.options.alias ||= {}
       nitro.options.alias["#vitehub-workspace-registry"] = next.path
+      await syncBuildWorkspaces(nitro, resolved)
     })
     nitro.hooks.hook("dev:reload", async () => {
       const next = await writeRegistry(nitro)

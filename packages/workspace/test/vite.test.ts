@@ -9,10 +9,16 @@ const tempDirs: string[] = []
 async function createViteRoot() {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-"))
   tempDirs.push(rootDir)
+  await mkdir(join(rootDir, "src"), { recursive: true })
   await mkdir(join(rootDir, "workspaces"), { recursive: true })
-  await writeFile(join(rootDir, "workspaces/docs.ts"), [
+  await writeFile(join(rootDir, "src/docs.workspace.ts"), [
     `import { defineWorkspace } from "@vitehub/workspace"`,
-    `export default defineWorkspace({ name: "docs" })`,
+    `export default defineWorkspace({})`,
+    ``,
+  ].join("\n"))
+  await writeFile(join(rootDir, "workspaces/legacy.ts"), [
+    `import { defineWorkspace } from "@vitehub/workspace"`,
+    `export default defineWorkspace({})`,
     ``,
   ].join("\n"))
   return rootDir
@@ -41,6 +47,7 @@ describe("hubWorkspace", () => {
 
     const rootId = resolveId("virtual:vitehub/workspaces")!
     expect(load(rootId)).toContain('"docs"')
+    expect(load(rootId)).not.toContain('"legacy"')
     const docsId = resolveId("virtual:vitehub/workspaces/docs")!
     expect(load(docsId)).toContain('"entries":[]')
     const registryId = resolveId("#vitehub-workspace-registry")!

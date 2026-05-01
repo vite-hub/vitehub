@@ -1,7 +1,6 @@
 import { defineWorkspace, loader } from "@vitehub/workspace"
 
 export default defineWorkspace({
-  name: "docs",
   store: {
     provider: "memory",
   },

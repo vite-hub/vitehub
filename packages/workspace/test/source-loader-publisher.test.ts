@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -26,8 +26,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "skip.txt"), "skip\n")
 
     let customWrites = 0
-    registerWorkspace(defineWorkspace({
-      name: "sources",
+    registerWorkspace("sources", defineWorkspace({
       rootDir: root,
       store: { provider: "memory" },
       sources: [
@@ -95,9 +94,37 @@ describe("sources, loaders, and publishers", () => {
     }
 
     await expect(publish.serverAssets({ dir: "server/assets" }).publish({
-      workspace: defineWorkspace({ name: "escape" }),
+      workspace: { ...defineWorkspace({}), name: "escape" },
       store,
       rootDir: root,
     })).rejects.toThrow("escapes the workspace root")
+  })
+
+  it("cleans stale server assets before publishing", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "server/assets/context"), { recursive: true })
+    await writeFile(join(root, "server/assets/context/stale.txt"), "stale\n", "utf8")
+
+    registerWorkspace("clean-assets", defineWorkspace({
+      rootDir: root,
+      store: { provider: "memory" },
+      sources: [
+        source.file({
+          content: "fresh\n",
+          path: "fresh.txt",
+          workspacePath: "fresh.txt",
+        }),
+      ],
+      loaders: [loader.files()],
+      publish: [
+        publish.serverAssets({ clean: true, dir: "server/assets/context" }),
+      ],
+    }))
+
+    const workspace = await useWorkspace("clean-assets")
+    await workspace.sync()
+
+    await expect(readFile(join(root, "server/assets/context/fresh.txt"), "utf8")).resolves.toBe("fresh\n")
+    await expect(access(join(root, "server/assets/context/stale.txt"))).rejects.toThrow()
   })
 })

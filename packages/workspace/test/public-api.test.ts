@@ -6,6 +6,7 @@ import { afterEach } from "vitest"
 import { describe, expect, it } from "vitest"
 
 import { defineWorkspace, loader, registerWorkspace, source, useWorkspace } from "../src/index.ts"
+import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/registry.ts"
 import { setWorkspaceRuntimeConfig } from "../src/runtime/state.ts"
 
 const tempDirs: string[] = []
@@ -17,14 +18,18 @@ async function createRoot() {
 }
 
 afterEach(async () => {
+  resetWorkspaceRegistry()
   setWorkspaceRuntimeConfig(false)
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
 describe("workspace public API", () => {
+  it("rejects authored workspace names", () => {
+    expect(() => defineWorkspace({ name: "api" } as never)).toThrow("Workspace names are inferred")
+  })
+
   it("defines, registers, syncs, and uses a workspace", async () => {
-    registerWorkspace(defineWorkspace({
-      name: "api",
+    registerWorkspace("api", defineWorkspace({
       store: { provider: "memory" },
       sources: [
         source.markdown({
@@ -60,8 +65,7 @@ describe("workspace public API", () => {
     await mkdir(configuredRoot, { recursive: true })
     setWorkspaceRuntimeConfig({ root: configuredRoot })
 
-    registerWorkspace(defineWorkspace({
-      name: "runtime-root",
+    registerWorkspace("runtime-root", defineWorkspace({
       rootDir: root,
     }))
 
@@ -69,5 +73,15 @@ describe("workspace public API", () => {
     await workspace.writeFile("notes.md", "runtime")
 
     await expect(readFile(join(configuredRoot, "runtime-root", "notes.md"), "utf8")).resolves.toBe("runtime")
+  })
+
+  it("injects inferred names when loading registry definitions", async () => {
+    setWorkspaceRegistry({
+      docs: async () => ({ default: defineWorkspace({ store: { provider: "memory" } }) }),
+    })
+
+    const workspace = await useWorkspace("docs")
+
+    expect(workspace.name).toBe("docs")
   })
 })

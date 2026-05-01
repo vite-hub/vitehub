@@ -36,11 +36,10 @@ export default defineNitroConfig({
 
 Define a workspace:
 
-```ts [workspaces/docs.ts]
+```ts [src/docs.workspace.ts]
 import { defineWorkspace, loader, source } from '@vitehub/workspace'
 
 export default defineWorkspace({
-  name: 'docs',
   sources: [
     source.glob({
       cwd: process.cwd(),
@@ -54,6 +53,8 @@ export default defineWorkspace({
   ],
 })
 ```
+
+In Nitro, place the same definition at `server/workspaces/docs.ts`.
 
 Use it from server code:
 
