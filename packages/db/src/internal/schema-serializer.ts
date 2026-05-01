@@ -1,26 +1,20 @@
-import { dirname, posix, relative, win32 } from "node:path"
 import { pathToFileURL } from "node:url"
 
-function isWindowsAbsolutePath(file: string) {
-  return /^[A-Za-z]:[\\/]/.test(file) || /^\\\\/.test(file)
-}
+import { dirname, isAbsolute, normalize, relative } from "pathe"
 
 function normalizeRelativeSpecifier(file: string) {
-  const normalized = file.replaceAll("\\", "/")
+  const normalized = normalize(file)
   return normalized.startsWith(".") ? normalized : `./${normalized}`
 }
 
 function toPortableFileUrl(file: string) {
-  if (!isWindowsAbsolutePath(file)) {
-    return pathToFileURL(file).href
-  }
-
-  const normalized = file.replaceAll("\\", "/")
-  if (normalized.startsWith("//")) {
+  const normalized = normalize(file)
+  if (normalized.startsWith("//"))
     return `file:${encodeURI(normalized)}`
-  }
+  if (/^[A-Za-z]:\//.test(normalized))
+    return `file:///${encodeURI(normalized)}`
 
-  return `file:///${encodeURI(normalized)}`
+  return pathToFileURL(normalized).href
 }
 
 function toModuleSpecifier(file: string, importerFile?: string) {
@@ -28,14 +22,11 @@ function toModuleSpecifier(file: string, importerFile?: string) {
     return toPortableFileUrl(file)
   }
 
-  const useWindowsPaths = isWindowsAbsolutePath(file) || isWindowsAbsolutePath(importerFile)
-  const baseDir = useWindowsPaths ? win32.dirname(importerFile) : dirname(importerFile)
-  const relativePath = useWindowsPaths ? win32.relative(baseDir, file) : relative(baseDir, file)
-  if (useWindowsPaths && win32.isAbsolute(relativePath)) {
+  const relativePath = relative(dirname(importerFile), file)
+  if (isAbsolute(relativePath))
     return toPortableFileUrl(file)
-  }
 
-  return normalizeRelativeSpecifier(useWindowsPaths ? relativePath.split(win32.sep).join(posix.sep) : relativePath)
+  return normalizeRelativeSpecifier(relativePath)
 }
 
 export function serializeSchemaObject(schemaPaths: string[], variableName: string, includeExports = false, importerFile?: string) {
