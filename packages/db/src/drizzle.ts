@@ -1,5 +1,3 @@
-import type {} from "./virtual-module.d.ts"
-
 import schema from "virtual:@vitehub/db/schema"
 
 export { databases, db } from "./runtime/drizzle-runtime.ts"
