@@ -1,6 +1,6 @@
 import { createStorage } from "unstorage"
 
-import type { KVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import type { ResolvedKVModuleOptions } from "../types.ts"
 import { createLazyKVRuntimeDriver } from "./driver.ts"
 
 export interface RuntimeStorage {
@@ -20,17 +20,8 @@ function assertHostedConfig(config: false | ResolvedKVModuleOptions | undefined)
   return config
 }
 
-export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined): KVStorage {
-  const storage = createStorage({
+export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined): RuntimeStorage {
+  return createStorage({
     driver: createLazyKVRuntimeDriver(assertHostedConfig(config)),
   }) as RuntimeStorage
-
-  return {
-    async clear(base, options) { await storage.clear(base, options) },
-    async del(key, options) { await storage.removeItem(key, options) },
-    async get(key, options) { return await storage.getItem(key, options) },
-    async has(key, options) { return await storage.hasItem(key, options) },
-    async keys(base, options) { return await storage.getKeys(base, options) },
-    async set(key, value, options) { await storage.setItem(key, value, options) },
-  }
 }

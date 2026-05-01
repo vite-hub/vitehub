@@ -20,6 +20,13 @@ function inferHosting(env: Record<string, string | undefined>) {
   return readEnv(env, "KV_REST_API_URL", "UPSTASH_REDIS_REST_URL") ? "vercel" : undefined
 }
 
+function shouldFallbackHostedConfigImport(error: unknown) {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code
+  return code === "MODULE_NOT_FOUND"
+    || code === "ERR_MODULE_NOT_FOUND"
+    || code === "ERR_UNSUPPORTED_ESM_URL_SCHEME"
+}
+
 async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | undefined> {
   const virtualConfigId = "virtual:@vitehub/kv/config"
 
@@ -31,8 +38,7 @@ async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | 
     return module.kv
   }
   catch (error) {
-    const code = (error as NodeJS.ErrnoException | undefined)?.code
-    if (code !== "MODULE_NOT_FOUND" && code !== "ERR_MODULE_NOT_FOUND") {
+    if (!shouldFallbackHostedConfigImport(error)) {
       throw error
     }
     const env = typeof process !== "undefined" ? process.env : {}
@@ -45,7 +51,7 @@ async function resolveStorage() {
     .then(module => module.useStorage("kv") as RuntimeStorage)
     .catch(async () => {
       const config = await resolveHostedConfig()
-      return createHostedKVStorage(config) as unknown as RuntimeStorage
+      return createHostedKVStorage(config)
     })
   return storagePromise
 }
