@@ -1,6 +1,6 @@
-import { H3, toWebHandler } from "h3"
+import { createCloudflareHostedWorker } from "@vitehub/internal/runtime/cloudflare-hosted"
 
-import { resolveBlobAppFetch, type BlobApp } from "./_app.ts"
+import type { BlobApp } from "./_app.ts"
 import { clearActiveCloudflareEnv, runWithActiveCloudflareEnv, setBlobRuntimeConfig } from "./state.ts"
 
 import type { ResolvedBlobModuleOptions } from "../types.ts"
@@ -15,20 +15,19 @@ export interface BlobCloudflareWorker {
 }
 
 export function createBlobCloudflareWorker(options: BlobCloudflareWorkerOptions = {}): BlobCloudflareWorker {
-  const appHandler = resolveBlobAppFetch(options.app)
-  const defaultHandler = toWebHandler(new H3())
-
-  return {
-    async fetch(request, env, context) {
-      setBlobRuntimeConfig(options.blob)
+  return createCloudflareHostedWorker({
+    app: options.app,
+    label: "blob",
+    async onRequest({ env, executionContext, handle }) {
       return await runWithActiveCloudflareEnv(env, async () => {
         try {
-          return await Promise.resolve(appHandler ? appHandler(request, context as never) : defaultHandler(request, context as never))
+          setBlobRuntimeConfig(options.blob)
+          return await handle(executionContext as never)
         }
         finally {
           clearActiveCloudflareEnv()
         }
       })
     },
-  }
+  })
 }

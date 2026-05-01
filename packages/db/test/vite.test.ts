@@ -112,7 +112,6 @@ describe("hubDb", () => {
     expect(databasesCode).toContain("\"DB_ANALYTICS\"")
     expect(databasesCode).toContain(join(rootDir, "src/db/analytics/schema.ts"))
   })
-
   it("refreshes discovered schema paths during hot updates", async () => {
     const rootDir = await createTempProject()
     await writeFile(join(rootDir, "src/db/schema.ts"), "export const notes = true\n")

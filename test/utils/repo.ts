@@ -1,10 +1,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 
-export const repoRoot = resolve(import.meta.dirname, "../..")
-export const packageNames = ["kv", "blob", "queue", "sandbox"] as const
+import { listWorkspacePackageNames } from "../../packages/internal/src/workspace-inventory.ts"
 
-export type PackageName = (typeof packageNames)[number]
+export const repoRoot = resolve(import.meta.dirname, "../..")
+export const packageNames = listWorkspacePackageNames(repoRoot)
+
+export type PackageName = string
 
 type PackageManifest = {
   name?: string

@@ -1,10 +1,7 @@
 import { resolve } from 'node:path'
 import {
-  listSourceFiles,
-  normalizePathDefinitionName,
-  registerDefinition,
-  sortDefinitions,
-} from '@vitehub/internal/definition-discovery'
+  discoverDefinitions,
+} from '@vitehub/internal/definition-catalog'
 import type { ScannedDefinition } from './internal/shared/feature-definitions'
 
 export interface DiscoveredSandboxDefinition extends ScannedDefinition {
@@ -12,26 +9,21 @@ export interface DiscoveredSandboxDefinition extends ScannedDefinition {
 }
 
 export function discoverNitroSandboxDefinitions(scanDirs: string[]): DiscoveredSandboxDefinition[] {
-  const definitions = new Map<string, DiscoveredSandboxDefinition>()
-
-  for (const scanDir of scanDirs) {
-    const sandboxDir = resolve(scanDir, 'sandboxes')
-    for (const file of listSourceFiles(sandboxDir)) {
-      const name = normalizePathDefinitionName(sandboxDir, file)
-      if (!name)
-        continue
-
-      registerDefinition(definitions, {
+  return discoverDefinitions("sandbox", [{
+    createDefinition({ file, name }) {
+      return {
         handler: file,
         name,
-        source: 'nitro-server-sandboxes',
+        source: "nitro-server-sandboxes",
         _meta: {
           filename: name,
           sourcePath: file,
         },
-      }, 'sandbox')
-    }
-  }
-
-  return sortDefinitions(definitions)
+      }
+    },
+    kind: "directory",
+    scanDirs,
+    source: "nitro-server-sandboxes",
+    subdir: "sandboxes",
+  }])
 }

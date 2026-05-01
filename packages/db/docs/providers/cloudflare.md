@@ -55,7 +55,7 @@ When `databaseId` is present, ViteHub emits the binding into generated `wrangler
 }
 ```
 
-`databaseName` is required whenever `databaseId` is present for Cloudflare output. ViteHub now fails the build instead of emitting a `wrangler.json` entry that Wrangler can reject later.
+`databaseName` is required whenever `databaseId` is present for Cloudflare output. ViteHub fails the build instead of emitting a `wrangler.json` entry that Wrangler can reject later.
 
 ## D1-Only And Fallback Modes
 

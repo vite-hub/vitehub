@@ -1,13 +1,12 @@
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
-import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
+import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
+import { createDefaultCloudflareOutputRoot, writeCloudflareDeploymentOutput, writeVercelDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 import { VITEHUB_MODES, getViteMode } from "@vitehub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
-import { resolveUserAppEntry, toSafeAppName } from "@vitehub/internal/build/user-entry"
-import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
-import { createRuntimeRegistryContents } from "@vitehub/internal/definition-discovery"
+import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
+import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
@@ -16,7 +15,6 @@ import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
 
 export const workflowPackageName = "@vitehub/workflow"
-const defaultCompatibilityDate = "2026-04-20"
 const productName = "workflow"
 
 const generatedRegistryFileName = "registry.mjs"
@@ -176,22 +174,24 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
 }
 
 async function writeCloudflareOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedWorkflowArtifacts) {
-  const clientDir = resolve(rootDir, clientOutDir)
-  const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir))
-  const workerOutfile = resolve(outputRoot, "worker.mjs")
-  const staticIndex = hasStaticIndex(clientDir)
+  const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
   const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
   const workflowDefinitions = workflowConfig ? artifacts.definitions : []
   const workflows = createCloudflareWorkflowBindings(workflowDefinitions, workflowConfig)
 
-  await rm(outputRoot, { force: true, recursive: true })
-  await mkdir(outputRoot, { recursive: true })
+  const wranglerConfig: CloudflareWorkflowConfig = {
+    compatibility_date: defaultCloudflareCompatibilityDate,
+    compatibility_flags: ["nodejs_compat"],
+    main: "index.js",
+    observability: { enabled: true },
+    ...(workflows ? { workflows } : {}),
+  }
 
-  await Promise.all([
-    staticIndex ? copyClientOutput(clientDir, resolve(rootDir, "dist", "client")) : Promise.resolve(),
-    bundleEsmEntry(artifacts.cloudflareWorkerFile, workerOutfile, {
+  await writeCloudflareDeploymentOutput({
+    bundleEntry: artifacts.cloudflareWorkerFile,
+    bundleOptions: {
       conditions: ["workerd", "worker", "browser", "default"],
       external: [
         "@cloudflare/sandbox",
@@ -207,44 +207,28 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
       ],
       format: "esm",
       platform: "neutral",
-    }),
-  ])
+    },
+    bundleOutfileName: "worker.mjs",
+    clientOutDir,
+    outputRoot,
+    rootDir,
+    wranglerConfig,
+  })
 
   await writeFile(resolve(outputRoot, "index.js"), renderCloudflareWorkerWrapper(workflowDefinitions), "utf8")
-
-  const wranglerConfig: CloudflareWorkflowConfig = {
-    compatibility_date: defaultCompatibilityDate,
-    compatibility_flags: ["nodejs_compat"],
-    main: "index.js",
-    name: toSafeAppName(rootDir),
-    observability: { enabled: true },
-    ...(staticIndex ? { assets: { directory: "../client", run_worker_first: ["/api/*"] } } : {}),
-    ...(workflows ? { workflows } : {}),
-  }
-
-  await writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8")
 }
 
 async function writeVercelOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedWorkflowArtifacts) {
-  const clientDir = resolve(rootDir, clientOutDir)
-  const outputRoot = resolve(rootDir, ".vercel", "output")
-  const serverDir = resolve(outputRoot, "functions", "__server.func")
-  const serverEntry = resolve(serverDir, "index.mjs")
-  const staticIndex = hasStaticIndex(clientDir)
-
-  await rm(outputRoot, { force: true, recursive: true })
-  await mkdir(serverDir, { recursive: true })
-
-  await Promise.all([
-    bundleEsmEntry(artifacts.vercelServerFile, serverEntry, {
+  await writeVercelDeploymentOutput({
+    bundleEntry: artifacts.vercelServerFile,
+    bundleOptions: {
       external: ["@cloudflare/sandbox", "cloudflare:workers", "workflow", "workflow/api", "workflow/runtime"],
       format: "esm",
       platform: "node",
-    }),
-    writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
-    writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8"),
-    staticIndex ? copyClientOutput(clientDir, resolve(outputRoot, "static")) : Promise.resolve(),
-  ])
+    },
+    clientOutDir,
+    rootDir,
+  })
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedWorkflowArtifacts> {

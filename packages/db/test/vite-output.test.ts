@@ -85,7 +85,7 @@ describe("Vite db provider outputs", () => {
     expect(vercelServerCode).not.toContain("@libsql/linux-x64-gnu")
   }, 30_000)
 
-  it("fails the hosted build when a named database has no remote Vercel URL", async () => {
+  it("fails the hosted build when a named D1 database has no Vercel fallback URL", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-db-vite-d1-only-")
     const viteConfigPath = join(rootDir, "vite.config.ts")
     const viteConfig = await readFile(viteConfigPath, "utf8")
@@ -295,25 +295,13 @@ describe("Vite db provider outputs", () => {
       viteConfigPath,
       viteConfig.replaceAll(
         [
-          "      cloudflare: {",
-          "        binding: \"DB_ANALYTICS\",",
-          "        databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,",
-          "        previewDatabaseId: process.env.VITEHUB_D1_ANALYTICS_PREVIEW_DATABASE_ID,",
-          "      },",
-        ].join("\n"),
-        [
-          "      cloudflare: {",
-          "        binding: \"DB_ANALYTICS\",",
-          "      },",
-        ].join("\n"),
-      ).replaceAll(
-        [
+          "    analytics: {",
           "      connection: {",
           "        authToken: process.env.TURSO_AUTH_TOKEN,",
           "        url: process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL,",
           "      },",
         ].join("\n"),
-        "",
+        "    analytics: {",
       ),
       "utf8",
     )
@@ -326,7 +314,6 @@ describe("Vite db provider outputs", () => {
           ...process.env,
           TURSO_AUTH_TOKEN: "token",
           TURSO_DATABASE_URL: "libsql://db.example.turso.io",
-          VITEHUB_D1_DATABASE_ID: "primary-d1-id",
           VITEHUB_VITE_MODE: "db",
         },
       })

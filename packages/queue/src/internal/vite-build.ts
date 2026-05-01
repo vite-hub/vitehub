@@ -1,12 +1,13 @@
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 
-import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
+import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
+import { writeCloudflareDeploymentOutput, writeVercelDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg, toGeneratedPath } from "@vitehub/internal/build/paths"
-import { resolveUserAppEntry, toSafeAppName } from "@vitehub/internal/build/user-entry"
-import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
-import { createRuntimeRegistryContents } from "@vitehub/internal/definition-discovery"
+import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
+import { createNodeFunctionConfig } from "@vitehub/internal/build/vercel-config"
+import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { discoverQueueDefinitions } from "../discovery.ts"
@@ -16,7 +17,6 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
 
 export const queuePackageName = "@vitehub/queue"
-const defaultCompatibilityDate = "2026-04-20"
 const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
@@ -139,7 +139,7 @@ export async function createCloudflareQueueConfig(options: CloudflareQueueConfig
   const queues = createCloudflareQueueBindings(artifacts.definitions)
   return {
     assets: { run_worker_first: ["/api/*"] },
-    compatibility_date: options.compatibilityDate || defaultCompatibilityDate,
+    compatibility_date: options.compatibilityDate || defaultCloudflareCompatibilityDate,
     compatibility_flags: ["nodejs_compat"],
     main: toGeneratedPath(rootDir, productName, providerEntrySpecs[0]!.entryFile),
     observability: { enabled: true },
@@ -148,37 +148,28 @@ export async function createCloudflareQueueConfig(options: CloudflareQueueConfig
 }
 
 async function writeCloudflareOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedQueueArtifacts) {
-  const clientDir = resolve(rootDir, clientOutDir)
-  const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir))
-  const workerOutfile = resolve(outputRoot, "index.js")
-  const staticIndex = hasStaticIndex(clientDir)
   const queues = createCloudflareQueueBindings(artifacts.definitions)
 
-  await rm(outputRoot, { force: true, recursive: true })
-  if (staticIndex) {
-    await copyClientOutput(clientDir, resolve(rootDir, "dist", "client"))
-  }
-
-  await mkdir(outputRoot, { recursive: true })
-
-  await bundleEsmEntry(artifacts.cloudflareWorkerFile, workerOutfile, {
-    conditions: ["workerd", "worker", "browser", "default"],
-    external: ["@vercel/queue", "node:async_hooks"],
-    format: "esm",
-    platform: "neutral",
-  })
-
   const wranglerConfig: CloudflareQueueConfig = {
-    compatibility_date: defaultCompatibilityDate,
+    compatibility_date: defaultCloudflareCompatibilityDate,
     compatibility_flags: ["nodejs_compat"],
     main: "index.js",
-    name: toSafeAppName(rootDir),
     observability: { enabled: true },
-    ...(staticIndex ? { assets: { directory: "../client", run_worker_first: ["/api/*"] } } : {}),
     ...(queues ? { queues } : {}),
   }
 
-  await writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8")
+  await writeCloudflareDeploymentOutput({
+    bundleEntry: artifacts.cloudflareWorkerFile,
+    bundleOptions: {
+      conditions: ["workerd", "worker", "browser", "default"],
+      external: ["@vercel/queue", "node:async_hooks"],
+      format: "esm",
+      platform: "neutral",
+    },
+    clientOutDir,
+    rootDir,
+    wranglerConfig,
+  })
 }
 
 function sanitizeVercelConsumerName(functionPath: string) {
@@ -228,28 +219,20 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
 }
 
 async function writeVercelOutput(rootDir: string, clientOutDir: string, queue: QueueModuleOptions | undefined, artifacts: GeneratedQueueArtifacts) {
-  const clientDir = resolve(rootDir, clientOutDir)
   const outputRoot = resolve(rootDir, ".vercel", "output")
-  const serverDir = resolve(outputRoot, "functions", "__server.func")
-  const serverEntry = resolve(serverDir, "index.mjs")
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
-  const staticIndex = hasStaticIndex(clientDir)
   const queueConfig = normalizeQueueOptions(queue, { hosting: "vercel" }) || false
 
-  await rm(outputRoot, { force: true, recursive: true })
-  await mkdir(serverDir, { recursive: true })
-
-  await bundleEsmEntry(artifacts.vercelServerFile, serverEntry, {
-    format: "esm",
-    platform: "node",
+  await writeVercelDeploymentOutput({
+    bundleEntry: artifacts.vercelServerFile,
+    bundleOptions: {
+      format: "esm",
+      platform: "node",
+    },
+    clientOutDir,
+    outputRoot,
+    rootDir,
   })
-
-  await writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
-  await writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8")
-
-  if (staticIndex) {
-    await copyClientOutput(clientDir, resolve(outputRoot, "static"))
-  }
 
   if (queueConfig === false) {
     return
@@ -289,7 +272,9 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, queue: Q
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue)
-  await writeCloudflareOutput(options.rootDir, options.clientOutDir, artifacts)
-  await writeVercelOutput(options.rootDir, options.clientOutDir, options.queue, artifacts)
+  await Promise.all([
+    writeCloudflareOutput(options.rootDir, options.clientOutDir, artifacts),
+    writeVercelOutput(options.rootDir, options.clientOutDir, options.queue, artifacts),
+  ])
   return artifacts
 }

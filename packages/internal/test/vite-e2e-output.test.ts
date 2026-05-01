@@ -9,11 +9,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
+const workspacePackages = ["blob", "db", "kv", "queue", "sandbox", "workflow"] as const
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
-  const workspacePackagesDir = resolve(repoRoot, "packages")
+  const workspacePackagesDir = resolve(playgroundDir, "../../packages")
   await mkdir(baseDir, { recursive: true })
   if (!existsSync(join(baseDir, "packages"))) {
     await symlink(workspacePackagesDir, join(baseDir, "packages"), "dir")
@@ -47,12 +48,7 @@ afterAll(async () => {
 
 beforeAll(async () => {
   await execFileAsync("pnpm", [
-    "--filter", "@vitehub/blob",
-    "--filter", "@vitehub/db",
-    "--filter", "@vitehub/kv",
-    "--filter", "@vitehub/queue",
-    "--filter", "@vitehub/sandbox",
-    "--filter", "@vitehub/workflow",
+    ...workspacePackages.flatMap(name => ["--filter", `@vitehub/${name}`]),
     "build",
   ], {
     cwd: repoRoot,
