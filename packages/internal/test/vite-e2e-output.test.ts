@@ -1,18 +1,19 @@
 import { existsSync } from "node:fs"
-import { cp, mkdtemp, mkdir, readFile, rm, symlink } from "node:fs/promises"
+import { cp, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { execFile } from "node:child_process"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
+const workspaceDir = resolve(playgroundDir, "../..")
+const workspacePackagesDir = resolve(workspaceDir, "packages")
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
-  const workspacePackagesDir = resolve(playgroundDir, "../../packages")
   await mkdir(baseDir, { recursive: true })
   if (!existsSync(join(baseDir, "packages"))) {
     await symlink(workspacePackagesDir, join(baseDir, "packages"), "dir")
@@ -25,7 +26,7 @@ async function createWorkspaceTempDir(prefix: string) {
 async function createPlaygroundCopy(prefix: string) {
   const workspaceDir = await createWorkspaceTempDir(prefix)
   const rootDir = join(workspaceDir, "vite")
-  const nodeModules = join(playgroundDir, "node_modules")
+  const nodeModules = resolve(playgroundDir, "../../node_modules")
 
   await mkdir(rootDir, { recursive: true })
   await cp(resolve(playgroundDir, "../_shared"), join(workspaceDir, "_shared"), { recursive: true })
@@ -36,8 +37,29 @@ async function createPlaygroundCopy(prefix: string) {
   await cp(join(playgroundDir, "src"), join(rootDir, "src"), { recursive: true })
   await cp(join(playgroundDir, "server"), join(rootDir, "server"), { recursive: true })
   await symlink(nodeModules, join(rootDir, "node_modules"), "dir")
+  await rewriteWorkspaceImports(join(rootDir, "vite.config.ts"), rootDir)
 
   return rootDir
+}
+
+async function rewriteWorkspaceImports(configFile: string, rootDir: string) {
+  const source = await readFile(configFile, "utf8")
+  const replacements = new Map<string, string>([
+    ["@vitehub/blob/vite", resolve(workspacePackagesDir, "blob/src/vite.ts")],
+    ["@vitehub/db/vite", resolve(workspacePackagesDir, "db/src/vite.ts")],
+    ["@vitehub/internal/build/mode", resolve(workspacePackagesDir, "internal/src/build/mode.ts")],
+    ["@vitehub/kv/vite", resolve(workspacePackagesDir, "kv/src/vite.ts")],
+    ["@vitehub/queue/vite", resolve(workspacePackagesDir, "queue/src/vite.ts")],
+    ["@vitehub/sandbox/vite", resolve(workspacePackagesDir, "sandbox/src/vite.ts")],
+    ["@vitehub/workflow/vite", resolve(workspacePackagesDir, "workflow/src/vite.ts")],
+  ])
+
+  const rewritten = Array.from(replacements).reduce((contents, [specifier, absolutePath]) => {
+    const relativePath = `./${relative(rootDir, absolutePath).replace(/\\/g, "/")}`
+    return contents.replaceAll(specifier, relativePath)
+  }, source)
+
+  await writeFile(configFile, rewritten)
 }
 
 afterAll(async () => {
