@@ -123,7 +123,7 @@ describe("hubDb", () => {
     const configResolved = plugin.configResolved as (config: unknown) => void
     configResolved({ root: rootDir } as never)
 
-    const handleHotUpdate = plugin.handleHotUpdate as (context: {
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
       file: string
       server: {
         moduleGraph: {
