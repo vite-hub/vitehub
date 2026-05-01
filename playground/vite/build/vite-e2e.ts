@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { dirname, resolve } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { normalizeBlobOptions } from "../../../packages/blob/src/config.ts"
@@ -594,6 +594,28 @@ function renderVercelQueueWrapper(file: string, queueRegistryFile: string, defin
   ].join("\n")
 }
 
+function sanitizeVercelConsumerName(functionPath: string) {
+  let result = ""
+  for (const char of functionPath) {
+    if (char === "_") {
+      result += "__"
+    }
+    else if (char === "/") {
+      result += "_S"
+    }
+    else if (char === ".") {
+      result += "_D"
+    }
+    else if (/[A-Za-z0-9-]/.test(char)) {
+      result += char
+    }
+    else {
+      result += `_${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`
+    }
+  }
+  return result
+}
+
 function createCloudflareQueueBindings(definitions: Array<{ name: string }>) {
   if (!definitions.length) return undefined
   return {
@@ -704,6 +726,7 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   const clientDir = resolve(options.rootDir, options.clientOutDir)
   const outputRoot = resolve(options.rootDir, ".vercel", "output")
   const serverDir = resolve(outputRoot, "functions", "__server.func")
+  const functionsRoot = resolve(outputRoot, "functions")
   const sourceEntry = resolve(artifacts.generatedDir, "vercel-entry.mjs")
   const staticIndex = hasStaticIndex(clientDir)
 
@@ -749,6 +772,8 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
 
   await Promise.all(queueFunctionDirs.map(async ({ definition, dir: functionDir }) => {
     const functionSource = resolve(functionDir, "index.source.mjs")
+    const functionPath = relative(functionsRoot, functionDir).replace(/\\/g, "/")
+    const consumer = sanitizeVercelConsumerName(functionPath)
     await mkdir(functionDir, { recursive: true })
     await writeFile(functionSource, renderVercelQueueWrapper(functionSource, queueRegistryFile, definition.name, options.queue), "utf8")
     await bundleEsmEntry(functionSource, resolve(functionDir, "index.mjs"), {
@@ -761,7 +786,13 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
         memory: 1024,
         supportsResponseStreaming: false,
         ...(options.queue && options.queue.provider === "vercel"
-          ? { topics: [{ name: getVercelQueueTopicName(definition.name) }] }
+          ? {
+              experimentalTriggers: [{
+                consumer,
+                topic: getVercelQueueTopicName(definition.name),
+                type: "queue/v2beta",
+              }],
+            }
           : {}),
       }), null, 2)}\n`, "utf8"),
     ])
