@@ -172,6 +172,25 @@ describe("hosted drizzle runtime", () => {
     expect(() => db.run).toThrow("Hosted DB \"default\" requires a Cloudflare D1 binding or a remote libSQL URL")
   })
 
+  it("rejects non-libsql remote schemes in hosted mode", async () => {
+    const { createHostedDrizzleDb } = await import("../src/runtime/hosted.ts")
+
+    const db = createHostedDrizzleDb({
+      connection: {
+        url: "postgres://db.example.com/app",
+      },
+      dialect: "sqlite",
+      drizzle: {
+        migrationsDirs: [],
+        schemaPaths: [],
+      },
+      name: "default",
+      orm: "drizzle",
+    }, defaultSchema)
+
+    expect(() => db.run).toThrow("Hosted DB \"default\" requires a Cloudflare D1 binding or a remote libSQL URL")
+  })
+
   it("uses the active Cloudflare binding when hosted outputs run on Cloudflare", async () => {
     const binding = createFakeD1Binding()
     setActiveCloudflareEnv({ DB_ANALYTICS: binding })

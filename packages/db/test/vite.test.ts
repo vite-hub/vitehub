@@ -112,4 +112,48 @@ describe("hubDb", () => {
     expect(databasesCode).toContain("\"DB_ANALYTICS\"")
     expect(databasesCode).toContain(join(rootDir, "src/db/analytics/schema.ts"))
   })
+
+  it("refreshes discovered schema paths during hot updates", async () => {
+    const rootDir = await createTempProject()
+    await writeFile(join(rootDir, "src/db/schema.ts"), "export const notes = true\n")
+    await mkdir(join(rootDir, "src/db/schema"), { recursive: true })
+
+    const invalidated: string[] = []
+    const plugin = hubDb()
+    const configResolved = plugin.configResolved as (config: unknown) => void
+    configResolved({ root: rootDir } as never)
+
+    const handleHotUpdate = plugin.handleHotUpdate as (context: {
+      file: string
+      server: {
+        moduleGraph: {
+          getModuleById: (id: string) => { id: string } | undefined
+          invalidateModule: (module: { id: string }) => void
+        }
+      }
+    }) => void
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+
+    await writeFile(join(rootDir, "src/db/schema/new-note.ts"), "export const newNote = true\n")
+    handleHotUpdate({
+      file: join(rootDir, "src/db/schema/new-note.ts"),
+      server: {
+        moduleGraph: {
+          getModuleById(id) {
+            if (id === `\0${DB_VIRTUAL_SCHEMA_ID}` || id === `\0${DB_VIRTUAL_DATABASES_ID}`) {
+              return { id }
+            }
+          },
+          invalidateModule(module) {
+            invalidated.push(module.id)
+          },
+        },
+      },
+    })
+
+    const schemaCode = await load(`\0${DB_VIRTUAL_SCHEMA_ID}`)
+
+    expect(invalidated).toEqual([`\0${DB_VIRTUAL_SCHEMA_ID}`, `\0${DB_VIRTUAL_DATABASES_ID}`])
+    expect(schemaCode).toContain(join(rootDir, "src/db/schema/new-note.ts"))
+  })
 })

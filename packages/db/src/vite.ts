@@ -64,13 +64,20 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   const getConfig = () => runtimeConfig
+  const refreshRuntimeConfig = () => {
+    if (!resolved) {
+      return
+    }
+
+    runtimeConfig = resolveDBViteConfig(resolved.db ?? options, resolved.root)
+  }
 
   return {
     name: DB_VITE_PLUGIN_NAME,
     api: { getConfig },
     configResolved(config) {
       resolved = config
-      runtimeConfig = resolveDBViteConfig(config.db ?? options, config.root)
+      refreshRuntimeConfig()
 
       if (runtimeConfig && !runtimeConfig.schemaPathsByDatabase.default?.length) {
         throw new Error("[vitehub] No Drizzle schema files found. Create `src/db/schema.ts` or set `db.drizzle.schemaPaths`.")
@@ -96,6 +103,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (!isSchemaUpdate) {
         return
       }
+
+      refreshRuntimeConfig()
 
       const schemaModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_SCHEMA_ID)
       const databasesModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DATABASES_ID)

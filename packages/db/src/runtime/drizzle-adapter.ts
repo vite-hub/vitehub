@@ -32,7 +32,7 @@ interface DrizzleSqliteAdapterOptions {
 }
 
 export function isRemoteSqliteUrl(url: string) {
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(url) || /^libsql:/i.test(url)
+  return /^(?:libsql:|https?:\/\/)/i.test(url)
 }
 
 export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknown>>(
