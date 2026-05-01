@@ -652,13 +652,22 @@ importers:
 
   packages/workspace:
     dependencies:
+      defu:
+        specifier: 'catalog:'
+        version: 6.1.7
       exsolve:
         specifier: 'catalog:'
         version: 1.0.8
+      isomorphic-git:
+        specifier: ^1.37.6
+        version: 1.37.6
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
+      '@vercel/blob':
+        specifier: 'catalog:'
+        version: 2.3.3
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -7119,6 +7128,11 @@ packages:
 
   isomorphic-git@1.37.5:
     resolution: {integrity: sha512-wek54c5uFvd3WsxewLWt6h0GXKWQh0P8rRXns9bN1rHNjcgCb3+0lmyAsP594NeTtQFeCJQVS9b0kjbkD1l5qg==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+  isomorphic-git@1.37.6:
+    resolution: {integrity: sha512-qr1NFCPsVTZ6YGqTXw0CzamnsHyH9QQ1OTEfeXIweSljRUMzuHFCJdUn0wc6OcjtTDns6knxjPb7N6LmJeftOA==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -16953,6 +16967,20 @@ snapshots:
   isexe@4.0.0: {}
 
   isomorphic-git@1.37.5:
+    dependencies:
+      async-lock: 1.4.1
+      clean-git-ref: 2.0.1
+      crc-32: 1.2.2
+      diff3: 0.0.3
+      ignore: 5.3.2
+      minimisted: 2.0.1
+      pako: 1.0.11
+      pify: 4.0.1
+      readable-stream: 4.7.0
+      sha.js: 2.4.12
+      simple-get: 4.0.1
+
+  isomorphic-git@1.37.6:
     dependencies:
       async-lock: 1.4.1
       clean-git-ref: 2.0.1

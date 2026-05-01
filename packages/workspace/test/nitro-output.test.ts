@@ -72,6 +72,10 @@ describe("Nitro workspace outputs", () => {
 
     expect(registryContents).toContain('"docs": async () => import(')
     expect(existsSync(join(cloudflareBuild.outputDir, cloudflareNitroJson.serverEntry))).toBe(true)
+    const cloudflareWrangler = JSON.parse(await readFile(join(cloudflareBuild.outputDir, "server", "wrangler.json"), "utf8"))
+    expect(cloudflareWrangler.artifacts).toEqual([
+      expect.objectContaining({ binding: "WORKSPACE_ARTIFACTS", namespace: "vitehub" }),
+    ])
     await assertNoNitroInternalVirtualImports(cloudflareBuild.outputDir)
 
     await cleanupPlayground()

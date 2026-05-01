@@ -49,13 +49,19 @@
     "test": "pnpm --filter @vitehub/workspace build && vitest run"
   },
   "dependencies": {
+    "defu": "catalog:",
+    "isomorphic-git": "^1.37.6",
     "exsolve": "catalog:"
   },
   "peerDependencies": {
+    "@vercel/blob": "catalog:",
     "nitro": "^3.0.0-0",
     "vite": ">=8.0.0"
   },
   "peerDependenciesMeta": {
+    "@vercel/blob": {
+      "optional": true
+    },
     "nitro": {
       "optional": true
     },
@@ -64,6 +70,7 @@
     }
   },
   "devDependencies": {
+    "@vercel/blob": "catalog:",
     "@vitehub/internal": "workspace:*",
     "@types/node": "catalog:",
     "nitro": "catalog:",

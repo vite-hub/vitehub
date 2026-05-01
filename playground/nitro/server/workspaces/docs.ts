@@ -1,9 +1,6 @@
 import { defineWorkspace, loader } from "@vitehub/workspace"
 
 export default defineWorkspace({
-  store: {
-    provider: "memory",
-  },
   sources: [
     {
       name: "inline-markdown",

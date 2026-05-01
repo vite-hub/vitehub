@@ -8,15 +8,25 @@ icon: i-simple-icons-vercel
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/workspace` is local-first in v1. Vercel support is documented as compatibility direction, not a hosted canonical workspace store.
+`@vitehub/workspace` supports Vercel Blob as the hosted v1 workspace store. Blob is object storage, so ViteHub adds workspace manifests for snapshots and diffs.
 
 | Vercel primitive | Intended role |
 | --- | --- |
-| Vercel Blob | Object/file backing store for large files and generated artifacts. |
+| Vercel Blob | Object-backed workspace files, metadata, snapshots, and diffs. |
 | Vercel Sandbox | Execution runtime with filesystem APIs, snapshots, and persistent sessions. |
 | Future artifact-like store | Possible canonical versioned workspace provider if Vercel ships one. |
 
-Vercel Blob is object storage, so it should not be treated as equivalent to Git-like workspace state. Vercel Sandbox persistence and snapshots are useful for runtime/session continuity, but workspace state should still be explicit: inspect diffs and commit or export changes intentionally.
+```ts
+export default defineWorkspace({
+  store: {
+    provider: 'vercel-blob',
+    prefix: '.vitehub/workspaces',
+    access: 'private',
+  },
+})
+```
+
+The runtime reads `BLOB_READ_WRITE_TOKEN`. `snapshot()` writes a ViteHub manifest into the Blob store; it is not provider-native Git history. Vercel Sandbox persistence remains a runtime/session capability, not the identity of the workspace.
 
 Vercel runtime integration should use workspace mounts:
 

@@ -1,21 +1,36 @@
 import { resolve } from "node:path"
 
+import { normalizeWorkspaceStoreOptions } from "./config.ts"
 import { files as filesLoader } from "./loaders/files.ts"
 import { getWorkspaceRuntimeConfig } from "./runtime/config.ts"
+import { createCloudflareArtifactsWorkspaceStore } from "./stores/cloudflare-artifacts.ts"
 import { createLocalWorkspaceStore } from "./stores/local.ts"
 import { createMemoryWorkspaceStore } from "./stores/memory.ts"
+import { createVercelBlobWorkspaceStore } from "./stores/vercel-blob.ts"
 
 import type { LoaderContext, WorkspaceDefinition, WorkspaceStore } from "./types.ts"
 
 export function createWorkspaceStore(definition: WorkspaceDefinition): WorkspaceStore {
   if (definition.store && "readFile" in definition.store) return definition.store
-  if (definition.store?.provider === "memory") return createMemoryWorkspaceStore()
 
   const rootDir = definition.rootDir || process.cwd()
-  if (definition.store?.root) return createLocalWorkspaceStore(resolve(rootDir, definition.store.root))
-
   const runtimeConfig = getWorkspaceRuntimeConfig()
-  const root = runtimeConfig ? resolve(runtimeConfig.root, definition.name) : resolve(rootDir, ".vitehub/workspaces", definition.name)
+  const runtimeStore = runtimeConfig ? runtimeConfig.store : undefined
+  const store = normalizeWorkspaceStoreOptions(definition.store || runtimeStore, {
+    env: typeof process !== "undefined" ? process.env : {},
+    hosting: typeof process !== "undefined" ? process.env.VITEHUB_HOSTING || process.env.NITRO_PRESET : undefined,
+    rootDir,
+  })
+
+  if (store?.provider === "memory") return createMemoryWorkspaceStore()
+  if (store?.provider === "cloudflare-artifacts") return createCloudflareArtifactsWorkspaceStore(store, definition.name)
+  if (store?.provider === "vercel-blob") return createVercelBlobWorkspaceStore(store, definition.name)
+
+  const root = store?.root
+    ? resolve(rootDir, store.root)
+    : runtimeConfig
+      ? resolve(runtimeConfig.root, definition.name)
+      : resolve(rootDir, ".vitehub/workspaces", definition.name)
   return createLocalWorkspaceStore(root)
 }
 

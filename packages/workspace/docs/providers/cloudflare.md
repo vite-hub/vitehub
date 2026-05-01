@@ -8,16 +8,28 @@ icon: i-simple-icons-cloudflare
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/workspace` is local-first in v1. Cloudflare support is designed around separate storage and execution roles:
+`@vitehub/workspace` supports Cloudflare Artifacts as the hosted v1 workspace store. Cloudflare support keeps storage and execution roles separate:
 
 | Cloudflare primitive | Intended role |
 | --- | --- |
-| Artifacts | Future canonical versioned file-tree store. |
+| Artifacts | Canonical versioned file-tree store. |
 | Shell / virtual workspace | Workspace runtime for read, write, search, diff, and glob without a full machine. |
 | R2 | Large-object spillover for workspace stores. |
 | Sandbox | Isolated execution when commands, compilers, or full OS access are needed. |
 
-Cloudflare Artifacts stores versioned file trees behind a Git-compatible interface, which makes it the best fit for future hosted workspace state. Cloudflare Sandbox and Shell-style filesystem APIs are runtime capabilities, not the identity of the workspace.
+Cloudflare Artifacts stores versioned file trees behind a Git-compatible interface. ViteHub binds Artifacts through Wrangler and uses `snapshot()` as the commit boundary for hosted workspace writes.
+
+```ts
+export default defineWorkspace({
+  store: {
+    provider: 'cloudflare-artifacts',
+    binding: 'WORKSPACE_ARTIFACTS',
+    namespace: 'vitehub',
+    repoPrefix: 'vitehub-workspace-',
+    branch: 'main',
+  },
+})
+```
 
 The public API remains source-oriented:
 

@@ -208,9 +208,27 @@ export interface MemoryWorkspaceStoreOptions {
   provider: "memory"
 }
 
+export interface CloudflareArtifactsWorkspaceStoreOptions {
+  provider: "cloudflare-artifacts"
+  binding?: string
+  namespace?: string
+  repo?: string
+  repoPrefix?: string
+  branch?: string
+}
+
+export interface VercelBlobWorkspaceStoreOptions {
+  provider: "vercel-blob"
+  token?: string
+  prefix?: string
+  access?: "private" | "public"
+}
+
 export type WorkspaceStoreOptions =
   | LocalWorkspaceStoreOptions
   | MemoryWorkspaceStoreOptions
+  | CloudflareArtifactsWorkspaceStoreOptions
+  | VercelBlobWorkspaceStoreOptions
   | WorkspaceStore
 
 export interface WorkspaceDefinition {
@@ -229,11 +247,13 @@ export type WorkspaceDefinitionInput = Omit<WorkspaceDefinition, "name"> & {
 export interface WorkspaceModuleOptions {
   root?: string
   syncOnBuild?: boolean | string[]
+  store?: WorkspaceStoreOptions
 }
 
 export interface ResolvedWorkspaceModuleOptions {
   root: string
   syncOnBuild?: boolean | string[]
+  store: Exclude<WorkspaceStoreOptions, WorkspaceStore>
 }
 
 export interface Workspace {

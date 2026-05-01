@@ -1,10 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
+import { normalizeWorkspaceOptions } from "../config.ts"
 import { createWorkspaceRegistryContents, discoverNitroWorkspaceDefinitions } from "../discovery.ts"
+import { configureCloudflareArtifacts } from "../integrations/cloudflare.ts"
 import { registerWorkspace } from "../registry.ts"
 import { useWorkspace } from "../use.ts"
 
@@ -20,12 +23,16 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string) {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
 }
 
-function normalizeWorkspaceOptions(options: false | WorkspaceModuleOptions | undefined, rootDir: string): false | ResolvedWorkspaceModuleOptions {
-  if (options === false) return false
-  return {
-    root: resolve(rootDir, options?.root || ".vitehub/workspaces"),
-    syncOnBuild: options?.syncOnBuild,
-  }
+function resolveDependency(specifier: string) {
+  return createRequire(import.meta.url).resolve(specifier)
+}
+
+function resolveIsomorphicGitEsmEntry() {
+  return resolve(dirname(resolveDependency("isomorphic-git")), "index.js")
+}
+
+function resolveIsomorphicGitHttpWebEsmEntry() {
+  return resolve(dirname(resolveDependency("isomorphic-git/http/web")), "index.js")
 }
 
 function registryPath(nitro: Nitro) {
@@ -67,7 +74,11 @@ async function syncBuildWorkspaces(nitro: Nitro, options: false | ResolvedWorksp
 const workspaceNitroModule: NitroModule = {
   name: "@vitehub/workspace",
   async setup(nitro) {
-    const resolved = normalizeWorkspaceOptions((nitro.options as typeof nitro.options & { workspace?: false | WorkspaceModuleOptions }).workspace, nitro.options.rootDir)
+    const resolved = normalizeWorkspaceOptions((nitro.options as typeof nitro.options & { workspace?: false | WorkspaceModuleOptions }).workspace, {
+      env: process.env,
+      hosting: nitro.options.preset,
+      rootDir: nitro.options.rootDir,
+    })
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig) as NitroRuntimeConfig & Record<string, unknown>
     if (nitro.options.preset) runtimeConfig.hosting ||= nitro.options.preset
     runtimeConfig.workspace = resolved
@@ -76,6 +87,11 @@ const workspaceNitroModule: NitroModule = {
     nitro.options.alias["@vitehub/workspace"] = resolveRuntimeEntry("../index", "@vitehub/workspace")
     nitro.options.alias["@vitehub/workspace/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/runtime/state")
     nitro.options.alias["@vitehub/workspace/runtime/nitro-plugin"] = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/workspace/runtime/nitro-plugin")
+    nitro.options.alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
+    nitro.options.alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
+    for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
+      nitro.options.alias[dependency] = resolveDependency(dependency)
+    }
 
     const registry = await writeRegistry(nitro)
     nitro.options.alias["#vitehub-workspace-registry"] = registry.path
@@ -88,6 +104,10 @@ const workspaceNitroModule: NitroModule = {
     nitro.options.plugins ||= []
     const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/workspace/runtime/nitro-plugin")
     if (!nitro.options.plugins.includes(plugin)) nitro.options.plugins.push(plugin)
+
+    if (nitro.options.preset?.includes("cloudflare")) {
+      configureCloudflareArtifacts(nitro.options, resolved)
+    }
 
     nitro.hooks.hook("build:before", async () => {
       const next = await writeRegistry(nitro)
@@ -114,6 +134,7 @@ declare module "nitro/types" {
 
   interface NitroOptions {
     workspace?: false | WorkspaceModuleOptions
+    cloudflare?: { wrangler?: { artifacts?: Array<{ binding: string, namespace: string }> } }
   }
 
   interface NitroRuntimeConfig {

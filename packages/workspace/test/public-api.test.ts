@@ -63,7 +63,7 @@ describe("workspace public API", () => {
     const root = await createRoot()
     const configuredRoot = join(root, "runtime-workspaces")
     await mkdir(configuredRoot, { recursive: true })
-    setWorkspaceRuntimeConfig({ root: configuredRoot })
+    setWorkspaceRuntimeConfig({ root: configuredRoot, store: { provider: "local" } })
 
     registerWorkspace("runtime-root", defineWorkspace({
       rootDir: root,

@@ -18,7 +18,9 @@ import { discoverNitroSandboxDefinitions } from "../../../packages/sandbox/src/d
 import { bundleSandboxDefinition } from "../../../packages/sandbox/src/bundle.ts"
 import { resolveSandboxFeatureConfig } from "../../../packages/sandbox/src/feature.ts"
 import { finalizeCloudflareWranglerConfig } from "../../../packages/sandbox/src/internal/shared/cloudflare-wrangler.ts"
+import { normalizeWorkspaceOptions } from "../../../packages/workspace/src/config.ts"
 import { discoverViteWorkspaceDefinitions } from "../../../packages/workspace/src/discovery.ts"
+import { configureCloudflareArtifacts } from "../../../packages/workspace/src/integrations/cloudflare.ts"
 import { normalizeWorkflowOptions } from "../../../packages/workflow/src/config.ts"
 import { discoverWorkflowDefinitions } from "../../../packages/workflow/src/discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../../../packages/workflow/src/integrations/cloudflare.ts"
@@ -83,6 +85,7 @@ interface CloudflareWranglerConfig {
     producers: Array<{ binding: string, queue: string }>
   }
   r2_buckets?: Array<{ binding: string, bucket_name: string }>
+  artifacts?: Array<{ binding: string, namespace: string }>
   workflows?: Array<{ binding: string, class_name: string, name: string }>
 }
 
@@ -117,8 +120,24 @@ function resolvePackageDependency(packageDir: string, specifier: string) {
   return createRequire(resolve(packageDir, "package.json")).resolve(specifier)
 }
 
+function resolveIsomorphicGitEsmEntry() {
+  return resolve(dirname(resolvePackageDependency(workspacePackageDir, "isomorphic-git")), "index.js")
+}
+
+function resolveIsomorphicGitHttpWebEsmEntry() {
+  return resolve(dirname(resolvePackageDependency(workspacePackageDir, "isomorphic-git/http/web")), "index.js")
+}
+
 function resolveSandboxClassName(config: { className?: unknown } | undefined) {
   return typeof config?.className === "string" ? config.className : defaultCloudflareSandboxClassName
+}
+
+function withoutCloudflareWorkspaceAliases(alias: Record<string, string>) {
+  const filtered = { ...alias }
+  for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "isomorphic-git", "isomorphic-git/http/web", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
+    delete filtered[dependency]
+  }
+  return filtered
 }
 
 function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
@@ -387,6 +406,11 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   if (typeof options.workspace !== "undefined") {
     const workspaceRuntimeFile = resolve(generatedDir, "workspace-runtime.mjs")
     alias["@vitehub/workspace"] = workspaceRuntimeFile
+    alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
+    alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
+    for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
+      alias[dependency] = resolvePackageDependency(workspacePackageDir, dependency)
+    }
     runtimeWrites.push(writeFile(workspaceRuntimeFile, renderWorkspaceRuntimeModule(workspaceRuntimeFile), "utf8"))
   }
 
@@ -767,6 +791,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
   if (options.kv) {
     configureCloudflareKV({ cloudflare: { wrangler: wranglerConfig } as never }, options.kv)
   }
+  configureCloudflareArtifacts({ cloudflare: { wrangler: wranglerConfig } as never }, options.workspace || false)
 
   if (artifacts.sandboxConfig && artifacts.sandboxConfig.provider === "cloudflare") {
     const sandboxClassName = resolveSandboxClassName(artifacts.sandboxConfig)
@@ -796,9 +821,11 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   await mkdir(serverDir, { recursive: true })
 
   await bundleEsmEntry(sourceEntry, resolve(serverDir, "index.mjs"), {
-    alias: artifacts.alias,
+    alias: withoutCloudflareWorkspaceAliases(artifacts.alias),
     external: [
       "cloudflare:workers",
+      "isomorphic-git",
+      "isomorphic-git/http/web",
       "workflow",
       "workflow/api",
       "workflow/runtime",
@@ -925,6 +952,7 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
     kv: normalizeKVOptions(undefined, { hosting }),
     queue: normalizeQueueOptions({}, { hosting }) || false,
     sandbox: resolveSandboxFeatureConfig({}, hosting),
+    workspace: normalizeWorkspaceOptions({}, { env: process.env, hosting, rootDir }),
     workflow: normalizeWorkflowOptions({}, { hosting }) || false,
   }
 }

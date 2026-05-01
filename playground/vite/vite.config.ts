@@ -100,7 +100,7 @@ export default defineConfig(async () => {
           ...composerOptions,
           clientOutDir: "dist/client",
           rootDir: import.meta.dirname,
-          workspace: { root: resolve(import.meta.dirname, ".vitehub/workspaces") },
+          workspace: composerOptions.workspace,
         }),
       ],
       queue: {},
