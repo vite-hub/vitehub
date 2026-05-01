@@ -101,10 +101,12 @@ describe("unified vite e2e hosted outputs", () => {
     expect(cloudflareConfig.d1_databases).toEqual([
       expect.objectContaining({
         binding: "DB",
+        database_name: "vitehub-playground-db",
         database_id: "primary-d1-id",
       }),
       expect.objectContaining({
         binding: "DB_ANALYTICS",
+        database_name: "vitehub-playground-analytics",
         database_id: "analytics-d1-id",
       }),
     ])
@@ -114,6 +116,8 @@ describe("unified vite e2e hosted outputs", () => {
       name: "vitehub-playground-vite-sandbox",
     }))
     expect(cloudflareConfig.workflows).toHaveLength(1)
+    expect(cloudflareConfig.workflows?.[0]).toMatchObject({ name: "workflow--77656c636f6d65" })
+    expect(cloudflareWorkerContents).toContain('name: "welcome"')
     expect(cloudflareConfig.queues?.producers).toHaveLength(1)
     expect(cloudflareConfig.queues?.consumers).toHaveLength(1)
     expect(cloudflareConfig.durable_objects?.bindings).toBeTruthy()

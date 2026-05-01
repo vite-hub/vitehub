@@ -89,6 +89,7 @@ interface GeneratedFeatureArtifacts {
   queueRegistryFile?: string
   sandboxConfig?: false | AgentSandboxConfig
   workflowBindings: Array<{ binding: string, class_name: string, name: string }>
+  workflowDefinitions: Array<{ name: string, handler: string }>
   workflowRegistryFile?: string
 }
 
@@ -406,6 +407,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     queueRegistryFile,
     sandboxConfig,
     workflowBindings: createCloudflareWorkflowBindings(workflowDefinitions, options.workflow) || [],
+    workflowDefinitions,
     workflowRegistryFile,
   } satisfies GeneratedFeatureArtifacts
 }
@@ -446,14 +448,17 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     imports.push(`import { Sandbox as CloudflareSandbox } from "@cloudflare/sandbox"`)
   }
 
-  const workflowClassExports = artifacts.workflowBindings.map((binding) => [
-    `export class ${binding.class_name || getCloudflareWorkflowClassName(binding.name)} extends WorkflowEntrypoint {`,
-    "  async run(event, step) {",
-    `    return await runCloudflareWorkflow({ config: workflowConfig, env: this.env || {}, event, name: ${JSON.stringify(binding.name)}, registry: workflowRegistry, step })`,
-    "  }",
-    "}",
-    "",
-  ].join("\n"))
+  const workflowClassExports = artifacts.workflowDefinitions.map((definition, index) => {
+    const binding = artifacts.workflowBindings[index]
+    return [
+      `export class ${binding?.class_name || getCloudflareWorkflowClassName(definition.name)} extends WorkflowEntrypoint {`,
+      "  async run(event, step) {",
+      `    return await runCloudflareWorkflow({ config: workflowConfig, env: this.env || {}, event, name: ${JSON.stringify(definition.name)}, registry: workflowRegistry, step })`,
+      "  }",
+      "}",
+      "",
+    ].join("\n")
+  })
 
   return [
     ...imports,
@@ -847,6 +852,7 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
           },
           cloudflare: {
             binding: "DB_ANALYTICS",
+            databaseName: process.env.VITEHUB_D1_ANALYTICS_DATABASE_NAME || "vitehub-playground-analytics",
             databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,
             previewDatabaseId: process.env.VITEHUB_D1_ANALYTICS_PREVIEW_DATABASE_ID,
           },
@@ -854,6 +860,7 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
       },
       cloudflare: {
         binding: "DB",
+        databaseName: process.env.VITEHUB_D1_DATABASE_NAME || "vitehub-playground-db",
         databaseId: process.env.VITEHUB_D1_DATABASE_ID,
         previewDatabaseId: process.env.VITEHUB_D1_PREVIEW_DATABASE_ID,
       },

@@ -147,8 +147,8 @@ function createCloudflareD1Bindings(runtimeConfig: ResolvedDBViteConfig) {
     .filter((database): database is NonNullable<ResolvedDBViteConfig["databases"][string]["cloudflare"]> => Boolean(database?.databaseId))
     .map(database => ({
       binding: database.binding,
+      database_name: database.databaseName!,
       database_id: database.databaseId!,
-      ...(database.databaseName ? { database_name: database.databaseName } : {}),
       ...(database.migrationsDir ? { migrations_dir: database.migrationsDir } : {}),
       ...(database.migrationsTable ? { migrations_table: database.migrationsTable } : {}),
       ...(database.previewDatabaseId ? { preview_database_id: database.previewDatabaseId } : {}),
@@ -168,6 +168,13 @@ function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) 
   })
 }
 
+function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig) {
+  return runtimeConfig.databaseNames.filter((name) => {
+    const cloudflare = runtimeConfig.databases[name]?.cloudflare
+    return Boolean(cloudflare?.databaseId) && !cloudflare?.databaseName
+  })
+}
+
 function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
@@ -183,6 +190,11 @@ interface ProviderWriteOptions {
 }
 
 async function writeCloudflareOutput({ artifacts, clientOutDir, rootDir, runtimeConfig }: ProviderWriteOptions) {
+  const databasesMissingNames = getCloudflareDatabasesMissingNames(runtimeConfig)
+  if (databasesMissingNames.length) {
+    throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseName\` when \`db.cloudflare.databaseId\` is set for databases: ${databasesMissingNames.join(", ")}.`)
+  }
+
   const unsupportedDatabases = getCloudflareUnsupportedDatabases(runtimeConfig)
   if (unsupportedDatabases.length) {
     throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseId\` or a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)

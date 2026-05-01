@@ -20,12 +20,14 @@ export default defineConfig({
   db: {
     cloudflare: {
       binding: 'DB',
+      databaseName: 'vitehub-playground-db',
       databaseId: process.env.VITEHUB_D1_DATABASE_ID,
     },
     databases: {
       analytics: {
         cloudflare: {
           binding: 'DB_ANALYTICS',
+          databaseName: 'vitehub-playground-analytics',
           databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,
         },
       },
@@ -41,15 +43,19 @@ When `databaseId` is present, ViteHub emits the binding into generated `wrangler
   "d1_databases": [
     {
       "binding": "DB",
+      "database_name": "vitehub-playground-db",
       "database_id": "<default-id>"
     },
     {
       "binding": "DB_ANALYTICS",
+      "database_name": "vitehub-playground-analytics",
       "database_id": "<analytics-id>"
     }
   ]
 }
 ```
+
+`databaseName` is required whenever `databaseId` is present for Cloudflare output. ViteHub now fails the build instead of emitting a `wrangler.json` entry that Wrangler can reject later.
 
 ## D1-Only And Fallback Modes
 

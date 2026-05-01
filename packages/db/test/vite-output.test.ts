@@ -67,10 +67,12 @@ describe("Vite db provider outputs", () => {
     expect(cloudflareConfig.d1_databases).toEqual([
       expect.objectContaining({
         binding: "DB",
+        database_name: "vitehub-playground-db",
         database_id: "primary-d1-id",
       }),
       expect.objectContaining({
         binding: "DB_ANALYTICS",
+        database_name: "vitehub-playground-analytics",
         database_id: "analytics-d1-id",
       }),
     ])
@@ -197,6 +199,41 @@ describe("Vite db provider outputs", () => {
 
     expect(error).toBeTruthy()
     expect((error as { stderr?: string; message?: string } | undefined)?.stderr || (error as { message?: string } | undefined)?.message || String(error)).toContain("Cloudflare output requires `db.cloudflare.databaseId` or a remote libSQL `db.connection.url` for databases: analytics")
+  }, 30_000)
+
+  it("fails the Cloudflare build when a D1 database ID is missing a database name", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-db-vite-cloudflare-missing-name-")
+    const viteConfigPath = join(rootDir, "vite.config.ts")
+    const viteConfig = await readFile(viteConfigPath, "utf8")
+    await writeFile(
+      viteConfigPath,
+      viteConfig.replace(
+        '        databaseName: process.env.VITEHUB_D1_ANALYTICS_DATABASE_NAME || "vitehub-playground-analytics",\n',
+        "",
+      ),
+      "utf8",
+    )
+
+    let error: Error | undefined
+    try {
+      await execFileAsync("pnpm", ["exec", "vite", "build"], {
+        cwd: rootDir,
+        env: {
+          ...process.env,
+          TURSO_AUTH_TOKEN: "token",
+          TURSO_DATABASE_URL: "libsql://db.example.turso.io",
+          VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+          VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+          VITEHUB_VITE_MODE: "db",
+        },
+      })
+    }
+    catch (caught) {
+      error = caught as Error
+    }
+
+    expect(error).toBeTruthy()
+    expect((error as { stderr?: string; message?: string } | undefined)?.stderr || (error as { message?: string } | undefined)?.message || String(error)).toContain("Cloudflare output requires `db.cloudflare.databaseName` when `db.cloudflare.databaseId` is set for databases: analytics")
   }, 30_000)
 
   it("fails the Cloudflare build when a binding-only database has no database ID or remote fallback URL", async () => {

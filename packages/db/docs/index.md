@@ -30,6 +30,7 @@ export default defineConfig({
           url: process.env.TURSO_ANALYTICS_DATABASE_URL,
         },
         cloudflare: {
+          databaseName: 'vitehub-playground-analytics',
           databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,
         },
       },

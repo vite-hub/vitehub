@@ -30,6 +30,7 @@ const dbConfig = {
       },
       cloudflare: {
         binding: "DB_ANALYTICS",
+        databaseName: process.env.VITEHUB_D1_ANALYTICS_DATABASE_NAME || "vitehub-playground-analytics",
         databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,
         previewDatabaseId: process.env.VITEHUB_D1_ANALYTICS_PREVIEW_DATABASE_ID,
       },
@@ -37,6 +38,7 @@ const dbConfig = {
   },
   cloudflare: {
     binding: "DB",
+    databaseName: process.env.VITEHUB_D1_DATABASE_NAME || "vitehub-playground-db",
     databaseId: process.env.VITEHUB_D1_DATABASE_ID,
     previewDatabaseId: process.env.VITEHUB_D1_PREVIEW_DATABASE_ID,
   },

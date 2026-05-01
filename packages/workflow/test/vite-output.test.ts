@@ -74,6 +74,7 @@ describe("Vite workflow provider outputs", () => {
     const cloudflareWorkerContents = await readFile(cloudflareWorker, "utf8")
     expect(cloudflareWorkerContents).toContain("waitUntil as viteHubWaitUntil")
     expect(cloudflareWorkerContents).toContain(`export class ${className} extends WorkflowEntrypoint`)
+    expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("welcome"')
     expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
@@ -99,6 +100,7 @@ describe("Vite workflow provider outputs", () => {
     })
     expect(serverEntryContents).toContain("globalThis.__vitehubRunNitroWorkflowDefinition")
     expect(serverEntryContents).toContain(`export class ${className} extends ViteHubWorkflowEntrypoint`)
+    expect(serverEntryContents).toContain('__vitehubRunNitroWorkflowDefinition("welcome"')
   }, 30_000)
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
