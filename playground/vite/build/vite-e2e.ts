@@ -121,6 +121,7 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
     config.schemaPathsByDatabase[name] || [],
     `schema_${index}`,
     name === "default",
+    file,
   ))
   const databaseEntries = config.databaseNames.map((name, index) => [
     `  ${JSON.stringify(name)}: {`,
