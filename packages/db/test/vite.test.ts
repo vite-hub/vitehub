@@ -156,4 +156,47 @@ describe("hubDb", () => {
     expect(invalidated).toEqual([`\0${DB_VIRTUAL_SCHEMA_ID}`, `\0${DB_VIRTUAL_DATABASES_ID}`])
     expect(schemaCode).toContain(join(rootDir, "src/db/schema/new-note.ts"))
   })
+
+  it("normalizes schema paths before matching hot updates", async () => {
+    const rootDir = await createTempProject()
+    const schemaFile = join(rootDir, "src/db/schema.ts")
+    await writeFile(schemaFile, "export const notes = true\n")
+
+    const invalidated: string[] = []
+    const plugin = hubDb()
+    const configResolved = plugin.configResolved as (config: unknown) => void
+    configResolved({ root: rootDir } as never)
+
+    const config = plugin.api.getConfig()!
+    config.rootDir = config.rootDir.replaceAll("/", "\\")
+    config.schemaPathsByDatabase.default = config.schemaPathsByDatabase.default.map(path => path.replaceAll("/", "\\"))
+
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: {
+        moduleGraph: {
+          getModuleById: (id: string) => { id: string } | undefined
+          invalidateModule: (module: { id: string }) => void
+        }
+      }
+    }) => void
+
+    handleHotUpdate({
+      file: schemaFile,
+      server: {
+        moduleGraph: {
+          getModuleById(id) {
+            if (id === `\0${DB_VIRTUAL_SCHEMA_ID}` || id === `\0${DB_VIRTUAL_DATABASES_ID}`) {
+              return { id }
+            }
+          },
+          invalidateModule(module) {
+            invalidated.push(module.id)
+          },
+        },
+      },
+    })
+
+    expect(invalidated).toEqual([`\0${DB_VIRTUAL_SCHEMA_ID}`, `\0${DB_VIRTUAL_DATABASES_ID}`])
+  })
 })

@@ -6,7 +6,7 @@ import { serializeSchemaObject } from "./internal/schema-serializer.ts"
 import { dbPackageName, generateProviderOutputs } from "./internal/vite-build.ts"
 
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
-import type { Plugin, ResolvedConfig } from "vite"
+import { normalizePath, type Plugin, type ResolvedConfig } from "vite"
 
 export const DB_VIRTUAL_SCHEMA_ID = "virtual:@vitehub/db/schema"
 export const DB_VIRTUAL_DATABASES_ID = "virtual:@vitehub/db/databases"
@@ -14,6 +14,7 @@ export const DB_VITE_PLUGIN_NAME = "@vitehub/db/vite"
 
 const RESOLVED_DB_VIRTUAL_SCHEMA_ID = `\0${DB_VIRTUAL_SCHEMA_ID}`
 const RESOLVED_DB_VIRTUAL_DATABASES_ID = `\0${DB_VIRTUAL_DATABASES_ID}`
+const normalizeVitePath = (path: string) => normalizePath(path.replaceAll("\\", "/"))
 
 export interface DBVitePluginAPI {
   getConfig: () => ResolvedDBViteConfig | undefined
@@ -97,9 +98,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         return
       }
 
-      const dbDir = `${runtimeConfig.rootDir}/src/db/`
-      const isSchemaUpdate = Object.values(runtimeConfig.schemaPathsByDatabase).some(paths => paths.includes(context.file))
-        || context.file.startsWith(dbDir)
+      const changedFile = normalizeVitePath(context.file)
+      const dbDir = normalizeVitePath(`${runtimeConfig.rootDir}/src/db/`)
+      const isSchemaUpdate = Object.values(runtimeConfig.schemaPathsByDatabase)
+        .some(paths => paths.some(path => normalizeVitePath(path) === changedFile))
+        || changedFile.startsWith(dbDir)
       if (!isSchemaUpdate) {
         return
       }
