@@ -1,0 +1,72 @@
+{
+  "label": "Workspace",
+  "docsPath": "workspace",
+  "icon": "i-lucide-folder-git-2",
+  "order": 4,
+  "defaultPhase": "define",
+  "providers": [
+    {
+      "id": "cloudflare-artifacts",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  workspace: {},"
+    },
+    {
+      "id": "vercel-runtime",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "darkInvert": true,
+      "configOverride": "  workspace: {},"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "workspaces/docs.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "workspaces/docs.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nitro": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "workspaces/docs.ts",
+            "run": "server/api/workspace.get.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "workspaces/docs.ts",
+            "run": "server/api/workspace.get.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}

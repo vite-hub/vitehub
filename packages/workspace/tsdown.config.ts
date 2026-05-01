@@ -1,0 +1,27 @@
+import { defineConfig } from "tsdown"
+
+export default defineConfig({
+  clean: true,
+  deps: {
+    alwaysBundle: [/^@vitehub\/internal/],
+    neverBundle: ["#vitehub-workspace-registry"],
+  },
+  dts: true,
+  entry: [
+    "src/index.ts",
+    "src/nitro.ts",
+    "src/runtime/empty-registry.ts",
+    "src/runtime/nitro-plugin.ts",
+    "src/runtime/state.ts",
+    "src/vite.ts",
+  ],
+  exports: {
+    inlinedDependencies: false,
+  },
+  format: ["esm"],
+  outExtensions: () => ({
+    dts: ".d.ts",
+    js: ".js",
+  }),
+  publint: true,
+})

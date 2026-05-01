@@ -17,7 +17,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Build vitehub packages
-        run: pnpm -r --filter '@vitehub/blob' --filter '@vitehub/db' --filter '@vitehub/kv' --filter '@vitehub/queue' --filter '@vitehub/sandbox' --filter '@vitehub/workflow' build
+        run: pnpm -r --filter '@vitehub/blob' --filter '@vitehub/db' --filter '@vitehub/kv' --filter '@vitehub/queue' --filter '@vitehub/sandbox' --filter '@vitehub/workflow' --filter '@vitehub/workspace' build
 
       - name: Upload package builds
         uses: actions/upload-artifact@v6
@@ -30,6 +30,7 @@ jobs:
             packages/queue/dist
             packages/sandbox/dist
             packages/workflow/dist
+            packages/workspace/dist
           retention-days: 1
           if-no-files-found: error
 
@@ -289,6 +290,9 @@ jobs:
       - name: Workflow Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
         timeout-minutes: 5
         run: node packages/workflow/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
+
+      - name: Workspace Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
+        run: pnpm --dir packages/workspace test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "${{ steps.url.outputs.url }}"
 
       - name: Blob Live E2E (vite × ${{ matrix.provider }})
         if: matrix.framework == 'vite'

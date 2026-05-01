@@ -30,8 +30,15 @@ dynamicallyLoaded = [
   "packages/sandbox/examples/**/server/**",
   "packages/sandbox/examples/**/src/server.ts",
   "packages/sandbox/examples/**/src/**/*.sandbox.ts",
+  "packages/workspace/test/e2e.ts",
+  "packages/workspace/test/**/*.test-d.ts",
+  "packages/workspace/examples/**/nitro.config.ts",
+  "packages/workspace/examples/**/server/**",
+  "packages/workspace/examples/**/src/server.ts",
+  "packages/workspace/examples/**/workspaces/**",
   "playground/nitro/nitro.config.ts",
   "playground/nitro/server/**",
+  "playground/nitro/workspaces/**",
   "playground/_shared/api/tests/**",
   "playground/vite/nitro.config.ts",
   "playground/vite/server/**",
@@ -39,8 +46,10 @@ dynamicallyLoaded = [
   "playground/vite/src/server.blob.ts",
   "playground/vite/src/server.db.ts",
   "playground/vite/src/server.e2e.ts",
+  "playground/vite/src/server-workspace.ts",
   "playground/vite/src/server-workflow.ts",
   "playground/vite/src/db/**",
+  "playground/vite/workspaces/**",
   "playground/vite/src/**/*.queue.ts",
   "playground/vite/src/**/*.workflow.ts",
 ]
@@ -56,6 +65,7 @@ ignoreDependencies = [
 
 publicPackages = [
   "@vitehub/sandbox",
+  "@vitehub/workspace",
 ]
 
 [[overrides]]

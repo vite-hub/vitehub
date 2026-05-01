@@ -8,11 +8,13 @@ export default defineNitroConfig({
     "@vitehub/queue/nitro",
     "@vitehub/kv/nitro",
     "@vitehub/sandbox/nitro",
+    "@vitehub/workspace/nitro",
     ...(workflowEnabled ? ["@vitehub/workflow/nitro"] : []),
   ],
   ignore: workflowEnabled ? [] : ["api/workflows/**", "workflows/**"],
   queue: {},
   sandbox: {},
   serverDir: "./server",
+  workspace: {},
   workflow: workflowEnabled ? {} : false,
 })

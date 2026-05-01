@@ -12,6 +12,7 @@
     "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
     "@vitehub/sandbox": "workspace:*",
+    "@vitehub/workspace": "workspace:*",
     "@vitehub/workflow": "workspace:*",
     "drizzle-orm": "catalog:",
     "h3": "catalog:",

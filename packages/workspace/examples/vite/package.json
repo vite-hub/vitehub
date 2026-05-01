@@ -1,0 +1,13 @@
+{
+  "name": "vitehub-workspace-vite-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@vitehub/workspace": "workspace:*",
+    "h3": "catalog:",
+    "vite": "catalog:"
+  }
+}
