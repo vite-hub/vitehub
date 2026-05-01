@@ -159,6 +159,15 @@ function isRemoteLibsqlConnectionUrl(url: string | undefined) {
   return typeof url === "string" && /^(?:libsql:|https?:\/\/)/i.test(url)
 }
 
+function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
+  return runtimeConfig.databaseNames.filter((name) => {
+    const database = runtimeConfig.databases[name]
+    const cloudflare = database?.cloudflare
+    const requiresD1Binding = Boolean(cloudflare?.databaseName || cloudflare?.previewDatabaseId)
+    return requiresD1Binding && !cloudflare?.databaseId && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
+  })
+}
+
 function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
@@ -174,6 +183,11 @@ interface ProviderWriteOptions {
 }
 
 async function writeCloudflareOutput({ artifacts, clientOutDir, rootDir, runtimeConfig }: ProviderWriteOptions) {
+  const unsupportedDatabases = getCloudflareUnsupportedDatabases(runtimeConfig)
+  if (unsupportedDatabases.length) {
+    throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseId\` or a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
+  }
+
   const clientDir = resolve(rootDir, clientOutDir)
   const outputRoot = resolve(rootDir, "dist", toSafeAppName(rootDir))
   const workerOutfile = resolve(outputRoot, "index.js")

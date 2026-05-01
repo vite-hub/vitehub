@@ -132,6 +132,7 @@ describe("Vite db provider outputs", () => {
         cwd: rootDir,
         env: {
           ...process.env,
+          TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
           VITEHUB_D1_DATABASE_ID: "primary-d1-id",
           VITEHUB_VITE_MODE: "db",
         },
@@ -143,5 +144,58 @@ describe("Vite db provider outputs", () => {
 
     expect(error).toBeTruthy()
     expect((error as { stderr?: string; message?: string } | undefined)?.stderr || (error as { message?: string } | undefined)?.message || String(error)).toContain("Vercel output requires a remote libSQL `db.connection.url` for databases: default")
+  }, 30_000)
+
+  it("fails the Cloudflare build when a hosted D1 database has no database ID or remote fallback URL", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-db-vite-cloudflare-missing-id-")
+    const viteConfigPath = join(rootDir, "vite.config.ts")
+    const viteConfig = await readFile(viteConfigPath, "utf8")
+    await writeFile(
+      viteConfigPath,
+      viteConfig.replaceAll(
+        [
+          "      cloudflare: {",
+          "        binding: \"DB_ANALYTICS\",",
+          "        databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,",
+          "        previewDatabaseId: process.env.VITEHUB_D1_ANALYTICS_PREVIEW_DATABASE_ID,",
+          "      },",
+        ].join("\n"),
+        [
+          "      cloudflare: {",
+          "        binding: \"DB_ANALYTICS\",",
+          "        previewDatabaseId: \"analytics-preview-id\",",
+          "      },",
+        ].join("\n"),
+      ).replaceAll(
+        [
+          "      connection: {",
+          "        authToken: process.env.TURSO_AUTH_TOKEN,",
+          "        url: process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL,",
+          "      },",
+        ].join("\n"),
+        "",
+      ),
+      "utf8",
+    )
+
+    let error: Error | undefined
+    try {
+      await execFileAsync("pnpm", ["exec", "vite", "build"], {
+        cwd: rootDir,
+        env: {
+          ...process.env,
+          TURSO_AUTH_TOKEN: "token",
+          TURSO_DATABASE_URL: "libsql://db.example.turso.io",
+          VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+          VITEHUB_VITE_MODE: "db",
+        },
+      })
+    }
+    catch (caught) {
+      error = caught as Error
+    }
+
+    expect(error).toBeTruthy()
+    expect((error as { stderr?: string; message?: string } | undefined)?.stderr || (error as { message?: string } | undefined)?.message || String(error)).toContain("Cloudflare output requires `db.cloudflare.databaseId` or a remote libSQL `db.connection.url` for databases: analytics")
   }, 30_000)
 })
