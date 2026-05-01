@@ -31,6 +31,9 @@ function toModuleSpecifier(file: string, importerFile?: string) {
   const useWindowsPaths = isWindowsAbsolutePath(file) || isWindowsAbsolutePath(importerFile)
   const baseDir = useWindowsPaths ? win32.dirname(importerFile) : dirname(importerFile)
   const relativePath = useWindowsPaths ? win32.relative(baseDir, file) : relative(baseDir, file)
+  if (useWindowsPaths && win32.isAbsolute(relativePath)) {
+    return toPortableFileUrl(file)
+  }
 
   return normalizeRelativeSpecifier(useWindowsPaths ? relativePath.split(win32.sep).join(posix.sep) : relativePath)
 }
