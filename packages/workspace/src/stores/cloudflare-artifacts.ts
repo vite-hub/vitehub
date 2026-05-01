@@ -1,7 +1,7 @@
 import { getActiveCloudflareBinding } from "@vitehub/internal/runtime/cloudflare-env"
 
 import { WorkspaceError } from "../errors.ts"
-import { contentToBytes, matchesAny, normalizeWorkspacePath, sha256 } from "../path.ts"
+import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../path.ts"
 import { MemoryFS } from "./memory-fs.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "./utils.ts"
 
@@ -53,20 +53,22 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   constructor(private options: CloudflareArtifactsWorkspaceStoreOptions, private workspaceName: string) {}
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
+    const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    const filepath = this.#absolute(path)
+    const filepath = this.#absolute(normalized)
     const content = await this.#fs!.promises.readFile(filepath).catch(() => undefined)
-    return content ? { path: normalizeWorkspacePath(path), content: content as Uint8Array } : undefined
+    return content ? { path: normalized, content: content as Uint8Array } : undefined
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
+    const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    await this.#fs!.promises.writeFile(this.#absolute(path), contentToBytes(file.content))
+    await this.#fs!.promises.writeFile(this.#absolute(normalized), contentToBytes(file.content))
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
+    const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true })
     await this.#ensure()
-    const normalizedPrefix = normalizeWorkspacePath(prefix)
     const entries: WorkspaceEntry[] = []
 
     for (const [absolute, entry] of this.#fs!.entries) {
@@ -96,13 +98,14 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async glob(pattern: string | string[], _options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
+    const patterns = Array.isArray(pattern) ? pattern.map(normalizeSafeWorkspacePattern) : normalizeSafeWorkspacePattern(pattern)
     const entries = await this.list("", { recursive: true })
-    return entries.filter(entry => entry.type === "file" && matchesAny(entry.path, pattern))
+    return entries.filter(entry => entry.type === "file" && matchesAny(entry.path, patterns))
   }
 
   async stat(path: string): Promise<WorkspaceStat | undefined> {
+    const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    const normalized = normalizeWorkspacePath(path)
     const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, mtimeMs?: number, size?: number } | undefined
     if (!stat) return undefined
     const bytes = stat.isFile() ? await this.#fs!.promises.readFile(this.#absolute(normalized)) as Uint8Array : undefined
@@ -116,13 +119,15 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
+    const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    await this.#fs!.promises.mkdir(this.#absolute(path), { recursive: options.recursive ?? true })
+    await this.#fs!.promises.mkdir(this.#absolute(normalized), { recursive: options.recursive ?? true })
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
+    const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    const removed = this.#fs!.deleteTree(this.#absolute(path))
+    const removed = this.#fs!.deleteTree(this.#absolute(normalized))
     if (!removed && !options.force) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
   }
 
@@ -174,20 +179,30 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async getMeta(key: string): Promise<unknown> {
-    const file = await this.readFile(`.vitehub/meta/${normalizeWorkspacePath(key.endsWith(".json") ? key : `${key}.json`)}`)
-    if (!file) return undefined
-    return JSON.parse(new TextDecoder().decode(contentToBytes(file.content)))
+    const path = this.#metaAbsolute(key)
+    await this.#ensure()
+    const content = await this.#fs!.promises.readFile(path).catch(() => undefined)
+    if (!content) return undefined
+    return JSON.parse(new TextDecoder().decode(contentToBytes(content as Uint8Array)))
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
-    await this.writeFile(`.vitehub/meta/${normalizeWorkspacePath(key.endsWith(".json") ? key : `${key}.json`)}`, {
-      content: JSON.stringify(value),
-      path: key,
-    })
+    const path = this.#metaAbsolute(key)
+    await this.#ensure()
+    await this.#fs!.promises.writeFile(path, contentToBytes(JSON.stringify(value)))
   }
 
   #absolute(path: string) {
+    return `${dir}/${path}`
+  }
+
+  #internalAbsolute(path: string) {
     return `${dir}/${normalizeWorkspacePath(path)}`
+  }
+
+  #metaAbsolute(key: string) {
+    const normalized = normalizeSafeWorkspacePath(key.endsWith(".json") ? key : `${key}.json`)
+    return this.#internalAbsolute(`.vitehub/meta/${normalized}`)
   }
 
   #getBinding(): ArtifactsBinding {

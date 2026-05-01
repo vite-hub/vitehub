@@ -405,6 +405,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   if (typeof options.workspace !== "undefined") {
     const workspaceRuntimeFile = resolve(generatedDir, "workspace-runtime.mjs")
+    alias["@vitehub/workspace/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
     alias["@vitehub/workspace"] = workspaceRuntimeFile
     alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
@@ -490,7 +491,8 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
     `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/runtime/state.ts")))}`,
-    `import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/runtime/state.ts")))}`,
+    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/runtime/state.ts")))}`,
+    `import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/cloudflare-artifacts.ts")))}`,
   ]
 
   if (artifacts.queueRegistryFile) {
@@ -540,6 +542,10 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     "setSandboxRuntimeConfig(sandboxConfig)",
     `setSandboxRuntimeRegistry(${artifacts.alias["virtual:vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",
+    "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+    "  if (store.provider !== 'cloudflare-artifacts') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
+    "  return createCloudflareArtifactsWorkspaceStore(store, workspaceName)",
+    "})",
     `setWorkspaceRuntimeRegistry(${artifacts.workspaceRegistryFile ? "workspaceRegistry" : "{ }"})`,
     "const defaultHandler = toWebHandler(new H3())",
     "const appHandler = resolveAppFetch('vitehub', app)",
@@ -599,7 +605,8 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, runWithWorkflowRuntimeEvent } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
     `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/runtime/state.ts")))}`,
-    `import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/runtime/state.ts")))}`,
+    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/runtime/state.ts")))}`,
+    `import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/vercel-blob.ts")))}`,
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
   ]
 
@@ -632,6 +639,10 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     "setSandboxRuntimeConfig(sandboxConfig)",
     `setSandboxRuntimeRegistry(${artifacts.alias["virtual:vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",
+    "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+    "  if (store.provider !== 'vercel-blob') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
+    "  return createVercelBlobWorkspaceStore(store, workspaceName)",
+    "})",
     `setWorkspaceRuntimeRegistry(${artifacts.workspaceRegistryFile ? "workspaceRegistry" : "{ }"})`,
     "const appInstance = new H3()",
     "const fetchHandler = resolveAppFetch('vitehub', app)",

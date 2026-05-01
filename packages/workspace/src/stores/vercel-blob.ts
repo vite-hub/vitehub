@@ -1,5 +1,5 @@
 import { WorkspaceError } from "../errors.ts"
-import { contentToBytes, matchesAny, normalizeWorkspacePath, sha256 } from "../path.ts"
+import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../path.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../config.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "./utils.ts"
 
@@ -54,8 +54,8 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     return joinBlobPath(this.#options.prefix || ".vitehub/workspaces", this.workspaceName)
   }
 
-  #fileKey(path: string) {
-    return joinBlobPath(this.#root, "files", normalizeWorkspacePath(path))
+  #fileKey(path: string, options: { allowEmpty?: boolean } = {}) {
+    return joinBlobPath(this.#root, "files", normalizeSafeWorkspacePath(path, { allowEmpty: options.allowEmpty }))
   }
 
   #access() {
@@ -63,7 +63,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   #metaKey(key: string) {
-    return joinBlobPath(this.#root, ".vitehub/meta", normalizeWorkspacePath(key.endsWith(".json") ? key : `${key}.json`))
+    return joinBlobPath(this.#root, ".vitehub/meta", normalizeSafeWorkspacePath(key.endsWith(".json") ? key : `${key}.json`))
   }
 
   #snapshotKey(id: string) {
@@ -71,8 +71,9 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
+    const normalized = normalizeSafeWorkspacePath(path)
     const { get, head } = await import("@vercel/blob")
-    const pathname = this.#fileKey(path)
+    const pathname = this.#fileKey(normalized)
     const current = await head(pathname, { token: this.#options.token }).catch(() => null) as BlobListItem | null
     if (!current?.url) return undefined
     const result = await get(current.url, {
@@ -81,28 +82,29 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     })
     if (!result || result.statusCode !== 200) return undefined
     const bytes = await new Response(result.stream).arrayBuffer()
-    return { path: normalizeWorkspacePath(path), content: new Uint8Array(bytes) }
+    return { path: normalized, content: new Uint8Array(bytes) }
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
+    const normalized = normalizeSafeWorkspacePath(path)
     const { put } = await import("@vercel/blob")
-    await put(this.#fileKey(path), new Blob([contentToBytes(file.content) as any]), {
+    await put(this.#fileKey(normalized), new Blob([contentToBytes(file.content) as any]), {
       access: this.#access(),
       addRandomSuffix: false,
       allowOverwrite: true,
-      contentType: contentType(path, file.mediaType),
+      contentType: contentType(normalized, file.mediaType),
       token: this.#options.token,
     })
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
-    const normalizedPrefix = normalizeWorkspacePath(prefix)
-    const filePrefix = this.#fileKey(normalizedPrefix)
-    const files = await this.#listBlobs(normalizedPrefix ? `${filePrefix}/` : `${this.#fileKey("")}/`)
+    const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true })
+    const filePrefix = this.#fileKey(normalizedPrefix, { allowEmpty: true })
+    const files = await this.#listBlobs(normalizedPrefix ? `${filePrefix}/` : `${this.#fileKey("", { allowEmpty: true })}/`)
     const entries = new Map<string, WorkspaceEntry>()
 
     for (const blob of files) {
-      const path = normalizeWorkspacePath(blob.pathname.slice(`${this.#fileKey("")}/`.length))
+      const path = normalizeWorkspacePath(blob.pathname.slice(`${this.#fileKey("", { allowEmpty: true })}/`.length))
       if (!path) continue
       if (normalizedPrefix && !path.startsWith(`${normalizedPrefix}/`)) continue
       if (!options.recursive && normalizedPrefix && path.slice(normalizedPrefix.length + 1).includes("/")) continue
@@ -133,12 +135,13 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async glob(pattern: string | string[], _options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
+    const patterns = Array.isArray(pattern) ? pattern.map(normalizeSafeWorkspacePattern) : normalizeSafeWorkspacePattern(pattern)
     const entries = await this.list("", { recursive: true })
-    return entries.filter(entry => entry.type === "file" && matchesAny(entry.path, pattern))
+    return entries.filter(entry => entry.type === "file" && matchesAny(entry.path, patterns))
   }
 
   async stat(path: string): Promise<WorkspaceStat | undefined> {
-    const normalized = normalizeWorkspacePath(path)
+    const normalized = normalizeSafeWorkspacePath(path)
     const file = await this.readFile(normalized)
     if (file) {
       const bytes = contentToBytes(file.content)
@@ -153,11 +156,13 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     return children.length ? { path: normalized, type: "directory" } : undefined
   }
 
-  async mkdir(_path: string, _options: MkdirOptions = {}): Promise<void> {}
+  async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
+    normalizeSafeWorkspacePath(path)
+  }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
+    const normalized = normalizeSafeWorkspacePath(path)
     const { del, head } = await import("@vercel/blob")
-    const normalized = normalizeWorkspacePath(path)
     const targets: string[] = []
     const current = await head(this.#fileKey(normalized), { token: this.#options.token }).catch(() => null) as BlobListItem | null
     if (current?.url) targets.push(current.url)

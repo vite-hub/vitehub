@@ -245,10 +245,13 @@ jobs:
           node <<'NODE'
           const { readFileSync } = require("node:fs")
           const bundle = readFileSync("playground/vite/dist/vite/index.js", "utf8")
-          if (/from\s+["']@vercel\/functions["']/.test(bundle) || /require\(["']@vercel\/functions["']\)/.test(bundle)) {
+          if (/from\s+["']@vercel\/functions["']/.test(bundle) || /require\(["']@vercel\/functions["']\)/.test(bundle) || /import\(["']@vercel\/functions["']\)/.test(bundle)) {
             throw new Error("Cloudflare Vite bundle must not include @vercel/functions imports.")
           }
-          if (/from\s+["']@cloudflare\/sandbox["']/.test(bundle) || /require\(["']@cloudflare\/sandbox["']\)/.test(bundle)) {
+          if (/from\s+["']@vercel\/blob["']/.test(bundle) || /require\(["']@vercel\/blob["']\)/.test(bundle) || /import\(["']@vercel\/blob["']\)/.test(bundle)) {
+            throw new Error("Cloudflare Vite bundle must not include @vercel/blob imports.")
+          }
+          if (/from\s+["']@cloudflare\/sandbox["']/.test(bundle) || /require\(["']@cloudflare\/sandbox["']\)/.test(bundle) || /import\(["']@cloudflare\/sandbox["']\)/.test(bundle)) {
             throw new Error("Cloudflare Vite bundle must not include bare @cloudflare/sandbox imports.")
           }
           const wrangler = JSON.parse(readFileSync("playground/vite/dist/vite/wrangler.json", "utf8"))
@@ -259,6 +262,13 @@ jobs:
             throw new Error("Expected Vite Cloudflare wrangler.json to include Workspace Artifacts binding.")
           }
           NODE
+
+      - name: Dry-run Vite Cloudflare deploy
+        if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --dry-run
 
       - name: Build Vite E2E (vercel)
         if: matrix.framework == 'vite' && matrix.provider == 'vercel'
@@ -275,6 +285,17 @@ jobs:
           VITEHUB_VITE_MODE: e2e
           VITEHUB_WORKSPACE_BLOB_PREFIX: vitehub/workspace-e2e/${{ matrix.framework }}
         run: pnpm --dir playground/vite build
+
+      - name: Assert Vite Vercel artifact purity
+        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
+        run: |
+          node <<'NODE'
+          const { readFileSync } = require("node:fs")
+          const bundle = readFileSync("playground/vite/.vercel/output/functions/__server.func/index.mjs", "utf8")
+          if (/cloudflare-artifacts|isomorphic-git/.test(bundle)) {
+            throw new Error("Vercel Vite bundle must not include Cloudflare Artifacts or isomorphic-git.")
+          }
+          NODE
 
       - name: Deploy Cloudflare
         id: deploy_cloudflare

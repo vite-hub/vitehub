@@ -1,5 +1,6 @@
 import { WorkspaceError } from "./errors.ts"
 import { createWorkspaceStore, syncWorkspaceDefinition } from "./lifecycle.ts"
+import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   ReadFileOptions,
   Workspace,
@@ -8,18 +9,10 @@ import type {
   WorkspaceMount,
   WorkspaceMountOptions,
   WorkspaceSession,
-  WorkspaceStore,
 } from "./types.ts"
 
-const storeByDefinition = new WeakMap<WorkspaceDefinition, WorkspaceStore>()
-
 function getStore(definition: WorkspaceDefinition) {
-  let store = storeByDefinition.get(definition)
-  if (!store) {
-    store = createWorkspaceStore(definition)
-    storeByDefinition.set(definition, store)
-  }
-  return store
+  return getCachedWorkspaceStore(definition, () => createWorkspaceStore(definition))
 }
 
 function decodeFile(content: WorkspaceContent, options?: ReadFileOptions) {

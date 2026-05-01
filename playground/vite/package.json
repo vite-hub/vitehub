@@ -6,6 +6,8 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@cloudflare/sandbox": "catalog:",
+    "@vercel/sandbox": "catalog:",
     "@vitehub/db": "workspace:*",
     "@vitehub/blob": "workspace:*",
     "@vitehub/internal": "workspace:*",

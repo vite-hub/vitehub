@@ -13,6 +13,8 @@ export default defineConfig({
     "src/runtime/empty-registry.ts",
     "src/runtime/nitro-plugin.ts",
     "src/runtime/state.ts",
+    "src/stores/cloudflare-artifacts.ts",
+    "src/stores/vercel-blob.ts",
     "src/vite.ts",
   ],
   exports: {

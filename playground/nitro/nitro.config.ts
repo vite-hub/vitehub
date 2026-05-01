@@ -1,6 +1,13 @@
+import { createRequire } from "node:module"
+
 import { defineNitroConfig } from "nitro/config"
 
+const require = createRequire(import.meta.url)
+
 export default defineNitroConfig({
+  alias: {
+    "async-retry": require.resolve("async-retry"),
+  },
   modules: [
     "@vitehub/queue/nitro",
     "@vitehub/kv/nitro",

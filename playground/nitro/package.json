@@ -7,12 +7,16 @@
     "dev": "nitro dev"
   },
   "dependencies": {
+    "@cloudflare/sandbox": "catalog:",
+    "@vercel/blob": "catalog:",
+    "@vercel/sandbox": "catalog:",
     "@vitehub/blob": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
     "@vitehub/sandbox": "workspace:*",
-    "@vitehub/workspace": "workspace:*",
     "@vitehub/workflow": "workspace:*",
+    "@vitehub/workspace": "workspace:*",
+    "async-retry": "catalog:",
     "h3": "catalog:",
     "nitro": "catalog:",
     "valibot": "catalog:"

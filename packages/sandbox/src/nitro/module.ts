@@ -62,9 +62,9 @@ const sandboxNitroModule: NitroModule = {
       runtimeFiles = await writeNitroSandboxRuntimeFiles(nitro)
     })
 
-    if (provider?.provider === 'vercel' && !hasInstalledDependency(deps, '@vercel/sandbox'))
+    if (provider?.provider === 'vercel' && !hasInstalledDependency(deps, '@vercel/sandbox', { paths: [nitro.options.rootDir] }))
       nitro.logger.warn('Install `@vercel/sandbox` for Vercel sandbox presets.')
-    if (provider?.provider === 'cloudflare' && !hasInstalledDependency(deps, '@cloudflare/sandbox'))
+    if (provider?.provider === 'cloudflare' && !hasInstalledDependency(deps, '@cloudflare/sandbox', { paths: [nitro.options.rootDir] }))
       nitro.logger.warn('Install `@cloudflare/sandbox` for Cloudflare sandbox presets.')
 
     nitro.logger.info(`@vitehub/sandbox enabled with ${runtimeFiles.definitions.length} sandbox definition${runtimeFiles.definitions.length === 1 ? '' : 's'}`)

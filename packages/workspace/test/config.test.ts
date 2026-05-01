@@ -39,6 +39,23 @@ describe("workspace config", () => {
     })
   })
 
+  it("masks explicit Vercel Blob tokens in resolved config", () => {
+    const config = normalizeWorkspaceOptions({
+      store: {
+        provider: "vercel-blob",
+        token: "secret-token",
+      },
+    }, {
+      rootDir: "/repo",
+    })
+
+    expect(JSON.stringify(config)).not.toContain("secret-token")
+    expect(config && config.store).toMatchObject({
+      provider: "vercel-blob",
+      token: "********",
+    })
+  })
+
   it("rehydrates masked Vercel Blob tokens at runtime", () => {
     expect(resolveRuntimeVercelBlobWorkspaceStore({
       provider: "vercel-blob",

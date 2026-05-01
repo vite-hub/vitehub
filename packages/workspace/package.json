@@ -34,6 +34,8 @@
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/state": "./dist/runtime/state.js",
+    "./stores/cloudflare-artifacts": "./dist/stores/cloudflare-artifacts.js",
+    "./stores/vercel-blob": "./dist/stores/vercel-blob.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },

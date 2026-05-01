@@ -1,8 +1,8 @@
-import { H3, readValidatedBody } from "h3"
+import { H3, getQuery, readValidatedBody } from "h3"
 import * as v from "valibot"
 
 import { useWorkspace } from "@vitehub/workspace"
-import { getWorkspaceRuntimeConfig } from "@vitehub/workspace/runtime/state"
+import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vitehub/workspace/runtime/state"
 
 const app = new H3()
 const writeBody = v.optional(v.object({
@@ -43,6 +43,20 @@ app.post("/api/workspace/write", async (event) => {
     snapshot,
     committedSnapshot,
     diff,
+    readBack: await workspace.readFile(path),
+  }
+})
+
+app.get("/api/workspace/read-fresh", async (event) => {
+  const query = getQuery(event)
+  const path = typeof query.path === "string" ? query.path : "generated/notes.md"
+  resetWorkspaceStoreCache()
+  const workspace = await useWorkspace("docs")
+  const runtimeConfig = getWorkspaceRuntimeConfig()
+  return {
+    ok: true,
+    provider: runtimeConfig ? runtimeConfig.store.provider : "local",
+    path,
     readBack: await workspace.readFile(path),
   }
 })

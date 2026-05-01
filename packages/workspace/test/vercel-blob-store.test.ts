@@ -95,4 +95,18 @@ describe("Vercel Blob workspace store", () => {
     await store.rm("docs/readme.md")
     expect(await store.stat("docs/readme.md")).toBeUndefined()
   })
+
+  it("rejects traversal and reserved public paths", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/stores/vercel-blob.ts")
+    const store = createVercelBlobWorkspaceStore({
+      prefix: "workspace/e2e",
+      provider: "vercel-blob",
+      token: "********",
+    }, "docs")
+
+    await expect(store.writeFile("../x", { path: "../x", content: "x" })).rejects.toThrow("Workspace path escapes")
+    await expect(store.readFile(".vitehub/snapshots/x.json")).rejects.toThrow("Workspace path escapes")
+    await expect(store.stat(".git/config")).rejects.toThrow("Workspace path escapes")
+  })
 })

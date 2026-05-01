@@ -69,4 +69,28 @@ describe("Cloudflare Artifacts workspace store", () => {
       expect.objectContaining({ path: "README.md", type: "modified" }),
     ])
   })
+
+  it("rejects traversal and reserved public paths", async () => {
+    const repo = {
+      createToken: vi.fn(async () => ({ plaintext: "art_v1_secret?expires=999" })),
+      name: "vitehub-workspace-docs",
+      remote: "https://account.artifacts.cloudflare.net/git/vitehub/vitehub-workspace-docs.git",
+    }
+    setActiveCloudflareEnv({
+      WORKSPACE_ARTIFACTS: {
+        create: vi.fn(async () => repo),
+        get: vi.fn(async () => repo),
+      },
+    })
+    const { createCloudflareArtifactsWorkspaceStore } = await import("../src/stores/cloudflare-artifacts.ts")
+    const store = createCloudflareArtifactsWorkspaceStore({
+      binding: "WORKSPACE_ARTIFACTS",
+      namespace: "vitehub",
+      provider: "cloudflare-artifacts",
+    }, "docs")
+
+    await expect(store.writeFile("../x", { path: "../x", content: "x" })).rejects.toThrow("Workspace path escapes")
+    await expect(store.writeFile(".git/config", { path: ".git/config", content: "x" })).rejects.toThrow("Workspace path escapes")
+    await expect(store.readFile(".vitehub/meta/loader.json")).rejects.toThrow("Workspace path escapes")
+  })
 })

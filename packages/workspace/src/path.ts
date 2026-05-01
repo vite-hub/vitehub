@@ -7,6 +7,28 @@ export function normalizeWorkspacePath(path = ""): string {
   return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
 }
 
+export interface SafeWorkspacePathOptions {
+  allowEmpty?: boolean
+  allowReserved?: boolean
+  pattern?: boolean
+}
+
+export function normalizeSafeWorkspacePath(path = "", options: SafeWorkspacePathOptions = {}): string {
+  const raw = path.replace(/\\/g, "/")
+  const normalized = normalizeWorkspacePath(path)
+  const parts = normalized.split("/").filter(Boolean)
+
+  if (!options.allowEmpty && !normalized) throw new WorkspacePathError(path)
+  if (raw.startsWith("/") || parts.some(part => part === "." || part === "..")) throw new WorkspacePathError(path)
+  if (!options.allowReserved && (parts[0] === ".git" || parts[0] === ".vitehub")) throw new WorkspacePathError(path)
+
+  return normalized
+}
+
+export function normalizeSafeWorkspacePattern(pattern: string): string {
+  return normalizeSafeWorkspacePath(pattern, { allowEmpty: true, pattern: true })
+}
+
 export function resolveInside(root: string, path = ""): string {
   const resolvedRoot = resolve(root)
   const resolved = resolve(resolvedRoot, normalizeWorkspacePath(path))

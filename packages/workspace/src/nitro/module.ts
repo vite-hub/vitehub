@@ -3,6 +3,7 @@ import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { createImportPath } from "@vitehub/internal/build/paths"
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { normalizeWorkspaceOptions } from "../config.ts"
@@ -37,6 +38,10 @@ function resolveIsomorphicGitHttpWebEsmEntry() {
 
 function registryPath(nitro: Nitro) {
   return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/workspace/registry.mjs")
+}
+
+function pluginPath(nitro: Nitro) {
+  return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/workspace/plugin.mjs")
 }
 
 function workspaceNitroConfigTypes() {
@@ -98,6 +103,58 @@ async function writeRegistry(nitro: Nitro) {
   return { path, definitions }
 }
 
+function createNitroPluginContents(file: string, registryFile: string, options: false | ResolvedWorkspaceModuleOptions): string {
+  const provider = options && options.store.provider
+  const imports = [
+    `import { definePlugin as defineNitroPlugin } from "nitro"`,
+    `import { useRuntimeConfig } from "nitro/runtime-config"`,
+    `import workspaceRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/runtime/state")))}`,
+  ]
+
+  if (provider === "cloudflare-artifacts") {
+    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/cloudflare-artifacts", "@vitehub/workspace/stores/cloudflare-artifacts")))}`)
+  }
+  else if (provider === "vercel-blob") {
+    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/vercel-blob", "@vitehub/workspace/stores/vercel-blob")))}`)
+  }
+
+  const loader = provider === "cloudflare-artifacts"
+    ? [
+        "  setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+        "    if (store.provider !== 'cloudflare-artifacts') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
+        "    return createCloudflareArtifactsWorkspaceStore(store, workspaceName)",
+        "  })",
+      ]
+    : provider === "vercel-blob"
+      ? [
+          "  setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+          "    if (store.provider !== 'vercel-blob') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
+          "    return createVercelBlobWorkspaceStore(store, workspaceName)",
+          "  })",
+        ]
+      : ["  setWorkspaceHostedStoreLoader(undefined)"]
+
+  return [
+    ...imports,
+    "",
+    "export default defineNitroPlugin(() => {",
+    "  const runtimeConfig = useRuntimeConfig()",
+    "  setWorkspaceRuntimeConfig(runtimeConfig.workspace || false)",
+    ...loader,
+    "  setWorkspaceRuntimeRegistry(workspaceRegistry)",
+    "})",
+    "",
+  ].join("\n")
+}
+
+async function writePlugin(nitro: Nitro, registryFile: string, options: false | ResolvedWorkspaceModuleOptions) {
+  const path = pluginPath(nitro)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, createNitroPluginContents(path, registryFile, options), "utf8")
+  return path
+}
+
 function shouldSyncWorkspace(syncOnBuild: boolean | string[] | undefined, name: string) {
   return syncOnBuild === true || (Array.isArray(syncOnBuild) && syncOnBuild.includes(name))
 }
@@ -137,7 +194,6 @@ const workspaceNitroModule: NitroModule = {
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/workspace"] = resolveRuntimeEntry("../index", "@vitehub/workspace")
     nitro.options.alias["@vitehub/workspace/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/runtime/state")
-    nitro.options.alias["@vitehub/workspace/runtime/nitro-plugin"] = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/workspace/runtime/nitro-plugin")
     nitro.options.alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     nitro.options.alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
     for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
@@ -145,6 +201,7 @@ const workspaceNitroModule: NitroModule = {
     }
 
     const registry = await writeRegistry(nitro)
+    const plugin = await writePlugin(nitro, registry.path, resolved)
     nitro.options.alias["#vitehub-workspace-registry"] = registry.path
     installNitroConfigTypes(nitro)
 
@@ -154,7 +211,6 @@ const workspaceNitroModule: NitroModule = {
     }
 
     nitro.options.plugins ||= []
-    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/workspace/runtime/nitro-plugin")
     if (!nitro.options.plugins.includes(plugin)) nitro.options.plugins.push(plugin)
 
     if (nitro.options.preset?.includes("cloudflare")) {
@@ -163,6 +219,7 @@ const workspaceNitroModule: NitroModule = {
 
     nitro.hooks.hook("build:before", async () => {
       const next = await writeRegistry(nitro)
+      await writePlugin(nitro, next.path, resolved)
       nitro.options.alias ||= {}
       nitro.options.alias["#vitehub-workspace-registry"] = next.path
       await syncBuildWorkspaces(nitro, resolved)

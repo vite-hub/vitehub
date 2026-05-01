@@ -32,6 +32,8 @@ dynamicallyLoaded = [
   "packages/sandbox/examples/**/src/**/*.sandbox.ts",
   "packages/workspace/test/e2e.ts",
   "packages/workspace/test/**/*.test-d.ts",
+  "packages/workspace/src/stores/cloudflare-artifacts.ts",
+  "packages/workspace/src/stores/vercel-blob.ts",
   "packages/workspace/examples/**/nitro.config.ts",
   "packages/workspace/examples/**/server/**",
   "packages/workspace/examples/**/src/server.ts",
@@ -57,7 +59,9 @@ dynamicallyLoaded = [
 ignoreDependencies = [
   "docus",
   "@cloudflare/sandbox",
+  "@vercel/blob",
   "@vercel/sandbox",
+  "async-retry",
   "esbuild",
   "exsolve",
   "publint",
@@ -77,4 +81,8 @@ files = [
   "packages/sandbox/src/internal/shared/errors.ts",
   "packages/sandbox/src/sandbox/adapters/*.ts",
 ]
+rules = { "unused-class-members" = "off" }
+
+[[overrides]]
+files = ["packages/workspace/src/stores/memory-fs.ts"]
 rules = { "unused-class-members" = "off" }

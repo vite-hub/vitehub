@@ -61,7 +61,7 @@ export function resolveVercelBlobWorkspaceStore(
     access: config.access ?? "private",
     prefix: trimmed(config.prefix) ?? readEnv(env, "WORKSPACE_BLOB_PREFIX", "VITEHUB_WORKSPACE_BLOB_PREFIX") ?? ".vitehub/workspaces",
     provider: "vercel-blob",
-    token: trimmed(config.token) ?? MASKED_WORKSPACE_RUNTIME_VALUE,
+    token: MASKED_WORKSPACE_RUNTIME_VALUE,
   }
 }
 
@@ -116,9 +116,7 @@ export function resolveRuntimeVercelBlobWorkspaceStore(
   config: VercelBlobWorkspaceStoreOptions,
   env: Record<string, string | undefined>,
 ): VercelBlobWorkspaceStoreOptions {
-  const token = isMaskedWorkspaceRuntimeValue(config.token)
-    ? readEnv(env, "BLOB_READ_WRITE_TOKEN") || config.token
-    : config.token
+  const token = readEnv(env, "BLOB_READ_WRITE_TOKEN")
 
   if (isMaskedWorkspaceRuntimeValue(token)) {
     throw new Error("Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for Vercel workspace Blob storage.")

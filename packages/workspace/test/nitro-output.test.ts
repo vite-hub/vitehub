@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { readFile, rm } from "node:fs/promises"
+import { readdir, readFile, rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
@@ -49,6 +49,19 @@ async function assertNoNitroInternalVirtualImports(outputDir: string) {
   }
 }
 
+async function readGeneratedJavaScript(outputDir: string): Promise<string> {
+  const chunks: string[] = []
+  async function walk(dir: string) {
+    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (entry.name.endsWith(".js") || entry.name.endsWith(".mjs")) chunks.push(await readFile(path, "utf8"))
+    }
+  }
+  await walk(outputDir)
+  return chunks.join("\n")
+}
+
 beforeAll(async () => {
   await cleanupPlayground()
   for (const name of playgroundNitroPackages) {
@@ -79,6 +92,7 @@ describe("Nitro workspace outputs", () => {
       expect.objectContaining({ binding: "WORKSPACE_ARTIFACTS", namespace: "vitehub" }),
     ])
     await assertNoNitroInternalVirtualImports(cloudflareBuild.outputDir)
+    await expect(readGeneratedJavaScript(cloudflareBuild.outputDir)).resolves.not.toMatch(/(?:from|import\(|require\()\s*["']@vercel\/blob["']/)
 
     await cleanupPlayground()
 
@@ -86,5 +100,9 @@ describe("Nitro workspace outputs", () => {
     const vercelNitroJson = JSON.parse(await readFile(join(vercelBuild.outputDir, "nitro.json"), "utf8"))
     expect(existsSync(join(vercelBuild.outputDir, vercelNitroJson.serverEntry))).toBe(true)
     await assertNoNitroInternalVirtualImports(vercelBuild.outputDir)
-  }, 45_000)
+    const vercelOutput = await readGeneratedJavaScript(vercelBuild.outputDir)
+    expect(vercelOutput).not.toContain("createCloudflareArtifactsWorkspaceStore")
+    expect(vercelOutput).not.toContain("Cloudflare Artifacts binding")
+    expect(vercelOutput).not.toContain("isomorphic-git")
+  }, 90_000)
 })
