@@ -1,4 +1,3 @@
-import { createHash, randomUUID } from 'node:crypto'
 import { loadSandboxRuntimeProvider } from 'virtual:vitehub-sandbox-provider-loader'
 
 import { getCloudflareEnv } from '../internal/shared/provider-detection'
@@ -24,10 +23,7 @@ export function createCloudflareExecutionSandboxId(name: string, sandboxId?: str
   if (sandboxId)
     return sandboxId
 
-  const hash = createHash('sha256')
-    .update(`${name}:${randomUUID()}`)
-    .digest('hex')
-    .slice(0, 24)
+  const hash = globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 24)
 
   return `vitehub-${name.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}-${hash}`
 }

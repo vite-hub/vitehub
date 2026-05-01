@@ -5,7 +5,7 @@ import {
   matchesFwVariant,
   type UsageMode,
 } from "./fw-variants";
-import { frameworkPattern, type Framework } from "./frameworks";
+import type { Framework } from "./frameworks";
 
 type NodeProps = Record<string, unknown>;
 type ContentNode = string | [string, NodeProps?, ...ContentNode[]];
@@ -158,11 +158,6 @@ function buildTocTree(headings: TocLink[]) {
 }
 
 // --- Public API ---
-
-function getFrameworkFromContentPath(path: string): Framework | null {
-  const match = path.match(new RegExp(`^/docs/(${frameworkPattern})(?:/|$)`));
-  return (match?.[1] as Framework | undefined) || null;
-}
 
 export function normalizeFrameworkPage<T extends NormalizablePage>(page: T | null, options?: DocsRenderOptions): T | null {
   if (!page || !options || !page.body || !Array.isArray(page.body.value)) return page;

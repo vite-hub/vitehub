@@ -2,7 +2,6 @@ import type {
   SandboxDetectionResult,
   SandboxProvider,
 } from '../types'
-import { canResolveModule } from '../../internal/shared/module-resolve'
 import { createProviderDetector, isCloudflare, isVercel } from '../../internal/shared/provider-detection'
 
 export interface ResolvedVercelSandboxCredentials {
@@ -26,11 +25,34 @@ export function detectSandbox(): SandboxDetectionResult {
   return { type }
 }
 
+function canResolvePackageSync(specifier: string): boolean {
+  const runtimeRequire = (globalThis as { require?: { resolve?: (id: string) => string } }).require
+  if (typeof runtimeRequire?.resolve === 'function') {
+    try {
+      runtimeRequire.resolve(specifier)
+      return true
+    }
+    catch {}
+
+    return false
+  }
+
+  const metaResolve = (import.meta as ImportMeta & { resolve?: (id: string) => string }).resolve
+  if (typeof metaResolve === 'function') {
+    try {
+      return typeof metaResolve(specifier) === 'string'
+    }
+    catch {}
+  }
+
+  return false
+}
+
 export function isSandboxAvailable(provider?: SandboxProvider): boolean {
   if (provider === 'vercel')
-    return canResolveModule('@vercel/sandbox')
+    return canResolvePackageSync('@vercel/sandbox')
   if (provider === 'cloudflare')
-    return canResolveModule('@cloudflare/sandbox')
+    return canResolvePackageSync('@cloudflare/sandbox')
 
   const detected = detectSandbox()
   if (detected.type === 'cloudflare' || detected.type === 'vercel')

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, posix as pathPosix, relative, resolve } from "node:path";
+import { posix as pathPosix, relative, resolve } from "node:path";
 import { listFiles, parseScalar, titleCase } from "./artifacts/common";
 import { parsePackageExamples } from "./artifacts/examples";
 import { usageModes } from "./runtime/utils/fw-variants";

@@ -14,7 +14,11 @@ const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
+  const workspacePackagesDir = resolve(playgroundDir, "../../packages")
   await mkdir(baseDir, { recursive: true })
+  if (!existsSync(join(baseDir, "packages"))) {
+    await symlink(workspacePackagesDir, join(baseDir, "packages"), "dir")
+  }
   const rootDir = await mkdtemp(join(baseDir, prefix))
   tempDirs.push(rootDir)
   return rootDir
@@ -27,6 +31,7 @@ async function createPlaygroundCopy(prefix: string) {
 
   await mkdir(rootDir, { recursive: true })
   await cp(resolve(playgroundDir, "../_shared"), join(workspaceDir, "_shared"), { recursive: true })
+  await cp(join(playgroundDir, "build"), join(rootDir, "build"), { recursive: true })
   await cp(join(playgroundDir, "package.json"), join(rootDir, "package.json"))
   await cp(join(playgroundDir, "vite.config.ts"), join(rootDir, "vite.config.ts"))
   await cp(join(playgroundDir, "nitro.config.ts"), join(rootDir, "nitro.config.ts"))
@@ -69,6 +74,7 @@ describe("Vite workflow provider outputs", () => {
     const cloudflareWorkerContents = await readFile(cloudflareWorker, "utf8")
     expect(cloudflareWorkerContents).toContain("waitUntil as viteHubWaitUntil")
     expect(cloudflareWorkerContents).toContain(`export class ${className} extends WorkflowEntrypoint`)
+    expect(cloudflareWorkerContents).toContain('runViteHubWorkflowDefinition("welcome"')
     expect(await readFile(cloudflareWorkerBundle, "utf8")).toContain("runViteHubWorkflowDefinition")
     expect(await readFile(vercelConfig, "utf8")).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
@@ -94,12 +100,13 @@ describe("Vite workflow provider outputs", () => {
     })
     expect(serverEntryContents).toContain("globalThis.__vitehubRunNitroWorkflowDefinition")
     expect(serverEntryContents).toContain(`export class ${className} extends ViteHubWorkflowEntrypoint`)
+    expect(serverEntryContents).toContain('__vitehubRunNitroWorkflowDefinition("welcome"')
   }, 30_000)
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
     const viteConfig = join(rootDir, "vite.config.ts")
-    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replace("workflow: {},", "workflow: { provider: \"vercel\" },"))
+    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
 
     await execFileAsync("pnpm", ["exec", "vite", "build"], {
       cwd: rootDir,

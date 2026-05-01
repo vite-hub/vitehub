@@ -40,6 +40,7 @@ export type CloudflareSandboxEntrypointOptions = {
   binding?: string
   className?: string
   migrationTag?: string
+  name?: string
 }
 
 function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEntrypointOptions = {}) {
@@ -47,11 +48,12 @@ function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEnt
     binding: options.binding || defaultCloudflareSandboxBinding,
     className: options.className || defaultCloudflareSandboxClassName,
     migrationTag: options.migrationTag || defaultCloudflareSandboxMigrationTag,
+    name: options.name || undefined,
   }
 }
 
 export function configureCloudflareSandbox(target: MutableCloudflareTarget, options: CloudflareSandboxEntrypointOptions = {}) {
-  const { binding, className, migrationTag } = resolveCloudflareSandboxEntrypointOptions(options)
+  const { binding, className, migrationTag, name } = resolveCloudflareSandboxEntrypointOptions(options)
 
   target.cloudflare ||= {}
   target.cloudflare.wrangler ||= {}
@@ -68,6 +70,7 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
       image,
       instance_type: 'lite',
       max_instances: defaultCloudflareSandboxMaxInstances,
+      ...(name ? { name } : {}),
     })
   }
   else {
@@ -80,6 +83,9 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
 
       if (typeof container.max_instances !== 'number' || container.max_instances < defaultCloudflareSandboxMaxInstances)
         container.max_instances = defaultCloudflareSandboxMaxInstances
+
+      if (name && typeof container.name !== 'string')
+        container.name = name
     }
   }
 

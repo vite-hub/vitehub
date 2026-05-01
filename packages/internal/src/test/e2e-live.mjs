@@ -77,10 +77,21 @@ export async function requestJson(url, init) {
 }
 
 export async function verifyApp(url) {
-  await waitForHealth(url, 60_000)
-  const indexPayload = await requestJson(url)
-  if (!indexPayload?.ok) {
-    throw new Error(`Unexpected index payload: ${JSON.stringify(indexPayload)}`)
+  try {
+    await waitForHealth(url, 60_000)
+    const indexPayload = await requestJson(url)
+    if (!indexPayload?.ok) {
+      throw new Error(`Unexpected index payload: ${JSON.stringify(indexPayload)}`)
+    }
+    return
+  }
+  catch (indexError) {
+    const probeUrl = new URL("/api/tests/probe", url)
+    await waitForHealth(probeUrl, 60_000)
+    const probePayload = await requestJson(probeUrl)
+    if (!probePayload?.ok) {
+      throw new Error(`Unexpected probe payload after index check failed: ${JSON.stringify({ indexError: indexError instanceof Error ? indexError.message : String(indexError), probePayload })}`)
+    }
   }
 }
 

@@ -18,8 +18,15 @@ const mountedDrivers: {
 let storage = createStorage({ driver: memoryDriver() })
 let cloudflareDriver: Driver | undefined
 let fsLiteDriver: Driver | undefined
+let shouldThrowUseStorage = false
 
-const mockedUseStorage = (base = "") => (base ? prefixStorage(storage, base) : storage)
+const mockedUseStorage = (base = "") => {
+  if (shouldThrowUseStorage) {
+    throw new Error("nitro/storage is unavailable")
+  }
+
+  return base ? prefixStorage(storage, base) : storage
+}
 
 function resetStorage() {
   storage = createStorage({ driver: memoryDriver() })
@@ -101,6 +108,7 @@ describe("kv runtime", () => {
   beforeEach(async () => {
     vi.resetModules()
     resetStorage()
+    shouldThrowUseStorage = false
     runtimeState.config = {
       kv: false,
     }
@@ -190,6 +198,21 @@ describe("kv runtime", () => {
       driver: "upstash",
       token: "legacy-upstash-token",
       url: "https://legacy-upstash.example.com",
+    })
+  })
+
+  it("falls back to env config when the hosted virtual module cannot load", async () => {
+    shouldThrowUseStorage = true
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+
+    const { kv } = await import("../src/runtime/storage.ts")
+    await kv.has("notes/hello")
+
+    expect(mountedDrivers.upstash).toMatchObject({
+      driver: "upstash",
+      token: "upstash-token",
+      url: "https://upstash.example.com",
     })
   })
 

@@ -39,6 +39,7 @@ export interface WranglerContainer {
   image?: string
   instance_type?: string
   max_instances?: number
+  name?: string
 }
 
 export interface WranglerWorkerLoader {

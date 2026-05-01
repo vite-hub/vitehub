@@ -1,0 +1,304 @@
+import { H3, createError, getQuery, getRequestURL, readBody, readValidatedBody } from "h3"
+import { desc, sql } from "drizzle-orm"
+import * as v from "valibot"
+
+import { blob } from "@vitehub/blob"
+import { databases, db, schema } from "@vitehub/db/drizzle"
+import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import { kv } from "@vitehub/kv"
+import { deferQueue, runQueue } from "@vitehub/queue"
+import { runSandbox } from "@vitehub/sandbox"
+import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vitehub/workflow"
+import { resolveTrustedMarkerCallbackUrl } from "../../_shared/queue-test"
+
+const app = new H3()
+const queueName = "welcome-email"
+const workflowName = "welcome"
+
+const blobDeleteBody = v.object({
+  pathname: v.string(),
+})
+const blobPutBody = v.optional(v.object({
+  pathname: v.optional(v.string()),
+  value: v.optional(v.string()),
+}), {})
+const markerBody = v.object({
+  marker: v.string(),
+})
+const noteBody = v.object({
+  title: v.string(),
+})
+const analyticsEventBody = v.object({
+  name: v.string(),
+})
+const queueBody = v.optional(v.object({
+  callbackUrl: v.optional(v.string()),
+  email: v.optional(v.string()),
+  marker: v.optional(v.string()),
+}), {})
+const workflowBody = v.optional(v.object({
+  email: v.optional(v.string()),
+  id: v.optional(v.string()),
+  marker: v.optional(v.string()),
+}), {})
+
+function resolveMarker<T extends { marker?: string }>(body: T | undefined, event: Parameters<typeof readValidatedBody>[0]) {
+  return typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
+}
+
+function resolveWorkflowId(body: { id?: string, marker?: string } | undefined, marker: string | undefined) {
+  return body?.id || marker
+}
+
+function resolveKVProvider(event: unknown) {
+  return getCloudflareEnv(event) ? "cloudflare-kv-binding" : "upstash"
+}
+
+function resolveSandboxHosting(event: { req: { runtime?: { name?: string }, waitUntil?: unknown } }) {
+  const hasWaitUntil = typeof event.req.waitUntil === "function"
+  if (getCloudflareEnv(event)) {
+    return {
+      hasWaitUntil,
+      hosting: "cloudflare-module",
+      provider: "cloudflare",
+      runtime: event.req.runtime?.name || "cloudflare",
+    }
+  }
+
+  return {
+    hasWaitUntil,
+    hosting: "vercel",
+    provider: "vercel",
+    runtime: event.req.runtime?.name || (process.env.VERCEL ? "vercel" : null),
+  }
+}
+
+async function ensureNotesTable() {
+  await db.run(sql`
+    create table if not exists notes (
+      id integer primary key autoincrement,
+      title text not null
+    )
+  `)
+}
+
+async function ensureAnalyticsEventsTable() {
+  await databases.analytics.db.run(sql`
+    create table if not exists analytics_events (
+      id integer primary key autoincrement,
+      name text not null
+    )
+  `)
+}
+
+app.get("/", () => ({
+  blob: true,
+  db: true,
+  kv: true,
+  ok: true,
+  queue: queueName,
+  sandbox: true,
+  workflow: workflowName,
+}))
+
+app.get("/api/blob", async (event) => {
+  const query = getQuery(event)
+  return await blob.list({
+    folded: query.folded === "true",
+    limit: typeof query.limit === "string" ? Number.parseInt(query.limit, 10) : undefined,
+    prefix: typeof query.prefix === "string" ? query.prefix : undefined,
+  })
+})
+
+app.put("/api/blob", async (event) => {
+  const body = await readValidatedBody(event, blobPutBody)
+  return await blob.put(body?.pathname || "notes/hello.txt", body?.value || "hello world", {
+    contentType: "text/plain; charset=utf-8",
+  })
+})
+
+app.delete("/api/blob", async (event) => {
+  const body = await readValidatedBody(event, blobDeleteBody)
+  await blob.del(body.pathname)
+  return { ok: true }
+})
+
+app.get("/api/blob/head", async (event) => {
+  const pathname = getQuery(event).pathname
+  if (typeof pathname !== "string" || pathname.length === 0) {
+    throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
+  }
+
+  return await blob.head(pathname)
+})
+
+app.get("/api/blob/body", async (event) => {
+  const pathname = getQuery(event).pathname
+  if (typeof pathname !== "string" || pathname.length === 0) {
+    throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
+  }
+
+  const file = await blob.get(pathname)
+  return {
+    ok: true,
+    text: file ? await file.text() : null,
+  }
+})
+
+app.get("/api/blob/serve", async (event) => {
+  const pathname = getQuery(event).pathname
+  if (typeof pathname !== "string" || pathname.length === 0) {
+    throw createError({ statusCode: 400, statusMessage: "Missing pathname" })
+  }
+
+  return await blob.serve(event, pathname)
+})
+
+app.get("/api/db", async () => {
+  await ensureNotesTable()
+  const notes = await db.select().from(schema.notes).orderBy(desc(schema.notes.id))
+  return { notes, ok: true }
+})
+
+app.post("/api/db", async (event) => {
+  await ensureNotesTable()
+  const body = await readValidatedBody(event, noteBody)
+  const result = await db.insert(schema.notes).values({ title: body.title }).returning()
+  return { note: result[0], ok: true }
+})
+
+app.get("/api/db/analytics", async () => {
+  await ensureAnalyticsEventsTable()
+  const events = await databases.analytics.db
+    .select()
+    .from(databases.analytics.schema.analyticsEvents)
+    .orderBy(desc(databases.analytics.schema.analyticsEvents.id))
+  return { events, ok: true }
+})
+
+app.post("/api/db/analytics", async (event) => {
+  await ensureAnalyticsEventsTable()
+  const body = await readValidatedBody(event, analyticsEventBody)
+  const result = await databases.analytics.db
+    .insert(databases.analytics.schema.analyticsEvents)
+    .values({ name: body.name })
+    .returning()
+  return { event: result[0], ok: true }
+})
+
+app.get("/api/queues/welcome", () => ({ ok: true, queue: queueName }))
+
+app.post("/api/queues/welcome", async (event) => {
+  const body = await readValidatedBody(event, queueBody)
+  const marker = resolveMarker(body, event)
+  const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
+
+  return {
+    ok: true,
+    result: await runQueue(queueName, {
+      email: body?.email || "ava@example.com",
+      callbackUrl,
+      marker,
+    }),
+  }
+})
+
+app.post("/api/queues/welcome-defer", async (event) => {
+  const body = await readValidatedBody(event, queueBody)
+  const marker = resolveMarker(body, event)
+  const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
+  const payload = {
+    email: body?.email || "ava@example.com",
+    callbackUrl,
+    marker,
+  }
+
+  deferQueue(queueName, payload)
+
+  return { ok: true }
+})
+
+app.post("/api/tests/kv", async () => {
+  const key = "smoke"
+  await kv.set(key, { key, store: "kv" })
+  return { ok: true, value: await kv.get(key) }
+})
+
+app.get("/api/tests/probe", (event) => {
+  if (getQuery(event).sandbox) {
+    return {
+      feature: "sandbox",
+      ok: true,
+      ...resolveSandboxHosting(event),
+    }
+  }
+
+  return {
+    ok: true,
+    provider: resolveKVProvider(event),
+  }
+})
+
+app.get("/api/tests/queue", async (event) => {
+  const marker = getQuery(event).marker
+  const key = typeof marker === "string" && marker.length > 0
+    ? `queue-e2e:${marker}`
+    : ""
+
+  return {
+    ok: true,
+    seen: key ? await kv.has(key) : false,
+  }
+})
+
+app.post("/api/tests/queue", async (event) => {
+  const body = await readValidatedBody(event, markerBody)
+  await kv.set(`queue-e2e:${body.marker}`, true)
+  return { ok: true }
+})
+
+app.post("/api/sandboxes/release-notes", async (event) => {
+  const result = await runSandbox("release-notes", await readBody(event))
+
+  if (result.isErr()) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: result.error.message,
+      data: {
+        code: result.error.code,
+        provider: result.error.provider,
+      },
+    })
+  }
+
+  return { result: result.value }
+})
+
+app.get("/api/workflows/welcome", () => ({ ok: true, workflow: workflowName }))
+
+app.post("/api/workflows/welcome", async (event) => {
+  const body = await readValidatedBody(event, workflowBody)
+  const marker = resolveMarker(body, event)
+
+  return {
+    ok: true,
+    result: await runWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) }),
+  }
+})
+
+app.post("/api/workflows/welcome-defer", async (event) => {
+  const body = await readValidatedBody(event, workflowBody)
+  const marker = resolveMarker(body, event)
+
+  return {
+    ok: true,
+    result: await deferWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) }),
+  }
+})
+
+app.get("/api/workflows/welcome/:id", async (event) => {
+  const id = event.context.params?.id
+  return id ? await getWorkflowRun(workflowName, id) : { status: "unknown" }
+})
+
+export default app

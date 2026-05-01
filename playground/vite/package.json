@@ -6,12 +6,14 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@vitehub/db": "workspace:*",
     "@vitehub/blob": "workspace:*",
     "@vitehub/internal": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
     "@vitehub/sandbox": "workspace:*",
     "@vitehub/workflow": "workspace:*",
+    "drizzle-orm": "catalog:",
     "h3": "catalog:",
     "nitro": "catalog:",
     "valibot": "catalog:",

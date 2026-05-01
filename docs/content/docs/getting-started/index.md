@@ -5,7 +5,7 @@ navigation.title: Getting started
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](../kv), [`@vitehub/blob`](/docs/vite/blob), and server-side queueing through [`@vitehub/queue`](/docs/vite/queue).
+ViteHub currently ships [`@vitehub/kv`](../kv), [`@vitehub/db`](/docs/vite/db), [`@vitehub/blob`](/docs/vite/blob), and server-side queueing through [`@vitehub/queue`](/docs/vite/queue).
 
 ::fw{vite nitro}
 `@vitehub/blob` and `@vitehub/queue` both support Vite and Nitro.
@@ -80,6 +80,13 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
   :::
   :::u-page-card
   ---
+  title: DB overview
+  description: Use a default Drizzle database and optional named databases from Vite server code.
+  to: /docs/vite/db
+  ---
+  :::
+  :::u-page-card
+  ---
   title: KV overview
   description: Understand what the KV package provides and how it resolves drivers.
   to: ../kv
@@ -110,6 +117,34 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
 
 ::fw{id="vite:dev vite:build"}
 ::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: DB overview
+  description: Configure a default Drizzle database and optional named databases.
+  to: /docs/vite/db
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: DB runtime API
+  description: Review the config contract, runtime exports, and hosted-output rules.
+  to: /docs/vite/db/runtime-api
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: DB on Cloudflare
+  description: Configure D1 bindings and generated Wrangler metadata.
+  to: /docs/vite/db/providers/cloudflare
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: DB on Vercel
+  description: Configure hosted libSQL URLs and understand the D1-only limitation.
+  to: /docs/vite/db/providers/vercel
+  ---
+  :::
   :::u-page-card
   ---
   title: Blob overview

@@ -18,6 +18,13 @@ Use this page to find package-specific Cloudflare guidance in ViteHub.
 - Provider details: [KV on Cloudflare](../kv/providers/cloudflare)
 
 ::fw{id="vite:dev vite:build"}
+### DB
+
+`@vitehub/db` supports Cloudflare D1 bindings on Vite through a default database plus optional named databases.
+
+- Setup overview: [DB overview](/docs/vite/db)
+- Provider details: [DB on Cloudflare](/docs/vite/db/providers/cloudflare)
+
 ### Blob
 
 `@vitehub/blob` supports a Cloudflare path on Vite and Nitro through the `cloudflare-r2` driver.
