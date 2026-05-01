@@ -290,6 +290,9 @@ importers:
       exsolve:
         specifier: 'catalog:'
         version: 1.0.8
+      pathe:
+        specifier: 'catalog:'
+        version: 2.0.3
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

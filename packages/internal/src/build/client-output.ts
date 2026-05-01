@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { cp, mkdir, readdir, rm } from "node:fs/promises"
-import { dirname, relative, resolve } from "node:path"
+
+import { dirname, relative, resolve } from "pathe"
 
 export function hasStaticIndex(clientDir: string): boolean {
   return existsSync(resolve(clientDir, "index.html"))
@@ -16,7 +17,7 @@ export async function copyClientOutput(clientDir: string, targetDir: string): Pr
   await rm(resolvedTargetDir, { force: true, recursive: true })
   await mkdir(dirname(resolvedTargetDir), { recursive: true })
 
-  const targetRelativePath = relative(resolvedClientDir, resolvedTargetDir).replace(/\\/g, "/")
+  const targetRelativePath = relative(resolvedClientDir, resolvedTargetDir)
   if (targetRelativePath && !targetRelativePath.startsWith("../")) {
     const [targetRootEntry] = targetRelativePath.split("/", 1)
     await mkdir(resolvedTargetDir, { recursive: true })

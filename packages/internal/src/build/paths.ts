@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
-import { basename, dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
+import { basename, dirname, relative, resolve } from "pathe"
 
 export function generatedDirSegments(productName: string): readonly [".vitehub", string] {
   return [".vitehub", productName] as const
@@ -11,7 +12,7 @@ export function ensureGeneratedDir(rootDir: string, productName: string): string
 }
 
 export function toGeneratedPath(rootDir: string, productName: string, filename: string): string {
-  return relative(rootDir, resolve(rootDir, ...generatedDirSegments(productName), filename)).replace(/\\/g, "/")
+  return relative(rootDir, resolve(rootDir, ...generatedDirSegments(productName), filename))
 }
 
 export function computePackageDir(importMetaUrl: string): string {
@@ -25,6 +26,6 @@ export function resolveRuntimeModule(packageDir: string, modulePath: string): st
 }
 
 export function createImportPath(fromFile: string, targetFile: string): string {
-  const importPath = relative(dirname(fromFile), targetFile).replace(/\\/g, "/")
+  const importPath = relative(dirname(fromFile), targetFile)
   return importPath.startsWith(".") ? importPath : `./${importPath}`
 }

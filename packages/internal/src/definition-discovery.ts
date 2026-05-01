@@ -1,7 +1,8 @@
 import type { Dirent } from "node:fs"
 import { readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { relative, resolve } from "node:path"
+
+import { relative, resolve } from "pathe"
 
 const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
@@ -54,7 +55,7 @@ export function listSourceFiles(root: string): string[] {
 }
 
 export function normalizePathDefinitionName(rootDir: string, file: string): string {
-  const relativePath = relative(rootDir, file).replace(/\\/g, "/")
+  const relativePath = relative(rootDir, file)
   return relativePath.replace(sourceFilePattern, "").replace(/\/index$/i, "")
 }
 
@@ -125,7 +126,7 @@ export function mergeDefinitions<TDefinition extends DiscoveredDefinition>(
 
 export function createRuntimeRegistryContents(registryFile: string, definitions: Array<Pick<DiscoveredDefinition, "handler" | "name">>): string {
   const imports = definitions.map((definition) => {
-    const importPath = relative(resolve(registryFile, ".."), definition.handler).replace(/\\/g, "/")
+    const importPath = relative(resolve(registryFile, ".."), definition.handler)
     return `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(importPath.startsWith(".") ? importPath : `./${importPath}`)}),`
   })
 
