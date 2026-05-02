@@ -60,9 +60,6 @@ catalogs:
     mlly:
       specifier: ^1.8.1
       version: 1.8.2
-    mrmime:
-      specifier: ^2.0.1
-      version: 2.0.1
     nitro:
       specifier: 3.0.260311-beta
       version: 3.0.260311-beta
@@ -668,7 +665,7 @@ importers:
         specifier: ^1.37.6
         version: 1.37.6
       mrmime:
-        specifier: 'catalog:'
+        specifier: ^2.0.1
         version: 2.0.1
     devDependencies:
       '@types/node':
