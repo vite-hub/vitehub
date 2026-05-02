@@ -61,7 +61,7 @@
     "defu": "^6.1.4",
     "exsolve": "^1.0.8",
     "isomorphic-git": "^1.37.6",
-    "mrmime": "catalog:"
+    "mrmime": "^2.0.1"
   },
   "peerDependencies": {
     "@vercel/blob": "^2.3.3",
