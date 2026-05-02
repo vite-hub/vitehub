@@ -8,11 +8,12 @@ icon: i-simple-icons-vercel
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/workspace` supports Vercel Blob as the hosted v1 workspace store. Blob is object storage, so ViteHub adds workspace manifests for snapshots and diffs.
+`@vitehub/workspace` defaults to an in-memory store on Vercel unless Blob is configured. Vercel does not provide a Miniflare-style local artifact environment, so the automatic hosted default stays ephemeral.
 
 | Vercel primitive | Intended role |
 | --- | --- |
-| Vercel Blob | Object-backed workspace files, metadata, snapshots, and diffs. |
+| Memory | Default ephemeral workspace store for unconfigured Vercel hosting. |
+| Vercel Blob | Optional object-backed workspace files, metadata, snapshots, and diffs. |
 | Vercel Sandbox | Execution runtime with filesystem APIs, snapshots, and persistent sessions. |
 | Future artifact-like store | Possible canonical versioned workspace provider if Vercel ships one. |
 
@@ -26,7 +27,7 @@ export default defineWorkspace({
 })
 ```
 
-The runtime reads `BLOB_READ_WRITE_TOKEN`. `snapshot()` writes a ViteHub manifest into the Blob store; it is not provider-native Git history. Vercel Sandbox persistence remains a runtime/session capability, not the identity of the workspace.
+When `provider: 'vercel-blob'` is configured, or `BLOB_READ_WRITE_TOKEN` is available during automatic resolution, the runtime reads `BLOB_READ_WRITE_TOKEN`. `snapshot()` writes a ViteHub manifest into the Blob store; it is not provider-native Git history. Vercel Sandbox persistence remains a runtime/session capability, not the identity of the workspace.
 
 Vercel runtime integration should use workspace mounts:
 

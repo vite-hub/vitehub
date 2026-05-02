@@ -3,3 +3,9 @@ declare module "#vitehub-workspace-registry" {
   const registry: WorkspaceRegistry
   export default registry
 }
+
+declare module "#vitehub-workspace-assets-registry" {
+  import type { WorkspaceAssetsRegistry } from "../types.ts"
+  const registry: WorkspaceAssetsRegistry
+  export default registry
+}

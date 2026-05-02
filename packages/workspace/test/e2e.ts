@@ -8,7 +8,7 @@ const providers = ["cloudflare", "vercel"] as const
 const frameworks = ["nitro", "vite"] as const
 const expectedWorkspaceProviders = {
   cloudflare: "cloudflare-artifacts",
-  vercel: "vercel-blob",
+  vercel: "memory",
 } as const
 const liveOnlyMessage = "Workspace e2e requires a deployed app: pnpm --dir packages/workspace test:e2e --mode live --provider cloudflare|vercel --framework nitro|vite --url <url>"
 
@@ -69,13 +69,15 @@ async function runLive(url: string, provider: Provider, framework: Framework) {
     assert.ok(result.diff.entries.some((entry: { path?: string, type?: string }) => entry.path === writePath && entry.type === "added"))
   })
 
-  await retry(`${provider} workspace fresh read after write`, async () => {
-    const result = await request(`/api/workspace/read-fresh?path=${encodeURIComponent(writePath)}`)
-    assert.equal(result.ok, true)
-    assert.equal(result.provider, expectedWorkspaceProviders[provider])
-    assert.equal(result.path, writePath)
-    assert.equal(result.readBack, writeContent)
-  })
+  if (expectedWorkspaceProviders[provider] !== "memory") {
+    await retry(`${provider} workspace fresh read after write`, async () => {
+      const result = await request(`/api/workspace/read-fresh?path=${encodeURIComponent(writePath)}`)
+      assert.equal(result.ok, true)
+      assert.equal(result.provider, expectedWorkspaceProviders[provider])
+      assert.equal(result.path, writePath)
+      assert.equal(result.readBack, writeContent)
+    })
+  }
 
   log(`live ${provider} ${framework} ok`)
 }

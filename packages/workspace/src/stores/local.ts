@@ -79,7 +79,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const all = await walk(this.root)
     return all
       .filter((entry) => {
-        if (!normalizedPrefix) return true
+        if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")
         if (entry.path === normalizedPrefix) return false
         if (!entry.path.startsWith(`${normalizedPrefix}/`)) return false
         return options.recursive || !entry.path.slice(normalizedPrefix.length + 1).includes("/")

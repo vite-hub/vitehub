@@ -1,7 +1,5 @@
 export { manifest } from "./manifest.ts"
 export type { ManifestPublisherOptions } from "./manifest.ts"
-export { serverAssets } from "./server-assets.ts"
-export type { ServerAssetsPublisherOptions } from "./server-assets.ts"
 export { types } from "./types.ts"
 export type { TypesPublisherOptions } from "./types.ts"
 export { virtualModule } from "./virtual-module.ts"

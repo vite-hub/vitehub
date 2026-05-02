@@ -7,7 +7,7 @@ icon: i-lucide-folder-git-2
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/workspace` is a ViteHub primitive for persistent file-tree state. Sources, loaders, and publishers populate and expose a workspace; sandbox providers run code against it when execution is needed.
+`@vitehub/workspace` is a ViteHub primitive for persistent file-tree state. Sources populate a workspace, build-time assets expose immutable context, and sandbox providers run code against it when execution is needed.
 
 Workspace owns files, snapshots, diffs, source ingestion, and publishing. `@vitehub/sandbox` owns isolated execution.
 
@@ -37,7 +37,7 @@ export default defineNitroConfig({
 Define a workspace:
 
 ```ts [src/docs.workspace.ts]
-import { defineWorkspace, loader, source } from '@vitehub/workspace'
+import { defineWorkspace, source } from '@vitehub/workspace'
 
 export default defineWorkspace({
   sources: [
@@ -45,16 +45,17 @@ export default defineWorkspace({
       cwd: process.cwd(),
       include: ['README.md', 'docs/**/*.md'],
     }),
-  ],
-  loaders: [
-    loader.files({
-      include: ['**/*.md'],
+    source.file({
+      workspacePath: 'AGENTS.md',
+      mediaType: 'text/markdown',
+      content: '# Instructions\nUse the workspace files as context.\n',
     }),
   ],
 })
 ```
 
 In Nitro, place the same definition at `server/workspaces/docs.ts`.
+For inline files, use `workspacePath` and `content`. For file-backed sources, use `path` for the source file and `workspacePath` only when it should appear at a different workspace path.
 
 Use it from server code:
 
@@ -70,16 +71,41 @@ const files = await workspace.glob('**/*.md')
 const diff = await workspace.diff()
 ```
 
-## Provider Compatibility
+For build-time, read-only context, enable `syncOnBuild` and read bundled assets:
 
-The v1 provider is local-first. Cloudflare and Vercel compatibility is modeled in the public types and docs without pretending their storage products are interchangeable.
+```ts
+import { useWorkspaceAssets } from '@vitehub/workspace/assets'
+
+const assets = useWorkspaceAssets('docs')
+const keys = await assets.getKeys()
+const readme = await assets.getItem<string>('README.md')
+```
+
+For AI SDK agents, expose read-only workspace inspection tools:
+
+```ts
+import { createWorkspaceTools, readWorkspaceInstructions } from '@vitehub/workspace/ai'
+import { useWorkspaceAssets } from '@vitehub/workspace/assets'
+
+const assets = useWorkspaceAssets('docs')
+const instructions = await readWorkspaceInstructions(assets)
+const tools = createWorkspaceTools(assets)
+```
+
+The `bash` tool emulates safe file-inspection commands against workspace assets. It does not execute a real shell.
+`readWorkspaceInstructions` reads explicit `AGENTS.md` files from the workspace so applications can decide how to map them into model instructions.
+
+## Hosted Providers
+
+The v1 provider is local-first. Hosted runtimes select the smallest adapter that matches the deployment environment without pretending their storage products are interchangeable.
 
 | Primitive | Workspace role |
 | --- | --- |
 | Cloudflare Artifacts | Future canonical versioned file-tree store. |
 | Cloudflare Shell / Sandbox | Runtime filesystem and execution adapters. |
 | Cloudflare R2 | Large-object spillover for workspace stores. |
-| Vercel Blob | Object/file backing store, not Git-like workspace state. |
+| Memory | Default ephemeral store for unconfigured Vercel hosting. |
+| Vercel Blob | Optional object/file backing store, not Git-like workspace state. |
 | Vercel Sandbox | Runtime/session persistence and snapshots for execution. |
 
 ## Sandbox Mounts

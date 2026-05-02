@@ -83,6 +83,13 @@ export interface WorkspaceSession {
   close?(): Promise<void>
 }
 
+export interface WorkspaceAssets {
+  getKeys(): Promise<string[]>
+  getItem<T = WorkspaceContent>(key: string): Promise<T | null>
+}
+
+export type WorkspaceAssetsRegistry = Record<string, WorkspaceAssets>
+
 export interface WorkspaceFile {
   path: string
   content: WorkspaceContent

@@ -127,7 +127,17 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async rm(path: string, options: RmOptions = {}): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    const removed = this.#fs!.deleteTree(this.#absolute(normalized))
+    const absolute = this.#absolute(normalized)
+    const stat = await this.#fs!.promises.stat(absolute).catch(() => undefined) as { isDirectory(): boolean } | undefined
+    if (!stat) {
+      if (options.force) return
+      throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+    }
+    if (stat.isDirectory() && !options.recursive) {
+      const children = await this.#fs!.promises.readdir(absolute)
+      if (children.length) throw new WorkspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
+    }
+    const removed = this.#fs!.deleteTree(absolute)
     if (!removed && !options.force) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
   }
 

@@ -23,6 +23,10 @@
   "type": "module",
   "types": "./dist/index.d.ts",
   "imports": {
+    "#vitehub-workspace-assets-registry": {
+      "types": "./dist/runtime/empty-assets-registry.d.ts",
+      "default": "./dist/runtime/empty-assets-registry.js"
+    },
     "#vitehub-workspace-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "default": "./dist/runtime/empty-registry.js"
@@ -30,7 +34,10 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./ai": "./dist/ai.js",
+    "./assets": "./dist/assets.js",
     "./nitro": "./dist/nitro.js",
+    "./runtime/empty-assets-registry": "./dist/runtime/empty-assets-registry.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/state": "./dist/runtime/state.js",
@@ -57,11 +64,15 @@
   },
   "peerDependencies": {
     "@vercel/blob": "^2.3.3",
+    "ai": "^6.0.0",
     "nitro": "^3.0.0-0",
     "vite": ">=8.0.0"
   },
   "peerDependenciesMeta": {
     "@vercel/blob": {
+      "optional": true
+    },
+    "ai": {
       "optional": true
     },
     "nitro": {
@@ -72,6 +83,7 @@
     }
   },
   "devDependencies": {
+    "ai": "^6.0.172",
     "@vercel/blob": "^2.3.3",
     "@vitehub/internal": "workspace:*",
     "@types/node": "^25.6.0",
@@ -82,6 +94,7 @@
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.8",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.4",
+    "zod": "^4.4.1"
   }
 }

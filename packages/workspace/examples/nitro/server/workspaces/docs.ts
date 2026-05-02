@@ -1,4 +1,4 @@
-import { defineWorkspace, loader, source } from "@vitehub/workspace"
+import { defineWorkspace, source } from "@vitehub/workspace"
 
 export default defineWorkspace({
   store: {
@@ -6,15 +6,11 @@ export default defineWorkspace({
     root: ".vitehub/workspaces/docs",
   },
   sources: [
-    source.markdown({
+    source.file({
       path: "README.md",
       workspacePath: "README.md",
       content: "# Workspace example\n",
-    }),
-  ],
-  loaders: [
-    loader.files({
-      include: ["**/*.md"],
+      mediaType: "text/markdown",
     }),
   ],
 })

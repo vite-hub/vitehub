@@ -22,9 +22,24 @@ describe("workspace config", () => {
     }))
   })
 
-  it("defaults to Vercel Blob on Vercel hosting", () => {
+  it("defaults to memory on Vercel hosting", () => {
     const config = normalizeWorkspaceOptions({}, {
       env: {
+        VITEHUB_WORKSPACE_BLOB_PREFIX: "workspace/e2e",
+      },
+      hosting: "vercel",
+      rootDir: "/repo",
+    })
+
+    expect(config && config.store).toEqual({
+      provider: "memory",
+    })
+  })
+
+  it("defaults to Vercel Blob when a Blob token is available", () => {
+    const config = normalizeWorkspaceOptions({}, {
+      env: {
+        BLOB_READ_WRITE_TOKEN: "runtime-token",
         VITEHUB_WORKSPACE_BLOB_PREFIX: "workspace/e2e",
       },
       hosting: "vercel",
@@ -36,6 +51,35 @@ describe("workspace config", () => {
       prefix: "workspace/e2e",
       provider: "vercel-blob",
       token: "********",
+    })
+  })
+
+  it("defaults to local storage without a hosting signal", () => {
+    const config = normalizeWorkspaceOptions({}, {
+      env: {},
+      rootDir: "/repo",
+    })
+
+    expect(config && config.store).toEqual({
+      provider: "local",
+    })
+  })
+
+  it("preserves explicit memory stores", () => {
+    const config = normalizeWorkspaceOptions({
+      store: {
+        provider: "memory",
+      },
+    }, {
+      env: {
+        BLOB_READ_WRITE_TOKEN: "runtime-token",
+      },
+      hosting: "cloudflare_module",
+      rootDir: "/repo",
+    })
+
+    expect(config && config.store).toEqual({
+      provider: "memory",
     })
   })
 

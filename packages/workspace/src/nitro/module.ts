@@ -1,19 +1,17 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
+import { collectWorkspaceAssetBundles, syncDiscoveredWorkspaces, writeWorkspaceAssetsRegistry } from "../build-assets.ts"
 import { normalizeWorkspaceOptions } from "../config.ts"
 import { createWorkspaceRegistryContents, discoverNitroWorkspaceDefinitions } from "../discovery.ts"
 import { configureCloudflareArtifacts } from "../integrations/cloudflare.ts"
-import { registerWorkspace } from "../registry.ts"
-import { useWorkspace } from "../use.ts"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceDefinitionInput, WorkspaceModuleOptions } from "../types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../types.ts"
 
 const WORKSPACE_NITRO_IMPORTS_PRESET = {
   from: "@vitehub/workspace",
@@ -42,6 +40,10 @@ function registryPath(nitro: Nitro) {
 
 function pluginPath(nitro: Nitro) {
   return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/workspace/plugin.mjs")
+}
+
+function assetsRegistryPath(nitro: Nitro) {
+  return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/workspace/assets/registry.mjs")
 }
 
 function workspaceNitroConfigTypes() {
@@ -103,13 +105,14 @@ async function writeRegistry(nitro: Nitro) {
   return { path, definitions }
 }
 
-function createNitroPluginContents(file: string, registryFile: string, options: false | ResolvedWorkspaceModuleOptions): string {
+function createNitroPluginContents(file: string, registryFile: string, assetsRegistryFile: string, options: false | ResolvedWorkspaceModuleOptions): string {
   const provider = options && options.store.provider
   const imports = [
     `import { definePlugin as defineNitroPlugin } from "nitro"`,
     `import { useRuntimeConfig } from "nitro/runtime-config"`,
     `import workspaceRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/runtime/state")))}`,
+    `import workspaceAssetsRegistry from ${JSON.stringify(createImportPath(file, assetsRegistryFile))}`,
+    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/runtime/state")))}`,
   ]
 
   if (provider === "cloudflare-artifacts") {
@@ -143,40 +146,23 @@ function createNitroPluginContents(file: string, registryFile: string, options: 
     "  setWorkspaceRuntimeConfig(runtimeConfig.workspace || false)",
     ...loader,
     "  setWorkspaceRuntimeRegistry(workspaceRegistry)",
+    "  setWorkspaceRuntimeAssetsRegistry(workspaceAssetsRegistry)",
     "})",
     "",
   ].join("\n")
 }
 
-async function writePlugin(nitro: Nitro, registryFile: string, options: false | ResolvedWorkspaceModuleOptions) {
+async function writePlugin(nitro: Nitro, registryFile: string, assetsRegistryFile: string, options: false | ResolvedWorkspaceModuleOptions) {
   const path = pluginPath(nitro)
   await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, createNitroPluginContents(path, registryFile, options), "utf8")
+  await writeFile(path, createNitroPluginContents(path, registryFile, assetsRegistryFile, options), "utf8")
   return path
 }
 
-function shouldSyncWorkspace(syncOnBuild: boolean | string[] | undefined, name: string) {
-  return syncOnBuild === true || (Array.isArray(syncOnBuild) && syncOnBuild.includes(name))
-}
-
-async function syncBuildWorkspaces(nitro: Nitro, options: false | ResolvedWorkspaceModuleOptions) {
-  if (!options || !options.syncOnBuild) return
-
+async function syncBuildWorkspaceAssets(nitro: Nitro, options: false | ResolvedWorkspaceModuleOptions, assetsRegistryFile: string) {
   const definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
-  for (const definition of definitions) {
-    if (!shouldSyncWorkspace(options.syncOnBuild, definition.name)) continue
-
-    const mod = await import(pathToFileURL(definition.path).href) as { default?: WorkspaceDefinitionInput }
-    if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
-
-    registerWorkspace(definition.name, {
-      ...mod.default,
-      rootDir: mod.default.rootDir || nitro.options.rootDir,
-    })
-
-    const workspace = await useWorkspace(definition.name)
-    await workspace.sync()
-  }
+  const workspaces = await syncDiscoveredWorkspaces(definitions, nitro.options.rootDir, options)
+  await writeWorkspaceAssetsRegistry(assetsRegistryFile, await collectWorkspaceAssetBundles(workspaces))
 }
 
 const workspaceNitroModule: NitroModule = {
@@ -201,8 +187,12 @@ const workspaceNitroModule: NitroModule = {
     }
 
     const registry = await writeRegistry(nitro)
-    const plugin = await writePlugin(nitro, registry.path, resolved)
+    const assetsRegistryFile = assetsRegistryPath(nitro)
+    await writeWorkspaceAssetsRegistry(assetsRegistryFile, [])
+    const plugin = await writePlugin(nitro, registry.path, assetsRegistryFile, resolved)
     nitro.options.alias["#vitehub-workspace-registry"] = registry.path
+    nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
+    nitro.options.alias["@vitehub/workspace/assets"] = resolveRuntimeEntry("../assets", "@vitehub/workspace/assets")
     installNitroConfigTypes(nitro)
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
@@ -219,10 +209,11 @@ const workspaceNitroModule: NitroModule = {
 
     nitro.hooks.hook("build:before", async () => {
       const next = await writeRegistry(nitro)
-      await writePlugin(nitro, next.path, resolved)
       nitro.options.alias ||= {}
       nitro.options.alias["#vitehub-workspace-registry"] = next.path
-      await syncBuildWorkspaces(nitro, resolved)
+      nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
+      await syncBuildWorkspaceAssets(nitro, resolved, assetsRegistryFile)
+      await writePlugin(nitro, next.path, assetsRegistryFile, resolved)
     })
     nitro.hooks.hook("dev:reload", async () => {
       const next = await writeRegistry(nitro)

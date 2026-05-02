@@ -1,12 +1,14 @@
 import { Buffer } from "node:buffer"
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { collectWorkspaceAssetBundle, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
 import { defineWorkspace, loader, publish, registerWorkspace, source, useWorkspace } from "../src/index.ts"
-import type { WorkspaceStore } from "../src/types.ts"
+import type { Workspace } from "../src/types.ts"
 
 const tempDirs: string[] = []
 
@@ -178,64 +180,41 @@ describe("sources, loaders, and publishers", () => {
     expect(await readFile(join(root, "workspace.d.ts"), "utf8")).toContain('virtual:vitehub/workspaces/sources')
   })
 
-  it("keeps server assets inside the publish directory", async () => {
+  it("writes lazy workspace asset modules for text and binary files", async () => {
     const root = await createRoot()
-    const store: WorkspaceStore = {
+    const registryFile = join(root, ".vitehub/assets/registry.mjs")
+    registerWorkspace("asset-bundle", defineWorkspace({
+      rootDir: root,
+      store: { provider: "memory" },
+      sources: [
+        source.file({ content: "hello\n", path: "README.md", workspacePath: "README.md" }),
+        source.file({ content: new Uint8Array([1, 2, 3]), path: "data.bin", workspacePath: "data.bin" }),
+      ],
+    }))
+
+    const workspace = await useWorkspace("asset-bundle")
+    await workspace.sync()
+    await writeWorkspaceAssetsRegistry(registryFile, [await collectWorkspaceAssetBundle(workspace)])
+
+    const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
+
+    await expect(registry["asset-bundle"].getKeys()).resolves.toEqual(["data.bin", "README.md"])
+    await expect(registry["asset-bundle"].getItem("README.md")).resolves.toBe("hello\n")
+    await expect(registry["asset-bundle"].getItem("data.bin")).resolves.toEqual(new Uint8Array([1, 2, 3]))
+    await expect(registry["asset-bundle"].getItem("../escape.txt")).resolves.toBeNull()
+  })
+
+  it("rejects unsafe workspace asset paths", async () => {
+    const workspace = {
+      name: "unsafe",
       async glob() {
         return [{ path: "../escape.txt", type: "file" }]
       },
       async readFile() {
-        return { path: "../escape.txt", content: "escape" }
+        return "escape"
       },
-      async list() {
-        return []
-      },
-      async stat() {
-        return undefined
-      },
-      async writeFile() {},
-      async mkdir() {},
-      async rm() {},
-      async snapshot() {
-        return { id: "snapshot", createdAt: new Date(0).toISOString(), entries: {} }
-      },
-      async diff() {
-        return { to: "snapshot", entries: [] }
-      },
-    }
+    } as unknown as Workspace
 
-    await expect(publish.serverAssets({ dir: "server/assets" }).publish({
-      workspace: { ...defineWorkspace({}), name: "escape" },
-      store,
-      rootDir: root,
-    })).rejects.toThrow("escapes the workspace root")
-  })
-
-  it("cleans stale server assets before publishing", async () => {
-    const root = await createRoot()
-    await mkdir(join(root, "server/assets/context"), { recursive: true })
-    await writeFile(join(root, "server/assets/context/stale.txt"), "stale\n", "utf8")
-
-    registerWorkspace("clean-assets", defineWorkspace({
-      rootDir: root,
-      store: { provider: "memory" },
-      sources: [
-        source.file({
-          content: "fresh\n",
-          path: "fresh.txt",
-          workspacePath: "fresh.txt",
-        }),
-      ],
-      loaders: [loader.files()],
-      publish: [
-        publish.serverAssets({ clean: true, dir: "server/assets/context" }),
-      ],
-    }))
-
-    const workspace = await useWorkspace("clean-assets")
-    await workspace.sync()
-
-    await expect(readFile(join(root, "server/assets/context/fresh.txt"), "utf8")).resolves.toBe("fresh\n")
-    await expect(access(join(root, "server/assets/context/stale.txt"))).rejects.toThrow()
+    await expect(collectWorkspaceAssetBundle(workspace)).rejects.toThrow("escapes the workspace root")
   })
 })

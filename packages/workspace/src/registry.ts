@@ -9,7 +9,8 @@ export type WorkspaceRegistryModule = {
 
 export type WorkspaceRegistry = Record<string, () => Promise<WorkspaceRegistryModule>>
 
-const definitions = new Map<string, WorkspaceDefinition>()
+const registeredDefinitions = new Map<string, WorkspaceDefinition>()
+const loadedDefinitions = new Map<string, WorkspaceDefinition>()
 let loaders: WorkspaceRegistry = runtimeRegistry
 
 function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
@@ -24,26 +25,28 @@ export function registerWorkspace(name: string, definition: WorkspaceDefinitionI
   if (!name || typeof name !== "string") {
     throw new TypeError("[vitehub] registerWorkspace requires a string name.")
   }
-  definitions.set(name, normalizeWorkspaceDefinition(name, definition))
+  registeredDefinitions.set(name, normalizeWorkspaceDefinition(name, definition))
 }
 
 export function setWorkspaceRegistry(registry: WorkspaceRegistry): void {
   loaders = registry
+  loadedDefinitions.clear()
 }
 
 export function resetWorkspaceRegistry(): void {
   loaders = runtimeRegistry
+  loadedDefinitions.clear()
 }
 
 async function resolveWorkspaceDefinition(name: string): Promise<WorkspaceDefinition> {
-  const existing = definitions.get(name)
+  const existing = registeredDefinitions.get(name) || loadedDefinitions.get(name)
   if (existing) return existing
 
   const load = loaders[name]
   if (!load) throw new WorkspaceNotFoundError(name)
   const mod = await load()
   const definition = normalizeWorkspaceDefinition(name, mod.default)
-  definitions.set(name, definition)
+  loadedDefinitions.set(name, definition)
   return definition
 }
 

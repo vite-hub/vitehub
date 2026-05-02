@@ -34,7 +34,7 @@ export default defineNitroConfig({
 Create `src/docs.workspace.ts` for Vite or `server/workspaces/docs.ts` for Nitro:
 
 ```ts
-import { defineWorkspace, loader, source } from '@vitehub/workspace'
+import { defineWorkspace, source } from '@vitehub/workspace'
 
 export default defineWorkspace({
   store: {
@@ -42,12 +42,12 @@ export default defineWorkspace({
     root: '.vitehub/workspaces/docs',
   },
   sources: [
-    source.markdown({
+    source.file({
       path: 'README.md',
       workspacePath: 'README.md',
+      mediaType: 'text/markdown',
     }),
   ],
-  loaders: [loader.files()],
 })
 ```
 

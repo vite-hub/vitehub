@@ -595,6 +595,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
 function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifacts: GeneratedFeatureArtifacts) {
   const appEntry = resolve(options.rootDir, "src/server.e2e.ts")
   const resolveApp = resolve(packagesDir, "internal/src/runtime/app.ts")
+  const workspaceProvider = options.workspace && options.workspace.store.provider
 
   const imports = [
     `import { waitUntil as vercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolvePackageDependency(queuePackageDir, "@vercel/functions")))}`,
@@ -606,9 +607,12 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
     `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/runtime/state.ts")))}`,
     `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/runtime/state.ts")))}`,
-    `import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/vercel-blob.ts")))}`,
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
   ]
+
+  if (workspaceProvider === "vercel-blob") {
+    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/vercel-blob.ts")))}`)
+  }
 
   if (artifacts.queueRegistryFile) {
     imports.push(`import queueRegistry from ${JSON.stringify(createImportPath(file, artifacts.queueRegistryFile))}`)
@@ -639,10 +643,14 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     "setSandboxRuntimeConfig(sandboxConfig)",
     `setSandboxRuntimeRegistry(${artifacts.alias["virtual:vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",
-    "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
-    "  if (store.provider !== 'vercel-blob') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
-    "  return createVercelBlobWorkspaceStore(store, workspaceName)",
-    "})",
+    ...(workspaceProvider === "vercel-blob"
+      ? [
+          "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+          "  if (store.provider !== 'vercel-blob') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
+          "  return createVercelBlobWorkspaceStore(store, workspaceName)",
+          "})",
+        ]
+      : ["setWorkspaceHostedStoreLoader(undefined)"]),
     `setWorkspaceRuntimeRegistry(${artifacts.workspaceRegistryFile ? "workspaceRegistry" : "{ }"})`,
     "const appInstance = new H3()",
     "const fetchHandler = resolveAppFetch('vitehub', app)",

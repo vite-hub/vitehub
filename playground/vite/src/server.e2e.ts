@@ -61,7 +61,7 @@ function resolveKVProvider(event: unknown) {
 }
 
 function resolveWorkspaceProvider(event: unknown) {
-  return getCloudflareEnv(event) ? "cloudflare-artifacts" : "vercel-blob"
+  return getCloudflareEnv(event) ? "cloudflare-artifacts" : "memory"
 }
 
 function resolveSandboxHosting(event: { req: { runtime?: { name?: string }, waitUntil?: unknown } }) {

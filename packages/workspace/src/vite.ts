@@ -1,5 +1,9 @@
+import { resolve } from "node:path"
+
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
+import { collectWorkspaceAssetBundles, syncDiscoveredWorkspaces, writeWorkspaceAssetsRegistry } from "./build-assets.ts"
+import { normalizeWorkspaceOptions } from "./config.ts"
 import { createWorkspaceManifest, createWorkspaceVirtualRegistryContents, discoverViteWorkspaceDefinitions } from "./discovery.ts"
 import workspaceNitroModule from "./nitro/module.ts"
 
@@ -10,6 +14,7 @@ import type { WorkspaceModuleOptions } from "./types.ts"
 const WORKSPACE_PACKAGE_NAME = "@vitehub/workspace"
 const WORKSPACES_ID = "virtual:vitehub/workspaces"
 const WORKSPACE_PREFIX = "virtual:vitehub/workspaces/"
+const WORKSPACE_ASSETS_REGISTRY_ID = "#vitehub-workspace-assets-registry"
 const WORKSPACE_REGISTRY_ID = "#vitehub-workspace-registry"
 const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`
 const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
@@ -24,6 +29,8 @@ export type WorkspaceVitePlugin = Plugin & { api: WorkspaceVitePluginAPI, nitro:
 
 export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
   let resolved: ResolvedConfig | undefined
+  let resolvedOptions: ReturnType<typeof normalizeWorkspaceOptions> = false
+  let assetsRegistryFile: string | undefined
   let manifest: Awaited<ReturnType<typeof createWorkspaceManifest>> = { workspaces: [] }
   let registryContents = "export default {}\n"
 
@@ -41,6 +48,13 @@ export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePl
     nitro: workspaceNitroModule,
     async configResolved(config) {
       resolved = config
+      resolvedOptions = normalizeWorkspaceOptions(_options ?? (config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace, {
+        env: process.env,
+        hosting: process.env.VITEHUB_HOSTING,
+        rootDir: config.root,
+      })
+      assetsRegistryFile = resolve(config.root, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
+      await writeWorkspaceAssetsRegistry(assetsRegistryFile, [])
       await refreshManifest(config.root)
     },
     configEnvironment(name, config) {
@@ -52,9 +66,16 @@ export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePl
       }
     },
     async buildStart() {
-      if (resolved) await refreshManifest(resolved.root)
+      if (!resolved) return
+      await refreshManifest(resolved.root)
+      if (resolved.command !== "build" || !assetsRegistryFile) return
+
+      const definitions = discoverViteWorkspaceDefinitions(resolved.root)
+      const workspaces = await syncDiscoveredWorkspaces(definitions, resolved.root, resolvedOptions)
+      await writeWorkspaceAssetsRegistry(assetsRegistryFile, await collectWorkspaceAssetBundles(workspaces))
     },
     resolveId(id) {
+      if (id === WORKSPACE_ASSETS_REGISTRY_ID) return assetsRegistryFile
       if (id === WORKSPACE_REGISTRY_ID) return RESOLVED_WORKSPACE_REGISTRY_ID
       if (id === WORKSPACES_ID) return RESOLVED_WORKSPACES_ID
       if (id.startsWith(WORKSPACE_PREFIX)) return `${RESOLVED_WORKSPACE_PREFIX}${id.slice(WORKSPACE_PREFIX.length)}`

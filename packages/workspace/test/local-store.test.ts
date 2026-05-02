@@ -46,4 +46,16 @@ describe("local workspace store", () => {
     await store.rm("generated", { recursive: true })
     expect(await store.stat("generated")).toBeUndefined()
   })
+
+  it("lists only top-level entries when recursive is false", async () => {
+    const store = await createStore()
+
+    await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
+    await store.writeFile("guide/setup.md", { path: "guide/setup.md", content: "setup" })
+
+    await expect(store.list("", { recursive: false })).resolves.toEqual([
+      expect.objectContaining({ path: "docs", type: "directory" }),
+      expect.objectContaining({ path: "guide", type: "directory" }),
+    ])
+  })
 })

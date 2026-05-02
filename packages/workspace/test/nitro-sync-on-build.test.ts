@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -97,5 +98,54 @@ export default {
 
     await expect(readFile(join(root, "server/assets/context/selected.txt"), "utf8")).resolves.toBe("selected\n")
     await expect(readFile(join(root, "server/assets/context/skipped.txt"), "utf8")).rejects.toThrow()
+  })
+
+  it("emits bundled workspace assets for selected workspaces", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "server/workspaces"), { recursive: true })
+    await writeFile(join(root, "server/workspaces/docs.mjs"), `
+export default {
+  store: { provider: "memory" },
+  sources: [{
+    name: "inline",
+    async getKeys() {
+      return ["README.md"]
+    },
+    async getItem(key) {
+      return { key, path: key, content: "docs\\n" }
+    },
+  }],
+}
+`, "utf8")
+
+    const hooks: Record<string, Array<() => Promise<void>>> = {}
+    const nitro = {
+      hooks: {
+        hook(name: string, callback: () => Promise<void>) {
+          hooks[name] ||= []
+          hooks[name].push(callback)
+        },
+      },
+      logger: {
+        info() {},
+      },
+      options: {
+        _config: {},
+        rootDir: root,
+        runtimeConfig: {},
+        workspace: {
+          syncOnBuild: ["docs"],
+        },
+      },
+    }
+
+    await workspaceNitroModule.setup!(nitro as never)
+    for (const callback of hooks["build:before"] ?? []) await callback()
+
+    const registryFile = join(root, ".vitehub/nitro-runtime/workspace/assets/registry.mjs")
+    const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
+
+    await expect(registry.docs.getKeys()).resolves.toEqual(["README.md"])
+    await expect(registry.docs.getItem("README.md")).resolves.toBe("docs\n")
   })
 })
