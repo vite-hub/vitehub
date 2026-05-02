@@ -47,7 +47,6 @@ export default defineWorkspace({
     }),
     source.file({
       workspacePath: 'AGENTS.md',
-      mediaType: 'text/markdown',
       content: '# Instructions\nUse the workspace files as context.\n',
     }),
   ],

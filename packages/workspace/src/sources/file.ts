@@ -1,4 +1,5 @@
 import { normalizeWorkspacePath } from "../path.ts"
+import { lookup } from "mrmime"
 
 import type { SourceContext, WorkspaceContent, WorkspaceSource } from "../types.ts"
 
@@ -39,6 +40,7 @@ async function readSourceFile(options: FileSourceOptions, ctx: SourceContext) {
 
 export function file(options: FileSourceOptions): WorkspaceSource {
   const key = sourceKey(options)
+  const mediaType = options.mediaType || lookup(key)
   return {
     name: "file",
     async getKeys() {
@@ -52,7 +54,7 @@ export function file(options: FileSourceOptions): WorkspaceSource {
         key,
         path: key,
         content,
-        mediaType: options.mediaType,
+        mediaType,
       }
     },
   }

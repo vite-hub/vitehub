@@ -38,12 +38,10 @@ describe("workspace public API", () => {
         source.file({
           path: "README.md",
           workspacePath: "README.md",
-          mediaType: "text/markdown",
           content: "# API\n",
         }),
         source.file({
           workspacePath: "AGENTS.md",
-          mediaType: "text/markdown",
           content: "# Instructions\n",
         }),
       ],
@@ -55,6 +53,7 @@ describe("workspace public API", () => {
 
     expect(await workspace.readFile("README.md")).toBe("# API\n")
     expect(await workspace.readFile("AGENTS.md")).toBe("# Instructions\n")
+    await expect(workspace.stat("AGENTS.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
     expect(await workspace.exists("generated/summary.md")).toBe(true)
     expect(await workspace.glob("**/*.md")).toHaveLength(3)
     expect(workspace.mount({ mode: "copy-on-write" })).toMatchObject({

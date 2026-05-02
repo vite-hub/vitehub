@@ -31,6 +31,7 @@ catalog:
   local-pkg: ^1.1.2
   mlly: ^1.8.1
   motion-v: ^2.2.1
+  mrmime: ^2.0.1
   nitro: 3.0.260311-beta
   nuxt: ^4.4.2
   ofetch: ^1.5.1

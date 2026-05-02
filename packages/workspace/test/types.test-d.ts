@@ -23,7 +23,6 @@ describe("workspace types", () => {
     })
     source.file({
       workspacePath: "AGENTS.md",
-      mediaType: "text/markdown",
       content: "# Instructions\n",
     })
     // @ts-expect-error inline file content requires a workspacePath

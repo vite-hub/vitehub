@@ -59,8 +59,9 @@
   },
   "dependencies": {
     "defu": "^6.1.4",
+    "exsolve": "^1.0.8",
     "isomorphic-git": "^1.37.6",
-    "exsolve": "^1.0.8"
+    "mrmime": "catalog:"
   },
   "peerDependencies": {
     "@vercel/blob": "^2.3.3",
@@ -83,10 +84,10 @@
     }
   },
   "devDependencies": {
-    "ai": "^6.0.172",
+    "@types/node": "^25.6.0",
     "@vercel/blob": "^2.3.3",
     "@vitehub/internal": "workspace:*",
-    "@types/node": "^25.6.0",
+    "ai": "^6.0.172",
     "nitro": "3.0.260311-beta",
     "ofetch": "^1.5.1",
     "publint": "^0.3.15",

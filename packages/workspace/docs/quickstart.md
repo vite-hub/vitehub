@@ -45,7 +45,6 @@ export default defineWorkspace({
     source.file({
       path: 'README.md',
       workspacePath: 'README.md',
-      mediaType: 'text/markdown',
     }),
   ],
 })

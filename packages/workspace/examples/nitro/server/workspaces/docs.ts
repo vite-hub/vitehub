@@ -10,7 +10,6 @@ export default defineWorkspace({
       path: "README.md",
       workspacePath: "README.md",
       content: "# Workspace example\n",
-      mediaType: "text/markdown",
     }),
   ],
 })
