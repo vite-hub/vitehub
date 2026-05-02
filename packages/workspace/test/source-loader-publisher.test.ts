@@ -108,7 +108,6 @@ describe("sources, loaders, and publishers", () => {
         source.github({
           repo: "acme/app",
           root: "dbt",
-          workspaceRoot: "acme/app/dbt",
         }),
       ],
       loaders: [loader.files()],
@@ -117,7 +116,7 @@ describe("sources, loaders, and publishers", () => {
     const workspace = await useWorkspace("github-loader")
     await workspace.sync()
 
-    await expect(workspace.readFile("acme/app/dbt/models/marts/orders.sql")).resolves.toBe("select 1\n")
+    await expect(workspace.readFile("models/marts/orders.sql")).resolves.toBe("select 1\n")
   })
 
   it("reports inaccessible GitHub repositories with a source-specific error", async () => {

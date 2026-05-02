@@ -11,7 +11,6 @@ export interface GitHubSourceOptions {
   auth?: string
   include?: string | string[]
   exclude?: string | string[]
-  workspaceRoot?: string
 }
 
 interface GitHubTreeItem {
@@ -38,7 +37,6 @@ interface GitHubFile {
 export function github(options: GitHubSourceOptions): WorkspaceSource {
   const ref = options.ref || "main"
   const root = normalizeWorkspacePath(options.root || "")
-  const workspaceRoot = normalizeWorkspacePath(options.workspaceRoot || "")
   let filesPromise: Promise<GitHubFile[]> | undefined
   const contentPromises = new Map<string, Promise<Uint8Array>>()
 
@@ -91,7 +89,7 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
         if (!key || !shouldInclude(key)) return undefined
         return {
           key,
-          path: workspaceRoot ? `${workspaceRoot}/${key}` : key,
+          path: key,
         }
       })
       .filter((file): file is GitHubFile => Boolean(file))

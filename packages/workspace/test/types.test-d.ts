@@ -32,7 +32,6 @@ describe("workspace types", () => {
       root: "docs",
       include: "**/*.md",
       exclude: "docs/drafts/**",
-      workspaceRoot: "acme/app/docs",
     })
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
