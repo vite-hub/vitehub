@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import process from "node:process"
 import { pathToFileURL } from "node:url"
@@ -161,6 +162,20 @@ function usage() {
   ].join("\n")
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+export function isCliEntrypoint(scriptPath: string | undefined = process.argv[1], moduleUrl: string = import.meta.url): boolean {
+  if (!scriptPath) return false
+
+  const scriptUrl = pathToFileURL(scriptPath).href
+  if (scriptUrl === moduleUrl) return true
+
+  try {
+    return pathToFileURL(realpathSync(scriptPath)).href === moduleUrl
+  }
+  catch {
+    return false
+  }
+}
+
+if (isCliEntrypoint()) {
   process.exitCode = await main()
 }

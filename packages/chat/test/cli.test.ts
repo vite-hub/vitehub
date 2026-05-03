@@ -1,10 +1,11 @@
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdtemp, realpath, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { createTelegramWebhookUrl, loadEnv, main } from "../src/cli.ts"
+import { createTelegramWebhookUrl, isCliEntrypoint, loadEnv, main } from "../src/cli.ts"
 
 function createWriter() {
   let output = ""
@@ -37,6 +38,16 @@ describe("vitehub-chat CLI", () => {
 
   it("builds the default Telegram webhook URL", () => {
     expect(createTelegramWebhookUrl("https://worker.example.test")).toBe("https://worker.example.test/api/webhooks/telegram")
+  })
+
+  it("detects pnpm bin symlinks as the CLI entrypoint", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vitehub-chat-cli-"))
+    const target = join(dir, "cli.js")
+    const linked = join(dir, "vitehub-chat")
+    await writeFile(target, "#!/usr/bin/env node\n")
+    await symlink(target, linked)
+
+    expect(isCliEntrypoint(linked, pathToFileURL(await realpath(target)).href)).toBe(true)
   })
 
   it("sets Telegram webhook using env tokens and route override", async () => {
