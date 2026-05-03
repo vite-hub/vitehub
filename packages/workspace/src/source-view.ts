@@ -106,13 +106,19 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       sourcePaths.set(resolution.sourceKey, list)
     }
 
+    const filteredStorePaths = storePaths.filter(Boolean)
+    const cwdPath = !query.paths?.length && query.cwd ? normalizeWorkspacePath(query.cwd) : ""
+    const effectiveStorePaths = filteredStorePaths.length
+      ? filteredStorePaths
+      : cwdPath ? [cwdPath] : undefined
+
     const results: WorkspaceSearchHit[] = await searchMaterializedStore(store, {
       ...query,
-      paths: storePaths.filter(Boolean).length ? storePaths.filter(Boolean) : undefined,
+      paths: effectiveStorePaths,
       limit,
     })
 
-    if (query.paths?.length && !storePaths.filter(Boolean).length) {
+    if (query.paths?.length && !filteredStorePaths.length) {
       results.length = 0
     }
 
