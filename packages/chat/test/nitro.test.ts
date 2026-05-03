@@ -123,6 +123,54 @@ describe("defineChatWebhookHandler", () => {
     expect(calls).toEqual(["request", "resolved", "webhook"])
   })
 
+  it("runs definition hooks before explicit handler hooks", async () => {
+    const { defineChat } = await import("../src/index.ts")
+    const { defineChatWebhookHandler } = await import("../src/nitro.ts")
+    const calls: string[] = []
+    const webhook = vi.fn(() => new Response("ok"))
+    const bot = { webhooks: { telegram: webhook } }
+    const chat = defineChat({
+      create: vi.fn(() => bot),
+      hooks: {
+        request: () => {
+          calls.push("definition:request")
+        },
+        resolved: (context: { bot: unknown }) => {
+          calls.push("definition:resolved")
+          expect(context.bot).toBe(bot)
+        },
+        webhook: () => {
+          calls.push("definition:webhook")
+        },
+      },
+    } as never)
+    const handler = defineChatWebhookHandler(chat, {
+      hooks: {
+        request: () => {
+          calls.push("handler:request")
+        },
+        resolved: (context) => {
+          calls.push("handler:resolved")
+          expect(context.bot).toBe(bot)
+        },
+        webhook: () => {
+          calls.push("handler:webhook")
+        },
+      },
+    })
+
+    await handler(createEvent("telegram") as never)
+
+    expect(calls).toEqual([
+      "definition:request",
+      "handler:request",
+      "definition:resolved",
+      "handler:resolved",
+      "definition:webhook",
+      "handler:webhook",
+    ])
+  })
+
   it("supports a fixed platform option", async () => {
     const { defineChatWebhookHandler } = await import("../src/nitro.ts")
     const webhook = vi.fn(() => new Response("ok"))
@@ -136,17 +184,50 @@ describe("defineChatWebhookHandler", () => {
   })
 
   it("returns a clear 404 for unknown platforms and calls error hooks", async () => {
+    const { defineChat } = await import("../src/index.ts")
     const { defineChatWebhookHandler } = await import("../src/nitro.ts")
-    const onError = vi.fn()
-    const handler = defineChatWebhookHandler({ webhooks: {} } as never, {
-      hooks: { error: onError },
+    const calls: string[] = []
+    const definitionError = vi.fn((_error, context) => {
+      calls.push(`definition:${context.platform}`)
+    })
+    const handlerError = vi.fn((_error, context) => {
+      calls.push(`handler:${context.platform}`)
+    })
+    const handler = defineChatWebhookHandler(defineChat({
+      bot: { webhooks: {} } as never,
+      hooks: { error: definitionError },
+    }), {
+      hooks: { error: handlerError },
     })
 
     await expect(handler(createEvent("missing") as never)).rejects.toMatchObject({
       status: 404,
       statusMessage: "Unknown chat platform: missing",
     })
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ statusMessage: "Unknown chat platform: missing" }), expect.any(Object))
+    expect(definitionError).toHaveBeenCalledWith(expect.objectContaining({ statusMessage: "Unknown chat platform: missing" }), expect.any(Object))
+    expect(handlerError).toHaveBeenCalledWith(expect.objectContaining({ statusMessage: "Unknown chat platform: missing" }), expect.any(Object))
+    expect(calls).toEqual(["definition:missing", "handler:missing"])
+  })
+
+  it("keeps raw Chat SDK inputs hook-free", async () => {
+    const { defineChatWebhookHandler } = await import("../src/nitro.ts")
+    const calls: string[] = []
+    const webhook = vi.fn(() => new Response("ok"))
+    const handler = defineChatWebhookHandler({ webhooks: { telegram: webhook } } as never, {
+      hooks: {
+        request: () => {
+          calls.push("handler:request")
+        },
+        webhook: () => {
+          calls.push("handler:webhook")
+        },
+      },
+    })
+
+    await handler(createEvent("telegram") as never)
+
+    expect(webhook).toHaveBeenCalledTimes(1)
+    expect(calls).toEqual(["handler:request", "handler:webhook"])
   })
 })
 

@@ -4,6 +4,7 @@ import { useRuntimeConfig } from "nitro/runtime-config"
 
 import { resolveChat } from "../index.ts"
 import { createMemo } from "../runtime/context.ts"
+import { getChatDefinitionHooks } from "../runtime/definition.ts"
 
 import type { Chat, WebhookOptions } from "chat"
 import type { EventHandler, H3Event } from "h3"
@@ -61,7 +62,7 @@ function getRuntimeConfig(event: H3Event): NitroRuntimeConfig {
   return (useRuntimeConfig as unknown as (event?: H3Event) => NitroRuntimeConfig)(event)
 }
 
-function createHookRunner<TContext extends ChatRuntimeContext>(hooks: ChatWebhookRuntimeHooks<TContext> | undefined) {
+function createHookRunner<TContext extends ChatRuntimeContext>(...hooksList: Array<ChatWebhookRuntimeHooks<TContext> | undefined>) {
   const runtimeHooks = createHooks<{
     error: (error: unknown, context: TContext) => void | Promise<void>
     request: (context: TContext) => void | Promise<void>
@@ -69,10 +70,12 @@ function createHookRunner<TContext extends ChatRuntimeContext>(hooks: ChatWebhoo
     webhook: (context: TContext & { bot: Chat }) => void | Promise<void>
   }>()
 
-  if (hooks?.request) runtimeHooks.hook("request", hooks.request)
-  if (hooks?.resolved) runtimeHooks.hook("resolved", hooks.resolved)
-  if (hooks?.webhook) runtimeHooks.hook("webhook", hooks.webhook)
-  if (hooks?.error) runtimeHooks.hook("error", hooks.error)
+  for (const hooks of hooksList) {
+    if (hooks?.request) runtimeHooks.hook("request", hooks.request)
+    if (hooks?.resolved) runtimeHooks.hook("resolved", hooks.resolved)
+    if (hooks?.webhook) runtimeHooks.hook("webhook", hooks.webhook)
+    if (hooks?.error) runtimeHooks.hook("error", hooks.error)
+  }
 
   return runtimeHooks
 }
@@ -82,7 +85,7 @@ export function defineChatWebhookHandler(
   options: ChatWebhookHandlerOptions<NitroChatRuntimeContext> = {},
 ): EventHandler {
   const routeParam = options.routeParam || "platform"
-  const hooks = createHookRunner(options.hooks)
+  const hooks = createHookRunner(getChatDefinitionHooks(chat), options.hooks)
 
   return defineEventHandler(async (event) => {
     const platform = options.platform || getRouterParam(event, routeParam)

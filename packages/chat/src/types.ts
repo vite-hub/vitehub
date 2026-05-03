@@ -26,8 +26,8 @@ export type ChatFactory<TContext extends ChatRuntimeContext = ChatRuntimeContext
 ) => MaybePromise<Chat>
 
 export type ChatDefinition<TContext extends ChatRuntimeContext = ChatRuntimeContext> =
-  | { bot: Chat }
-  | { create: ChatFactory<TContext> }
+  | { bot: Chat, hooks?: ChatWebhookRuntimeHooks<TContext> }
+  | { create: ChatFactory<TContext>, hooks?: ChatWebhookRuntimeHooks<TContext> }
 
 export type ChatInput<TContext extends ChatRuntimeContext = ChatRuntimeContext> =
   | Chat

@@ -5,6 +5,8 @@ import type {
 } from "./types.ts"
 import type { Chat } from "chat"
 
+import { isChatDefinition } from "./runtime/definition.ts"
+
 export type {
   ChatCloudflareDurableObjectModuleOptions,
   ChatDefinition,
@@ -21,14 +23,6 @@ export type {
   MaybePromise,
   ResolvedChatModuleOptions,
 } from "./types.ts"
-
-function isChatDefinition<TContext extends ChatRuntimeContext>(
-  value: ChatInput<TContext>,
-): value is ChatDefinition<TContext> {
-  return typeof value === "object"
-    && value !== null
-    && ("bot" in value || "create" in value)
-}
 
 export function defineChat<TContext extends ChatRuntimeContext = ChatRuntimeContext>(
   definition: ChatDefinition<TContext>,

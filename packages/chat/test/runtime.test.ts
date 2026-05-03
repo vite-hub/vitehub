@@ -32,6 +32,19 @@ describe("defineChat", () => {
     expect(create).toHaveBeenCalledWith(context)
   })
 
+  it("preserves lifecycle hooks on chat definitions", async () => {
+    const { defineChat } = await import("../src/index.ts")
+    const hooks = {
+      request: vi.fn(),
+    }
+    const definition = defineChat({
+      create: vi.fn(() => ({ webhooks: {} })),
+      hooks,
+    } as never)
+
+    expect(definition).toMatchObject({ hooks })
+  })
+
   it("returns raw Chat SDK instances unchanged", async () => {
     const { resolveChat } = await import("../src/index.ts")
     const bot = { webhooks: {} }
