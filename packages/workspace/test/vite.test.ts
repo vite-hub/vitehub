@@ -26,6 +26,7 @@ async function createViteRoot() {
 }
 
 afterEach(async () => {
+  delete process.env.VITEHUB_WORKSPACE_DEV
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
@@ -42,6 +43,7 @@ describe("hubWorkspace", () => {
     await configResolved({ root } as never)
 
     expect(plugin.nitro.name).toBe("@vitehub/workspace")
+    expect(process.env.VITEHUB_WORKSPACE_DEV).toBe("true")
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({
       resolve: { noExternal: ["@vitehub/workspace"] },
     })

@@ -172,8 +172,9 @@ async function syncBuildWorkspaceAssets(nitro: Nitro, options: false | ResolvedW
 const workspaceNitroModule: NitroModule = {
   name: "@vitehub/workspace",
   async setup(nitro) {
+    const isDev = nitro.options.dev || process.env.VITEHUB_WORKSPACE_DEV === "true"
     const resolved = normalizeWorkspaceOptions((nitro.options as typeof nitro.options & { workspace?: false | WorkspaceModuleOptions }).workspace, {
-      dev: nitro.options.dev,
+      dev: isDev,
       env: process.env,
       hosting: nitro.options.preset,
       rootDir: nitro.options.rootDir,

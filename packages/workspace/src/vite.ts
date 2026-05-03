@@ -67,6 +67,10 @@ export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePl
     nitro: workspaceNitroModule,
     async configResolved(config) {
       resolved = config
+      if (config.command !== "build")
+        process.env.VITEHUB_WORKSPACE_DEV = "true"
+      else
+        delete process.env.VITEHUB_WORKSPACE_DEV
       resolvedOptions = normalizeWorkspaceOptions(_options ?? (config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace, {
         dev: config.command !== "build",
         env: process.env,

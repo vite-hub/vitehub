@@ -16,6 +16,7 @@ async function createRoot() {
 }
 
 afterEach(async () => {
+  delete process.env.VITEHUB_WORKSPACE_DEV
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
@@ -36,6 +37,36 @@ describe("Nitro syncOnBuild", () => {
       options: {
         _config: {},
         dev: true,
+        preset: "cloudflare-module",
+        rootDir: root,
+        runtimeConfig: {} as { workspace?: unknown },
+        workspace: {},
+      },
+    }
+
+    await workspaceNitroModule.setup!(nitro as never)
+
+    expect((nitro.options.runtimeConfig as { workspace?: unknown }).workspace).toMatchObject({
+      store: { provider: "local" },
+    })
+  })
+
+  it("uses a local workspace store when Vite marks the process as workspace dev", async () => {
+    const root = await createRoot()
+    process.env.VITEHUB_WORKSPACE_DEV = "true"
+    const hooks: Record<string, Array<() => Promise<void>>> = {}
+    const nitro = {
+      hooks: {
+        hook(name: string, callback: () => Promise<void>) {
+          hooks[name] ||= []
+          hooks[name].push(callback)
+        },
+      },
+      logger: {
+        info() {},
+      },
+      options: {
+        _config: {},
         preset: "cloudflare-module",
         rootDir: root,
         runtimeConfig: {} as { workspace?: unknown },
