@@ -27,6 +27,12 @@ function shouldSyncWorkspace(syncOnBuild: boolean | string[] | undefined, name: 
   return syncOnBuild === undefined || syncOnBuild === true || (Array.isArray(syncOnBuild) && syncOnBuild.includes(name))
 }
 
+function buildSyncStore(options: ResolvedWorkspaceModuleOptions["store"]): ResolvedWorkspaceModuleOptions["store"] {
+  return options.provider === "cloudflare-artifacts" || options.provider === "vercel-blob"
+    ? { provider: "memory" }
+    : options
+}
+
 function assetModuleName(workspace: string, path: string) {
   const hash = createHash("sha256").update(`${workspace}\0${path}`).digest("hex").slice(0, 16)
   return `${hash}.mjs`
@@ -58,6 +64,7 @@ export async function syncDiscoveredWorkspaces(
     registerWorkspace(definition.name, {
       ...mod.default,
       rootDir: mod.default.rootDir || rootDir,
+      store: mod.default.store || buildSyncStore(options.store),
     })
 
     const workspace = await useRegisteredWorkspace(definition.name)

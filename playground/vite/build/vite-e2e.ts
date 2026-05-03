@@ -291,10 +291,21 @@ function renderWorkspaceRuntimeModule(file: string) {
   return [
     `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(workspacePackageDir, "define")))}`,
     `export * as loader from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/loaders/index.ts")))}`,
-    `export * as publish from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/publishers/index.ts")))}`,
     `export { registerWorkspace } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(workspacePackageDir, "registry")))}`,
-    `export * as source from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/sources/index.ts")))}`,
     `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(workspacePackageDir, "use")))}`,
+    "",
+  ].join("\n")
+}
+
+function renderWorkspaceUnshellRuntimeModule() {
+  return [
+    "export const workspaceMountPoint = '/workspace'",
+    "export function cleanWorkspaceMutationPath(path) { return path }",
+    "export function createReadonlyWorkspaceFs(fs) { return fs }",
+    "export function createWritableWorkspaceFs(fs) { return fs }",
+    "export async function runWorkspaceInspectionCommand() {",
+    "  throw new Error('[vitehub] Workspace shell tools are not available in the hosted Vite e2e runtime.')",
+    "}",
     "",
   ].join("\n")
 }
@@ -405,14 +416,19 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   if (typeof options.workspace !== "undefined") {
     const workspaceRuntimeFile = resolve(generatedDir, "workspace-runtime.mjs")
+    const workspaceUnshellRuntimeFile = resolve(generatedDir, "workspace-unshell-runtime.mjs")
     alias["@vitehub/workspace/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
     alias["@vitehub/workspace"] = workspaceRuntimeFile
+    alias["@vitehub/unshell"] = workspaceUnshellRuntimeFile
     alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
     for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
       alias[dependency] = resolvePackageDependency(workspacePackageDir, dependency)
     }
-    runtimeWrites.push(writeFile(workspaceRuntimeFile, renderWorkspaceRuntimeModule(workspaceRuntimeFile), "utf8"))
+    runtimeWrites.push(
+      writeFile(workspaceRuntimeFile, renderWorkspaceRuntimeModule(workspaceRuntimeFile), "utf8"),
+      writeFile(workspaceUnshellRuntimeFile, renderWorkspaceUnshellRuntimeModule(), "utf8"),
+    )
   }
 
   await Promise.all(runtimeWrites)
@@ -778,10 +794,12 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
       "node:child_process",
       "node:buffer",
       "node:crypto",
+      "node:fs",
       "node:fs/promises",
       "node:path",
       "node:path/posix",
       "node:stream",
+      "node:url",
       "workflow",
       "workflow/api",
       "workflow/runtime",
@@ -971,7 +989,7 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
     kv: normalizeKVOptions(undefined, { hosting }),
     queue: normalizeQueueOptions({}, { hosting }) || false,
     sandbox: resolveSandboxFeatureConfig({}, hosting),
-    workspace: normalizeWorkspaceOptions({}, { env: process.env, hosting, rootDir }),
+    workspace: normalizeWorkspaceOptions(provider === "vercel" ? { store: { provider: "memory" } } : {}, { env: process.env, hosting, rootDir }),
     workflow: normalizeWorkflowOptions({}, { hosting }) || false,
   }
 }

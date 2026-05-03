@@ -105,7 +105,7 @@ export default defineConfig(async () => {
       ],
       queue: {},
       sandbox: composerOptions.sandbox,
-      workspace: {},
+      workspace: { store: { provider: "memory" } },
       workflow: {},
     }
   }
