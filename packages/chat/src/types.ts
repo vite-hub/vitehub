@@ -31,6 +31,7 @@ export interface ChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = C
     durableObjectStateName?: string
     env?: Record<string, unknown>
   }
+  dev?: boolean
   event?: unknown
   memo<T>(key: string, create: () => T): T
   platform?: string
@@ -193,10 +194,16 @@ export interface ChatWebhookModuleOptions {
   routeParam?: string
 }
 
+export interface ChatDevModuleOptions {
+  initialize?: boolean
+  localStateFallback?: boolean
+}
+
 export interface ChatModuleOptions {
   cloudflare?: {
     durableObjectState?: boolean | ChatCloudflareDurableObjectModuleOptions
   }
+  dev?: false | ChatDevModuleOptions
   imports?: boolean
   provider?: "auto" | "cloudflare" | "nitro" | "vercel"
   webhook?: string | false | ChatWebhookModuleOptions
@@ -209,6 +216,7 @@ export interface ResolvedChatModuleOptions {
       name?: string
     }
   }
+  dev: false | Required<ChatDevModuleOptions>
   imports: boolean
   provider: "auto" | "cloudflare" | "nitro" | "vercel"
   webhook: false | Required<ChatWebhookModuleOptions>

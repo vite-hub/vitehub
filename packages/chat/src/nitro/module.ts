@@ -104,6 +104,14 @@ function createNitroChatRegistryPath(rootDir: string, buildDir: string): string 
   })
 }
 
+function createNitroChatDevInitializerPath(rootDir: string, buildDir: string): string {
+  return createGeneratedDefinitionPath(rootDir, {
+    buildDir,
+    fileName: "dev-initialize.mjs",
+    segments: [".vitehub", "nitro-runtime", "chat"],
+  })
+}
+
 function normalizeNitroRoute(route: string): string {
   return route.replace(/\[([A-Za-z0-9_]+)\]/g, ":$1")
 }
@@ -214,7 +222,30 @@ function createNitroRegistryChatRouteContents(file: string, registryFile: string
   ].join("\n")
 }
 
+function createNitroSingleChatDevInitializerContents(file: string, definition: DiscoveredChatDefinition): string {
+  return [
+    `import chat from ${JSON.stringify(createImportPath(file, definition.handler))}`,
+    `import { defineChatDevInitializer } from "@vitehub/chat/nitro"`,
+    "",
+    `export default defineChatDevInitializer(chat, ${renderOptions({
+      inferredName: definition.name,
+    })})`,
+    "",
+  ].join("\n")
+}
+
+function createNitroRegistryChatDevInitializerContents(file: string, registryFile: string): string {
+  return [
+    `import chatRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    `import { defineChatDevRegistryInitializer } from "@vitehub/chat/nitro"`,
+    "",
+    `export default defineChatDevRegistryInitializer(chatRegistry)`,
+    "",
+  ].join("\n")
+}
+
 interface ChatRuntimeFiles {
+  devInitializerFile?: string
   definitions: DiscoveredChatDefinition[]
   registryFile?: string
   routeFile?: string
@@ -226,26 +257,45 @@ async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | Resolve
     scanDirs: resolveNitroChatScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
 
-  if (!options || !options.webhook || !definitions.length) {
+  if (!options || !definitions.length) {
     return { definitions }
   }
 
-  const routeFile = createNitroChatRoutePath(nitro.options.rootDir, nitro.options.buildDir)
-  const route = options.webhook.route
-  const hasChatParam = routeHasParam(route, options.webhook.chatParam)
-  if (definitions.length > 1 && !hasChatParam) {
+  const hasChatParam = options.webhook ? routeHasParam(options.webhook.route, options.webhook.chatParam) : false
+  if (definitions.length > 1 && options.webhook && !hasChatParam) {
     throw new Error(`Multiple chat definitions were discovered, but chat.webhook.route does not include [${options.webhook.chatParam}]. Use a route such as /api/webhooks/[${options.webhook.chatParam}]/[${options.webhook.routeParam}].`)
   }
 
-  if (hasChatParam) {
-    const registryFile = createNitroChatRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
+  let registryFile: string | undefined
+  if (definitions.length > 1 || hasChatParam) {
+    registryFile = createNitroChatRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
     await writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions))
-    await writeFileIfChanged(routeFile, createNitroRegistryChatRouteContents(routeFile, registryFile, options))
-    return { definitions, registryFile, routeFile }
   }
 
-  await writeFileIfChanged(routeFile, createNitroSingleChatRouteContents(routeFile, definitions[0]!, options))
-  return { definitions, routeFile }
+  let routeFile: string | undefined
+  if (options.webhook) {
+    routeFile = createNitroChatRoutePath(nitro.options.rootDir, nitro.options.buildDir)
+  }
+
+  if (routeFile && options.webhook && hasChatParam && registryFile) {
+    await writeFileIfChanged(routeFile, createNitroRegistryChatRouteContents(routeFile, registryFile, options))
+  }
+  else if (routeFile && options.webhook) {
+    await writeFileIfChanged(routeFile, createNitroSingleChatRouteContents(routeFile, definitions[0]!, options))
+  }
+
+  let devInitializerFile: string | undefined
+  if (options.dev && options.dev.initialize) {
+    devInitializerFile = createNitroChatDevInitializerPath(nitro.options.rootDir, nitro.options.buildDir)
+    if (definitions.length > 1 && registryFile) {
+      await writeFileIfChanged(devInitializerFile, createNitroRegistryChatDevInitializerContents(devInitializerFile, registryFile))
+    }
+    else {
+      await writeFileIfChanged(devInitializerFile, createNitroSingleChatDevInitializerContents(devInitializerFile, definitions[0]!))
+    }
+  }
+
+  return { definitions, devInitializerFile, registryFile, routeFile }
 }
 
 function installAliases(nitro: Nitro): void {
@@ -256,6 +306,12 @@ function installAliases(nitro: Nitro): void {
   nitro.options.alias["@vitehub/chat/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vitehub/chat/runtime/nitro-runtime-config")
   nitro.options.alias["@vitehub/chat/runtime/nitro-plugin"] = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/chat/runtime/nitro-plugin")
   nitro.options.alias["@vitehub/chat/vercel"] = resolveRuntimeEntry("../vercel", "@vitehub/chat/vercel")
+  nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"] = resolveRuntimeEntry("../runtime/nitro-dev-initialize", "@vitehub/chat/runtime/nitro-dev-initialize")
+}
+
+function installDevInitializerAlias(nitro: Nitro, devInitializerFile: string | undefined): void {
+  nitro.options.alias ||= {}
+  nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"] = devInitializerFile || resolveRuntimeEntry("../runtime/nitro-dev-initialize", "@vitehub/chat/runtime/nitro-dev-initialize")
 }
 
 function installNitroPlugin(nitro: Nitro): void {
@@ -364,11 +420,12 @@ const chatNitroModule: NitroModule = {
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, CHAT_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports, {
         from: "@vitehub/chat/nitro",
-        imports: ["defineChatWebhookHandler", "defineChatWebhookRegistryHandler"],
+        imports: ["defineChatDevInitializer", "defineChatDevRegistryInitializer", "defineChatWebhookHandler", "defineChatWebhookRegistryHandler"],
       }) as typeof nitro.options.imports
     }
 
     let runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
+    installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
     if (resolved) {
       installRoute(nitro, resolved, runtimeFiles.routeFile)
       await installCloudflareWorkerName(nitro, resolved)
@@ -377,6 +434,7 @@ const chatNitroModule: NitroModule = {
 
     nitro.hooks.hook("build:before", async () => {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
+      installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
       if (resolved) {
         await installCloudflareWorkerName(nitro, resolved)
         await installCloudflareStateConfig(nitro, resolved, runtimeFiles.definitions)
@@ -384,6 +442,7 @@ const chatNitroModule: NitroModule = {
     })
     nitro.hooks.hook("dev:reload", async () => {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
+      installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
     })
   },
 }

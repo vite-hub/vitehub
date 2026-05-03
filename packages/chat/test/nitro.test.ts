@@ -273,6 +273,37 @@ describe("defineChatWebhookHandler", () => {
     expect(webhook).toHaveBeenCalledTimes(1)
     expect(calls).toEqual(["handler:request", "handler:webhook"])
   })
+
+  it("initializes a dev chat once with a dev Nitro context", async () => {
+    const { defineChat } = await import("../src/index.ts")
+    const { defineChatDevInitializer } = await import("../src/nitro.ts")
+    runtimeConfigMock.value = { chat: { dev: { localStateFallback: true } } }
+    const initialize = vi.fn()
+    const adapters = vi.fn((context) => {
+      expect(context.dev).toBe(true)
+      expect(context.runtime).toBe("nitro")
+      expect(context.runtimeConfig).toBe(runtimeConfigMock.value)
+      return {}
+    })
+    const chat = defineChat({
+      adapters,
+      setup(bot: { initialize: () => Promise<void> }) {
+        bot.initialize = initialize
+      },
+      state: {
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      } as never,
+      userName: "Quiver Chat",
+    })
+    const initializeDev = defineChatDevInitializer(chat)
+
+    await initializeDev()
+    await initializeDev()
+
+    expect(adapters).toHaveBeenCalledTimes(1)
+    expect(initialize).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("Nitro module", () => {
@@ -341,6 +372,10 @@ describe("Nitro module", () => {
     await module.setup(nitro as never)
 
     expect(nitro.options.runtimeConfig.chat).toMatchObject({
+      dev: {
+        initialize: true,
+        localStateFallback: true,
+      },
       imports: true,
       webhook: {
         chatParam: "chat",
@@ -359,6 +394,7 @@ describe("Nitro module", () => {
     expect(nitro.options.plugins.some(plugin => plugin.includes("/packages/chat/src/runtime/nitro-plugin.ts"))).toBe(true)
     expect(nitro.options.externals.inline).toEqual(expect.arrayContaining(["@vitehub/chat", "chat", "chat-state-cloudflare-do"]))
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChat")
+    expect(JSON.stringify(nitro.options.imports)).toContain("defineChatDevInitializer")
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChatWebhookHandler")
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChatWebhookRegistryHandler")
     expect(nitro.options.cloudflare).toMatchObject({
@@ -390,6 +426,11 @@ describe("Nitro module", () => {
     const routeContents = await readFile(routeFile, "utf8")
     expect(routeContents).toContain("defineChatWebhookHandler(chat")
     expect(routeContents).toContain("inferredName: \"chat\"")
+    const devInitializerFile = nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"]
+    expect(devInitializerFile).toContain("/.nitro/.vitehub/nitro-runtime/chat/dev-initialize.mjs")
+    const devInitializerContents = await readFile(devInitializerFile, "utf8")
+    expect(devInitializerContents).toContain("defineChatDevInitializer(chat")
+    expect(devInitializerContents).toContain("inferredName: \"chat\"")
   })
 
   it("keeps the default Nitro runtime config reader when the env Nitro module is installed", async () => {
@@ -540,6 +581,25 @@ describe("Nitro module", () => {
     expect(nitro.options.plugins.some(plugin => plugin.includes("/packages/chat/src/runtime/nitro-plugin.ts"))).toBe(true)
   })
 
+  it("honors disabled dev initialization", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-disabled-dev-"))
+    await writeSingleChat(rootDir)
+    const nitro = createNitroStub(rootDir, {
+      dev: { initialize: false },
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.runtimeConfig.chat).toMatchObject({
+      dev: {
+        initialize: false,
+        localStateFallback: true,
+      },
+    })
+    expect(nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"]).toContain("/packages/chat/src/runtime/nitro-dev-initialize.ts")
+  })
+
   it("requires a chat route param for multiple discovered chats", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-multiple-"))
     await writeChat(rootDir, "bot")
@@ -566,5 +626,6 @@ describe("Nitro module", () => {
       route: "/api/webhooks/:chat/:platform",
     })
     expect(await readFile(nitro.options.handlers[0]!.handler, "utf8")).toContain("defineChatWebhookRegistryHandler")
+    expect(await readFile(nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"], "utf8")).toContain("defineChatDevRegistryInitializer")
   })
 })

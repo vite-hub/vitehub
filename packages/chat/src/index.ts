@@ -5,6 +5,7 @@ import { isChatDefinition } from "./runtime/definition.ts"
 import type {
   ChatActionHookInput,
   ChatDefinition,
+  ChatDevModuleOptions,
   ChatDirectMessageHook,
   ChatEventHook,
   ChatEventHooks,

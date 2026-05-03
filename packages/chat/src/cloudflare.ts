@@ -1,6 +1,7 @@
 import { resolveChat } from "./index.ts"
 import { createChatRuntimeContext } from "./runtime/context.ts"
 import { defaultChatCloudflareDurableObjectName } from "./config.ts"
+import { MemoryChatStateAdapter } from "./runtime/memory-state.ts"
 
 import type { Chat, StateAdapter, WebhookOptions } from "chat"
 import type {
@@ -114,6 +115,13 @@ function inferPlatform(request: Request): string | undefined {
   return pathname.split("/").filter(Boolean).at(-1)
 }
 
+function shouldUseLocalStateFallback(context: ChatRuntimeContext): boolean {
+  const chatConfig = context.runtimeConfig && "chat" in context.runtimeConfig
+    ? (context.runtimeConfig as { chat?: { dev?: false | { localStateFallback?: boolean } } }).chat
+    : undefined
+  return context.dev === true && chatConfig?.dev !== false && chatConfig?.dev?.localStateFallback !== false
+}
+
 export function cloudflareDurableObjectState(
   options: CloudflareDurableObjectStateOptions = {},
 ): ChatDurableObjectStateResolver {
@@ -122,6 +130,11 @@ export function cloudflareDurableObjectState(
       const binding = options.binding || "CHAT_STATE"
       const namespace = context.cloudflare?.env?.[binding]
       if (!namespace) {
+        if (shouldUseLocalStateFallback(context)) {
+          const name = options.name || context.cloudflare?.durableObjectStateName || defaultChatCloudflareDurableObjectName
+          return context.memo(`vitehub:chat:memory-state:${binding}:${name}`, () => new MemoryChatStateAdapter())
+        }
+
         throw new Error(
           `Missing Cloudflare Durable Object binding ${binding}. Configure chat.cloudflare.durableObjectState or wrangler durable_objects.`,
         )

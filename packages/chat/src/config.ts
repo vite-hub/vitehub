@@ -34,6 +34,17 @@ function normalizeWebhookOptions(webhook: ChatModuleOptions["webhook"]): Resolve
   }
 }
 
+function normalizeDevOptions(dev: ChatModuleOptions["dev"]): ResolvedChatModuleOptions["dev"] {
+  if (dev === false) {
+    return false
+  }
+
+  return {
+    initialize: dev?.initialize !== false,
+    localStateFallback: dev?.localStateFallback !== false,
+  }
+}
+
 export function normalizeChatOptions(options: ChatModuleOptions | false | undefined): false | ResolvedChatModuleOptions {
   if (options === false) {
     return false
@@ -41,6 +52,7 @@ export function normalizeChatOptions(options: ChatModuleOptions | false | undefi
 
   const durableObjectState = options?.cloudflare?.durableObjectState
   const resolved: ResolvedChatModuleOptions = {
+    dev: normalizeDevOptions(options?.dev),
     imports: options?.imports !== false,
     provider: options?.provider || "auto",
     webhook: normalizeWebhookOptions(options?.webhook),

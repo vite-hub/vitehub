@@ -14,9 +14,9 @@ import type { ChatInput, ChatRuntimeConfig, ChatRuntimeContext, ChatWebhookHandl
 export interface NitroChatRuntimeConfig extends NitroRuntimeConfig, ChatRuntimeConfig {}
 
 export interface NitroChatRuntimeContext extends ChatRuntimeContext<NitroChatRuntimeConfig> {
-  event: H3Event
+  event?: H3Event
   platform: string
-  request: Request
+  request?: Request
   runtime: "nitro"
   runtimeConfig: NitroChatRuntimeConfig
 }
@@ -126,7 +126,7 @@ export function defineChatWebhookHandler(
       }
 
       await hooks.callHook("webhook", { ...context, bot })
-      return await handler(context.request, { waitUntil })
+      return await handler(context.request!, { waitUntil })
     }
     catch (error) {
       await hooks.callHook("error", error, context)
@@ -173,4 +173,42 @@ export function defineChatWebhookRegistryHandler(
       inferredName: options.inferredName || chatName,
     })(event)
   })
+}
+
+export function defineChatDevInitializer(
+  chat: ChatInput<NitroChatRuntimeContext>,
+  options: { inferredName?: string } = {},
+): () => Promise<void> {
+  let promise: Promise<void> | undefined
+
+  return async () => {
+    promise ||= (async () => {
+      const runtimeConfig = getChatRuntimeConfig(undefined as never) as NitroChatRuntimeConfig
+      const context: NitroChatRuntimeContext = {
+        dev: true,
+        memo: createMemo(),
+        platform: "dev",
+        runtime: "nitro",
+        runtimeConfig,
+        waitUntil: () => {},
+      }
+      const bot = await resolveChat(chat, context, { inferredName: options.inferredName })
+      await bot.initialize()
+    })()
+    await promise
+  }
+}
+
+export function defineChatDevRegistryInitializer(
+  chats: ChatRegistry,
+): () => Promise<void> {
+  let promise: Promise<void> | undefined
+
+  return async () => {
+    promise ||= Promise.all(Object.entries(chats).map(async ([chatName, loader]) => {
+      const chat = resolveRegistryModule(await loader())
+      await defineChatDevInitializer(chat, { inferredName: chatName })()
+    })).then(() => undefined)
+    await promise
+  }
 }

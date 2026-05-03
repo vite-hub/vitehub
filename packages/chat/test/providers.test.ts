@@ -87,6 +87,40 @@ describe("Cloudflare helpers", () => {
     })).toThrow("Missing Cloudflare Durable Object binding CHAT_STATE")
   })
 
+  it("uses in-memory state during Nitro dev initialization without Cloudflare bindings", async () => {
+    const { cloudflareDurableObjectState } = await import("../src/cloudflare.ts")
+    const values = new Map<string, unknown>()
+    const memo = <T>(key: string, create: () => T): T => {
+      if (!values.has(key)) values.set(key, create())
+      return values.get(key) as T
+    }
+    const state = await cloudflareDurableObjectState().resolve({
+      dev: true,
+      memo,
+      runtime: "nitro",
+      runtimeConfig: { chat: { dev: { initialize: true, localStateFallback: true }, imports: true, provider: "auto", webhook: false } } as never,
+      waitUntil: vi.fn(),
+    })
+
+    await state.connect()
+    await state.set("key", "value")
+
+    await expect(state.get("key")).resolves.toBe("value")
+    expect(cloudflareStateMock.createCloudflareState).not.toHaveBeenCalled()
+  })
+
+  it("keeps missing Cloudflare bindings strict when local state fallback is disabled", async () => {
+    const { cloudflareDurableObjectState } = await import("../src/cloudflare.ts")
+
+    expect(() => cloudflareDurableObjectState().resolve({
+      dev: true,
+      memo: vi.fn(),
+      runtime: "nitro",
+      runtimeConfig: { chat: { dev: { initialize: true, localStateFallback: false }, imports: true, provider: "auto", webhook: false } } as never,
+      waitUntil: vi.fn(),
+    })).toThrow("Missing Cloudflare Durable Object binding CHAT_STATE")
+  })
+
   it("passes ctx.waitUntil to raw Cloudflare webhook handlers", async () => {
     const { defineCloudflareChatHandler } = await import("../src/cloudflare.ts")
     const task = Promise.resolve()

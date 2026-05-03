@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { NitroRuntimeConfig } from "nitro/types"
 
 import "../src/nitro.ts"
-import { defineChat } from "@vitehub/chat"
+import { defineChat, type ChatModuleOptions } from "@vitehub/chat"
 import {
   ChatStateDO,
   defineCloudflareChatHandler,
@@ -35,5 +35,9 @@ describe("Nitro runtime config types", () => {
       },
       state: {} as never,
     })
+  })
+
+  it("accepts dev initialization options", () => {
+    expectTypeOf<ChatModuleOptions["dev"]>().toEqualTypeOf<false | { initialize?: boolean, localStateFallback?: boolean } | undefined>()
   })
 })

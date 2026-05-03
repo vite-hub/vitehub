@@ -12,6 +12,7 @@ export default defineConfig({
     "src/cli.ts",
     "src/cloudflare.ts",
     "src/nitro.ts",
+    "src/runtime/nitro-dev-initialize.ts",
     "src/runtime/cloudflare-workers-dev.ts",
     "src/runtime/nitro-runtime-config.ts",
     "src/runtime/nitro-plugin.ts",
