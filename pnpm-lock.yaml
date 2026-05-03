@@ -680,9 +680,6 @@ importers:
 
   packages/workspace:
     dependencies:
-      '@vitehub/unshell':
-        specifier: workspace:*
-        version: link:../unshell
       defu:
         specifier: ^6.1.4
         version: 6.1.7
@@ -711,6 +708,9 @@ importers:
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vitehub/unshell':
+        specifier: workspace:*
+        version: link:../unshell
       ai:
         specifier: ^6.0.172
         version: 6.0.174(zod@4.4.1)
