@@ -215,13 +215,9 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     return `${dir}/${path}`
   }
 
-  #internalAbsolute(path: string) {
-    return `${dir}/${normalizeWorkspacePath(path)}`
-  }
-
   #metaAbsolute(key: string) {
     const normalized = normalizeSafeWorkspacePath(key.endsWith(".json") ? key : `${key}.json`)
-    return this.#internalAbsolute(`.vitehub/meta/${normalized}`)
+    return this.#absolute(`.vitehub/meta/${normalized}`)
   }
 
   #getBinding(): ArtifactsBinding {
