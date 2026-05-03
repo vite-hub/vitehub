@@ -79,6 +79,10 @@ describe("Nitro module", () => {
     expect(types).toContain("\"databaseUrl\": string")
     expect(types).toContain("\"optionalApiBase\": string | undefined")
     expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
+    expect(types).toContain("declare module \"@vitehub/chat\"")
+    expect(types).toContain("export interface ChatRuntimeConfig")
+    expect(types).toContain("declare module \"@vitehub/chat/nitro\"")
+    expect(types).toContain("export interface NitroChatRuntimeConfig")
     expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env.d.ts"))
 
     const registry = await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8")
