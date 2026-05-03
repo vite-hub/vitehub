@@ -27,7 +27,11 @@ export function configureCloudflareChatState(
   target.cloudflare.wrangler.migrations ||= []
 
   const bindings = target.cloudflare.wrangler.durable_objects.bindings
-  if (!bindings.some(binding => binding.name === options.binding)) {
+  const existingBinding = bindings.find(binding => binding.name === options.binding)
+  if (existingBinding) {
+    existingBinding.class_name = options.className
+  }
+  else {
     bindings.push({
       class_name: options.className,
       name: options.binding,
@@ -35,17 +39,7 @@ export function configureCloudflareChatState(
   }
 
   const migrations = target.cloudflare.wrangler.migrations
-  const existingWithClass = migrations.find(migration => migration.new_sqlite_classes?.includes(options.className))
-  if (existingWithClass) {
-    return
-  }
-
-  const migration = migrations.find(entry => entry.tag === options.migrationTag)
-  if (migration) {
-    migration.new_sqlite_classes ||= []
-    if (!migration.new_sqlite_classes.includes(options.className)) {
-      migration.new_sqlite_classes.push(options.className)
-    }
+  if (migrations.some(migration => migration.new_sqlite_classes?.includes(options.className))) {
     return
   }
 

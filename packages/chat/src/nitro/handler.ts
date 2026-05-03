@@ -23,6 +23,21 @@ export interface NitroChatRuntimeContext extends ChatRuntimeContext<NitroChatRun
 
 type WebhookHandler = (request: Request, options?: WebhookOptions) => unknown
 
+function toFetchRequest(event: H3Event): Request {
+  const candidate = event.req as unknown
+  if (candidate instanceof Request) {
+    return candidate
+  }
+
+  const req = event.req as { method?: string, headers?: RequestInit["headers"], body?: RequestInit["body"] | null }
+  const method = (req.method || "GET").toUpperCase()
+  const init: RequestInit = { headers: req.headers, method }
+  if (method !== "GET" && method !== "HEAD" && req.body != null) {
+    init.body = req.body
+  }
+  return new Request(event.url, init)
+}
+
 interface CloudflareRuntimeCarrier {
   context?: {
     cloudflare?: {
@@ -106,7 +121,7 @@ export function defineChatWebhookHandler(
       event,
       memo: createMemo(),
       platform,
-      request: event.req as Request,
+      request: toFetchRequest(event),
       runtime: "nitro",
       runtimeConfig,
       waitUntil,

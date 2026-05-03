@@ -436,6 +436,7 @@ const chatNitroModule: NitroModule = {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
       installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
       if (resolved) {
+        installRoute(nitro, resolved, runtimeFiles.routeFile)
         await installCloudflareWorkerName(nitro, resolved)
         await installCloudflareStateConfig(nitro, resolved, runtimeFiles.definitions)
       }
@@ -443,6 +444,9 @@ const chatNitroModule: NitroModule = {
     nitro.hooks.hook("dev:reload", async () => {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
       installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
+      if (resolved) {
+        installRoute(nitro, resolved, runtimeFiles.routeFile)
+      }
     })
   },
 }
@@ -474,5 +478,5 @@ declare module "nitro/types" {
 }
 
 declare module "@vitehub/chat" {
-  interface ChatRuntimeConfig extends NitroRuntimeConfig {}
+  interface ChatRuntimeConfig extends NitroRuntimeConfig, Record<string, any> {}
 }
