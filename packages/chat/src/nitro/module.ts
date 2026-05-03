@@ -15,9 +15,77 @@ const CHAT_NITRO_IMPORTS_PRESET = {
   from: "@vitehub/chat",
   imports: ["defineChat"],
 }
+const chatCloudflareExportsModulePrefix = "virtual:vitehub-chat-cloudflare-exports"
+
+interface RollupPluginLike {
+  name: string
+  buildStart?: (this: { emitFile: (file: { fileName: string, id: string, type: "chunk" }) => void }) => void
+  load?: (id: string) => string | undefined
+  renderChunk?: (code: string, chunk: { fileName: string, isEntry?: boolean }) => { code: string, map: null } | null | undefined
+  resolveId?: (id: string) => string | undefined
+}
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
+}
+
+function createCloudflareChatExportsRollupPlugin(className: string): RollupPluginLike {
+  const moduleId = `${chatCloudflareExportsModulePrefix}:${className}`
+  const resolvedModuleId = `\0${moduleId}`
+  const fileName = `chat-cloudflare-exports-${className}.mjs`
+  const exportName = className === "ChatStateDO" ? "ChatStateDO" : `ChatStateDO as ${className}`
+
+  return {
+    name: "vitehub-chat-cloudflare-exports",
+    buildStart() {
+      this.emitFile({
+        type: "chunk",
+        id: moduleId,
+        fileName,
+      })
+    },
+    load(id) {
+      if (id === resolvedModuleId) {
+        return [
+          `export { ${exportName} } from "chat-state-cloudflare-do"`,
+          "",
+        ].join("\n")
+      }
+    },
+    renderChunk(code, chunk) {
+      if (!chunk.isEntry || chunk.fileName !== "index.mjs") {
+        return null
+      }
+
+      return {
+        code: `${code}\nexport { ${className} } from "./${fileName}"\n`,
+        map: null,
+      }
+    },
+    resolveId(id) {
+      if (id === moduleId) {
+        return resolvedModuleId
+      }
+    },
+  }
+}
+
+function installCloudflareChatEntrypoint(nitro: Nitro, className: string): void {
+  const options = nitro.options as Nitro["options"] & {
+    rollupConfig?: {
+      plugins?: unknown[]
+    }
+  }
+  options.rollupConfig ||= {}
+  const plugins = Array.isArray(options.rollupConfig.plugins) ? options.rollupConfig.plugins : []
+  options.rollupConfig.plugins = plugins
+  if (plugins.some(plugin => typeof plugin === "object" && plugin !== null && "name" in plugin && (plugin as { name?: string }).name === `vitehub-chat-cloudflare-exports:${className}`)) {
+    return
+  }
+
+  const plugin = createCloudflareChatExportsRollupPlugin(className)
+  plugin.name = `vitehub-chat-cloudflare-exports:${className}`
+  plugins.push(plugin)
 }
 
 function createNitroChatRoutePath(rootDir: string, buildDir: string): string {
@@ -226,6 +294,7 @@ async function installCloudflareStateConfig(
       name: await resolveCloudflareDurableObjectStateName(nitro, durableObjectState.name),
     }
     setCloudflareDurableObjectRuntimeConfig(options, config)
+    installCloudflareChatEntrypoint(nitro, config.className)
 
     if (config.autoWrangler) {
       configureCloudflareChatState(nitro.options, {
@@ -256,6 +325,7 @@ async function installCloudflareStateConfig(
       className: config.className,
       migrationTag: config.migrationTag,
     })
+    installCloudflareChatEntrypoint(nitro, config.className)
   }
 }
 

@@ -64,10 +64,21 @@ function createNitroStub(rootDir: string, chat: unknown = {}) {
       plugins: [] as string[],
       preset: "cloudflare-module",
       rootDir,
+      rollupConfig: {} as { plugins?: unknown[] },
       runtimeConfig: {} as Record<string, unknown>,
     },
     testHooks: hooks,
   }
+}
+
+interface ChatCloudflareExportsPlugin {
+  load: (id: string) => string | undefined
+  renderChunk: (code: string, chunk: { fileName: string, isEntry: boolean }) => { code: string, map: null } | null | undefined
+  resolveId: (id: string) => string | undefined
+}
+
+function getChatCloudflareExportsPlugin(nitro: ReturnType<typeof createNitroStub>, className: string): ChatCloudflareExportsPlugin | undefined {
+  return nitro.options.rollupConfig.plugins?.find(plugin => typeof plugin === "object" && plugin !== null && "name" in plugin && plugin.name === `vitehub-chat-cloudflare-exports:${className}`) as ChatCloudflareExportsPlugin | undefined
 }
 
 async function writeChat(rootDir: string, name: string, contents = "export default {}") {
@@ -365,6 +376,15 @@ describe("Nitro module", () => {
         },
       },
     })
+    const plugin = getChatCloudflareExportsPlugin(nitro, "ChatStateDO")
+    expect(plugin).toBeTruthy()
+    const resolvedModuleId = plugin!.resolveId("virtual:vitehub-chat-cloudflare-exports:ChatStateDO")
+    expect(resolvedModuleId).toBe("\0virtual:vitehub-chat-cloudflare-exports:ChatStateDO")
+    expect(plugin!.load(resolvedModuleId!)).toContain(`export { ChatStateDO } from "chat-state-cloudflare-do"`)
+    expect(plugin!.renderChunk("const server = true", { fileName: "index.mjs", isEntry: true })?.code)
+      .toContain(`export { ChatStateDO } from "./chat-cloudflare-exports-ChatStateDO.mjs"`)
+    await nitro.testHooks["build:before"]?.[0]?.()
+    expect(nitro.options.rollupConfig.plugins?.filter(plugin => typeof plugin === "object" && plugin !== null && "name" in plugin && plugin.name === "vitehub-chat-cloudflare-exports:ChatStateDO")).toHaveLength(1)
 
     const routeFile = nitro.options.handlers[0]!.handler
     const routeContents = await readFile(routeFile, "utf8")
@@ -409,6 +429,10 @@ describe("Nitro module", () => {
         migrations: [{ new_sqlite_classes: ["CustomChatStateDO"], tag: "v2" }],
       },
     })
+    const plugin = getChatCloudflareExportsPlugin(nitro, "CustomChatStateDO")
+    expect(plugin).toBeTruthy()
+    const resolvedModuleId = plugin!.resolveId("virtual:vitehub-chat-cloudflare-exports:CustomChatStateDO")
+    expect(plugin!.load(resolvedModuleId!)).toContain(`export { ChatStateDO as CustomChatStateDO } from "chat-state-cloudflare-do"`)
   })
 
   it("uses cloudflare.wrangler.name as the default Durable Object state name", async () => {
@@ -466,6 +490,22 @@ describe("Nitro module", () => {
     await module.setup(nitro as never)
 
     expect(nitro.options.cloudflare).toBeUndefined()
+    expect(getChatCloudflareExportsPlugin(nitro, "ChatStateDO")).toBeUndefined()
+  })
+
+  it("does not install a Cloudflare entrypoint when Durable Object state is disabled", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-disabled-do-"))
+    await writeSingleChat(rootDir)
+    const nitro = createNitroStub(rootDir, {
+      cloudflare: {
+        durableObjectState: false,
+      },
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(getChatCloudflareExportsPlugin(nitro, "ChatStateDO")).toBeUndefined()
   })
 
   it("honors disabled webhook and imports", async () => {
