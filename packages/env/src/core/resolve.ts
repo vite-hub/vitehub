@@ -151,8 +151,31 @@ export async function resolveEnvEntries(
   return { diagnostics, entries }
 }
 
-export function createRuntimeRegistry(config: EnvNitroConfigOptions | undefined, options: { prefix?: string } = {}): EnvRuntimeRegistry {
-  return createRegistrySection(config, "env", options.prefix)
+export function createRuntimeRegistry(declarations: EnvNitroConfigOptions | undefined, options: { prefix?: string } = {}): EnvRuntimeRegistry {
+  return buildRegistry(declarations, "env", options.prefix)
+}
+
+function buildRegistry(declarations: EnvNitroConfigOptions | undefined, path: string, prefix?: string): EnvRuntimeRegistry {
+  if (!declarations) {
+    return {}
+  }
+  return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
+    const valuePath = `${path}.${key}`
+    if (!isEnvVariableDeclaration(value)) {
+      return [key, buildRegistry(value as EnvNitroConfigOptions, valuePath, prefix)]
+    }
+    const source = resolveEnvSource(value, valuePath, prefix)
+    if (source.kind !== "env") {
+      throw new EnvError(`Runtime declaration ${valuePath} must use envSource.env() in v1.`)
+    }
+    return [key, {
+      default: value.default,
+      required: value.required,
+      secret: value.secret,
+      source,
+      type: value.type,
+    }]
+  }))
 }
 
 export function resolveEnvSource(declaration: EnvVariableDeclaration, path: string, prefix = ""): EnvSource {
@@ -192,30 +215,6 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
   }
 }
 
-function createRegistrySection(declarations: EnvNitroConfigOptions | undefined, path = "env", prefix = ""): EnvRuntimeRegistry {
-  if (!declarations) {
-    return {}
-  }
-  return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
-    const valuePath = `${path}.${key}`
-    if (!isEnvVariableDeclaration(value)) {
-      return [key, createRegistrySection(value as EnvNitroConfigOptions, valuePath, prefix)]
-    }
-    const declaration = value
-    const source = resolveEnvSource(declaration, valuePath, prefix)
-    if (source.kind !== "env") {
-      throw new EnvError(`Runtime declaration ${valuePath} must use envSource.env() in v1.`)
-    }
-    return [key, {
-      default: declaration.default,
-      required: declaration.required,
-      secret: declaration.secret,
-      source,
-      type: declaration.type,
-    }]
-  }))
-}
-
 function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: string): void {
   for (const [key, value] of Object.entries(declarations)) {
     const valuePath = `${path}.${key}`
@@ -223,7 +222,9 @@ function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: st
       if (value.mode !== "runtime") {
         throw new EnvError(`${valuePath} must use runtime mode.`)
       }
-      assertSerializableRuntimeSource(valuePath, value)
+      if (value.source && value.source.kind !== "env") {
+        throw new EnvError(`${valuePath} must use an env source in runtime mode for v1. Custom, package, and git sources are build-only.`)
+      }
       continue
     }
     if (!isPlainRecord(value)) {
@@ -236,12 +237,6 @@ function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: st
 function assertEnvVariableDeclaration(path: string, declaration: unknown): asserts declaration is EnvVariableDeclaration {
   if (!isEnvVariableDeclaration(declaration)) {
     throw new EnvError(`Invalid declaration at ${path}. Use envVariable().`)
-  }
-}
-
-function assertSerializableRuntimeSource(path: string, declaration: EnvVariableDeclaration): void {
-  if (declaration.source && declaration.source.kind !== "env") {
-    throw new EnvError(`${path} must use an env source in runtime mode for v1. Custom, package, and git sources are build-only.`)
   }
 }
 
@@ -275,7 +270,7 @@ function segmentToEnvParts(segment: string): string[] {
     .filter(Boolean)
 }
 
-function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {
+export function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {
   return isPlainRecord(value) && value.kind === "env-variable"
 }
 

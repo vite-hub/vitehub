@@ -2,45 +2,30 @@ import { resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { resolveRuntimeEntry } from "@vitehub/internal/nitro"
 
 import { formatDiagnostics } from "../core/diagnostics.ts"
 import { envSource, envVariable } from "../core/declarations.ts"
-import { createRuntimeRegistry, resolveEnvSource, validateEnvConfigShape } from "../core/resolve.ts"
+import { createRuntimeRegistry, isEnvVariableDeclaration, resolveEnvSource, validateEnvConfigShape } from "../core/resolve.ts"
 
-import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRegistryEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvVariableDeclaration } from "../types.ts"
+import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRegistryEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue } from "../types.ts"
 import type { Nitro, NitroModule } from "nitro/types"
 
 export { envSource, envVariable }
 
-function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
-  return resolveEntry(srcRelative, packageSubpath, import.meta.url)
-}
-
-function runtimeDir(nitro: Nitro): string {
-  return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/env")
-}
-
-function registryPath(nitro: Nitro): string {
-  return resolve(runtimeDir(nitro), "registry.mjs")
-}
-
-function pluginPath(nitro: Nitro): string {
-  return resolve(runtimeDir(nitro), "plugin.mjs")
+function resolveEntry(srcRelative: string, packageSubpath: string): string {
+  return resolveRuntimeEntry(srcRelative, packageSubpath, import.meta.url)
 }
 
 function createRegistryContents(registry: EnvRuntimeRegistry): string {
-  return [
-    `export default ${JSON.stringify(registry, null, 2)}`,
-    "",
-  ].join("\n")
+  return `export default ${JSON.stringify(registry, null, 2)}\n`
 }
 
 function createPluginContents(file: string, registryFile: string): string {
   return [
     `import registry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import { useRuntimeConfig } from "nitro/runtime-config"`,
-    `import { applyEnvRegistryToRuntimeConfig, setEnvRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../runtime/server", "@vitehub/env/runtime/server")))}`,
+    `import { applyEnvRegistryToRuntimeConfig, setEnvRegistry } from ${JSON.stringify(createImportPath(file, resolveEntry("../runtime/server", "@vitehub/env/runtime/server")))}`,
     "",
     "export default function vitehubEnvPlugin(nitroApp) {",
     "  setEnvRegistry(registry)",
@@ -53,7 +38,7 @@ function createPluginContents(file: string, registryFile: string): string {
 }
 
 function installNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): void {
-  nitro.hooks?.hook?.("types:extend", async (types: { tsConfig?: { include?: string[] } }) => {
+  nitro.hooks.hook("types:extend", async (types: { tsConfig?: { include?: string[] } }) => {
     const dtsPath = resolve(nitro.options.buildDir, "types", "vitehub-env.d.ts")
     await writeFileIfChanged(dtsPath, createNitroTypes(registry))
     if (types.tsConfig) {
@@ -114,20 +99,21 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
       const registry = createRuntimeRegistry(config, { prefix: options.prefix })
       configureCloudflareRequiredSecrets(nitro, config, options.prefix)
 
-      const diagnostics = describeRuntimeEntries(config, "env", options.prefix)
+      const diagnostics = describeRuntimeEntries(config, options.prefix)
       const diagnosticsText = formatDiagnostics(diagnostics, options.diagnostics)
       if (diagnosticsText) {
         nitro.logger.info(diagnosticsText)
       }
 
-      const registryFile = registryPath(nitro)
-      const pluginFile = pluginPath(nitro)
+      const runtimeDir = resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/env")
+      const registryFile = resolve(runtimeDir, "registry.mjs")
+      const pluginFile = resolve(runtimeDir, "plugin.mjs")
       await writeFileIfChanged(registryFile, createRegistryContents(registry))
       await writeFileIfChanged(pluginFile, createPluginContents(pluginFile, registryFile))
 
       nitro.options.alias ||= {}
-      nitro.options.alias["@vitehub/env"] = resolveRuntimeEntry("../index", "@vitehub/env")
-      nitro.options.alias["#vitehub/env/server"] = resolveRuntimeEntry("../runtime/server", "@vitehub/env/runtime/server")
+      nitro.options.alias["@vitehub/env"] = resolveEntry("../index", "@vitehub/env")
+      nitro.options.alias["#vitehub/env/server"] = resolveEntry("../runtime/server", "@vitehub/env/runtime/server")
 
       nitro.options.plugins ||= []
       if (!nitro.options.plugins.includes(pluginFile)) {
@@ -140,7 +126,7 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
 }
 
 function configureCloudflareRequiredSecrets(nitro: Nitro, declarations: EnvNitroConfigOptions | undefined, prefix?: string): void {
-  const required = collectRequiredSecretNames(declarations, "env", prefix)
+  const required = collectRequiredSecretNames(declarations, prefix)
 
   if (required.length === 0 || !usesCloudflare(nitro)) {
     return
@@ -166,14 +152,14 @@ function configureCloudflareRequiredSecrets(nitro: Nitro, declarations: EnvNitro
   ]
 }
 
-function collectRequiredSecretNames(declarations: EnvNitroConfigOptions | undefined, path: string, prefix?: string): string[] {
+function collectRequiredSecretNames(declarations: EnvNitroConfigOptions | undefined, prefix?: string, path = "env"): string[] {
   return Object.entries(declarations || {}).flatMap(([key, value]) => {
     const valuePath = `${path}.${key}`
     if (isEnvVariableDeclaration(value)) {
       const source = resolveEnvSource(value, valuePath, prefix)
       return value.secret && value.required && source.kind === "env" ? [source.name] : []
     }
-    return collectRequiredSecretNames(value as EnvNitroConfigOptions, valuePath, prefix)
+    return collectRequiredSecretNames(value as EnvNitroConfigOptions, prefix, valuePath)
   })
 }
 
@@ -185,27 +171,26 @@ function usesCloudflare(nitro: Nitro): boolean {
 
 function describeRuntimeEntries(
   declarations: EnvNitroConfigOptions | undefined,
-  path = "env",
   prefix?: string,
+  path = "env",
 ): EnvDiagnosticEntry[] {
   return Object.entries(declarations || {}).flatMap(([key, value]) => {
     const valuePath = `${path}.${key}`
     if (!isEnvVariableDeclaration(value)) {
-      return describeRuntimeEntries(value as EnvNitroConfigOptions, valuePath, prefix)
+      return describeRuntimeEntries(value as EnvNitroConfigOptions, prefix, valuePath)
     }
-    const declaration = value
-    const source = resolveEnvSource(declaration, valuePath, prefix)
+    const source = resolveEnvSource(value, valuePath, prefix)
     const hasRuntimeValue = source.kind === "env" && typeof process.env[source.name] !== "undefined"
-    const hasDefault = typeof declaration.default !== "undefined"
+    const hasDefault = typeof value.default !== "undefined"
     return {
-      exposed: declaration.secret ? "server only, masked" : "server only",
+      exposed: value.secret ? "server only, masked" : "server only",
       key: valuePath,
-      masked: declaration.secret,
+      masked: value.secret,
       mode: "runtime",
       source: hasDefault && !hasRuntimeValue ? "default" : source.label,
       status: hasRuntimeValue ? "valid" : hasDefault ? "defaulted" : "missing",
       timing: "Nitro runtime",
-      type: declaration.type,
+      type: value.type,
     }
   })
 }
@@ -215,14 +200,6 @@ function isRegistryEntry(value: EnvRuntimeRegistryValue): value is EnvRegistryEn
     && typeof value.source === "object"
     && value.source !== null
     && "kind" in value.source
-}
-
-function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {
-  return typeof value === "object"
-    && value !== null
-    && !Array.isArray(value)
-    && "kind" in value
-    && value.kind === "env-variable"
 }
 
 const nitroModule: NitroModule = envNitro()

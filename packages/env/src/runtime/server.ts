@@ -8,10 +8,6 @@ export function setEnvRegistry(nextRegistry: EnvRuntimeRegistry): void {
   registry = nextRegistry
 }
 
-export function getEnvRegistry(): EnvRuntimeRegistry {
-  return registry
-}
-
 export function useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig {
   return resolveRuntimeValues(registry, resolveRuntimeEnv(event))
 }

@@ -60,6 +60,10 @@ export function envVariable(options: EnvVariableOptions = {}): EnvVariableDeclar
 
   const required = options.optional ? false : options.required ?? true
 
+  const source = typeof options.source === "function"
+    ? envSource.custom("custom", options.source)
+    : options.source
+
   return {
     default: options.default,
     kind: "env-variable",
@@ -67,14 +71,7 @@ export function envVariable(options: EnvVariableOptions = {}): EnvVariableDeclar
     required,
     schema: options.schema ?? stringSchema,
     secret: options.secret ?? false,
-    source: options.source ? normalizeSource(options.source) : undefined,
+    source,
     type: options.type,
   }
-}
-
-function normalizeSource(source: EnvSource | EnvSourceResolver): EnvSource {
-  if (typeof source === "function") {
-    return envSource.custom("custom", source)
-  }
-  return source
 }

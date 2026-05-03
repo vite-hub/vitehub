@@ -32,7 +32,7 @@ export function envVite(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     name: ENV_VITE_PLUGIN_NAME,
     api: { getBuildConfig },
     async config(config, env) {
-      const envConfig = resolveEnvBlock(config)
+      const envConfig = (config as UserConfig & EnvViteUserConfig).env
       validateEnvConfigShape(envConfig, "vite")
       if (!envConfig) {
         return
@@ -96,10 +96,6 @@ export function envVite(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       }
     },
   }
-}
-
-function resolveEnvBlock(config: UserConfig): EnvViteConfigOptions | undefined {
-  return (config as UserConfig & EnvViteUserConfig).env
 }
 
 function createViteTypes(config: Record<string, unknown>): string {
