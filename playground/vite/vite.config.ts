@@ -13,6 +13,7 @@ const inputByMode: Record<ViteHubMode, string> = {
   kv: "src/server.ts",
   queue: "src/server.ts",
   sandbox: "src/server.ts",
+  workspace: "src/server-workspace.ts",
   workflow: "src/server-workflow.ts",
 }
 const input = inputByMode[buildMode]
@@ -57,12 +58,13 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.e2e) {
-    const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSandbox }, { hubWorkflow }] = await Promise.all([
+    const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSandbox }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
       import("@vitehub/blob/vite"),
       import("@vitehub/db/vite"),
       import("@vitehub/kv/vite"),
       import("@vitehub/queue/vite"),
       import("@vitehub/sandbox/vite"),
+      import("@vitehub/workspace/vite"),
       import("@vitehub/workflow/vite"),
     ])
     const composerOptions = resolveViteE2EOptions(import.meta.dirname, hosting)
@@ -93,14 +95,17 @@ export default defineConfig(async () => {
         hubBlob(),
         hubDb(),
         hubSandbox(),
+        hubWorkspace(),
         createViteE2EComposer({
           ...composerOptions,
           clientOutDir: "dist/client",
           rootDir: import.meta.dirname,
+          workspace: composerOptions.workspace,
         }),
       ],
       queue: {},
       sandbox: composerOptions.sandbox,
+      workspace: {},
       workflow: {},
     }
   }
@@ -120,6 +125,15 @@ export default defineConfig(async () => {
       ...baseConfig,
       plugins: [hubWorkflow()],
       workflow: {},
+    }
+  }
+
+  if (buildMode === VITEHUB_MODES.workspace) {
+    const { hubWorkspace } = await import("@vitehub/workspace/vite")
+    return {
+      ...baseConfig,
+      plugins: [hubWorkspace()],
+      workspace: {},
     }
   }
 

@@ -1,0 +1,14 @@
+{
+  "name": "vitehub-workspace-nitro-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nitro build",
+    "dev": "nitro dev"
+  },
+  "dependencies": {
+    "@vitehub/workspace": "workspace:*",
+    "h3": "catalog:",
+    "nitro": "catalog:"
+  }
+}

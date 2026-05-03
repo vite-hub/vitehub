@@ -14,6 +14,7 @@ describe("workspace inventory", () => {
       "queue",
       "sandbox",
       "workflow",
+      "workspace",
     ])
   })
 
