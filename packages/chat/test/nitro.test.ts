@@ -461,6 +461,21 @@ describe("Nitro module", () => {
     })
   })
 
+  it("uses package.json name as the default Cloudflare Worker name", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-worker-name-"))
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({ name: "@acme/package-chat" }), "utf8")
+    await writeSingleChat(rootDir, [
+      `import { cloudflareDurableObjectState } from "@vitehub/chat/cloudflare"`,
+      `export default defineChat({ state: cloudflareDurableObjectState(), adapters: {} })`,
+    ].join("\n"))
+    const nitro = createNitroStub(rootDir)
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.cloudflare?.wrangler?.name).toBe("acme-package-chat")
+  })
+
   it("falls back to package.json name as the default Durable Object state name", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-package-name-"))
     await writeFile(join(rootDir, "package.json"), JSON.stringify({ name: "package-chat" }), "utf8")

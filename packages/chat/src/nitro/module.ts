@@ -142,12 +142,35 @@ async function readPackageName(rootDir: string): Promise<string | undefined> {
   }
 }
 
+function toCloudflareWorkerName(name: string): string {
+  return name.toLowerCase().replace(/[^a-zA-Z0-9-]/g, "-").replace(/^-+|-+$/g, "")
+}
+
 async function resolveCloudflareDurableObjectStateName(nitro: Nitro, configuredName?: string): Promise<string> {
   if (configuredName) {
     return configuredName
   }
 
   return await readPackageName(nitro.options.rootDir) || defaultChatCloudflareDurableObjectName
+}
+
+async function installCloudflareWorkerName(nitro: Nitro, options: ResolvedChatModuleOptions): Promise<void> {
+  if (resolveChatProvider(nitro, options) !== "cloudflare") {
+    return
+  }
+
+  const cloudflare = (nitro.options.cloudflare ||= {}) as Record<string, unknown> & {
+    wrangler?: Record<string, unknown> & { name?: unknown }
+  }
+  cloudflare.wrangler ||= {}
+  if (typeof cloudflare.wrangler.name === "string" && cloudflare.wrangler.name.trim()) {
+    return
+  }
+
+  const name = await readPackageName(nitro.options.rootDir)
+  if (name) {
+    cloudflare.wrangler.name = toCloudflareWorkerName(name)
+  }
 }
 
 function setCloudflareDurableObjectRuntimeConfig(
@@ -348,12 +371,14 @@ const chatNitroModule: NitroModule = {
     let runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
     if (resolved) {
       installRoute(nitro, resolved, runtimeFiles.routeFile)
+      await installCloudflareWorkerName(nitro, resolved)
       await installCloudflareStateConfig(nitro, resolved, runtimeFiles.definitions)
     }
 
     nitro.hooks.hook("build:before", async () => {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
       if (resolved) {
+        await installCloudflareWorkerName(nitro, resolved)
         await installCloudflareStateConfig(nitro, resolved, runtimeFiles.definitions)
       }
     })
