@@ -21,6 +21,7 @@ await workspace.fs.writeFile('generated/context.md', 'Context')
 
 const entry = await workspace.fs.stat('generated/context.md')
 const files = await workspace.fs.glob('**/*.md')
+const hits = await workspace.fs.search({ pattern: 'Context', paths: ['generated'] })
 ```
 
 ## Mounts
@@ -31,3 +32,5 @@ Use `.tools()` when an AI runtime needs workspace files:
 const readOnlyTools = useWorkspace('docs').tools()
 const writableTools = useWorkspace('docs', { allowWrite: true }).tools()
 ```
+
+Source mounts are resolved behind the workspace API. Agents do not access a real mounted filesystem directly; they only interact with these workspace handles and tools.

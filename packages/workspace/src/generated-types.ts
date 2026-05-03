@@ -1,36 +1,21 @@
-import { readdirSync } from "node:fs"
-import { basename, dirname, join, relative } from "node:path"
+import { basename, dirname, relative } from "node:path"
 
-const workspaceConfigPattern = /^\.config\.(?:c|m)?[jt]s$/i
-const declarationFilePattern = /\.d\.[cm]?[jt]s$/i
+import { listMatchingFiles } from "@vitehub/internal/definition-catalog"
 
-function listDirectoryWorkspaceAssetPaths(root: string, current = root): string[] {
-  const entries = readdirSync(current, { withFileTypes: true })
-  const assets: string[] = []
+import { isWorkspaceAssetFile, workspaceConfigPattern } from "./workspace-config.ts"
 
-  for (const entry of entries) {
-    if (entry.name.startsWith(".")) continue
-
-    const path = join(current, entry.name)
-    if (entry.isDirectory()) {
-      assets.push(...listDirectoryWorkspaceAssetPaths(root, path))
-      continue
-    }
-
-    if (workspaceConfigPattern.test(entry.name) || declarationFilePattern.test(entry.name)) continue
-    assets.push(relative(root, path).replace(/\\/g, "/"))
-  }
-
-  return assets.sort()
+function listDirectoryWorkspaceAssetPaths(root: string) {
+  return listMatchingFiles(root, isWorkspaceAssetFile).map(file => relative(root, file).replace(/\\/g, "/")).sort()
 }
 
 function createWorkspaceAssetMap(definitions: Array<{ name: string, path: string }>) {
-  return definitions.reduce<Record<string, string[]>>((map, definition) => {
-    if (!workspaceConfigPattern.test(basename(definition.path))) return map
+  const map: Record<string, string[]> = {}
+  for (const definition of definitions) {
+    if (!workspaceConfigPattern.test(basename(definition.path))) continue
     const assets = listDirectoryWorkspaceAssetPaths(dirname(definition.path))
     if (assets.length) map[definition.name] = assets
-    return map
-  }, {})
+  }
+  return map
 }
 
 function toTypeUnion(values: string[]) {
@@ -43,8 +28,8 @@ function createAssetPathType(values: string[]) {
 }
 
 export function createWorkspaceTypeAugmentation(definitions: Array<{ name: string, path: string }>): string {
-  const names = definitions.map(definition => definition.name)
-  const nameProperties = [...new Set(names)].sort().map(name => `    ${JSON.stringify(name)}: true`)
+  const names = [...new Set(definitions.map(definition => definition.name))].sort()
+  const nameProperties = names.map(name => `    ${JSON.stringify(name)}: true`)
   const assetMap = createWorkspaceAssetMap(definitions)
   const assetProperties = Object.entries(assetMap)
     .sort(([left], [right]) => left.localeCompare(right))

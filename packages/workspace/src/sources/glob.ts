@@ -1,43 +1,48 @@
+import { glob as tinyglobby } from "tinyglobby"
+
 import { matchesAny, normalizeWorkspacePath } from "../path.ts"
 
 import type { SourceContext, WorkspaceSource, WorkspaceSourceItem } from "../types.ts"
 
-export interface GlobSourceOptions {
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "swr" | "validate">
+
+export interface GlobSourceOptions extends SourceRuntimeOptions {
   cwd?: string
   include: string | string[]
   exclude?: string | string[]
   root?: string
 }
 
-async function walkFiles(root: string, current = root): Promise<string[]> {
-  const { readdir } = await import("node:fs/promises")
-  const { relative } = await import("node:path")
-  const files: string[] = []
-  const entries = await readdir(current, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return []
-    throw error
-  })
-  for (const entry of entries) {
-    const path = `${current}/${entry.name}`
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === ".git") continue
-      files.push(...await walkFiles(root, path))
-    }
-    else if (entry.isFile()) {
-      files.push(normalizeWorkspacePath(relative(root, path)))
-    }
-  }
-  return files
-}
-
 export function glob(options: GlobSourceOptions): WorkspaceSource {
   return {
+    cache: options.cache,
+    materialize: options.materialize,
+    mount: options.mount,
     name: "glob",
+    swr: options.swr,
+    validate: options.validate,
     async getKeys(ctx: SourceContext) {
       const { resolve } = await import("node:path")
       const cwd = resolve(ctx.rootDir, options.cwd || ".")
-      const files = await walkFiles(cwd)
-      return files.filter(file => matchesAny(file, options.include) && !(options.exclude && matchesAny(file, options.exclude)))
+      const files = await tinyglobby(options.include, {
+        cwd,
+        dot: true,
+        ignore: ["**/.git/**", "**/node_modules/**", ...(Array.isArray(options.exclude) ? options.exclude : options.exclude ? [options.exclude] : [])],
+        onlyFiles: true,
+      })
+      return files
+        .map(file => normalizeWorkspacePath(file))
+        .filter(file => matchesAny(file, options.include) && !(options.exclude && matchesAny(file, options.exclude)))
+        .sort((left, right) => left.localeCompare(right))
+    },
+    async getMeta(key: string, ctx: SourceContext) {
+      const { stat } = await import("node:fs/promises")
+      const { resolve } = await import("node:path")
+      const cwd = resolve(ctx.rootDir, options.cwd || ".")
+      const info = await stat(resolve(cwd, key))
+      return {
+        digest: `${info.size}:${info.mtimeMs}`,
+      }
     },
     async getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem> {
       const { readFile, stat } = await import("node:fs/promises")

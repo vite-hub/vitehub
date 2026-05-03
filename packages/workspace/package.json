@@ -58,10 +58,13 @@
     "test": "pnpm --filter @vitehub/workspace build && vitest run"
   },
   "dependencies": {
+    "@vitehub/unshell": "workspace:*",
     "defu": "^6.1.4",
     "exsolve": "^1.0.8",
     "isomorphic-git": "^1.37.6",
-    "mrmime": "^2.0.1"
+    "minimatch": "^10.1.1",
+    "mrmime": "^2.0.1",
+    "tinyglobby": "^0.2.16"
   },
   "peerDependencies": {
     "@vercel/blob": "^2.3.3",
@@ -95,7 +98,6 @@
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.8",
-    "vitest": "^4.1.4",
-    "zod": "^4.4.1"
+    "vitest": "^4.1.4"
   }
 }

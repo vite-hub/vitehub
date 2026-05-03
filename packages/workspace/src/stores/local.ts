@@ -51,6 +51,7 @@ async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
 
 class LocalWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
+  #files = new Map<string, Pick<WorkspaceFile, "mediaType" | "metadata">>()
   #meta = new Map<string, unknown>()
 
   constructor(public root: string) {}
@@ -63,7 +64,14 @@ class LocalWorkspaceStore implements WorkspaceStore {
       throw error
     })
     if (!bytes) return undefined
-    return { path: normalizeWorkspacePath(path), content: new Uint8Array(bytes) }
+    const normalized = normalizeWorkspacePath(path)
+    const metadata = this.#files.get(normalized)
+    return {
+      path: normalized,
+      content: new Uint8Array(bytes),
+      mediaType: metadata?.mediaType,
+      metadata: metadata?.metadata,
+    }
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
@@ -72,6 +80,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const absolute = resolveInside(this.root, path)
     await mkdir(dirname(absolute), { recursive: true })
     await writeFile(absolute, contentToBytes(file.content))
+    this.#files.set(normalizeWorkspacePath(path), {
+      mediaType: file.mediaType,
+      metadata: file.metadata,
+    })
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
@@ -84,6 +96,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
         if (!entry.path.startsWith(`${normalizedPrefix}/`)) return false
         return options.recursive || !entry.path.slice(normalizedPrefix.length + 1).includes("/")
       })
+      .map(entry => ({
+        ...entry,
+        mediaType: entry.type === "file" ? this.#files.get(entry.path)?.mediaType : entry.mediaType,
+      }))
       .sort((a, b) => a.path.localeCompare(b.path))
   }
 
@@ -107,6 +123,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       type: info.isDirectory() ? "directory" : "file",
       size: info.isFile() ? info.size : undefined,
       mtime: info.mtimeMs,
+      mediaType: info.isFile() ? this.#files.get(normalized)?.mediaType : undefined,
       digest: info.isFile() ? await sha256(await readFile(absolute)) : undefined,
     }
     return entry
@@ -119,6 +136,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
     const { rm } = await import("node:fs/promises")
+    const normalized = normalizeWorkspacePath(path)
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
@@ -126,6 +144,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
       if (error.code === "ENOENT" && options.force) return
       throw error
     })
+    for (const key of [...this.#files.keys()]) {
+      if (key === normalized || key.startsWith(`${normalized}/`)) this.#files.delete(key)
+    }
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {

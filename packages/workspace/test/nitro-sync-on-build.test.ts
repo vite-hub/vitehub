@@ -87,15 +87,17 @@ describe("Nitro syncOnBuild", () => {
     await writeFile(join(root, "server/workspaces/selected.mjs"), `
 export default {
   store: { provider: "memory" },
-  sources: [{
-    name: "inline",
-    async getKeys() {
-      return ["selected.txt"]
+  sources: {
+    files: {
+      name: "inline",
+      async getKeys() {
+        return ["selected.txt"]
+      },
+      async getItem(key) {
+        return { key, path: key, content: "selected\\n" }
+      },
     },
-    async getItem(key) {
-      return { key, path: key, content: "selected\\n" }
-    },
-  }],
+  },
   publish: [{
     name: "asset",
     async publish(ctx) {
@@ -103,7 +105,7 @@ export default {
       const { dirname, join } = await import("node:path")
       const target = join(ctx.rootDir, "server/assets/context/selected.txt")
       await mkdir(dirname(target), { recursive: true })
-      await writeFile(target, await ctx.store.readFile("selected.txt").then(file => file.content))
+      await writeFile(target, await ctx.store.readFile("files/selected.txt").then(file => file.content))
     },
   }],
 }
@@ -111,15 +113,17 @@ export default {
     await writeFile(join(root, "server/workspaces/skipped.mjs"), `
 export default {
   store: { provider: "memory" },
-  sources: [{
-    name: "inline",
-    async getKeys() {
-      return ["skipped.txt"]
+  sources: {
+    files: {
+      name: "inline",
+      async getKeys() {
+        return ["skipped.txt"]
+      },
+      async getItem(key) {
+        return { key, path: key, content: "skipped\\n" }
+      },
     },
-    async getItem(key) {
-      return { key, path: key, content: "skipped\\n" }
-    },
-  }],
+  },
   publish: [{
     name: "asset",
     async publish(ctx) {
@@ -127,7 +131,7 @@ export default {
       const { dirname, join } = await import("node:path")
       const target = join(ctx.rootDir, "server/assets/context/skipped.txt")
       await mkdir(dirname(target), { recursive: true })
-      await writeFile(target, await ctx.store.readFile("skipped.txt").then(file => file.content))
+      await writeFile(target, await ctx.store.readFile("files/skipped.txt").then(file => file.content))
     },
   }],
 }
@@ -161,21 +165,87 @@ export default {
     await expect(readFile(join(root, "server/assets/context/skipped.txt"), "utf8")).rejects.toThrow()
   })
 
+  it("syncs all discovered workspaces during build:before by default", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "server/workspaces"), { recursive: true })
+    await writeFile(join(root, "server/workspaces/one.mjs"), `
+export default {
+  store: { provider: "memory" },
+  sources: {
+    files: {
+      name: "inline",
+      async getKeys() {
+        return ["one.txt"]
+      },
+      async getItem(key) {
+        return { key, path: key, content: "one\\n" }
+      },
+    },
+  },
+}
+`, "utf8")
+    await writeFile(join(root, "server/workspaces/two.mjs"), `
+export default {
+  store: { provider: "memory" },
+  sources: {
+    files: {
+      name: "inline",
+      async getKeys() {
+        return ["two.txt"]
+      },
+      async getItem(key) {
+        return { key, path: key, content: "two\\n" }
+      },
+    },
+  },
+}
+`, "utf8")
+
+    const hooks: Record<string, Array<() => Promise<void>>> = {}
+    const nitro = {
+      hooks: {
+        hook(name: string, callback: () => Promise<void>) {
+          hooks[name] ||= []
+          hooks[name].push(callback)
+        },
+      },
+      logger: {
+        info() {},
+      },
+      options: {
+        _config: {},
+        rootDir: root,
+        runtimeConfig: {},
+      },
+    }
+
+    await workspaceNitroModule.setup!(nitro as never)
+    for (const callback of hooks["build:before"] ?? []) await callback()
+
+    const registryFile = join(root, ".vitehub/nitro-runtime/workspace/assets/registry.mjs")
+    const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
+
+    await expect(registry.one.readFile("files/one.txt")).resolves.toBe("one\n")
+    await expect(registry.two.readFile("files/two.txt")).resolves.toBe("two\n")
+  })
+
   it("emits bundled workspace assets for selected workspaces", async () => {
     const root = await createRoot()
     await mkdir(join(root, "server/workspaces"), { recursive: true })
     await writeFile(join(root, "server/workspaces/docs.mjs"), `
 export default {
   store: { provider: "memory" },
-  sources: [{
-    name: "inline",
-    async getKeys() {
-      return ["README.md"]
+  sources: {
+    files: {
+      name: "inline",
+      async getKeys() {
+        return ["README.md"]
+      },
+      async getItem(key) {
+        return { key, path: key, content: "docs\\n" }
+      },
     },
-    async getItem(key) {
-      return { key, path: key, content: "docs\\n" }
-    },
-  }],
+  },
 }
 `, "utf8")
 
@@ -206,9 +276,9 @@ export default {
     const registryFile = join(root, ".vitehub/nitro-runtime/workspace/assets/registry.mjs")
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
 
-    await expect(registry.docs.readFile("README.md")).resolves.toBe("docs\n")
+    await expect(registry.docs.readFile("files/README.md")).resolves.toBe("docs\n")
     await expect(registry.docs.list()).resolves.toEqual([
-      expect.objectContaining({ path: "README.md", type: "file" }),
+      expect.objectContaining({ path: "files", type: "directory" }),
     ])
   })
 

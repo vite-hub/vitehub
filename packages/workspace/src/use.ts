@@ -1,13 +1,18 @@
-import { posix } from "node:path"
-
-import type { Tool, ToolSet } from "ai"
-
-import { createWorkspaceTools, type WorkspaceMoveResult, type WorkspacePathResult, type WorkspaceShellResult } from "./ai.ts"
+import {
+  createWorkspaceTools,
+  type EnabledReadCapability,
+  type ShellEnabled,
+  type WorkspaceReadOperations,
+  type WorkspaceShellResult,
+  type WorkspaceWriteOperations,
+  type WorkspaceWriteToolMap,
+} from "./ai.ts"
 import { useWorkspaceAssets } from "./asset-registry.ts"
-import { WorkspaceError } from "./errors.ts"
+import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
 
+import type { Tool, ToolSet } from "ai"
 import type {
   GlobOptions,
   ListOptions,
@@ -21,6 +26,8 @@ import type {
   WorkspaceContent,
   WorkspaceEntry,
   WorkspaceName,
+  WorkspaceSearchHit,
+  WorkspaceSearchQuery,
   WorkspaceStat,
   WriteFileOptions,
 } from "./types.ts"
@@ -31,54 +38,32 @@ export interface UseWorkspaceOptions {
   allowWrite?: boolean
 }
 
-export interface WorkspaceToolOptions {
+export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
   cwd?: string
-  list?: boolean
   maxOutputLength?: number
-  read?: boolean
-  search?: boolean
 }
 
-export interface WritableWorkspaceToolOptions extends WorkspaceToolOptions {
-  appendFile?: boolean
-  copyPath?: boolean
-  deletePath?: boolean
-  makeDir?: boolean
-  movePath?: boolean
-  writeFile?: boolean
-}
+export interface WritableWorkspaceFacadeToolOptions extends WorkspaceFacadeToolOptions, WorkspaceWriteOperations {}
 
-type EnabledReadCapability<Options, Key extends keyof WorkspaceToolOptions> = Options extends Record<Key, infer Value>
+type EnabledWriteCapability<Options, Key extends keyof WorkspaceWriteOperations> = Options extends Record<Key, infer Value>
   ? Value extends false ? false : true
   : true
 
-type FacadeShellEnabled<Options> = true extends
-  | EnabledReadCapability<Options, "list">
-  | EnabledReadCapability<Options, "read">
-  | EnabledReadCapability<Options, "search">
-  ? true
-  : false
-
-type WorkspaceWriteToolMap = {
-  appendFile: Tool<{ content: string, path: string }, WorkspacePathResult>
-  copyPath: Tool<{ from: string, overwrite?: boolean, to: string }, WorkspaceMoveResult>
-  deletePath: Tool<{ force?: boolean, path: string, recursive?: boolean }, WorkspacePathResult>
-  makeDir: Tool<{ path: string, recursive?: boolean }, WorkspacePathResult>
-  movePath: Tool<{ from: string, overwrite?: boolean, to: string }, WorkspaceMoveResult>
-  writeFile: Tool<{ content: string, mediaType?: string, path: string }, WorkspacePathResult>
-}
-
-type EnabledWriteCapability<Options, Key extends keyof WorkspaceWriteToolMap> = Options extends Record<Key, infer Value>
-  ? Value extends false ? false : true
-  : true
-
-export type WorkspaceReadTools<Options = undefined> = ((FacadeShellEnabled<Options> extends true
+export type WorkspaceReadTools<Options = undefined> = ((ShellEnabled<Options> extends true
   ? { shell: Tool<{ command: string }, WorkspaceShellResult> }
   : {}) & ToolSet)
 
-export type WorkspaceWriteTools<Options = undefined> = (WorkspaceReadTools<Options> & {
+export type WorkspaceWriteTools<Options = undefined> = WorkspaceReadTools<Options> & {
   [Key in keyof WorkspaceWriteToolMap as EnabledWriteCapability<Options, Key> extends true ? Key : never]: WorkspaceWriteToolMap[Key]
-}) & ToolSet
+} & ToolSet
+
+export type WorkspaceReadToolSet = WorkspaceReadTools & {
+  <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options): WorkspaceReadTools<Options>
+}
+
+export type WorkspaceWriteToolSet = WorkspaceWriteTools & {
+  <Options extends WritableWorkspaceFacadeToolOptions | undefined = undefined>(options?: Options): WorkspaceWriteTools<Options>
+}
 
 export type ReadonlyWorkspaceFs<Name extends WorkspaceName = WorkspaceName> = WorkspaceAssets<WorkspaceAssetPath<Name>>
 
@@ -90,6 +75,7 @@ export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName>
   exists(path: WorkspaceWritablePath<Name>): Promise<boolean>
   list(path?: WorkspaceWritablePath<Name> | "", options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: WorkspaceWritablePath<Name> | Array<WorkspaceWritablePath<Name>>, options?: GlobOptions): Promise<WorkspaceEntry[]>
+  search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
   mkdir(path: WorkspaceWritablePath<Name>, options?: MkdirOptions): Promise<void>
   rm(path: WorkspaceWritablePath<Name>, options?: RmOptions): Promise<void>
   movePath(from: WorkspaceWritablePath<Name>, to: WorkspaceWritablePath<Name>, options?: { overwrite?: boolean }): Promise<void>
@@ -98,12 +84,12 @@ export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName>
 
 export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   fs: ReadonlyWorkspaceFs<Name>
-  tools<Options extends WorkspaceToolOptions | undefined = undefined>(options?: Options): WorkspaceReadTools<Options>
+  tools: WorkspaceReadToolSet
 }
 
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   fs: WritableWorkspaceFs<Name>
-  tools<Options extends WritableWorkspaceToolOptions | undefined = undefined>(options?: Options): WorkspaceWriteTools<Options>
+  tools: WorkspaceWriteToolSet
 }
 
 export type WorkspaceFacade<Name extends WorkspaceName = WorkspaceName, AllowWrite extends boolean = false> =
@@ -132,7 +118,11 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
 
   async function resolveSyncedWorkspace() {
     const workspace = await resolveWorkspace()
-    syncPromise ||= workspace.sync()
+    if (!syncPromise) {
+      const next = workspace.sync()
+      syncPromise = next
+      next.catch(() => { syncPromise = undefined })
+    }
     await syncPromise
     return workspace
   }
@@ -143,6 +133,7 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
       const resolved = await resolveWorkspace()
       const next = resolved.sync(options)
       syncPromise = next
+      next.catch(() => { syncPromise = undefined })
       await next
     },
     async readFile(path, options) {
@@ -156,6 +147,13 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
     },
     async glob(pattern, options) {
       return await (await resolveSyncedWorkspace()).glob(normalizePattern(pattern), options)
+    },
+    async search(query) {
+      return await (await resolveSyncedWorkspace()).search({
+        ...query,
+        cwd: query.cwd ? normalizeListPath(query.cwd) : query.cwd,
+        paths: query.paths?.map(path => normalizeListPath(path)),
+      })
     },
     async stat(path) {
       return await (await resolveSyncedWorkspace()).stat(normalizePath(path))
@@ -200,146 +198,86 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
   return workspace
 }
 
-async function ensureMissingOrReplaceable(workspace: Workspace, path: string, overwrite = false) {
-  if (!await workspace.exists(path)) return
-  if (!overwrite) throw new WorkspaceError(`[vitehub] Workspace path already exists: ${path}.`)
-  await workspace.rm(path, { recursive: true, force: true })
-}
-
-async function copyWorkspacePath(workspace: Workspace, from: string, to: string, overwrite = false) {
-  if (from === to) throw new WorkspaceError("[vitehub] Source and destination must be different.")
-
-  const source = await workspace.stat(from)
-  if (source.type === "directory" && to.startsWith(`${from}/`)) {
-    throw new WorkspaceError("[vitehub] Destination cannot be nested inside the source directory.")
-  }
-
-  await ensureMissingOrReplaceable(workspace, to, overwrite)
-
-  if (source.type === "file") {
-    const content = await workspace.readFile(from, { encoding: "binary" })
-    await workspace.writeFile(to, content, { mediaType: source.mediaType })
-    return
-  }
-
-  const entries = await workspace.list(from, { recursive: true })
-  await workspace.mkdir(to, { recursive: true })
-
-  const directories = entries.filter(entry => entry.type === "directory").sort((left, right) => left.path.length - right.path.length)
-  const files = entries.filter(entry => entry.type === "file").sort((left, right) => left.path.localeCompare(right.path))
-
-  for (const entry of directories) {
-    const relativePath = entry.path.slice(from.length + 1)
-    await workspace.mkdir(posix.join(to, relativePath), { recursive: true })
-  }
-
-  for (const entry of files) {
-    const relativePath = entry.path.slice(from.length + 1)
-    await workspace.writeFile(posix.join(to, relativePath), await workspace.readFile(entry.path, { encoding: "binary" }), { mediaType: entry.mediaType })
-  }
-}
-
 function createWritableFs<Name extends WorkspaceName>(workspace: Workspace): WritableWorkspaceFs<Name> {
   return {
-    readFile: async (path, options) => await workspace.readFile(normalizePath(String(path)), options as never),
-    writeFile: async (path, content, options) => await workspace.writeFile(normalizePath(String(path)), content, options),
-    appendFile: async (path, content) => {
-      const normalized = normalizePath(String(path))
-      let current = ""
-      try {
-        current = String(await workspace.readFile(normalized))
-      }
-      catch (error) {
-        if (!(error instanceof WorkspaceError)) throw error
-      }
-      await workspace.writeFile(normalized, `${current}${content}`)
-    },
-    stat: async path => await workspace.stat(normalizePath(String(path))),
-    exists: async path => await workspace.exists(normalizePath(String(path))),
-    list: async (path, options) => await workspace.list(path ? normalizeListPath(String(path)) : "", options),
+    readFile: async (path, options) => await workspace.readFile(normalizePath(path), options as never),
+    writeFile: async (path, content, options) => await workspace.writeFile(normalizePath(path), content, options),
+    appendFile: async (path, content) => await appendWorkspaceFile(workspace, normalizePath(path), content),
+    stat: async path => await workspace.stat(normalizePath(path)),
+    exists: async path => await workspace.exists(normalizePath(path)),
+    list: async (path, options) => await workspace.list(path ? normalizeListPath(path) : "", options),
     glob: async (pattern, options) => await workspace.glob(normalizePattern(pattern as string | string[]), options),
-    mkdir: async (path, options) => await workspace.mkdir(normalizePath(String(path)), options),
-    rm: async (path, options) => await workspace.rm(normalizePath(String(path)), options),
+    search: async query => await workspace.search({
+      ...query,
+      cwd: query.cwd ? normalizeListPath(query.cwd) : query.cwd,
+      paths: query.paths?.map(path => normalizeListPath(path)),
+    }),
+    mkdir: async (path, options) => await workspace.mkdir(normalizePath(path), options),
+    rm: async (path, options) => await workspace.rm(normalizePath(path), options),
     movePath: async (from, to, options) => {
-      const source = normalizePath(String(from))
-      const target = normalizePath(String(to))
-      await copyWorkspacePath(workspace, source, target, options?.overwrite)
+      const source = normalizePath(from)
+      await copyWorkspacePath(workspace, source, normalizePath(to), options?.overwrite)
       await workspace.rm(source, { recursive: true, force: true })
     },
-    copyPath: async (from, to, options) => {
-      await copyWorkspacePath(workspace, normalizePath(String(from)), normalizePath(String(to)), options?.overwrite)
+    copyPath: async (from, to, options) => await copyWorkspacePath(workspace, normalizePath(from), normalizePath(to), options?.overwrite),
+  }
+}
+
+function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {
+  return { list: options?.list, read: options?.read, search: options?.search }
+}
+
+function toWriteOperations(options: WritableWorkspaceFacadeToolOptions | undefined) {
+  return {
+    ...toReadOperations(options),
+    write: {
+      appendFile: options?.appendFile !== false,
+      copyPath: options?.copyPath !== false,
+      deletePath: options?.deletePath !== false,
+      makeDir: options?.makeDir !== false,
+      movePath: options?.movePath !== false,
+      writeFile: options?.writeFile !== false,
     },
   }
 }
 
-function toReadToolOptions(options: WorkspaceToolOptions | undefined) {
-  return {
-    cwd: options?.cwd,
-    maxOutputLength: options?.maxOutputLength,
-    operations: {
-      list: options?.list,
-      read: options?.read,
-      search: options?.search,
-    },
-  }
-}
-
-function toWriteToolOptions(options: WritableWorkspaceToolOptions | undefined) {
-  return {
-    cwd: options?.cwd,
-    maxOutputLength: options?.maxOutputLength,
-    operations: {
-      list: options?.list,
-      read: options?.read,
-      search: options?.search,
-      write: {
-        appendFile: options?.appendFile !== false,
-        copyPath: options?.copyPath !== false,
-        deletePath: options?.deletePath !== false,
-        makeDir: options?.makeDir !== false,
-        movePath: options?.movePath !== false,
-        writeFile: options?.writeFile !== false,
-      },
-    },
-  }
-}
-
-function createReadonlyFs<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFs<Name> {
-  const assets = () => useWorkspaceAssets(name)
-
-  return {
-    readFile: async (path, options) => await assets().readFile(path, options),
-    stat: async path => await assets().stat(path),
-    exists: async path => await assets().exists(path),
-    list: async (path, options) => await assets().list(path, options),
-    glob: async (pattern, options) => await assets().glob(pattern, options),
-  }
-}
-
-function createReadonlyFacade<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFacade<Name> {
-  const fs = createReadonlyFs(name)
-
-  return {
-    fs,
-    tools<Options extends WorkspaceToolOptions | undefined = undefined>(options?: Options) {
-      return createWorkspaceTools(fs, toReadToolOptions(options)) as WorkspaceReadTools<Options>
-    },
-  }
-}
-
-function createWritableFacade<Name extends WorkspaceName>(name: Name): WritableWorkspaceFacade<Name> {
-  const workspace = createLazyWorkspace(name)
-
-  return {
-    fs: createWritableFs<Name>(workspace),
-    tools<Options extends WritableWorkspaceToolOptions | undefined = undefined>(options?: Options) {
-      return createWorkspaceTools(workspace, toWriteToolOptions(options)) as WorkspaceWriteTools<Options>
-    },
-  }
+function createDefaultToolSetFactory<TOptions, TDefaultTools extends ToolSet>(
+  createTools: (options?: TOptions) => ToolSet,
+) {
+  const factory = ((options?: TOptions) => createTools(options)) as ((options?: TOptions) => ToolSet) & TDefaultTools
+  return Object.assign(factory, createTools())
 }
 
 export function useWorkspace<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFacade<Name>
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { allowWrite: true }): WritableWorkspaceFacade<Name>
-export function useWorkspace<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions = {}): WorkspaceFacade<Name> {
-  return options.allowWrite ? createWritableFacade(name) : createReadonlyFacade(name)
+export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
+  if (options?.allowWrite) {
+    const workspace = createLazyWorkspace(name)
+    const createTools = (opts?: WritableWorkspaceFacadeToolOptions) => createWorkspaceTools(workspace, {
+      cwd: opts?.cwd,
+      maxOutputLength: opts?.maxOutputLength,
+      operations: toWriteOperations(opts),
+    })
+    return {
+      fs: createWritableFs<Name>(workspace),
+      tools: createDefaultToolSetFactory<
+        WritableWorkspaceFacadeToolOptions,
+        WorkspaceWriteTools
+      >(createTools) as WritableWorkspaceFacade<Name>["tools"],
+    }
+  }
+
+  const fs = useWorkspaceAssets(name)
+  const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
+    cwd: opts?.cwd,
+    maxOutputLength: opts?.maxOutputLength,
+    operations: toReadOperations(opts),
+  })
+  return {
+    fs,
+    tools: createDefaultToolSetFactory<
+      WorkspaceFacadeToolOptions,
+      WorkspaceReadTools
+    >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"],
+  }
 }

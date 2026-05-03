@@ -3,11 +3,12 @@ import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
+import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
-import { collectWorkspaceAssetBundles, syncDiscoveredWorkspaces, writeWorkspaceAssetsRegistry } from "../build-assets.ts"
+import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets, writeWorkspaceRuntimeRegistry } from "../build-integration.ts"
 import { normalizeWorkspaceOptions } from "../config.ts"
-import { createWorkspaceRegistryContents, discoverNitroWorkspaceDefinitions } from "../discovery.ts"
+import { discoverNitroWorkspaceDefinitions, type DiscoveredWorkspaceDefinition } from "../discovery.ts"
 import { createWorkspaceTypeAugmentation } from "../generated-types.ts"
 import { configureCloudflareArtifacts } from "../integrations/cloudflare.ts"
 
@@ -47,7 +48,7 @@ function assetsRegistryPath(nitro: Nitro) {
   return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/workspace/assets/registry.mjs")
 }
 
-function workspaceNitroConfigTypes(definitions: Array<{ name: string, path: string }>) {
+function workspaceNitroConfigTypes(definitions: DiscoveredWorkspaceDefinition[]) {
   return `import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "@vitehub/workspace"
 
 declare module "nitro/types" {
@@ -88,25 +89,15 @@ export {}
 `
 }
 
-function installNitroConfigTypes(nitro: Nitro) {
+function installNitroConfigTypes(nitro: Nitro, getDefinitions: () => DiscoveredWorkspaceDefinition[]) {
   nitro.hooks.hook("types:extend", async (types) => {
-    const definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
     const dtsPath = resolve(nitro.options.buildDir, "types", "vitehub-workspace-nitro.d.ts")
-    await mkdir(dirname(dtsPath), { recursive: true })
-    await writeFile(dtsPath, workspaceNitroConfigTypes(definitions), "utf8")
+    await writeFileIfChanged(dtsPath, workspaceNitroConfigTypes(getDefinitions()))
     if (types.tsConfig) {
       types.tsConfig.include ||= []
       types.tsConfig.include.push(dtsPath)
     }
   })
-}
-
-async function writeRegistry(nitro: Nitro) {
-  const path = registryPath(nitro)
-  const definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, createWorkspaceRegistryContents(path, definitions), "utf8")
-  return { path, definitions }
 }
 
 function createNitroPluginContents(file: string, registryFile: string, assetsRegistryFile: string, options: false | ResolvedWorkspaceModuleOptions): string {
@@ -163,12 +154,6 @@ async function writePlugin(nitro: Nitro, registryFile: string, assetsRegistryFil
   return path
 }
 
-async function syncBuildWorkspaceAssets(nitro: Nitro, options: false | ResolvedWorkspaceModuleOptions, assetsRegistryFile: string) {
-  const definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
-  const workspaces = await syncDiscoveredWorkspaces(definitions, nitro.options.rootDir, options)
-  await writeWorkspaceAssetsRegistry(assetsRegistryFile, await collectWorkspaceAssetBundles(workspaces))
-}
-
 const workspaceNitroModule: NitroModule = {
   name: "@vitehub/workspace",
   async setup(nitro) {
@@ -192,13 +177,14 @@ const workspaceNitroModule: NitroModule = {
       nitro.options.alias[dependency] = resolveDependency(dependency)
     }
 
-    const registry = await writeRegistry(nitro)
+    let definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
+    const registryFile = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
     const assetsRegistryFile = assetsRegistryPath(nitro)
-    await writeWorkspaceAssetsRegistry(assetsRegistryFile, [])
-    const plugin = await writePlugin(nitro, registry.path, assetsRegistryFile, resolved)
-    nitro.options.alias["#vitehub-workspace-registry"] = registry.path
+    await initializeWorkspaceAssetRegistry(assetsRegistryFile)
+    const plugin = await writePlugin(nitro, registryFile, assetsRegistryFile, resolved)
+    nitro.options.alias["#vitehub-workspace-registry"] = registryFile
     nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
-    installNitroConfigTypes(nitro)
+    installNitroConfigTypes(nitro, () => definitions)
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
     if (!importsExplicitlyDisabled) {
@@ -213,20 +199,22 @@ const workspaceNitroModule: NitroModule = {
     }
 
     nitro.hooks.hook("build:before", async () => {
-      const next = await writeRegistry(nitro)
+      definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
+      const nextPath = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
       nitro.options.alias ||= {}
-      nitro.options.alias["#vitehub-workspace-registry"] = next.path
+      nitro.options.alias["#vitehub-workspace-registry"] = nextPath
       nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
-      await syncBuildWorkspaceAssets(nitro, resolved, assetsRegistryFile)
-      await writePlugin(nitro, next.path, assetsRegistryFile, resolved)
+      await syncWorkspaceBuildAssets(definitions, nitro.options.rootDir, resolved, assetsRegistryFile)
+      await writePlugin(nitro, nextPath, assetsRegistryFile, resolved)
     })
     nitro.hooks.hook("dev:reload", async () => {
-      const next = await writeRegistry(nitro)
+      definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
+      const nextPath = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
       nitro.options.alias ||= {}
-      nitro.options.alias["#vitehub-workspace-registry"] = next.path
+      nitro.options.alias["#vitehub-workspace-registry"] = nextPath
     })
 
-    nitro.logger.info(`@vitehub/workspace enabled with ${registry.definitions.length} workspace definition${registry.definitions.length === 1 ? "" : "s"}`)
+    nitro.logger.info(`@vitehub/workspace enabled with ${definitions.length} workspace definition${definitions.length === 1 ? "" : "s"}`)
   },
 }
 

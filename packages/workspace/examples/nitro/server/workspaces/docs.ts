@@ -5,11 +5,11 @@ export default defineWorkspace({
     provider: "local",
     root: ".vitehub/workspaces/docs",
   },
-  sources: [
-    source.file({
+  sources: {
+    docs: source.file({
       path: "README.md",
       workspacePath: "README.md",
       content: "# Workspace example\n",
     }),
-  ],
+  },
 })

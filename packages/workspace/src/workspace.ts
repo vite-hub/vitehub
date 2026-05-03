@@ -1,11 +1,8 @@
-import { WorkspaceError } from "./errors.ts"
 import { createWorkspaceStore, syncWorkspaceDefinition } from "./lifecycle.ts"
+import { createWorkspaceSourceView } from "./source-view.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
-  ReadFileOptions,
-  ReadFileResult,
   Workspace,
-  WorkspaceContent,
   WorkspaceDefinition,
   WorkspaceMount,
   WorkspaceMountOptions,
@@ -16,13 +13,9 @@ function getStore(definition: WorkspaceDefinition) {
   return getCachedWorkspaceStore(definition, () => createWorkspaceStore(definition))
 }
 
-function decodeFile<TOptions extends ReadFileOptions | undefined>(content: WorkspaceContent, options?: TOptions): ReadFileResult<TOptions> {
-  if (options?.encoding === "binary") return content as ReadFileResult<TOptions>
-  return (typeof content === "string" ? content : new TextDecoder().decode(content)) as ReadFileResult<TOptions>
-}
-
 export function createWorkspace(definition: WorkspaceDefinition): Workspace {
   const store = getStore(definition)
+  const files = createWorkspaceSourceView(definition, store)
 
   const workspace: Workspace = {
     name: definition.name,
@@ -30,32 +23,31 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       await syncWorkspaceDefinition(definition, store)
     },
     async readFile(path, options) {
-      const file = await store.readFile(path)
-      if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
-      return decodeFile(file.content, options)
+      return await files.readFile(path, options)
     },
     async writeFile(path, content, options) {
-      await store.writeFile(path, { path, content, mediaType: options?.mediaType })
+      await files.writeFile(path, content, options)
     },
     async list(path, options) {
-      return await store.list(path, options)
+      return await files.list(path, options)
     },
     async glob(pattern, options) {
-      return await store.glob(pattern, options)
+      return await files.glob(pattern, options)
+    },
+    async search(query) {
+      return await files.search(query)
     },
     async stat(path) {
-      const result = await store.stat(path)
-      if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
-      return result
+      return await files.stat(path)
     },
     async exists(path) {
-      return Boolean(await store.stat(path))
+      return await files.exists(path)
     },
     async mkdir(path, options) {
-      await store.mkdir(path, options)
+      await files.mkdir(path, options)
     },
     async rm(path, options) {
-      await store.rm(path, options)
+      await files.rm(path, options)
     },
     async snapshot(options) {
       return await store.snapshot(options)
@@ -69,6 +61,7 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
         writeFile: workspace.writeFile,
         list: workspace.list,
         glob: workspace.glob,
+        search: workspace.search,
         diff: workspace.diff,
       }
       if (options?.runtime === "local") {

@@ -19,6 +19,22 @@ export interface GlobOptions {
   cwd?: string
 }
 
+export interface WorkspaceSearchQuery {
+  pattern: string
+  cwd?: string
+  paths?: string[]
+  regex?: boolean
+  caseSensitive?: boolean
+  limit?: number
+}
+
+export interface WorkspaceSearchHit {
+  path: string
+  line: number
+  column: number
+  text: string
+}
+
 export interface MkdirOptions {
   recursive?: boolean
 }
@@ -78,6 +94,7 @@ export interface WorkspaceSession {
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
+  search?(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
   diff?(): Promise<WorkspaceDiff>
   exec?(command: string, args?: string[], options?: ExecOptions): Promise<ExecResult>
   tools?: {
@@ -106,6 +123,7 @@ export interface WorkspaceAssets<TKey extends string = string> {
   exists(path: TKey): Promise<boolean>
   list(path?: TKey | (string & {}) | "", options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: TKey | (string & {}) | Array<TKey | (string & {})>, options?: GlobOptions): Promise<WorkspaceEntry[]>
+  search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
 }
 
 export type WorkspaceAssetsRegistry = Record<string, WorkspaceAssets>
@@ -173,6 +191,26 @@ export interface SourceContext {
   workspace: string
 }
 
+export type WorkspaceMaterializeMode = "build" | "lazy"
+
+export type WorkspaceValidateMode = false | "request"
+
+export interface WorkspaceCacheOptions {
+  maxAge?: number
+  swr?: boolean
+  staleMaxAge?: number
+}
+
+export interface WorkspaceSourceMountOptions {
+  path?: string
+  materialize?: WorkspaceMaterializeMode
+  cache?: false | WorkspaceCacheOptions
+  swr?: boolean | number
+  validate?: WorkspaceValidateMode
+}
+
+export type WorkspaceSourceMount = string | WorkspaceSourceMountOptions
+
 export interface WorkspaceSourceItem {
   key: string
   path?: string
@@ -184,9 +222,16 @@ export interface WorkspaceSourceItem {
 
 export interface WorkspaceSource {
   name: string
+  mount?: WorkspaceSourceMount
+  materialize?: WorkspaceMaterializeMode
+  cache?: false | WorkspaceCacheOptions
+  swr?: boolean | number
+  validate?: WorkspaceValidateMode
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<string[]>
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
+  getMeta?(key: string, ctx: SourceContext): Promise<Record<string, unknown> | undefined>
+  search?(query: WorkspaceSearchQuery, ctx: SourceContext): Promise<WorkspaceSearchHit[]>
   watch?: unknown[]
 }
 
@@ -262,7 +307,7 @@ export interface WorkspaceDefinition {
   name: string
   rootDir?: string
   store?: WorkspaceStoreOptions
-  sources?: WorkspaceSource[]
+  sources?: Record<string, WorkspaceSource>
   loaders?: WorkspaceLoader[]
   publish?: WorkspacePublisher[]
 }
@@ -290,6 +335,7 @@ export interface Workspace {
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
+  search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
   stat(path: string): Promise<WorkspaceStat>
   exists(path: string): Promise<boolean>
   mkdir(path: string, options?: MkdirOptions): Promise<void>

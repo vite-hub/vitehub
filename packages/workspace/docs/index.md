@@ -40,21 +40,22 @@ Define a workspace:
 import { defineWorkspace, source } from '@vitehub/workspace'
 
 export default defineWorkspace({
-  sources: [
-    source.glob({
+  sources: {
+    docs: source.glob({
       cwd: process.cwd(),
       include: ['README.md', 'docs/**/*.md'],
     }),
-    source.file({
+    instructions: source.file({
       workspacePath: 'AGENTS.md',
       content: '# Instructions\nUse the workspace files as context.\n',
     }),
-  ],
+  },
 })
 ```
 
 In Nitro, place the same definition at `server/workspaces/docs.ts`.
-For inline files, use `workspacePath` and `content`. For file-backed sources, use `path` for the source file and `workspacePath` only when it should appear at a different workspace path.
+Source entries are keyed. The key becomes the default workspace mount path, so the example above exposes files at `docs/**` and `instructions/**`.
+For inline files, use `workspacePath` and `content`. For file-backed sources, use `path` for the source file and `workspacePath` for its path inside the mounted source.
 
 Use it from server code:
 
@@ -64,7 +65,7 @@ import { useWorkspace } from '@vitehub/workspace'
 const assets = useWorkspace('docs')
 const workspace = useWorkspace('docs', { allowWrite: true })
 
-const instructions = await assets.fs.readFile('AGENTS.md')
+const instructions = await assets.fs.readFile('instructions/AGENTS.md')
 await workspace.fs.writeFile('generated/notes.md', 'Hello')
 
 const files = await workspace.fs.glob('**/*.md')
@@ -76,7 +77,7 @@ For build-time, read-only context, enable `syncOnBuild` and read bundled assets:
 import { useWorkspace } from '@vitehub/workspace'
 
 const workspace = useWorkspace('docs')
-const readme = await workspace.fs.readFile('README.md')
+const readme = await workspace.fs.readFile('docs/README.md')
 const files = await workspace.fs.list('', { recursive: true })
 ```
 
@@ -97,7 +98,32 @@ import { useWorkspace } from '@vitehub/workspace'
 const tools = useWorkspace('docs', { allowWrite: true }).tools()
 ```
 
-Applications that use `AGENTS.md` as the model instruction source should preload it through `useWorkspace(name).fs.readFile('AGENTS.md')`.
+Applications that use `AGENTS.md` as the model instruction source should preload it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')`.
+
+## Lazy materialization
+
+Source mounts default to `materialize: 'build'`, which syncs files into the workspace store during build or explicit workspace sync.
+
+Use `materialize: 'lazy'` when the agent only needs source files on demand:
+
+```ts
+export default defineWorkspace({
+  sources: {
+    docs: source.github({
+      repo: 'vite-hub/vitehub',
+      ref: 'main',
+      root: 'docs',
+      materialize: 'lazy',
+    }),
+  },
+})
+```
+
+Lazy sources are exposed virtually through the workspace API and workspace tools. `list`, `glob`, `find`, and `stat` use the source manifest without materializing every file. A file is fetched and written into the workspace store only when a read-oriented operation such as `readFile`, `cat`, `head`, or `tail` needs it.
+
+The agent never receives a real filesystem mount. It only sees workspace tools such as `ls`, `find`, `cat`, `grep`, `readFile`, `writeFile`, `stat`, and `exists`, all backed by the workspace API.
+
+Source-backed paths are read-only in this release. Write generated or editable files to normal workspace paths such as `artifacts/**` or `generated/**`.
 
 Nitro supports both flat workspace files like `server/workspaces/docs.ts` and directory workspaces like `server/workspaces/docs/.config.ts`. Duplicate workspace names across those shapes are invalid.
 

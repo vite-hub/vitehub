@@ -33,25 +33,25 @@ describe("workspace public API", () => {
   it("uses the writable facade for synced reads and writes", async () => {
     registerWorkspace("api", defineWorkspace({
       store: { provider: "memory" },
-      sources: [
-        source.file({
+      sources: {
+        docs: source.file({
           path: "README.md",
           workspacePath: "README.md",
           content: "# API\n",
         }),
-        source.file({
+        agents: source.file({
           workspacePath: "AGENTS.md",
           content: "# Instructions\n",
         }),
-      ],
+      },
     }))
 
     const workspace = useWorkspace("api", { allowWrite: true })
     await workspace.fs.writeFile("generated/summary.md", "summary")
 
-    expect(await workspace.fs.readFile("README.md")).toBe("# API\n")
-    expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Instructions\n")
-    await expect(workspace.fs.stat("AGENTS.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
+    expect(await workspace.fs.readFile("docs/README.md")).toBe("# API\n")
+    expect(await workspace.fs.readFile("agents/AGENTS.md")).toBe("# Instructions\n")
+    await expect(workspace.fs.stat("agents/AGENTS.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
     expect(await workspace.fs.exists("generated/summary.md")).toBe(true)
     expect(await workspace.fs.glob("**/*.md")).toHaveLength(3)
   })
@@ -106,31 +106,31 @@ describe("workspace public API", () => {
     setWorkspaceRegistry({
       docs: async () => ({ default: defineWorkspace({
         store: { provider: "memory" },
-        sources: [
-          source.file({
+        sources: {
+          docs: source.file({
             workspacePath: "README.md",
             content: "v1\n",
           }),
-        ],
+        },
       }) }),
     })
 
     const first = useWorkspace("docs", { allowWrite: true })
-    expect(await first.fs.readFile("README.md")).toBe("v1\n")
+    expect(await first.fs.readFile("docs/README.md")).toBe("v1\n")
 
     setWorkspaceRegistry({
       docs: async () => ({ default: defineWorkspace({
         store: { provider: "memory" },
-        sources: [
-          source.file({
+        sources: {
+          docs: source.file({
             workspacePath: "README.md",
             content: "v2\n",
           }),
-        ],
+        },
       }) }),
     })
 
     const second = useWorkspace("docs", { allowWrite: true })
-    expect(await second.fs.readFile("README.md")).toBe("v2\n")
+    expect(await second.fs.readFile("docs/README.md")).toBe("v2\n")
   })
 })

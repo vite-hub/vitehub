@@ -1,8 +1,11 @@
-import { existsSync } from "node:fs"
-import { basename, dirname, join, relative, resolve } from "node:path"
+import { readdirSync } from "node:fs"
+import { basename, dirname, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createRuntimeRegistryContents, discoverDefinitions, normalizePathDefinitionName, normalizeSuffixDefinitionName } from "@vitehub/internal/definition-catalog"
+
+import { workspaceConfigFileNames, workspaceConfigPattern, workspaceSuffixPattern } from "./workspace-config.ts"
+
 import type { DefinitionCatalogSource } from "@vitehub/internal/definition-catalog"
 
 export interface DiscoveredWorkspaceDefinition {
@@ -12,49 +15,66 @@ export interface DiscoveredWorkspaceDefinition {
   source?: string
 }
 
-const workspaceSuffixPattern = /\.workspace\.(?:c|m)?[jt]s$/i
-const workspaceConfigPattern = /^\.config\.(?:c|m)?[jt]s$/i
-const workspaceConfigFileNames = [".config.ts", ".config.mts", ".config.cts", ".config.js", ".config.mjs", ".config.cjs"]
 type WorkspaceDefinitionCatalogSource = DefinitionCatalogSource<DiscoveredWorkspaceDefinition>
 
-function hasWorkspaceDirectoryConfig(directory: string) {
-  return workspaceConfigFileNames.some(file => existsSync(join(directory, file)))
-}
+const configFileNameSet = new Set<string>(workspaceConfigFileNames)
 
-function normalizeNitroDirectoryWorkspaceName(workspacesDir: string, file: string) {
-  if (!workspaceConfigPattern.test(basename(file))) return
-  const name = relative(workspacesDir, dirname(file)).replace(/\\/g, "/")
-  return name && name !== "." ? name : undefined
-}
+function collectDirectoriesWithConfig(root: string): Set<string> {
+  const directories = new Set<string>()
+  const walk = (current: string) => {
+    let entries
+    try {
+      entries = readdirSync(current, { withFileTypes: true })
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+      throw error
+    }
 
-function isNestedInsideDirectoryWorkspace(workspacesDir: string, file: string) {
-  const relativeDirectory = relative(workspacesDir, dirname(file)).replace(/\\/g, "/")
-  if (!relativeDirectory || relativeDirectory === ".") return false
+    if (entries.some(entry => entry.isFile() && configFileNameSet.has(entry.name))) {
+      directories.add(current.replace(/\\/g, "/"))
+    }
 
-  let current = workspacesDir
-  for (const segment of relativeDirectory.split("/")) {
-    current = join(current, segment)
-    if (hasWorkspaceDirectoryConfig(current)) {
-      return true
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith(".")) continue
+      walk(resolve(current, entry.name))
     }
   }
-
-  return false
-}
-
-function normalizeNitroFlatWorkspaceName(workspacesDir: string, file: string) {
-  if (workspaceConfigPattern.test(basename(file))) return
-  if (isNestedInsideDirectoryWorkspace(workspacesDir, file)) return
-
-  return normalizePathDefinitionName(workspacesDir, file)
+  walk(root)
+  return directories
 }
 
 function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
+  const workspacesDir = resolve(rootDir, "server", "workspaces")
+  const directoryWorkspaceDirs = collectDirectoriesWithConfig(workspacesDir)
+
+  const normalizeDirectoryName = (workspacesRoot: string, file: string) => {
+    if (!workspaceConfigPattern.test(basename(file))) return
+    const name = relative(workspacesRoot, dirname(file)).replace(/\\/g, "/")
+    return name && name !== "." ? name : undefined
+  }
+
+  const isInsideDirectoryWorkspace = (file: string) => {
+    let current = dirname(file).replace(/\\/g, "/")
+    const stop = workspacesDir.replace(/\\/g, "/")
+    while (current.startsWith(stop) && current !== stop) {
+      if (directoryWorkspaceDirs.has(current)) return true
+      current = dirname(current)
+    }
+    return false
+  }
+
+  const normalizeFlatName = (workspacesRoot: string, file: string) => {
+    if (workspaceConfigPattern.test(basename(file))) return
+    if (isInsideDirectoryWorkspace(file)) return
+    return normalizePathDefinitionName(workspacesRoot, file)
+  }
+
   return [
     {
       kind: "directory",
       includeHidden: true,
-      normalizeName: normalizeNitroDirectoryWorkspaceName,
+      normalizeName: normalizeDirectoryName,
       scanDirs: [resolve(rootDir, "server")],
       source: "nitro-server-workspaces-directory-config",
       subdir: "workspaces",
@@ -62,7 +82,7 @@ function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource
     },
     {
       kind: "directory",
-      normalizeName: normalizeNitroFlatWorkspaceName,
+      normalizeName: normalizeFlatName,
       scanDirs: [resolve(rootDir, "server")],
       source: "nitro-server-workspaces",
       subdir: "workspaces",

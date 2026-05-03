@@ -1,14 +1,14 @@
 import { WorkspaceError } from "../errors.ts"
-import { matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../path.ts"
+import { decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../path.ts"
+import { searchText } from "../search.ts"
 
 import type {
   GlobOptions,
   ListOptions,
-  ReadFileOptions,
-  ReadFileResult,
   WorkspaceAssets,
   WorkspaceContent,
   WorkspaceEntry,
+  WorkspaceSearchQuery,
   WorkspaceStat,
 } from "../types.ts"
 
@@ -44,11 +44,6 @@ function createDirectorySet(paths: string[]) {
   }
 
   return directories
-}
-
-function decodeContent<TOptions extends ReadFileOptions | undefined>(content: WorkspaceContent, options?: TOptions): ReadFileResult<TOptions> {
-  if (options?.encoding === "binary") return content as ReadFileResult<TOptions>
-  return (typeof content === "string" ? content : new TextDecoder().decode(content)) as ReadFileResult<TOptions>
 }
 
 function contentSize(content: WorkspaceContent) {
@@ -136,7 +131,7 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
 
   return {
     async readFile(path, options) {
-      return decodeContent(await readContent(normalizeAssetPath(path)), options)
+      return decodeFile(await readContent(normalizeAssetPath(path)), options)
     },
     async stat(path) {
       return await statPath(normalizeAssetPath(path))
@@ -158,6 +153,20 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
       const entries = await listEntries("", { recursive: true })
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
       return entries.filter(entry => entry.type === "file" && patterns.some(item => matchesAny(entry.path, item)))
+    },
+    async search(query: WorkspaceSearchQuery) {
+      const result = []
+      const limit = query.limit ?? 100
+      const entries = await listEntries("", { recursive: true })
+      for (const entry of entries) {
+        if (entry.type !== "file") continue
+        if (query.paths?.length && !query.paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
+        const content = await readContent(entry.path)
+        const text = typeof content === "string" ? content : new TextDecoder().decode(content)
+        result.push(...searchText(entry.path, text, { ...query, limit: limit - result.length }))
+        if (result.length >= limit) break
+      }
+      return result.slice(0, limit)
     },
   }
 }

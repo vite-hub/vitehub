@@ -1,17 +1,16 @@
-import { existsSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { resolve } from "node:path"
 
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
-import { collectWorkspaceAssetBundles, syncDiscoveredWorkspaces, writeWorkspaceAssetsRegistry } from "./build-assets.ts"
+import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "./build-integration.ts"
 import { normalizeWorkspaceOptions } from "./config.ts"
-import { createWorkspaceManifest, createWorkspaceVirtualRegistryContents, discoverViteWorkspaceDefinitions } from "./discovery.ts"
-import { createWorkspaceTypeAugmentation } from "./generated-types.ts"
+import { discoverViteWorkspaceDefinitions } from "./discovery.ts"
 import workspaceNitroModule from "./nitro/module.ts"
+import { workspaceSuffixPattern } from "./workspace-config.ts"
 
 import type { NitroModule } from "nitro/types"
 import type { HmrContext, Plugin, ResolvedConfig, ViteDevServer } from "vite"
+import type { WorkspaceBuildState } from "./build-integration.ts"
 import type { WorkspaceModuleOptions } from "./types.ts"
 
 const WORKSPACE_PACKAGE_NAME = "@vitehub/workspace"
@@ -23,6 +22,11 @@ const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`
 const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
 const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
+const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
+
+function isWorkspaceFile(file: string) {
+  return workspaceSuffixPattern.test(file) || workspacesDirSegment.test(file)
+}
 
 export interface WorkspaceVitePluginAPI {
   getWorkspaces: () => Array<{ name: string }>
@@ -30,33 +34,35 @@ export interface WorkspaceVitePluginAPI {
 
 export type WorkspaceVitePlugin = Plugin & { api: WorkspaceVitePluginAPI, nitro: NitroModule }
 
-function ambientTypesPath(root: string) {
-  return existsSync(resolve(root, "src"))
-    ? resolve(root, "src", "vitehub-workspace.d.ts")
-    : resolve(root, "vitehub-workspace.d.ts")
-}
-
 export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
   let resolved: ResolvedConfig | undefined
   let resolvedOptions: ReturnType<typeof normalizeWorkspaceOptions> = false
   let assetsRegistryFile: string | undefined
-  let manifest: Awaited<ReturnType<typeof createWorkspaceManifest>> = { workspaces: [] }
+  let manifest: WorkspaceBuildState["manifest"] = { workspaces: [] }
   let registryContents = "export default {}\n"
   let server: ViteDevServer | undefined
 
   async function refreshManifest(root: string) {
     const definitions = discoverViteWorkspaceDefinitions(root)
-    manifest = await createWorkspaceManifest(definitions)
-    registryContents = createWorkspaceVirtualRegistryContents(definitions)
-    const dtsPath = ambientTypesPath(root)
-    await mkdir(dirname(dtsPath), { recursive: true })
-    await writeFile(dtsPath, createWorkspaceTypeAugmentation(definitions), "utf8")
+    const state = await refreshWorkspaceBuildState(root, definitions)
+    manifest = state.manifest
+    registryContents = state.registryContents
+  }
+
+  function invalidateVirtualWorkspaceModules() {
+    if (!server) return
+    const moduleGraph = server.moduleGraph
+    const ids = [RESOLVED_WORKSPACE_REGISTRY_ID, RESOLVED_WORKSPACES_ID, ...manifest.workspaces.map(w => `${RESOLVED_WORKSPACE_PREFIX}${w.name}`)]
+    for (const id of ids) {
+      const mod = moduleGraph.getModuleById(id)
+      if (mod) moduleGraph.invalidateModule(mod)
+    }
   }
 
   async function maybeRefreshTypesForFile(root: string, file: string) {
-    if (!/\.workspace\.(?:c|m)?[jt]s$/i.test(file) && !/[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/.test(file)) return
+    if (!isWorkspaceFile(file)) return
     await refreshManifest(root)
-    server?.moduleGraph.invalidateAll()
+    invalidateVirtualWorkspaceModules()
   }
 
   return {
@@ -78,7 +84,7 @@ export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePl
         rootDir: config.root,
       })
       assetsRegistryFile = resolve(config.root, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
-      await writeWorkspaceAssetsRegistry(assetsRegistryFile, [])
+      await initializeWorkspaceAssetRegistry(assetsRegistryFile)
       await refreshManifest(config.root)
     },
     configEnvironment(name, config) {
@@ -95,8 +101,7 @@ export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePl
       if (resolved.command !== "build" || !assetsRegistryFile) return
 
       const definitions = discoverViteWorkspaceDefinitions(resolved.root)
-      const workspaces = await syncDiscoveredWorkspaces(definitions, resolved.root, resolvedOptions)
-      await writeWorkspaceAssetsRegistry(assetsRegistryFile, await collectWorkspaceAssetBundles(workspaces))
+      await syncWorkspaceBuildAssets(definitions, resolved.root, resolvedOptions, assetsRegistryFile)
     },
     configureServer(devServer) {
       server = devServer

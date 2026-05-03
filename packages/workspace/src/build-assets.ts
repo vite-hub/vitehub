@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { pathToFileURL } from "node:url"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
+import { resolveRuntimeEntry } from "@vitehub/internal/nitro"
 
 import { normalizeSafeWorkspacePath } from "./path.ts"
-import { registerWorkspace } from "./registry.ts"
-import { useRegisteredWorkspace } from "./registry.ts"
+import { registerWorkspace, useRegisteredWorkspace } from "./registry.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
 import type { ResolvedWorkspaceModuleOptions, Workspace, WorkspaceContent, WorkspaceDefinitionInput } from "./types.ts"
@@ -24,7 +24,7 @@ export interface WorkspaceAssetBundle {
 }
 
 function shouldSyncWorkspace(syncOnBuild: boolean | string[] | undefined, name: string) {
-  return syncOnBuild === true || (Array.isArray(syncOnBuild) && syncOnBuild.includes(name))
+  return syncOnBuild === undefined || syncOnBuild === true || (Array.isArray(syncOnBuild) && syncOnBuild.includes(name))
 }
 
 function assetModuleName(workspace: string, path: string) {
@@ -38,8 +38,7 @@ function serializeContent(content: WorkspaceContent) {
 }
 
 function runtimeAssetsModulePath() {
-  const extension = import.meta.url.endsWith(".ts") ? ".ts" : ".js"
-  return fileURLToPath(new URL(`./runtime/assets${extension}`, import.meta.url))
+  return resolveRuntimeEntry("./runtime/assets", "@vitehub/workspace/runtime/assets", import.meta.url)
 }
 
 export async function syncDiscoveredWorkspaces(
@@ -47,7 +46,7 @@ export async function syncDiscoveredWorkspaces(
   rootDir: string,
   options: false | ResolvedWorkspaceModuleOptions,
 ): Promise<Workspace[]> {
-  if (!options || !options.syncOnBuild) return []
+  if (!options) return []
 
   const workspaces: Workspace[] = []
   for (const definition of definitions) {

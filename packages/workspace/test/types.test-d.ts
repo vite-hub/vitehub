@@ -23,7 +23,7 @@ declare global {
 describe("workspace types", () => {
   it("types the facade helpers", async () => {
     const definition = defineWorkspace({
-      sources: [source.markdown({ path: "README.md" })],
+      sources: { docs: source.markdown({ path: "README.md" }) },
       loaders: [loader.files()],
       publish: [publish.virtualModule({ id: "virtual:vitehub/workspaces/typed" })],
     })
@@ -51,8 +51,10 @@ describe("workspace types", () => {
     expectTypeOf(createWorkspaceTools(createWorkspaceAssets({
       "README.md": { load: async () => "# Docs\n" },
     })).shell).toMatchTypeOf<object>()
+    expectTypeOf(readonly.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(readonly.tools().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(readonly.tools()).toMatchTypeOf<ToolSet>()
+    expectTypeOf(writable.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(writable.tools().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(await readonly.fs.readFile("AGENTS.md")).toEqualTypeOf<string>()
     // @ts-expect-error typed workspace assets reject unknown literal paths when no fallback string is declared

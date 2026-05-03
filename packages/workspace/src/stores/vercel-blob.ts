@@ -1,6 +1,6 @@
 import { WorkspaceError } from "../errors.ts"
 import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../path.ts"
-import { resolveRuntimeVercelBlobWorkspaceStore } from "../config.ts"
+import { resolveRuntimeVercelBlobWorkspaceStore } from "../store-provider.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "./utils.ts"
 
 import type {

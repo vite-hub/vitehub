@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -105,18 +105,18 @@ describe("sources, loaders, and publishers", () => {
     registerWorkspace("github-loader", defineWorkspace({
       rootDir: root,
       store: { provider: "memory" },
-      sources: [
-        source.github({
+      sources: {
+        docs: source.github({
           repo: "acme/app",
           root: "dbt",
         }),
-      ],
+      },
       loaders: [loader.files()],
     }))
 
     const workspace = useWorkspace("github-loader", { allowWrite: true })
 
-    await expect(workspace.fs.readFile("models/marts/orders.sql")).resolves.toBe("select 1\n")
+    await expect(workspace.fs.readFile("docs/models/marts/orders.sql")).resolves.toBe("select 1\n")
   })
 
   it("reports inaccessible GitHub repositories with a source-specific error", async () => {
@@ -141,10 +141,10 @@ describe("sources, loaders, and publishers", () => {
     registerWorkspace("sources", defineWorkspace({
       rootDir: root,
       store: { provider: "memory" },
-      sources: [
-        source.glob({ cwd: ".", include: ["**/*.md"] }),
-        source.file({ path: "two.md", workspacePath: "two.md", content: "# Two\n" }),
-        source.custom({
+      sources: {
+        docs: source.glob({ cwd: ".", include: ["**/*.md"] }),
+        files: source.file({ path: "two.md", workspacePath: "two.md", content: "# Two\n" }),
+        custom: source.custom({
           name: "custom",
           async getKeys() {
             return ["custom.json"]
@@ -153,7 +153,7 @@ describe("sources, loaders, and publishers", () => {
             return { key, path: key, data: { ok: true }, mediaType: "application/json" }
           },
         }),
-      ],
+      },
       loaders: [
         loader.files({
           exclude: ["skip.*"],
@@ -175,8 +175,21 @@ describe("sources, loaders, and publishers", () => {
 
     expect(customWrites).toBe(3)
     expect(await workspace.fs.glob("**/*")).toHaveLength(3)
-    expect(await readFile(join(root, "manifest.json"), "utf8")).toContain('"one.md"')
+    expect(await readFile(join(root, "manifest.json"), "utf8")).toContain('"docs/one.md"')
     expect(await readFile(join(root, "workspace.d.ts"), "utf8")).toContain('virtual:vitehub/workspaces/sources')
+  })
+
+  it("ignores .git and node_modules when discovering glob sources", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "node_modules/pkg"), { recursive: true })
+    await mkdir(join(root, ".git/hooks"), { recursive: true })
+    await writeFile(join(root, "visible.md"), "# Visible\n")
+    await writeFile(join(root, "node_modules/pkg/hidden.md"), "# Hidden\n")
+    await writeFile(join(root, ".git/hooks/pre-commit"), "hook\n")
+
+    const keys = await source.glob({ cwd: ".", include: "**/*" }).getKeys({ rootDir: root, workspace: "glob-source" })
+
+    expect(keys).toEqual(["visible.md"])
   })
 
   it("writes lazy workspace asset modules for text and binary files", async () => {
@@ -185,10 +198,10 @@ describe("sources, loaders, and publishers", () => {
     registerWorkspace("asset-bundle", defineWorkspace({
       rootDir: root,
       store: { provider: "memory" },
-      sources: [
-        source.file({ content: "hello\n", path: "README.md", workspacePath: "README.md" }),
-        source.file({ content: new Uint8Array([1, 2, 3]), path: "data.bin", workspacePath: "data.bin" }),
-      ],
+      sources: {
+        docs: source.file({ content: "hello\n", path: "README.md", workspacePath: "README.md" }),
+        data: source.file({ content: new Uint8Array([1, 2, 3]), path: "data.bin", workspacePath: "data.bin" }),
+      },
     }))
 
     const workspace = await useRegisteredWorkspace("asset-bundle")
@@ -198,11 +211,11 @@ describe("sources, loaders, and publishers", () => {
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
 
     await expect(registry["asset-bundle"].list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "README.md", type: "file" }),
-      expect.objectContaining({ path: "data.bin", type: "file" }),
+      expect.objectContaining({ path: "docs/README.md", type: "file" }),
+      expect.objectContaining({ path: "data/data.bin", type: "file" }),
     ]))
-    await expect(registry["asset-bundle"].readFile("README.md")).resolves.toBe("hello\n")
-    await expect(registry["asset-bundle"].readFile("data.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+    await expect(registry["asset-bundle"].readFile("docs/README.md")).resolves.toBe("hello\n")
+    await expect(registry["asset-bundle"].readFile("data/data.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
     await expect(registry["asset-bundle"].exists("../escape.txt")).resolves.toBe(false)
   })
 

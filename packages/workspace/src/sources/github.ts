@@ -4,7 +4,9 @@ import { WorkspaceError } from "../errors.ts"
 import { matchesAny, normalizeWorkspacePath } from "../path.ts"
 import type { WorkspaceSource } from "../types.ts"
 
-export interface GitHubSourceOptions {
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "swr" | "validate">
+
+export interface GitHubSourceOptions extends SourceRuntimeOptions {
   repo: string
   ref?: string
   root?: string
@@ -15,6 +17,7 @@ export interface GitHubSourceOptions {
 
 interface GitHubTreeItem {
   path: string
+  sha?: string
   type: "blob" | "tree"
 }
 
@@ -32,6 +35,7 @@ interface GitHubContentResponse {
 interface GitHubFile {
   key: string
   path: string
+  sha: string | undefined
 }
 
 export function github(options: GitHubSourceOptions): WorkspaceSource {
@@ -84,19 +88,20 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
 
     return tree.tree
       .filter(item => item.type === "blob")
-      .map((item) => {
+      .map((item): GitHubFile | undefined => {
         const key = keyForRepoPath(item.path)
         if (!key || !shouldInclude(key)) return undefined
         return {
           key,
           path: key,
+          sha: item.sha,
         }
       })
       .filter((file): file is GitHubFile => Boolean(file))
   }
 
   function getFiles() {
-    filesPromise ||= loadFiles()
+    if (!filesPromise) filesPromise = loadFiles()
     return filesPromise
   }
 
@@ -118,9 +123,22 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
   }
 
   return {
+    cache: options.cache,
+    materialize: options.materialize,
+    mount: options.mount,
     name: "github",
+    swr: options.swr,
+    validate: options.validate,
     async getKeys() {
       return (await getFiles()).map(file => file.key)
+    },
+    async getMeta(key) {
+      const file = (await getFiles()).find(file => file.key === key)
+      if (!file) return
+      return {
+        ref,
+        sha: file.sha,
+      }
     },
     async getItem(key) {
       const file = (await getFiles()).find(file => file.key === key)

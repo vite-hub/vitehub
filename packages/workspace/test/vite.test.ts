@@ -65,22 +65,24 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "src/docs.workspace.mjs"), [
       `export default {`,
       `  store: { provider: "memory" },`,
-      `  sources: [{`,
-      `    name: "inline",`,
-      `    async getKeys() { return ["README.md"] },`,
-      `    async getItem(key) { return { key, path: key, content: "docs\\n" } },`,
-      `  }],`,
+      `  sources: {`,
+      `    files: {`,
+      `      name: "inline",`,
+      `      async getKeys() { return ["README.md"] },`,
+      `      async getItem(key) { return { key, path: key, content: "docs\\n" } },`,
+      `    },`,
+      `  },`,
       `}`,
       ``,
     ].join("\n"))
 
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const configResolved = plugin.configResolved as (config: { command: "build", root: string, workspace: { syncOnBuild: string[] } }) => Promise<void>
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const buildStart = plugin.buildStart as () => Promise<void>
     const resolveId = plugin.resolveId as (id: string) => string | undefined
 
-    await configResolved({ command: "build", root, workspace: { syncOnBuild: ["docs"] } })
+    await configResolved({ command: "build", root })
     await buildStart()
 
     const registryId = resolveId("#vitehub-workspace-assets-registry")!
@@ -88,8 +90,8 @@ describe("hubWorkspace", () => {
 
     await expect(readFile(registryId, "utf8")).resolves.toContain('"docs"')
     await expect(registry.docs.list()).resolves.toEqual([
-      expect.objectContaining({ path: "README.md", type: "file" }),
+      expect.objectContaining({ path: "files", type: "directory" }),
     ])
-    await expect(registry.docs.readFile("README.md")).resolves.toBe("docs\n")
+    await expect(registry.docs.readFile("files/README.md")).resolves.toBe("docs\n")
   })
 })
