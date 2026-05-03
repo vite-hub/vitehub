@@ -6,9 +6,9 @@ import type { ChatCloudflareDurableObjectModuleOptions } from "../types.ts"
 import type { DiscoveredChatDefinition } from "../types.ts"
 
 interface MutableCloudflareTarget {
-  cloudflare?: {
-    wrangler?: {
-      durable_objects?: {
+  cloudflare?: Record<string, unknown> & {
+    wrangler?: Record<string, unknown> & {
+      durable_objects?: Record<string, unknown> & {
         bindings?: Array<{ class_name: string, name: string }>
       }
       migrations?: Array<{ new_sqlite_classes?: string[], tag: string }>
