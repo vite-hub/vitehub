@@ -3,13 +3,14 @@ import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/b
 import chatNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
-import type { Plugin } from "vite"
+import type { Plugin, UserConfig } from "vite"
 import type { ChatModuleOptions } from "./types.ts"
 
 export type ChatVitePlugin = Plugin & { nitro: NitroModule }
 
 const chatPackageName = "@vitehub/chat"
 const mergeNoExternal = createNoExternalMerger(chatPackageName)
+const cloudflareWorkersDevAlias = new URL("./runtime/cloudflare-workers-dev.js", import.meta.url).pathname
 
 export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
   let chat: ChatModuleOptions | false | undefined = options
@@ -17,11 +18,23 @@ export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
   return {
     name: "@vitehub/chat/vite",
     nitro: chatNitroModule,
-    config(config) {
+    config(config, env) {
       chat = config.chat ?? chat
-      if (typeof chat !== "undefined") {
-        return { chat }
+      const nextConfig: UserConfig = {}
+
+      if (env.command === "serve") {
+        nextConfig.resolve = {
+          alias: {
+            "cloudflare:workers": cloudflareWorkersDevAlias,
+          },
+        }
       }
+
+      if (typeof chat !== "undefined") {
+        nextConfig.chat = chat
+      }
+
+      return Object.keys(nextConfig).length > 0 ? nextConfig : undefined
     },
     configResolved(config) {
       chat = config.chat ?? chat

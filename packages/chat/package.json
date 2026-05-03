@@ -26,6 +26,7 @@
     ".": "./dist/index.js",
     "./cloudflare": "./dist/cloudflare.js",
     "./nitro": "./dist/nitro.js",
+    "./runtime/cloudflare-workers-dev": "./dist/runtime/cloudflare-workers-dev.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./vercel": "./dist/vercel.js",
     "./vite": "./dist/vite.js",

@@ -11,6 +11,7 @@ export default defineConfig({
     "src/index.ts",
     "src/cloudflare.ts",
     "src/nitro.ts",
+    "src/runtime/cloudflare-workers-dev.ts",
     "src/runtime/nitro-plugin.ts",
     "src/vercel.ts",
     "src/vite.ts",

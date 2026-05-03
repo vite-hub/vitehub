@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const cloudflareStateMock = vi.hoisted(() => ({
-  createCloudflareState: vi.fn(options => ({ provider: "cloudflare-do", options })),
+  createCloudflareState: vi.fn(options => ({ connect: vi.fn(), provider: "cloudflare-do", options })),
 }))
 
 const vercelFunctionsMock = vi.hoisted(() => ({
@@ -42,7 +42,8 @@ describe("Cloudflare helpers", () => {
       shardKey,
     })
 
-    expect(state).toMatchObject({ provider: "cloudflare-do" })
+    await state.connect()
+
     expect(cloudflareStateMock.createCloudflareState).toHaveBeenCalledWith({
       locationHint: "wnam",
       name: "quiver-chat",
