@@ -157,9 +157,12 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
       const result = []
       const limit = query.limit ?? 100
       const entries = await listEntries("", { recursive: true })
+      const scopePaths = query.paths?.length
+        ? query.paths
+        : query.cwd ? [normalizeAssetPath(query.cwd)].filter(Boolean) : []
       for (const entry of entries) {
         if (entry.type !== "file") continue
-        if (query.paths?.length && !query.paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
+        if (scopePaths.length && !scopePaths.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
         const content = await readContent(entry.path)
         const text = typeof content === "string" ? content : new TextDecoder().decode(content)
         result.push(...searchText(entry.path, text, { ...query, limit: limit - result.length }))
