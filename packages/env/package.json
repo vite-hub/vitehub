@@ -1,24 +1,23 @@
 {
-  "name": "@vitehub/runtime-config",
+  "name": "@vitehub/env",
   "version": "0.0.0",
-  "description": "Timing-explicit runtime configuration for Vite, Nitro, and provider-native runtimes.",
+  "description": "Safe build and runtime environment variables for Vite and Nitro.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
-    "directory": "packages/runtime-config"
+    "directory": "packages/env"
   },
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "keywords": [
     "vitehub",
     "vite",
     "nitro",
-    "runtime-config",
     "env",
-    "cloudflare",
-    "vercel"
+    "environment-variables",
+    "runtime-config"
   ],
   "sideEffects": false,
   "type": "module",
@@ -26,10 +25,6 @@
   "exports": {
     ".": "./dist/index.js",
     "./nitro": "./dist/nitro.js",
-    "./providers/cloudflare": "./dist/providers/cloudflare.js",
-    "./providers/node": "./dist/providers/node.js",
-    "./providers/vercel": "./dist/providers/vercel.js",
-    "./runtime/cloudflare": "./dist/runtime/cloudflare.js",
     "./runtime/public-runtime": "./dist/runtime/public-runtime.js",
     "./runtime/server": "./dist/runtime/server.js",
     "./schema": "./dist/schema.js",
@@ -45,7 +40,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/runtime-config build && vitest run"
+    "test": "pnpm --filter @vitehub/env build && vitest run"
   },
   "dependencies": {
     "exsolve": "catalog:",

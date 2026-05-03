@@ -1,4 +1,4 @@
-export async function getPublicRuntimeConfig(endpoint = "/_vitehub/runtime-config"): Promise<Record<string, unknown>> {
+export async function useSafePublicRuntimeConfig(endpoint = "/_vitehub/env"): Promise<Record<string, unknown>> {
   const response = await fetch(endpoint, {
     headers: { accept: "application/json" },
   })

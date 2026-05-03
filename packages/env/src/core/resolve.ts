@@ -1,0 +1,219 @@
+import { execFile } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { resolve } from "node:path"
+import { promisify } from "node:util"
+
+import { parseSchema } from "../schema.ts"
+import { EnvError } from "./errors.ts"
+
+import type {
+  EnvConfigOptions,
+  EnvDiagnosticEntry,
+  EnvMode,
+  EnvRegistryEntry,
+  EnvRuntimeRegistry,
+  EnvSource,
+  EnvSourceContext,
+  EnvVariableDeclaration,
+  ResolvedEnvEntry,
+} from "../types.ts"
+
+const execFileAsync = promisify(execFile)
+
+export function validateEnvConfigShape(config: EnvConfigOptions | undefined, target: "nitro" | "vite"): void {
+  if (!config) {
+    return
+  }
+
+  if (target === "vite" && config.server) {
+    throw new EnvError("`env.server` is not available in Vite config. Move runtime values to `nitro.config.ts`.")
+  }
+
+  if (target === "nitro" && config.define) {
+    throw new EnvError("`env.define` is build-only and only available in Vite config.")
+  }
+
+  for (const [key, declaration] of Object.entries(config.public || {})) {
+    assertEnvVariableDeclaration(`env.public.${key}`, declaration)
+    if (target === "vite" && declaration.mode !== "build") {
+      throw new EnvError(`env.public.${key} must use mode: "build" in Vite config. Runtime public config requires Nitro transport.`)
+    }
+    if (target === "nitro" && declaration.mode !== "runtime") {
+      throw new EnvError(`env.public.${key} must use runtime mode in Nitro config.`)
+    }
+    if (declaration.secret) {
+      throw new EnvError(`env.public.${key} cannot be marked secret.`)
+    }
+    if (target === "nitro") {
+      assertSerializableRuntimeSource(`env.public.${key}`, declaration)
+    }
+  }
+
+  for (const [key, declaration] of Object.entries(config.server || {})) {
+    assertEnvVariableDeclaration(`env.server.${key}`, declaration)
+    if (declaration.mode !== "runtime") {
+      throw new EnvError(`env.server.${key} must use runtime mode.`)
+    }
+    if (target === "nitro") {
+      assertSerializableRuntimeSource(`env.server.${key}`, declaration)
+    }
+  }
+
+  for (const [key, declaration] of Object.entries(config.define || {})) {
+    assertEnvVariableDeclaration(`env.define.${key}`, declaration)
+    if (declaration.mode !== "build") {
+      throw new EnvError(`env.define.${key} must use mode: "build".`)
+    }
+    if (declaration.secret) {
+      throw new EnvError(`env.define.${key} cannot be marked secret because Vite define values are bundled.`)
+    }
+  }
+}
+
+export function createSourceContext(input: {
+  env: Record<string, string | undefined>
+  mode: EnvMode
+  rootDir: string
+}): EnvSourceContext {
+  return {
+    env: input.env,
+    git: {
+      branch: () => gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
+      commit: options => gitOutput(input.rootDir, ["rev-parse", options?.short ? "--short" : "HEAD", "HEAD"]),
+    },
+    mode: input.mode,
+    packageJson: () => readPackageJson(input.rootDir),
+    rootDir: input.rootDir,
+  }
+}
+
+export async function resolveEnvEntries(
+  declarations: Record<string, EnvVariableDeclaration> | undefined,
+  input: {
+    context: EnvSourceContext
+    exposure: "build public" | "compile-time replacement" | "public runtime transport" | "server only"
+    section: "env.define" | "env.public" | "env.server"
+    timing: string
+  },
+): Promise<{ diagnostics: EnvDiagnosticEntry[], entries: ResolvedEnvEntry[] }> {
+  const entries: ResolvedEnvEntry[] = []
+  const diagnostics: EnvDiagnosticEntry[] = []
+
+  for (const [key, declaration] of Object.entries(declarations || {})) {
+    const raw = await resolveSourceValue(declaration.source, input.context)
+    const defaulted = typeof raw === "undefined"
+    const valueForSchema = defaulted ? declaration.default : raw
+    if (typeof valueForSchema === "undefined") {
+      throw new EnvError(`Missing ${input.section}.${key} from ${declaration.source.label}.`)
+    }
+
+    const value = parseSchema(declaration.schema, valueForSchema, `${input.section}.${key}`)
+    const type = declaration.type ?? inferTypeName(value)
+    entries.push({
+      key,
+      masked: declaration.secret,
+      source: declaration.source.label,
+      type,
+      value,
+    })
+    diagnostics.push({
+      exposed: declaration.secret ? `${input.exposure}, masked` : input.exposure,
+      key: `${input.section}.${key}`,
+      masked: declaration.secret,
+      mode: declaration.mode,
+      source: defaulted ? "default" : declaration.source.label,
+      status: defaulted ? "defaulted" : "valid",
+      timing: input.timing,
+      type,
+    })
+  }
+
+  return { diagnostics, entries }
+}
+
+export function createRuntimeRegistry(config: EnvConfigOptions | undefined): EnvRuntimeRegistry {
+  return {
+    public: createRegistrySection(config?.public),
+    server: createRegistrySection(config?.server),
+  }
+}
+
+export function inferTypeName(value: unknown): string {
+  if (Array.isArray(value)) {
+    return "unknown[]"
+  }
+  switch (typeof value) {
+    case "boolean":
+    case "number":
+    case "string":
+      return typeof value
+    case "object":
+      return value === null ? "null" : "Record<string, unknown>"
+    case "undefined":
+      return "undefined"
+    default:
+      return "unknown"
+  }
+}
+
+async function resolveSourceValue(source: EnvSource, context: EnvSourceContext): Promise<unknown> {
+  switch (source.kind) {
+    case "custom":
+      return await source.resolver(context)
+    case "env":
+      return context.env[source.name]
+    case "git-branch":
+      return await context.git.branch()
+    case "git-commit":
+      return await context.git.commit({ short: source.short })
+    case "package-json":
+      return readPath(await context.packageJson(), source.path)
+  }
+}
+
+function createRegistrySection(declarations: Record<string, EnvVariableDeclaration> | undefined): Record<string, EnvRegistryEntry> | undefined {
+  if (!declarations) {
+    return undefined
+  }
+  return Object.fromEntries(Object.entries(declarations).map(([key, declaration]) => {
+    if (declaration.source.kind !== "env") {
+      throw new EnvError(`Runtime declaration env.${key} must use envSource.env() in v1.`)
+    }
+    return [key, {
+      default: declaration.default,
+      secret: declaration.secret,
+      source: declaration.source,
+      type: declaration.type,
+    }]
+  }))
+}
+
+function assertEnvVariableDeclaration(path: string, declaration: EnvVariableDeclaration): void {
+  if (declaration.kind !== "env-variable") {
+    throw new EnvError(`Invalid declaration at ${path}. Use envVariable().`)
+  }
+}
+
+function assertSerializableRuntimeSource(path: string, declaration: EnvVariableDeclaration): void {
+  if (declaration.source.kind !== "env") {
+    throw new EnvError(`${path} must use an env source in runtime mode for v1. Custom, package, and git sources are build-only.`)
+  }
+}
+
+async function readPackageJson(rootDir: string): Promise<Record<string, unknown>> {
+  return JSON.parse(await readFile(resolve(rootDir, "package.json"), "utf8")) as Record<string, unknown>
+}
+
+async function gitOutput(rootDir: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd: rootDir })
+  return stdout.trim()
+}
+
+function readPath(value: Record<string, unknown>, path: string): unknown {
+  return path.split(".").reduce<unknown>((current, segment) => {
+    if (typeof current !== "object" || current === null) {
+      return undefined
+    }
+    return (current as Record<string, unknown>)[segment]
+  }, value)
+}

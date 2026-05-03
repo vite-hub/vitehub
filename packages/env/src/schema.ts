@@ -32,7 +32,7 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
   if (isStandardSchema(schema)) {
     const result = schema["~standard"].validate(value)
     if (isPromiseLike(result)) {
-      throw new Error(`[vitehub] ${label} uses an async schema. Runtime config validation currently requires sync schemas.`)
+      throw new Error(`[vitehub] ${label} uses an async schema. Env validation currently requires sync schemas.`)
     }
     if ("issues" in result && result.issues) {
       throw new Error(`[vitehub] Invalid ${label}: ${formatIssues(result.issues)}`)

@@ -12,10 +12,6 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/nitro.ts",
-    "src/providers/cloudflare.ts",
-    "src/providers/node.ts",
-    "src/providers/vercel.ts",
-    "src/runtime/cloudflare.ts",
     "src/runtime/public-runtime.ts",
     "src/runtime/server.ts",
     "src/schema.ts",
