@@ -1,0 +1,76 @@
+{
+  "name": "@vitehub/runtime-config",
+  "version": "0.0.0",
+  "description": "Timing-explicit runtime configuration for Vite, Nitro, and provider-native runtimes.",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/runtime-config"
+  },
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "keywords": [
+    "vitehub",
+    "vite",
+    "nitro",
+    "runtime-config",
+    "env",
+    "cloudflare",
+    "vercel"
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./nitro": "./dist/nitro.js",
+    "./providers/cloudflare": "./dist/providers/cloudflare.js",
+    "./providers/node": "./dist/providers/node.js",
+    "./providers/vercel": "./dist/providers/vercel.js",
+    "./runtime/cloudflare": "./dist/runtime/cloudflare.js",
+    "./runtime/public-runtime": "./dist/runtime/public-runtime.js",
+    "./runtime/server": "./dist/runtime/server.js",
+    "./schema": "./dist/schema.js",
+    "./virtual": "./dist/virtual.js",
+    "./vite": "./dist/vite.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsdown --tsconfig tsconfig.build.json",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "pnpm --filter @vitehub/runtime-config build && vitest run"
+  },
+  "dependencies": {
+    "exsolve": "catalog:",
+    "pathe": "catalog:"
+  },
+  "peerDependencies": {
+    "nitro": "^3.0.0-0",
+    "vite": ">=6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "nitro": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@vitehub/internal": "workspace:*",
+    "nitro": "catalog:",
+    "publint": "^0.3.15",
+    "tsdown": "^0.21.8",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}
