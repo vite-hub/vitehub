@@ -22,6 +22,10 @@ jobs:
       - uses: ./.github/actions/setup
 
       - run: pnpm --filter @vitehub/workspace build
+      - run: pnpm --filter @vitehub/chat build
 
       - name: Publish @vitehub/workspace preview
         run: pnpm dlx pkg-pr-new publish './packages/workspace' --packageManager=pnpm
+
+      - name: Publish @vitehub/chat preview
+        run: pnpm dlx pkg-pr-new publish './packages/chat' --packageManager=pnpm
