@@ -21,6 +21,37 @@ afterEach(async () => {
 })
 
 describe("Nitro syncOnBuild", () => {
+  it("aliases workspace subpaths before the main package alias", async () => {
+    const root = await createRoot()
+    const hooks: Record<string, Array<() => Promise<void>>> = {}
+    const nitro = {
+      hooks: {
+        hook(name: string, callback: () => Promise<void>) {
+          hooks[name] ||= []
+          hooks[name].push(callback)
+        },
+      },
+      logger: {
+        info() {},
+      },
+      options: {
+        _config: {},
+        alias: {} as Record<string, string>,
+        rootDir: root,
+        runtimeConfig: {},
+      },
+    }
+
+    await workspaceNitroModule.setup!(nitro as never)
+
+    expect(nitro.options.alias["@vitehub/workspace/source"]).toContain("source")
+    expect(nitro.options.alias["@vitehub/workspace/runtime/state"]).toContain("runtime/state")
+
+    const keys = Object.keys(nitro.options.alias)
+    expect(keys.indexOf("@vitehub/workspace/source")).toBeLessThan(keys.indexOf("@vitehub/workspace"))
+    expect(keys.indexOf("@vitehub/workspace/runtime/state")).toBeLessThan(keys.indexOf("@vitehub/workspace"))
+  })
+
   it("uses a local workspace store in Nitro dev even for Cloudflare presets", async () => {
     const root = await createRoot()
     const hooks: Record<string, Array<() => Promise<void>>> = {}
