@@ -23,19 +23,77 @@ export interface NitroChatRuntimeContext extends ChatRuntimeContext<NitroChatRun
 
 type WebhookHandler = (request: Request, options?: WebhookOptions) => unknown
 
+type RequestInitWithDuplex = RequestInit & { duplex?: "half" }
+type RequestHeaders = NonNullable<RequestInit["headers"]>
+
+interface RequestLike {
+  body?: RequestInit["body"] | null
+  headers?: RequestHeaders | Record<string, string | string[] | undefined>
+  method?: string
+  url?: string | URL
+  [Symbol.asyncIterator]?: unknown
+}
+
+function normalizeHeaders(headers: RequestLike["headers"]): RequestHeaders | undefined {
+  if (!headers || headers instanceof Headers || Array.isArray(headers)) {
+    return headers
+  }
+
+  const normalized = new Headers()
+  for (const [name, value] of Object.entries(headers)) {
+    if (value == null) {
+      continue
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) normalized.append(name, item)
+    }
+    else {
+      normalized.set(name, value)
+    }
+  }
+  return normalized
+}
+
+function getRequestURL(event: H3Event, req: RequestLike, headers: RequestHeaders | undefined): string | URL {
+  if (event.url) {
+    return event.url
+  }
+  if (req.url && String(req.url).startsWith("http")) {
+    return req.url
+  }
+
+  const headerMap = new Headers(headers)
+  const host = headerMap.get("host") || "localhost"
+  const protocol = headerMap.get("x-forwarded-proto") || "http"
+  return new URL(String(req.url || "/"), `${protocol}://${host}`)
+}
+
+function getRequestBody(method: string, req: RequestLike): RequestInit["body"] | undefined {
+  if (method === "GET" || method === "HEAD") {
+    return undefined
+  }
+  if (req.body != null) {
+    return req.body
+  }
+  return typeof req[Symbol.asyncIterator] === "function" ? req as RequestInit["body"] : undefined
+}
+
 function toFetchRequest(event: H3Event): Request {
   const candidate = event.req as unknown
   if (candidate instanceof Request) {
     return candidate
   }
 
-  const req = event.req as { method?: string, headers?: RequestInit["headers"], body?: RequestInit["body"] | null }
+  const req = event.req as RequestLike
   const method = (req.method || "GET").toUpperCase()
-  const init: RequestInit = { headers: req.headers, method }
-  if (method !== "GET" && method !== "HEAD" && req.body != null) {
-    init.body = req.body
+  const headers = normalizeHeaders(req.headers)
+  const init: RequestInitWithDuplex = { headers, method }
+  const body = getRequestBody(method, req)
+  if (body) {
+    init.body = body
+    init.duplex = "half"
   }
-  return new Request(event.url, init)
+  return new Request(getRequestURL(event, req, headers), init)
 }
 
 interface CloudflareRuntimeCarrier {

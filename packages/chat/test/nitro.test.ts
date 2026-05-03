@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Readable } from "node:stream"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -113,6 +114,34 @@ describe("defineChatWebhookHandler", () => {
     expect(response).toBeInstanceOf(Response)
     expect(webhook).toHaveBeenCalledWith(expect.any(Request), expect.objectContaining({ waitUntil: expect.any(Function) }))
     expect(waitUntil).toHaveBeenCalledWith(task)
+  })
+
+  it("forwards Node-style Nitro request bodies to webhooks", async () => {
+    const { defineChatWebhookHandler } = await import("../src/nitro.ts")
+    const webhook = vi.fn(async (request: Request) => new Response(await request.text()))
+    const handler = defineChatWebhookHandler({
+      webhooks: { telegram: webhook },
+    } as never)
+    const req = Readable.from(["telegram-payload"]) as Readable & {
+      headers: Record<string, string>
+      method: string
+      url: string
+    }
+    req.headers = {
+      "content-type": "text/plain",
+      host: "example.com",
+    }
+    req.method = "POST"
+    req.url = "/api/webhooks/telegram"
+
+    const response = await handler({
+      context: { params: { platform: "telegram" } },
+      req,
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    await expect(response.text()).resolves.toBe("telegram-payload")
+    expect(webhook).toHaveBeenCalledTimes(1)
   })
 
   it("exposes runtime config, Cloudflare runtime, and lifecycle hooks", async () => {
