@@ -49,7 +49,7 @@ function isEmptyRepoError(error: unknown): boolean {
   if (candidate.code === "EmptyServerError") return true
   if (candidate.data?.statusCode === 404) return true
   const message = candidate.message?.toLowerCase() ?? ""
-  return message.includes("empty repository") || message.includes("empty server")
+  return message.includes("empty repository") || message.includes("empty remote") || message.includes("empty server")
 }
 
 class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
