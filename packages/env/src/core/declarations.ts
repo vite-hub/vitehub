@@ -1,7 +1,11 @@
 import type { EnvSource, EnvSourceResolver, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
 
-const stringSchema = {
-  safeParse(input: unknown) {
+interface DefaultStringSchema {
+  safeParse: (input: unknown) => { data: string, success: true } | { error: Error, success: false }
+}
+
+export const defaultStringSchema: DefaultStringSchema = {
+  safeParse(input: unknown): { data: string, success: true } | { error: Error, success: false } {
     return typeof input === "string"
       ? { data: input, success: true as const }
       : { error: new Error("Expected string"), success: false as const }
@@ -69,7 +73,7 @@ export function envVariable(options: EnvVariableOptions = {}): EnvVariableDeclar
     kind: "env-variable",
     mode: options.mode ?? "runtime",
     required,
-    schema: options.schema ?? stringSchema,
+    schema: options.schema ?? defaultStringSchema,
     secret: options.secret ?? false,
     source,
     type: options.type,

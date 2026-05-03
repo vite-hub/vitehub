@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { envSource, envVariable } from "../src/index.ts"
 import { createRuntimeRegistry, resolveEnvSource, validateEnvConfigShape } from "../src/core/resolve.ts"
+import { parseSchema } from "../src/schema.ts"
 
 describe("env declarations", () => {
   it("defaults env variable declarations to required runtime strings", () => {
@@ -120,6 +121,12 @@ describe("env declarations", () => {
     })
   })
 
+  it("rejects non-string Nitro runtime types", () => {
+    expect(() => createRuntimeRegistry({
+      sentryDebug: envVariable({ type: "boolean" }),
+    })).toThrow("Nitro runtime values are strings")
+  })
+
   it("rejects custom runtime sources in Nitro config", () => {
     expect(() => validateEnvConfigShape({
       commit: envVariable({
@@ -127,5 +134,13 @@ describe("env declarations", () => {
         source: envSource.gitCommit(),
       }),
     }, "nitro")).toThrow("build-only")
+  })
+
+  it("accepts standard-schema results with empty issues", () => {
+    expect(parseSchema({
+      "~standard": {
+        validate: () => ({ issues: [], value: "ok" }),
+      },
+    }, "ok", "env.test")).toBe("ok")
   })
 })

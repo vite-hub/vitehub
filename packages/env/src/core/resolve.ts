@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
+import { defaultStringSchema } from "./declarations.ts"
 import { EnvError } from "./errors.ts"
 
 import type {
@@ -168,9 +169,18 @@ function buildRegistry(declarations: EnvNitroConfigOptions | undefined, path: st
     if (source.kind !== "env") {
       throw new EnvError(`Runtime declaration ${valuePath} must use envSource.env() in v1.`)
     }
+    if (value.schema !== defaultStringSchema) {
+      throw new EnvError(`Runtime declaration ${valuePath} uses a custom schema, but Nitro runtime schemas cannot be serialized in v1.`)
+    }
+    if (value.type && value.type !== "string") {
+      throw new EnvError(`Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but Nitro runtime values are strings in v1.`)
+    }
     return [key, {
-      default: value.default,
+      default: typeof value.default === "undefined"
+        ? undefined
+        : parseSchema(value.schema, value.default, valuePath),
       required: value.required,
+      schema: { kind: "string" },
       secret: value.secret,
       source,
       type: value.type,

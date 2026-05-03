@@ -1,6 +1,6 @@
 import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
 
-import type { EnvRegistryEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, SafeRuntimeConfig } from "../types.ts"
+import type { EnvRegistryEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvRuntimeSchema, SafeRuntimeConfig } from "../types.ts"
 
 let registry: EnvRuntimeRegistry = {}
 
@@ -46,9 +46,19 @@ function resolveRuntimeValues(declarations: EnvRuntimeRegistry, env: Record<stri
       values[key] = undefined
       continue
     }
-    values[key] = rawValue
+    values[key] = parseRuntimeValue(declaration.schema, rawValue, `${path}.${key}`)
   }
   return values
+}
+
+function parseRuntimeValue(schema: EnvRuntimeSchema | undefined, value: unknown, label: string): unknown {
+  if (!schema) {
+    return value
+  }
+  if (schema.kind === "string" && typeof value === "string") {
+    return value
+  }
+  throw new Error(`[vitehub] Invalid ${label}: Expected string`)
 }
 
 function assignRuntimeValues(target: Record<string, unknown>, values: Record<string, unknown>): void {
@@ -65,10 +75,11 @@ function assignRuntimeValues(target: Record<string, unknown>, values: Record<str
 }
 
 function isRegistryEntry(value: EnvRuntimeRegistryValue): value is EnvRegistryEntry {
-  return "source" in value
-    && typeof value.source === "object"
-    && value.source !== null
-    && "kind" in value.source
+  const source = (value as { source?: unknown }).source
+  return typeof source === "object"
+    && source !== null
+    && (source as { kind?: unknown }).kind === "env"
+    && typeof (source as { name?: unknown }).name === "string"
 }
 
 function isPlainRuntimeObject(value: unknown): value is Record<string, unknown> {

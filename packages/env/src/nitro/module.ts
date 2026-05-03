@@ -196,10 +196,11 @@ function describeRuntimeEntries(
 }
 
 function isRegistryEntry(value: EnvRuntimeRegistryValue): value is EnvRegistryEntry {
-  return "source" in value
-    && typeof value.source === "object"
-    && value.source !== null
-    && "kind" in value.source
+  const source = (value as { source?: unknown }).source
+  return typeof source === "object"
+    && source !== null
+    && (source as { kind?: unknown }).kind === "env"
+    && typeof (source as { name?: unknown }).name === "string"
 }
 
 const nitroModule: NitroModule = envNitro()

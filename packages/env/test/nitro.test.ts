@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { envNitro, envSource, envVariable } from "../src/nitro.ts"
 
-import { stringSchema } from "./helpers.ts"
+import { booleanSchema, stringSchema } from "./helpers.ts"
 
 interface NitroStub {
   hooks: { hook: ReturnType<typeof vi.fn> }
@@ -194,6 +194,44 @@ describe("Nitro module", () => {
     })
 
     expect(() => applyEnvRegistryToRuntimeConfig({})).toThrow("Missing runtime env value env.telegram.botToken")
+  })
+
+  it("validates serialized runtime registry defaults", async () => {
+    const { applyEnvRegistryToRuntimeConfig, setEnvRegistry } = await import("../src/runtime/server.ts")
+
+    setEnvRegistry({
+      vertex: {
+        model: {
+          default: false,
+          required: true,
+          schema: { kind: "string" },
+          secret: false,
+          source: { kind: "env", label: "env:VERTEX_MODEL", name: "VERTEX_MODEL", serializable: true },
+        },
+      },
+    })
+
+    expect(() => applyEnvRegistryToRuntimeConfig({})).toThrow("Invalid env.vertex.model: Expected string")
+  })
+
+  it("rejects custom Nitro runtime schemas because generated registries cannot preserve them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          sentryDebug: envVariable({
+            schema: booleanSchema(),
+            type: "boolean",
+          }),
+        },
+        rootDir: root,
+      },
+    }
+
+    await expect(envNitro().setup(nitro as never)).rejects.toThrow("custom schema")
   })
 
   it("rejects custom runtime sources", async () => {

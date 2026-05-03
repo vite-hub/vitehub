@@ -34,7 +34,10 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
     if (isPromiseLike(result)) {
       throw new Error(`[vitehub] ${label} uses an async schema. Env validation currently requires sync schemas.`)
     }
-    if ("issues" in result && result.issues) {
+    if ("issues" in result && result.issues && result.issues.length > 0) {
+      throw new Error(`[vitehub] Invalid ${label}: ${formatIssues(result.issues)}`)
+    }
+    if (!("value" in result)) {
       throw new Error(`[vitehub] Invalid ${label}: ${formatIssues(result.issues)}`)
     }
     return result.value

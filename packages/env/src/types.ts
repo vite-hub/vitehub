@@ -115,9 +115,14 @@ export interface ResolvedEnvEntry {
 export interface EnvRegistryEntry {
   default?: unknown
   required: boolean
+  schema?: EnvRuntimeSchema
   secret: boolean
   source: Extract<EnvSource, { kind: "env" }>
   type?: string
+}
+
+export interface EnvRuntimeSchema {
+  kind: "string"
 }
 
 export type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeRegistry
