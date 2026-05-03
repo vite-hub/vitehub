@@ -55,13 +55,11 @@ Use it from a server route:
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const workspace = await useWorkspace('docs')
-await workspace.sync()
+const workspace = useWorkspace('docs', { allowWrite: true })
 
-await workspace.writeFile('generated/notes.md', 'Generated notes')
+await workspace.fs.writeFile('generated/notes.md', 'Generated notes')
 
 return {
-  files: await workspace.list('', { recursive: true }),
-  diff: await workspace.diff(),
+  files: await workspace.fs.list('', { recursive: true }),
 }
 ```

@@ -1,12 +1,11 @@
-import { basename } from "node:path"
+import { basename, posix } from "node:path"
 
-import { jsonSchema, tool, type Tool } from "ai"
+import { jsonSchema, tool, type Tool, type ToolSet } from "ai"
 
 import { WorkspaceError } from "./errors.ts"
 import { matchesAny, normalizeSafeWorkspacePath } from "./path.ts"
-import { useWorkspaceAssets } from "./asset-registry.ts"
 
-import type { Workspace, WorkspaceAssets, WorkspaceContent } from "./types.ts"
+import type { Workspace, WorkspaceAssets, WorkspaceContent, WorkspaceStat, WriteFileOptions } from "./types.ts"
 
 export interface WorkspaceShellResult {
   exitCode: number
@@ -14,15 +13,82 @@ export interface WorkspaceShellResult {
   stdout: string
 }
 
-export interface CreateWorkspaceToolsOptions {
-  cwd?: string
-  maxOutputLength?: number
+export interface WorkspacePathResult {
+  path: string
 }
 
-export interface WorkspaceAiTools {
-  bash: Tool<{ command: string }, WorkspaceShellResult>
-  readFile: Tool<{ path: string }, string>
+export interface WorkspaceMoveResult {
+  from: string
+  to: string
 }
+
+export interface WorkspaceReadOperations {
+  list?: boolean
+  read?: boolean
+  search?: boolean
+}
+
+export interface WorkspaceWriteOperations {
+  appendFile?: boolean
+  copyPath?: boolean
+  deletePath?: boolean
+  makeDir?: boolean
+  movePath?: boolean
+  writeFile?: boolean
+}
+
+export type WorkspaceToolOperations = WorkspaceReadOperations & {
+  write?: true | WorkspaceWriteOperations
+}
+
+export interface WorkspaceToolOptions<Operations extends WorkspaceToolOperations | undefined = undefined> {
+  cwd?: string
+  maxOutputLength?: number
+  operations?: Operations
+}
+
+export interface WorkspaceReadToolOptions<Operations extends WorkspaceReadOperations | undefined = undefined> {
+  cwd?: string
+  maxOutputLength?: number
+  operations?: Operations
+}
+
+type EnabledReadCapability<Operations, Key extends keyof WorkspaceReadOperations> = Operations extends Record<Key, infer Value>
+  ? Value extends false ? false : true
+  : true
+
+type ShellEnabled<Operations> = true extends
+  | EnabledReadCapability<Operations, "list">
+  | EnabledReadCapability<Operations, "read">
+  | EnabledReadCapability<Operations, "search">
+  ? true
+  : false
+
+type ResolvedWriteOperations<Operations> = Operations extends { write: infer Write } ? Write : false
+
+type WorkspaceWriteTools = {
+  appendFile: Tool<{ content: string, path: string }, WorkspacePathResult>
+  copyPath: Tool<{ from: string, overwrite?: boolean, to: string }, WorkspaceMoveResult>
+  deletePath: Tool<{ force?: boolean, path: string, recursive?: boolean }, WorkspacePathResult>
+  makeDir: Tool<{ path: string, recursive?: boolean }, WorkspacePathResult>
+  movePath: Tool<{ from: string, overwrite?: boolean, to: string }, WorkspaceMoveResult>
+  writeFile: Tool<{ content: string, mediaType?: string, path: string }, WorkspacePathResult>
+}
+
+type EnabledWriteTools<Selection> = Selection extends true
+  ? WorkspaceWriteTools
+  : Selection extends WorkspaceWriteOperations
+    ? {
+        [Key in keyof WorkspaceWriteTools as Key extends keyof Selection
+          ? Selection[Key] extends true ? Key : never
+          : never]: WorkspaceWriteTools[Key]
+      }
+    : {}
+
+export type WorkspaceTools<Operations = undefined> = ((ShellEnabled<Operations> extends true
+  ? { shell: Tool<{ command: string }, WorkspaceShellResult> }
+  : {}) & EnabledWriteTools<ResolvedWriteOperations<Operations>>
+  ) & ToolSet
 
 interface WorkspaceReader {
   getKeys(): Promise<string[]>
@@ -30,29 +96,9 @@ interface WorkspaceReader {
 }
 
 const defaultMaxOutputLength = 30_000
-const workspaceInstructionsFile = "AGENTS.md"
-const blockedCommands = new Set([
-  "bun",
-  "chmod",
-  "chown",
-  "cp",
-  "curl",
-  "dd",
-  "git",
-  "mv",
-  "node",
-  "npm",
-  "pnpm",
-  "python",
-  "python3",
-  "rm",
-  "sh",
-  "wget",
-  "yarn",
-])
 
-function isWorkspaceAssets(input: Workspace | WorkspaceAssets): input is WorkspaceAssets {
-  return "getKeys" in input
+function isWorkspace(input: Workspace | WorkspaceAssets): input is Workspace {
+  return "sync" in input
 }
 
 function decodeContent(content: WorkspaceContent) {
@@ -60,21 +106,9 @@ function decodeContent(content: WorkspaceContent) {
 }
 
 function createReader(input: Workspace | WorkspaceAssets): WorkspaceReader {
-  if (isWorkspaceAssets(input)) {
-    return {
-      async getKeys() {
-        return (await input.getKeys()).map(key => normalizeSafeWorkspacePath(key)).sort()
-      },
-      async readText(path) {
-        const content = await input.getItem<WorkspaceContent>(path)
-        return content === null ? null : decodeContent(content)
-      },
-    }
-  }
-
   return {
     async getKeys() {
-      const entries = await input.glob("**/*")
+      const entries = await input.list("", { recursive: true })
       return entries.filter(entry => entry.type === "file").map(entry => normalizeSafeWorkspacePath(entry.path)).sort()
     },
     async readText(path) {
@@ -139,6 +173,12 @@ function cleanPath(path = ".") {
   if (normalized === "." || normalized === "./" || normalized === "/" || normalized === "/workspace") return ""
   normalized = normalized.replace(/^\/workspace\/?/, "")
   return normalizeSafeWorkspacePath(normalized, { allowEmpty: true })
+}
+
+function cleanMutationPath(path: string, label = "path") {
+  const normalized = cleanPath(path)
+  if (!normalized) throw new WorkspaceError(`[vitehub] Workspace root is not a valid target for ${label}.`)
+  return normalized
 }
 
 function isUnder(path: string, prefix: string) {
@@ -279,20 +319,68 @@ function matchingFiles(keys: string[], rawPaths: string[]) {
   return [...results].sort()
 }
 
-function isWorkspaceInstructionsPath(path: string) {
-  return path === workspaceInstructionsFile || path.endsWith(`/${workspaceInstructionsFile}`)
+function describeShellCommands(commands: Set<string>) {
+  return `Run a workspace inspection command in the simulated shell. Supported commands: ${[...commands].sort().join(", ")}. This does not execute a real shell.`
 }
 
-export async function readWorkspaceInstructions(input: Workspace | WorkspaceAssets): Promise<string> {
-  const reader = createReader(input)
-  const keys = (await reader.getKeys()).filter(isWorkspaceInstructionsPath)
-  const instructions = await Promise.all(keys.map(async key => await reader.readText(key)))
-  return instructions.filter((content): content is string => content !== null).join("\n\n")
+function resolveReadOperations(operations: WorkspaceReadOperations | WorkspaceToolOperations | undefined) {
+  return {
+    list: operations?.list !== false,
+    read: operations?.read !== false,
+    search: operations?.search !== false,
+  }
 }
 
-async function runShellCommand(reader: WorkspaceReader, command: string, options: Required<CreateWorkspaceToolsOptions>): Promise<WorkspaceShellResult> {
+function resolveWriteOperations(write: true | WorkspaceWriteOperations | undefined) {
+  if (write === true) {
+    return {
+      appendFile: true,
+      copyPath: true,
+      deletePath: true,
+      makeDir: true,
+      movePath: true,
+      writeFile: true,
+    }
+  }
+
+  return {
+    appendFile: write?.appendFile === true,
+    copyPath: write?.copyPath === true,
+    deletePath: write?.deletePath === true,
+    makeDir: write?.makeDir === true,
+    movePath: write?.movePath === true,
+    writeFile: write?.writeFile === true,
+  }
+}
+
+function shellCommandsFor(operations: ReturnType<typeof resolveReadOperations>) {
+  const commands = new Set<string>()
+  if (operations.list) {
+    commands.add("pwd")
+    commands.add("ls")
+    commands.add("find")
+  }
+  if (operations.read) {
+    commands.add("cat")
+    commands.add("head")
+    commands.add("tail")
+    commands.add("wc")
+  }
+  if (operations.search) {
+    commands.add("grep")
+    commands.add("rg")
+  }
+  return commands
+}
+
+async function runShellCommand(
+  reader: WorkspaceReader,
+  command: string,
+  options: { cwd: string, maxOutputLength: number },
+  commands: Set<string>,
+): Promise<WorkspaceShellResult> {
   if (hasUnsupportedShellSyntax(command)) {
-    return fail("Unsupported shell syntax: only a single read-only workspace command is supported.", 126)
+    return fail("Unsupported shell syntax: only a single workspace command is supported.", 126)
   }
 
   let words: string[]
@@ -305,7 +393,7 @@ async function runShellCommand(reader: WorkspaceReader, command: string, options
 
   if (!words.length) return ok("", options.maxOutputLength)
   const [name, ...args] = words
-  if (blockedCommands.has(name)) return fail(`Command is not available in the read-only workspace shell: ${name}`, 126)
+  if (!commands.has(name)) return fail(`Unsupported workspace shell command: ${name}`, 126)
 
   const keys = await reader.getKeys()
 
@@ -393,55 +481,241 @@ async function runShellCommand(reader: WorkspaceReader, command: string, options
     throw error
   }
 
-  return fail(`Unsupported read-only workspace command: ${name}`, 126)
+  return fail(`Unsupported workspace shell command: ${name}`, 126)
 }
 
-export function createWorkspaceTools(input: Workspace | WorkspaceAssets, options: CreateWorkspaceToolsOptions = {}): WorkspaceAiTools {
+async function ensureMissingOrReplaceable(workspace: Workspace, path: string, overwrite: boolean) {
+  const exists = await workspace.exists(path)
+  if (!exists) return
+  if (!overwrite) throw new WorkspaceError(`[vitehub] Workspace path already exists: ${path}.`)
+  await workspace.rm(path, { recursive: true, force: true })
+}
+
+async function readWorkspaceStat(workspace: Workspace, path: string): Promise<WorkspaceStat> {
+  return await workspace.stat(path)
+}
+
+async function copyWorkspacePath(workspace: Workspace, from: string, to: string, overwrite: boolean) {
+  if (from === to) throw new WorkspaceError("[vitehub] Source and destination must be different.")
+  const source = await readWorkspaceStat(workspace, from)
+  if (source.type === "directory" && to.startsWith(`${from}/`)) {
+    throw new WorkspaceError("[vitehub] Destination cannot be nested inside the source directory.")
+  }
+
+  const entries = source.type === "directory" ? await workspace.list(from, { recursive: true }) : []
+  await ensureMissingOrReplaceable(workspace, to, overwrite)
+
+  if (source.type === "file") {
+    const content = await workspace.readFile(from, { encoding: "binary" })
+    await workspace.writeFile(to, content, { mediaType: source.mediaType })
+    return
+  }
+
+  await workspace.mkdir(to, { recursive: true })
+
+  const directories = entries.filter(entry => entry.type === "directory").sort((left, right) => left.path.length - right.path.length)
+  const files = entries.filter(entry => entry.type === "file").sort((left, right) => left.path.localeCompare(right.path))
+
+  for (const entry of directories) {
+    const relativePath = posix.relative(from, entry.path)
+    await workspace.mkdir(posix.join(to, relativePath), { recursive: true })
+  }
+
+  for (const entry of files) {
+    const relativePath = posix.relative(from, entry.path)
+    const content = await workspace.readFile(entry.path, { encoding: "binary" })
+    await workspace.writeFile(posix.join(to, relativePath), content, { mediaType: entry.mediaType })
+  }
+}
+
+async function appendWorkspaceFile(workspace: Workspace, path: string, content: string) {
+  let current = ""
+  try {
+    current = String(await workspace.readFile(path))
+  }
+  catch (error) {
+    if (!(error instanceof WorkspaceError)) throw error
+  }
+  await workspace.writeFile(path, `${current}${content}`)
+}
+
+function createWriteTools(workspace: Workspace, options: { maxOutputLength: number }, enabled: ReturnType<typeof resolveWriteOperations>): Partial<WorkspaceWriteTools> {
+  const result: Partial<WorkspaceWriteTools> = {}
+
+  if (enabled.writeFile) {
+    result.writeFile = tool({
+      description: "Write a text file to the workspace.",
+      inputSchema: jsonSchema<{ content: string, mediaType?: string, path: string }>({
+        additionalProperties: false,
+        properties: {
+          content: { type: "string" },
+          mediaType: { type: "string" },
+          path: { type: "string" },
+        },
+        required: ["path", "content"],
+        type: "object",
+      }),
+      execute: async ({ content, mediaType, path }) => {
+        const normalized = cleanMutationPath(path, "writeFile")
+        await workspace.writeFile(normalized, content, { mediaType } satisfies WriteFileOptions)
+        return { path: normalized }
+      },
+    })
+  }
+
+  if (enabled.appendFile) {
+    result.appendFile = tool({
+      description: "Append text to a workspace file, creating it if it does not exist.",
+      inputSchema: jsonSchema<{ content: string, path: string }>({
+        additionalProperties: false,
+        properties: {
+          content: { type: "string" },
+          path: { type: "string" },
+        },
+        required: ["path", "content"],
+        type: "object",
+      }),
+      execute: async ({ content, path }) => {
+        const normalized = cleanMutationPath(path, "appendFile")
+        await appendWorkspaceFile(workspace, normalized, content)
+        return { path: normalized }
+      },
+    })
+  }
+
+  if (enabled.deletePath) {
+    result.deletePath = tool({
+      description: "Delete a file or directory from the workspace.",
+      inputSchema: jsonSchema<{ force?: boolean, path: string, recursive?: boolean }>({
+        additionalProperties: false,
+        properties: {
+          force: { type: "boolean" },
+          path: { type: "string" },
+          recursive: { type: "boolean" },
+        },
+        required: ["path"],
+        type: "object",
+      }),
+      execute: async ({ force, path, recursive }) => {
+        const normalized = cleanMutationPath(path, "deletePath")
+        await workspace.rm(normalized, { force, recursive })
+        return { path: normalized }
+      },
+    })
+  }
+
+  if (enabled.makeDir) {
+    result.makeDir = tool({
+      description: "Create a directory in the workspace.",
+      inputSchema: jsonSchema<{ path: string, recursive?: boolean }>({
+        additionalProperties: false,
+        properties: {
+          path: { type: "string" },
+          recursive: { type: "boolean" },
+        },
+        required: ["path"],
+        type: "object",
+      }),
+      execute: async ({ path, recursive }) => {
+        const normalized = cleanMutationPath(path, "makeDir")
+        await workspace.mkdir(normalized, { recursive })
+        return { path: normalized }
+      },
+    })
+  }
+
+  if (enabled.copyPath) {
+    result.copyPath = tool({
+      description: "Copy a file or directory inside the workspace.",
+      inputSchema: jsonSchema<{ from: string, overwrite?: boolean, to: string }>({
+        additionalProperties: false,
+        properties: {
+          from: { type: "string" },
+          overwrite: { type: "boolean" },
+          to: { type: "string" },
+        },
+        required: ["from", "to"],
+        type: "object",
+      }),
+      execute: async ({ from, overwrite = false, to }) => {
+        const source = cleanMutationPath(from, "copyPath source")
+        const target = cleanMutationPath(to, "copyPath destination")
+        await copyWorkspacePath(workspace, source, target, overwrite)
+        return { from: source, to: target }
+      },
+    })
+  }
+
+  if (enabled.movePath) {
+    result.movePath = tool({
+      description: "Move or rename a file or directory inside the workspace.",
+      inputSchema: jsonSchema<{ from: string, overwrite?: boolean, to: string }>({
+        additionalProperties: false,
+        properties: {
+          from: { type: "string" },
+          overwrite: { type: "boolean" },
+          to: { type: "string" },
+        },
+        required: ["from", "to"],
+        type: "object",
+      }),
+      execute: async ({ from, overwrite = false, to }) => {
+        const source = cleanMutationPath(from, "movePath source")
+        const target = cleanMutationPath(to, "movePath destination")
+        await copyWorkspacePath(workspace, source, target, overwrite)
+        await workspace.rm(source, { recursive: true, force: true })
+        return { from: source, to: target }
+      },
+    })
+  }
+
+  void options
+  return result
+}
+
+export function createWorkspaceTools<Operations extends WorkspaceToolOperations | undefined = undefined>(
+  input: Workspace | WorkspaceAssets,
+  options: WorkspaceToolOptions<Operations> = {},
+): WorkspaceTools<Operations> {
   const reader = createReader(input)
   const resolved = {
     cwd: options.cwd || "/workspace",
     maxOutputLength: options.maxOutputLength || defaultMaxOutputLength,
+    operations: resolveReadOperations(options.operations),
+    write: resolveWriteOperations(options.operations?.write),
+  }
+  const commands = shellCommandsFor(resolved.operations)
+  const writeEnabled = Object.values(resolved.write).some(Boolean)
+
+  if (!commands.size && !writeEnabled) {
+    throw new TypeError("[vitehub] createWorkspaceTools requires at least one enabled workspace operation.")
   }
 
-  return {
-    bash: tool({
-      description: "Run a read-only workspace shell command. Supported commands: pwd, ls, find, cat, head, tail, wc, grep, rg.",
+  if (writeEnabled && !isWorkspace(input)) {
+    throw new TypeError("[vitehub] Write operations require a mutable Workspace. Use useWorkspace(name, { allowWrite: true }).tools().")
+  }
+
+  const result: Record<string, Tool<any, any>> = {}
+
+  if (commands.size) {
+    result.shell = tool({
+      description: describeShellCommands(commands),
       inputSchema: jsonSchema<{ command: string }>({
         additionalProperties: false,
         properties: {
           command: {
-            description: "A single read-only workspace command to run.",
+            description: "A single workspace inspection command to run.",
             type: "string",
           },
         },
         required: ["command"],
         type: "object",
       }),
-      execute: async ({ command }) => await runShellCommand(reader, command, resolved),
-    }),
-    readFile: tool({
-      description: "Read a text file from the workspace.",
-      inputSchema: jsonSchema<{ path: string }>({
-        additionalProperties: false,
-        properties: {
-          path: {
-            description: "Workspace-relative file path to read.",
-            type: "string",
-          },
-        },
-        required: ["path"],
-        type: "object",
-      }),
-      execute: async ({ path }) => {
-        const normalized = cleanPath(path)
-        const content = await reader.readText(normalized)
-        if (content === null) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${normalized}.`)
-        return applyOutputLimit(content, resolved.maxOutputLength)
-      },
-    }),
+      execute: async ({ command }) => await runShellCommand(reader, command, resolved, commands),
+    })
   }
-}
 
-export function useWorkspaceTools(name: string, options: CreateWorkspaceToolsOptions = {}): WorkspaceAiTools {
-  return createWorkspaceTools(useWorkspaceAssets(name), options)
+  if (writeEnabled) Object.assign(result, createWriteTools(input as Workspace, resolved, resolved.write))
+
+  return result as WorkspaceTools<Operations>
 }

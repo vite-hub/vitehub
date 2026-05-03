@@ -4,6 +4,9 @@ export interface ReadFileOptions {
   encoding?: "utf8" | "binary"
 }
 
+export type ReadFileResult<TOptions extends ReadFileOptions | undefined = undefined> =
+  TOptions extends { encoding: "binary" } ? Uint8Array : string
+
 export interface WriteFileOptions {
   mediaType?: string
 }
@@ -71,7 +74,7 @@ export interface ExecResult {
 }
 
 export interface WorkspaceSession {
-  readFile(path: string, options?: ReadFileOptions): Promise<string | Uint8Array>
+  readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
@@ -83,9 +86,26 @@ export interface WorkspaceSession {
   close?(): Promise<void>
 }
 
-export interface WorkspaceAssets {
-  getKeys(): Promise<string[]>
-  getItem<T = WorkspaceContent>(key: string): Promise<T | null>
+declare global {
+  interface ViteHubWorkspaceNameMap {}
+  interface ViteHubWorkspaceAssetMap {}
+}
+
+export interface WorkspaceNameMap extends ViteHubWorkspaceNameMap {}
+
+export type WorkspaceName = [keyof ViteHubWorkspaceNameMap] extends [never] ? string : Extract<keyof ViteHubWorkspaceNameMap, string>
+
+export type WorkspaceAssetPath<Name extends WorkspaceName = WorkspaceName> =
+  Name extends keyof ViteHubWorkspaceAssetMap
+    ? Extract<ViteHubWorkspaceAssetMap[Name], string>
+    : string
+
+export interface WorkspaceAssets<TKey extends string = string> {
+  readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: TKey, options?: TOptions): Promise<ReadFileResult<TOptions>>
+  stat(path: TKey): Promise<WorkspaceStat>
+  exists(path: TKey): Promise<boolean>
+  list(path?: TKey | (string & {}) | "", options?: ListOptions): Promise<WorkspaceEntry[]>
+  glob(pattern: TKey | (string & {}) | Array<TKey | (string & {})>, options?: GlobOptions): Promise<WorkspaceEntry[]>
 }
 
 export type WorkspaceAssetsRegistry = Record<string, WorkspaceAssets>
@@ -266,7 +286,7 @@ export interface ResolvedWorkspaceModuleOptions {
 export interface Workspace {
   name: string
   sync(options?: WorkspaceSyncOptions): Promise<void>
-  readFile(path: string, options?: ReadFileOptions): Promise<string | Uint8Array>
+  readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>

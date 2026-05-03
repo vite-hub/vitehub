@@ -35,8 +35,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./ai": "./dist/ai.js",
-    "./assets": "./dist/assets.js",
     "./nitro": "./dist/nitro.js",
+    "./runtime/assets": "./dist/runtime/assets.js",
     "./runtime/empty-assets-registry": "./dist/runtime/empty-assets-registry.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",

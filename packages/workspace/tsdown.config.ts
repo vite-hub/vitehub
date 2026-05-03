@@ -9,11 +9,11 @@ export default defineConfig({
   dts: true,
   entry: [
     "src/ai.ts",
-    "src/assets.ts",
     "src/index.ts",
     "src/nitro.ts",
     "src/runtime/empty-assets-registry.ts",
     "src/runtime/empty-registry.ts",
+    "src/runtime/assets.ts",
     "src/runtime/nitro-plugin.ts",
     "src/runtime/state.ts",
     "src/stores/cloudflare-artifacts.ts",

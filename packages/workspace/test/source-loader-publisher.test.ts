@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectWorkspaceAssetBundle, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
 import { defineWorkspace, loader, publish, registerWorkspace, source, useWorkspace } from "../src/index.ts"
+import { useRegisteredWorkspace } from "../src/registry.ts"
 import type { Workspace } from "../src/types.ts"
 
 const tempDirs: string[] = []
@@ -113,10 +114,9 @@ describe("sources, loaders, and publishers", () => {
       loaders: [loader.files()],
     }))
 
-    const workspace = await useWorkspace("github-loader")
-    await workspace.sync()
+    const workspace = useWorkspace("github-loader", { allowWrite: true })
 
-    await expect(workspace.readFile("models/marts/orders.sql")).resolves.toBe("select 1\n")
+    await expect(workspace.fs.readFile("models/marts/orders.sql")).resolves.toBe("select 1\n")
   })
 
   it("reports inaccessible GitHub repositories with a source-specific error", async () => {
@@ -169,12 +169,12 @@ describe("sources, loaders, and publishers", () => {
       ],
     }))
 
-    const workspace = await useWorkspace("sources")
-    await workspace.sync()
-    await workspace.sync()
+    const workspace = useWorkspace("sources", { allowWrite: true })
+    await workspace.fs.list()
+    await workspace.fs.list()
 
-    expect(customWrites).toBe(6)
-    expect(await workspace.glob("**/*")).toHaveLength(3)
+    expect(customWrites).toBe(3)
+    expect(await workspace.fs.glob("**/*")).toHaveLength(3)
     expect(await readFile(join(root, "manifest.json"), "utf8")).toContain('"one.md"')
     expect(await readFile(join(root, "workspace.d.ts"), "utf8")).toContain('virtual:vitehub/workspaces/sources')
   })
@@ -191,16 +191,19 @@ describe("sources, loaders, and publishers", () => {
       ],
     }))
 
-    const workspace = await useWorkspace("asset-bundle")
+    const workspace = await useRegisteredWorkspace("asset-bundle")
     await workspace.sync()
     await writeWorkspaceAssetsRegistry(registryFile, [await collectWorkspaceAssetBundle(workspace)])
 
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
 
-    await expect(registry["asset-bundle"].getKeys()).resolves.toEqual(["data.bin", "README.md"])
-    await expect(registry["asset-bundle"].getItem("README.md")).resolves.toBe("hello\n")
-    await expect(registry["asset-bundle"].getItem("data.bin")).resolves.toEqual(new Uint8Array([1, 2, 3]))
-    await expect(registry["asset-bundle"].getItem("../escape.txt")).resolves.toBeNull()
+    await expect(registry["asset-bundle"].list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "README.md", type: "file" }),
+      expect.objectContaining({ path: "data.bin", type: "file" }),
+    ]))
+    await expect(registry["asset-bundle"].readFile("README.md")).resolves.toBe("hello\n")
+    await expect(registry["asset-bundle"].readFile("data.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+    await expect(registry["asset-bundle"].exists("../escape.txt")).resolves.toBe(false)
   })
 
   it("rejects unsafe workspace asset paths", async () => {

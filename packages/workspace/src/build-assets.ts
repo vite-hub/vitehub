@@ -1,19 +1,20 @@
 import { createHash } from "node:crypto"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
 
 import { normalizeSafeWorkspacePath } from "./path.ts"
 import { registerWorkspace } from "./registry.ts"
-import { useWorkspace } from "./use.ts"
+import { useRegisteredWorkspace } from "./registry.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
 import type { ResolvedWorkspaceModuleOptions, Workspace, WorkspaceContent, WorkspaceDefinitionInput } from "./types.ts"
 
 export interface WorkspaceAssetFile {
   content: WorkspaceContent
+  mediaType?: string
   path: string
 }
 
@@ -36,6 +37,11 @@ function serializeContent(content: WorkspaceContent) {
   return `new Uint8Array(${JSON.stringify([...content])})`
 }
 
+function runtimeAssetsModulePath() {
+  const extension = import.meta.url.endsWith(".ts") ? ".ts" : ".js"
+  return fileURLToPath(new URL(`./runtime/assets${extension}`, import.meta.url))
+}
+
 export async function syncDiscoveredWorkspaces(
   definitions: DiscoveredWorkspaceDefinition[],
   rootDir: string,
@@ -55,7 +61,7 @@ export async function syncDiscoveredWorkspaces(
       rootDir: mod.default.rootDir || rootDir,
     })
 
-    const workspace = await useWorkspace(definition.name)
+    const workspace = await useRegisteredWorkspace(definition.name)
     await workspace.sync()
     workspaces.push(workspace)
   }
@@ -67,7 +73,7 @@ export async function collectWorkspaceAssetBundle(workspace: Workspace): Promise
   const entries = (await workspace.glob("**/*")).filter(entry => entry.type === "file")
   const files = await Promise.all(entries.map(async (entry) => {
     const path = normalizeSafeWorkspacePath(entry.path)
-    return { content: await workspace.readFile(path, { encoding: "binary" }), path }
+    return { content: await workspace.readFile(path, { encoding: "binary" }), mediaType: entry.mediaType, path }
   }))
 
   files.sort((a, b) => a.path.localeCompare(b.path))
@@ -104,26 +110,22 @@ export function createWorkspaceAssetsRegistryContents(
   registryFile: string,
   bundles: WorkspaceAssetBundle[],
   modulePaths = new Map<string, string>(),
+  assetsModulePath = runtimeAssetsModulePath(),
 ): string {
   return [
+    `import { createWorkspaceAssets } from ${JSON.stringify(createImportPath(registryFile, assetsModulePath))}`,
+    "",
     "const registry = {",
     ...bundles.map((bundle) => {
       const entries = bundle.files.map((file) => {
         const modulePath = modulePaths.get(`${bundle.name}\0${file.path}`)
         const importPath = modulePath ? createImportPath(registryFile, modulePath) : pathToFileURL(file.path).href
-        return `      ${JSON.stringify(file.path)}: () => import(${JSON.stringify(importPath)}),`
+        return `      ${JSON.stringify(file.path)}: { load: async () => (await import(${JSON.stringify(importPath)})).default, mediaType: ${JSON.stringify(file.mediaType)} },`
       })
       return [
-        `  ${JSON.stringify(bundle.name)}: {`,
-        `    async getKeys() { return ${JSON.stringify(bundle.files.map(file => file.path))} },`,
-        "    async getItem(key) {",
-        "      const modules = {",
+        `  ${JSON.stringify(bundle.name)}: createWorkspaceAssets({`,
         ...entries,
-        "      }",
-        "      const load = modules[key]",
-        "      return load ? (await load()).default : null",
-        "    },",
-        "  },",
+        "  }),",
       ].join("\n")
     }),
     "}",

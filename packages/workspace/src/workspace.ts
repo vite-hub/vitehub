@@ -3,6 +3,7 @@ import { createWorkspaceStore, syncWorkspaceDefinition } from "./lifecycle.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   ReadFileOptions,
+  ReadFileResult,
   Workspace,
   WorkspaceContent,
   WorkspaceDefinition,
@@ -15,9 +16,9 @@ function getStore(definition: WorkspaceDefinition) {
   return getCachedWorkspaceStore(definition, () => createWorkspaceStore(definition))
 }
 
-function decodeFile(content: WorkspaceContent, options?: ReadFileOptions) {
-  if (options?.encoding === "binary") return content
-  return typeof content === "string" ? content : new TextDecoder().decode(content)
+function decodeFile<TOptions extends ReadFileOptions | undefined>(content: WorkspaceContent, options?: TOptions): ReadFileResult<TOptions> {
+  if (options?.encoding === "binary") return content as ReadFileResult<TOptions>
+  return (typeof content === "string" ? content : new TextDecoder().decode(content)) as ReadFileResult<TOptions>
 }
 
 export function createWorkspace(definition: WorkspaceDefinition): Workspace {

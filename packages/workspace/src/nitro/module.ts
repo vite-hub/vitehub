@@ -8,6 +8,7 @@ import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@v
 import { collectWorkspaceAssetBundles, syncDiscoveredWorkspaces, writeWorkspaceAssetsRegistry } from "../build-assets.ts"
 import { normalizeWorkspaceOptions } from "../config.ts"
 import { createWorkspaceRegistryContents, discoverNitroWorkspaceDefinitions } from "../discovery.ts"
+import { createWorkspaceTypeAugmentation } from "../generated-types.ts"
 import { configureCloudflareArtifacts } from "../integrations/cloudflare.ts"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
@@ -46,7 +47,7 @@ function assetsRegistryPath(nitro: Nitro) {
   return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/workspace/assets/registry.mjs")
 }
 
-function workspaceNitroConfigTypes() {
+function workspaceNitroConfigTypes(definitions: Array<{ name: string, path: string }>) {
   return `import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "@vitehub/workspace"
 
 declare module "nitro/types" {
@@ -81,15 +82,18 @@ declare module "nitropack/types" {
   }
 }
 
+${createWorkspaceTypeAugmentation(definitions)}
+
 export {}
 `
 }
 
 function installNitroConfigTypes(nitro: Nitro) {
   nitro.hooks.hook("types:extend", async (types) => {
+    const definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
     const dtsPath = resolve(nitro.options.buildDir, "types", "vitehub-workspace-nitro.d.ts")
     await mkdir(dirname(dtsPath), { recursive: true })
-    await writeFile(dtsPath, workspaceNitroConfigTypes(), "utf8")
+    await writeFile(dtsPath, workspaceNitroConfigTypes(definitions), "utf8")
     if (types.tsConfig) {
       types.tsConfig.include ||= []
       types.tsConfig.include.push(dtsPath)
@@ -169,6 +173,7 @@ const workspaceNitroModule: NitroModule = {
   name: "@vitehub/workspace",
   async setup(nitro) {
     const resolved = normalizeWorkspaceOptions((nitro.options as typeof nitro.options & { workspace?: false | WorkspaceModuleOptions }).workspace, {
+      dev: nitro.options.dev,
       env: process.env,
       hosting: nitro.options.preset,
       rootDir: nitro.options.rootDir,
@@ -192,7 +197,6 @@ const workspaceNitroModule: NitroModule = {
     const plugin = await writePlugin(nitro, registry.path, assetsRegistryFile, resolved)
     nitro.options.alias["#vitehub-workspace-registry"] = registry.path
     nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
-    nitro.options.alias["@vitehub/workspace/assets"] = resolveRuntimeEntry("../assets", "@vitehub/workspace/assets")
     installNitroConfigTypes(nitro)
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false

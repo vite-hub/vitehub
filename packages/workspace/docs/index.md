@@ -61,38 +61,45 @@ Use it from server code:
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const workspace = await useWorkspace('docs')
+const assets = useWorkspace('docs')
+const workspace = useWorkspace('docs', { allowWrite: true })
 
-await workspace.sync()
-await workspace.writeFile('generated/notes.md', 'Hello')
+const instructions = await assets.fs.readFile('AGENTS.md')
+await workspace.fs.writeFile('generated/notes.md', 'Hello')
 
-const files = await workspace.glob('**/*.md')
-const diff = await workspace.diff()
+const files = await workspace.fs.glob('**/*.md')
 ```
 
 For build-time, read-only context, enable `syncOnBuild` and read bundled assets:
 
 ```ts
-import { useWorkspaceAssets } from '@vitehub/workspace/assets'
+import { useWorkspace } from '@vitehub/workspace'
 
-const assets = useWorkspaceAssets('docs')
-const keys = await assets.getKeys()
-const readme = await assets.getItem<string>('README.md')
+const workspace = useWorkspace('docs')
+const readme = await workspace.fs.readFile('README.md')
+const files = await workspace.fs.list('', { recursive: true })
 ```
 
 For AI SDK agents, expose read-only workspace inspection tools:
 
 ```ts
-import { createWorkspaceTools, readWorkspaceInstructions } from '@vitehub/workspace/ai'
-import { useWorkspaceAssets } from '@vitehub/workspace/assets'
+import { useWorkspace } from '@vitehub/workspace'
 
-const assets = useWorkspaceAssets('docs')
-const instructions = await readWorkspaceInstructions(assets)
-const tools = createWorkspaceTools(assets)
+const tools = useWorkspace('docs').tools()
 ```
 
-The `bash` tool emulates safe file-inspection commands against workspace assets. It does not execute a real shell.
-`readWorkspaceInstructions` reads explicit `AGENTS.md` files from the workspace so applications can decide how to map them into model instructions.
+The `shell` tool emulates safe file-inspection commands against workspace assets. It does not execute a real shell.
+Read, list, and search commands are enabled by default. Write tools are exposed automatically when the facade is writable:
+
+```ts
+import { useWorkspace } from '@vitehub/workspace'
+
+const tools = useWorkspace('docs', { allowWrite: true }).tools()
+```
+
+Applications that use `AGENTS.md` as the model instruction source should preload it through `useWorkspace(name).fs.readFile('AGENTS.md')`.
+
+Nitro supports both flat workspace files like `server/workspaces/docs.ts` and directory workspaces like `server/workspaces/docs/.config.ts`. Duplicate workspace names across those shapes are invalid.
 
 ## Hosted Providers
 
@@ -106,16 +113,3 @@ The v1 provider is local-first. Hosted runtimes select the smallest adapter that
 | Memory | Default ephemeral store for unconfigured Vercel hosting. |
 | Vercel Blob | Optional object/file backing store, not Git-like workspace state. |
 | Vercel Sandbox | Runtime/session persistence and snapshots for execution. |
-
-## Sandbox Mounts
-
-Workspaces expose mount metadata now so `@vitehub/sandbox` can attach later:
-
-```ts
-const mount = workspace.mount({
-  mode: 'copy-on-write',
-  target: '/workspace',
-})
-```
-
-Mount modes are `read-only`, `read-write`, and `copy-on-write`. Writes are explicit: inspect `mount.diff()` and call `mount.commit()` or export a snapshot when an execution result should become workspace state.

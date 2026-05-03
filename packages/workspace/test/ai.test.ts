@@ -1,26 +1,26 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createWorkspaceTools, readWorkspaceInstructions, useWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
+import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
+import { useWorkspace } from "../src/index.ts"
+import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
-import type { WorkspaceAssets } from "../src/types.ts"
+import { createWorkspace } from "../src/workspace.ts"
 
-function createAssets(files: Record<string, string | Uint8Array>): WorkspaceAssets {
-  return {
-    async getKeys() {
-      return Object.keys(files)
-    },
-    async getItem<T>(key: string) {
-      return (files[key] ?? null) as T | null
-    },
-  }
+function createAssets(files: Record<string, string | Uint8Array>) {
+  return createWorkspaceAssets(Object.fromEntries(
+    Object.entries(files).map(([path, content]) => [path, { load: async () => content }]),
+  ))
 }
 
-async function runBash(tools: ReturnType<typeof createWorkspaceTools>, command: string): Promise<WorkspaceShellResult> {
-  return await tools.bash.execute!({ command }, { toolCallId: "test", messages: [] } as never) as WorkspaceShellResult
+async function runShell(tools: ReturnType<typeof createWorkspaceTools>, command: string): Promise<WorkspaceShellResult> {
+  return await tools.shell.execute!({ command }, { toolCallId: "test", messages: [] } as never) as WorkspaceShellResult
 }
 
-async function readFile(tools: ReturnType<typeof createWorkspaceTools>, path: string): Promise<string> {
-  return await tools.readFile.execute!({ path }, { toolCallId: "test", messages: [] } as never) as string
+function createMutableWorkspace() {
+  return createWorkspace({
+    name: "mutable",
+    store: { provider: "memory" },
+  })
 }
 
 afterEach(() => {
@@ -28,16 +28,6 @@ afterEach(() => {
 })
 
 describe("createWorkspaceTools", () => {
-  it("reads text and byte-backed workspace assets", async () => {
-    const tools = createWorkspaceTools(createAssets({
-      "README.md": "# Docs\n",
-      "models/orders.sql": new TextEncoder().encode("select * from orders\n"),
-    }))
-
-    await expect(readFile(tools, "README.md")).resolves.toBe("# Docs\n")
-    await expect(readFile(tools, "models/orders.sql")).resolves.toBe("select * from orders\n")
-  })
-
   it("emulates read-only shell inspection commands", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
@@ -45,77 +35,124 @@ describe("createWorkspaceTools", () => {
       "models/customers.sql": "select * from customers\n",
     }))
 
-    await expect(runBash(tools, "pwd")).resolves.toMatchObject({ exitCode: 0, stdout: "/workspace\n" })
-    await expect(runBash(tools, "ls models")).resolves.toMatchObject({ exitCode: 0, stdout: "customers.sql\norders.sql\n" })
-    await expect(runBash(tools, "find . -name '*.sql'")).resolves.toMatchObject({ exitCode: 0, stdout: "models/customers.sql\nmodels/orders.sql\n" })
-    await expect(runBash(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
-    await expect(runBash(tools, "head -n 1 models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "select * from orders\n" })
-    await expect(runBash(tools, "tail -n 1 models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "where id is not null\n" })
-    await expect(runBash(tools, "wc -l models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "2 models/orders.sql\n" })
-    await expect(runBash(tools, "rg orders models")).resolves.toMatchObject({ exitCode: 0, stdout: "models/orders.sql:1:select * from orders\n" })
+    await expect(runShell(tools, "pwd")).resolves.toMatchObject({ exitCode: 0, stdout: "/workspace\n" })
+    await expect(runShell(tools, "ls models")).resolves.toMatchObject({ exitCode: 0, stdout: "customers.sql\norders.sql\n" })
+    await expect(runShell(tools, "find . -name '*.sql'")).resolves.toMatchObject({ exitCode: 0, stdout: "models/customers.sql\nmodels/orders.sql\n" })
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
+    await expect(runShell(tools, "head -n 1 models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "select * from orders\n" })
+    await expect(runShell(tools, "tail -n 1 models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "where id is not null\n" })
+    await expect(runShell(tools, "wc -l models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "2 models/orders.sql\n" })
+    await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({ exitCode: 0, stdout: "models/orders.sql:1:select * from orders\n" })
   })
 
-  it("rejects traversal, mutation commands, and shell syntax deterministically", async () => {
+  it("limits shell commands to the enabled read capabilities", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "README.md": "# Docs\n",
+      "models/orders.sql": "select * from orders\n",
+    }), {
+      operations: {
+        read: false,
+        search: false,
+      },
+    })
+
+    await expect(runShell(tools, "ls .")).resolves.toMatchObject({ exitCode: 0, stdout: "README.md\nmodels/\n" })
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "Unsupported workspace shell command: cat\n",
+    })
+    await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "Unsupported workspace shell command: rg\n",
+    })
+  })
+
+  it("rejects traversal and unsupported shell syntax deterministically", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
     }))
 
-    await expect(runBash(tools, "rm README.md")).resolves.toMatchObject({
+    await expect(runShell(tools, "rm README.md")).resolves.toMatchObject({
       exitCode: 126,
-      stderr: "Command is not available in the read-only workspace shell: rm\n",
+      stderr: "Unsupported workspace shell command: rm\n",
     })
-    await expect(runBash(tools, "cat README.md | wc -l")).resolves.toMatchObject({
+    await expect(runShell(tools, "cat README.md | wc -l")).resolves.toMatchObject({
       exitCode: 126,
-      stderr: "Unsupported shell syntax: only a single read-only workspace command is supported.\n",
+      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
     })
-    await expect(runBash(tools, "cat ../README.md")).resolves.toMatchObject({
+    await expect(runShell(tools, "cat ../README.md")).resolves.toMatchObject({
       exitCode: 1,
       stderr: "[vitehub] Workspace path escapes the workspace root: \"../README.md\".\n",
     })
   })
 
-  it("caps command and readFile output", async () => {
+  it("caps shell output", async () => {
     const tools = createWorkspaceTools(createAssets({
       "large.txt": "0123456789",
     }), { maxOutputLength: 4 })
 
-    await expect(readFile(tools, "large.txt")).resolves.toBe("0123\n[output truncated to 4 characters]\n")
-    await expect(runBash(tools, "cat large.txt")).resolves.toMatchObject({
+    await expect(runShell(tools, "cat large.txt")).resolves.toMatchObject({
       stdout: "0123\n[output truncated to 4 characters]\n",
     })
   })
-})
 
-describe("readWorkspaceInstructions", () => {
-  it("reads AGENTS.md files from workspace assets in path order", async () => {
-    const instructions = await readWorkspaceInstructions(createAssets({
-      "packages/api/AGENTS.md": "API instructions\n",
+  it("throws when no operations are enabled", () => {
+    expect(() => createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
-      "AGENTS.md": "Root instructions\n",
-    }))
-
-    expect(instructions).toBe("Root instructions\n\n\nAPI instructions\n")
+    }), {
+      operations: {
+        list: false,
+        read: false,
+        search: false,
+      },
+    })).toThrow("at least one enabled workspace operation")
   })
 
-  it("returns an empty string when the workspace has no AGENTS.md files", async () => {
-    await expect(readWorkspaceInstructions(createAssets({
+  it("rejects write operations for immutable workspace assets", () => {
+    expect(() => createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
-    }))).resolves.toBe("")
+    }), {
+      operations: {
+        write: true,
+      },
+    })).toThrow("Write operations require a mutable Workspace")
+  })
+
+  it("applies structured write operations to mutable workspaces", async () => {
+    const workspace = createMutableWorkspace()
+    const tools = createWorkspaceTools(workspace, {
+      operations: {
+        list: false,
+        read: false,
+        search: false,
+        write: true,
+      },
+    })
+
+    await tools.makeDir.execute!({ path: "docs", recursive: true }, { toolCallId: "test", messages: [] } as never)
+    await tools.writeFile.execute!({ path: "docs/readme.md", content: "# Docs\n" }, { toolCallId: "test", messages: [] } as never)
+    await tools.appendFile.execute!({ path: "docs/readme.md", content: "more\n" }, { toolCallId: "test", messages: [] } as never)
+    await tools.copyPath.execute!({ from: "docs/readme.md", to: "docs/copy.md" }, { toolCallId: "test", messages: [] } as never)
+    await tools.movePath.execute!({ from: "docs/copy.md", to: "docs/moved.md" }, { toolCallId: "test", messages: [] } as never)
+    await tools.deletePath.execute!({ path: "docs/moved.md" }, { toolCallId: "test", messages: [] } as never)
+
+    await expect(workspace.readFile("docs/readme.md")).resolves.toBe("# Docs\nmore\n")
+    await expect(workspace.exists("docs/moved.md")).resolves.toBe(false)
   })
 })
 
-describe("useWorkspaceTools", () => {
-  it("creates tools from named runtime workspace assets", async () => {
+describe("useWorkspace facade tools", () => {
+  it("creates read-only tools from named runtime workspace assets", async () => {
     setWorkspaceRuntimeAssetsRegistry({
       docs: createAssets({
         "README.md": new TextEncoder().encode("# Docs\n"),
       }),
     })
 
-    const tools = useWorkspaceTools("docs")
+    const tools = useWorkspace("docs").tools()
 
-    await expect(readFile(tools, "README.md")).resolves.toBe("# Docs\n")
-    await expect(runBash(tools, "cat README.md")).resolves.toMatchObject({
+    expect("shell" in tools).toBe(true)
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
       exitCode: 0,
       stdout: "# Docs\n",
     })

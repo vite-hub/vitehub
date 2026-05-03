@@ -45,6 +45,7 @@ describe("hubWorkspace", () => {
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({
       resolve: { noExternal: ["@vitehub/workspace"] },
     })
+    await expect(readFile(join(root, "src", "vitehub-workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
 
     const rootId = resolveId("virtual:vitehub/workspaces")!
     expect(load(rootId)).toContain('"docs"')
@@ -84,7 +85,9 @@ describe("hubWorkspace", () => {
     const registry = (await import(`${pathToFileURL(registryId).href}?t=${Date.now()}`)).default
 
     await expect(readFile(registryId, "utf8")).resolves.toContain('"docs"')
-    await expect(registry.docs.getKeys()).resolves.toEqual(["README.md"])
-    await expect(registry.docs.getItem("README.md")).resolves.toBe("docs\n")
+    await expect(registry.docs.list()).resolves.toEqual([
+      expect.objectContaining({ path: "README.md", type: "file" }),
+    ])
+    await expect(registry.docs.readFile("README.md")).resolves.toBe("docs\n")
   })
 })

@@ -1,7 +1,7 @@
 import { WorkspaceNotFoundError } from "./errors.ts"
 import runtimeAssetsRegistry from "#vitehub-workspace-assets-registry"
 
-import type { WorkspaceAssets, WorkspaceAssetsRegistry } from "./types.ts"
+import type { WorkspaceAssetPath, WorkspaceAssets, WorkspaceAssetsRegistry, WorkspaceName } from "./types.ts"
 
 let assetsRegistry: WorkspaceAssetsRegistry = runtimeAssetsRegistry
 
@@ -13,8 +13,8 @@ export function resetWorkspaceAssetsRegistry(): void {
   assetsRegistry = runtimeAssetsRegistry
 }
 
-export function useWorkspaceAssets(name: string): WorkspaceAssets {
+export function useWorkspaceAssets<Name extends WorkspaceName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> {
   const assets = assetsRegistry[name]
   if (!assets) throw new WorkspaceNotFoundError(name)
-  return assets
+  return assets as WorkspaceAssets<WorkspaceAssetPath<Name>>
 }

@@ -2,13 +2,12 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach } from "vitest"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 
-import { useWorkspaceAssets } from "../src/assets.ts"
-import { defineWorkspace, registerWorkspace, source, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
+import { defineWorkspace, registerWorkspace, source, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/registry.ts"
+import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig } from "../src/runtime/state.ts"
 
 const tempDirs: string[] = []
@@ -31,7 +30,7 @@ describe("workspace public API", () => {
     expect(() => defineWorkspace({ name: "api" } as never)).toThrow("Workspace names are inferred")
   })
 
-  it("defines, registers, syncs, and uses a workspace", async () => {
+  it("uses the writable facade for synced reads and writes", async () => {
     registerWorkspace("api", defineWorkspace({
       store: { provider: "memory" },
       sources: [
@@ -47,24 +46,35 @@ describe("workspace public API", () => {
       ],
     }))
 
-    const workspace = await useWorkspace("api")
-    await workspace.sync()
-    await workspace.writeFile("generated/summary.md", "summary")
+    const workspace = useWorkspace("api", { allowWrite: true })
+    await workspace.fs.writeFile("generated/summary.md", "summary")
 
-    expect(await workspace.readFile("README.md")).toBe("# API\n")
-    expect(await workspace.readFile("AGENTS.md")).toBe("# Instructions\n")
-    await expect(workspace.stat("AGENTS.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
-    expect(await workspace.exists("generated/summary.md")).toBe(true)
-    expect(await workspace.glob("**/*.md")).toHaveLength(3)
-    expect(workspace.mount({ mode: "copy-on-write" })).toMatchObject({
-      mode: "copy-on-write",
-      target: "/workspace",
+    expect(await workspace.fs.readFile("README.md")).toBe("# API\n")
+    expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Instructions\n")
+    await expect(workspace.fs.stat("AGENTS.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
+    expect(await workspace.fs.exists("generated/summary.md")).toBe(true)
+    expect(await workspace.fs.glob("**/*.md")).toHaveLength(3)
+  })
+
+  it("uses the read-only facade for bundled assets", async () => {
+    setWorkspaceRuntimeAssetsRegistry({
+      docs: createWorkspaceAssets({
+        "README.md": { load: async () => "# Docs\n" },
+      }),
     })
 
-    const defaultSession = await workspace.open()
-    expect(defaultSession.exec).toBeUndefined()
-    const localSession = await workspace.open({ runtime: "local" })
-    expect(localSession.exec).toEqual(expect.any(Function))
+    const workspace = useWorkspace("docs")
+
+    await expect(workspace.fs.readFile("README.md")).resolves.toBe("# Docs\n")
+    await expect(workspace.fs.exists("README.md")).resolves.toBe(true)
+    await expect(workspace.fs.exists("missing.md" as never)).resolves.toBe(false)
+    await expect(workspace.fs.list()).resolves.toEqual([
+      expect.objectContaining({ path: "README.md", type: "file" }),
+    ])
+    await expect(workspace.fs.glob("README.md")).resolves.toEqual([
+      expect.objectContaining({ path: "README.md", type: "file" }),
+    ])
+    await expect(workspace.fs.stat("README.md")).resolves.toMatchObject({ path: "README.md", type: "file" })
   })
 
   it("uses runtime workspace root for default local stores", async () => {
@@ -77,8 +87,8 @@ describe("workspace public API", () => {
       rootDir: root,
     }))
 
-    const workspace = await useWorkspace("runtime-root")
-    await workspace.writeFile("notes.md", "runtime")
+    const workspace = useWorkspace("runtime-root", { allowWrite: true })
+    await workspace.fs.writeFile("notes.md", "runtime")
 
     await expect(readFile(join(configuredRoot, "runtime-root", "notes.md"), "utf8")).resolves.toBe("runtime")
   })
@@ -88,9 +98,8 @@ describe("workspace public API", () => {
       docs: async () => ({ default: defineWorkspace({ store: { provider: "memory" } }) }),
     })
 
-    const workspace = await useWorkspace("docs")
-
-    expect(workspace.name).toBe("docs")
+    const workspace = useWorkspace("docs", { allowWrite: true })
+    await expect(workspace.fs.list()).resolves.toEqual([])
   })
 
   it("refreshes loader-backed workspace definitions when the registry changes", async () => {
@@ -106,9 +115,8 @@ describe("workspace public API", () => {
       }) }),
     })
 
-    const first = await useWorkspace("docs")
-    await first.sync()
-    expect(await first.readFile("README.md")).toBe("v1\n")
+    const first = useWorkspace("docs", { allowWrite: true })
+    expect(await first.fs.readFile("README.md")).toBe("v1\n")
 
     setWorkspaceRegistry({
       docs: async () => ({ default: defineWorkspace({
@@ -122,27 +130,7 @@ describe("workspace public API", () => {
       }) }),
     })
 
-    const second = await useWorkspace("docs")
-    await second.sync()
-    expect(await second.readFile("README.md")).toBe("v2\n")
-  })
-
-  it("reads workspace assets from the runtime asset registry", async () => {
-    setWorkspaceRuntimeAssetsRegistry({
-      docs: {
-        async getKeys() {
-          return ["README.md"]
-        },
-        async getItem<T>(key: string) {
-          return (key === "README.md" ? "# Docs\n" : null) as T | null
-        },
-      },
-    })
-
-    const assets = useWorkspaceAssets("docs")
-
-    await expect(assets.getKeys()).resolves.toEqual(["README.md"])
-    await expect(assets.getItem<string>("README.md")).resolves.toBe("# Docs\n")
-    await expect(assets.getItem("missing.md")).resolves.toBeNull()
+    const second = useWorkspace("docs", { allowWrite: true })
+    expect(await second.fs.readFile("README.md")).toBe("v2\n")
   })
 })

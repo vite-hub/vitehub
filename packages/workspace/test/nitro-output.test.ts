@@ -86,6 +86,9 @@ describe("Nitro workspace outputs", () => {
 
     expect(registryContents).toContain('"docs": async () => import(')
     expect(configTypes).toContain("workspace?: false | WorkspaceModuleOptions")
+    expect(configTypes).toContain("interface ViteHubWorkspaceNameMap")
+    expect(configTypes).toContain("interface ViteHubWorkspaceAssetMap")
+    expect(configTypes).toContain('"docs": true')
     expect(existsSync(join(cloudflareBuild.outputDir, cloudflareNitroJson.serverEntry))).toBe(true)
     const cloudflareWrangler = JSON.parse(await readFile(join(cloudflareBuild.outputDir, "server", "wrangler.json"), "utf8"))
     expect(cloudflareWrangler.artifacts).toEqual([

@@ -29,13 +29,11 @@ export default defineWorkspace({
 
 When `provider: 'vercel-blob'` is configured, or `BLOB_READ_WRITE_TOKEN` is available during automatic resolution, the runtime reads `BLOB_READ_WRITE_TOKEN`. `snapshot()` writes a ViteHub manifest into the Blob store; it is not provider-native Git history. Vercel Sandbox persistence remains a runtime/session capability, not the identity of the workspace.
 
-Vercel runtime integration should use workspace mounts:
+Vercel runtime integration should read from the facade and hand those files to the sandbox runtime explicitly:
 
 ```ts
-const mount = workspace.mount({
-  mode: 'copy-on-write',
-  target: '/vercel/sandbox',
-})
+const workspace = useWorkspace('docs')
+const files = await workspace.fs.list('', { recursive: true })
 ```
 
 The workspace remains the file tree. Sandbox runs code against that file tree.

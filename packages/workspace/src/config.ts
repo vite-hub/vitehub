@@ -14,6 +14,7 @@ import type {
 } from "./types.ts"
 
 export interface WorkspaceResolutionInput {
+  dev?: boolean
   env?: Record<string, string | undefined>
   hosting?: string
   rootDir?: string
@@ -74,6 +75,8 @@ export function normalizeWorkspaceStoreOptions(
   input: WorkspaceResolutionInput = {},
 ): ResolvedWorkspaceStoreOptions | undefined {
   if (store && "readFile" in store) return
+
+  if (input.dev && !store) return { provider: "local" as const }
 
   const env = input.env || process.env
   const hosting = input.hosting || ""
