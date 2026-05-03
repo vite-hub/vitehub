@@ -60,17 +60,25 @@ function installNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): void {
 }
 
 function createNitroTypes(registry: EnvRuntimeRegistry): string {
-  const fields = Object.keys(registry).map(key => `    ${JSON.stringify(key)}: unknown`)
+  const fields = Object.entries(registry).map(([key, entry]) => `    ${JSON.stringify(key)}: ${resolveTypeName(entry)}`)
   return [
     "declare module \"#vitehub/env/server\" {",
-    "  export function useSafeRuntimeConfig(event?: unknown): {",
+    "  export interface SafeRuntimeConfig {",
     ...fields,
     "  }",
+    "  export function useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig",
     "}",
     "",
     "export {}",
     "",
   ].join("\n")
+}
+
+function resolveTypeName(entry: EnvRuntimeRegistry[string]): string {
+  if (entry.type) {
+    return entry.type
+  }
+  return entry.required || typeof entry.default !== "undefined" ? "string" : "string | undefined"
 }
 
 export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {

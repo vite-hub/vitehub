@@ -71,6 +71,16 @@ describe("Nitro module", () => {
     expect(nitro.options.cloudflare?.wrangler?.secrets?.required).toEqual(["EXISTING_SECRET", "AUTH_SECRET"])
     expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("env.databaseUrl"))
 
+    const typesHook = nitro.hooks.hook.mock.calls.find(([name]) => name === "types:extend")?.[1]
+    const tsConfig = { include: [] as string[] }
+    await typesHook?.({ tsConfig })
+    const types = await readFile(join(root, ".nitro/types/vitehub-env.d.ts"), "utf8")
+    expect(types).toContain("export interface SafeRuntimeConfig")
+    expect(types).toContain("\"databaseUrl\": string")
+    expect(types).toContain("\"optionalApiBase\": string | undefined")
+    expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
+    expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env.d.ts"))
+
     const registry = await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8")
     expect(registry).toContain("DATABASE_URL")
     expect(registry).toContain("\"required\": false")
