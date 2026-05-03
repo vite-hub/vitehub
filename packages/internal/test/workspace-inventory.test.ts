@@ -13,6 +13,7 @@ describe("workspace inventory", () => {
       "kv",
       "queue",
       "sandbox",
+      "shell",
       "workflow",
     ])
   })
