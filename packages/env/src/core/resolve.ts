@@ -77,7 +77,7 @@ export function createSourceContext(input: {
     env: input.env,
     git: {
       branch: () => gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
-      commit: options => gitOutput(input.rootDir, ["rev-parse", options?.short ? "--short" : "HEAD", "HEAD"]),
+      commit: options => gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"]),
     },
     mode: input.mode,
     packageJson: () => readPackageJson(input.rootDir),
