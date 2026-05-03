@@ -1,60 +1,167 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { Chat } from "chat"
+
+function createState() {
+  return {
+    acquireLock: vi.fn(),
+    appendToList: vi.fn(),
+    connect: vi.fn(),
+    delete: vi.fn(),
+    dequeue: vi.fn(),
+    disconnect: vi.fn(),
+    enqueue: vi.fn(),
+    extendLock: vi.fn(),
+    forceReleaseLock: vi.fn(),
+    get: vi.fn(),
+    getList: vi.fn(),
+    isSubscribed: vi.fn(),
+    queueDepth: vi.fn(),
+    releaseLock: vi.fn(),
+    set: vi.fn(),
+    setIfNotExists: vi.fn(),
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+  }
+}
+
+function createContext(overrides: Record<string, unknown> = {}) {
+  const values = new Map<string, unknown>()
+  return {
+    memo: vi.fn((key: string, create: () => unknown) => {
+      if (!values.has(key)) values.set(key, create())
+      return values.get(key)
+    }),
+    runtime: "unknown",
+    runtimeConfig: { token: "secret" },
+    waitUntil: vi.fn(),
+    ...overrides,
+  }
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe("defineChat", () => {
-  it("preserves a provided Chat SDK instance", async () => {
+  it("resolves static and request-scoped adapters and state", async () => {
     const { defineChat, resolveChat } = await import("../src/index.ts")
-    const bot = { webhooks: {} }
-    const context = {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }
+    const adapter = {}
+    const state = createState()
+    const adapterFactory = vi.fn(() => adapter)
+    const stateResolver = { resolve: vi.fn(() => state) }
+    const context = createContext()
 
-    const definition = defineChat({ bot: bot as never })
+    const definition = defineChat({
+      adapters: { telegram: adapterFactory as never },
+      state: stateResolver as never,
+      userName: "Quiver Chat",
+    })
 
-    expect(await resolveChat(definition, context as never)).toBe(bot)
+    const bot = await resolveChat(definition, context as never)
+
+    expect(bot).toBeInstanceOf(Chat)
+    expect(adapterFactory).toHaveBeenCalledWith(context)
+    expect(stateResolver.resolve).toHaveBeenCalledWith(context)
   })
 
-  it("creates a request-scoped Chat SDK instance", async () => {
+  it("memoizes resolved definitions per request", async () => {
     const { defineChat, resolveChat } = await import("../src/index.ts")
-    const bot = { webhooks: {} }
-    const create = vi.fn(() => bot)
-    const context = {
-      memo: vi.fn(),
-      runtime: "nitro",
-      runtimeConfig: { token: "secret" },
-      waitUntil: vi.fn(),
+    const context = createContext()
+    const definition = defineChat({
+      adapters: {},
+      state: createState() as never,
+      userName: "Quiver Chat",
+    })
+
+    const first = await resolveChat(definition, context as never)
+    const second = await resolveChat(definition, context as never)
+
+    expect(first).toBe(second)
+    expect(context.memo).toHaveBeenCalledTimes(2)
+  })
+
+  it("runs hook sugar before setup and passes object-style args", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const setup = vi.fn()
+    const onDirectMessage = vi.fn()
+    const context = createContext()
+    const definition = defineChat({
+      adapters: {},
+      hooks: { onDirectMessage },
+      setup,
+      state: createState() as never,
+      userName: "Quiver Chat",
+    })
+
+    const bot = await resolveChat(definition, context as never)
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({ id: "thread" } as never, { text: "hello" } as never, { id: "channel" } as never, { skipped: [] } as never)
+
+    expect(directMessageSpy.mock.invocationCallOrder[0]).toBeLessThan(setup.mock.invocationCallOrder[0]!)
+    expect(onDirectMessage).toHaveBeenCalledWith({
+      bot,
+      channel: { id: "channel" },
+      context: { skipped: [] },
+      message: { text: "hello" },
+      runtimeConfig: context.runtimeConfig,
+      thread: { id: "thread" },
+    })
+  })
+
+  it("registers the supported Chat SDK hook sugar methods", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const spies = [
+      vi.spyOn(Chat.prototype, "onNewMention"),
+      vi.spyOn(Chat.prototype, "onSubscribedMessage"),
+      vi.spyOn(Chat.prototype, "onNewMessage"),
+      vi.spyOn(Chat.prototype, "onReaction"),
+      vi.spyOn(Chat.prototype, "onAction"),
+      vi.spyOn(Chat.prototype, "onModalSubmit"),
+    ]
+
+    await resolveChat(defineChat({
+      adapters: {},
+      hooks: {
+        onAction: { approve: vi.fn() },
+        onModalSubmit: { feedback: vi.fn() },
+        onNewMention: vi.fn(),
+        onNewMessage: { handler: vi.fn(), pattern: /^!help/ },
+        onReaction: { thumbs_up: vi.fn() },
+        onSubscribedMessage: vi.fn(),
+      },
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext() as never)
+
+    for (const spy of spies) {
+      expect(spy).toHaveBeenCalled()
     }
-
-    const definition = defineChat({ create: create as never })
-
-    expect(await resolveChat(definition, context as never)).toBe(bot)
-    expect(create).toHaveBeenCalledWith(context)
   })
 
   it("preserves lifecycle hooks on chat definitions", async () => {
     const { defineChat } = await import("../src/index.ts")
-    const hooks = {
-      request: vi.fn(),
-    }
+    const lifecycleHooks = { request: vi.fn() }
     const definition = defineChat({
-      create: vi.fn(() => ({ webhooks: {} })),
-      hooks,
-    } as never)
+      adapters: {},
+      lifecycleHooks,
+      state: createState() as never,
+      userName: "Quiver Chat",
+    })
 
-    expect(definition).toMatchObject({ hooks })
+    expect(definition).toMatchObject({ lifecycleHooks })
   })
 
   it("returns raw Chat SDK instances unchanged", async () => {
     const { resolveChat } = await import("../src/index.ts")
-    const bot = { webhooks: {} }
-    const context = {
-      memo: vi.fn(),
-      runtime: "unknown",
-      waitUntil: vi.fn(),
-    }
+    const bot = new Chat({
+      adapters: {},
+      state: createState() as never,
+      userName: "Quiver Chat",
+    })
 
-    expect(await resolveChat(bot as never, context as never)).toBe(bot)
+    expect(await resolveChat(bot as never, createContext() as never)).toBe(bot)
   })
 })
 

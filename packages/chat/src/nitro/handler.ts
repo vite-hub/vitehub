@@ -1,10 +1,10 @@
-import { createError, defineEventHandler, getRouterParam, toRequest } from "h3"
+import { createError, defineEventHandler, getRouterParam } from "h3"
 import { createHooks } from "hookable"
 import { useRuntimeConfig } from "nitro/runtime-config"
 
 import { resolveChat } from "../index.ts"
 import { createMemo } from "../runtime/context.ts"
-import { getChatDefinitionHooks } from "../runtime/definition.ts"
+import { getChatDefinitionLifecycleHooks } from "../runtime/definition.ts"
 
 import type { Chat, WebhookOptions } from "chat"
 import type { EventHandler, H3Event } from "h3"
@@ -85,7 +85,7 @@ export function defineChatWebhookHandler(
   options: ChatWebhookHandlerOptions<NitroChatRuntimeContext> = {},
 ): EventHandler {
   const routeParam = options.routeParam || "platform"
-  const hooks = createHookRunner(getChatDefinitionHooks(chat), options.hooks)
+  const hooks = createHookRunner(getChatDefinitionLifecycleHooks(chat), options.lifecycleHooks)
 
   return defineEventHandler(async (event) => {
     const platform = options.platform || getRouterParam(event, routeParam)
@@ -102,7 +102,7 @@ export function defineChatWebhookHandler(
       event,
       memo: createMemo(),
       platform,
-      request: toRequest(event.req),
+      request: event.req as Request,
       runtime: "nitro",
       runtimeConfig: getRuntimeConfig(event),
       waitUntil,

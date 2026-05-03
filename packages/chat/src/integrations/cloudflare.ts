@@ -1,7 +1,3 @@
-import { appendFile, readFile } from "node:fs/promises"
-import { join } from "node:path"
-
-import type { Nitro } from "nitro/types"
 import type { ChatCloudflareDurableObjectModuleOptions } from "../types.ts"
 
 interface MutableCloudflareTarget {
@@ -51,27 +47,5 @@ export function configureCloudflareChatState(
   migrations.push({
     new_sqlite_classes: [options.className],
     tag: options.migrationTag,
-  })
-}
-
-function createCloudflareChatStateExport(className: string): string {
-  return className === "ChatStateDO"
-    ? `export { ChatStateDO } from "chat-state-cloudflare-do";`
-    : `export { ChatStateDO as ${className} } from "chat-state-cloudflare-do";`
-}
-
-export function installCloudflareChatStateEntrypoint(nitro: Nitro, className: string): void {
-  nitro.hooks.hook("compiled", async (currentNitro) => {
-    if (!currentNitro.options.preset?.includes("cloudflare")) {
-      return
-    }
-
-    const serverEntry = join(currentNitro.options.output.serverDir, "index.mjs")
-    const statement = createCloudflareChatStateExport(className)
-    const contents = await readFile(serverEntry, "utf8").catch(() => "")
-    if (contents.includes(statement)) {
-      return
-    }
-    await appendFile(serverEntry, `\n${statement}\n`, "utf8")
   })
 }

@@ -5,7 +5,7 @@ import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vitehub/inte
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { normalizeChatOptions } from "../config.ts"
-import { configureCloudflareChatState, installCloudflareChatStateEntrypoint } from "../integrations/cloudflare.ts"
+import { configureCloudflareChatState } from "../integrations/cloudflare.ts"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
 import type { ChatModuleOptions, ResolvedChatModuleOptions } from "../types.ts"
@@ -69,6 +69,19 @@ function installNitroPlugin(nitro: Nitro): void {
   }
 }
 
+function installExternals(nitro: Nitro): void {
+  const options = nitro.options as Nitro["options"] & {
+    externals?: { inline?: string[] }
+  }
+  options.externals ||= {}
+  options.externals.inline ||= []
+  for (const dependency of ["@vitehub/chat", "chat", "chat-state-cloudflare-do"]) {
+    if (!options.externals.inline.includes(dependency)) {
+      options.externals.inline.push(dependency)
+    }
+  }
+}
+
 function installRoute(nitro: Nitro, options: ResolvedChatModuleOptions, routeFile: string | undefined): void {
   if (!routeFile || !options.route) {
     return
@@ -96,6 +109,7 @@ const chatNitroModule: NitroModule = {
 
     installAliases(nitro)
     installNitroPlugin(nitro)
+    installExternals(nitro)
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false || (resolved && !resolved.imports)
     if (!importsExplicitlyDisabled) {
@@ -114,7 +128,6 @@ const chatNitroModule: NitroModule = {
     const durableObjectState = resolved && resolved.cloudflare?.durableObjectState
     if (durableObjectState && durableObjectState.autoWrangler) {
       configureCloudflareChatState(nitro.options, durableObjectState)
-      installCloudflareChatStateEntrypoint(nitro, durableObjectState.className)
     }
 
     nitro.hooks.hook("build:before", async () => {

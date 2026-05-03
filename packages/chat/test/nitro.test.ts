@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -56,6 +56,7 @@ function createNitroStub(rootDir: string, chat: unknown = {}) {
       },
       handlers: [] as Array<{ handler: string, method?: string, route: string }>,
       imports: {},
+      externals: {} as { inline?: string[] },
       output: {
         serverDir: join(rootDir, ".output", "server"),
       },
@@ -89,37 +90,46 @@ describe("defineChatWebhookHandler", () => {
   })
 
   it("exposes runtime config, Cloudflare runtime, and lifecycle hooks", async () => {
+    const { defineChat } = await import("../src/index.ts")
     const { defineChatWebhookHandler } = await import("../src/nitro.ts")
     runtimeConfigMock.value = { telegram: { token: "secret" } }
     const calls: string[] = []
     const webhook = vi.fn(() => new Response("ok"))
-    const bot = { webhooks: { telegram: webhook } }
-    const create = vi.fn((context) => {
+    const adapters = vi.fn((context) => {
       expect(context.runtimeConfig).toBe(runtimeConfigMock.value)
       expect(context.cloudflare?.env?.CHAT_STATE).toBe("namespace")
       expect(context.memo("value", () => "created")).toBe("created")
       expect(context.memo("value", () => "other")).toBe("created")
-      return bot
+      return {}
     })
-    const handler = defineChatWebhookHandler({ create } as never, {
-      hooks: {
+    const chat = defineChat({
+      adapters,
+      setup(bot: { webhooks: Record<string, unknown> }) {
+        const webhooks = bot.webhooks as Record<string, unknown>
+        webhooks.telegram = webhook
+      },
+      state: {} as never,
+      userName: "Quiver Chat",
+    })
+    const handler = defineChatWebhookHandler(chat, {
+      lifecycleHooks: {
         request: () => {
           calls.push("request")
         },
         resolved: (context) => {
           calls.push("resolved")
-          expect(context.bot).toBe(bot)
+          expect(context.bot).toBeTruthy()
         },
         webhook: (context) => {
           calls.push("webhook")
-          expect(context.bot).toBe(bot)
+          expect(context.bot).toBeTruthy()
         },
       },
     })
 
     await handler(createEvent("telegram") as never)
 
-    expect(create).toHaveBeenCalledTimes(1)
+    expect(adapters).toHaveBeenCalledTimes(1)
     expect(calls).toEqual(["request", "resolved", "webhook"])
   })
 
@@ -128,30 +138,35 @@ describe("defineChatWebhookHandler", () => {
     const { defineChatWebhookHandler } = await import("../src/nitro.ts")
     const calls: string[] = []
     const webhook = vi.fn(() => new Response("ok"))
-    const bot = { webhooks: { telegram: webhook } }
     const chat = defineChat({
-      create: vi.fn(() => bot),
-      hooks: {
+      adapters: {},
+      lifecycleHooks: {
         request: () => {
           calls.push("definition:request")
         },
         resolved: (context: { bot: unknown }) => {
           calls.push("definition:resolved")
-          expect(context.bot).toBe(bot)
+          expect(context.bot).toBeTruthy()
         },
         webhook: () => {
           calls.push("definition:webhook")
         },
       },
+      setup(bot: { webhooks: Record<string, unknown> }) {
+        const webhooks = bot.webhooks as Record<string, unknown>
+        webhooks.telegram = webhook
+      },
+      state: {} as never,
+      userName: "Quiver Chat",
     } as never)
     const handler = defineChatWebhookHandler(chat, {
-      hooks: {
+      lifecycleHooks: {
         request: () => {
           calls.push("handler:request")
         },
         resolved: (context) => {
           calls.push("handler:resolved")
-          expect(context.bot).toBe(bot)
+          expect(context.bot).toBeTruthy()
         },
         webhook: () => {
           calls.push("handler:webhook")
@@ -194,10 +209,12 @@ describe("defineChatWebhookHandler", () => {
       calls.push(`handler:${context.platform}`)
     })
     const handler = defineChatWebhookHandler(defineChat({
-      bot: { webhooks: {} } as never,
-      hooks: { error: definitionError },
+      adapters: {},
+      lifecycleHooks: { error: definitionError },
+      state: {} as never,
+      userName: "Quiver Chat",
     }), {
-      hooks: { error: handlerError },
+      lifecycleHooks: { error: handlerError },
     })
 
     await expect(handler(createEvent("missing") as never)).rejects.toMatchObject({
@@ -214,7 +231,7 @@ describe("defineChatWebhookHandler", () => {
     const calls: string[] = []
     const webhook = vi.fn(() => new Response("ok"))
     const handler = defineChatWebhookHandler({ webhooks: { telegram: webhook } } as never, {
-      hooks: {
+      lifecycleHooks: {
         request: () => {
           calls.push("handler:request")
         },
@@ -283,6 +300,7 @@ describe("Nitro module", () => {
     expect(nitro.options.alias["@vitehub/chat"]).toContain("/packages/chat/src/index.ts")
     expect(nitro.options.alias["@vitehub/chat/nitro"]).toContain("/packages/chat/src/nitro.ts")
     expect(nitro.options.plugins.some(plugin => plugin.includes("/packages/chat/src/runtime/nitro-plugin.ts"))).toBe(true)
+    expect(nitro.options.externals.inline).toEqual(expect.arrayContaining(["@vitehub/chat", "chat", "chat-state-cloudflare-do"]))
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChat")
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChatWebhookHandler")
     expect(nitro.options.cloudflare).toMatchObject({
@@ -296,13 +314,6 @@ describe("Nitro module", () => {
 
     const routeFile = nitro.options.handlers[0]!.handler
     expect(await readFile(routeFile, "utf8")).toContain("defineChatWebhookHandler(chat)")
-
-    await mkdir(nitro.options.output.serverDir, { recursive: true })
-    await writeFile(join(nitro.options.output.serverDir, "index.mjs"), "export default {}\n")
-    await nitro.testHooks.compiled?.[0]?.(nitro)
-    expect(await readFile(join(nitro.options.output.serverDir, "index.mjs"), "utf8")).toContain(
-      `export { ChatStateDO } from "chat-state-cloudflare-do";`,
-    )
   })
 
   it("honors disabled route and imports", async () => {

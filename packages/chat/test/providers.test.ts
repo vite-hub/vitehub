@@ -28,18 +28,18 @@ describe("Cloudflare helpers", () => {
     const namespace = { idFromName: vi.fn() }
     const shardKey = (threadId: string) => threadId.split(":")[0] || "default"
 
-    const state = cloudflareDurableObjectState({
+    const state = await cloudflareDurableObjectState({
+      binding: "CHAT_STATE",
+      locationHint: "wnam",
+      name: "quiver-chat",
+      shardKey,
+    }).resolve({
       cloudflare: {
         env: { CHAT_STATE: namespace },
       },
       memo: vi.fn(),
       runtime: "cloudflare",
       waitUntil: vi.fn(),
-    }, {
-      binding: "CHAT_STATE",
-      locationHint: "wnam",
-      name: "quiver-chat",
-      shardKey,
     })
 
     await state.connect()
@@ -55,7 +55,7 @@ describe("Cloudflare helpers", () => {
   it("throws a clear error for missing Durable Object bindings", async () => {
     const { cloudflareDurableObjectState } = await import("../src/cloudflare.ts")
 
-    expect(() => cloudflareDurableObjectState({
+    expect(() => cloudflareDurableObjectState().resolve({
       cloudflare: { env: {} },
       memo: vi.fn(),
       runtime: "cloudflare",

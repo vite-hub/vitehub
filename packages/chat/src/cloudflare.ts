@@ -3,6 +3,7 @@ import { createChatRuntimeContext } from "./runtime/context.ts"
 
 import type { Chat, StateAdapter, WebhookOptions } from "chat"
 import type {
+  ChatDurableObjectStateResolver,
   ChatInput,
   ChatRuntimeContext,
   ChatWaitUntil,
@@ -111,23 +112,26 @@ function inferPlatform(request: Request): string | undefined {
 }
 
 export function cloudflareDurableObjectState(
-  context: ChatRuntimeContext,
   options: CloudflareDurableObjectStateOptions = {},
-): StateAdapter {
-  const binding = options.binding || "CHAT_STATE"
-  const namespace = context.cloudflare?.env?.[binding]
-  if (!namespace) {
-    throw new Error(
-      `Missing Cloudflare Durable Object binding ${binding}. Configure chat.cloudflare.durableObjectState or wrangler durable_objects.`,
-    )
-  }
+): ChatDurableObjectStateResolver {
+  return {
+    resolve(context) {
+      const binding = options.binding || "CHAT_STATE"
+      const namespace = context.cloudflare?.env?.[binding]
+      if (!namespace) {
+        throw new Error(
+          `Missing Cloudflare Durable Object binding ${binding}. Configure chat.cloudflare.durableObjectState or wrangler durable_objects.`,
+        )
+      }
 
-  return new LazyCloudflareDurableObjectState({
-    locationHint: options.locationHint,
-    name: options.name,
-    namespace: namespace as CloudflareStateFactoryOptions["namespace"],
-    shardKey: options.shardKey,
-  })
+      return new LazyCloudflareDurableObjectState({
+        locationHint: options.locationHint,
+        name: options.name,
+        namespace: namespace as CloudflareStateFactoryOptions["namespace"],
+        shardKey: options.shardKey,
+      })
+    },
+  }
 }
 
 export function defineCloudflareChatHandler(
