@@ -1,6 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import "../src/nitro.ts"
 import { defineChat } from "@vitehub/chat"
 
 describe("Nitro runtime config fallback types", () => {

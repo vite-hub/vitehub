@@ -23,7 +23,7 @@ export type MaybePromise<T> = T | Promise<T>
 export type ChatRuntimeName = "nitro" | "cloudflare" | "vercel" | "unknown"
 export type ChatWaitUntil = (task: Promise<unknown>) => void
 
-export interface ChatRuntimeConfig {}
+export interface ChatRuntimeConfig extends Record<string, any> {}
 
 export interface ChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
   cloudflare?: {

@@ -4,7 +4,7 @@ import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@v
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import { defaultChatCloudflareDurableObjectName, normalizeChatOptions } from "../config.ts"
+import { defaultChatCloudflareDurableObjectName, defaultChatCloudflareDurableObjectState, normalizeChatOptions } from "../config.ts"
 import { discoverChatDefinitions } from "../discovery.ts"
 import { configureCloudflareChatState, discoverCloudflareChatStateConfig } from "../integrations/cloudflare.ts"
 
@@ -387,9 +387,7 @@ async function installCloudflareStateConfig(
   const name = await resolveCloudflareDurableObjectStateName(nitro)
   setCloudflareDurableObjectRuntimeConfig(options, {
     autoWrangler: true,
-    binding: "CHAT_STATE",
-    className: "ChatStateDO",
-    migrationTag: "v1",
+    ...defaultChatCloudflareDurableObjectState,
     name,
   })
 
@@ -478,5 +476,5 @@ declare module "nitro/types" {
 }
 
 declare module "@vitehub/chat" {
-  interface ChatRuntimeConfig extends NitroRuntimeConfig, Record<string, any> {}
+  interface ChatRuntimeConfig extends NitroRuntimeConfig {}
 }
