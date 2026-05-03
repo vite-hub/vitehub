@@ -99,11 +99,11 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true })
-    const filePrefix = this.#fileKey(normalizedPrefix, { allowEmpty: true })
-    const files = await this.#listBlobs(normalizedPrefix ? `${filePrefix}/` : `${this.#fileKey("", { allowEmpty: true })}/`)
+    const fileKeyRoot = `${this.#fileKey("", { allowEmpty: true })}/`
+    const filePrefix = normalizedPrefix ? `${this.#fileKey(normalizedPrefix, { allowEmpty: true })}/` : fileKeyRoot
+    const files = await this.#listBlobs(filePrefix)
     const entries = new Map<string, WorkspaceEntry>()
 
-    const fileKeyRoot = `${this.#fileKey("", { allowEmpty: true })}/`
     for (const blob of files) {
       const path = normalizeWorkspacePath(blob.pathname.slice(fileKeyRoot.length))
       if (!path) continue
