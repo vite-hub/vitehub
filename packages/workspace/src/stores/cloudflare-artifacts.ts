@@ -43,6 +43,15 @@ function repoName(options: CloudflareArtifactsWorkspaceStoreOptions, workspaceNa
   return options.repo || `${options.repoPrefix || "vitehub-workspace-"}${workspaceName.replace(/[^a-zA-Z0-9_.-]/g, "-")}`
 }
 
+function isEmptyRepoError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+  const candidate = error as { code?: string, data?: { statusCode?: number }, message?: string }
+  if (candidate.code === "EmptyServerError") return true
+  if (candidate.data?.statusCode === 404) return true
+  const message = candidate.message?.toLowerCase() ?? ""
+  return message.includes("empty repository") || message.includes("empty server")
+}
+
 class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
   #fs: MemoryFS | undefined
@@ -263,7 +272,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
         url: this.#repo.remote,
       })
     }
-    catch {
+    catch (error) {
+      if (!isEmptyRepoError(error)) throw error
       await git.init({ defaultBranch: this.options.branch || "main", dir, fs: this.#fs as never })
     }
   }
