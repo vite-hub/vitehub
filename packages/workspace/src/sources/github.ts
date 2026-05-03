@@ -112,6 +112,9 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
   function fetchContent(key: string) {
     const repoPath = repoPathForKey(key)
     const encodedPath = encodeURIComponent(repoPath).replaceAll("%2F", "/")
+    if (!options.auth) {
+      return fetchRawContent(repoPath, encodedPath)
+    }
     return request<GitHubContentResponse>(
       `https://api.github.com/repos/${options.repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
     ).then((file) => {
@@ -120,6 +123,21 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       }
       return new Uint8Array(Buffer.from(file.content, "base64"))
     })
+  }
+
+  async function fetchRawContent(repoPath: string, encodedPath: string) {
+    const response = await fetch(`https://raw.githubusercontent.com/${options.repo}/${encodeURIComponent(ref)}/${encodedPath}`, {
+      headers: {
+        "user-agent": "vitehub-workspace",
+      },
+    })
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(repoPath)} at ref ${JSON.stringify(ref)}.`)
+      }
+      throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) raw content request failed with ${response.status} for ${repoPath}.`)
+    }
+    return new Uint8Array(await response.arrayBuffer())
   }
 
   return {

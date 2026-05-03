@@ -48,6 +48,14 @@ function stubGitHubSource(files: Record<string, string>, status = 200) {
       })
     }
 
+    if (requestUrl.startsWith("https://raw.githubusercontent.com/")) {
+      const url = new URL(requestUrl)
+      const path = decodeURIComponent(url.pathname.split("/").slice(4).join("/"))
+      const content = files[path]
+      if (content === undefined) return new Response("not found", { status: 404 })
+      return new Response(content)
+    }
+
     const path = decodeURIComponent(requestUrl.match(/contents\/(?<path>.+)\?ref/)?.groups?.path ?? "")
     return jsonResponse({
       content: Buffer.from(files[path] || "").toString("base64"),
