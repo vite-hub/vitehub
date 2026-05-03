@@ -101,17 +101,17 @@ async function runSearchCommand(
 
 function normalizeSafeShellPath(path = ""): string {
   const raw = path.replace(/\\/g, "/")
-  const normalized = raw.replace(/^\/+/, "").replace(/\/+$/, "")
-  const parts = normalized.split("/").filter(Boolean)
+  const trimmed = raw.replace(/^\/+/, "").replace(/\/+$/, "")
+  const parts = trimmed.split("/").filter(part => part && part !== ".")
 
-  if (raw.startsWith("/") || parts.some(part => part === "." || part === "..")) {
+  if (raw.startsWith("/") || parts.some(part => part === "..")) {
     throw new Error(`[vitehub] Workspace path escapes the workspace root: "${path}".`)
   }
   if (parts[0] === ".git" || parts[0] === ".vitehub") {
     throw new Error(`[vitehub] Workspace path is reserved: "${path}".`)
   }
 
-  return normalized
+  return parts.join("/")
 }
 
 function tryParseCommand(command: string): string[] {
