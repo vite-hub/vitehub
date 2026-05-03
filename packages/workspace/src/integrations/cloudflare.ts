@@ -15,10 +15,9 @@ export function configureCloudflareArtifacts(
     artifacts?: Array<{ binding: string, namespace: string }>
   }
   const artifacts = (wrangler.artifacts ||= [])
-  if (!artifacts.some(existing => existing.binding === store.binding)) {
-    artifacts.push({
-      binding: store.binding || "WORKSPACE_ARTIFACTS",
-      namespace: store.namespace || "vitehub",
-    })
-  }
+  const binding = store.binding || "WORKSPACE_ARTIFACTS"
+  const namespace = store.namespace || "vitehub"
+  const existing = artifacts.find(item => item.binding === binding)
+  if (existing) existing.namespace = namespace
+  else artifacts.push({ binding, namespace })
 }
