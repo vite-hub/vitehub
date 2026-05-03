@@ -151,7 +151,7 @@ export interface ChatDefinition<TRuntimeConfig extends ChatRuntimeConfig = ChatR
 
 export type ChatInput<TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> =
   | Chat
-  | ChatDefinition<any>
+  | ChatDefinition<TContext extends ChatRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : ChatRuntimeConfig>
 
 export interface CloudflareDurableObjectStateOptions {
   binding?: string

@@ -314,5 +314,5 @@ export async function resolveChat<TContext extends ChatRuntimeContext>(
     return chat as Chat
   }
 
-  return await chat.resolve(context, options)
+  return await (chat as ChatDefinition<any>).resolve(context, options)
 }
