@@ -14,9 +14,17 @@ interface NitroStub {
   options: {
     alias?: Record<string, string>
     buildDir: string
+    cloudflare?: {
+      wrangler?: {
+        secrets?: {
+          required?: string[]
+        }
+      }
+    }
     env?: unknown
     handlers?: Array<{ handler: string, route: string }>
     plugins?: string[]
+    preset?: string
     rootDir: string
   }
 }
@@ -38,11 +46,19 @@ describe("Nitro module", () => {
       logger: { info: vi.fn() },
       options: {
         buildDir: join(root, ".nitro"),
+        cloudflare: {
+          wrangler: {
+            secrets: {
+              required: ["EXISTING_SECRET"],
+            },
+          },
+        },
         env: {
           authSecret: envVariable("AUTH_SECRET", { secret: true }),
           databaseUrl: envVariable("DATABASE_URL"),
           optionalApiBase: envVariable("PUBLIC_API_BASE", { optional: true }),
         },
+        preset: "cloudflare-module",
         rootDir: root,
       },
     }
@@ -52,6 +68,7 @@ describe("Nitro module", () => {
     expect(nitro.options.alias?.["#vitehub/env/server"]).toContain("/packages/env/src/runtime/server.ts")
     expect(nitro.options.plugins).toHaveLength(1)
     expect(nitro.options.handlers).toBeUndefined()
+    expect(nitro.options.cloudflare?.wrangler?.secrets?.required).toEqual(["EXISTING_SECRET", "AUTH_SECRET"])
     expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("env.databaseUrl"))
 
     const registry = await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8")

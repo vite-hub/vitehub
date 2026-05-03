@@ -80,6 +80,7 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
       const config = (nitro.options as typeof nitro.options & EnvNitroUserConfig).env
       validateEnvConfigShape(config, "nitro")
       const registry = createRuntimeRegistry(config)
+      configureCloudflareRequiredSecrets(nitro, config)
 
       const diagnostics = describeRuntimeEntries(config)
       const diagnosticsText = formatDiagnostics(diagnostics, options.diagnostics)
@@ -104,6 +105,42 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
       installNitroTypes(nitro, registry)
     },
   }
+}
+
+function configureCloudflareRequiredSecrets(nitro: Nitro, declarations: Record<string, EnvVariableDeclaration> | undefined): void {
+  const required = Object.values(declarations || {})
+    .filter(declaration => declaration.secret && declaration.required && declaration.source.kind === "env")
+    .map(declaration => declaration.source.kind === "env" ? declaration.source.name : undefined)
+    .filter((name): name is string => Boolean(name))
+
+  if (required.length === 0 || !usesCloudflare(nitro)) {
+    return
+  }
+
+  const options = nitro.options as typeof nitro.options & {
+    cloudflare?: {
+      wrangler?: {
+        secrets?: {
+          required?: string[]
+        }
+      }
+    }
+  }
+  options.cloudflare ||= {}
+  options.cloudflare.wrangler ||= {}
+  options.cloudflare.wrangler.secrets ||= {}
+  options.cloudflare.wrangler.secrets.required = [
+    ...new Set([
+      ...(options.cloudflare.wrangler.secrets.required || []),
+      ...required,
+    ]),
+  ]
+}
+
+function usesCloudflare(nitro: Nitro): boolean {
+  const options = nitro.options as typeof nitro.options & { cloudflare?: unknown, preset?: unknown }
+  return typeof options.cloudflare !== "undefined"
+    || (typeof options.preset === "string" && options.preset.includes("cloudflare"))
 }
 
 function describeRuntimeEntries(

@@ -102,6 +102,8 @@ export default defineEventHandler((event) => {
 
 Nitro public runtime config is intentionally out of scope for v1. Apps that need public runtime data should expose an explicit endpoint.
 
+When `envNitro()` runs under a Cloudflare preset/config, required `secret: true` declarations are also added to `cloudflare.wrangler.secrets.required`.
+
 ## Sources
 
 Built-in source labels appear in diagnostics:
