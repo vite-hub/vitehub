@@ -306,20 +306,13 @@ const chatNitroModule: NitroModule = {
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, CHAT_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports, {
         from: "@vitehub/chat/nitro",
-        imports: ["defineChatWebhookHandler"],
-      }) as typeof nitro.options.imports
-      nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports, {
-        from: "@vitehub/chat/nitro",
-        imports: ["defineChatWebhookRegistryHandler"],
+        imports: ["defineChatWebhookHandler", "defineChatWebhookRegistryHandler"],
       }) as typeof nitro.options.imports
     }
 
     let runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
     if (resolved) {
       installRoute(nitro, resolved, runtimeFiles.routeFile)
-    }
-
-    if (resolved) {
       await installCloudflareStateConfig(nitro, resolved, runtimeFiles.definitions)
     }
 

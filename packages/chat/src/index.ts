@@ -92,10 +92,6 @@ async function resolveValue<T, TContext extends ChatRuntimeContext>(
   return value
 }
 
-function isAdapterMap(value: unknown): value is Record<string, Adapter> {
-  return typeof value === "object" && value !== null
-}
-
 async function resolveAdapters<TRuntimeConfig extends ChatRuntimeConfig>(
   adapters: DefineChatOptions<TRuntimeConfig>["adapters"],
   context: ResolvedChatRuntimeContext<TRuntimeConfig>,
@@ -310,7 +306,7 @@ export async function resolveChat<TContext extends ChatRuntimeContext>(
   context: TContext,
   options?: ResolveChatOptions,
 ): Promise<Chat> {
-  if (!isAdapterMap(chat) || !isChatDefinition(chat)) {
+  if (!isChatDefinition(chat)) {
     return chat as Chat
   }
 
