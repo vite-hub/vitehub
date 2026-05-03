@@ -87,7 +87,7 @@ export default defineNitroConfig({
     databaseUrl: envVariable("DATABASE_URL", { secret: true }),
     apiBase: envVariable("PUBLIC_API_BASE", { optional: true }),
   },
-  modules: [envNitro()],
+  modules: ["@vitehub/env/nitro"],
 })
 ```
 
@@ -102,7 +102,7 @@ export default defineEventHandler((event) => {
 
 Nitro public runtime config is intentionally out of scope for v1. Apps that need public runtime data should expose an explicit endpoint.
 
-When `envNitro()` runs under a Cloudflare preset/config, required `secret: true` declarations are also added to `cloudflare.wrangler.secrets.required`.
+When the Nitro module runs under a Cloudflare preset/config, required `secret: true` declarations are also added to `cloudflare.wrangler.secrets.required`.
 
 ## Sources
 
