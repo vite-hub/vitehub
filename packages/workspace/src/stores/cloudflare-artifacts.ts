@@ -234,7 +234,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #ensure(): Promise<void> {
-    this.#ready ||= this.#load()
+    this.#ready ||= this.#load().catch((error) => {
+      this.#ready = undefined
+      throw error
+    })
     await this.#ready
   }
 
