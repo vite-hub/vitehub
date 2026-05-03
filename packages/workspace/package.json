@@ -55,7 +55,7 @@
     "dev": "tsdown --watch",
     "test:e2e": "tsx ./test/e2e.ts",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/workspace build && vitest run"
+    "test": "pnpm --filter @vitehub/workspace... build && vitest run"
   },
   "dependencies": {
     "defu": "^6.1.4",
