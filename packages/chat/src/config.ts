@@ -1,12 +1,12 @@
 import type { ChatModuleOptions, ResolvedChatModuleOptions } from "./types.ts"
 
-export const defaultChatWebhookRoute = "/api/webhooks/[platform]"
-export const defaultChatWebhookChatParam = "chat"
-export const defaultChatWebhookRouteParam = "platform"
-export const defaultChatCloudflareDurableObjectBinding = "CHAT_STATE"
-export const defaultChatCloudflareDurableObjectClassName = "ChatStateDO"
-export const defaultChatCloudflareDurableObjectMigrationTag = "v1"
-export const defaultChatCloudflareDurableObjectName = "default"
+const defaultChatWebhookRoute = "/api/webhooks/[platform]"
+const defaultChatWebhookChatParam = "chat"
+const defaultChatWebhookRouteParam = "platform"
+const defaultChatCloudflareDurableObjectBinding = "CHAT_STATE"
+const defaultChatCloudflareDurableObjectClassName = "ChatStateDO"
+const defaultChatCloudflareDurableObjectMigrationTag = "v1"
+const defaultChatCloudflareDurableObjectName = "default"
 
 function normalizeWebhookOptions(webhook: ChatModuleOptions["webhook"]): ResolvedChatModuleOptions["webhook"] {
   if (webhook === false) {

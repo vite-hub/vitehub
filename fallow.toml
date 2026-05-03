@@ -25,6 +25,10 @@ dynamicallyLoaded = [
   "packages/blob/examples/**/nitro.config.ts",
   "packages/blob/examples/**/server/**",
   "packages/blob/examples/**/src/server.ts",
+  "packages/chat/examples/**/nitro.config.ts",
+  "packages/chat/examples/**/server/**",
+  "packages/chat/examples/**/src/server.ts",
+  "packages/chat/examples/**/src/**/*.chat.ts",
   "packages/sandbox/test/**/*.test-d.ts",
   "packages/sandbox/examples/**/nitro.config.ts",
   "packages/sandbox/examples/**/server/**",
@@ -64,10 +68,13 @@ ignoreDependencies = [
   "async-retry",
   "esbuild",
   "exsolve",
+  "chat",
+  "chat-state-cloudflare-do",
   "publint",
 ]
 
 publicPackages = [
+  "@vitehub/chat",
   "@vitehub/sandbox",
   "@vitehub/workspace",
 ]
