@@ -147,11 +147,6 @@ async function resolveCloudflareDurableObjectStateName(nitro: Nitro, configuredN
     return configuredName
   }
 
-  const wranglerName = (nitro.options.cloudflare as { wrangler?: { name?: unknown } } | undefined)?.wrangler?.name
-  if (typeof wranglerName === "string" && wranglerName.trim()) {
-    return wranglerName
-  }
-
   return await readPackageName(nitro.options.rootDir) || defaultChatCloudflareDurableObjectName
 }
 

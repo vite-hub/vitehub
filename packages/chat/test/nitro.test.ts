@@ -435,8 +435,9 @@ describe("Nitro module", () => {
     expect(plugin!.load(resolvedModuleId!)).toContain(`export { ChatStateDO as CustomChatStateDO } from "chat-state-cloudflare-do"`)
   })
 
-  it("uses cloudflare.wrangler.name as the default Durable Object state name", async () => {
+  it("does not use cloudflare.wrangler.name as the default Durable Object state name", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-wrangler-name-"))
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({ name: "package-chat" }), "utf8")
     await writeSingleChat(rootDir, [
       `import { cloudflareDurableObjectState } from "@vitehub/chat/cloudflare"`,
       `export default defineChat({ state: cloudflareDurableObjectState(), adapters: {} })`,
@@ -454,7 +455,7 @@ describe("Nitro module", () => {
     expect(nitro.options.runtimeConfig.chat).toMatchObject({
       cloudflare: {
         durableObjectState: {
-          name: "wrangler-chat",
+          name: "package-chat",
         },
       },
     })

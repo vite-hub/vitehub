@@ -20,6 +20,5 @@ export default defineNitroConfig({
   queue: {},
   sandbox: {},
   serverDir: "./server",
-  workspace: {},
   workflow: {},
 })

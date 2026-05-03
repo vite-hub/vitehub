@@ -17,19 +17,17 @@ frameworks: [vite, nitro]
 | R2 | Large-object spillover for workspace stores. |
 | Sandbox | Isolated execution when commands, compilers, or full OS access are needed. |
 
-Cloudflare Artifacts stores versioned file trees behind a Git-compatible interface. ViteHub binds Artifacts through Wrangler and uses `snapshot()` as the commit boundary for hosted workspace writes.
+Cloudflare Artifacts stores versioned file trees behind a Git-compatible interface. On Cloudflare Nitro builds, registering the module is enough for ViteHub to use the default Artifacts binding and emit the generated Wrangler config.
 
-```ts
-export default defineWorkspace({
-  store: {
-    provider: 'cloudflare-artifacts',
-    binding: 'WORKSPACE_ARTIFACTS',
-    namespace: 'vitehub',
-    repoPrefix: 'vitehub-workspace-',
-    branch: 'main',
-  },
+```ts [nitro.config.ts]
+import { defineNitroConfig } from 'nitro/config'
+
+export default defineNitroConfig({
+  modules: ['@vitehub/workspace/nitro'],
 })
 ```
+
+The default Cloudflare store uses binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, branch `main`, and repository names generated from `vitehub-workspace-` plus the workspace name. Use environment variables or explicit store options only when those defaults need to change.
 
 The public API remains source-oriented:
 

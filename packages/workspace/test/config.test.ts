@@ -3,6 +3,22 @@ import { describe, expect, it } from "vitest"
 import { normalizeWorkspaceOptions, resolveRuntimeVercelBlobWorkspaceStore } from "../src/config.ts"
 
 describe("workspace config", () => {
+  it("defaults to Cloudflare Artifacts without workspace options on Cloudflare hosting", () => {
+    const config = normalizeWorkspaceOptions(undefined, {
+      env: {},
+      hosting: "cloudflare_module",
+      rootDir: "/repo",
+    })
+
+    expect(config && config.store).toEqual(expect.objectContaining({
+      binding: "WORKSPACE_ARTIFACTS",
+      branch: "main",
+      namespace: "vitehub",
+      provider: "cloudflare-artifacts",
+      repoPrefix: "vitehub-workspace-",
+    }))
+  })
+
   it("defaults to Cloudflare Artifacts on Cloudflare hosting", () => {
     const config = normalizeWorkspaceOptions({}, {
       env: {
