@@ -6,8 +6,7 @@ The primary problem is not missing env validation. Modern apps mix `.env` files,
 
 - `env.public` in Vite is build-time public config and is frozen into the client build.
 - `env.define` in Vite is compile-time replacement for constants and dead-code elimination.
-- `env.server` and `env.public` in Nitro are runtime values read after build.
-- Runtime public config reaches the client only through the explicit Nitro transport.
+- `env` in Nitro is flat private runtime config read after build.
 
 ## API
 
@@ -15,13 +14,12 @@ The primary problem is not missing env validation. Modern apps mix `.env` files,
 import { envVariable, envSource } from "@vitehub/env"
 ```
 
-Runtime env variables default to `mode: "runtime"`:
+Runtime env variables default to required strings:
 
 ```ts
-databaseUrl: envVariable("DATABASE_URL", {
-  schema: z.string().url(),
-  secret: true,
-})
+databaseUrl: envVariable("DATABASE_URL")
+apiBase: envVariable("PUBLIC_API_BASE", { optional: true })
+token: envVariable("API_TOKEN", { secret: true })
 ```
 
 Build-time values opt into `mode: "build"` and can use env, package, git, or custom sources:
@@ -86,17 +84,8 @@ config.public.appName
 ```ts
 export default defineNitroConfig({
   env: {
-    server: {
-      databaseUrl: envVariable("DATABASE_URL", {
-        schema: z.string().url(),
-        secret: true,
-      }),
-    },
-    public: {
-      apiBase: envVariable("PUBLIC_API_BASE", {
-        schema: z.string().url(),
-      }),
-    },
+    databaseUrl: envVariable("DATABASE_URL", { secret: true }),
+    apiBase: envVariable("PUBLIC_API_BASE", { optional: true }),
   },
   modules: [envNitro()],
 })
@@ -107,17 +96,11 @@ import { useSafeRuntimeConfig } from "#vitehub/env/server"
 
 export default defineEventHandler((event) => {
   const config = useSafeRuntimeConfig(event)
-  return config.public.apiBase
+  return config.apiBase
 })
 ```
 
-Client-side public runtime config stays explicit:
-
-```ts
-import { useSafePublicRuntimeConfig } from "virtual:@vitehub/env/public-runtime"
-
-const config = await useSafePublicRuntimeConfig()
-```
+Nitro public runtime config is intentionally out of scope for v1. Apps that need public runtime data should expose an explicit endpoint.
 
 ## Sources
 

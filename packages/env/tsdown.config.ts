@@ -12,13 +12,23 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/nitro.ts",
-    "src/runtime/public-runtime.ts",
     "src/runtime/server.ts",
     "src/schema.ts",
     "src/virtual.ts",
     "src/vite.ts",
   ],
   exports: {
+    customExports(exports) {
+      return Object.fromEntries(Object.entries(exports).map(([key, value]) => {
+        if (typeof value !== "string" || !value.endsWith(".js")) {
+          return [key, value]
+        }
+        return [key, {
+          types: value.replace(/\.js$/, ".d.ts"),
+          import: value,
+        }]
+      }))
+    },
     inlinedDependencies: false,
   },
   format: ["esm"],

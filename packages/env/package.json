@@ -23,13 +23,30 @@
   "type": "module",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./nitro": "./dist/nitro.js",
-    "./runtime/public-runtime": "./dist/runtime/public-runtime.js",
-    "./runtime/server": "./dist/runtime/server.js",
-    "./schema": "./dist/schema.js",
-    "./virtual": "./dist/virtual.js",
-    "./vite": "./dist/vite.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./nitro": {
+      "types": "./dist/nitro.d.ts",
+      "import": "./dist/nitro.js"
+    },
+    "./runtime/server": {
+      "types": "./dist/runtime/server.d.ts",
+      "import": "./dist/runtime/server.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js"
+    },
+    "./virtual": {
+      "types": "./dist/virtual.d.ts",
+      "import": "./dist/virtual.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -1,5 +1,13 @@
 import type { EnvSource, EnvSourceResolver, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
 
+const stringSchema = {
+  safeParse(input: unknown) {
+    return typeof input === "string"
+      ? { data: input, success: true as const }
+      : { error: new Error("Expected string"), success: false as const }
+  },
+}
+
 export const envSource = {
   custom(label: string, resolver: EnvSourceResolver): EnvSource {
     return {
@@ -42,26 +50,28 @@ export const envSource = {
   },
 }
 
-export function envVariable(name: string, options: EnvVariableOptions): EnvVariableDeclaration
+export function envVariable(name: string, options?: EnvVariableOptions): EnvVariableDeclaration
 export function envVariable(options: EnvVariableOptions & { source: EnvSource | EnvSourceResolver }): EnvVariableDeclaration
 export function envVariable(
   nameOrOptions: string | (EnvVariableOptions & { source: EnvSource | EnvSourceResolver }),
   maybeOptions?: EnvVariableOptions,
 ): EnvVariableDeclaration {
-  const options = typeof nameOrOptions === "string" ? maybeOptions : nameOrOptions
-  if (!options) {
-    throw new TypeError("envVariable() requires options with a schema.")
+  const options = typeof nameOrOptions === "string" ? maybeOptions ?? {} : nameOrOptions
+  if (options.optional && typeof options.required !== "undefined") {
+    throw new TypeError("envVariable() cannot use both optional and required.")
   }
 
   const source = typeof nameOrOptions === "string"
     ? envSource.env(nameOrOptions)
     : normalizeSource(options.source as EnvSource | EnvSourceResolver)
+  const required = options.optional ? false : options.required ?? true
 
   return {
     default: options.default,
     kind: "env-variable",
     mode: options.mode ?? "runtime",
-    schema: options.schema,
+    required,
+    schema: options.schema ?? stringSchema,
     secret: options.secret ?? false,
     source,
     type: options.type,

@@ -7,59 +7,64 @@ import { parseSchema } from "../schema.ts"
 import { EnvError } from "./errors.ts"
 
 import type {
-  EnvConfigOptions,
   EnvDiagnosticEntry,
   EnvMode,
+  EnvNitroConfigOptions,
   EnvRegistryEntry,
   EnvRuntimeRegistry,
   EnvSource,
   EnvSourceContext,
   EnvVariableDeclaration,
+  EnvViteConfigOptions,
   ResolvedEnvEntry,
 } from "../types.ts"
 
 const execFileAsync = promisify(execFile)
 
-export function validateEnvConfigShape(config: EnvConfigOptions | undefined, target: "nitro" | "vite"): void {
+export function validateEnvConfigShape(config: EnvNitroConfigOptions | EnvViteConfigOptions | undefined, target: "nitro" | "vite"): void {
   if (!config) {
     return
   }
 
-  if (target === "vite" && config.server) {
-    throw new EnvError("`env.server` is not available in Vite config. Move runtime values to `nitro.config.ts`.")
-  }
-
-  if (target === "nitro" && config.define) {
-    throw new EnvError("`env.define` is build-only and only available in Vite config.")
-  }
-
-  for (const [key, declaration] of Object.entries(config.public || {})) {
-    assertEnvVariableDeclaration(`env.public.${key}`, declaration)
-    if (target === "vite" && declaration.mode !== "build") {
-      throw new EnvError(`env.public.${key} must use mode: "build" in Vite config. Runtime public config requires Nitro transport.`)
+  if (target === "nitro") {
+    const nitroConfig = config as EnvNitroConfigOptions
+    if ("public" in nitroConfig) {
+      throw new EnvError("`env.public` is not available in Nitro env config. Nitro env is private runtime config; expose public values through an explicit endpoint.")
     }
-    if (target === "nitro" && declaration.mode !== "runtime") {
-      throw new EnvError(`env.public.${key} must use runtime mode in Nitro config.`)
+    if ("server" in nitroConfig) {
+      throw new EnvError("`env.server` is not available in Nitro env config. Put private runtime declarations directly under `env`.")
+    }
+    if ("define" in nitroConfig) {
+      throw new EnvError("`env.define` is build-only and only available in Vite config.")
+    }
+    for (const [key, declaration] of Object.entries(nitroConfig)) {
+      assertEnvVariableDeclaration(`env.${key}`, declaration)
+      if (declaration.mode !== "runtime") {
+        throw new EnvError(`env.${key} must use runtime mode.`)
+      }
+      assertSerializableRuntimeSource(`env.${key}`, declaration)
+    }
+    return
+  }
+
+  const viteConfig = config as EnvViteConfigOptions
+  for (const key of Object.keys(viteConfig)) {
+    if (key !== "define" && key !== "public") {
+      throw new EnvError(`Invalid declaration at env.${key}. Vite env config only supports env.public and env.define.`)
+    }
+  }
+
+  for (const [key, declaration] of Object.entries(viteConfig.public || {})) {
+    assertEnvVariableDeclaration(`env.public.${key}`, declaration)
+    if (declaration.mode !== "build") {
+      throw new EnvError(`env.public.${key} must use mode: "build" in Vite config. Runtime public config requires Nitro transport.`)
     }
     if (declaration.secret) {
       throw new EnvError(`env.public.${key} cannot be marked secret.`)
     }
-    if (target === "nitro") {
-      assertSerializableRuntimeSource(`env.public.${key}`, declaration)
-    }
   }
 
-  for (const [key, declaration] of Object.entries(config.server || {})) {
-    assertEnvVariableDeclaration(`env.server.${key}`, declaration)
-    if (declaration.mode !== "runtime") {
-      throw new EnvError(`env.server.${key} must use runtime mode.`)
-    }
-    if (target === "nitro") {
-      assertSerializableRuntimeSource(`env.server.${key}`, declaration)
-    }
-  }
-
-  for (const [key, declaration] of Object.entries(config.define || {})) {
+  for (const [key, declaration] of Object.entries(viteConfig.define || {})) {
     assertEnvVariableDeclaration(`env.define.${key}`, declaration)
     if (declaration.mode !== "build") {
       throw new EnvError(`env.define.${key} must use mode: "build".`)
@@ -104,7 +109,27 @@ export async function resolveEnvEntries(
     const defaulted = typeof raw === "undefined"
     const valueForSchema = defaulted ? declaration.default : raw
     if (typeof valueForSchema === "undefined") {
-      throw new EnvError(`Missing ${input.section}.${key} from ${declaration.source.label}.`)
+      if (declaration.required) {
+        throw new EnvError(`Missing ${input.section}.${key} from ${declaration.source.label}.`)
+      }
+      entries.push({
+        key,
+        masked: declaration.secret,
+        source: declaration.source.label,
+        type: declaration.type ?? "undefined",
+        value: undefined,
+      })
+      diagnostics.push({
+        exposed: declaration.secret ? `${input.exposure}, masked` : input.exposure,
+        key: `${input.section}.${key}`,
+        masked: declaration.secret,
+        mode: declaration.mode,
+        source: declaration.source.label,
+        status: "missing",
+        timing: input.timing,
+        type: declaration.type ?? "undefined",
+      })
+      continue
     }
 
     const value = parseSchema(declaration.schema, valueForSchema, `${input.section}.${key}`)
@@ -131,11 +156,8 @@ export async function resolveEnvEntries(
   return { diagnostics, entries }
 }
 
-export function createRuntimeRegistry(config: EnvConfigOptions | undefined): EnvRuntimeRegistry {
-  return {
-    public: createRegistrySection(config?.public),
-    server: createRegistrySection(config?.server),
-  }
+export function createRuntimeRegistry(config: EnvNitroConfigOptions | undefined): EnvRuntimeRegistry {
+  return createRegistrySection(config)
 }
 
 export function inferTypeName(value: unknown): string {
@@ -171,9 +193,9 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
   }
 }
 
-function createRegistrySection(declarations: Record<string, EnvVariableDeclaration> | undefined): Record<string, EnvRegistryEntry> | undefined {
+function createRegistrySection(declarations: Record<string, EnvVariableDeclaration> | undefined): Record<string, EnvRegistryEntry> {
   if (!declarations) {
-    return undefined
+    return {}
   }
   return Object.fromEntries(Object.entries(declarations).map(([key, declaration]) => {
     if (declaration.source.kind !== "env") {
@@ -181,6 +203,7 @@ function createRegistrySection(declarations: Record<string, EnvVariableDeclarati
     }
     return [key, {
       default: declaration.default,
+      required: declaration.required,
       secret: declaration.secret,
       source: declaration.source,
       type: declaration.type,

@@ -28,10 +28,9 @@ afterEach(() => {
 })
 
 describe("Nitro module", () => {
-  it("writes runtime files, installs aliases, validates runtime env, and exposes public transport", async () => {
+  it("writes runtime files, installs aliases, and describes runtime env", async () => {
     process.env.AUTH_SECRET = "a".repeat(32)
     process.env.DATABASE_URL = "https://db.example.com"
-    process.env.PUBLIC_API_BASE = "https://api.example.com"
 
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
     const nitro: NitroStub = {
@@ -40,13 +39,9 @@ describe("Nitro module", () => {
       options: {
         buildDir: join(root, ".nitro"),
         env: {
-          public: {
-            apiBase: envVariable("PUBLIC_API_BASE", { schema: stringSchema() }),
-          },
-          server: {
-            authSecret: envVariable("AUTH_SECRET", { schema: stringSchema(), secret: true }),
-            databaseUrl: envVariable("DATABASE_URL", { schema: stringSchema() }),
-          },
+          authSecret: envVariable("AUTH_SECRET", { secret: true }),
+          databaseUrl: envVariable("DATABASE_URL"),
+          optionalApiBase: envVariable("PUBLIC_API_BASE", { optional: true }),
         },
         rootDir: root,
       },
@@ -56,13 +51,12 @@ describe("Nitro module", () => {
 
     expect(nitro.options.alias?.["#vitehub/env/server"]).toContain("/packages/env/src/runtime/server.ts")
     expect(nitro.options.plugins).toHaveLength(1)
-    expect(nitro.options.handlers).toContainEqual(expect.objectContaining({
-      route: "/_vitehub/env",
-    }))
-    expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("env.server.databaseUrl"))
+    expect(nitro.options.handlers).toBeUndefined()
+    expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("env.databaseUrl"))
 
     const registry = await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8")
     expect(registry).toContain("DATABASE_URL")
+    expect(registry).toContain("\"required\": false")
     expect(registry).not.toContain("aaaaaaaa")
   })
 
@@ -74,12 +68,10 @@ describe("Nitro module", () => {
       options: {
         buildDir: join(root, ".nitro"),
         env: {
-          server: {
-            commit: envVariable({
-              schema: stringSchema(),
-              source: envSource.custom("custom", () => "abc123"),
-            }),
-          },
+          commit: envVariable({
+            schema: stringSchema(),
+            source: envSource.custom("custom", () => "abc123"),
+          }),
         },
         rootDir: root,
       },

@@ -11,6 +11,6 @@ describe("types", () => {
     expectTypeOf(envVite()).toMatchTypeOf<Plugin>()
     expectTypeOf(envNitro()).toMatchTypeOf<NitroModule>()
     expectTypeOf(envSource.gitCommit({ short: true }).label).toMatchTypeOf<string>()
-    expectTypeOf(envVariable("SECRET", { schema: {}, secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(envVariable("SECRET", { secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
   })
 })

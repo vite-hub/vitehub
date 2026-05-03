@@ -53,6 +53,7 @@ export interface EnvVariableDeclaration {
   default?: unknown
   kind: "env-variable"
   mode: EnvMode
+  required: boolean
   schema: unknown
   secret: boolean
   source: EnvSource
@@ -62,20 +63,29 @@ export interface EnvVariableDeclaration {
 export interface EnvVariableOptions {
   default?: unknown
   mode?: EnvMode
-  schema: unknown
+  optional?: boolean
+  required?: boolean
+  schema?: unknown
   secret?: boolean
   source?: EnvSource | EnvSourceResolver
   type?: string
 }
 
-export interface EnvConfigOptions {
+export interface EnvViteConfigOptions {
   define?: Record<string, EnvVariableDeclaration>
   public?: Record<string, EnvVariableDeclaration>
-  server?: Record<string, EnvVariableDeclaration>
 }
 
-export interface EnvUserConfig {
-  env?: EnvConfigOptions
+export type EnvNitroConfigOptions = Record<string, EnvVariableDeclaration>
+
+export type EnvConfigOptions = EnvViteConfigOptions | EnvNitroConfigOptions
+
+export interface EnvViteUserConfig {
+  env?: EnvViteConfigOptions
+}
+
+export interface EnvNitroUserConfig {
+  env?: EnvNitroConfigOptions
 }
 
 export interface EnvDiagnosticEntry {
@@ -99,20 +109,15 @@ export interface ResolvedEnvEntry {
 
 export interface EnvRegistryEntry {
   default?: unknown
+  required: boolean
   secret: boolean
   source: Extract<EnvSource, { kind: "env" }>
   type?: string
 }
 
-export interface EnvRuntimeRegistry {
-  public?: Record<string, EnvRegistryEntry>
-  server?: Record<string, EnvRegistryEntry>
-}
+export type EnvRuntimeRegistry = Record<string, EnvRegistryEntry>
 
-export interface SafeRuntimeConfig {
-  public: Record<string, unknown>
-  server: Record<string, unknown>
-}
+export type SafeRuntimeConfig = Record<string, unknown>
 
 export interface SafeBuildConfig {
   public: Record<string, unknown>

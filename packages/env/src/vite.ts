@@ -7,15 +7,13 @@ import { formatDiagnostics } from "./core/diagnostics.ts"
 import { envSource, envVariable } from "./core/declarations.ts"
 import { createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
 
-import type { EnvConfigOptions, EnvIntegrationOptions, EnvUserConfig } from "./types.ts"
+import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "./types.ts"
 import type { Plugin, UserConfig } from "vite"
 
 export const ENV_VITE_PLUGIN_NAME = "@vitehub/env/vite"
 export const ENV_BUILD_VIRTUAL_ID = "virtual:@vitehub/env/build"
-export const ENV_PUBLIC_RUNTIME_VIRTUAL_ID = "virtual:@vitehub/env/public-runtime"
 
 const RESOLVED_BUILD_VIRTUAL_ID = `\0${ENV_BUILD_VIRTUAL_ID}`
-const RESOLVED_PUBLIC_RUNTIME_VIRTUAL_ID = `\0${ENV_PUBLIC_RUNTIME_VIRTUAL_ID}`
 
 export { envSource, envVariable }
 
@@ -89,29 +87,17 @@ export function envVite(options: EnvIntegrationOptions = {}): EnvVitePlugin {
           "export default buildConfig;",
         ].join("\n")
       }
-      if (id === RESOLVED_PUBLIC_RUNTIME_VIRTUAL_ID) {
-        return [
-          "export async function useSafePublicRuntimeConfig(endpoint = '/_vitehub/env') {",
-          "  const response = await fetch(endpoint, { headers: { accept: 'application/json' } });",
-          "  if (!response.ok) throw new Error(`[vitehub] Failed to load public runtime config from ${endpoint}: ${response.status}`);",
-          "  return await response.json();",
-          "}",
-        ].join("\n")
-      }
     },
     resolveId(id) {
       if (id === ENV_BUILD_VIRTUAL_ID) {
         return RESOLVED_BUILD_VIRTUAL_ID
       }
-      if (id === ENV_PUBLIC_RUNTIME_VIRTUAL_ID) {
-        return RESOLVED_PUBLIC_RUNTIME_VIRTUAL_ID
-      }
     },
   }
 }
 
-function resolveEnvBlock(config: UserConfig): EnvConfigOptions | undefined {
-  return (config as UserConfig & EnvUserConfig).env
+function resolveEnvBlock(config: UserConfig): EnvViteConfigOptions | undefined {
+  return (config as UserConfig & EnvViteUserConfig).env
 }
 
 function createViteTypes(config: Record<string, unknown>): string {
@@ -126,11 +112,6 @@ function createViteTypes(config: Record<string, unknown>): string {
     "  export function useSafeBuildConfig(): typeof buildConfig",
     "  export default buildConfig",
     "}",
-    "",
-    "declare module \"virtual:@vitehub/env/public-runtime\" {",
-    "  export function useSafePublicRuntimeConfig(endpoint?: string): Promise<Record<string, unknown>>",
-    "}",
-    "",
     "export {}",
     "",
   ].join("\n")
@@ -138,6 +119,6 @@ function createViteTypes(config: Record<string, unknown>): string {
 
 declare module "vite" {
   interface UserConfig {
-    env?: EnvConfigOptions
+    env?: EnvViteConfigOptions
   }
 }

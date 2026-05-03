@@ -13,15 +13,7 @@ export function getEnvRegistry(): EnvRuntimeRegistry {
 }
 
 export function useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig {
-  const env = resolveRuntimeEnv(event)
-  return {
-    public: resolveRuntimeValues(registry.public, env),
-    server: resolveRuntimeValues(registry.server, env),
-  }
-}
-
-export function getPublicRuntimeConfigData(event?: unknown): Record<string, unknown> {
-  return resolveRuntimeValues(registry.public, resolveRuntimeEnv(event))
+  return resolveRuntimeValues(registry, resolveRuntimeEnv(event))
 }
 
 function resolveRuntimeEnv(event?: unknown): Record<string, string | undefined> {
@@ -36,15 +28,16 @@ function resolveRuntimeEnv(event?: unknown): Record<string, string | undefined> 
   ]))
 }
 
-function resolveRuntimeValues(
-  declarations: Record<string, EnvRegistryEntry> | undefined,
-  env: Record<string, string | undefined>,
-): Record<string, unknown> {
+function resolveRuntimeValues(declarations: Record<string, EnvRegistryEntry>, env: Record<string, string | undefined>): Record<string, unknown> {
   const values: Record<string, unknown> = {}
-  for (const [key, declaration] of Object.entries(declarations || {})) {
+  for (const [key, declaration] of Object.entries(declarations)) {
     const value = env[declaration.source.name] ?? declaration.default
     if (typeof value === "undefined") {
-      throw new Error(`[vitehub] Missing runtime env value ${key} from ${declaration.source.label}.`)
+      if (declaration.required) {
+        throw new Error(`[vitehub] Missing runtime env value ${key} from ${declaration.source.label}.`)
+      }
+      values[key] = undefined
+      continue
     }
     values[key] = value
   }

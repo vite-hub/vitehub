@@ -3,16 +3,27 @@ import { describe, expect, it } from "vitest"
 import { envSource, envVariable } from "../src/index.ts"
 import { validateEnvConfigShape } from "../src/core/resolve.ts"
 
-import { stringSchema } from "./helpers.ts"
-
 describe("env declarations", () => {
-  it("creates env variable shorthand declarations", () => {
-    expect(envVariable("DATABASE_URL", {
-      schema: stringSchema(),
-      secret: true,
-    })).toMatchObject({
+  it("defaults env variable shorthand declarations to required runtime strings", () => {
+    expect(envVariable("DATABASE_URL")).toMatchObject({
       kind: "env-variable",
       mode: "runtime",
+      required: true,
+      secret: false,
+      source: {
+        kind: "env",
+        label: "env:DATABASE_URL",
+        name: "DATABASE_URL",
+      },
+    })
+  })
+
+  it("supports optional and secret env variable options", () => {
+    expect(envVariable("DATABASE_URL", {
+      optional: true,
+      secret: true,
+    })).toMatchObject({
+      required: false,
       secret: true,
       source: {
         kind: "env",
@@ -20,6 +31,13 @@ describe("env declarations", () => {
         name: "DATABASE_URL",
       },
     })
+  })
+
+  it("rejects conflicting optional and required options", () => {
+    expect(() => envVariable("DATABASE_URL", {
+      optional: true,
+      required: true,
+    })).toThrow("cannot use both optional and required")
   })
 
   it("creates built-in and custom sources", () => {
@@ -44,23 +62,27 @@ describe("env declarations", () => {
     })
   })
 
-  it("rejects runtime declarations in Vite config", () => {
+  it("rejects flat runtime declarations in Vite config", () => {
     expect(() => validateEnvConfigShape({
-      server: {
-        databaseUrl: envVariable("DATABASE_URL", { schema: stringSchema() }),
-      },
-    }, "vite")).toThrow("`env.server` is not available")
+      databaseUrl: envVariable("DATABASE_URL"),
+    }, "vite")).toThrow("Invalid declaration")
+  })
+
+  it("rejects nested Nitro server and public buckets", () => {
+    expect(() => validateEnvConfigShape({
+      server: envVariable("DATABASE_URL"),
+    }, "nitro")).toThrow("`env.server` is not available")
+    expect(() => validateEnvConfigShape({
+      public: envVariable("PUBLIC_API_BASE"),
+    }, "nitro")).toThrow("`env.public` is not available")
   })
 
   it("rejects custom runtime sources in Nitro config", () => {
     expect(() => validateEnvConfigShape({
-      server: {
-        commit: envVariable({
-          mode: "runtime",
-          schema: stringSchema(),
-          source: envSource.gitCommit(),
-        }),
-      },
+      commit: envVariable({
+        mode: "runtime",
+        source: envSource.gitCommit(),
+      }),
     }, "nitro")).toThrow("build-only")
   })
 })
