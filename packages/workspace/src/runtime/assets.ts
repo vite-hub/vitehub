@@ -104,10 +104,6 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
     throw createMissingPathError(path)
   }
 
-  function createDirectoryEntry(path: string): WorkspaceEntry {
-    return { path, type: "directory" }
-  }
-
   async function listEntries(prefix = "", options: ListOptions = {}) {
     const normalizedPrefix = normalizeAssetPath(prefix)
     const result = new Map<string, WorkspaceEntry>()
@@ -116,7 +112,7 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
       if (directory === normalizedPrefix) continue
       if (normalizedPrefix && !isNestedUnder(directory, normalizedPrefix)) continue
       if (!options.recursive && normalizeWorkspacePath(directory.slice(normalizedPrefix.length)).replace(/^\//, "").includes("/")) continue
-      result.set(directory, createDirectoryEntry(directory))
+      result.set(directory, { path: directory, type: "directory" })
     }
 
     for (const path of paths) {

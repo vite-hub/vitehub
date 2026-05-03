@@ -1,7 +1,7 @@
 import { normalizeSafeWorkspacePath, normalizeWorkspacePath } from "./path.ts"
 import { normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./source-config.ts"
 
-import type { WorkspaceDefinition, WorkspaceSearchQuery } from "./types.ts"
+import type { WorkspaceDefinition } from "./types.ts"
 
 export interface ResolvedStorePath {
   type: "store"
@@ -41,14 +41,6 @@ export function resolveWorkspacePath(definition: WorkspaceDefinition, path: stri
     workspacePath,
     readonly: false,
   }
-}
-
-export function resolveWorkspaceSearchPaths(definition: WorkspaceDefinition, query: WorkspaceSearchQuery): ResolvedWorkspacePath[] {
-  const rawPaths = query.paths?.length ? query.paths : [query.cwd || ""]
-  return rawPaths
-    .map(path => normalizeWorkspacePath(path))
-    .filter((path, index, list) => list.indexOf(path) === index)
-    .map(path => resolveWorkspacePath(definition, path))
 }
 
 function createSourceResolution(source: ResolvedWorkspaceSource, workspacePath: string, sourcePath: string): ResolvedSourcePath {

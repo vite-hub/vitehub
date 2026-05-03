@@ -117,21 +117,26 @@ function createNitroPluginContents(file: string, registryFile: string, assetsReg
     imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/vercel-blob", "@vitehub/workspace/stores/vercel-blob")))}`)
   }
 
-  const loader = provider === "cloudflare-artifacts"
-    ? [
-        "  setWorkspaceHostedStoreLoader((store, workspaceName) => {",
-        "    if (store.provider !== 'cloudflare-artifacts') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
-        "    return createCloudflareArtifactsWorkspaceStore(store, workspaceName)",
-        "  })",
-      ]
-    : provider === "vercel-blob"
-      ? [
-          "  setWorkspaceHostedStoreLoader((store, workspaceName) => {",
-          "    if (store.provider !== 'vercel-blob') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
-          "    return createVercelBlobWorkspaceStore(store, workspaceName)",
-          "  })",
-        ]
-      : ["  setWorkspaceHostedStoreLoader(undefined)"]
+  let loader: string[]
+  if (provider === "cloudflare-artifacts") {
+    loader = [
+      "  setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+      "    if (store.provider !== 'cloudflare-artifacts') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
+      "    return createCloudflareArtifactsWorkspaceStore(store, workspaceName)",
+      "  })",
+    ]
+  }
+  else if (provider === "vercel-blob") {
+    loader = [
+      "  setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+      "    if (store.provider !== 'vercel-blob') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
+      "    return createVercelBlobWorkspaceStore(store, workspaceName)",
+      "  })",
+    ]
+  }
+  else {
+    loader = ["  setWorkspaceHostedStoreLoader(undefined)"]
+  }
 
   return [
     ...imports,

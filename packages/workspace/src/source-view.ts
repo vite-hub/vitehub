@@ -2,6 +2,7 @@ import { WorkspaceError } from "./errors.ts"
 import { decodeFile, matchesAny, normalizeWorkspacePath, resolveGlobPatterns } from "./path.ts"
 import { createSourceContext, normalizeWorkspaceSources } from "./source-config.ts"
 import {
+  dedupeSearchHits,
   listVirtualSourceEntries,
   readResolvedSourceFile,
   searchMaterializedStore,
@@ -128,7 +129,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (results.length >= limit) break
     }
 
-    return dedupeHits(results).slice(0, limit)
+    return dedupeSearchHits(results).slice(0, limit)
   }
 
   function assertWritableStorePath(path: string, workspacePath: string, type: "source" | "store") {
@@ -209,14 +210,4 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       await store.rm(resolution.workspacePath, options)
     },
   }
-}
-
-function dedupeHits(hits: WorkspaceSearchHit[]) {
-  const seen = new Set<string>()
-  return hits.filter((hit) => {
-    const key = `${hit.path}:${hit.line}:${hit.column}:${hit.text}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
 }

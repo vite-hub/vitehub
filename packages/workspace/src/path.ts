@@ -13,7 +13,6 @@ export function normalizeWorkspacePath(path = ""): string {
 export interface SafeWorkspacePathOptions {
   allowEmpty?: boolean
   allowReserved?: boolean
-  pattern?: boolean
 }
 
 export function normalizeSafeWorkspacePath(path = "", options: SafeWorkspacePathOptions = {}): string {
@@ -29,7 +28,7 @@ export function normalizeSafeWorkspacePath(path = "", options: SafeWorkspacePath
 }
 
 export function normalizeSafeWorkspacePattern(pattern: string): string {
-  return normalizeSafeWorkspacePath(pattern, { allowEmpty: true, pattern: true })
+  return normalizeSafeWorkspacePath(pattern, { allowEmpty: true })
 }
 
 export function resolveInside(root: string, path = ""): string {

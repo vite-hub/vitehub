@@ -338,7 +338,7 @@ function addVirtualParents(entries: Map<string, WorkspaceStat>, basePath: string
   }
 }
 
-function dedupeSearchHits(hits: WorkspaceSearchHit[]) {
+export function dedupeSearchHits(hits: WorkspaceSearchHit[]): WorkspaceSearchHit[] {
   const seen = new Set<string>()
   return hits.filter((hit) => {
     const key = `${hit.path}:${hit.line}:${hit.column}:${hit.text}`

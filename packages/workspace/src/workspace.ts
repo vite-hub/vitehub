@@ -6,12 +6,8 @@ import type {
   WorkspaceDefinition,
 } from "./types.ts"
 
-function getStore(definition: WorkspaceDefinition) {
-  return getCachedWorkspaceStore(definition, () => createWorkspaceStore(definition))
-}
-
 export function createWorkspace(definition: WorkspaceDefinition): Workspace {
-  const store = getStore(definition)
+  const store = getCachedWorkspaceStore(definition, () => createWorkspaceStore(definition))
   const files = createWorkspaceSourceView(definition, store)
 
   const workspace: Workspace = {
