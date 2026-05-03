@@ -36,14 +36,6 @@ function createNitroChatRegistryPath(rootDir: string, buildDir: string): string 
   })
 }
 
-function createNitroChatRuntimeConfigBridgePath(rootDir: string, buildDir: string): string {
-  return createGeneratedDefinitionPath(rootDir, {
-    buildDir,
-    fileName: "runtime-config.mjs",
-    segments: [".vitehub", "nitro-runtime", "chat"],
-  })
-}
-
 function normalizeNitroRoute(route: string): string {
   return route.replace(/\[([A-Za-z0-9_]+)\]/g, ":$1")
 }
@@ -136,17 +128,6 @@ function createNitroRegistryChatRouteContents(file: string, registryFile: string
   ].join("\n")
 }
 
-function createViteHubEnvRuntimeConfigBridgeContents(): string {
-  return [
-    `import { useSafeRuntimeConfig } from "#vitehub/env/server"`,
-    "",
-    "export function getChatRuntimeConfig(event) {",
-    "  return useSafeRuntimeConfig(event)",
-    "}",
-    "",
-  ].join("\n")
-}
-
 interface ChatRuntimeFiles {
   definitions: DiscoveredChatDefinition[]
   registryFile?: string
@@ -189,16 +170,6 @@ function installAliases(nitro: Nitro): void {
   nitro.options.alias["@vitehub/chat/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vitehub/chat/runtime/nitro-runtime-config")
   nitro.options.alias["@vitehub/chat/runtime/nitro-plugin"] = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/chat/runtime/nitro-plugin")
   nitro.options.alias["@vitehub/chat/vercel"] = resolveRuntimeEntry("../vercel", "@vitehub/chat/vercel")
-}
-
-async function installEnvRuntimeConfigBridge(nitro: Nitro): Promise<void> {
-  if (!nitro.options.alias?.["#vitehub/env/server"]) {
-    return
-  }
-
-  const bridgeFile = createNitroChatRuntimeConfigBridgePath(nitro.options.rootDir, nitro.options.buildDir)
-  await writeFileIfChanged(bridgeFile, createViteHubEnvRuntimeConfigBridgeContents())
-  nitro.options.alias["@vitehub/chat/runtime/nitro-runtime-config"] = bridgeFile
 }
 
 function installNitroPlugin(nitro: Nitro): void {
@@ -297,7 +268,6 @@ const chatNitroModule: NitroModule = {
     runtimeConfig.chat = resolved || false
 
     installAliases(nitro)
-    await installEnvRuntimeConfigBridge(nitro)
     installNitroPlugin(nitro)
     installExternals(nitro)
 
@@ -352,4 +322,8 @@ declare module "nitro/types" {
     chat?: false | ResolvedChatModuleOptions
     hosting?: string
   }
+}
+
+declare module "@vitehub/chat" {
+  interface ChatRuntimeConfig extends NitroRuntimeConfig {}
 }

@@ -372,7 +372,7 @@ describe("Nitro module", () => {
     expect(routeContents).toContain("inferredName: \"chat\"")
   })
 
-  it("uses @vitehub/env safe runtime config when the env Nitro module is installed", async () => {
+  it("keeps the default Nitro runtime config reader when the env Nitro module is installed", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-env-"))
     await writeSingleChat(rootDir, [
       `export default defineChat({ state: {}, adapters: {} })`,
@@ -384,8 +384,7 @@ describe("Nitro module", () => {
     await module.setup(nitro as never)
 
     const runtimeConfigBridge = nitro.options.alias["@vitehub/chat/runtime/nitro-runtime-config"]
-    expect(runtimeConfigBridge).toContain(".vitehub/nitro-runtime/chat/runtime-config.mjs")
-    expect(await readFile(runtimeConfigBridge, "utf8")).toContain(`from "#vitehub/env/server"`)
+    expect(runtimeConfigBridge).toContain("/packages/chat/src/runtime/nitro-runtime-config.ts")
   })
 
   it("honors custom Cloudflare DO config discovered from the chat definition", async () => {
