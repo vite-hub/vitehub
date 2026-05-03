@@ -1,7 +1,7 @@
 import { resolveChat } from "./index.ts"
 import { createChatRuntimeContext } from "./runtime/context.ts"
 import { defaultChatCloudflareDurableObjectName } from "./config.ts"
-import { MemoryChatStateAdapter } from "./runtime/memory-state.ts"
+import { createMemoryChatStateAdapter } from "./runtime/memory-state.ts"
 
 import type { Chat, StateAdapter, WebhookOptions } from "chat"
 import type {
@@ -132,7 +132,7 @@ export function cloudflareDurableObjectState(
       if (!namespace) {
         if (shouldUseLocalStateFallback(context)) {
           const name = options.name || context.cloudflare?.durableObjectStateName || defaultChatCloudflareDurableObjectName
-          return context.memo(`vitehub:chat:memory-state:${binding}:${name}`, () => new MemoryChatStateAdapter())
+          return context.memo(`vitehub:chat:memory-state:${binding}:${name}`, () => createMemoryChatStateAdapter())
         }
 
         throw new Error(
