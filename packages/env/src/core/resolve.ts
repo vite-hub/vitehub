@@ -159,7 +159,7 @@ export function resolveEnvSource(declaration: EnvVariableDeclaration, path: stri
   return declaration.source ?? inferEnvSource(path, prefix)
 }
 
-export function inferTypeName(value: unknown): string {
+function inferTypeName(value: unknown): string {
   if (Array.isArray(value)) {
     return "unknown[]"
   }

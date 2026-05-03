@@ -77,7 +77,7 @@ export interface EnvViteConfigOptions {
   public?: Record<string, EnvVariableDeclaration>
 }
 
-export type EnvNitroConfigValue = EnvNitroConfigOptions | EnvVariableDeclaration
+type EnvNitroConfigValue = EnvNitroConfigOptions | EnvVariableDeclaration
 
 export interface EnvNitroConfigOptions {
   [key: string]: EnvNitroConfigValue

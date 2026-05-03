@@ -10,6 +10,7 @@ describe("workspace inventory", () => {
     expect(listWorkspacePackageNames(repoRoot)).toEqual([
       "blob",
       "db",
+      "env",
       "kv",
       "queue",
       "sandbox",

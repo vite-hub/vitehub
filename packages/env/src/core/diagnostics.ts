@@ -1,6 +1,6 @@
 import type { EnvDiagnosticEntry, EnvDiagnostics } from "../types.ts"
 
-export function shouldTraceDiagnostics(option: EnvDiagnostics | undefined): boolean {
+function shouldTraceDiagnostics(option: EnvDiagnostics | undefined): boolean {
   return option === "trace" || process.env.VITEHUB_ENV_TRACE === "true"
 }
 
