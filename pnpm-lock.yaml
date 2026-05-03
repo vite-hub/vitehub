@@ -298,13 +298,6 @@ importers:
         version: 8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
   packages/env:
-    dependencies:
-      exsolve:
-        specifier: 'catalog:'
-        version: 1.0.8
-      pathe:
-        specifier: 'catalog:'
-        version: 2.0.3
     devDependencies:
       '@vitehub/internal':
         specifier: workspace:*
