@@ -1,43 +1,58 @@
 import { describe, expect, it } from "vitest"
 
 import { envSource, envVariable } from "../src/index.ts"
-import { validateEnvConfigShape } from "../src/core/resolve.ts"
+import { createRuntimeRegistry, resolveEnvSource, validateEnvConfigShape } from "../src/core/resolve.ts"
 
 describe("env declarations", () => {
-  it("defaults env variable shorthand declarations to required runtime strings", () => {
-    expect(envVariable("DATABASE_URL")).toMatchObject({
+  it("defaults env variable declarations to required runtime strings", () => {
+    expect(envVariable()).toMatchObject({
       kind: "env-variable",
       mode: "runtime",
       required: true,
       secret: false,
-      source: {
-        kind: "env",
-        label: "env:DATABASE_URL",
-        name: "DATABASE_URL",
-      },
     })
   })
 
   it("supports optional and secret env variable options", () => {
-    expect(envVariable("DATABASE_URL", {
+    expect(envVariable({
       optional: true,
       secret: true,
     })).toMatchObject({
       required: false,
       secret: true,
-      source: {
-        kind: "env",
-        label: "env:DATABASE_URL",
-        name: "DATABASE_URL",
-      },
     })
   })
 
   it("rejects conflicting optional and required options", () => {
-    expect(() => envVariable("DATABASE_URL", {
+    expect(() => envVariable({
       optional: true,
       required: true,
     })).toThrow("cannot use both optional and required")
+  })
+
+  it("rejects legacy string arguments", () => {
+    expect(() => envVariable("DATABASE_URL" as never)).toThrow("single options object")
+  })
+
+  it("infers env sources from config paths and prefixes", () => {
+    expect(resolveEnvSource(envVariable(), "env.telegram.botToken")).toMatchObject({
+      kind: "env",
+      label: "env:TELEGRAM_BOT_TOKEN",
+      name: "TELEGRAM_BOT_TOKEN",
+    })
+    expect(resolveEnvSource(envVariable(), "env.define.__APP_VERSION__", "VITEHUB_")).toMatchObject({
+      kind: "env",
+      label: "env:VITEHUB_DEFINE_APP_VERSION",
+      name: "VITEHUB_DEFINE_APP_VERSION",
+    })
+  })
+
+  it("keeps explicit env source overrides", () => {
+    expect(resolveEnvSource(envVariable({ source: envSource.env("CUSTOM_NAME") }), "env.telegram.botToken")).toMatchObject({
+      kind: "env",
+      label: "env:CUSTOM_NAME",
+      name: "CUSTOM_NAME",
+    })
   })
 
   it("creates built-in and custom sources", () => {
@@ -64,28 +79,45 @@ describe("env declarations", () => {
 
   it("rejects flat runtime declarations in Vite config", () => {
     expect(() => validateEnvConfigShape({
-      databaseUrl: envVariable("DATABASE_URL"),
+      databaseUrl: envVariable(),
     }, "vite")).toThrow("Invalid declaration")
   })
 
   it("rejects nested Nitro server and public buckets", () => {
     expect(() => validateEnvConfigShape({
-      server: envVariable("DATABASE_URL"),
+      server: envVariable(),
     }, "nitro")).toThrow("`env.server` is not available")
     expect(() => validateEnvConfigShape({
-      public: envVariable("PUBLIC_API_BASE"),
+      public: envVariable(),
     }, "nitro")).toThrow("`env.public` is not available")
   })
 
   it("accepts nested Nitro runtime declaration groups", () => {
     expect(() => validateEnvConfigShape({
       telegram: {
-        botToken: envVariable("TELEGRAM_BOT_TOKEN", { secret: true }),
+        botToken: envVariable({ secret: true }),
       },
       vertex: {
-        model: envVariable("VERTEX_MODEL", { default: "gemini-3.1-pro-preview-customtools" }),
+        model: envVariable({ default: "gemini-3.1-pro-preview-customtools" }),
       },
     }, "nitro")).not.toThrow()
+  })
+
+  it("creates a runtime registry with inferred nested env sources", () => {
+    expect(createRuntimeRegistry({
+      telegram: {
+        botToken: envVariable({ secret: true }),
+      },
+    }, { prefix: "VITEHUB_" })).toMatchObject({
+      telegram: {
+        botToken: {
+          source: {
+            label: "env:VITEHUB_TELEGRAM_BOT_TOKEN",
+            name: "VITEHUB_TELEGRAM_BOT_TOKEN",
+          },
+        },
+      },
+    })
   })
 
   it("rejects custom runtime sources in Nitro config", () => {

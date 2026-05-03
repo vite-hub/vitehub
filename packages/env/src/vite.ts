@@ -49,12 +49,14 @@ export function envVite(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const publicResult = await resolveEnvEntries(envConfig.public, {
         context,
         exposure: "build public",
+        prefix: options.prefix,
         section: "env.public",
         timing: "Vite config/dev/build",
       })
       const defineResult = await resolveEnvEntries(envConfig.define, {
         context,
         exposure: "compile-time replacement",
+        prefix: options.prefix,
         section: "env.define",
         timing: "Vite transform/build",
       })

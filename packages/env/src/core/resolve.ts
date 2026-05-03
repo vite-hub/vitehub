@@ -90,6 +90,7 @@ export async function resolveEnvEntries(
   input: {
     context: EnvSourceContext
     exposure: "build public" | "compile-time replacement" | "public runtime transport" | "server only"
+    prefix?: string
     section: "env.define" | "env.public" | "env.server"
     timing: string
   },
@@ -98,17 +99,18 @@ export async function resolveEnvEntries(
   const diagnostics: EnvDiagnosticEntry[] = []
 
   for (const [key, declaration] of Object.entries(declarations || {})) {
-    const raw = await resolveSourceValue(declaration.source, input.context)
+    const source = resolveEnvSource(declaration, `${input.section}.${key}`, input.prefix)
+    const raw = await resolveSourceValue(source, input.context)
     const defaulted = typeof raw === "undefined"
     const valueForSchema = defaulted ? declaration.default : raw
     if (typeof valueForSchema === "undefined") {
       if (declaration.required) {
-        throw new EnvError(`Missing ${input.section}.${key} from ${declaration.source.label}.`)
+        throw new EnvError(`Missing ${input.section}.${key} from ${source.label}.`)
       }
       entries.push({
         key,
         masked: declaration.secret,
-        source: declaration.source.label,
+        source: source.label,
         type: declaration.type ?? "undefined",
         value: undefined,
       })
@@ -117,7 +119,7 @@ export async function resolveEnvEntries(
         key: `${input.section}.${key}`,
         masked: declaration.secret,
         mode: declaration.mode,
-        source: declaration.source.label,
+        source: source.label,
         status: "missing",
         timing: input.timing,
         type: declaration.type ?? "undefined",
@@ -130,7 +132,7 @@ export async function resolveEnvEntries(
     entries.push({
       key,
       masked: declaration.secret,
-      source: declaration.source.label,
+      source: source.label,
       type,
       value,
     })
@@ -139,7 +141,7 @@ export async function resolveEnvEntries(
       key: `${input.section}.${key}`,
       masked: declaration.secret,
       mode: declaration.mode,
-      source: defaulted ? "default" : declaration.source.label,
+      source: defaulted ? "default" : source.label,
       status: defaulted ? "defaulted" : "valid",
       timing: input.timing,
       type,
@@ -149,8 +151,12 @@ export async function resolveEnvEntries(
   return { diagnostics, entries }
 }
 
-export function createRuntimeRegistry(config: EnvNitroConfigOptions | undefined): EnvRuntimeRegistry {
-  return createRegistrySection(config)
+export function createRuntimeRegistry(config: EnvNitroConfigOptions | undefined, options: { prefix?: string } = {}): EnvRuntimeRegistry {
+  return createRegistrySection(config, "env", options.prefix)
+}
+
+export function resolveEnvSource(declaration: EnvVariableDeclaration, path: string, prefix = ""): EnvSource {
+  return declaration.source ?? inferEnvSource(path, prefix)
 }
 
 export function inferTypeName(value: unknown): string {
@@ -186,24 +192,25 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
   }
 }
 
-function createRegistrySection(declarations: EnvNitroConfigOptions | undefined, path = "env"): EnvRuntimeRegistry {
+function createRegistrySection(declarations: EnvNitroConfigOptions | undefined, path = "env", prefix = ""): EnvRuntimeRegistry {
   if (!declarations) {
     return {}
   }
   return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
     const valuePath = `${path}.${key}`
     if (!isEnvVariableDeclaration(value)) {
-      return [key, createRegistrySection(value as EnvNitroConfigOptions, valuePath)]
+      return [key, createRegistrySection(value as EnvNitroConfigOptions, valuePath, prefix)]
     }
     const declaration = value
-    if (declaration.source.kind !== "env") {
+    const source = resolveEnvSource(declaration, valuePath, prefix)
+    if (source.kind !== "env") {
       throw new EnvError(`Runtime declaration ${valuePath} must use envSource.env() in v1.`)
     }
     return [key, {
       default: declaration.default,
       required: declaration.required,
       secret: declaration.secret,
-      source: declaration.source,
+      source,
       type: declaration.type,
     }]
   }))
@@ -233,9 +240,39 @@ function assertEnvVariableDeclaration(path: string, declaration: unknown): asser
 }
 
 function assertSerializableRuntimeSource(path: string, declaration: EnvVariableDeclaration): void {
-  if (declaration.source.kind !== "env") {
+  if (declaration.source && declaration.source.kind !== "env") {
     throw new EnvError(`${path} must use an env source in runtime mode for v1. Custom, package, and git sources are build-only.`)
   }
+}
+
+function inferEnvSource(path: string, prefix: string): EnvSource {
+  const name = `${prefix}${pathToEnvName(path)}`
+  return {
+    kind: "env",
+    label: `env:${name}`,
+    name,
+    serializable: true,
+  }
+}
+
+function pathToEnvName(path: string): string {
+  return path
+    .split(".")
+    .slice(1)
+    .flatMap(segment => segmentToEnvParts(segment))
+    .filter(Boolean)
+    .join("_")
+}
+
+function segmentToEnvParts(segment: string): string[] {
+  return segment
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .split("_")
+    .map(part => part.toUpperCase())
+    .filter(Boolean)
 }
 
 function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {

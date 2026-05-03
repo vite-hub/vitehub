@@ -56,15 +56,15 @@ describe("Nitro module", () => {
           },
         },
         env: {
-          authSecret: envVariable("AUTH_SECRET", { secret: true }),
-          databaseUrl: envVariable("DATABASE_URL"),
-          optionalApiBase: envVariable("PUBLIC_API_BASE", { optional: true }),
+          authSecret: envVariable({ secret: true }),
+          databaseUrl: envVariable(),
+          optionalApiBase: envVariable({ optional: true, source: envSource.env("PUBLIC_API_BASE") }),
           telegram: {
-            apiBaseUrl: envVariable("TELEGRAM_API_BASE_URL", { optional: true }),
-            botToken: envVariable("TELEGRAM_BOT_TOKEN", { secret: true }),
+            apiBaseUrl: envVariable({ optional: true }),
+            botToken: envVariable({ secret: true }),
           },
           vertex: {
-            model: envVariable("VERTEX_MODEL", { default: "gemini-3.1-pro-preview-customtools" }),
+            model: envVariable({ default: "gemini-3.1-pro-preview-customtools" }),
           },
         },
         preset: "cloudflare-module",
@@ -106,6 +106,30 @@ describe("Nitro module", () => {
     expect(registry).toContain("\"required\": false")
     expect(registry).not.toContain("aaaaaaaa")
     expect(registry).not.toContain("telegram-secret")
+  })
+
+  it("applies prefixes to inferred Nitro env names and required Cloudflare secrets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        cloudflare: {},
+        env: {
+          telegram: {
+            botToken: envVariable({ secret: true }),
+          },
+        },
+        rootDir: root,
+      },
+    }
+
+    await envNitro({ prefix: "VITEHUB_" }).setup(nitro as never)
+
+    expect(nitro.options.cloudflare?.wrangler?.secrets?.required).toEqual(["VITEHUB_TELEGRAM_BOT_TOKEN"])
+    const registry = await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8")
+    expect(registry).toContain("VITEHUB_TELEGRAM_BOT_TOKEN")
   })
 
   it("resolves nested runtime config objects", async () => {

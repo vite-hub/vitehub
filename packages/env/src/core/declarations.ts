@@ -50,20 +50,14 @@ export const envSource = {
   },
 }
 
-export function envVariable(name: string, options?: EnvVariableOptions): EnvVariableDeclaration
-export function envVariable(options: EnvVariableOptions & { source: EnvSource | EnvSourceResolver }): EnvVariableDeclaration
-export function envVariable(
-  nameOrOptions: string | (EnvVariableOptions & { source: EnvSource | EnvSourceResolver }),
-  maybeOptions?: EnvVariableOptions,
-): EnvVariableDeclaration {
-  const options = typeof nameOrOptions === "string" ? maybeOptions ?? {} : nameOrOptions
+export function envVariable(options: EnvVariableOptions = {}): EnvVariableDeclaration {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw new TypeError("envVariable() only accepts a single options object.")
+  }
   if (options.optional && typeof options.required !== "undefined") {
     throw new TypeError("envVariable() cannot use both optional and required.")
   }
 
-  const source = typeof nameOrOptions === "string"
-    ? envSource.env(nameOrOptions)
-    : normalizeSource(options.source as EnvSource | EnvSourceResolver)
   const required = options.optional ? false : options.required ?? true
 
   return {
@@ -73,7 +67,7 @@ export function envVariable(
     required,
     schema: options.schema ?? stringSchema,
     secret: options.secret ?? false,
-    source,
+    source: options.source ? normalizeSource(options.source) : undefined,
     type: options.type,
   }
 }

@@ -12,7 +12,7 @@ describe("Vite plugin", () => {
   it("loads Vite env, validates build values, injects define, and serves virtual config", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ version: "1.2.3" }), "utf8")
-    await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\nSENTRY_DEBUG=true\n", "utf8")
+    await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\nDEFINE_SENTRY_DEBUG=true\n", "utf8")
 
     const plugin = envVite({ diagnostics: "trace" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
@@ -29,13 +29,13 @@ describe("Vite plugin", () => {
             schema: stringSchema(),
             source: envSource.custom("git:commit", () => "abc123"),
           }),
-          __SENTRY_DEBUG__: envVariable("SENTRY_DEBUG", {
+          __SENTRY_DEBUG__: envVariable({
             mode: "build",
             schema: booleanSchema(),
           }),
         },
         public: {
-          appName: envVariable("PUBLIC_APP_NAME", {
+          appName: envVariable({
             mode: "build",
             schema: stringSchema(),
           }),
@@ -67,5 +67,28 @@ describe("Vite plugin", () => {
     const loaded = loadHook("\0virtual:@vitehub/env/build")
     expect(loaded).toContain("Quiver")
     expect(loaded).toContain("useSafeBuildConfig")
+  })
+
+  it("applies prefixes to inferred Vite env names", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
+    await writeFile(join(root, ".env.production"), "VITEHUB_PUBLIC_APP_NAME=Quiver\n", "utf8")
+
+    const plugin = envVite({ prefix: "VITEHUB_" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    await configHook({
+      env: {
+        public: {
+          appName: envVariable({
+            mode: "build",
+            schema: stringSchema(),
+          }),
+        },
+      },
+      root,
+    }, { command: "build", mode: "production" })
+
+    expect(plugin.api.getBuildConfig()).toEqual({
+      appName: "Quiver",
+    })
   })
 })

@@ -3,6 +3,7 @@ export type EnvMode = "build" | "runtime"
 
 export interface EnvIntegrationOptions {
   diagnostics?: EnvDiagnostics
+  prefix?: string
 }
 
 export interface EnvSourceContext {
@@ -56,7 +57,7 @@ export interface EnvVariableDeclaration {
   required: boolean
   schema: unknown
   secret: boolean
-  source: EnvSource
+  source?: EnvSource
   type?: string
 }
 

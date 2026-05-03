@@ -11,6 +11,8 @@ describe("types", () => {
     expectTypeOf(envVite()).toMatchTypeOf<Plugin>()
     expectTypeOf(envNitro()).toMatchTypeOf<NitroModule>()
     expectTypeOf(envSource.gitCommit({ short: true }).label).toMatchTypeOf<string>()
-    expectTypeOf(envVariable("SECRET", { secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(envVariable({ secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
+    // @ts-expect-error string shorthands were intentionally removed
+    envVariable("SECRET")
   })
 })

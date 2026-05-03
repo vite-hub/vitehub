@@ -6,7 +6,7 @@ import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { formatDiagnostics } from "../core/diagnostics.ts"
 import { envSource, envVariable } from "../core/declarations.ts"
-import { createRuntimeRegistry, validateEnvConfigShape } from "../core/resolve.ts"
+import { createRuntimeRegistry, resolveEnvSource, validateEnvConfigShape } from "../core/resolve.ts"
 
 import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRegistryEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvVariableDeclaration } from "../types.ts"
 import type { Nitro, NitroModule } from "nitro/types"
@@ -113,10 +113,10 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
     async setup(nitro) {
       const config = (nitro.options as typeof nitro.options & EnvNitroUserConfig).env
       validateEnvConfigShape(config, "nitro")
-      const registry = createRuntimeRegistry(config)
-      configureCloudflareRequiredSecrets(nitro, config)
+      const registry = createRuntimeRegistry(config, { prefix: options.prefix })
+      configureCloudflareRequiredSecrets(nitro, config, options.prefix)
 
-      const diagnostics = describeRuntimeEntries(config)
+      const diagnostics = describeRuntimeEntries(config, "env", options.prefix)
       const diagnosticsText = formatDiagnostics(diagnostics, options.diagnostics)
       if (diagnosticsText) {
         nitro.logger.info(diagnosticsText)
@@ -141,8 +141,8 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
   }
 }
 
-function configureCloudflareRequiredSecrets(nitro: Nitro, declarations: EnvNitroConfigOptions | undefined): void {
-  const required = collectRequiredSecretNames(declarations)
+function configureCloudflareRequiredSecrets(nitro: Nitro, declarations: EnvNitroConfigOptions | undefined, prefix?: string): void {
+  const required = collectRequiredSecretNames(declarations, "env", prefix)
 
   if (required.length === 0 || !usesCloudflare(nitro)) {
     return
@@ -168,12 +168,14 @@ function configureCloudflareRequiredSecrets(nitro: Nitro, declarations: EnvNitro
   ]
 }
 
-function collectRequiredSecretNames(declarations: EnvNitroConfigOptions | undefined): string[] {
-  return Object.values(declarations || {}).flatMap((value) => {
+function collectRequiredSecretNames(declarations: EnvNitroConfigOptions | undefined, path: string, prefix?: string): string[] {
+  return Object.entries(declarations || {}).flatMap(([key, value]) => {
+    const valuePath = `${path}.${key}`
     if (isEnvVariableDeclaration(value)) {
-      return value.secret && value.required && value.source.kind === "env" ? [value.source.name] : []
+      const source = resolveEnvSource(value, valuePath, prefix)
+      return value.secret && value.required && source.kind === "env" ? [source.name] : []
     }
-    return collectRequiredSecretNames(value as EnvNitroConfigOptions)
+    return collectRequiredSecretNames(value as EnvNitroConfigOptions, valuePath, prefix)
   })
 }
 
@@ -186,20 +188,23 @@ function usesCloudflare(nitro: Nitro): boolean {
 function describeRuntimeEntries(
   declarations: EnvNitroConfigOptions | undefined,
   path = "env",
+  prefix?: string,
 ): EnvDiagnosticEntry[] {
   return Object.entries(declarations || {}).flatMap(([key, value]) => {
+    const valuePath = `${path}.${key}`
     if (!isEnvVariableDeclaration(value)) {
-      return describeRuntimeEntries(value as EnvNitroConfigOptions, `${path}.${key}`)
+      return describeRuntimeEntries(value as EnvNitroConfigOptions, valuePath, prefix)
     }
     const declaration = value
-    const hasRuntimeValue = declaration.source.kind === "env" && typeof process.env[declaration.source.name] !== "undefined"
+    const source = resolveEnvSource(declaration, valuePath, prefix)
+    const hasRuntimeValue = source.kind === "env" && typeof process.env[source.name] !== "undefined"
     const hasDefault = typeof declaration.default !== "undefined"
     return {
       exposed: declaration.secret ? "server only, masked" : "server only",
-      key: `${path}.${key}`,
+      key: valuePath,
       masked: declaration.secret,
       mode: "runtime",
-      source: hasDefault && !hasRuntimeValue ? "default" : declaration.source.label,
+      source: hasDefault && !hasRuntimeValue ? "default" : source.label,
       status: hasRuntimeValue ? "valid" : hasDefault ? "defaulted" : "missing",
       timing: "Nitro runtime",
       type: declaration.type,
