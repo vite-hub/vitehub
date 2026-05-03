@@ -291,8 +291,12 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
           .sort((left, right) => left.localeCompare(right)),
       ]
     })()
-    await this.#refreshPromise
-    this.#refreshPromise = undefined
+    try {
+      await this.#refreshPromise
+    }
+    finally {
+      this.#refreshPromise = undefined
+    }
   }
 }
 
