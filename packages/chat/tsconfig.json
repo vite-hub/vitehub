@@ -3,7 +3,8 @@
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
     "paths": {
-      "@vitehub/chat": ["./src/index.ts"]
+      "@vitehub/chat": ["./src/index.ts"],
+      "@vitehub/chat/cloudflare": ["./src/cloudflare.ts"]
     },
     "rootDir": "."
   },
