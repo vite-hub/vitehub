@@ -113,6 +113,7 @@ afterEach(async () => {
 
 describe("drizzle runtime", () => {
   it("provides a default fallback entry when the virtual database registry is empty", async () => {
+    vi.resetModules()
     ;(vi.doMock as any)("virtual:@vitehub/db/databases", () => ({
       default: {},
     }), { virtual: true })

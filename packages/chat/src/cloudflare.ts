@@ -8,10 +8,12 @@ import type {
   ChatInput,
   ChatRuntimeContext,
   ChatWaitUntil,
+  CloudflareExportedHandlerFetchHandler,
   CloudflareDurableObjectStateOptions,
 } from "./types.ts"
 
 export { ChatStateDO } from "chat-state-cloudflare-do"
+export type { CloudflareExportedHandlerFetchHandler } from "./types.ts"
 
 type WebhookHandler = (request: Request, options?: WebhookOptions) => unknown
 type CloudflareStateFactory = typeof import("chat-state-cloudflare-do")["createCloudflareState"]
@@ -138,7 +140,7 @@ export function cloudflareDurableObjectState(
 export function defineCloudflareChatHandler(
   chat: ChatInput<ChatRuntimeContext>,
   options: { platform?: string } = {},
-): ExportedHandlerFetchHandler<Record<string, unknown>> {
+): CloudflareExportedHandlerFetchHandler<Record<string, unknown>> {
   return async (request, env, executionContext) => {
     const platform = options.platform || inferPlatform(request)
     if (!platform) {

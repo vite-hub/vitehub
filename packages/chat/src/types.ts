@@ -153,10 +153,27 @@ export type ChatInput<TContext extends ChatRuntimeContext<any> = ChatRuntimeCont
   | Chat
   | ChatDefinition<TContext extends ChatRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : ChatRuntimeConfig>
 
+export type CloudflareDurableObjectLocationHint =
+  | "wnam"
+  | "enam"
+  | "sam"
+  | "weur"
+  | "eeur"
+  | "apac"
+  | "oc"
+  | "afr"
+  | "me"
+
+export type CloudflareExportedHandlerFetchHandler<TEnv = unknown> = (
+  request: Request,
+  env: TEnv,
+  ctx: { waitUntil?: (promise: Promise<unknown>) => void },
+) => Response | Promise<Response>
+
 export interface CloudflareDurableObjectStateOptions {
   binding?: string
   className?: string
-  locationHint?: DurableObjectLocationHint
+  locationHint?: CloudflareDurableObjectLocationHint
   migrationTag?: string
   name?: string
   shardKey?: (threadId: string) => string

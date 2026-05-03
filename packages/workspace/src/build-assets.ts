@@ -7,7 +7,7 @@ import { createImportPath } from "@vitehub/internal/build/paths"
 import { resolveRuntimeEntry } from "@vitehub/internal/nitro"
 
 import { normalizeSafeWorkspacePath } from "./path.ts"
-import { registerWorkspace, useRegisteredWorkspace } from "./registry.ts"
+import { createWorkspace } from "./workspace.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
 import type { ResolvedWorkspaceModuleOptions, Workspace, WorkspaceContent, WorkspaceDefinitionInput } from "./types.ts"
@@ -25,12 +25,6 @@ export interface WorkspaceAssetBundle {
 
 function shouldSyncWorkspace(syncOnBuild: boolean | string[] | undefined, name: string) {
   return syncOnBuild === undefined || syncOnBuild === true || (Array.isArray(syncOnBuild) && syncOnBuild.includes(name))
-}
-
-function buildSyncStore(options: ResolvedWorkspaceModuleOptions["store"]): ResolvedWorkspaceModuleOptions["store"] {
-  return options.provider === "cloudflare-artifacts" || options.provider === "vercel-blob"
-    ? { provider: "memory" }
-    : options
 }
 
 function assetModuleName(workspace: string, path: string) {
@@ -61,13 +55,13 @@ export async function syncDiscoveredWorkspaces(
     const mod = await import(pathToFileURL(definition.path).href) as { default?: WorkspaceDefinitionInput }
     if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
 
-    registerWorkspace(definition.name, {
+    const workspace = createWorkspace({
       ...mod.default,
+      name: definition.name,
       rootDir: mod.default.rootDir || rootDir,
-      store: mod.default.store || buildSyncStore(options.store),
+      store: { provider: "memory" },
     })
 
-    const workspace = await useRegisteredWorkspace(definition.name)
     await workspace.sync()
     workspaces.push(workspace)
   }

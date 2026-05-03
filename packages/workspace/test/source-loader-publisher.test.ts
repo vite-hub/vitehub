@@ -8,8 +8,9 @@ import { gzipSync } from "node:zlib"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectWorkspaceAssetBundle, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
-import { defineWorkspace, loader, publish, registerWorkspace, source, useWorkspace } from "../src/index.ts"
+import { defineWorkspace, loader, publish, registerWorkspace, useWorkspace } from "../src/index.ts"
 import { useRegisteredWorkspace } from "../src/registry.ts"
+import * as source from "../src/source.ts"
 import type { Workspace } from "../src/types.ts"
 
 const tempDirs: string[] = []

@@ -7,11 +7,11 @@ import {
   defineWorkspace,
   loader,
   publish,
-  source,
   useWorkspace,
 } from "../src/index.ts"
 import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
+import * as source from "../src/source.ts"
 import { hubWorkspace } from "../src/vite.ts"
 
 declare global {
