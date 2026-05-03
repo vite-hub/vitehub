@@ -71,7 +71,10 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
     const cached = contentCache.get(path)
     if (cached) return await cached
 
-    const next = entry.load()
+    const next = entry.load().catch((error) => {
+      contentCache.delete(path)
+      throw error
+    })
     contentCache.set(path, next)
     return await next
   }
