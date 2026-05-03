@@ -13,9 +13,11 @@ import type {
   ChatModalSubmitHookInput,
   ChatNewMessageHook,
   ChatReactionHookInput,
+  ChatRuntimeConfig,
   ChatRuntimeContext,
   DefineChatOptions,
   MaybeResolvable,
+  ResolvedChatRuntimeContext,
   ResolveChatOptions,
 } from "./types.ts"
 import type { ActionEvent, Adapter, ChatConfig, Message, ModalSubmitEvent, ReactionEvent, StateAdapter } from "chat"
@@ -39,6 +41,7 @@ export type {
   ChatModuleOptions,
   ChatNewMessageHook,
   ChatReactionHookInput,
+  ChatRuntimeConfig,
   ChatRuntimeContext,
   ChatRuntimeName,
   ChatWaitUntil,
@@ -57,6 +60,7 @@ export type {
   ReactionEvent,
   Resolvable,
   ResolveChatOptions,
+  ResolvedChatRuntimeContext,
   ResolvedChatModuleOptions,
   StateAdapter,
   Thread,
@@ -92,9 +96,9 @@ function isAdapterMap(value: unknown): value is Record<string, Adapter> {
   return typeof value === "object" && value !== null
 }
 
-async function resolveAdapters<TRuntimeConfig>(
+async function resolveAdapters<TRuntimeConfig extends ChatRuntimeConfig>(
   adapters: DefineChatOptions<TRuntimeConfig>["adapters"],
-  context: ChatRuntimeContext<TRuntimeConfig>,
+  context: ResolvedChatRuntimeContext<TRuntimeConfig>,
 ): Promise<Record<string, Adapter>> {
   if (typeof adapters === "function" || isResolvable(adapters as MaybeResolvable<Record<string, Adapter>, typeof context>)) {
     return await resolveValue(adapters as MaybeResolvable<Record<string, Adapter>, typeof context>, context)
@@ -107,9 +111,9 @@ async function resolveAdapters<TRuntimeConfig>(
   return resolved
 }
 
-function createMessageHook<TRuntimeConfig>(
+function createMessageHook<TRuntimeConfig extends ChatRuntimeConfig>(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig | undefined,
+  runtimeConfig: TRuntimeConfig,
   hook: ChatMessageHook<TRuntimeConfig>,
 ) {
   return (thread: unknown, message: unknown, context?: unknown) => hook({
@@ -121,9 +125,9 @@ function createMessageHook<TRuntimeConfig>(
   })
 }
 
-function createDirectMessageHook<TRuntimeConfig>(
+function createDirectMessageHook<TRuntimeConfig extends ChatRuntimeConfig>(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig | undefined,
+  runtimeConfig: TRuntimeConfig,
   hook: ChatDirectMessageHook<TRuntimeConfig>,
 ) {
   return (thread: unknown, message: unknown, channel: unknown, context?: unknown) => hook({
@@ -136,9 +140,9 @@ function createDirectMessageHook<TRuntimeConfig>(
   })
 }
 
-function createEventHook<TEvent, TRuntimeConfig>(
+function createEventHook<TEvent, TRuntimeConfig extends ChatRuntimeConfig>(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig | undefined,
+  runtimeConfig: TRuntimeConfig,
   hook: ChatEventHook<TEvent, TRuntimeConfig>,
 ) {
   return (event: TEvent) => hook({
@@ -148,9 +152,9 @@ function createEventHook<TEvent, TRuntimeConfig>(
   })
 }
 
-function registerNewMessageHooks<TRuntimeConfig>(
+function registerNewMessageHooks<TRuntimeConfig extends ChatRuntimeConfig>(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig | undefined,
+  runtimeConfig: TRuntimeConfig,
   input: ChatNewMessageHook<TRuntimeConfig> | Array<ChatNewMessageHook<TRuntimeConfig>> | undefined,
 ) {
   const hooks = input ? Array.isArray(input) ? input : [input] : []
@@ -159,9 +163,9 @@ function registerNewMessageHooks<TRuntimeConfig>(
   }
 }
 
-function registerReactionHooks<TRuntimeConfig>(
+function registerReactionHooks<TRuntimeConfig extends ChatRuntimeConfig>(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig | undefined,
+  runtimeConfig: TRuntimeConfig,
   input: ChatReactionHookInput<TRuntimeConfig> | undefined,
 ) {
   if (!input) return
@@ -186,9 +190,9 @@ function registerReactionHooks<TRuntimeConfig>(
   }
 }
 
-function registerActionHooks<TRuntimeConfig>(
+function registerActionHooks<TRuntimeConfig extends ChatRuntimeConfig>(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig | undefined,
+  runtimeConfig: TRuntimeConfig,
   input: ChatActionHookInput<TRuntimeConfig> | undefined,
 ) {
   if (!input) return
@@ -208,9 +212,9 @@ function registerActionHooks<TRuntimeConfig>(
   }
 }
 
-function registerModalSubmitHooks<TRuntimeConfig>(
+function registerModalSubmitHooks<TRuntimeConfig extends ChatRuntimeConfig>(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig | undefined,
+  runtimeConfig: TRuntimeConfig,
   input: ChatModalSubmitHookInput<TRuntimeConfig> | undefined,
 ) {
   if (!input) return
@@ -230,9 +234,9 @@ function registerModalSubmitHooks<TRuntimeConfig>(
   }
 }
 
-function registerChatHooks<TRuntimeConfig>(
+function registerChatHooks<TRuntimeConfig extends ChatRuntimeConfig>(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig | undefined,
+  runtimeConfig: TRuntimeConfig,
   hooks: ChatEventHooks<TRuntimeConfig> | undefined,
 ) {
   if (!hooks) return
@@ -253,12 +257,14 @@ function registerChatHooks<TRuntimeConfig>(
   registerModalSubmitHooks(bot, runtimeConfig, hooks.onModalSubmit)
 }
 
-async function createChat<TRuntimeConfig>(
+async function createChat<TRuntimeConfig extends ChatRuntimeConfig>(
   options: DefineChatOptions<TRuntimeConfig>,
   context: ChatRuntimeContext<TRuntimeConfig>,
   resolveOptions: ResolveChatOptions = {},
 ) {
-  const adapters = await resolveAdapters(options.adapters, context)
+  const runtimeConfig = context.runtimeConfig as TRuntimeConfig
+  const resolvedContext = { ...context, runtimeConfig } as ResolvedChatRuntimeContext<TRuntimeConfig>
+  const adapters = await resolveAdapters(options.adapters, resolvedContext)
   const state = await resolveValue(options.state, context)
   const {
     adapters: _adapters,
@@ -281,12 +287,12 @@ async function createChat<TRuntimeConfig>(
     userName,
   })
 
-  registerChatHooks(bot, context.runtimeConfig, hooks)
-  await setup?.(bot, context)
+  registerChatHooks(bot, runtimeConfig, hooks)
+  await setup?.(bot, resolvedContext)
   return bot
 }
 
-export function defineChat<TRuntimeConfig = unknown>(
+export function defineChat<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig>(
   options: DefineChatOptions<TRuntimeConfig>,
 ): ChatDefinition<TRuntimeConfig> {
   const memoKey = `vitehub:chat:${++definitionId}`

@@ -1,22 +1,24 @@
 import { createError, defineEventHandler, getRouterParam } from "h3"
 import { createHooks } from "hookable"
-import { useRuntimeConfig } from "nitro/runtime-config"
 
 import { resolveChat } from "../index.ts"
 import { createMemo } from "../runtime/context.ts"
 import { getChatDefinitionLifecycleHooks } from "../runtime/definition.ts"
+import { getChatRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 
 import type { Chat, WebhookOptions } from "chat"
 import type { EventHandler, H3Event } from "h3"
 import type { NitroRuntimeConfig } from "nitro/types"
-import type { ChatInput, ChatRuntimeContext, ChatWebhookHandlerOptions, ChatWebhookRegistryHandlerOptions, ChatWebhookRuntimeHooks, ChatWaitUntil } from "../types.ts"
+import type { ChatInput, ChatRuntimeConfig, ChatRuntimeContext, ChatWebhookHandlerOptions, ChatWebhookRegistryHandlerOptions, ChatWebhookRuntimeHooks, ChatWaitUntil } from "../types.ts"
 
-export interface NitroChatRuntimeContext extends ChatRuntimeContext {
+export interface NitroChatRuntimeConfig extends NitroRuntimeConfig, ChatRuntimeConfig {}
+
+export interface NitroChatRuntimeContext extends ChatRuntimeContext<NitroChatRuntimeConfig> {
   event: H3Event
   platform: string
   request: Request
   runtime: "nitro"
-  runtimeConfig: NitroRuntimeConfig
+  runtimeConfig: NitroChatRuntimeConfig
 }
 
 type WebhookHandler = (request: Request, options?: WebhookOptions) => unknown
@@ -36,7 +38,7 @@ interface CloudflareRuntimeCarrier {
   }
 }
 
-function getCloudflareRuntime(event: H3Event): NitroChatRuntimeContext["cloudflare"] | undefined {
+function getCloudflareRuntime(event: H3Event, runtimeConfig: NitroRuntimeConfig): NitroChatRuntimeContext["cloudflare"] | undefined {
   const carrier = event as CloudflareRuntimeCarrier
   const requestCarrier = event.req as CloudflareRuntimeCarrier
   const runtime = carrier.context?.cloudflare
@@ -50,6 +52,7 @@ function getCloudflareRuntime(event: H3Event): NitroChatRuntimeContext["cloudfla
 
   return {
     context: runtime.context,
+    durableObjectStateName: (runtimeConfig.chat as { cloudflare?: { durableObjectState?: { name?: string } } } | undefined)?.cloudflare?.durableObjectState?.name,
     env: runtime.env,
   }
 }
@@ -58,8 +61,8 @@ function getChatWebhook(bot: Chat, platform: string): WebhookHandler | undefined
   return (bot.webhooks as Record<string, WebhookHandler | undefined>)[platform]
 }
 
-function getRuntimeConfig(event: H3Event): NitroRuntimeConfig {
-  return (useRuntimeConfig as unknown as (event?: H3Event) => NitroRuntimeConfig)(event)
+function getRuntimeConfig(event: H3Event): NitroChatRuntimeConfig {
+  return getChatRuntimeConfig(event) as NitroChatRuntimeConfig
 }
 
 function createHookRunner<TContext extends ChatRuntimeContext>(...hooksList: Array<ChatWebhookRuntimeHooks<TContext> | undefined>) {
@@ -96,15 +99,16 @@ export function defineChatWebhookHandler(
       })
     }
 
+    const runtimeConfig = getRuntimeConfig(event)
     const waitUntil: ChatWaitUntil = task => event.waitUntil(task)
     const context: NitroChatRuntimeContext = {
-      cloudflare: getCloudflareRuntime(event),
+      cloudflare: getCloudflareRuntime(event, runtimeConfig),
       event,
       memo: createMemo(),
       platform,
       request: event.req as Request,
       runtime: "nitro",
-      runtimeConfig: getRuntimeConfig(event),
+      runtimeConfig,
       waitUntil,
     }
 

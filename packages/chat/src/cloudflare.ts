@@ -1,5 +1,6 @@
 import { resolveChat } from "./index.ts"
 import { createChatRuntimeContext } from "./runtime/context.ts"
+import { defaultChatCloudflareDurableObjectName } from "./config.ts"
 
 import type { Chat, StateAdapter, WebhookOptions } from "chat"
 import type {
@@ -126,7 +127,7 @@ export function cloudflareDurableObjectState(
 
       return new LazyCloudflareDurableObjectState({
         locationHint: options.locationHint,
-        name: options.name,
+        name: options.name || context.cloudflare?.durableObjectStateName || defaultChatCloudflareDurableObjectName,
         namespace: namespace as CloudflareStateFactoryOptions["namespace"],
         shardKey: options.shardKey,
       })

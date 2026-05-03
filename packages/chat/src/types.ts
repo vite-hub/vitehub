@@ -23,9 +23,12 @@ export type MaybePromise<T> = T | Promise<T>
 export type ChatRuntimeName = "nitro" | "cloudflare" | "vercel" | "unknown"
 export type ChatWaitUntil = (task: Promise<unknown>) => void
 
-export interface ChatRuntimeContext<TRuntimeConfig = unknown> {
+export interface ChatRuntimeConfig {}
+
+export interface ChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
   cloudflare?: {
     context?: unknown
+    durableObjectStateName?: string
     env?: Record<string, unknown>
   }
   event?: unknown
@@ -40,52 +43,55 @@ export interface ChatRuntimeContext<TRuntimeConfig = unknown> {
   waitUntil: ChatWaitUntil
 }
 
-export interface Resolvable<T, TContext extends ChatRuntimeContext = ChatRuntimeContext> {
+export type ResolvedChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
+  ChatRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
+
+export interface Resolvable<T, TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> {
   resolve(context: TContext): MaybePromise<T>
 }
 
-export type MaybeResolvable<T, TContext extends ChatRuntimeContext = ChatRuntimeContext> =
+export type MaybeResolvable<T, TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> =
   | T
   | Resolvable<T, TContext>
   | ((context: TContext) => MaybePromise<T>)
 
-export type AdapterInput<TContext extends ChatRuntimeContext = ChatRuntimeContext> =
+export type AdapterInput<TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> =
   | MaybeResolvable<Record<string, Adapter>, TContext>
   | Record<string, MaybeResolvable<Adapter, TContext>>
 
-export interface ChatHookArgs<TRuntimeConfig = unknown> {
+export interface ChatHookArgs<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
   bot: Chat
   channel?: Channel
   context?: MessageContext
   event?: unknown
   message?: Message
-  runtimeConfig?: TRuntimeConfig
+  runtimeConfig: TRuntimeConfig
   thread?: Thread
 }
 
-export type ChatMessageHook<TRuntimeConfig = unknown> = (args: ChatHookArgs<TRuntimeConfig> & {
+export type ChatMessageHook<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> = (args: ChatHookArgs<TRuntimeConfig> & {
   context?: MessageContext
   message: Message
   thread: Thread
 }) => MaybePromise<void>
 
-export type ChatDirectMessageHook<TRuntimeConfig = unknown> = (args: ChatHookArgs<TRuntimeConfig> & {
+export type ChatDirectMessageHook<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> = (args: ChatHookArgs<TRuntimeConfig> & {
   channel: Channel
   context?: MessageContext
   message: Message
   thread: Thread
 }) => MaybePromise<void>
 
-export type ChatEventHook<TEvent, TRuntimeConfig = unknown> = (args: ChatHookArgs<TRuntimeConfig> & {
+export type ChatEventHook<TEvent, TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> = (args: ChatHookArgs<TRuntimeConfig> & {
   event: TEvent
 }) => MaybePromise<void>
 
-export interface ChatNewMessageHook<TRuntimeConfig = unknown> {
+export interface ChatNewMessageHook<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
   handler: ChatMessageHook<TRuntimeConfig>
   pattern: RegExp
 }
 
-export type ChatReactionHookInput<TRuntimeConfig = unknown> =
+export type ChatReactionHookInput<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
   | ChatEventHook<ReactionEvent, TRuntimeConfig>
   | Record<string, ChatEventHook<ReactionEvent, TRuntimeConfig>>
   | {
@@ -93,15 +99,15 @@ export type ChatReactionHookInput<TRuntimeConfig = unknown> =
     handler: ChatEventHook<ReactionEvent, TRuntimeConfig>
   }
 
-export type ChatActionHookInput<TRuntimeConfig = unknown> =
+export type ChatActionHookInput<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
   | ChatEventHook<ActionEvent, TRuntimeConfig>
   | Record<string, ChatEventHook<ActionEvent, TRuntimeConfig>>
 
-export type ChatModalSubmitHookInput<TRuntimeConfig = unknown> =
+export type ChatModalSubmitHookInput<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
   | ChatEventHook<ModalSubmitEvent, TRuntimeConfig>
   | Record<string, ChatEventHook<ModalSubmitEvent, TRuntimeConfig>>
 
-export interface ChatEventHooks<TRuntimeConfig = unknown> {
+export interface ChatEventHooks<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
   onAction?: ChatActionHookInput<TRuntimeConfig>
   onDirectMessage?: ChatDirectMessageHook<TRuntimeConfig>
   onModalSubmit?: ChatModalSubmitHookInput<TRuntimeConfig>
@@ -111,7 +117,7 @@ export interface ChatEventHooks<TRuntimeConfig = unknown> {
   onSubscribedMessage?: ChatMessageHook<TRuntimeConfig>
 }
 
-export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext = ChatRuntimeContext> {
+export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> {
   error?: (error: unknown, context: TContext) => MaybePromise<void>
   request?: (context: TContext) => MaybePromise<void>
   resolved?: (context: TContext & { bot: Chat }) => MaybePromise<void>
@@ -120,8 +126,8 @@ export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext = C
 
 type ChatConfigPassthrough = Omit<ChatConfig, "adapters" | "state" | "userName">
 
-export interface DefineChatOptions<TRuntimeConfig = unknown> extends ChatConfigPassthrough {
-  adapters: AdapterInput<ChatRuntimeContext<TRuntimeConfig>>
+export interface DefineChatOptions<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> extends ChatConfigPassthrough {
+  adapters: AdapterInput<ResolvedChatRuntimeContext<TRuntimeConfig>>
   concurrency?: ConcurrencyStrategy | ConcurrencyConfig
   fallbackStreamingPlaceholderText?: string | null
   hooks?: ChatEventHooks<TRuntimeConfig>
@@ -129,7 +135,7 @@ export interface DefineChatOptions<TRuntimeConfig = unknown> extends ChatConfigP
   lockScope?: LockScope | ((context: LockScopeContext) => LockScope | Promise<LockScope>)
   logger?: Logger | LogLevel
   onLockConflict?: ChatConfig["onLockConflict"]
-  setup?: (bot: Chat, context: ChatRuntimeContext<TRuntimeConfig>) => MaybePromise<void>
+  setup?: (bot: Chat, context: ResolvedChatRuntimeContext<TRuntimeConfig>) => MaybePromise<void>
   state: MaybeResolvable<StateAdapter, ChatRuntimeContext<TRuntimeConfig>>
   userName?: ChatConfig["userName"]
 }
@@ -138,12 +144,12 @@ export interface ResolveChatOptions {
   inferredName?: string
 }
 
-export interface ChatDefinition<TRuntimeConfig = unknown> {
+export interface ChatDefinition<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
   lifecycleHooks?: ChatWebhookRuntimeHooks<ChatRuntimeContext<TRuntimeConfig>>
   resolve(context: ChatRuntimeContext<TRuntimeConfig>, options?: ResolveChatOptions): Promise<Chat>
 }
 
-export type ChatInput<TContext extends ChatRuntimeContext = ChatRuntimeContext> =
+export type ChatInput<TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> =
   | Chat
   | ChatDefinition<any>
 

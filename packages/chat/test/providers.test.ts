@@ -52,6 +52,30 @@ describe("Cloudflare helpers", () => {
     })
   })
 
+  it("uses the Nitro-provided Durable Object state name when omitted", async () => {
+    const { cloudflareDurableObjectState } = await import("../src/cloudflare.ts")
+    const namespace = { idFromName: vi.fn() }
+
+    const state = await cloudflareDurableObjectState().resolve({
+      cloudflare: {
+        durableObjectStateName: "quiver-chat",
+        env: { CHAT_STATE: namespace },
+      },
+      memo: vi.fn(),
+      runtime: "nitro",
+      waitUntil: vi.fn(),
+    })
+
+    await state.connect()
+
+    expect(cloudflareStateMock.createCloudflareState).toHaveBeenCalledWith({
+      locationHint: undefined,
+      name: "quiver-chat",
+      namespace,
+      shardKey: undefined,
+    })
+  })
+
   it("throws a clear error for missing Durable Object bindings", async () => {
     const { cloudflareDurableObjectState } = await import("../src/cloudflare.ts")
 

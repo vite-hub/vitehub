@@ -6,7 +6,7 @@ const defaultChatWebhookRouteParam = "platform"
 const defaultChatCloudflareDurableObjectBinding = "CHAT_STATE"
 const defaultChatCloudflareDurableObjectClassName = "ChatStateDO"
 const defaultChatCloudflareDurableObjectMigrationTag = "v1"
-const defaultChatCloudflareDurableObjectName = "default"
+export const defaultChatCloudflareDurableObjectName = "default"
 
 export const defaultChatCloudflareDurableObjectState = {
   binding: defaultChatCloudflareDurableObjectBinding,
@@ -53,7 +53,7 @@ export function normalizeChatOptions(options: ChatModuleOptions | false | undefi
         binding: durableObjectState.binding || defaultChatCloudflareDurableObjectBinding,
         className: durableObjectState.className || defaultChatCloudflareDurableObjectClassName,
         migrationTag: durableObjectState.migrationTag || defaultChatCloudflareDurableObjectMigrationTag,
-        name: durableObjectState.name || defaultChatCloudflareDurableObjectName,
+        name: durableObjectState.name,
       },
     }
   }
@@ -64,7 +64,6 @@ export function normalizeChatOptions(options: ChatModuleOptions | false | undefi
         binding: defaultChatCloudflareDurableObjectBinding,
         className: defaultChatCloudflareDurableObjectClassName,
         migrationTag: defaultChatCloudflareDurableObjectMigrationTag,
-        name: defaultChatCloudflareDurableObjectName,
       },
     }
   }

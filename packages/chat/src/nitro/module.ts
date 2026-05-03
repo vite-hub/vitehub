@@ -1,9 +1,10 @@
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { createGeneratedDefinitionPath, createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import { normalizeChatOptions } from "../config.ts"
+import { defaultChatCloudflareDurableObjectName, normalizeChatOptions } from "../config.ts"
 import { discoverChatDefinitions } from "../discovery.ts"
 import { configureCloudflareChatState, discoverCloudflareChatStateConfig } from "../integrations/cloudflare.ts"
 
@@ -35,6 +36,14 @@ function createNitroChatRegistryPath(rootDir: string, buildDir: string): string 
   })
 }
 
+function createNitroChatRuntimeConfigBridgePath(rootDir: string, buildDir: string): string {
+  return createGeneratedDefinitionPath(rootDir, {
+    buildDir,
+    fileName: "runtime-config.mjs",
+    segments: [".vitehub", "nitro-runtime", "chat"],
+  })
+}
+
 function normalizeNitroRoute(route: string): string {
   return route.replace(/\[([A-Za-z0-9_]+)\]/g, ":$1")
 }
@@ -60,6 +69,38 @@ function resolveChatProvider(nitro: Nitro, options: ResolvedChatModuleOptions): 
     return "vercel"
   }
   return "nitro"
+}
+
+async function readPackageName(rootDir: string): Promise<string | undefined> {
+  try {
+    const contents = await readFile(resolve(rootDir, "package.json"), "utf8")
+    const pkg = JSON.parse(contents) as { name?: unknown }
+    return typeof pkg.name === "string" && pkg.name.trim() ? pkg.name : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+async function resolveCloudflareDurableObjectStateName(nitro: Nitro, configuredName?: string): Promise<string> {
+  if (configuredName) {
+    return configuredName
+  }
+
+  const wranglerName = (nitro.options.cloudflare as { wrangler?: { name?: unknown } } | undefined)?.wrangler?.name
+  if (typeof wranglerName === "string" && wranglerName.trim()) {
+    return wranglerName
+  }
+
+  return await readPackageName(nitro.options.rootDir) || defaultChatCloudflareDurableObjectName
+}
+
+function setCloudflareDurableObjectRuntimeConfig(
+  options: ResolvedChatModuleOptions,
+  durableObjectState: Exclude<ResolvedChatModuleOptions["cloudflare"], undefined>["durableObjectState"],
+): void {
+  options.cloudflare ||= {}
+  options.cloudflare.durableObjectState = durableObjectState
 }
 
 function renderOptions(options: Record<string, string | undefined>): string {
@@ -91,6 +132,17 @@ function createNitroRegistryChatRouteContents(file: string, registryFile: string
       chatParam: options.webhook && options.webhook.chatParam !== "chat" ? options.webhook.chatParam : undefined,
       routeParam: options.webhook && options.webhook.routeParam !== "platform" ? options.webhook.routeParam : undefined,
     })})`,
+    "",
+  ].join("\n")
+}
+
+function createViteHubEnvRuntimeConfigBridgeContents(): string {
+  return [
+    `import { useSafeRuntimeConfig } from "#vitehub/env/server"`,
+    "",
+    "export function getChatRuntimeConfig(event) {",
+    "  return useSafeRuntimeConfig(event)",
+    "}",
     "",
   ].join("\n")
 }
@@ -134,8 +186,19 @@ function installAliases(nitro: Nitro): void {
   nitro.options.alias["@vitehub/chat"] = resolveRuntimeEntry("../index", "@vitehub/chat")
   nitro.options.alias["@vitehub/chat/cloudflare"] = resolveRuntimeEntry("../cloudflare", "@vitehub/chat/cloudflare")
   nitro.options.alias["@vitehub/chat/nitro"] = resolveRuntimeEntry("../nitro", "@vitehub/chat/nitro")
+  nitro.options.alias["@vitehub/chat/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vitehub/chat/runtime/nitro-runtime-config")
   nitro.options.alias["@vitehub/chat/runtime/nitro-plugin"] = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/chat/runtime/nitro-plugin")
   nitro.options.alias["@vitehub/chat/vercel"] = resolveRuntimeEntry("../vercel", "@vitehub/chat/vercel")
+}
+
+async function installEnvRuntimeConfigBridge(nitro: Nitro): Promise<void> {
+  if (!nitro.options.alias?.["#vitehub/env/server"]) {
+    return
+  }
+
+  const bridgeFile = createNitroChatRuntimeConfigBridgePath(nitro.options.rootDir, nitro.options.buildDir)
+  await writeFileIfChanged(bridgeFile, createViteHubEnvRuntimeConfigBridgeContents())
+  nitro.options.alias["@vitehub/chat/runtime/nitro-runtime-config"] = bridgeFile
 }
 
 function installNitroPlugin(nitro: Nitro): void {
@@ -187,8 +250,18 @@ async function installCloudflareStateConfig(
   }
 
   if (durableObjectState) {
-    if (durableObjectState.autoWrangler) {
-      configureCloudflareChatState(nitro.options, durableObjectState)
+    const config = {
+      ...durableObjectState,
+      name: await resolveCloudflareDurableObjectStateName(nitro, durableObjectState.name),
+    }
+    setCloudflareDurableObjectRuntimeConfig(options, config)
+
+    if (config.autoWrangler) {
+      configureCloudflareChatState(nitro.options, {
+        binding: config.binding,
+        className: config.className,
+        migrationTag: config.migrationTag,
+      })
     }
     return
   }
@@ -197,8 +270,21 @@ async function installCloudflareStateConfig(
     return
   }
 
+  const name = await resolveCloudflareDurableObjectStateName(nitro)
+  setCloudflareDurableObjectRuntimeConfig(options, {
+    autoWrangler: true,
+    binding: "CHAT_STATE",
+    className: "ChatStateDO",
+    migrationTag: "v1",
+    name,
+  })
+
   for (const config of await discoverCloudflareChatStateConfig(definitions)) {
-    configureCloudflareChatState(nitro.options, config)
+    configureCloudflareChatState(nitro.options, {
+      binding: config.binding,
+      className: config.className,
+      migrationTag: config.migrationTag,
+    })
   }
 }
 
@@ -211,6 +297,7 @@ const chatNitroModule: NitroModule = {
     runtimeConfig.chat = resolved || false
 
     installAliases(nitro)
+    await installEnvRuntimeConfigBridge(nitro)
     installNitroPlugin(nitro)
     installExternals(nitro)
 
@@ -259,6 +346,7 @@ declare module "nitro/types" {
     chat?: false | ChatModuleOptions
     cloudflare?: Record<string, unknown> & {
       wrangler?: Record<string, unknown> & {
+        name?: string
         durable_objects?: Record<string, unknown> & {
           bindings?: Array<{ class_name: string, name: string }>
         }

@@ -50,6 +50,7 @@ function createNitroStub(rootDir: string, chat: unknown = {}) {
       chat,
       cloudflare: undefined as undefined | {
         wrangler?: {
+          name?: string
           durable_objects?: { bindings?: Array<{ class_name: string, name: string }> }
           migrations?: Array<{ new_sqlite_classes?: string[], tag: string }>
         }
@@ -106,12 +107,13 @@ describe("defineChatWebhookHandler", () => {
   it("exposes runtime config, Cloudflare runtime, and lifecycle hooks", async () => {
     const { defineChat } = await import("../src/index.ts")
     const { defineChatWebhookHandler } = await import("../src/nitro.ts")
-    runtimeConfigMock.value = { telegram: { token: "secret" } }
+    runtimeConfigMock.value = { chat: { cloudflare: { durableObjectState: { name: "quiver-chat" } } }, telegram: { token: "secret" } }
     const calls: string[] = []
     const webhook = vi.fn(() => new Response("ok"))
     const adapters = vi.fn((context) => {
       expect(context.runtimeConfig).toBe(runtimeConfigMock.value)
       expect(context.cloudflare?.env?.CHAT_STATE).toBe("namespace")
+      expect(context.cloudflare?.durableObjectStateName).toBe("quiver-chat")
       expect(context.memo("value", () => "created")).toBe("created")
       expect(context.memo("value", () => "other")).toBe("created")
       return {}
@@ -342,6 +344,7 @@ describe("Nitro module", () => {
     })
     expect(nitro.options.alias["@vitehub/chat"]).toContain("/packages/chat/src/index.ts")
     expect(nitro.options.alias["@vitehub/chat/nitro"]).toContain("/packages/chat/src/nitro.ts")
+    expect(nitro.options.alias["@vitehub/chat/runtime/nitro-runtime-config"]).toContain("/packages/chat/src/runtime/nitro-runtime-config.ts")
     expect(nitro.options.plugins.some(plugin => plugin.includes("/packages/chat/src/runtime/nitro-plugin.ts"))).toBe(true)
     expect(nitro.options.externals.inline).toEqual(expect.arrayContaining(["@vitehub/chat", "chat", "chat-state-cloudflare-do"]))
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChat")
@@ -355,11 +358,34 @@ describe("Nitro module", () => {
         migrations: [{ new_sqlite_classes: ["ChatStateDO"], tag: "v1" }],
       },
     })
+    expect(nitro.options.runtimeConfig.chat).toMatchObject({
+      cloudflare: {
+        durableObjectState: {
+          name: "default",
+        },
+      },
+    })
 
     const routeFile = nitro.options.handlers[0]!.handler
     const routeContents = await readFile(routeFile, "utf8")
     expect(routeContents).toContain("defineChatWebhookHandler(chat")
     expect(routeContents).toContain("inferredName: \"chat\"")
+  })
+
+  it("uses @vitehub/env safe runtime config when the env Nitro module is installed", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-env-"))
+    await writeSingleChat(rootDir, [
+      `export default defineChat({ state: {}, adapters: {} })`,
+    ].join("\n"))
+    const nitro = createNitroStub(rootDir)
+    nitro.options.alias["#vitehub/env/server"] = "/virtual/vitehub-env-server"
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    const runtimeConfigBridge = nitro.options.alias["@vitehub/chat/runtime/nitro-runtime-config"]
+    expect(runtimeConfigBridge).toContain(".vitehub/nitro-runtime/chat/runtime-config.mjs")
+    expect(await readFile(runtimeConfigBridge, "utf8")).toContain(`from "#vitehub/env/server"`)
   })
 
   it("honors custom Cloudflare DO config discovered from the chat definition", async () => {
@@ -382,6 +408,52 @@ describe("Nitro module", () => {
           bindings: [{ class_name: "CustomChatStateDO", name: "CUSTOM_STATE" }],
         },
         migrations: [{ new_sqlite_classes: ["CustomChatStateDO"], tag: "v2" }],
+      },
+    })
+  })
+
+  it("uses cloudflare.wrangler.name as the default Durable Object state name", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-wrangler-name-"))
+    await writeSingleChat(rootDir, [
+      `import { cloudflareDurableObjectState } from "@vitehub/chat/cloudflare"`,
+      `export default defineChat({ state: cloudflareDurableObjectState(), adapters: {} })`,
+    ].join("\n"))
+    const nitro = createNitroStub(rootDir)
+    nitro.options.cloudflare = {
+      wrangler: {
+        name: "wrangler-chat",
+      },
+    }
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.runtimeConfig.chat).toMatchObject({
+      cloudflare: {
+        durableObjectState: {
+          name: "wrangler-chat",
+        },
+      },
+    })
+  })
+
+  it("falls back to package.json name as the default Durable Object state name", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-package-name-"))
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({ name: "package-chat" }), "utf8")
+    await writeSingleChat(rootDir, [
+      `import { cloudflareDurableObjectState } from "@vitehub/chat/cloudflare"`,
+      `export default defineChat({ state: cloudflareDurableObjectState(), adapters: {} })`,
+    ].join("\n"))
+    const nitro = createNitroStub(rootDir)
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.runtimeConfig.chat).toMatchObject({
+      cloudflare: {
+        durableObjectState: {
+          name: "package-chat",
+        },
       },
     })
   })

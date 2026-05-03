@@ -57,15 +57,15 @@ export function configureCloudflareChatState(
 
 const cloudflareDurableObjectStateCall = "cloudflareDurableObjectState"
 
-function readStringOption(source: string, key: "binding" | "className" | "migrationTag"): string | undefined {
+function readStringOption(source: string, key: "binding" | "className" | "migrationTag" | "name"): string | undefined {
   const match = new RegExp(`\\b${key}\\s*:\\s*["']([^"']+)["']`).exec(source)
   return match?.[1]
 }
 
 export async function discoverCloudflareChatStateConfig(
   definitions: DiscoveredChatDefinition[],
-): Promise<Array<Required<Pick<ChatCloudflareDurableObjectModuleOptions, "binding" | "className" | "migrationTag">>>> {
-  const configs = new Map<string, Required<Pick<ChatCloudflareDurableObjectModuleOptions, "binding" | "className" | "migrationTag">>>()
+): Promise<Array<Required<Pick<ChatCloudflareDurableObjectModuleOptions, "binding" | "className" | "migrationTag">> & Pick<ChatCloudflareDurableObjectModuleOptions, "name">>> {
+  const configs = new Map<string, Required<Pick<ChatCloudflareDurableObjectModuleOptions, "binding" | "className" | "migrationTag">> & Pick<ChatCloudflareDurableObjectModuleOptions, "name">>()
 
   for (const definition of definitions) {
     const contents = await readFile(definition.handler, "utf8")
@@ -79,6 +79,7 @@ export async function discoverCloudflareChatStateConfig(
       binding: readStringOption(callContents, "binding") || defaultChatCloudflareDurableObjectState.binding,
       className: readStringOption(callContents, "className") || defaultChatCloudflareDurableObjectState.className,
       migrationTag: readStringOption(callContents, "migrationTag") || defaultChatCloudflareDurableObjectState.migrationTag,
+      name: readStringOption(callContents, "name"),
     }
     configs.set(config.binding, config)
   }
