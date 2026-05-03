@@ -82,18 +82,18 @@ async function copyWorkspacePath(workspace: WritableShellWorkspace, from: string
     return
   }
 
-  await workspace.mkdir(to, { recursive: true })
   const entries = await workspace.list(from, { recursive: true })
   const directories = entries.filter(entry => entry.type === "directory").sort((left, right) => left.path.length - right.path.length)
   const files = entries.filter(entry => entry.type === "file").sort((left, right) => left.path.localeCompare(right.path))
 
+  await workspace.mkdir(to, { recursive: true })
   for (const entry of directories) {
-    const relativePath = entry.path.slice(from.length + 1)
+    const relativePath = from ? entry.path.slice(from.length + 1) : entry.path
     await workspace.mkdir(posix.join(to, relativePath), { recursive: true })
   }
 
   for (const entry of files) {
-    const relativePath = entry.path.slice(from.length + 1)
+    const relativePath = from ? entry.path.slice(from.length + 1) : entry.path
     await workspace.writeFile(posix.join(to, relativePath), await workspace.readFile(entry.path, { encoding: "binary" }))
   }
 }
@@ -265,8 +265,8 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   #resolveAbsolute(path: string) {
     const normalized = normalizeInputPath(path || workspaceMountPoint)
     if (normalized === "/" || normalized === workspaceMountPoint) return workspaceMountPoint
-    const absolute = normalized.startsWith("/") ? normalized : `${workspaceMountPoint}/${normalized}`
-    if (absolute === workspaceMountPoint || absolute.startsWith(`${workspaceMountPoint}/`)) return normalizeAbsolutePath(absolute)
+    const absolute = normalizeAbsolutePath(normalized.startsWith("/") ? normalized : `${workspaceMountPoint}/${normalized}`)
+    if (absolute === workspaceMountPoint || absolute.startsWith(`${workspaceMountPoint}/`)) return absolute
     throw createEscapeError(path)
   }
 

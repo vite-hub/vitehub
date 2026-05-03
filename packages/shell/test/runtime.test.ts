@@ -173,6 +173,17 @@ describe("@vitehub/shell just-bash runtime", () => {
     })
   })
 
+  it("keeps resolved paths inside the workspace mount after normalization", async () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+    })
+    const fs = createReadonlyWorkspaceFs(workspace)
+
+    expect(fs.resolvePath("/workspace/models", "../README.md")).toBe("/workspace/README.md")
+    expect(() => fs.resolvePath("/workspace/../outside", ".")).toThrow("[vitehub] Workspace path escapes the workspace root")
+    expect(() => fs.resolvePath("/workspace/models", "../../outside")).toThrow("[vitehub] Workspace path escapes the workspace root")
+  })
+
   it("rejects newlines as shell command separators", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
@@ -202,12 +213,18 @@ describe("@vitehub/shell just-bash runtime", () => {
   it("exposes writable filesystem adapters", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
+      "models/orders.sql": "select * from orders\n",
     })
     const fs = createWritableWorkspaceFs(workspace)
 
     await fs.writeFile("/workspace/notes.md", "notes\n")
     await fs.appendFile("/workspace/notes.md", "more\n")
     await expect(fs.readFile("/workspace/notes.md")).resolves.toBe("notes\nmore\n")
+
+    await fs.cp("/workspace", "/workspace/copy")
+    await expect(fs.readFile("/workspace/copy/README.md")).resolves.toBe("# Docs\n")
+    await expect(fs.readFile("/workspace/copy/models/orders.sql")).resolves.toBe("select * from orders\n")
+    await expect(workspace.exists("copy/opy")).resolves.toBe(false)
   })
 
   it("runs workspace inspection policy and search through shell", async () => {
