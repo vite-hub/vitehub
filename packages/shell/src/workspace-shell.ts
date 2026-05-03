@@ -19,7 +19,7 @@ interface WorkspaceInspectionCommandOptions {
 export function cleanWorkspaceShellPath(path = "."): string {
   let normalized = path.trim() || "."
   if (normalized === "." || normalized === "./" || normalized === "/" || normalized === workspaceMountPoint) return ""
-  normalized = normalized.replace(/^\/workspace\/?/, "")
+  normalized = normalized.replace(/^\/workspace(\/|$)/, "")
   return normalizeSafeShellPath(normalized)
 }
 
