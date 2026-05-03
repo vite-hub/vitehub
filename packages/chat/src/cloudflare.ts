@@ -13,7 +13,6 @@ import type {
   CloudflareDurableObjectStateOptions,
 } from "./types.ts"
 
-export { ChatStateDO } from "chat-state-cloudflare-do"
 export type { CloudflareExportedHandlerFetchHandler } from "./types.ts"
 
 type WebhookHandler = (request: Request, options?: WebhookOptions) => unknown
