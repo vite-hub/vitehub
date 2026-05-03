@@ -103,14 +103,19 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     const files = await this.#listBlobs(normalizedPrefix ? `${filePrefix}/` : `${this.#fileKey("", { allowEmpty: true })}/`)
     const entries = new Map<string, WorkspaceEntry>()
 
+    const fileKeyRoot = `${this.#fileKey("", { allowEmpty: true })}/`
     for (const blob of files) {
-      const path = normalizeWorkspacePath(blob.pathname.slice(`${this.#fileKey("", { allowEmpty: true })}/`.length))
+      const path = normalizeWorkspacePath(blob.pathname.slice(fileKeyRoot.length))
       if (!path) continue
       if (normalizedPrefix && !path.startsWith(`${normalizedPrefix}/`)) continue
-      if (!options.recursive && normalizedPrefix && path.slice(normalizedPrefix.length + 1).includes("/")) continue
-      if (!options.recursive && !normalizedPrefix && path.includes("/")) {
-        entries.set(path.split("/")[0]!, { path: path.split("/")[0]!, type: "directory" })
-        continue
+      if (!options.recursive) {
+        const relative = normalizedPrefix ? path.slice(normalizedPrefix.length + 1) : path
+        if (relative.includes("/")) {
+          const dirName = relative.split("/")[0]!
+          const dirPath = normalizedPrefix ? `${normalizedPrefix}/${dirName}` : dirName
+          entries.set(dirPath, { path: dirPath, type: "directory" })
+          continue
+        }
       }
 
       const bytes = await this.#readBytes(path)
