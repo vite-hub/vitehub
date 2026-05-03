@@ -1,0 +1,241 @@
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const runtimeConfigMock = vi.hoisted(() => ({
+  value: {} as Record<string, unknown>,
+}))
+
+vi.mock("nitro/runtime-config", () => ({
+  useRuntimeConfig: () => runtimeConfigMock.value,
+}))
+
+beforeEach(() => {
+  runtimeConfigMock.value = {}
+})
+
+function createEvent(platform: string | undefined, waitUntil = vi.fn()) {
+  return {
+    context: {
+      cloudflare: {
+        context: { waitUntil },
+        env: { CHAT_STATE: "namespace" },
+      },
+      params: platform ? { platform } : {},
+    },
+    req: new Request("https://example.com/api/webhooks/telegram", { method: "POST" }),
+    waitUntil,
+  }
+}
+
+function createNitroStub(rootDir: string, chat: unknown = {}) {
+  const hooks: Record<string, Function[]> = {}
+  return {
+    hooks: {
+      hook(name: string, handler: Function) {
+        hooks[name] ||= []
+        hooks[name]?.push(handler)
+      },
+    },
+    logger: {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    },
+    options: {
+      alias: {} as Record<string, string>,
+      buildDir: ".nitro",
+      chat,
+      cloudflare: undefined as undefined | {
+        wrangler?: {
+          durable_objects?: { bindings?: Array<{ class_name: string, name: string }> }
+          migrations?: Array<{ new_sqlite_classes?: string[], tag: string }>
+        }
+      },
+      handlers: [] as Array<{ handler: string, method?: string, route: string }>,
+      imports: {},
+      output: {
+        serverDir: join(rootDir, ".output", "server"),
+      },
+      plugins: [] as string[],
+      preset: "cloudflare-module",
+      rootDir,
+      runtimeConfig: {} as Record<string, unknown>,
+    },
+    testHooks: hooks,
+  }
+}
+
+describe("defineChatWebhookHandler", () => {
+  it("uses the route platform and forwards Nitro waitUntil", async () => {
+    const { defineChatWebhookHandler } = await import("../src/nitro.ts")
+    const waitUntil = vi.fn()
+    const task = Promise.resolve()
+    const webhook = vi.fn((_request: Request, options: { waitUntil: (promise: Promise<unknown>) => void }) => {
+      options.waitUntil(task)
+      return new Response("ok")
+    })
+    const handler = defineChatWebhookHandler({
+      webhooks: { telegram: webhook },
+    } as never)
+
+    const response = await handler(createEvent("telegram", waitUntil) as never)
+
+    expect(response).toBeInstanceOf(Response)
+    expect(webhook).toHaveBeenCalledWith(expect.any(Request), expect.objectContaining({ waitUntil: expect.any(Function) }))
+    expect(waitUntil).toHaveBeenCalledWith(task)
+  })
+
+  it("exposes runtime config, Cloudflare runtime, and lifecycle hooks", async () => {
+    const { defineChatWebhookHandler } = await import("../src/nitro.ts")
+    runtimeConfigMock.value = { telegram: { token: "secret" } }
+    const calls: string[] = []
+    const webhook = vi.fn(() => new Response("ok"))
+    const bot = { webhooks: { telegram: webhook } }
+    const create = vi.fn((context) => {
+      expect(context.runtimeConfig).toBe(runtimeConfigMock.value)
+      expect(context.cloudflare?.env?.CHAT_STATE).toBe("namespace")
+      expect(context.memo("value", () => "created")).toBe("created")
+      expect(context.memo("value", () => "other")).toBe("created")
+      return bot
+    })
+    const handler = defineChatWebhookHandler({ create } as never, {
+      hooks: {
+        request: () => {
+          calls.push("request")
+        },
+        resolved: (context) => {
+          calls.push("resolved")
+          expect(context.bot).toBe(bot)
+        },
+        webhook: (context) => {
+          calls.push("webhook")
+          expect(context.bot).toBe(bot)
+        },
+      },
+    })
+
+    await handler(createEvent("telegram") as never)
+
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(calls).toEqual(["request", "resolved", "webhook"])
+  })
+
+  it("supports a fixed platform option", async () => {
+    const { defineChatWebhookHandler } = await import("../src/nitro.ts")
+    const webhook = vi.fn(() => new Response("ok"))
+    const handler = defineChatWebhookHandler({
+      webhooks: { telegram: webhook },
+    } as never, { platform: "telegram" })
+
+    await handler(createEvent(undefined) as never)
+
+    expect(webhook).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns a clear 404 for unknown platforms and calls error hooks", async () => {
+    const { defineChatWebhookHandler } = await import("../src/nitro.ts")
+    const onError = vi.fn()
+    const handler = defineChatWebhookHandler({ webhooks: {} } as never, {
+      hooks: { error: onError },
+    })
+
+    await expect(handler(createEvent("missing") as never)).rejects.toMatchObject({
+      status: 404,
+      statusMessage: "Unknown chat platform: missing",
+    })
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ statusMessage: "Unknown chat platform: missing" }), expect.any(Object))
+  })
+})
+
+describe("Nitro module", () => {
+  it("merges Cloudflare DO config idempotently", async () => {
+    const { configureCloudflareChatState } = await import("../src/integrations/cloudflare.ts")
+    const target = {
+      cloudflare: {
+        wrangler: {
+          durable_objects: {
+            bindings: [{ class_name: "ChatStateDO", name: "CHAT_STATE" }],
+          },
+          migrations: [{ new_sqlite_classes: ["ChatStateDO"], tag: "v1" }],
+        },
+      },
+    }
+
+    configureCloudflareChatState(target, {
+      binding: "CHAT_STATE",
+      className: "ChatStateDO",
+      migrationTag: "v1",
+    })
+
+    expect(target.cloudflare.wrangler.durable_objects.bindings).toEqual([
+      { class_name: "ChatStateDO", name: "CHAT_STATE" },
+    ])
+    expect(target.cloudflare.wrangler.migrations).toEqual([
+      { new_sqlite_classes: ["ChatStateDO"], tag: "v1" },
+    ])
+  })
+
+  it("wires defaults, generated route, aliases, imports, runtime config, plugin, and Cloudflare DO config", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-"))
+    const nitro = createNitroStub(rootDir, {
+      cloudflare: {
+        durableObjectState: {},
+      },
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.runtimeConfig.chat).toMatchObject({
+      entry: "server/chat.ts",
+      imports: true,
+      route: "/api/webhooks/[platform]",
+    })
+    expect(nitro.options.handlers).toHaveLength(1)
+    expect(nitro.options.handlers[0]).toMatchObject({
+      method: "POST",
+      route: "/api/webhooks/:platform",
+    })
+    expect(nitro.options.alias["@vitehub/chat"]).toContain("/packages/chat/src/index.ts")
+    expect(nitro.options.alias["@vitehub/chat/nitro"]).toContain("/packages/chat/src/nitro.ts")
+    expect(nitro.options.plugins.some(plugin => plugin.includes("/packages/chat/src/runtime/nitro-plugin.ts"))).toBe(true)
+    expect(JSON.stringify(nitro.options.imports)).toContain("defineChat")
+    expect(JSON.stringify(nitro.options.imports)).toContain("defineChatWebhookHandler")
+    expect(nitro.options.cloudflare).toMatchObject({
+      wrangler: {
+        durable_objects: {
+          bindings: [{ class_name: "ChatStateDO", name: "CHAT_STATE" }],
+        },
+        migrations: [{ new_sqlite_classes: ["ChatStateDO"], tag: "v1" }],
+      },
+    })
+
+    const routeFile = nitro.options.handlers[0]!.handler
+    expect(await readFile(routeFile, "utf8")).toContain("defineChatWebhookHandler(chat)")
+
+    await mkdir(nitro.options.output.serverDir, { recursive: true })
+    await writeFile(join(nitro.options.output.serverDir, "index.mjs"), "export default {}\n")
+    await nitro.testHooks.compiled?.[0]?.(nitro)
+    expect(await readFile(join(nitro.options.output.serverDir, "index.mjs"), "utf8")).toContain(
+      `export { ChatStateDO } from "chat-state-cloudflare-do";`,
+    )
+  })
+
+  it("honors disabled route and imports", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-disabled-"))
+    const nitro = createNitroStub(rootDir, {
+      imports: false,
+      route: false,
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.handlers).toHaveLength(0)
+    expect(nitro.options.imports).toEqual({})
+    expect(nitro.options.plugins.some(plugin => plugin.includes("/packages/chat/src/runtime/nitro-plugin.ts"))).toBe(true)
+  })
+})
