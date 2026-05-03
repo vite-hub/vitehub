@@ -22,8 +22,12 @@
   "sideEffects": false,
   "type": "module",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "vitehub-chat": "./dist/cli.js"
+  },
   "exports": {
     ".": "./dist/index.js",
+    "./cli": "./dist/cli.js",
     "./cloudflare": "./dist/cloudflare.js",
     "./nitro": "./dist/nitro.js",
     "./runtime/cloudflare-workers-dev": "./dist/runtime/cloudflare-workers-dev.js",

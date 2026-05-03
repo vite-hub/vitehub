@@ -9,6 +9,7 @@ export default defineConfig({
   dts: true,
   entry: [
     "src/index.ts",
+    "src/cli.ts",
     "src/cloudflare.ts",
     "src/nitro.ts",
     "src/runtime/cloudflare-workers-dev.ts",

@@ -1,6 +1,5 @@
 import {
   createWorkspaceTools,
-  type EnabledReadCapability,
   type ShellEnabled,
   type WorkspaceReadOperations,
   type WorkspaceShellResult,
