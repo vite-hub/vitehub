@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
+import { gzipSync } from "node:zlib"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -31,11 +32,50 @@ function jsonResponse(value: unknown, status = 200) {
   })
 }
 
-function stubGitHubSource(files: Record<string, string>, status = 200) {
+interface StubGitHubSourceOptions {
+  apiStatus?: number
+  archiveStatus?: number
+}
+
+function createTarGz(files: Record<string, string>) {
+  const blocks: Buffer[] = []
+  for (const [path, value] of Object.entries(files)) {
+    const content = Buffer.from(value)
+    const header = Buffer.alloc(512)
+    header.write(`archive-main/${path}`, 0, 100)
+    header.write("0000644\0", 100, 8)
+    header.write("0000000\0", 108, 8)
+    header.write("0000000\0", 116, 8)
+    header.write(`${content.length.toString(8).padStart(11, "0")}\0`, 124, 12)
+    header.write("00000000000\0", 136, 12)
+    header.fill(" ", 148, 156)
+    header.write("0", 156, 1)
+    header.write("ustar\0", 257, 6)
+    header.write("00", 263, 2)
+    const checksum = [...header].reduce((sum, byte) => sum + byte, 0)
+    header.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148, 8)
+    blocks.push(header, content)
+    const padding = (512 - (content.length % 512)) % 512
+    if (padding) blocks.push(Buffer.alloc(padding))
+  }
+  blocks.push(Buffer.alloc(1024))
+  return gzipSync(Buffer.concat(blocks))
+}
+
+function stubGitHubSource(files: Record<string, string>, options: StubGitHubSourceOptions | number = 200) {
+  const apiStatus = typeof options === "number" ? options : options.apiStatus ?? 200
+  const archiveStatus = typeof options === "number" ? options : options.archiveStatus ?? 200
+
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
     const requestUrl = String(url)
-    if (status !== 200) {
-      return jsonResponse({ message: "not found" }, status)
+
+    if (requestUrl.startsWith("https://codeload.github.com/")) {
+      if (archiveStatus !== 200) return new Response("not found", { status: archiveStatus })
+      return new Response(createTarGz(files))
+    }
+
+    if (apiStatus !== 200) {
+      return jsonResponse({ message: "not found" }, apiStatus)
     }
 
     if (requestUrl.includes("/git/trees/")) {
@@ -102,6 +142,25 @@ describe("sources, loaders, and publishers", () => {
       "models/marts/orders.sql",
       "macros/date_spine.sql",
     ])
+  })
+
+  it("falls back to GitHub archives when the public tree API is rate limited", async () => {
+    stubGitHubSource({
+      "dbt/models/marts/orders.sql": "select 1\n",
+      "docs/README.md": "# Docs\n",
+    }, { apiStatus: 403 })
+
+    const githubSource = source.github({
+      repo: "acme/app",
+      root: "dbt",
+    })
+
+    await expect(githubSource.getKeys({ rootDir: "", workspace: "github-archive" })).resolves.toEqual([
+      "models/marts/orders.sql",
+    ])
+    const item = await githubSource.getItem("models/marts/orders.sql", { rootDir: "", workspace: "github-archive" })
+    expect(item.key).toBe("models/marts/orders.sql")
+    expect(Buffer.from(item.content as Uint8Array).toString("utf8")).toBe("select 1\n")
   })
 
   it("loads GitHub file bytes and writes them through the files loader", async () => {

@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer"
+import { gunzipSync } from "node:zlib"
 
 import { WorkspaceError } from "../errors.ts"
 import { matchesAny, normalizeWorkspacePath } from "../path.ts"
@@ -33,9 +34,15 @@ interface GitHubContentResponse {
 }
 
 interface GitHubFile {
+  content?: Uint8Array
   key: string
   path: string
   sha: string | undefined
+}
+
+interface GitHubArchiveFile {
+  content: Uint8Array
+  path: string
 }
 
 export function github(options: GitHubSourceOptions): WorkspaceSource {
@@ -77,7 +84,7 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
     return true
   }
 
-  async function loadFiles() {
+  async function loadTreeFiles() {
     const tree = await request<GitHubTreeResponse>(
       `https://api.github.com/repos/${options.repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
     )
@@ -100,6 +107,48 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       .filter((file): file is GitHubFile => Boolean(file))
   }
 
+  async function loadArchiveFiles() {
+    const response = await fetch(`https://codeload.github.com/${options.repo}/tar.gz/${encodeURIComponent(ref)}`, {
+      headers: {
+        "user-agent": "vitehub-workspace",
+      },
+    })
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not access the repository or ref ${JSON.stringify(ref)}. Check that the repo exists and the ref exists.`)
+      }
+      throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) archive request failed with ${response.status}.`)
+    }
+
+    return parseGitHubArchive(new Uint8Array(await response.arrayBuffer()))
+      .map((entry): GitHubFile | undefined => {
+        const key = keyForRepoPath(entry.path)
+        if (!key || !shouldInclude(key)) return undefined
+        return {
+          content: entry.content,
+          key,
+          path: key,
+          sha: undefined,
+        }
+      })
+      .filter((file): file is GitHubFile => Boolean(file))
+  }
+
+  async function loadFiles() {
+    if (options.auth) return await loadTreeFiles()
+
+    try {
+      return await loadTreeFiles()
+    }
+    catch (error) {
+      if (error instanceof WorkspaceError && error.message.includes(" request failed with 403 ")) {
+        return await loadArchiveFiles()
+      }
+      throw error
+    }
+  }
+
   function getFiles() {
     if (!filesPromise) filesPromise = loadFiles()
     return filesPromise
@@ -109,7 +158,9 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
     return root ? `${root}/${key}` : key
   }
 
-  function fetchContent(key: string) {
+  function fetchContent(key: string, file: GitHubFile) {
+    if (file.content) return Promise.resolve(file.content)
+
     const repoPath = repoPathForKey(key)
     const encodedPath = encodeURIComponent(repoPath).replaceAll("%2F", "/")
     if (!options.auth) {
@@ -163,7 +214,7 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       if (!file) {
         throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
       }
-      const contentPromise = contentPromises.get(key) || fetchContent(key)
+      const contentPromise = contentPromises.get(key) || fetchContent(key, file)
       contentPromises.set(key, contentPromise)
       return {
         key,
@@ -172,4 +223,72 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       }
     },
   }
+}
+
+function parseGitHubArchive(bytes: Uint8Array) {
+  const tar = gunzipSync(bytes)
+  const files: GitHubArchiveFile[] = []
+  let offset = 0
+  let paxPath: string | undefined
+
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512)
+    if (header.every(byte => byte === 0)) break
+
+    const name = readTarString(header, 0, 100)
+    const prefix = readTarString(header, 345, 155)
+    const path = paxPath || [prefix, name].filter(Boolean).join("/")
+    const size = Number.parseInt(readTarString(header, 124, 12).trim() || "0", 8) || 0
+    const type = String.fromCharCode(header[156] || 0)
+    const contentStart = offset + 512
+    const contentEnd = contentStart + size
+    const content = tar.subarray(contentStart, contentEnd)
+
+    if (type === "x") {
+      paxPath = readPaxPath(content)
+    }
+    else {
+      if (type === "0" || type === "\0") {
+        const entryPath = stripArchiveRoot(path)
+        if (entryPath) {
+          files.push({
+            content: new Uint8Array(content),
+            path: entryPath,
+          })
+        }
+      }
+      paxPath = undefined
+    }
+
+    offset = contentStart + Math.ceil(size / 512) * 512
+  }
+
+  return files
+}
+
+function readTarString(buffer: Uint8Array, offset: number, length: number) {
+  const slice = buffer.subarray(offset, offset + length)
+  const end = slice.indexOf(0)
+  return Buffer.from(end === -1 ? slice : slice.subarray(0, end)).toString("utf8")
+}
+
+function readPaxPath(content: Uint8Array) {
+  const text = Buffer.from(content).toString("utf8")
+  let index = 0
+  while (index < text.length) {
+    const space = text.indexOf(" ", index)
+    if (space === -1) return
+    const length = Number.parseInt(text.slice(index, space), 10)
+    if (!length) return
+    const record = text.slice(space + 1, index + length - 1)
+    const equals = record.indexOf("=")
+    if (equals !== -1 && record.slice(0, equals) === "path") return record.slice(equals + 1)
+    index += length
+  }
+}
+
+function stripArchiveRoot(path: string) {
+  const slash = path.indexOf("/")
+  if (slash === -1) return
+  return normalizeWorkspacePath(path.slice(slash + 1))
 }
