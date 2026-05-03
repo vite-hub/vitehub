@@ -132,11 +132,11 @@ describe("Vite plugin", () => {
 
   it("exposes hubChat options through Vite config", async () => {
     const { hubChat } = await import("../src/vite.ts")
-    const plugin = hubChat({ route: "/api/webhooks/[platform]" })
+    const plugin = hubChat({ webhook: "/api/webhooks/[platform]" })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
-    expect(result).toEqual({ chat: { route: "/api/webhooks/[platform]" } })
+    expect(result).toEqual({ chat: { webhook: "/api/webhooks/[platform]" } })
   })
 })

@@ -16,6 +16,7 @@ import type {
   ChatRuntimeContext,
   DefineChatOptions,
   MaybeResolvable,
+  ResolveChatOptions,
 } from "./types.ts"
 import type { ActionEvent, Adapter, ChatConfig, Message, ModalSubmitEvent, ReactionEvent, StateAdapter } from "chat"
 
@@ -42,9 +43,12 @@ export type {
   ChatRuntimeName,
   ChatWaitUntil,
   ChatWebhookHandlerOptions,
+  ChatWebhookModuleOptions,
+  ChatWebhookRegistryHandlerOptions,
   ChatWebhookRuntimeHooks,
   CloudflareDurableObjectStateOptions,
   DefineChatOptions,
+  DiscoveredChatDefinition,
   MaybePromise,
   MaybeResolvable,
   Message,
@@ -52,6 +56,7 @@ export type {
   ModalSubmitEvent,
   ReactionEvent,
   Resolvable,
+  ResolveChatOptions,
   ResolvedChatModuleOptions,
   StateAdapter,
   Thread,
@@ -251,6 +256,7 @@ function registerChatHooks<TRuntimeConfig>(
 async function createChat<TRuntimeConfig>(
   options: DefineChatOptions<TRuntimeConfig>,
   context: ChatRuntimeContext<TRuntimeConfig>,
+  resolveOptions: ResolveChatOptions = {},
 ) {
   const adapters = await resolveAdapters(options.adapters, context)
   const state = await resolveValue(options.state, context)
@@ -260,12 +266,19 @@ async function createChat<TRuntimeConfig>(
     lifecycleHooks: _lifecycleHooks,
     setup,
     state: _state,
+    userName: _userName,
     ...chatOptions
   } = options
+  const userName = options.userName || resolveOptions.inferredName
+  if (!userName) {
+    throw new Error("Missing chat userName. Set userName in defineChat() or place the definition in a discovered chat file such as server/chats/bot.ts.")
+  }
+
   const bot = new Chat({
     ...(chatOptions as Omit<ChatConfig, "adapters" | "state">),
     adapters,
     state: state as StateAdapter,
+    userName,
   })
 
   registerChatHooks(bot, context.runtimeConfig, hooks)
@@ -279,8 +292,9 @@ export function defineChat<TRuntimeConfig = unknown>(
   const memoKey = `vitehub:chat:${++definitionId}`
   return {
     lifecycleHooks: options.lifecycleHooks,
-    resolve(context) {
-      return context.memo(memoKey, () => createChat(options, context))
+    resolve(context, resolveOptions) {
+      const nameKey = resolveOptions?.inferredName || options.userName || "anonymous"
+      return context.memo(`${memoKey}:${nameKey}`, () => createChat(options, context, resolveOptions))
     },
   }
 }
@@ -288,10 +302,11 @@ export function defineChat<TRuntimeConfig = unknown>(
 export async function resolveChat<TContext extends ChatRuntimeContext>(
   chat: ChatInput<TContext>,
   context: TContext,
+  options?: ResolveChatOptions,
 ): Promise<Chat> {
   if (!isAdapterMap(chat) || !isChatDefinition(chat)) {
     return chat as Chat
   }
 
-  return await chat.resolve(context)
+  return await chat.resolve(context, options)
 }

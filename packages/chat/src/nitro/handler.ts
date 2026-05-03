@@ -9,7 +9,7 @@ import { getChatDefinitionLifecycleHooks } from "../runtime/definition.ts"
 import type { Chat, WebhookOptions } from "chat"
 import type { EventHandler, H3Event } from "h3"
 import type { NitroRuntimeConfig } from "nitro/types"
-import type { ChatInput, ChatRuntimeContext, ChatWebhookHandlerOptions, ChatWebhookRuntimeHooks, ChatWaitUntil } from "../types.ts"
+import type { ChatInput, ChatRuntimeContext, ChatWebhookHandlerOptions, ChatWebhookRegistryHandlerOptions, ChatWebhookRuntimeHooks, ChatWaitUntil } from "../types.ts"
 
 export interface NitroChatRuntimeContext extends ChatRuntimeContext {
   event: H3Event
@@ -110,7 +110,7 @@ export function defineChatWebhookHandler(
 
     try {
       await hooks.callHook("request", context)
-      const bot = await resolveChat(chat, context)
+      const bot = await resolveChat(chat, context, { inferredName: options.inferredName })
       await hooks.callHook("resolved", { ...context, bot })
 
       const handler = getChatWebhook(bot, platform)
@@ -128,5 +128,45 @@ export function defineChatWebhookHandler(
       await hooks.callHook("error", error, context)
       throw error
     }
+  })
+}
+
+type ChatRegistryModule = { default?: ChatInput<NitroChatRuntimeContext> } | ChatInput<NitroChatRuntimeContext>
+type ChatRegistry = Record<string, () => Promise<ChatRegistryModule>>
+
+function resolveRegistryModule(module: ChatRegistryModule): ChatInput<NitroChatRuntimeContext> {
+  return typeof module === "object" && module !== null && "default" in module
+    ? module.default as ChatInput<NitroChatRuntimeContext>
+    : module as ChatInput<NitroChatRuntimeContext>
+}
+
+export function defineChatWebhookRegistryHandler(
+  chats: ChatRegistry,
+  options: ChatWebhookRegistryHandlerOptions<NitroChatRuntimeContext> = {},
+): EventHandler {
+  const chatParam = options.chatParam || "chat"
+
+  return defineEventHandler(async (event) => {
+    const chatName = getRouterParam(event, chatParam)
+    if (!chatName) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `Missing chat route param: ${chatParam}`,
+      })
+    }
+
+    const loader = chats[chatName]
+    if (!loader) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: `Unknown chat: ${chatName}`,
+      })
+    }
+
+    const chat = resolveRegistryModule(await loader())
+    return await defineChatWebhookHandler(chat, {
+      ...options,
+      inferredName: options.inferredName || chatName,
+    })(event)
   })
 }

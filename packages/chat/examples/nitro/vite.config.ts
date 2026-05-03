@@ -6,14 +6,8 @@ export default defineConfig({
   plugins: [
     hubChat({
       cloudflare: {
-        durableObjectState: {
-          binding: "CHAT_STATE",
-          className: "ChatStateDO",
-          migrationTag: "v1",
-        },
+        durableObjectState: true,
       },
-      entry: "server/chat.ts",
-      route: "/api/webhooks/[platform]",
     }),
     ...nitro({
       preset: "cloudflare_module",

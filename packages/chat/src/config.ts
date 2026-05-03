@@ -1,10 +1,32 @@
 import type { ChatModuleOptions, ResolvedChatModuleOptions } from "./types.ts"
 
-export const defaultChatEntry = "server/chat.ts"
-export const defaultChatRoute = "/api/webhooks/[platform]"
+export const defaultChatWebhookRoute = "/api/webhooks/[platform]"
+export const defaultChatWebhookChatParam = "chat"
+export const defaultChatWebhookRouteParam = "platform"
 export const defaultChatCloudflareDurableObjectBinding = "CHAT_STATE"
 export const defaultChatCloudflareDurableObjectClassName = "ChatStateDO"
 export const defaultChatCloudflareDurableObjectMigrationTag = "v1"
+export const defaultChatCloudflareDurableObjectName = "default"
+
+function normalizeWebhookOptions(webhook: ChatModuleOptions["webhook"]): ResolvedChatModuleOptions["webhook"] {
+  if (webhook === false) {
+    return false
+  }
+
+  if (typeof webhook === "string") {
+    return {
+      chatParam: defaultChatWebhookChatParam,
+      route: webhook,
+      routeParam: defaultChatWebhookRouteParam,
+    }
+  }
+
+  return {
+    chatParam: webhook?.chatParam || defaultChatWebhookChatParam,
+    route: webhook?.route || defaultChatWebhookRoute,
+    routeParam: webhook?.routeParam || defaultChatWebhookRouteParam,
+  }
+}
 
 export function normalizeChatOptions(options: ChatModuleOptions | false | undefined): false | ResolvedChatModuleOptions {
   if (options === false) {
@@ -13,19 +35,29 @@ export function normalizeChatOptions(options: ChatModuleOptions | false | undefi
 
   const durableObjectState = options?.cloudflare?.durableObjectState
   const resolved: ResolvedChatModuleOptions = {
-    entry: typeof options?.entry === "undefined" ? defaultChatEntry : options.entry,
     imports: options?.imports !== false,
-    route: typeof options?.route === "undefined" ? defaultChatRoute : options.route,
+    webhook: normalizeWebhookOptions(options?.webhook),
   }
 
-  if (durableObjectState) {
+  if (durableObjectState && durableObjectState !== true) {
     resolved.cloudflare = {
       durableObjectState: {
         autoWrangler: durableObjectState.autoWrangler !== false,
         binding: durableObjectState.binding || defaultChatCloudflareDurableObjectBinding,
         className: durableObjectState.className || defaultChatCloudflareDurableObjectClassName,
         migrationTag: durableObjectState.migrationTag || defaultChatCloudflareDurableObjectMigrationTag,
-        ...(durableObjectState.name ? { name: durableObjectState.name } : {}),
+        name: durableObjectState.name || defaultChatCloudflareDurableObjectName,
+      },
+    }
+  }
+  else if (durableObjectState === true) {
+    resolved.cloudflare = {
+      durableObjectState: {
+        autoWrangler: true,
+        binding: defaultChatCloudflareDurableObjectBinding,
+        className: defaultChatCloudflareDurableObjectClassName,
+        migrationTag: defaultChatCloudflareDurableObjectMigrationTag,
+        name: defaultChatCloudflareDurableObjectName,
       },
     }
   }

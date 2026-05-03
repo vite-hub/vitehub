@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -67,6 +67,13 @@ function createNitroStub(rootDir: string, chat: unknown = {}) {
     },
     testHooks: hooks,
   }
+}
+
+async function writeChat(rootDir: string, name: string, contents = "export default {}") {
+  const file = join(rootDir, "server", "chats", `${name}.ts`)
+  await mkdir(join(rootDir, "server", "chats"), { recursive: true })
+  await writeFile(file, contents, "utf8")
+  return file
 }
 
 describe("defineChatWebhookHandler", () => {
@@ -249,6 +256,28 @@ describe("defineChatWebhookHandler", () => {
 })
 
 describe("Nitro module", () => {
+  it("discovers Vite suffix and Nitro server chat definitions", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-discovery-"))
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await writeFile(join(rootDir, "src", "bot.chat.ts"), "export default {}", "utf8")
+    await writeChat(rootDir, "bot")
+
+    const { discoverChatDefinitions } = await import("../src/discovery.ts")
+
+    expect(discoverChatDefinitions({ rootDir })).toMatchObject([{ name: "bot" }])
+    expect(discoverChatDefinitions({ mode: "nitro-server-chats", scanDirs: [join(rootDir, "server")] })).toMatchObject([{ name: "bot" }])
+  })
+
+  it("fails on duplicate discovered chat names", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-duplicates-"))
+    await mkdir(join(rootDir, "src", "nested"), { recursive: true })
+    await writeFile(join(rootDir, "src", "bot.chat.ts"), "export default {}", "utf8")
+    await writeFile(join(rootDir, "bot.chat.ts"), "export default {}", "utf8")
+    const { discoverChatDefinitions } = await import("../src/discovery.ts")
+
+    expect(() => discoverChatDefinitions({ rootDir })).toThrow("Duplicate chat name")
+  })
+
   it("merges Cloudflare DO config idempotently", async () => {
     const { configureCloudflareChatState } = await import("../src/integrations/cloudflare.ts")
     const target = {
@@ -278,9 +307,10 @@ describe("Nitro module", () => {
 
   it("wires defaults, generated route, aliases, imports, runtime config, plugin, and Cloudflare DO config", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-"))
+    await writeChat(rootDir, "bot")
     const nitro = createNitroStub(rootDir, {
       cloudflare: {
-        durableObjectState: {},
+        durableObjectState: true,
       },
     })
     const module = (await import("../src/nitro/module.ts")).default
@@ -288,9 +318,12 @@ describe("Nitro module", () => {
     await module.setup(nitro as never)
 
     expect(nitro.options.runtimeConfig.chat).toMatchObject({
-      entry: "server/chat.ts",
       imports: true,
-      route: "/api/webhooks/[platform]",
+      webhook: {
+        chatParam: "chat",
+        route: "/api/webhooks/[platform]",
+        routeParam: "platform",
+      },
     })
     expect(nitro.options.handlers).toHaveLength(1)
     expect(nitro.options.handlers[0]).toMatchObject({
@@ -303,6 +336,7 @@ describe("Nitro module", () => {
     expect(nitro.options.externals.inline).toEqual(expect.arrayContaining(["@vitehub/chat", "chat", "chat-state-cloudflare-do"]))
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChat")
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChatWebhookHandler")
+    expect(JSON.stringify(nitro.options.imports)).toContain("defineChatWebhookRegistryHandler")
     expect(nitro.options.cloudflare).toMatchObject({
       wrangler: {
         durable_objects: {
@@ -313,14 +347,17 @@ describe("Nitro module", () => {
     })
 
     const routeFile = nitro.options.handlers[0]!.handler
-    expect(await readFile(routeFile, "utf8")).toContain("defineChatWebhookHandler(chat)")
+    const routeContents = await readFile(routeFile, "utf8")
+    expect(routeContents).toContain("defineChatWebhookHandler(chat")
+    expect(routeContents).toContain("inferredName: \"bot\"")
   })
 
-  it("honors disabled route and imports", async () => {
+  it("honors disabled webhook and imports", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-disabled-"))
+    await writeChat(rootDir, "bot")
     const nitro = createNitroStub(rootDir, {
       imports: false,
-      route: false,
+      webhook: false,
     })
     const module = (await import("../src/nitro/module.ts")).default
 
@@ -329,5 +366,33 @@ describe("Nitro module", () => {
     expect(nitro.options.handlers).toHaveLength(0)
     expect(nitro.options.imports).toEqual({})
     expect(nitro.options.plugins.some(plugin => plugin.includes("/packages/chat/src/runtime/nitro-plugin.ts"))).toBe(true)
+  })
+
+  it("requires a chat route param for multiple discovered chats", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-multiple-"))
+    await writeChat(rootDir, "bot")
+    await writeChat(rootDir, "support")
+    const nitro = createNitroStub(rootDir)
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await expect(module.setup(nitro as never)).rejects.toThrow("chat.webhook.route does not include [chat]")
+  })
+
+  it("generates a registry route for multiple chats with a chat param", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-registry-"))
+    await writeChat(rootDir, "bot")
+    await writeChat(rootDir, "support")
+    const nitro = createNitroStub(rootDir, {
+      webhook: "/api/webhooks/[chat]/[platform]",
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.handlers[0]).toMatchObject({
+      method: "POST",
+      route: "/api/webhooks/:chat/:platform",
+    })
+    expect(await readFile(nitro.options.handlers[0]!.handler, "utf8")).toContain("defineChatWebhookRegistryHandler")
   })
 })

@@ -122,7 +122,7 @@ export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext = C
   webhook?: (context: TContext & { bot: Chat }) => MaybePromise<void>
 }
 
-type ChatConfigPassthrough = Omit<ChatConfig, "adapters" | "state">
+type ChatConfigPassthrough = Omit<ChatConfig, "adapters" | "state" | "userName">
 
 export interface DefineChatOptions<TRuntimeConfig = unknown> extends ChatConfigPassthrough {
   adapters: AdapterInput<ChatRuntimeContext<TRuntimeConfig>>
@@ -135,11 +135,16 @@ export interface DefineChatOptions<TRuntimeConfig = unknown> extends ChatConfigP
   onLockConflict?: ChatConfig["onLockConflict"]
   setup?: (bot: Chat, context: ChatRuntimeContext<TRuntimeConfig>) => MaybePromise<void>
   state: MaybeResolvable<StateAdapter, ChatRuntimeContext<TRuntimeConfig>>
+  userName?: ChatConfig["userName"]
+}
+
+export interface ResolveChatOptions {
+  inferredName?: string
 }
 
 export interface ChatDefinition<TRuntimeConfig = unknown> {
   lifecycleHooks?: ChatWebhookRuntimeHooks<ChatRuntimeContext<TRuntimeConfig>>
-  resolve(context: ChatRuntimeContext<TRuntimeConfig>): Promise<Chat>
+  resolve(context: ChatRuntimeContext<TRuntimeConfig>, options?: ResolveChatOptions): Promise<Chat>
 }
 
 export type ChatInput<TContext extends ChatRuntimeContext = ChatRuntimeContext> =
@@ -161,13 +166,18 @@ export interface ChatCloudflareDurableObjectModuleOptions {
   name?: string
 }
 
+export interface ChatWebhookModuleOptions {
+  chatParam?: string
+  route?: string
+  routeParam?: string
+}
+
 export interface ChatModuleOptions {
   cloudflare?: {
-    durableObjectState?: false | ChatCloudflareDurableObjectModuleOptions
+    durableObjectState?: boolean | ChatCloudflareDurableObjectModuleOptions
   }
-  entry?: string | false
   imports?: boolean
-  route?: string | false
+  webhook?: string | false | ChatWebhookModuleOptions
 }
 
 export interface ResolvedChatModuleOptions {
@@ -177,15 +187,25 @@ export interface ResolvedChatModuleOptions {
       name?: string
     }
   }
-  entry: string | false
   imports: boolean
-  route: string | false
+  webhook: false | Required<ChatWebhookModuleOptions>
 }
 
 export interface ChatWebhookHandlerOptions<TContext extends ChatRuntimeContext = ChatRuntimeContext> {
+  inferredName?: string
   lifecycleHooks?: ChatWebhookRuntimeHooks<TContext>
   platform?: string
   routeParam?: string
+}
+
+export interface ChatWebhookRegistryHandlerOptions<TContext extends ChatRuntimeContext = ChatRuntimeContext> extends ChatWebhookHandlerOptions<TContext> {
+  chatParam?: string
+}
+
+export interface DiscoveredChatDefinition {
+  handler: string
+  name: string
+  source?: string
 }
 
 export type ChatDurableObjectStateResolver = Resolvable<StateAdapter, ChatRuntimeContext>

@@ -1,14 +1,14 @@
+import { createImportPath } from "@vitehub/internal/build/paths"
+import { createGeneratedDefinitionPath, createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
+import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import { resolve } from "node:path"
 
-import { createImportPath } from "@vitehub/internal/build/paths"
-import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
-
 import { normalizeChatOptions } from "../config.ts"
+import { discoverChatDefinitions } from "../discovery.ts"
 import { configureCloudflareChatState } from "../integrations/cloudflare.ts"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
-import type { ChatModuleOptions, ResolvedChatModuleOptions } from "../types.ts"
+import type { ChatModuleOptions, DiscoveredChatDefinition, ResolvedChatModuleOptions } from "../types.ts"
 
 const CHAT_NITRO_IMPORTS_PRESET = {
   from: "@vitehub/chat",
@@ -27,29 +27,91 @@ function createNitroChatRoutePath(rootDir: string, buildDir: string): string {
   })
 }
 
+function createNitroChatRegistryPath(rootDir: string, buildDir: string): string {
+  return createGeneratedDefinitionPath(rootDir, {
+    buildDir,
+    fileName: "nitro-registry.mjs",
+    segments: [".vitehub", "nitro-runtime", "chat"],
+  })
+}
+
 function normalizeNitroRoute(route: string): string {
   return route.replace(/\[([A-Za-z0-9_]+)\]/g, ":$1")
 }
 
-function createNitroChatRouteContents(file: string, entry: string): string {
+function routeHasParam(route: string, param: string): boolean {
+  return route.includes(`[${param}]`) || route.includes(`:${param}`)
+}
+
+function resolveNitroChatScanDirs(rootDir: string, scanDirs: string[] | undefined) {
+  return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
+}
+
+function renderOptions(options: Record<string, string | undefined>): string {
+  const entries = Object.entries(options)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .map(([key, value]) => `  ${key}: ${JSON.stringify(value)},`)
+  return ["{", ...entries, "}"].join("\n")
+}
+
+function createNitroSingleChatRouteContents(file: string, definition: DiscoveredChatDefinition, options: ResolvedChatModuleOptions): string {
   return [
-    `import chat from ${JSON.stringify(createImportPath(file, entry))}`,
+    `import chat from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     `import { defineChatWebhookHandler } from "@vitehub/chat/nitro"`,
     "",
-    "export default defineChatWebhookHandler(chat)",
+    `export default defineChatWebhookHandler(chat, ${renderOptions({
+      inferredName: definition.name,
+      routeParam: options.webhook && options.webhook.routeParam !== "platform" ? options.webhook.routeParam : undefined,
+    })})`,
     "",
   ].join("\n")
 }
 
-async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | ResolvedChatModuleOptions): Promise<{ routeFile?: string }> {
-  if (!options || !options.entry || !options.route) {
-    return {}
+function createNitroRegistryChatRouteContents(file: string, registryFile: string, options: ResolvedChatModuleOptions): string {
+  return [
+    `import chatRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    `import { defineChatWebhookRegistryHandler } from "@vitehub/chat/nitro"`,
+    "",
+    `export default defineChatWebhookRegistryHandler(chatRegistry, ${renderOptions({
+      chatParam: options.webhook && options.webhook.chatParam !== "chat" ? options.webhook.chatParam : undefined,
+      routeParam: options.webhook && options.webhook.routeParam !== "platform" ? options.webhook.routeParam : undefined,
+    })})`,
+    "",
+  ].join("\n")
+}
+
+interface ChatRuntimeFiles {
+  definitions: DiscoveredChatDefinition[]
+  registryFile?: string
+  routeFile?: string
+}
+
+async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | ResolvedChatModuleOptions): Promise<ChatRuntimeFiles> {
+  const definitions = discoverChatDefinitions({
+    mode: "nitro-server-chats",
+    scanDirs: resolveNitroChatScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
+  })
+
+  if (!options || !options.webhook || !definitions.length) {
+    return { definitions }
   }
 
   const routeFile = createNitroChatRoutePath(nitro.options.rootDir, nitro.options.buildDir)
-  const entry = resolve(nitro.options.rootDir, options.entry)
-  await writeFileIfChanged(routeFile, createNitroChatRouteContents(routeFile, entry))
-  return { routeFile }
+  const route = options.webhook.route
+  const hasChatParam = routeHasParam(route, options.webhook.chatParam)
+  if (definitions.length > 1 && !hasChatParam) {
+    throw new Error(`Multiple chat definitions were discovered, but chat.webhook.route does not include [${options.webhook.chatParam}]. Use a route such as /api/webhooks/[${options.webhook.chatParam}]/[${options.webhook.routeParam}].`)
+  }
+
+  if (hasChatParam) {
+    const registryFile = createNitroChatRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
+    await writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions))
+    await writeFileIfChanged(routeFile, createNitroRegistryChatRouteContents(routeFile, registryFile, options))
+    return { definitions, registryFile, routeFile }
+  }
+
+  await writeFileIfChanged(routeFile, createNitroSingleChatRouteContents(routeFile, definitions[0]!, options))
+  return { definitions, routeFile }
 }
 
 function installAliases(nitro: Nitro): void {
@@ -83,11 +145,11 @@ function installExternals(nitro: Nitro): void {
 }
 
 function installRoute(nitro: Nitro, options: ResolvedChatModuleOptions, routeFile: string | undefined): void {
-  if (!routeFile || !options.route) {
+  if (!routeFile || !options.webhook) {
     return
   }
 
-  const route = normalizeNitroRoute(options.route)
+  const route = normalizeNitroRoute(options.webhook.route)
   nitro.options.handlers ||= []
   const existing = nitro.options.handlers.some(handler => handler.route === route && handler.method === "POST" && handler.handler === routeFile)
   if (!existing) {
@@ -117,6 +179,10 @@ const chatNitroModule: NitroModule = {
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports, {
         from: "@vitehub/chat/nitro",
         imports: ["defineChatWebhookHandler"],
+      }) as typeof nitro.options.imports
+      nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports, {
+        from: "@vitehub/chat/nitro",
+        imports: ["defineChatWebhookRegistryHandler"],
       }) as typeof nitro.options.imports
     }
 

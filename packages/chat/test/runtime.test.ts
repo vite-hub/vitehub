@@ -65,6 +65,28 @@ describe("defineChat", () => {
     expect(stateResolver.resolve).toHaveBeenCalledWith(context)
   })
 
+  it("uses an inferred name when userName is omitted", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const definition = defineChat({
+      adapters: {},
+      state: createState() as never,
+    })
+
+    const bot = await resolveChat(definition, createContext() as never, { inferredName: "bot" })
+
+    expect(bot).toBeInstanceOf(Chat)
+  })
+
+  it("throws clearly when a definition has no explicit or inferred userName", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const definition = defineChat({
+      adapters: {},
+      state: createState() as never,
+    })
+
+    await expect(resolveChat(definition, createContext() as never)).rejects.toThrow("Missing chat userName")
+  })
+
   it("memoizes resolved definitions per request", async () => {
     const { defineChat, resolveChat } = await import("../src/index.ts")
     const context = createContext()
