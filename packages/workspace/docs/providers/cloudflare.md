@@ -34,6 +34,8 @@ export default defineWorkspace({
 The public API remains source-oriented:
 
 ```ts
+import * as source from '@vitehub/workspace/source'
+
 source.github({
   repo: 'acme/app',
   ref: 'main',

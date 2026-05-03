@@ -11,6 +11,7 @@ export default defineConfig({
     "src/ai.ts",
     "src/index.ts",
     "src/nitro.ts",
+    "src/source.ts",
     "src/runtime/empty-assets-registry.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/assets.ts",

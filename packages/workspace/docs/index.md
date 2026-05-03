@@ -38,10 +38,11 @@ Define a workspace:
 
 ```ts [src/docs.workspace.ts]
 import { defineWorkspace, source } from '@vitehub/workspace'
+import * as workspaceSource from '@vitehub/workspace/source'
 
 export default defineWorkspace({
   sources: {
-    docs: source.glob({
+    docs: workspaceSource.glob({
       cwd: process.cwd(),
       include: ['README.md', 'docs/**/*.md'],
     }),
@@ -100,7 +101,7 @@ Use `materialize: 'lazy'` when the agent only needs source files on demand:
 ```ts
 export default defineWorkspace({
   sources: {
-    docs: source.github({
+    docs: workspaceSource.github({
       repo: 'vite-hub/vitehub',
       ref: 'main',
       root: 'docs',

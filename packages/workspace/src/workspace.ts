@@ -1,5 +1,5 @@
-import { createWorkspaceStore, syncWorkspaceDefinition } from "./lifecycle.ts"
 import { createWorkspaceSourceView } from "./source-view.ts"
+import { createWorkspaceStoreFromProvider } from "./store-provider.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
@@ -7,12 +7,13 @@ import type {
 } from "./types.ts"
 
 export function createWorkspace(definition: WorkspaceDefinition): Workspace {
-  const store = getCachedWorkspaceStore(definition, () => createWorkspaceStore(definition))
+  const store = getCachedWorkspaceStore(definition, () => createWorkspaceStoreFromProvider(definition))
   const files = createWorkspaceSourceView(definition, store)
 
   const workspace: Workspace = {
     name: definition.name,
     async sync() {
+      const { syncWorkspaceDefinition } = await import("./lifecycle.ts")
       await syncWorkspaceDefinition(definition, store)
     },
     async readFile(path, options) {

@@ -7,9 +7,9 @@ import {
   defineWorkspace,
   loader,
   publish,
-  source,
   useWorkspace,
 } from "../src/index.ts"
+import * as source from "../src/source.ts"
 import { hubWorkspace } from "../src/vite.ts"
 
 declare global {
