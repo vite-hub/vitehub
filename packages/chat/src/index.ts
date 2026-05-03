@@ -5,7 +5,6 @@ import { isChatDefinition } from "./runtime/definition.ts"
 import type {
   ChatActionHookInput,
   ChatDefinition,
-  ChatDevModuleOptions,
   ChatDirectMessageHook,
   ChatEventHook,
   ChatEventHooks,
@@ -31,6 +30,7 @@ export type {
   ChatActionHookInput,
   ChatCloudflareDurableObjectModuleOptions,
   ChatDefinition,
+  ChatDevModuleOptions,
   ChatDirectMessageHook,
   ChatDurableObjectStateResolver,
   ChatEventHook,
