@@ -8,6 +8,12 @@ const defaultChatCloudflareDurableObjectClassName = "ChatStateDO"
 const defaultChatCloudflareDurableObjectMigrationTag = "v1"
 const defaultChatCloudflareDurableObjectName = "default"
 
+export const defaultChatCloudflareDurableObjectState = {
+  binding: defaultChatCloudflareDurableObjectBinding,
+  className: defaultChatCloudflareDurableObjectClassName,
+  migrationTag: defaultChatCloudflareDurableObjectMigrationTag,
+}
+
 function normalizeWebhookOptions(webhook: ChatModuleOptions["webhook"]): ResolvedChatModuleOptions["webhook"] {
   if (webhook === false) {
     return false
@@ -36,6 +42,7 @@ export function normalizeChatOptions(options: ChatModuleOptions | false | undefi
   const durableObjectState = options?.cloudflare?.durableObjectState
   const resolved: ResolvedChatModuleOptions = {
     imports: options?.imports !== false,
+    provider: options?.provider || "auto",
     webhook: normalizeWebhookOptions(options?.webhook),
   }
 

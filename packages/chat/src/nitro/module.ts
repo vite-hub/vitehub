@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 
 import { normalizeChatOptions } from "../config.ts"
 import { discoverChatDefinitions } from "../discovery.ts"
-import { configureCloudflareChatState } from "../integrations/cloudflare.ts"
+import { configureCloudflareChatState, discoverCloudflareChatStateConfig } from "../integrations/cloudflare.ts"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
 import type { ChatModuleOptions, DiscoveredChatDefinition, ResolvedChatModuleOptions } from "../types.ts"
@@ -45,6 +45,21 @@ function routeHasParam(route: string, param: string): boolean {
 
 function resolveNitroChatScanDirs(rootDir: string, scanDirs: string[] | undefined) {
   return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
+}
+
+function resolveChatProvider(nitro: Nitro, options: ResolvedChatModuleOptions): "cloudflare" | "nitro" | "vercel" {
+  if (options.provider !== "auto") {
+    return options.provider
+  }
+
+  const preset = nitro.options.preset || ""
+  if (preset.includes("cloudflare") || typeof nitro.options.cloudflare !== "undefined") {
+    return "cloudflare"
+  }
+  if (preset.includes("vercel")) {
+    return "vercel"
+  }
+  return "nitro"
 }
 
 function renderOptions(options: Record<string, string | undefined>): string {
@@ -161,6 +176,32 @@ function installRoute(nitro: Nitro, options: ResolvedChatModuleOptions, routeFil
   }
 }
 
+async function installCloudflareStateConfig(
+  nitro: Nitro,
+  options: ResolvedChatModuleOptions,
+  definitions: DiscoveredChatDefinition[],
+): Promise<void> {
+  const durableObjectState = options.cloudflare?.durableObjectState
+  if (durableObjectState === false) {
+    return
+  }
+
+  if (durableObjectState) {
+    if (durableObjectState.autoWrangler) {
+      configureCloudflareChatState(nitro.options, durableObjectState)
+    }
+    return
+  }
+
+  if (resolveChatProvider(nitro, options) !== "cloudflare") {
+    return
+  }
+
+  for (const config of await discoverCloudflareChatStateConfig(definitions)) {
+    configureCloudflareChatState(nitro.options, config)
+  }
+}
+
 const chatNitroModule: NitroModule = {
   name: "@vitehub/chat",
   async setup(nitro) {
@@ -191,13 +232,15 @@ const chatNitroModule: NitroModule = {
       installRoute(nitro, resolved, runtimeFiles.routeFile)
     }
 
-    const durableObjectState = resolved && resolved.cloudflare?.durableObjectState
-    if (durableObjectState && durableObjectState.autoWrangler) {
-      configureCloudflareChatState(nitro.options, durableObjectState)
+    if (resolved) {
+      await installCloudflareStateConfig(nitro, resolved, runtimeFiles.definitions)
     }
 
     nitro.hooks.hook("build:before", async () => {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
+      if (resolved) {
+        await installCloudflareStateConfig(nitro, resolved, runtimeFiles.definitions)
+      }
     })
     nitro.hooks.hook("dev:reload", async () => {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)

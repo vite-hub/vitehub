@@ -2,7 +2,7 @@ import { createTelegramAdapter } from "@chat-adapter/telegram"
 import { defineChat } from "@vitehub/chat"
 import { cloudflareDurableObjectState } from "@vitehub/chat/cloudflare"
 
-import { answerWithContext } from "../utils/agent"
+import { answerWithContext } from "./utils/agent"
 
 interface ChatRuntimeConfig {
   telegram: {

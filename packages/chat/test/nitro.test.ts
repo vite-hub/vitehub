@@ -76,6 +76,13 @@ async function writeChat(rootDir: string, name: string, contents = "export defau
   return file
 }
 
+async function writeSingleChat(rootDir: string, contents = "export default {}") {
+  const file = join(rootDir, "server", "chat.ts")
+  await mkdir(join(rootDir, "server"), { recursive: true })
+  await writeFile(file, contents, "utf8")
+  return file
+}
+
 describe("defineChatWebhookHandler", () => {
   it("uses the route platform and forwards Nitro waitUntil", async () => {
     const { defineChatWebhookHandler } = await import("../src/nitro.ts")
@@ -260,12 +267,16 @@ describe("Nitro module", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-discovery-"))
     await mkdir(join(rootDir, "src"), { recursive: true })
     await writeFile(join(rootDir, "src", "bot.chat.ts"), "export default {}", "utf8")
+    await writeSingleChat(rootDir)
     await writeChat(rootDir, "bot")
 
     const { discoverChatDefinitions } = await import("../src/discovery.ts")
 
     expect(discoverChatDefinitions({ rootDir })).toMatchObject([{ name: "bot" }])
-    expect(discoverChatDefinitions({ mode: "nitro-server-chats", scanDirs: [join(rootDir, "server")] })).toMatchObject([{ name: "bot" }])
+    expect(discoverChatDefinitions({ mode: "nitro-server-chats", scanDirs: [join(rootDir, "server")] })).toMatchObject([
+      { name: "bot" },
+      { name: "chat" },
+    ])
   })
 
   it("fails on duplicate discovered chat names", async () => {
@@ -307,12 +318,11 @@ describe("Nitro module", () => {
 
   it("wires defaults, generated route, aliases, imports, runtime config, plugin, and Cloudflare DO config", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-"))
-    await writeChat(rootDir, "bot")
-    const nitro = createNitroStub(rootDir, {
-      cloudflare: {
-        durableObjectState: true,
-      },
-    })
+    await writeSingleChat(rootDir, [
+      `import { cloudflareDurableObjectState } from "@vitehub/chat/cloudflare"`,
+      `export default defineChat({ state: cloudflareDurableObjectState(), adapters: {} })`,
+    ].join("\n"))
+    const nitro = createNitroStub(rootDir)
     const module = (await import("../src/nitro/module.ts")).default
 
     await module.setup(nitro as never)
@@ -349,7 +359,42 @@ describe("Nitro module", () => {
     const routeFile = nitro.options.handlers[0]!.handler
     const routeContents = await readFile(routeFile, "utf8")
     expect(routeContents).toContain("defineChatWebhookHandler(chat")
-    expect(routeContents).toContain("inferredName: \"bot\"")
+    expect(routeContents).toContain("inferredName: \"chat\"")
+  })
+
+  it("honors custom Cloudflare DO config discovered from the chat definition", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-custom-do-"))
+    await writeSingleChat(rootDir, [
+      `import { cloudflareDurableObjectState } from "@vitehub/chat/cloudflare"`,
+      `export default defineChat({`,
+      `  adapters: {},`,
+      `  state: cloudflareDurableObjectState({ binding: "CUSTOM_STATE", className: "CustomChatStateDO", migrationTag: "v2" }),`,
+      `})`,
+    ].join("\n"))
+    const nitro = createNitroStub(rootDir)
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.cloudflare).toMatchObject({
+      wrangler: {
+        durable_objects: {
+          bindings: [{ class_name: "CustomChatStateDO", name: "CUSTOM_STATE" }],
+        },
+        migrations: [{ new_sqlite_classes: ["CustomChatStateDO"], tag: "v2" }],
+      },
+    })
+  })
+
+  it("does not infer Cloudflare DO config for non-Cloudflare providers", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-nitro-provider-"))
+    await writeSingleChat(rootDir, `cloudflareDurableObjectState()`)
+    const nitro = createNitroStub(rootDir, { provider: "nitro" })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.cloudflare).toBeUndefined()
   })
 
   it("honors disabled webhook and imports", async () => {

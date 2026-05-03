@@ -149,7 +149,9 @@ export type ChatInput<TContext extends ChatRuntimeContext = ChatRuntimeContext> 
 
 export interface CloudflareDurableObjectStateOptions {
   binding?: string
+  className?: string
   locationHint?: DurableObjectLocationHint
+  migrationTag?: string
   name?: string
   shardKey?: (threadId: string) => string
 }
@@ -173,6 +175,7 @@ export interface ChatModuleOptions {
     durableObjectState?: boolean | ChatCloudflareDurableObjectModuleOptions
   }
   imports?: boolean
+  provider?: "auto" | "cloudflare" | "nitro" | "vercel"
   webhook?: string | false | ChatWebhookModuleOptions
 }
 
@@ -184,6 +187,7 @@ export interface ResolvedChatModuleOptions {
     }
   }
   imports: boolean
+  provider: "auto" | "cloudflare" | "nitro" | "vercel"
   webhook: false | Required<ChatWebhookModuleOptions>
 }
 

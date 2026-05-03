@@ -4,11 +4,7 @@ import { defineConfig } from "vite"
 
 export default defineConfig({
   plugins: [
-    hubChat({
-      cloudflare: {
-        durableObjectState: true,
-      },
-    }),
+    hubChat(),
     ...nitro({
       preset: "cloudflare_module",
     }),

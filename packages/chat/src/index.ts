@@ -271,7 +271,7 @@ async function createChat<TRuntimeConfig>(
   } = options
   const userName = options.userName || resolveOptions.inferredName
   if (!userName) {
-    throw new Error("Missing chat userName. Set userName in defineChat() or place the definition in a discovered chat file such as server/chats/bot.ts.")
+    throw new Error("Missing chat userName. Set userName in defineChat() or place the definition in a discovered chat file such as server/chat.ts.")
   }
 
   const bot = new Chat({
