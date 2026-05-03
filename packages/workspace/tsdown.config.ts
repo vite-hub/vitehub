@@ -3,7 +3,7 @@ import { defineConfig } from "tsdown"
 export default defineConfig({
   clean: true,
   deps: {
-    alwaysBundle: [/^@vitehub\/internal/],
+    alwaysBundle: [/^@vitehub\/internal/, /^@vitehub\/unshell/],
     neverBundle: ["#vitehub-workspace-assets-registry", "#vitehub-workspace-registry"],
   },
   dts: true,
