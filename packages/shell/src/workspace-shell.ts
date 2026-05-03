@@ -1,7 +1,6 @@
 import { createJustBashRuntime, parseShellCommand, withShellRuntimePolicy } from "./runtime.ts"
 import { workspaceMountPoint } from "./workspace-fs.ts"
 
-import type { CommandName } from "just-bash"
 import type {
   SearchableShellWorkspace,
   ShellRuntimeExecResult,
@@ -48,9 +47,8 @@ export async function runWorkspaceInspectionCommand(
   }
 
   const runtime = withShellRuntimePolicy(createJustBashRuntime({
-    commands: resolved.commands as CommandName[],
+    commands: resolved.commands,
     cwd: resolved.cwd,
-    fileSystem: resolved.fs,
     fs: resolved.fs,
   }), {
     allowedCommands: resolved.commands,

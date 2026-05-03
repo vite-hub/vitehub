@@ -1,5 +1,3 @@
-import type { CommandName } from "just-bash"
-
 import { createCloudflareShellRuntime } from "./cloudflare.ts"
 import { createJustBashRuntime, withShellRuntimePolicy } from "./runtime.ts"
 import { cleanWorkspaceMutationPath, cleanWorkspaceShellPath, runWorkspaceInspectionCommand } from "./workspace-shell.ts"
@@ -23,9 +21,8 @@ export function createShellRuntime(options: CreateShellRuntimeOptions): ShellRun
   const runtime = options.provider === "cloudflare-shell"
     ? createCloudflareShellRuntime({ sandbox: options.sandbox })
     : createJustBashRuntime({
-        commands: options.commands as CommandName[] | undefined,
+        commands: options.commands,
         cwd: options.cwd,
-        fileSystem: options.fs,
         fs: options.fs,
       })
 

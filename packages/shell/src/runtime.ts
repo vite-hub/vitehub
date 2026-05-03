@@ -78,7 +78,7 @@ function createPreflightExec(
       }
     }
 
-    const name = words[0] || ""
+    const name = words[0]!
     if (options.allowedCommands?.length && !options.allowedCommands.includes(name)) {
       return stderrResult(`Unsupported workspace shell command: ${name}`, 126)
     }
@@ -90,8 +90,7 @@ function createPreflightExec(
 export function createJustBashRuntime(options: {
   commands?: string[]
   cwd?: string
-  fs: { writeFs: boolean }
-  fileSystem: IFileSystem
+  fs: IFileSystem & { writeFs: boolean }
 }): ShellRuntime {
   return {
     supports: {
@@ -104,7 +103,7 @@ export function createJustBashRuntime(options: {
       const bash = new Bash({
         commands: options.commands as CommandName[] | undefined,
         cwd: options.cwd,
-        fs: options.fileSystem,
+        fs: options.fs,
       })
       const signal = typeof execOptions.timeout === "number"
         ? AbortSignal.timeout(execOptions.timeout)

@@ -50,8 +50,6 @@ function toShellContent(content: ShellContent): Uint8Array {
 }
 
 function decodeContent(content: Uint8Array, encoding?: BufferEncoding | null) {
-  if (!encoding || encoding === "utf8" || encoding === "utf-8") return new TextDecoder().decode(content)
-  if (encoding === "binary") return new TextDecoder().decode(content)
   if (encoding === "base64") return Buffer.from(content).toString("base64")
   if (encoding === "hex") return Buffer.from(content).toString("hex")
   if (encoding === "ascii" || encoding === "latin1") return Buffer.from(content).toString(encoding)
@@ -126,20 +124,19 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
 
   async writeFile(path: string, content: FileContent, _options?: WriteFileOptions | BufferEncoding): Promise<void> {
     const workspace = this.#requireWritable()
-    await workspace.writeFile(this.#toRelativePath(path), typeof content === "string" ? content : content)
+    await workspace.writeFile(this.#toRelativePath(path), content)
     await this.#refreshPaths()
   }
 
   async appendFile(path: string, content: FileContent, _options?: WriteFileOptions | BufferEncoding): Promise<void> {
     const workspace = this.#requireWritable()
     const relativePath = this.#toRelativePath(path)
-    const current = await workspace.readFile(relativePath, { encoding: "binary" } satisfies ShellReadFileOptions).catch(() => new Uint8Array())
-    const next = typeof content === "string"
-      ? new TextEncoder().encode(content)
-      : content
-    const merged = new Uint8Array(toShellContent(current).byteLength + next.byteLength)
-    merged.set(toShellContent(current), 0)
-    merged.set(next, toShellContent(current).byteLength)
+    const existing = await workspace.readFile(relativePath, { encoding: "binary" } satisfies ShellReadFileOptions).catch(() => new Uint8Array())
+    const current = toShellContent(existing)
+    const next = toShellContent(content)
+    const merged = new Uint8Array(current.byteLength + next.byteLength)
+    merged.set(current, 0)
+    merged.set(next, current.byteLength)
     await workspace.writeFile(relativePath, merged)
     await this.#refreshPaths()
   }
