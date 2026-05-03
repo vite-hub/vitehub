@@ -173,6 +173,32 @@ describe("@vitehub/shell just-bash runtime", () => {
     })
   })
 
+  it("rejects newlines as shell command separators", async () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+    })
+    const runtime = createShellRuntime({
+      allowedCommands: ["cat"],
+      commands: ["cat", "rm"],
+      cwd: workspaceMountPoint,
+      fs: createWritableWorkspaceFs(workspace),
+      provider: "just-bash",
+      singleCommand: true,
+    })
+
+    await expect(runtime.exec("cat README.md\nrm README.md")).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
+    })
+    await expect(workspace.exists("README.md")).resolves.toBe(true)
+
+    await expect(runtime.exec("cat README.md\r\nrm README.md")).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
+    })
+    await expect(workspace.exists("README.md")).resolves.toBe(true)
+  })
+
   it("exposes writable filesystem adapters", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",

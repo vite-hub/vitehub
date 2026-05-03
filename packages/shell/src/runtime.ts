@@ -2,7 +2,7 @@ import { Bash, type CommandName, type IFileSystem } from "just-bash"
 
 import type { ShellRuntime, ShellRuntimeExecOptions, ShellRuntimeExecResult } from "./types.ts"
 
-const unsupportedShellSyntaxPattern = /(?:&&|\|\||[;|`<>]|\$\()/
+const unsupportedShellSyntaxPattern = /(?:&&|\|\||[;|`<>\r\n]|\$\()/
 
 export function parseShellCommand(command: string): string[] {
   const words: string[] = []
