@@ -1,6 +1,6 @@
 import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
 
-import type { EnvRegistryEntry, EnvRuntimeRegistry, SafeRuntimeConfig } from "../types.ts"
+import type { EnvRegistryEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, SafeRuntimeConfig } from "../types.ts"
 
 let registry: EnvRuntimeRegistry = {}
 
@@ -28,18 +28,30 @@ function resolveRuntimeEnv(event?: unknown): Record<string, string | undefined> 
   ]))
 }
 
-function resolveRuntimeValues(declarations: Record<string, EnvRegistryEntry>, env: Record<string, string | undefined>): Record<string, unknown> {
+function resolveRuntimeValues(declarations: EnvRuntimeRegistry, env: Record<string, string | undefined>, path = "env"): Record<string, unknown> {
   const values: Record<string, unknown> = {}
-  for (const [key, declaration] of Object.entries(declarations)) {
-    const value = env[declaration.source.name] ?? declaration.default
-    if (typeof value === "undefined") {
+  for (const [key, entry] of Object.entries(declarations)) {
+    if (!isRegistryEntry(entry)) {
+      values[key] = resolveRuntimeValues(entry, env, `${path}.${key}`)
+      continue
+    }
+    const declaration = entry
+    const rawValue = env[declaration.source.name] ?? declaration.default
+    if (typeof rawValue === "undefined") {
       if (declaration.required) {
-        throw new Error(`[vitehub] Missing runtime env value ${key} from ${declaration.source.label}.`)
+        throw new Error(`[vitehub] Missing runtime env value ${path}.${key} from ${declaration.source.label}.`)
       }
       values[key] = undefined
       continue
     }
-    values[key] = value
+    values[key] = rawValue
   }
   return values
+}
+
+function isRegistryEntry(value: EnvRuntimeRegistryValue): value is EnvRegistryEntry {
+  return "source" in value
+    && typeof value.source === "object"
+    && value.source !== null
+    && "kind" in value.source
 }

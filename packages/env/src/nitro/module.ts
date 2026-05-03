@@ -8,7 +8,7 @@ import { formatDiagnostics } from "../core/diagnostics.ts"
 import { envSource, envVariable } from "../core/declarations.ts"
 import { createRuntimeRegistry, validateEnvConfigShape } from "../core/resolve.ts"
 
-import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRuntimeRegistry, EnvVariableDeclaration } from "../types.ts"
+import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRegistryEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvVariableDeclaration } from "../types.ts"
 import type { Nitro, NitroModule } from "nitro/types"
 
 export { envSource, envVariable }
@@ -60,7 +60,7 @@ function installNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): void {
 }
 
 function createNitroTypes(registry: EnvRuntimeRegistry): string {
-  const fields = Object.entries(registry).map(([key, entry]) => `    ${JSON.stringify(key)}: ${resolveTypeName(entry)}`)
+  const fields = createTypeFields(registry, 4)
   return [
     "declare module \"#vitehub/env/server\" {",
     "  export interface SafeRuntimeConfig {",
@@ -86,7 +86,21 @@ function createNitroTypes(registry: EnvRuntimeRegistry): string {
   ].join("\n")
 }
 
-function resolveTypeName(entry: EnvRuntimeRegistry[string]): string {
+function createTypeFields(registry: EnvRuntimeRegistry, indent: number): string[] {
+  const prefix = " ".repeat(indent)
+  return Object.entries(registry).flatMap(([key, entry]) => {
+    if (isRegistryEntry(entry)) {
+      return [`${prefix}${JSON.stringify(key)}: ${resolveTypeName(entry)}`]
+    }
+    return [
+      `${prefix}${JSON.stringify(key)}: {`,
+      ...createTypeFields(entry, indent + 2),
+      `${prefix}}`,
+    ]
+  })
+}
+
+function resolveTypeName(entry: EnvRegistryEntry): string {
   if (entry.type) {
     return entry.type
   }
@@ -127,11 +141,8 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
   }
 }
 
-function configureCloudflareRequiredSecrets(nitro: Nitro, declarations: Record<string, EnvVariableDeclaration> | undefined): void {
-  const required = Object.values(declarations || {})
-    .filter(declaration => declaration.secret && declaration.required && declaration.source.kind === "env")
-    .map(declaration => declaration.source.kind === "env" ? declaration.source.name : undefined)
-    .filter((name): name is string => Boolean(name))
+function configureCloudflareRequiredSecrets(nitro: Nitro, declarations: EnvNitroConfigOptions | undefined): void {
+  const required = collectRequiredSecretNames(declarations)
 
   if (required.length === 0 || !usesCloudflare(nitro)) {
     return
@@ -157,6 +168,15 @@ function configureCloudflareRequiredSecrets(nitro: Nitro, declarations: Record<s
   ]
 }
 
+function collectRequiredSecretNames(declarations: EnvNitroConfigOptions | undefined): string[] {
+  return Object.values(declarations || {}).flatMap((value) => {
+    if (isEnvVariableDeclaration(value)) {
+      return value.secret && value.required && value.source.kind === "env" ? [value.source.name] : []
+    }
+    return collectRequiredSecretNames(value as EnvNitroConfigOptions)
+  })
+}
+
 function usesCloudflare(nitro: Nitro): boolean {
   const options = nitro.options as typeof nitro.options & { cloudflare?: unknown, preset?: unknown }
   return typeof options.cloudflare !== "undefined"
@@ -164,14 +184,19 @@ function usesCloudflare(nitro: Nitro): boolean {
 }
 
 function describeRuntimeEntries(
-  declarations: Record<string, EnvVariableDeclaration> | undefined,
+  declarations: EnvNitroConfigOptions | undefined,
+  path = "env",
 ): EnvDiagnosticEntry[] {
-  return Object.entries(declarations || {}).map(([key, declaration]) => {
+  return Object.entries(declarations || {}).flatMap(([key, value]) => {
+    if (!isEnvVariableDeclaration(value)) {
+      return describeRuntimeEntries(value as EnvNitroConfigOptions, `${path}.${key}`)
+    }
+    const declaration = value
     const hasRuntimeValue = declaration.source.kind === "env" && typeof process.env[declaration.source.name] !== "undefined"
     const hasDefault = typeof declaration.default !== "undefined"
     return {
       exposed: declaration.secret ? "server only, masked" : "server only",
-      key: `env.${key}`,
+      key: `${path}.${key}`,
       masked: declaration.secret,
       mode: "runtime",
       source: hasDefault && !hasRuntimeValue ? "default" : declaration.source.label,
@@ -180,6 +205,21 @@ function describeRuntimeEntries(
       type: declaration.type,
     }
   })
+}
+
+function isRegistryEntry(value: EnvRuntimeRegistryValue): value is EnvRegistryEntry {
+  return "source" in value
+    && typeof value.source === "object"
+    && value.source !== null
+    && "kind" in value.source
+}
+
+function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value)
+    && "kind" in value
+    && value.kind === "env-variable"
 }
 
 const nitroModule: NitroModule = envNitro()

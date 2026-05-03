@@ -77,6 +77,17 @@ describe("env declarations", () => {
     }, "nitro")).toThrow("`env.public` is not available")
   })
 
+  it("accepts nested Nitro runtime declaration groups", () => {
+    expect(() => validateEnvConfigShape({
+      telegram: {
+        botToken: envVariable("TELEGRAM_BOT_TOKEN", { secret: true }),
+      },
+      vertex: {
+        model: envVariable("VERTEX_MODEL", { default: "gemini-3.1-pro-preview-customtools" }),
+      },
+    }, "nitro")).not.toThrow()
+  })
+
   it("rejects custom runtime sources in Nitro config", () => {
     expect(() => validateEnvConfigShape({
       commit: envVariable({

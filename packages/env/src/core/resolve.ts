@@ -10,7 +10,6 @@ import type {
   EnvDiagnosticEntry,
   EnvMode,
   EnvNitroConfigOptions,
-  EnvRegistryEntry,
   EnvRuntimeRegistry,
   EnvSource,
   EnvSourceContext,
@@ -37,13 +36,7 @@ export function validateEnvConfigShape(config: EnvNitroConfigOptions | EnvViteCo
     if ("define" in nitroConfig) {
       throw new EnvError("`env.define` is build-only and only available in Vite config.")
     }
-    for (const [key, declaration] of Object.entries(nitroConfig)) {
-      assertEnvVariableDeclaration(`env.${key}`, declaration)
-      if (declaration.mode !== "runtime") {
-        throw new EnvError(`env.${key} must use runtime mode.`)
-      }
-      assertSerializableRuntimeSource(`env.${key}`, declaration)
-    }
+    validateNitroDeclarations(nitroConfig, "env")
     return
   }
 
@@ -193,13 +186,18 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
   }
 }
 
-function createRegistrySection(declarations: Record<string, EnvVariableDeclaration> | undefined): Record<string, EnvRegistryEntry> {
+function createRegistrySection(declarations: EnvNitroConfigOptions | undefined, path = "env"): EnvRuntimeRegistry {
   if (!declarations) {
     return {}
   }
-  return Object.fromEntries(Object.entries(declarations).map(([key, declaration]) => {
+  return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
+    const valuePath = `${path}.${key}`
+    if (!isEnvVariableDeclaration(value)) {
+      return [key, createRegistrySection(value as EnvNitroConfigOptions, valuePath)]
+    }
+    const declaration = value
     if (declaration.source.kind !== "env") {
-      throw new EnvError(`Runtime declaration env.${key} must use envSource.env() in v1.`)
+      throw new EnvError(`Runtime declaration ${valuePath} must use envSource.env() in v1.`)
     }
     return [key, {
       default: declaration.default,
@@ -211,8 +209,25 @@ function createRegistrySection(declarations: Record<string, EnvVariableDeclarati
   }))
 }
 
-function assertEnvVariableDeclaration(path: string, declaration: EnvVariableDeclaration): void {
-  if (declaration.kind !== "env-variable") {
+function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: string): void {
+  for (const [key, value] of Object.entries(declarations)) {
+    const valuePath = `${path}.${key}`
+    if (isEnvVariableDeclaration(value)) {
+      if (value.mode !== "runtime") {
+        throw new EnvError(`${valuePath} must use runtime mode.`)
+      }
+      assertSerializableRuntimeSource(valuePath, value)
+      continue
+    }
+    if (!isPlainRecord(value)) {
+      throw new EnvError(`Invalid declaration at ${valuePath}. Use envVariable() or a nested object of envVariable() declarations.`)
+    }
+    validateNitroDeclarations(value as EnvNitroConfigOptions, valuePath)
+  }
+}
+
+function assertEnvVariableDeclaration(path: string, declaration: unknown): asserts declaration is EnvVariableDeclaration {
+  if (!isEnvVariableDeclaration(declaration)) {
     throw new EnvError(`Invalid declaration at ${path}. Use envVariable().`)
   }
 }
@@ -221,6 +236,14 @@ function assertSerializableRuntimeSource(path: string, declaration: EnvVariableD
   if (declaration.source.kind !== "env") {
     throw new EnvError(`${path} must use an env source in runtime mode for v1. Custom, package, and git sources are build-only.`)
   }
+}
+
+function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {
+  return isPlainRecord(value) && value.kind === "env-variable"
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 async function readPackageJson(rootDir: string): Promise<Record<string, unknown>> {

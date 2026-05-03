@@ -76,7 +76,11 @@ export interface EnvViteConfigOptions {
   public?: Record<string, EnvVariableDeclaration>
 }
 
-export type EnvNitroConfigOptions = Record<string, EnvVariableDeclaration>
+export type EnvNitroConfigValue = EnvNitroConfigOptions | EnvVariableDeclaration
+
+export interface EnvNitroConfigOptions {
+  [key: string]: EnvNitroConfigValue
+}
 
 export type EnvConfigOptions = EnvViteConfigOptions | EnvNitroConfigOptions
 
@@ -115,7 +119,11 @@ export interface EnvRegistryEntry {
   type?: string
 }
 
-export type EnvRuntimeRegistry = Record<string, EnvRegistryEntry>
+export type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeRegistry
+
+export interface EnvRuntimeRegistry {
+  [key: string]: EnvRuntimeRegistryValue
+}
 
 export type SafeRuntimeConfig = Record<string, unknown>
 
