@@ -94,10 +94,12 @@ describe("Nitro module", () => {
     expect(types).toContain("\"vertex\": {")
     expect(types).toContain("\"model\": string")
     expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
-    expect(types).toContain("declare module \"@vitehub/chat\"")
-    expect(types).toContain("export interface ChatRuntimeConfig")
-    expect(types).toContain("declare module \"@vitehub/chat/nitro\"")
-    expect(types).toContain("export interface NitroChatRuntimeConfig")
+    expect(types).toContain("declare module \"nitro/types\"")
+    expect(types).toContain("export interface NitroRuntimeConfig")
+    expect(types).not.toContain("declare module \"@vitehub/chat\"")
+    expect(types).not.toContain("ChatRuntimeConfig")
+    expect(types).not.toContain("declare module \"@vitehub/chat/nitro\"")
+    expect(types).not.toContain("NitroChatRuntimeConfig")
     expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env.d.ts"))
 
     const registry = await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8")
@@ -133,7 +135,7 @@ describe("Nitro module", () => {
   })
 
   it("resolves nested runtime config objects", async () => {
-    const { setEnvRegistry, useSafeRuntimeConfig } = await import("../src/runtime/server.ts")
+    const { applyEnvRegistryToRuntimeConfig, setEnvRegistry, useSafeRuntimeConfig } = await import("../src/runtime/server.ts")
     process.env.TELEGRAM_BOT_TOKEN = "telegram-secret"
 
     setEnvRegistry({
@@ -167,6 +169,31 @@ describe("Nitro module", () => {
     expect(config.telegram.botToken).toBe("telegram-secret")
     expect(config.telegram.apiBaseUrl).toBeUndefined()
     expect(config.vertex.model).toBe("gemini-3.1-pro-preview-customtools")
+
+    const runtimeConfig = { chat: { enabled: true } } as Record<string, unknown>
+    applyEnvRegistryToRuntimeConfig(runtimeConfig)
+    expect(runtimeConfig).toMatchObject({
+      chat: { enabled: true },
+      telegram: { botToken: "telegram-secret" },
+      vertex: { model: "gemini-3.1-pro-preview-customtools" },
+    })
+    expect((runtimeConfig.telegram as { apiBaseUrl?: string }).apiBaseUrl).toBeUndefined()
+  })
+
+  it("throws when required runtime config values are missing", async () => {
+    const { applyEnvRegistryToRuntimeConfig, setEnvRegistry } = await import("../src/runtime/server.ts")
+
+    setEnvRegistry({
+      telegram: {
+        botToken: {
+          required: true,
+          secret: true,
+          source: { kind: "env", label: "env:TELEGRAM_BOT_TOKEN", name: "TELEGRAM_BOT_TOKEN", serializable: true },
+        },
+      },
+    })
+
+    expect(() => applyEnvRegistryToRuntimeConfig({})).toThrow("Missing runtime env value env.telegram.botToken")
   })
 
   it("rejects custom runtime sources", async () => {

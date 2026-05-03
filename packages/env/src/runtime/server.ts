@@ -16,6 +16,12 @@ export function useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig {
   return resolveRuntimeValues(registry, resolveRuntimeEnv(event))
 }
 
+export function applyEnvRegistryToRuntimeConfig(runtimeConfig: Record<string, unknown>, event?: unknown): SafeRuntimeConfig {
+  const values = useSafeRuntimeConfig(event)
+  assignRuntimeValues(runtimeConfig, values)
+  return runtimeConfig
+}
+
 function resolveRuntimeEnv(event?: unknown): Record<string, string | undefined> {
   const cloudflareEnv = event ? getCloudflareEnv(event) : undefined
   if (!cloudflareEnv) {
@@ -49,9 +55,26 @@ function resolveRuntimeValues(declarations: EnvRuntimeRegistry, env: Record<stri
   return values
 }
 
+function assignRuntimeValues(target: Record<string, unknown>, values: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(values)) {
+    if (isPlainRuntimeObject(value)) {
+      const existing = target[key]
+      const next = isPlainRuntimeObject(existing) ? existing : {}
+      assignRuntimeValues(next, value)
+      target[key] = next
+      continue
+    }
+    target[key] = value
+  }
+}
+
 function isRegistryEntry(value: EnvRuntimeRegistryValue): value is EnvRegistryEntry {
   return "source" in value
     && typeof value.source === "object"
     && value.source !== null
     && "kind" in value.source
+}
+
+function isPlainRuntimeObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
