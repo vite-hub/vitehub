@@ -75,6 +75,7 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
 function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceSource {
   return {
     ...source.source,
+    name: source.key,
     async getKeys(ctx) {
       return await source.source.getKeys(ctx)
     },
