@@ -5,7 +5,6 @@ import type {
   CpOptions,
   FileContent,
   FsStat,
-  IFileSystem,
   MkdirOptions,
   RmOptions,
 } from "just-bash"

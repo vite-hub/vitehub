@@ -17,10 +17,9 @@ interface WorkspaceInspectionCommandOptions {
 }
 
 export function cleanWorkspaceShellPath(path = "."): string {
-  let normalized = path.trim() || "."
-  if (normalized === "." || normalized === "./" || normalized === "/" || normalized === workspaceMountPoint) return ""
-  normalized = normalized.replace(/^\/workspace(\/|$)/, "")
-  return normalizeSafeShellPath(normalized)
+  const trimmed = path.trim() || "."
+  if (trimmed === "." || trimmed === "./" || trimmed === "/" || trimmed === workspaceMountPoint) return ""
+  return normalizeSafeShellPath(trimmed.replace(/^\/workspace(\/|$)/, ""))
 }
 
 export function cleanWorkspaceMutationPath(path: string): string {
