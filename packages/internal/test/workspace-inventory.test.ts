@@ -14,6 +14,7 @@ describe("workspace inventory", () => {
       "kv",
       "queue",
       "sandbox",
+      "shell",
       "unshell",
       "workflow",
       "workspace",
