@@ -37,10 +37,16 @@ function createPluginContents(file: string, registryFile: string): string {
   ].join("\n")
 }
 
-function installNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): void {
+async function writeNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): Promise<string> {
+  const dtsPath = resolve(nitro.options.buildDir, "types", "vitehub-env.d.ts")
+  await writeFileIfChanged(dtsPath, createNitroTypes(registry))
+  return dtsPath
+}
+
+async function installNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): Promise<void> {
+  await writeNitroTypes(nitro, registry)
   nitro.hooks.hook("types:extend", async (types: { tsConfig?: { include?: string[] } }) => {
-    const dtsPath = resolve(nitro.options.buildDir, "types", "vitehub-env.d.ts")
-    await writeFileIfChanged(dtsPath, createNitroTypes(registry))
+    const dtsPath = await writeNitroTypes(nitro, registry)
     if (types.tsConfig) {
       types.tsConfig.include ||= []
       types.tsConfig.include.push(dtsPath)
@@ -120,7 +126,7 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
         nitro.options.plugins.push(pluginFile)
       }
 
-      installNitroTypes(nitro, registry)
+      await installNitroTypes(nitro, registry)
     },
   }
 }

@@ -1,16 +1,24 @@
 import type { EnvSource, EnvSourceResolver, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
 
 interface DefaultStringSchema {
+  __vitehubDefaultRuntimeSchema: string
   safeParse: (input: unknown) => { data: string, success: true } | { error: Error, success: false }
 }
 
-export const defaultStringSchema: DefaultStringSchema = {
+const defaultStringSchema: DefaultStringSchema = {
+  __vitehubDefaultRuntimeSchema: getDefaultStringSchemaToken(),
   safeParse(input: unknown): { data: string, success: true } | { error: Error, success: false } {
     return typeof input === "string"
       ? { data: input, success: true as const }
       : { error: new Error("Expected string"), success: false as const }
   },
 }
+
+const defaultStringSchemaProperty = "__vitehubDefaultRuntimeSchema"
+const defaultStringSchemaToken = defaultStringSchema.__vitehubDefaultRuntimeSchema
+const defaultStringSchemas = new WeakMap<EnvVariableDeclaration, DefaultStringSchema>()
+const defaultStringSchemaParsers = new WeakSet<DefaultStringSchema["safeParse"]>()
+defaultStringSchemaParsers.add(defaultStringSchema.safeParse)
 
 export const envSource = {
   custom(label: string, resolver: EnvSourceResolver): EnvSource {
@@ -68,14 +76,49 @@ export function envVariable(options: EnvVariableOptions = {}): EnvVariableDeclar
     ? envSource.custom("custom", options.source)
     : options.source
 
-  return {
+  const schema = options.schema ?? defaultStringSchema
+  const declaration: EnvVariableDeclaration = {
     default: options.default,
     kind: "env-variable",
     mode: options.mode ?? "runtime",
     required,
-    schema: options.schema ?? defaultStringSchema,
+    schema,
     secret: options.secret ?? false,
     source,
     type: options.type,
   }
+
+  if (typeof options.schema === "undefined") {
+    defaultStringSchemas.set(declaration, defaultStringSchema)
+    Object.defineProperty(declaration, defaultStringSchemaProperty, {
+      enumerable: true,
+      value: defaultStringSchemaToken,
+    })
+  }
+
+  return declaration
+}
+
+export function isDefaultStringEnvVariable(declaration: EnvVariableDeclaration): boolean {
+  return defaultStringSchemas.get(declaration) === declaration.schema
+    || (
+      (declaration as unknown as Record<string, unknown>)[defaultStringSchemaProperty] === defaultStringSchemaToken
+      && typeof declaration.schema === "object"
+      && declaration.schema !== null
+      && (declaration.schema as Record<string, unknown>)[defaultStringSchemaProperty] === defaultStringSchemaToken
+      && hasDefaultStringSchemaParser(declaration.schema)
+    )
+}
+
+function getDefaultStringSchemaToken(): string {
+  const tokenKey = Symbol.for("vitehub.env.defaultRuntimeSchemaToken")
+  const globalScope = globalThis as typeof globalThis & Record<symbol, string | undefined>
+  globalScope[tokenKey] ??= `string:${Math.random().toString(36).slice(2)}`
+  return globalScope[tokenKey]
+}
+
+function hasDefaultStringSchemaParser(schema: object): boolean {
+  const candidate = schema as { safeParse?: unknown }
+  return typeof candidate.safeParse === "function"
+    && defaultStringSchemaParsers.has(candidate.safeParse as DefaultStringSchema["safeParse"])
 }
