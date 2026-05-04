@@ -1,5 +1,5 @@
 import { WorkspaceError } from "../errors.ts"
-import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, resolveGlobPatterns, sha256 } from "../path.ts"
+import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../path.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../store-provider.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "./utils.ts"
 
@@ -99,23 +99,18 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true })
-    const fileKeyRoot = `${this.#fileKey("", { allowEmpty: true })}/`
-    const filePrefix = normalizedPrefix ? `${this.#fileKey(normalizedPrefix, { allowEmpty: true })}/` : fileKeyRoot
-    const files = await this.#listBlobs(filePrefix)
+    const filePrefix = this.#fileKey(normalizedPrefix, { allowEmpty: true })
+    const files = await this.#listBlobs(normalizedPrefix ? `${filePrefix}/` : `${this.#fileKey("", { allowEmpty: true })}/`)
     const entries = new Map<string, WorkspaceEntry>()
 
     for (const blob of files) {
-      const path = normalizeWorkspacePath(blob.pathname.slice(fileKeyRoot.length))
+      const path = normalizeWorkspacePath(blob.pathname.slice(`${this.#fileKey("", { allowEmpty: true })}/`.length))
       if (!path) continue
       if (normalizedPrefix && !path.startsWith(`${normalizedPrefix}/`)) continue
-      if (!options.recursive) {
-        const relative = normalizedPrefix ? path.slice(normalizedPrefix.length + 1) : path
-        if (relative.includes("/")) {
-          const dirName = relative.split("/")[0]!
-          const dirPath = normalizedPrefix ? `${normalizedPrefix}/${dirName}` : dirName
-          entries.set(dirPath, { path: dirPath, type: "directory" })
-          continue
-        }
+      if (!options.recursive && normalizedPrefix && path.slice(normalizedPrefix.length + 1).includes("/")) continue
+      if (!options.recursive && !normalizedPrefix && path.includes("/")) {
+        entries.set(path.split("/")[0]!, { path: path.split("/")[0]!, type: "directory" })
+        continue
       }
 
       const bytes = await this.#readBytes(path)
@@ -139,8 +134,8 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     return [...entries.values()].sort((a, b) => a.path.localeCompare(b.path))
   }
 
-  async glob(pattern: string | string[], options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
-    const patterns = resolveGlobPatterns(pattern, options)
+  async glob(pattern: string | string[], _options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
+    const patterns = Array.isArray(pattern) ? pattern.map(normalizeSafeWorkspacePattern) : normalizeSafeWorkspacePattern(pattern)
     const entries = await this.list("", { recursive: true })
     return entries.filter(entry => entry.type === "file" && matchesAny(entry.path, patterns))
   }

@@ -2,7 +2,10 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
-    "rootDir": "."
+    "paths": {
+      "@vitehub/unshell": ["../unshell/src/index.ts"]
+    },
+    "rootDir": ".."
   },
   "include": [
     "src/**/*.ts",

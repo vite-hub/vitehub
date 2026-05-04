@@ -77,8 +77,5 @@ describe("local workspace store", () => {
       expect.objectContaining({ path: "docs/readme.md", type: "file" }),
       expect.objectContaining({ path: "docs/guide.mdx", type: "file" }),
     ]))
-    await expect(store.glob("*.md", { cwd: "docs" })).resolves.toEqual([
-      expect.objectContaining({ path: "docs/readme.md", type: "file" }),
-    ])
   })
 })

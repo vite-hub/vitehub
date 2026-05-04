@@ -1,6 +1,6 @@
 import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
-import type { Tool } from "ai"
+import type { Tool, ToolSet } from "ai"
 import { describe, expectTypeOf, it } from "vitest"
 
 import {
@@ -9,6 +9,8 @@ import {
   publish,
   useWorkspace,
 } from "../src/index.ts"
+import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
+import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as source from "../src/source.ts"
 import { hubWorkspace } from "../src/vite.ts"
 
@@ -46,8 +48,14 @@ describe("workspace types", () => {
     const writable = useWorkspace("typed", { allowWrite: true })
 
     expectTypeOf(definition).toMatchTypeOf<object>()
-    expectTypeOf((await readonly.tools()).readFile).toMatchTypeOf<Tool<{ path: string }, { content: string, path: string }>>()
-    expectTypeOf((await writable.tools()).writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
+    expectTypeOf(createWorkspaceTools(createWorkspaceAssets({
+      "README.md": { load: async () => "# Docs\n" },
+    })).shell).toMatchTypeOf<object>()
+    expectTypeOf(readonly.tools).toMatchTypeOf<ToolSet>()
+    expectTypeOf(readonly.tools().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
+    expectTypeOf(readonly.tools()).toMatchTypeOf<ToolSet>()
+    expectTypeOf(writable.tools).toMatchTypeOf<ToolSet>()
+    expectTypeOf(writable.tools().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(await readonly.fs.readFile("AGENTS.md")).toEqualTypeOf<string>()
     // @ts-expect-error typed workspace assets reject unknown literal paths when no fallback string is declared
     await readonly.fs.readFile("MISSING.md")

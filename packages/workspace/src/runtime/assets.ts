@@ -1,5 +1,5 @@
 import { WorkspaceError } from "../errors.ts"
-import { decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, resolveGlobPatterns, sha256 } from "../path.ts"
+import { decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../path.ts"
 import { searchText } from "../search.ts"
 
 import type {
@@ -71,10 +71,7 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
     const cached = contentCache.get(path)
     if (cached) return await cached
 
-    const next = entry.load().catch((error) => {
-      contentCache.delete(path)
-      throw error
-    })
+    const next = entry.load()
     contentCache.set(path, next)
     return await next
   }
@@ -107,6 +104,10 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
     throw createMissingPathError(path)
   }
 
+  function createDirectoryEntry(path: string): WorkspaceEntry {
+    return { path, type: "directory" }
+  }
+
   async function listEntries(prefix = "", options: ListOptions = {}) {
     const normalizedPrefix = normalizeAssetPath(prefix)
     const result = new Map<string, WorkspaceEntry>()
@@ -115,7 +116,7 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
       if (directory === normalizedPrefix) continue
       if (normalizedPrefix && !isNestedUnder(directory, normalizedPrefix)) continue
       if (!options.recursive && normalizeWorkspacePath(directory.slice(normalizedPrefix.length)).replace(/^\//, "").includes("/")) continue
-      result.set(directory, { path: directory, type: "directory" })
+      result.set(directory, createDirectoryEntry(directory))
     }
 
     for (const path of paths) {
@@ -148,21 +149,18 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
     async list(path, options) {
       return await listEntries(path || "", options)
     },
-    async glob(pattern, options: GlobOptions = {}) {
+    async glob(pattern, _options: GlobOptions = {}) {
       const entries = await listEntries("", { recursive: true })
-      const patterns = resolveGlobPatterns(pattern, options)
+      const patterns = Array.isArray(pattern) ? pattern : [pattern]
       return entries.filter(entry => entry.type === "file" && patterns.some(item => matchesAny(entry.path, item)))
     },
     async search(query: WorkspaceSearchQuery) {
       const result = []
       const limit = query.limit ?? 100
       const entries = await listEntries("", { recursive: true })
-      const scopePaths = query.paths?.length
-        ? query.paths
-        : query.cwd ? [normalizeAssetPath(query.cwd)].filter(Boolean) : []
       for (const entry of entries) {
         if (entry.type !== "file") continue
-        if (scopePaths.length && !scopePaths.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
+        if (query.paths?.length && !query.paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
         const content = await readContent(entry.path)
         const text = typeof content === "string" ? content : new TextDecoder().decode(content)
         result.push(...searchText(entry.path, text, { ...query, limit: limit - result.length }))

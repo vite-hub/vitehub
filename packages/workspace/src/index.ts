@@ -1,5 +1,4 @@
 export { defineWorkspace } from "./define.ts"
-export { createWorkspace } from "./workspace.ts"
 export * as loader from "./loaders/index.ts"
 export * as publish from "./publishers/index.ts"
 export { registerWorkspace } from "./registry.ts"

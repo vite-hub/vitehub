@@ -1,0 +1,82 @@
+import { readFile } from "node:fs/promises"
+
+import { defaultChatCloudflareDurableObjectState } from "../config.ts"
+
+import type { ChatCloudflareDurableObjectModuleOptions } from "../types.ts"
+import type { DiscoveredChatDefinition } from "../types.ts"
+
+interface MutableCloudflareTarget {
+  cloudflare?: Record<string, unknown> & {
+    wrangler?: Record<string, unknown> & {
+      durable_objects?: Record<string, unknown> & {
+        bindings?: Array<{ class_name: string, name: string }>
+      }
+      migrations?: Array<{ new_sqlite_classes?: string[], tag: string }>
+    }
+  }
+}
+
+export function configureCloudflareChatState(
+  target: MutableCloudflareTarget,
+  options: Required<Pick<ChatCloudflareDurableObjectModuleOptions, "binding" | "className" | "migrationTag">>,
+): void {
+  target.cloudflare ||= {}
+  target.cloudflare.wrangler ||= {}
+  target.cloudflare.wrangler.durable_objects ||= {}
+  target.cloudflare.wrangler.durable_objects.bindings ||= []
+  target.cloudflare.wrangler.migrations ||= []
+
+  const bindings = target.cloudflare.wrangler.durable_objects.bindings
+  const existingBinding = bindings.find(binding => binding.name === options.binding)
+  if (existingBinding) {
+    existingBinding.class_name = options.className
+  }
+  else {
+    bindings.push({
+      class_name: options.className,
+      name: options.binding,
+    })
+  }
+
+  const migrations = target.cloudflare.wrangler.migrations
+  if (migrations.some(migration => migration.new_sqlite_classes?.includes(options.className))) {
+    return
+  }
+
+  migrations.push({
+    new_sqlite_classes: [options.className],
+    tag: options.migrationTag,
+  })
+}
+
+const cloudflareDurableObjectStateCall = "cloudflareDurableObjectState"
+
+function readStringOption(source: string, key: "binding" | "className" | "migrationTag" | "name"): string | undefined {
+  const match = new RegExp(`\\b${key}\\s*:\\s*["']([^"']+)["']`).exec(source)
+  return match?.[1]
+}
+
+export async function discoverCloudflareChatStateConfig(
+  definitions: DiscoveredChatDefinition[],
+): Promise<Array<Required<Pick<ChatCloudflareDurableObjectModuleOptions, "binding" | "className" | "migrationTag">> & Pick<ChatCloudflareDurableObjectModuleOptions, "name">>> {
+  const configs = new Map<string, Required<Pick<ChatCloudflareDurableObjectModuleOptions, "binding" | "className" | "migrationTag">> & Pick<ChatCloudflareDurableObjectModuleOptions, "name">>()
+
+  for (const definition of definitions) {
+    const contents = await readFile(definition.handler, "utf8")
+    const index = contents.indexOf(cloudflareDurableObjectStateCall)
+    if (index === -1) {
+      continue
+    }
+
+    const callContents = contents.slice(index, index + 1200)
+    const config = {
+      binding: readStringOption(callContents, "binding") || defaultChatCloudflareDurableObjectState.binding,
+      className: readStringOption(callContents, "className") || defaultChatCloudflareDurableObjectState.className,
+      migrationTag: readStringOption(callContents, "migrationTag") || defaultChatCloudflareDurableObjectState.migrationTag,
+      name: readStringOption(callContents, "name"),
+    }
+    configs.set(config.binding, config)
+  }
+
+  return [...configs.values()]
+}

@@ -29,7 +29,6 @@ import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
   modules: ['@vitehub/workspace/nitro'],
-  workspace: {},
 })
 ```
 ::
@@ -82,12 +81,21 @@ const readme = await workspace.fs.readFile('docs/README.md')
 const files = await workspace.fs.list('', { recursive: true })
 ```
 
-For AI SDK agents that need to mutate workspace files, expose structured write tools from a writable facade:
+For AI SDK agents, expose read-only workspace inspection tools:
 
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const tools = await useWorkspace('docs', { allowWrite: true }).tools()
+const tools = useWorkspace('docs').tools()
+```
+
+The `shell` tool emulates safe file-inspection commands against workspace assets. It does not execute a real shell.
+Read, list, and search commands are enabled by default. Write tools are exposed automatically when the facade is writable:
+
+```ts
+import { useWorkspace } from '@vitehub/workspace'
+
+const tools = useWorkspace('docs', { allowWrite: true }).tools()
 ```
 
 Applications that use `AGENTS.md` as the model instruction source should preload it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')`.
@@ -111,9 +119,9 @@ export default defineWorkspace({
 })
 ```
 
-Lazy sources are exposed virtually through the workspace API and workspace tools. `list`, `glob`, `search`, `stat`, and `exists` use the source manifest without materializing every file. A file is fetched and written into the workspace store only when `readFile` needs it.
+Lazy sources are exposed virtually through the workspace API and workspace tools. `list`, `glob`, `find`, and `stat` use the source manifest without materializing every file. A file is fetched and written into the workspace store only when a read-oriented operation such as `readFile`, `cat`, `head`, or `tail` needs it.
 
-The agent never receives a real filesystem mount. It only sees workspace tools such as `list`, `search`, `readFile`, `writeFile`, `stat`, and `exists`, all backed by the workspace API.
+The agent never receives a real filesystem mount. It only sees workspace tools such as `ls`, `find`, `cat`, `grep`, `readFile`, `writeFile`, `stat`, and `exists`, all backed by the workspace API.
 
 Source-backed paths are read-only in this release. Write generated or editable files to normal workspace paths such as `artifacts/**` or `generated/**`.
 
@@ -126,6 +134,7 @@ The v1 provider is local-first. Hosted runtimes select the smallest adapter that
 | Primitive | Workspace role |
 | --- | --- |
 | Cloudflare Artifacts | Future canonical versioned file-tree store. |
+| Cloudflare Shell / Sandbox | Runtime filesystem and execution adapters. |
 | Cloudflare R2 | Large-object spillover for workspace stores. |
 | Memory | Default ephemeral store for unconfigured Vercel hosting. |
 | Vercel Blob | Optional object/file backing store, not Git-like workspace state. |

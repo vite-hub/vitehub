@@ -95,7 +95,14 @@ describe("Nitro workspace outputs", () => {
       expect.objectContaining({ binding: "WORKSPACE_ARTIFACTS", namespace: "vitehub" }),
     ])
     await assertNoNitroInternalVirtualImports(cloudflareBuild.outputDir)
-    await expect(readGeneratedJavaScript(cloudflareBuild.outputDir)).resolves.not.toMatch(/(?:from|import\(|require\()\s*["']@vercel\/blob["']/)
+    const cloudflareOutput = await readGeneratedJavaScript(cloudflareBuild.outputDir)
+    expect(cloudflareOutput).not.toMatch(/(?:from|import\(|require\()\s*["']@vercel\/blob["']/)
+    expect(cloudflareOutput).not.toContain("node-gyp-build")
+    expect(cloudflareOutput).not.toContain("node-liblzma")
+    expect(cloudflareOutput).not.toContain("zstd.node")
+    expect(cloudflareOutput).not.toContain("js-exec-worker")
+    expect(cloudflareOutput).not.toMatch(/createRequire\([^)]*import\.meta\.url/)
+    expect(cloudflareOutput).toContain("createCloudflareArtifactsWorkspaceStore")
 
     await cleanupPlayground()
 

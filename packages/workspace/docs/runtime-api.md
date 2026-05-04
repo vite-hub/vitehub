@@ -1,6 +1,6 @@
 ---
 title: Runtime API
-description: Workspace runtime methods and AI SDK tools.
+description: Workspace runtime methods and mount semantics.
 navigation.title: Runtime API
 navigation.order: 2
 frameworks: [vite, nitro]
@@ -24,12 +24,13 @@ const files = await workspace.fs.glob('**/*.md')
 const hits = await workspace.fs.search({ pattern: 'Context', paths: ['generated'] })
 ```
 
-## Tools
+## Mounts
 
-Use `.tools()` when an AI runtime needs structured write access to workspace files:
+Use `.tools()` when an AI runtime needs workspace files:
 
 ```ts
-const writableTools = await useWorkspace('docs', { allowWrite: true }).tools()
+const readOnlyTools = useWorkspace('docs').tools()
+const writableTools = useWorkspace('docs', { allowWrite: true }).tools()
 ```
 
-Sources are resolved behind the workspace API. Agents do not access a real mounted filesystem directly; they interact with workspace handles and tools.
+Source mounts are resolved behind the workspace API. Agents do not access a real mounted filesystem directly; they only interact with these workspace handles and tools.

@@ -56,6 +56,53 @@ export interface WorkspaceSyncOptions {
   force?: boolean
 }
 
+export interface WorkspaceOpenOptions {
+  runtime?: "local" | "cloudflare-shell" | "cloudflare-sandbox" | "vercel-sandbox" | (string & {})
+}
+
+export type WorkspaceMountMode = "read-only" | "read-write" | "copy-on-write"
+
+export interface WorkspaceMountOptions {
+  mode: WorkspaceMountMode
+  target?: string
+}
+
+export interface WorkspaceMount {
+  workspace: Workspace
+  mode: WorkspaceMountMode
+  target: string
+  diff(): Promise<WorkspaceDiff>
+  commit(options?: { message?: string }): Promise<void>
+  export(): Promise<WorkspaceSnapshot>
+}
+
+export interface ExecOptions {
+  cwd?: string
+  env?: Record<string, string>
+}
+
+export interface ExecResult {
+  command: string
+  args: string[]
+  exitCode: number
+  stdout: string
+  stderr: string
+}
+
+export interface WorkspaceSession {
+  readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
+  writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
+  list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
+  glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
+  search?(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
+  diff?(): Promise<WorkspaceDiff>
+  exec?(command: string, args?: string[], options?: ExecOptions): Promise<ExecResult>
+  tools?: {
+    aiSdk?(): Promise<Record<string, unknown>>
+  }
+  close?(): Promise<void>
+}
+
 declare global {
   interface ViteHubWorkspaceNameMap {}
   interface ViteHubWorkspaceAssetMap {}
@@ -295,4 +342,6 @@ export interface Workspace {
   rm(path: string, options?: RmOptions): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
+  open(options?: WorkspaceOpenOptions): Promise<WorkspaceSession>
+  mount(options?: WorkspaceMountOptions): WorkspaceMount
 }

@@ -4,10 +4,17 @@ import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
   WorkspaceDefinition,
+  WorkspaceMount,
+  WorkspaceMountOptions,
+  WorkspaceSession,
 } from "./types.ts"
 
+function getStore(definition: WorkspaceDefinition) {
+  return getCachedWorkspaceStore(definition, () => createWorkspaceStoreFromProvider(definition))
+}
+
 export function createWorkspace(definition: WorkspaceDefinition): Workspace {
-  const store = getCachedWorkspaceStore(definition, () => createWorkspaceStoreFromProvider(definition))
+  const store = getStore(definition)
   const files = createWorkspaceSourceView(definition, store)
 
   const workspace: Workspace = {
@@ -48,6 +55,38 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     },
     async diff(options) {
       return await store.diff(options)
+    },
+    async open(options): Promise<WorkspaceSession> {
+      const session: WorkspaceSession = {
+        readFile: workspace.readFile,
+        writeFile: workspace.writeFile,
+        list: workspace.list,
+        glob: workspace.glob,
+        search: workspace.search,
+        diff: workspace.diff,
+      }
+      if (options?.runtime === "local") {
+        const { execLocal } = await import("./runtimes/local.ts")
+        session.exec = execLocal
+      }
+      return session
+    },
+    mount(options?: WorkspaceMountOptions): WorkspaceMount {
+      const mode = options?.mode || "read-only"
+      return {
+        workspace,
+        mode,
+        target: options?.target || "/workspace",
+        async diff() {
+          return await workspace.diff()
+        },
+        async commit() {
+          await workspace.snapshot({ name: "mount-commit" })
+        },
+        async export() {
+          return await workspace.snapshot({ name: "mount-export" })
+        },
+      }
     },
   }
 

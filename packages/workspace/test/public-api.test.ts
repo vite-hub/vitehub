@@ -60,7 +60,6 @@ describe("workspace public API", () => {
     setWorkspaceRuntimeAssetsRegistry({
       docs: createWorkspaceAssets({
         "README.md": { load: async () => "# Docs\n" },
-        "guide/setup.md": { load: async () => "# Setup\n" },
       }),
     })
 
@@ -69,15 +68,11 @@ describe("workspace public API", () => {
     await expect(workspace.fs.readFile("README.md")).resolves.toBe("# Docs\n")
     await expect(workspace.fs.exists("README.md")).resolves.toBe(true)
     await expect(workspace.fs.exists("missing.md" as never)).resolves.toBe(false)
-    await expect(workspace.fs.list()).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "README.md", type: "file" }),
-      expect.objectContaining({ path: "guide", type: "directory" }),
-    ]))
-    await expect(workspace.fs.glob("README.md")).resolves.toEqual([
+    await expect(workspace.fs.list()).resolves.toEqual([
       expect.objectContaining({ path: "README.md", type: "file" }),
     ])
-    await expect(workspace.fs.glob("*.md", { cwd: "guide" })).resolves.toEqual([
-      expect.objectContaining({ path: "guide/setup.md", type: "file" }),
+    await expect(workspace.fs.glob("README.md")).resolves.toEqual([
+      expect.objectContaining({ path: "README.md", type: "file" }),
     ])
     await expect(workspace.fs.stat("README.md")).resolves.toMatchObject({ path: "README.md", type: "file" })
   })

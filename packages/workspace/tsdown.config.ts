@@ -1,9 +1,13 @@
+import { fileURLToPath } from "node:url"
 import { defineConfig } from "tsdown"
 
 export default defineConfig({
+  alias: {
+    "@vitehub/unshell": fileURLToPath(new URL("../unshell/src/index.ts", import.meta.url)),
+  },
   clean: true,
   deps: {
-    alwaysBundle: [/^@vitehub\/internal/],
+    alwaysBundle: [/^@vitehub\/internal/, /^@vitehub\/unshell/],
     neverBundle: ["#vitehub-workspace-assets-registry", "#vitehub-workspace-registry"],
   },
   dts: true,

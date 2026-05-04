@@ -247,46 +247,6 @@ describe("sources, loaders, and publishers", () => {
     expect(await readFile(join(root, "workspace.d.ts"), "utf8")).toContain('virtual:vitehub/workspaces/sources')
   })
 
-  it("removes files from previous source syncs when source keys disappear", async () => {
-    let files: Record<string, string> = {
-      "README.md": "# Docs\n",
-      "stale.md": "stale\n",
-    }
-
-    registerWorkspace("sources-prune", defineWorkspace({
-      store: { provider: "memory" },
-      sources: {
-        docs: source.custom({
-          name: "docs",
-          async getKeys() {
-            return Object.keys(files).sort()
-          },
-          async getItem(key) {
-            return { key, path: key, content: files[key] }
-          },
-        }),
-      },
-    }))
-
-    const workspace = await useRegisteredWorkspace("sources-prune")
-    await workspace.sync()
-    await workspace.writeFile("generated/manual.md", "manual\n")
-
-    expect(await workspace.exists("docs/stale.md")).toBe(true)
-
-    files = { "README.md": "# Docs\n" }
-    await workspace.sync()
-
-    expect(await workspace.exists("docs/README.md")).toBe(true)
-    expect(await workspace.exists("docs/stale.md")).toBe(false)
-    expect(await workspace.exists("generated/manual.md")).toBe(true)
-
-    files = { "README.md": "# Docs\n", "stale.md": "stale\n" }
-    await workspace.sync()
-
-    await expect(workspace.readFile("docs/stale.md")).resolves.toBe("stale\n")
-  })
-
   it("ignores .git and node_modules when discovering glob sources", async () => {
     const root = await createRoot()
     await mkdir(join(root, "node_modules/pkg"), { recursive: true })

@@ -1,7 +1,7 @@
 import { getActiveCloudflareBinding } from "@vitehub/internal/runtime/cloudflare-env"
 
 import { WorkspaceError } from "../errors.ts"
-import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, resolveGlobPatterns, sha256 } from "../path.ts"
+import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../path.ts"
 import { MemoryFS } from "./memory-fs.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "./utils.ts"
 
@@ -41,15 +41,6 @@ function tokenSecret(token: string) {
 
 function repoName(options: CloudflareArtifactsWorkspaceStoreOptions, workspaceName: string) {
   return options.repo || `${options.repoPrefix || "vitehub-workspace-"}${workspaceName.replace(/[^a-zA-Z0-9_.-]/g, "-")}`
-}
-
-function isEmptyRepoError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false
-  const candidate = error as { code?: string, data?: { statusCode?: number }, message?: string }
-  if (candidate.code === "EmptyServerError") return true
-  if (candidate.data?.statusCode === 404) return true
-  const message = candidate.message?.toLowerCase() ?? ""
-  return message.includes("empty repository") || message.includes("empty remote") || message.includes("empty server")
 }
 
 class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
@@ -106,8 +97,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     return entries.sort((a, b) => a.path.localeCompare(b.path))
   }
 
-  async glob(pattern: string | string[], options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
-    const patterns = resolveGlobPatterns(pattern, options)
+  async glob(pattern: string | string[], _options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
+    const patterns = Array.isArray(pattern) ? pattern.map(normalizeSafeWorkspacePattern) : normalizeSafeWorkspacePattern(pattern)
     const entries = await this.list("", { recursive: true })
     return entries.filter(entry => entry.type === "file" && matchesAny(entry.path, patterns))
   }
@@ -215,9 +206,13 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     return `${dir}/${path}`
   }
 
+  #internalAbsolute(path: string) {
+    return `${dir}/${normalizeWorkspacePath(path)}`
+  }
+
   #metaAbsolute(key: string) {
     const normalized = normalizeSafeWorkspacePath(key.endsWith(".json") ? key : `${key}.json`)
-    return this.#absolute(`.vitehub/meta/${normalized}`)
+    return this.#internalAbsolute(`.vitehub/meta/${normalized}`)
   }
 
   #getBinding(): ArtifactsBinding {
@@ -230,10 +225,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #ensure(): Promise<void> {
-    this.#ready ||= this.#load().catch((error) => {
-      this.#ready = undefined
-      throw error
-    })
+    this.#ready ||= this.#load()
     await this.#ready
   }
 
@@ -271,8 +263,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
         url: this.#repo.remote,
       })
     }
-    catch (error) {
-      if (!isEmptyRepoError(error)) throw error
+    catch {
       await git.init({ defaultBranch: this.options.branch || "main", dir, fs: this.#fs as never })
     }
   }

@@ -1,5 +1,5 @@
 import { WorkspaceError } from "../errors.ts"
-import { contentToBytes, matchesAny, normalizeWorkspacePath, resolveGlobPatterns, resolveInside, sha256 } from "../path.ts"
+import { contentToBytes, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../path.ts"
 
 import type {
   DiffOptions,
@@ -103,8 +103,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
       .sort((a, b) => a.path.localeCompare(b.path))
   }
 
-  async glob(pattern: string | string[], options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
-    const patterns = resolveGlobPatterns(pattern, options)
+  async glob(pattern: string | string[], _options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
+    const patterns = Array.isArray(pattern) ? pattern : [pattern]
     const entries = await this.list("", { recursive: true })
     return entries.filter(entry => entry.type === "file" && patterns.some(item => matchesAny(entry.path, item)))
   }

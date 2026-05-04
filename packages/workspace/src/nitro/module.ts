@@ -117,26 +117,21 @@ function createNitroPluginContents(file: string, registryFile: string, assetsReg
     imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/vercel-blob", "@vitehub/workspace/stores/vercel-blob")))}`)
   }
 
-  let loader: string[]
-  if (provider === "cloudflare-artifacts") {
-    loader = [
-      "  setWorkspaceHostedStoreLoader((store, workspaceName) => {",
-      "    if (store.provider !== 'cloudflare-artifacts') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
-      "    return createCloudflareArtifactsWorkspaceStore(store, workspaceName)",
-      "  })",
-    ]
-  }
-  else if (provider === "vercel-blob") {
-    loader = [
-      "  setWorkspaceHostedStoreLoader((store, workspaceName) => {",
-      "    if (store.provider !== 'vercel-blob') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
-      "    return createVercelBlobWorkspaceStore(store, workspaceName)",
-      "  })",
-    ]
-  }
-  else {
-    loader = ["  setWorkspaceHostedStoreLoader(undefined)"]
-  }
+  const loader = provider === "cloudflare-artifacts"
+    ? [
+        "  setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+        "    if (store.provider !== 'cloudflare-artifacts') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
+        "    return createCloudflareArtifactsWorkspaceStore(store, workspaceName)",
+        "  })",
+      ]
+    : provider === "vercel-blob"
+      ? [
+          "  setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+          "    if (store.provider !== 'vercel-blob') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
+          "    return createVercelBlobWorkspaceStore(store, workspaceName)",
+          "  })",
+        ]
+      : ["  setWorkspaceHostedStoreLoader(undefined)"]
 
   return [
     ...imports,
@@ -174,8 +169,9 @@ const workspaceNitroModule: NitroModule = {
     runtimeConfig.workspace = resolved
 
     nitro.options.alias ||= {}
-    nitro.options.alias["@vitehub/workspace"] = resolveRuntimeEntry("../index", "@vitehub/workspace")
+    nitro.options.alias["@vitehub/workspace/source"] = resolveRuntimeEntry("../source", "@vitehub/workspace/source")
     nitro.options.alias["@vitehub/workspace/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/runtime/state")
+    nitro.options.alias["@vitehub/workspace"] = resolveRuntimeEntry("../index", "@vitehub/workspace")
     nitro.options.alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     nitro.options.alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
     for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {

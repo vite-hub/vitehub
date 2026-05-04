@@ -1,0 +1,48 @@
+{
+  "name": "@vitehub/unshell",
+  "version": "0.0.0",
+  "description": "Unified shell runtimes for ViteHub.",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/unshell"
+  },
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "keywords": [
+    "vitehub",
+    "shell",
+    "just-bash",
+    "cloudflare"
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsdown --tsconfig tsconfig.build.json",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "pnpm --filter @vitehub/unshell build && vitest run"
+  },
+  "dependencies": {
+    "@vitehub/sandbox": "workspace:*",
+    "just-bash": "^2.14.4"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "publint": "^0.3.15",
+    "tsdown": "^0.21.8",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

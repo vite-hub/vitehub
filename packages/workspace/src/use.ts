@@ -1,14 +1,17 @@
-import type {
-  WorkspaceReadOperations,
-  WorkspaceToolOperations,
-  WorkspaceTools,
-  WorkspaceWriteOperations,
+import {
+  createWorkspaceTools,
+  type ShellEnabled,
+  type WorkspaceReadOperations,
+  type WorkspaceShellResult,
+  type WorkspaceWriteOperations,
+  type WorkspaceWriteToolMap,
 } from "./ai.ts"
 import { useWorkspaceAssets } from "./asset-registry.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
 
+import type { Tool, ToolSet } from "ai"
 import type {
   GlobOptions,
   ListOptions,
@@ -34,36 +37,31 @@ export interface UseWorkspaceOptions {
   allowWrite?: boolean
 }
 
-export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {}
+export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
+  cwd?: string
+  maxOutputLength?: number
+}
 
 export interface WritableWorkspaceFacadeToolOptions extends WorkspaceFacadeToolOptions, WorkspaceWriteOperations {}
 
-type ReadOperationSelection<Options> = Options extends WorkspaceReadOperations ? Options : true
-
-type WriteOperationSelection<Options> = Options extends WorkspaceWriteOperations
-  ? {
-      appendFile: Options extends { appendFile: false } ? false : true
-      copyPath: Options extends { copyPath: false } ? false : true
-      deletePath: Options extends { deletePath: false } ? false : true
-      makeDir: Options extends { makeDir: false } ? false : true
-      movePath: Options extends { movePath: false } ? false : true
-      writeFile: Options extends { writeFile: false } ? false : true
-    }
+type EnabledWriteCapability<Options, Key extends keyof WorkspaceWriteOperations> = Options extends Record<Key, infer Value>
+  ? Value extends false ? false : true
   : true
 
-export type WorkspaceReadTools<Options = undefined> = WorkspaceTools<{ read: ReadOperationSelection<Options> }>
+export type WorkspaceReadTools<Options = undefined> = ((ShellEnabled<Options> extends true
+  ? { shell: Tool<{ command: string }, WorkspaceShellResult> }
+  : {}) & ToolSet)
 
-export type WorkspaceWriteTools<Options = undefined> = WorkspaceTools<{
-  read: ReadOperationSelection<Options>
-  write: WriteOperationSelection<Options>
-}>
+export type WorkspaceWriteTools<Options = undefined> = WorkspaceReadTools<Options> & {
+  [Key in keyof WorkspaceWriteToolMap as EnabledWriteCapability<Options, Key> extends true ? Key : never]: WorkspaceWriteToolMap[Key]
+} & ToolSet
 
-export type WorkspaceReadToolSet = {
-  <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options): Promise<WorkspaceReadTools<Options>>
+export type WorkspaceReadToolSet = WorkspaceReadTools & {
+  <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options): WorkspaceReadTools<Options>
 }
 
-export type WorkspaceWriteToolSet = {
-  <Options extends WritableWorkspaceFacadeToolOptions | undefined = undefined>(options?: Options): Promise<WorkspaceWriteTools<Options>>
+export type WorkspaceWriteToolSet = WorkspaceWriteTools & {
+  <Options extends WritableWorkspaceFacadeToolOptions | undefined = undefined>(options?: Options): WorkspaceWriteTools<Options>
 }
 
 export type ReadonlyWorkspaceFs<Name extends WorkspaceName = WorkspaceName> = WorkspaceAssets<WorkspaceAssetPath<Name>>
@@ -174,6 +172,26 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
     async diff(options) {
       return await (await resolveSyncedWorkspace()).diff(options)
     },
+    async open(options) {
+      return await (await resolveSyncedWorkspace()).open(options)
+    },
+    mount(options) {
+      const mode = options?.mode || "read-only"
+      return {
+        workspace,
+        mode,
+        target: options?.target || "/workspace",
+        async diff() {
+          return await (await resolveSyncedWorkspace()).mount(options).diff()
+        },
+        async commit(commitOptions) {
+          await (await resolveSyncedWorkspace()).mount(options).commit(commitOptions)
+        },
+        async export() {
+          return await (await resolveSyncedWorkspace()).mount(options).export()
+        },
+      }
+    },
   } as Workspace
 
   return workspace
@@ -204,23 +222,13 @@ function createWritableFs<Name extends WorkspaceName>(workspace: Workspace): Wri
   }
 }
 
-function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceToolOperations["read"] {
-  if (!options) {
-    return true
-  }
-
-  return {
-    exists: options.exists !== false,
-    list: options.list !== false,
-    readFile: options.readFile !== false,
-    search: options.search !== false,
-    stat: options.stat !== false,
-  }
+function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {
+  return { list: options?.list, read: options?.read, search: options?.search }
 }
 
-function toWriteOperations(options: WritableWorkspaceFacadeToolOptions | undefined): WorkspaceToolOperations {
+function toWriteOperations(options: WritableWorkspaceFacadeToolOptions | undefined) {
   return {
-    read: toReadOperations(options),
+    ...toReadOperations(options),
     write: {
       appendFile: options?.appendFile !== false,
       copyPath: options?.copyPath !== false,
@@ -232,12 +240,11 @@ function toWriteOperations(options: WritableWorkspaceFacadeToolOptions | undefin
   }
 }
 
-async function createWorkspaceToolSet<Operations extends WorkspaceToolOperations>(
-  input: Workspace | WorkspaceAssets,
-  operations: Operations,
+function createDefaultToolSetFactory<TOptions, TDefaultTools extends ToolSet>(
+  createTools: (options?: TOptions) => ToolSet,
 ) {
-  const { createWorkspaceTools } = await import("./ai.ts")
-  return createWorkspaceTools(input, { operations })
+  const factory = ((options?: TOptions) => createTools(options)) as ((options?: TOptions) => ToolSet) & TDefaultTools
+  return Object.assign(factory, createTools())
 }
 
 export function useWorkspace<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFacade<Name>
@@ -245,21 +252,31 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { 
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
   if (options?.allowWrite) {
     const workspace = createLazyWorkspace(name)
-    const createTools = async (opts?: WritableWorkspaceFacadeToolOptions) =>
-      await createWorkspaceToolSet(workspace, toWriteOperations(opts))
-
+    const createTools = (opts?: WritableWorkspaceFacadeToolOptions) => createWorkspaceTools(workspace, {
+      cwd: opts?.cwd,
+      maxOutputLength: opts?.maxOutputLength,
+      operations: toWriteOperations(opts),
+    })
     return {
       fs: createWritableFs<Name>(workspace),
-      tools: createTools as WritableWorkspaceFacade<Name>["tools"],
+      tools: createDefaultToolSetFactory<
+        WritableWorkspaceFacadeToolOptions,
+        WorkspaceWriteTools
+      >(createTools) as WritableWorkspaceFacade<Name>["tools"],
     }
   }
 
   const fs = useWorkspaceAssets(name)
-  const createTools = async (opts?: WorkspaceFacadeToolOptions) =>
-    await createWorkspaceToolSet(fs, { read: toReadOperations(opts) })
-
+  const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
+    cwd: opts?.cwd,
+    maxOutputLength: opts?.maxOutputLength,
+    operations: toReadOperations(opts),
+  })
   return {
     fs,
-    tools: createTools as ReadonlyWorkspaceFacade<Name>["tools"],
+    tools: createDefaultToolSetFactory<
+      WorkspaceFacadeToolOptions,
+      WorkspaceReadTools
+    >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"],
   }
 }

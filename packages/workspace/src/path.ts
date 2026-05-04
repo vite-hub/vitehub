@@ -4,7 +4,7 @@ import { minimatch } from "minimatch"
 
 import { WorkspacePathError } from "./errors.ts"
 
-import type { GlobOptions, ReadFileOptions, ReadFileResult, WorkspaceContent } from "./types.ts"
+import type { ReadFileOptions, ReadFileResult, WorkspaceContent } from "./types.ts"
 
 export function normalizeWorkspacePath(path = ""): string {
   return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
@@ -13,6 +13,7 @@ export function normalizeWorkspacePath(path = ""): string {
 export interface SafeWorkspacePathOptions {
   allowEmpty?: boolean
   allowReserved?: boolean
+  pattern?: boolean
 }
 
 export function normalizeSafeWorkspacePath(path = "", options: SafeWorkspacePathOptions = {}): string {
@@ -28,7 +29,7 @@ export function normalizeSafeWorkspacePath(path = "", options: SafeWorkspacePath
 }
 
 export function normalizeSafeWorkspacePattern(pattern: string): string {
-  return normalizeSafeWorkspacePath(pattern, { allowEmpty: true })
+  return normalizeSafeWorkspacePath(pattern, { allowEmpty: true, pattern: true })
 }
 
 export function resolveInside(root: string, path = ""): string {
@@ -49,13 +50,6 @@ export function matchesAny(path: string, patterns?: string | string[]): boolean 
   const list = Array.isArray(patterns) ? patterns : [patterns]
   const normalizedPath = normalizeWorkspacePath(path)
   return list.some(pattern => minimatch(normalizedPath, normalizeWorkspacePath(pattern), { dot: true }))
-}
-
-export function resolveGlobPatterns(pattern: string | string[], options: GlobOptions = {}): string[] {
-  const cwd = normalizeSafeWorkspacePath(options.cwd || "", { allowEmpty: true })
-  return (Array.isArray(pattern) ? pattern : [pattern])
-    .map(normalizeSafeWorkspacePattern)
-    .map(item => cwd ? `${cwd}/${item}` : item)
 }
 
 export function contentToBytes(content: string | Uint8Array): Uint8Array {
