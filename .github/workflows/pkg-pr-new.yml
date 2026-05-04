@@ -22,7 +22,8 @@ jobs:
 
       - run: pnpm --filter @vitehub/workspace build
       - run: pnpm --filter @vitehub/chat build
+      - run: pnpm --filter @vitehub/shell build
       - run: pnpm --filter @vitehub/env build
 
       - name: Publish preview packages
-        run: pnpm dlx pkg-pr-new publish './packages/workspace' './packages/chat' './packages/env' --packageManager=pnpm
+        run: pnpm dlx pkg-pr-new publish './packages/workspace' './packages/chat' './packages/shell' './packages/env' --packageManager=pnpm
