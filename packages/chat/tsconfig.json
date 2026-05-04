@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@vitehub/chat": ["./src/index.ts"],
+      "@vitehub/chat/cloudflare": ["./src/cloudflare.ts"],
+      "@vitehub/chat/runtime/nitro-dev-initialize": ["./src/runtime/nitro-dev-initialize.ts"]
+    },
+    "rootDir": "."
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "test/**/*.ts",
+    "test/**/*.test-d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "docs",
+    "examples",
+    "node_modules"
+  ]
+}

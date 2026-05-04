@@ -24,17 +24,11 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./drizzle": {
-      "types": "./dist/drizzle-subpath.d.ts",
-      "default": "./dist/drizzle.js"
-    },
+    "./drizzle": "./dist/drizzle.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
-    "./virtual": {
-      "types": "./dist/virtual-module.d.ts",
-      "default": "./dist/virtual.js"
-    },
+    "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },

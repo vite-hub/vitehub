@@ -92,9 +92,12 @@ function createRuntimeDatabaseEntries() {
   }
 }
 
+let runtimeDatabaseEntriesFactory: () => Record<string, unknown> = createRuntimeDatabaseEntries
+
 beforeEach(() => {
+  runtimeDatabaseEntriesFactory = createRuntimeDatabaseEntries
   ;(vi.doMock as any)("virtual:@vitehub/db/databases", () => ({
-    default: createRuntimeDatabaseEntries(),
+    default: runtimeDatabaseEntriesFactory(),
   }), { virtual: true })
 })
 
@@ -113,9 +116,8 @@ afterEach(async () => {
 
 describe("drizzle runtime", () => {
   it("provides a default fallback entry when the virtual database registry is empty", async () => {
-    ;(vi.doMock as any)("virtual:@vitehub/db/databases", () => ({
-      default: {},
-    }), { virtual: true })
+    runtimeDatabaseEntriesFactory = () => ({})
+    vi.resetModules()
 
     const { databases, db } = await import("../src/runtime/drizzle-runtime.ts")
 

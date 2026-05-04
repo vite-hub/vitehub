@@ -22,6 +22,7 @@ interface BaseDefinitionCatalogSource<TDefinition extends DiscoveredDefinition> 
 }
 
 export interface SuffixDefinitionCatalogSource<TDefinition extends DiscoveredDefinition> extends BaseDefinitionCatalogSource<TDefinition> {
+  includeHidden?: boolean
   kind: "suffix"
   normalizeName: (rootDir: string, file: string) => string | undefined
   pattern: RegExp
@@ -29,6 +30,7 @@ export interface SuffixDefinitionCatalogSource<TDefinition extends DiscoveredDef
 }
 
 export interface DirectoryDefinitionCatalogSource<TDefinition extends DiscoveredDefinition> extends BaseDefinitionCatalogSource<TDefinition> {
+  includeHidden?: boolean
   kind: "directory"
   normalizeName?: (directory: string, file: string) => string | undefined
   scanDirs: string[]
@@ -51,19 +53,22 @@ function readDirEntries(root: string): Dirent[] {
   }
 }
 
-export function listMatchingFiles(root: string, predicate: (name: string) => boolean): string[] {
+export function listMatchingFiles(root: string, predicate: (name: string) => boolean, options: { includeHidden?: boolean } = {}): string[] {
   const files: string[] = []
   for (const entry of readDirEntries(root)) {
-    if (entry.name.startsWith(".")) {
-      continue
-    }
-
     const absolute = resolve(root, entry.name)
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      if (entry.name.startsWith(".")) {
+        continue
+      }
       if (ignoredDirs.has(entry.name)) {
         continue
       }
-      files.push(...listMatchingFiles(absolute, predicate))
+      files.push(...listMatchingFiles(absolute, predicate, options))
+      continue
+    }
+
+    if (entry.name.startsWith(".") && !options.includeHidden) {
       continue
     }
 
@@ -75,8 +80,8 @@ export function listMatchingFiles(root: string, predicate: (name: string) => boo
   return files.sort()
 }
 
-export function listSourceFiles(root: string): string[] {
-  return listMatchingFiles(root, name => sourceFilePattern.test(name) && !declarationFilePattern.test(name))
+export function listSourceFiles(root: string, options: { includeHidden?: boolean } = {}): string[] {
+  return listMatchingFiles(root, name => sourceFilePattern.test(name) && !declarationFilePattern.test(name), options)
 }
 
 export function normalizePathDefinitionName(rootDir: string, file: string): string {
@@ -186,7 +191,7 @@ function scanSuffixDefinitions<TDefinition extends DiscoveredDefinition>(
   const definitions = new Map<string, TDefinition>()
 
   for (const root of source.roots) {
-    for (const file of listMatchingFiles(root, name => source.pattern.test(name))) {
+    for (const file of listMatchingFiles(root, name => source.pattern.test(name), { includeHidden: source.includeHidden })) {
       const name = source.normalizeName(root, file)
       if (!name) {
         continue
@@ -207,8 +212,10 @@ function scanDirectoryDefinitions<TDefinition extends DiscoveredDefinition>(
 
   for (const scanDir of source.scanDirs) {
     const directory = resolve(scanDir, source.subdir)
-    for (const file of listSourceFiles(directory)) {
-      const name = source.normalizeName?.(directory, file) ?? normalizePathDefinitionName(directory, file)
+    for (const file of listSourceFiles(directory, { includeHidden: source.includeHidden })) {
+      const name = source.normalizeName
+        ? source.normalizeName(directory, file)
+        : normalizePathDefinitionName(directory, file)
       if (!name) {
         continue
       }
