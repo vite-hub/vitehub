@@ -17,7 +17,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Build vitehub packages
-        run: pnpm -r --filter '@vitehub/blob' --filter '@vitehub/db' --filter '@vitehub/kv' --filter '@vitehub/queue' --filter '@vitehub/sandbox' --filter '@vitehub/workflow' --filter '@vitehub/workspace' build
+        run: pnpm -r --filter '@vitehub/blob' --filter '@vitehub/chat' --filter '@vitehub/db' --filter '@vitehub/env' --filter '@vitehub/kv' --filter '@vitehub/queue' --filter '@vitehub/sandbox' --filter '@vitehub/workflow' --filter '@vitehub/workspace' build
 
       - name: Upload package builds
         uses: actions/upload-artifact@v6
@@ -25,7 +25,9 @@ jobs:
           name: vitehub-package-dist
           path: |
             packages/blob/dist
+            packages/chat/dist
             packages/db/dist
+            packages/env/dist
             packages/kv/dist
             packages/queue/dist
             packages/sandbox/dist
