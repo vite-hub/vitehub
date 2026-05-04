@@ -1,7 +1,8 @@
-import { createError, defineEventHandler, getRouterParam } from "h3"
+import { createError, defineEventHandler, getRouterParam, readBody } from "h3"
 import { createHooks } from "hookable"
 
 import { resolveChat } from "../index.ts"
+import { clearChatDevtoolsTranscript, getChatDevtoolsTranscript, submitChatDevtoolsMessage } from "../integrations/devtools.ts"
 import { createMemo } from "../runtime/context.ts"
 import { getChatDefinitionLifecycleHooks } from "../runtime/definition.ts"
 import { getChatRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
@@ -176,6 +177,7 @@ export function defineChatWebhookHandler(
     const waitUntil: ChatWaitUntil = task => event.waitUntil(task)
     const context: NitroChatRuntimeContext = {
       cloudflare: getCloudflareRuntime(event, runtimeConfig),
+      dev: import.meta.dev,
       event,
       memo: createMemo(),
       platform,
@@ -210,6 +212,11 @@ export function defineChatWebhookHandler(
 
 type ChatRegistryModule = { default?: ChatInput<NitroChatRuntimeContext> } | ChatInput<NitroChatRuntimeContext>
 type ChatRegistry = Record<string, () => Promise<ChatRegistryModule>>
+interface ChatDevtoolsSendPayload {
+  chatName?: string
+  clear?: boolean
+  text?: string
+}
 
 function resolveRegistryModule(module: ChatRegistryModule): ChatInput<NitroChatRuntimeContext> {
   return typeof module === "object" && module !== null && "default" in module
@@ -284,4 +291,92 @@ export function defineChatDevRegistryInitializer(
     })).then(() => undefined)
     await promise
   }
+}
+
+async function readChatDevtoolsPayload(event: H3Event): Promise<ChatDevtoolsSendPayload> {
+  if (typeof event.req?.json === "function") {
+    return await event.req.json().catch(() => ({}))
+  }
+
+  return await readBody(event).catch(() => ({})) as ChatDevtoolsSendPayload
+}
+
+function createDevtoolsContext(event: H3Event): NitroChatRuntimeContext & { pendingTasks: Promise<unknown>[] } {
+  const runtimeConfig = getRuntimeConfig(event)
+  const pendingTasks: Promise<unknown>[] = []
+  return {
+    cloudflare: getCloudflareRuntime(event, runtimeConfig),
+    dev: true,
+    devtools: { bridge: true },
+    event,
+    memo: createMemo(),
+    pendingTasks,
+    platform: "devtools",
+    request: toFetchRequest(event),
+    runtime: "nitro",
+    runtimeConfig,
+    waitUntil: task => pendingTasks.push(task),
+  }
+}
+
+function createChatDevtoolsResult(chatNames: string[], chatName?: string, status = "Ready") {
+  return {
+    chatName,
+    chats: chatNames,
+    messages: getChatDevtoolsTranscript(chatName),
+    status,
+  }
+}
+
+export function defineChatDevtoolsHandler(
+  chat: ChatInput<NitroChatRuntimeContext>,
+  options: { inferredName?: string } = {},
+): EventHandler {
+  return defineEventHandler(async (event) => {
+    const payload = await readChatDevtoolsPayload(event)
+    const text = typeof payload.text === "string" ? payload.text.trim() : ""
+    const chatName = options.inferredName || "chat"
+    if (payload.clear) {
+      clearChatDevtoolsTranscript(chatName)
+      return createChatDevtoolsResult([chatName], chatName, "Cleared")
+    }
+    if (!text) {
+      return createChatDevtoolsResult([chatName], chatName)
+    }
+
+    const context = createDevtoolsContext(event)
+    const bot = await resolveChat(chat, context, { inferredName: chatName })
+    await submitChatDevtoolsMessage(bot, chatName, text, context.waitUntil)
+    await Promise.allSettled(context.pendingTasks)
+    return createChatDevtoolsResult([chatName], chatName, "Sent")
+  })
+}
+
+export function defineChatDevtoolsRegistryHandler(
+  chats: ChatRegistry,
+): EventHandler {
+  return defineEventHandler(async (event) => {
+    const payload = await readChatDevtoolsPayload(event)
+    const chatNames = Object.keys(chats)
+    const chatName = typeof payload.chatName === "string" && payload.chatName.trim() ? payload.chatName.trim() : chatNames[0]
+    if (!chatName || !chats[chatName]) {
+      return createChatDevtoolsResult(chatNames, undefined, chatName ? `Unknown chat: ${chatName}` : "Missing chat")
+    }
+    if (payload.clear) {
+      clearChatDevtoolsTranscript(chatName)
+      return createChatDevtoolsResult(chatNames, chatName, "Cleared")
+    }
+
+    const text = typeof payload.text === "string" ? payload.text.trim() : ""
+    if (!text) {
+      return createChatDevtoolsResult(chatNames, chatName)
+    }
+
+    const context = createDevtoolsContext(event)
+    const chat = resolveRegistryModule(await chats[chatName]!())
+    const bot = await resolveChat(chat, context, { inferredName: chatName })
+    await submitChatDevtoolsMessage(bot, chatName, text, context.waitUntil)
+    await Promise.allSettled(context.pendingTasks)
+    return createChatDevtoolsResult(chatNames, chatName, "Sent")
+  })
 }

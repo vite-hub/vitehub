@@ -36,6 +36,6 @@ describe("Nitro runtime config types", () => {
   })
 
   it("accepts dev initialization options", () => {
-    expectTypeOf<ChatModuleOptions["dev"]>().toEqualTypeOf<false | { initialize?: boolean, localStateFallback?: boolean } | undefined>()
+    expectTypeOf<ChatModuleOptions["dev"]>().toEqualTypeOf<false | { devtools?: boolean, initialize?: boolean, localStateFallback?: boolean } | undefined>()
   })
 })

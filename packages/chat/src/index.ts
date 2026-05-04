@@ -1,6 +1,8 @@
 import { Chat } from "chat"
 
+import { createChatDevtoolsAdapter, chatDevtoolsAdapterName } from "./integrations/devtools.ts"
 import { isChatDefinition } from "./runtime/definition.ts"
+import { createMemoryChatStateAdapter } from "./runtime/memory-state.ts"
 
 import type {
   ChatActionHookInput,
@@ -254,6 +256,10 @@ function registerChatHooks<TRuntimeConfig extends ChatRuntimeConfig>(
   registerModalSubmitHooks(bot, runtimeConfig, hooks.onModalSubmit)
 }
 
+function isChatDevtoolsBridgeContext(context: ChatRuntimeContext): boolean {
+  return context.devtools?.bridge === true
+}
+
 async function createChat<TRuntimeConfig extends ChatRuntimeConfig>(
   options: DefineChatOptions<TRuntimeConfig>,
   context: ChatRuntimeContext<TRuntimeConfig>,
@@ -261,8 +267,6 @@ async function createChat<TRuntimeConfig extends ChatRuntimeConfig>(
 ) {
   const runtimeConfig = context.runtimeConfig as TRuntimeConfig
   const resolvedContext = { ...context, runtimeConfig } as ResolvedChatRuntimeContext<TRuntimeConfig>
-  const adapters = await resolveAdapters(options.adapters, resolvedContext)
-  const state = await resolveValue(options.state, context)
   const {
     adapters: _adapters,
     hooks,
@@ -276,6 +280,13 @@ async function createChat<TRuntimeConfig extends ChatRuntimeConfig>(
   if (!userName) {
     throw new Error("Missing chat userName. Set userName in defineChat() or place the definition in a discovered chat file such as server/chat.ts.")
   }
+  const useDevtoolsBridge = isChatDevtoolsBridgeContext(context)
+  const adapters = useDevtoolsBridge
+    ? { [chatDevtoolsAdapterName]: createChatDevtoolsAdapter(userName) }
+    : await resolveAdapters(options.adapters, resolvedContext)
+  const state = useDevtoolsBridge
+    ? createMemoryChatStateAdapter()
+    : await resolveValue(options.state, context)
 
   const bot = new Chat({
     ...(chatOptions as Omit<ChatConfig, "adapters" | "state">),

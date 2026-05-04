@@ -185,6 +185,80 @@ describe("defineChat", () => {
 
     expect(await resolveChat(bot as never, createContext() as never)).toBe(bot)
   })
+
+  it("uses only the internal adapter and memory state for DevTools bridge resolution", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const adapterFactory = vi.fn(() => {
+      throw new Error("real adapter should not resolve")
+    })
+    const stateResolver = { resolve: vi.fn(() => {
+      throw new Error("real state should not resolve")
+    }) }
+
+    await expect(resolveChat(defineChat({
+      adapters: adapterFactory as never,
+      state: stateResolver as never,
+      userName: "ViteHub Chat",
+    }), createContext({ devtools: { bridge: true }, platform: "devtools" }) as never)).resolves.toBeInstanceOf(Chat)
+
+    expect(adapterFactory).not.toHaveBeenCalled()
+    expect(stateResolver.resolve).not.toHaveBeenCalled()
+  })
+
+  it("keeps regular devtools platform requests on configured adapters and state", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const adapter = {}
+    const state = createState()
+    const adapterFactory = vi.fn(() => adapter)
+    const stateResolver = { resolve: vi.fn(() => state) }
+    const context = createContext({ platform: "devtools" })
+
+    await expect(resolveChat(defineChat({
+      adapters: { devtools: adapterFactory as never },
+      state: stateResolver as never,
+      userName: "ViteHub Chat",
+    }), context as never)).resolves.toBeInstanceOf(Chat)
+
+    expect(adapterFactory).toHaveBeenCalledWith(context)
+    expect(stateResolver.resolve).toHaveBeenCalledWith(context)
+  })
+
+  it("sends DevTools messages and records fallback streaming edits", async () => {
+    const { getChatDevtoolsTranscript, submitChatDevtoolsMessage } = await import("../src/integrations/devtools.ts")
+    const state = createState()
+    state.setIfNotExists.mockResolvedValue(true)
+    state.acquireLock.mockResolvedValue({
+      expiresAt: Date.now() + 1_000,
+      threadId: "devtools:runtime-test",
+      token: "lock",
+    })
+    state.isSubscribed.mockResolvedValue(false)
+    const tasks: Promise<unknown>[] = []
+    const bot = new Chat({
+      adapters: {},
+      fallbackStreamingPlaceholderText: "Thinking...",
+      state: state as never,
+      streamingUpdateIntervalMs: 1,
+      userName: "ViteHub Chat",
+    })
+    bot.onDirectMessage(async (thread) => {
+      async function* stream() {
+        yield "Hello "
+        yield "from DevTools"
+      }
+
+      await thread.post(stream())
+    })
+
+    await submitChatDevtoolsMessage(bot, "runtime-test", "Ping", task => tasks.push(task))
+    await Promise.allSettled(tasks)
+
+    const messages = getChatDevtoolsTranscript("runtime-test")
+    expect(messages).toMatchObject([
+      { author: "user", text: "Ping" },
+      { author: "assistant", text: "Hello from DevTools" },
+    ])
+  })
 })
 
 describe("runtime context", () => {

@@ -32,6 +32,9 @@ export interface ChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = C
     env?: Record<string, unknown>
   }
   dev?: boolean
+  devtools?: {
+    bridge?: boolean
+  }
   event?: unknown
   memo<T>(key: string, create: () => T): T
   platform?: string
@@ -197,6 +200,7 @@ export interface ChatWebhookModuleOptions {
 export interface ChatDevModuleOptions {
   initialize?: boolean
   localStateFallback?: boolean
+  devtools?: boolean
 }
 
 export interface ChatModuleOptions {

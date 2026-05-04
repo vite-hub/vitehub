@@ -7,6 +7,7 @@ import { resolve } from "node:path"
 import { defaultChatCloudflareDurableObjectName, defaultChatCloudflareDurableObjectState, normalizeChatOptions } from "../config.ts"
 import { discoverChatDefinitions } from "../discovery.ts"
 import { configureCloudflareChatState, discoverCloudflareChatStateConfig } from "../integrations/cloudflare.ts"
+import { chatDevtoolsRoute } from "../integrations/devtools.ts"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
 import type { ChatModuleOptions, DiscoveredChatDefinition, ResolvedChatModuleOptions } from "../types.ts"
@@ -108,6 +109,14 @@ function createNitroChatDevInitializerPath(rootDir: string, buildDir: string): s
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
     fileName: "dev-initialize.mjs",
+    segments: [".vitehub", "nitro-runtime", "chat"],
+  })
+}
+
+function createNitroChatDevtoolsPath(rootDir: string, buildDir: string): string {
+  return createGeneratedDefinitionPath(rootDir, {
+    buildDir,
+    fileName: "devtools-handler.mjs",
     segments: [".vitehub", "nitro-runtime", "chat"],
   })
 }
@@ -244,8 +253,31 @@ function createNitroRegistryChatDevInitializerContents(file: string, registryFil
   ].join("\n")
 }
 
+function createNitroSingleChatDevtoolsContents(file: string, definition: DiscoveredChatDefinition): string {
+  return [
+    `import chat from ${JSON.stringify(createImportPath(file, definition.handler))}`,
+    `import { defineChatDevtoolsHandler } from "@vitehub/chat/nitro"`,
+    "",
+    `export default defineChatDevtoolsHandler(chat, ${renderOptions({
+      inferredName: definition.name,
+    })})`,
+    "",
+  ].join("\n")
+}
+
+function createNitroRegistryChatDevtoolsContents(file: string, registryFile: string): string {
+  return [
+    `import chatRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    `import { defineChatDevtoolsRegistryHandler } from "@vitehub/chat/nitro"`,
+    "",
+    `export default defineChatDevtoolsRegistryHandler(chatRegistry)`,
+    "",
+  ].join("\n")
+}
+
 interface ChatRuntimeFiles {
   devInitializerFile?: string
+  devtoolsFile?: string
   definitions: DiscoveredChatDefinition[]
   registryFile?: string
   routeFile?: string
@@ -295,7 +327,18 @@ async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | Resolve
     }
   }
 
-  return { definitions, devInitializerFile, registryFile, routeFile }
+  let devtoolsFile: string | undefined
+  if (nitro.options.dev && options.dev && options.dev.devtools) {
+    devtoolsFile = createNitroChatDevtoolsPath(nitro.options.rootDir, nitro.options.buildDir)
+    if (definitions.length > 1 && registryFile) {
+      await writeFileIfChanged(devtoolsFile, createNitroRegistryChatDevtoolsContents(devtoolsFile, registryFile))
+    }
+    else {
+      await writeFileIfChanged(devtoolsFile, createNitroSingleChatDevtoolsContents(devtoolsFile, definitions[0]!))
+    }
+  }
+
+  return { definitions, devInitializerFile, devtoolsFile, registryFile, routeFile }
 }
 
 function installAliases(nitro: Nitro): void {
@@ -307,6 +350,16 @@ function installAliases(nitro: Nitro): void {
   nitro.options.alias["@vitehub/chat/runtime/nitro-plugin"] = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/chat/runtime/nitro-plugin")
   nitro.options.alias["@vitehub/chat/vercel"] = resolveRuntimeEntry("../vercel", "@vitehub/chat/vercel")
   nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"] = resolveRuntimeEntry("../runtime/nitro-dev-initialize", "@vitehub/chat/runtime/nitro-dev-initialize")
+}
+
+function resolveNitroChatOptions(nitro: Nitro): false | ResolvedChatModuleOptions {
+  const resolved = normalizeChatOptions((nitro.options as typeof nitro.options & { chat?: false | ChatModuleOptions }).chat)
+  if (!resolved || nitro.options.dev) {
+    return resolved
+  }
+  return resolved.dev
+    ? { ...resolved, dev: { ...resolved.dev, devtools: false } }
+    : resolved
 }
 
 function installDevInitializerAlias(nitro: Nitro, devInitializerFile: string | undefined): void {
@@ -374,6 +427,22 @@ function installRoute(nitro: Nitro, options: ResolvedChatModuleOptions, routeFil
   }
 }
 
+function installDevtoolsRoute(nitro: Nitro, routeFile: string | undefined): void {
+  if (!routeFile) {
+    return
+  }
+
+  nitro.options.handlers ||= []
+  const existing = nitro.options.handlers.some(handler => handler.route === chatDevtoolsRoute && handler.method === "POST" && handler.handler === routeFile)
+  if (!existing) {
+    nitro.options.handlers.push({
+      handler: routeFile,
+      method: "POST",
+      route: chatDevtoolsRoute,
+    })
+  }
+}
+
 async function installCloudflareStateConfig(
   nitro: Nitro,
   options: ResolvedChatModuleOptions,
@@ -426,7 +495,7 @@ async function installCloudflareStateConfig(
 const chatNitroModule: NitroModule = {
   name: "@vitehub/chat",
   async setup(nitro) {
-    const resolved = normalizeChatOptions((nitro.options as typeof nitro.options & { chat?: false | ChatModuleOptions }).chat)
+    const resolved = resolveNitroChatOptions(nitro)
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
     if (nitro.options.preset) runtimeConfig.hosting ||= nitro.options.preset
     runtimeConfig.chat = resolved || false
@@ -449,6 +518,7 @@ const chatNitroModule: NitroModule = {
     installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
     if (resolved) {
       installRoute(nitro, resolved, runtimeFiles.routeFile)
+      installDevtoolsRoute(nitro, runtimeFiles.devtoolsFile)
       await installCloudflareWorkerName(nitro, resolved)
       await installCloudflareStateConfig(nitro, resolved, runtimeFiles.definitions)
     }
@@ -458,6 +528,7 @@ const chatNitroModule: NitroModule = {
       installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
       if (resolved) {
         installRoute(nitro, resolved, runtimeFiles.routeFile)
+        installDevtoolsRoute(nitro, runtimeFiles.devtoolsFile)
         await installCloudflareWorkerName(nitro, resolved)
         await installCloudflareStateConfig(nitro, resolved, runtimeFiles.definitions)
       }
@@ -467,6 +538,7 @@ const chatNitroModule: NitroModule = {
       installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
       if (resolved) {
         installRoute(nitro, resolved, runtimeFiles.routeFile)
+        installDevtoolsRoute(nitro, runtimeFiles.devtoolsFile)
       }
     })
   },

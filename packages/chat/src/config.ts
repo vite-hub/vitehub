@@ -39,8 +39,10 @@ function normalizeDevOptions(dev: ChatModuleOptions["dev"]): ResolvedChatModuleO
     return false
   }
 
+  const initialize = dev?.initialize !== false
   return {
-    initialize: dev?.initialize !== false,
+    devtools: initialize && dev?.devtools !== false,
+    initialize,
     localStateFallback: dev?.localStateFallback !== false,
   }
 }
