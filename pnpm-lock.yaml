@@ -401,6 +401,32 @@ importers:
         specifier: 'catalog:'
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/env/examples/nitro:
+    dependencies:
+      '@vitehub/env':
+        specifier: workspace:*
+        version: link:../..
+      nitro:
+        specifier: 'catalog:'
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.2
+
+  packages/env/examples/vite:
+    dependencies:
+      '@vitehub/env':
+        specifier: workspace:*
+        version: link:../..
+      vite:
+        specifier: 'catalog:'
+        version: 8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.2
+
   packages/internal:
     dependencies:
       esbuild:

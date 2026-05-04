@@ -5,7 +5,7 @@ interface DefaultStringSchema {
   safeParse: (input: unknown) => { data: string, success: true } | { error: Error, success: false }
 }
 
-const defaultStringSchema: DefaultStringSchema = {
+export const defaultStringSchema: DefaultStringSchema = {
   __vitehubDefaultRuntimeSchema: getDefaultStringSchemaToken(),
   safeParse(input: unknown): { data: string, success: true } | { error: Error, success: false } {
     return typeof input === "string"
@@ -106,7 +106,7 @@ export function isDefaultStringEnvVariable(declaration: EnvVariableDeclaration):
       && typeof declaration.schema === "object"
       && declaration.schema !== null
       && (declaration.schema as Record<string, unknown>)[defaultStringSchemaProperty] === defaultStringSchemaToken
-      && hasDefaultStringSchemaParser(declaration.schema)
+      && hasOnlyDefaultStringSchemaKeys(declaration.schema)
     )
 }
 
@@ -117,8 +117,15 @@ function getDefaultStringSchemaToken(): string {
   return globalScope[tokenKey]
 }
 
-function hasDefaultStringSchemaParser(schema: object): boolean {
-  const candidate = schema as { safeParse?: unknown }
-  return typeof candidate.safeParse === "function"
-    && defaultStringSchemaParsers.has(candidate.safeParse as DefaultStringSchema["safeParse"])
+function hasOnlyDefaultStringSchemaKeys(schema: object): boolean {
+  if ("~standard" in schema || "parse" in schema) {
+    return false
+  }
+  const keys = Reflect.ownKeys(schema)
+  const safeParse = Object.getOwnPropertyDescriptor(schema, "safeParse")
+  return keys.length === 2
+    && keys.includes(defaultStringSchemaProperty)
+    && keys.includes("safeParse")
+    && typeof safeParse?.value === "function"
+    && defaultStringSchemaParsers.has(safeParse.value as DefaultStringSchema["safeParse"])
 }

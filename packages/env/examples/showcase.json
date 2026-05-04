@@ -1,0 +1,70 @@
+{
+  "label": "Env",
+  "docsPath": "env",
+  "icon": "i-lucide-key-round",
+  "order": 6,
+  "defaultPhase": "run",
+  "providers": [
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  env: {\n    auth: {\n      token: envVariable({ secret: true }),\n    },\n  },",
+      "envOverride": "AUTH_TOKEN=<auth-token>"
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "darkInvert": true,
+      "configOverride": "  env: {\n    auth: {\n      token: envVariable({ secret: true }),\n    },\n  },",
+      "envOverride": "AUTH_TOKEN=<auth-token>"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "run": "src/main.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nitro": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "run": "server/api/config.get.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "run": "server/api/config.get.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}

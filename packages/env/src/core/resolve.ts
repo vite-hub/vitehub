@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
-import { isDefaultStringEnvVariable } from "./declarations.ts"
+import { defaultStringSchema, isDefaultStringEnvVariable } from "./declarations.ts"
 import { EnvError } from "./errors.ts"
 
 import type {
@@ -178,7 +178,7 @@ function buildRegistry(declarations: EnvNitroConfigOptions | undefined, path: st
     return [key, {
       default: typeof value.default === "undefined"
         ? undefined
-        : parseSchema(value.schema, value.default, valuePath),
+        : parseSchema(defaultStringSchema, value.default, valuePath),
       required: value.required,
       schema: { kind: "string" },
       secret: value.secret,

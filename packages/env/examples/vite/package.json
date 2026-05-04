@@ -1,0 +1,17 @@
+{
+  "name": "@vitehub/env-vite-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite dev"
+  },
+  "dependencies": {
+    "@vitehub/env": "workspace:*",
+    "vite": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}
