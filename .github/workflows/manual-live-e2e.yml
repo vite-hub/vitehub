@@ -53,29 +53,6 @@ jobs:
             npx wrangler r2 bucket create "$CLOUDFLARE_R2_BUCKET_NAME"
           fi
 
-      - name: Ensure Cloudflare Workspace Artifacts
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          WORKSPACE_ARTIFACTS_NAMESPACE: vitehub-e2e
-        run: |
-          BASE_URL="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/artifacts/namespaces/$WORKSPACE_ARTIFACTS_NAMESPACE"
-          for repo in vitehub-workspace-docs vitehub-playground-vite-docs vitehub-playground-nitro-docs; do
-            status="$(curl -sS -o /tmp/artifacts-repo.json -w '%{http_code}' "$BASE_URL/repos/$repo" \
-              --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN")"
-            if [ "$status" = "200" ]; then
-              continue
-            fi
-            if [ "$status" != "404" ]; then
-              cat /tmp/artifacts-repo.json >&2
-              exit 1
-            fi
-            curl -sS --fail --request POST "$BASE_URL/repos" \
-              --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              --header "Content-Type: application/json" \
-              --data "{\"name\":\"$repo\"}" >/dev/null
-          done
-
   live-e2e:
     name: live e2e
     needs: setup-cloudflare
@@ -196,8 +173,6 @@ jobs:
         if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
         env:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
-          VITEHUB_WORKSPACE_ARTIFACTS_NAMESPACE: vitehub-e2e
-          VITEHUB_WORKSPACE_ARTIFACTS_REPO_PREFIX: vitehub-playground-nitro-
         run: pnpm --dir playground/nitro exec nitro build --preset cloudflare-module
 
       - name: Assert Nitro Cloudflare bindings
@@ -209,8 +184,8 @@ jobs:
           if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
             throw new Error("Expected Nitro Cloudflare wrangler.json to include kv_namespaces.")
           }
-          if (!Array.isArray(wrangler.artifacts) || !wrangler.artifacts.some(binding => binding.binding === "WORKSPACE_ARTIFACTS")) {
-            throw new Error("Expected Nitro Cloudflare wrangler.json to include Workspace Artifacts binding.")
+          if (typeof wrangler.artifacts !== "undefined") {
+            throw new Error("Nitro Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
           }
           NODE
 
@@ -235,8 +210,6 @@ jobs:
           VITEHUB_CLOUDFLARE_WORKER_NAME: vitehub-playground-vite
           VITEHUB_HOSTING: cloudflare
           VITEHUB_VITE_MODE: e2e
-          VITEHUB_WORKSPACE_ARTIFACTS_NAMESPACE: vitehub-e2e
-          VITEHUB_WORKSPACE_ARTIFACTS_REPO_PREFIX: vitehub-playground-vite-
         run: pnpm --dir playground/vite build
 
       - name: Assert Vite Cloudflare artifact purity
@@ -258,8 +231,8 @@ jobs:
           if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
             throw new Error("Expected Vite Cloudflare wrangler.json to include kv_namespaces.")
           }
-          if (!Array.isArray(wrangler.artifacts) || !wrangler.artifacts.some(binding => binding.binding === "WORKSPACE_ARTIFACTS")) {
-            throw new Error("Expected Vite Cloudflare wrangler.json to include Workspace Artifacts binding.")
+          if (typeof wrangler.artifacts !== "undefined") {
+            throw new Error("Vite Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
           }
           NODE
 

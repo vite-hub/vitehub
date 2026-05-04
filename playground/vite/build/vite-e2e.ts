@@ -10,7 +10,7 @@ import { configureCloudflareKV } from "../../../packages/kv/src/integrations/clo
 import { normalizeKVOptions } from "../../../packages/kv/src/config.ts"
 import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
 import { discoverQueueDefinitions } from "../../../packages/queue/src/discovery.ts"
-import { getCloudflareQueueBindingName, getCloudflareQueueDefinitionName, getCloudflareQueueName } from "../../../packages/queue/src/integrations/cloudflare.ts"
+import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../../../packages/queue/src/integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
 import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, defaultCloudflareSandboxMigrationTag, configureCloudflareSandbox, writeCloudflareSandboxDockerfile } from "../../../packages/sandbox/src/cloudflare.ts"
 import { extractSandboxDefinitionOptions } from "../../../packages/sandbox/src/definition-options.ts"
@@ -493,6 +493,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   const appEntry = resolve(options.rootDir, "src/server.e2e.ts")
   const resolveApp = resolve(packagesDir, "internal/src/runtime/app.ts")
   const cloudflareEnv = resolve(packagesDir, "internal/src/runtime/cloudflare-env.ts")
+  const workspaceProvider = options.workspace && options.workspace.store.provider
 
   const imports = [
     `import { H3, toWebHandler } from "h3"`,
@@ -508,8 +509,11 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
     `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/runtime/state.ts")))}`,
     `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/runtime/state.ts")))}`,
-    `import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/cloudflare-artifacts.ts")))}`,
   ]
+
+  if (workspaceProvider === "cloudflare-artifacts") {
+    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/cloudflare-artifacts.ts")))}`)
+  }
 
   if (artifacts.queueRegistryFile) {
     imports.push(`import queueRegistry from ${JSON.stringify(createImportPath(file, artifacts.queueRegistryFile))}`)
@@ -558,10 +562,14 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     "setSandboxRuntimeConfig(sandboxConfig)",
     `setSandboxRuntimeRegistry(${artifacts.alias["virtual:vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",
-    "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
-    "  if (store.provider !== 'cloudflare-artifacts') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
-    "  return createCloudflareArtifactsWorkspaceStore(store, workspaceName)",
-    "})",
+    ...(workspaceProvider === "cloudflare-artifacts"
+      ? [
+          "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+          "  if (store.provider !== 'cloudflare-artifacts') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
+          "  return createCloudflareArtifactsWorkspaceStore(store, workspaceName)",
+          "})",
+        ]
+      : ["setWorkspaceHostedStoreLoader(undefined)"]),
     `setWorkspaceRuntimeRegistry(${artifacts.workspaceRegistryFile ? "workspaceRegistry" : "{ }"})`,
     "const defaultHandler = toWebHandler(new H3())",
     "const appHandler = resolveAppFetch('vitehub', app)",
@@ -989,7 +997,7 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
     kv: normalizeKVOptions(undefined, { hosting }),
     queue: normalizeQueueOptions({}, { hosting }) || false,
     sandbox: resolveSandboxFeatureConfig({}, hosting),
-    workspace: normalizeWorkspaceOptions(provider === "vercel" ? { store: { provider: "memory" } } : {}, { env: process.env, hosting, rootDir }),
+    workspace: normalizeWorkspaceOptions({}, { env: process.env, hosting, rootDir }),
     workflow: normalizeWorkflowOptions({}, { hosting }) || false,
   }
 }

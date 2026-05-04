@@ -7,7 +7,7 @@ import { type FetchOptions, ofetch } from "ofetch"
 const providers = ["cloudflare", "vercel"] as const
 const frameworks = ["nitro", "vite"] as const
 const expectedWorkspaceProviders = {
-  cloudflare: "cloudflare-artifacts",
+  cloudflare: "memory",
   vercel: "memory",
 } as const
 const liveOnlyMessage = "Workspace e2e requires a deployed app: pnpm --dir packages/workspace test:e2e --mode live --provider cloudflare|vercel --framework nitro|vite --url <url>"

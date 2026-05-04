@@ -60,8 +60,8 @@ function resolveKVProvider(event: unknown) {
   return getCloudflareEnv(event) ? "cloudflare-kv-binding" : "upstash"
 }
 
-function resolveWorkspaceProvider(event: unknown) {
-  return getCloudflareEnv(event) ? "cloudflare-artifacts" : "memory"
+function resolveWorkspaceProvider(_event: unknown) {
+  return "memory"
 }
 
 function resolveSandboxHosting(event: { req: { runtime?: { name?: string }, waitUntil?: unknown } }) {

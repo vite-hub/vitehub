@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { cp, mkdtemp, mkdir, readFile, rm, symlink } from "node:fs/promises"
+import { cp, mkdtemp, mkdir, readFile, readdir, rm, symlink } from "node:fs/promises"
 import { execFile } from "node:child_process"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
-const workspacePackages = ["blob", "db", "kv", "queue", "sandbox", "workflow", "workspace"] as const
+const workspacePackages = ["blob", "chat", "db", "env", "kv", "queue", "sandbox", "workflow", "workspace"] as const
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -40,6 +40,19 @@ async function createPlaygroundCopy(prefix: string) {
   await symlink(nodeModules, join(rootDir, "node_modules"), "dir")
 
   return rootDir
+}
+
+async function readGeneratedJavaScript(outputDir: string): Promise<string> {
+  const chunks: string[] = []
+  async function walk(dir: string) {
+    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (entry.name.endsWith(".js") || entry.name.endsWith(".mjs")) chunks.push(await readFile(path, "utf8"))
+    }
+  }
+  await walk(outputDir)
+  return chunks.join("\n")
 }
 
 afterAll(async () => {
@@ -117,6 +130,7 @@ describe("unified vite e2e hosted outputs", () => {
     expect(cloudflareConfig.queues?.consumers).toHaveLength(1)
     expect(cloudflareConfig.durable_objects?.bindings).toBeTruthy()
     expect(cloudflareConfig.migrations).toBeTruthy()
+    expect(cloudflareConfig.artifacts).toBeUndefined()
   }, 45_000)
 
   it("keeps the vercel artifact unified while preserving queue server outputs", async () => {
@@ -161,5 +175,34 @@ describe("unified vite e2e hosted outputs", () => {
       topic: "topic--77656c636f6d652d656d61696c",
       type: "queue/v2beta",
     })
+  }, 45_000)
+
+  it("builds the env and chat playground modes", async () => {
+    const envRoot = await createPlaygroundCopy("vitehub-internal-vite-env-")
+
+    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+      cwd: envRoot,
+      env: {
+        ...process.env,
+        VITEHUB_VITE_MODE: "env",
+      },
+    })
+
+    const envOutput = await readGeneratedJavaScript(join(envRoot, "dist"))
+    expect(envOutput).toContain("Vite playground")
+    expect(envOutput).toContain("enabled")
+
+    const chatRoot = await createPlaygroundCopy("vitehub-internal-vite-chat-")
+
+    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+      cwd: chatRoot,
+      env: {
+        ...process.env,
+        VITEHUB_VITE_MODE: "chat",
+      },
+    })
+
+    const chatOutput = await readGeneratedJavaScript(join(chatRoot, "dist"))
+    expect(chatOutput).toContain("vite-playground")
   }, 45_000)
 })
