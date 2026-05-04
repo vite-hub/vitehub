@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
-import { isDefaultStringSchema } from "./declarations.ts"
+import { isDefaultStringEnvVariable } from "./declarations.ts"
 import { EnvError } from "./errors.ts"
 
 import type {
@@ -169,7 +169,7 @@ function buildRegistry(declarations: EnvNitroConfigOptions | undefined, path: st
     if (source.kind !== "env") {
       throw new EnvError(`Runtime declaration ${valuePath} must use envSource.env() in v1.`)
     }
-    if (!isDefaultStringSchema(value.schema)) {
+    if (!isDefaultStringEnvVariable(value)) {
       throw new EnvError(`Runtime declaration ${valuePath} uses a custom schema, but Nitro runtime schemas cannot be serialized in v1.`)
     }
     if (value.type && value.type !== "string") {

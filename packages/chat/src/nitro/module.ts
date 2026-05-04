@@ -335,6 +335,28 @@ function installExternals(nitro: Nitro): void {
   }
 }
 
+async function writeNitroTypes(nitro: Nitro): Promise<string> {
+  const dtsPath = resolve(nitro.options.rootDir, nitro.options.buildDir, "types", "vitehub-chat.d.ts")
+  await writeFileIfChanged(dtsPath, [
+    `import "@vitehub/chat/nitro"`,
+    "",
+    "export {}",
+    "",
+  ].join("\n"))
+  return dtsPath
+}
+
+async function installNitroTypes(nitro: Nitro): Promise<void> {
+  await writeNitroTypes(nitro)
+  nitro.hooks.hook("types:extend", async (types: { tsConfig?: { include?: string[] } }) => {
+    const dtsPath = await writeNitroTypes(nitro)
+    if (types.tsConfig) {
+      types.tsConfig.include ||= []
+      types.tsConfig.include.push(dtsPath)
+    }
+  })
+}
+
 function installRoute(nitro: Nitro, options: ResolvedChatModuleOptions, routeFile: string | undefined): void {
   if (!routeFile || !options.webhook) {
     return
@@ -412,6 +434,7 @@ const chatNitroModule: NitroModule = {
     installAliases(nitro)
     installNitroPlugin(nitro)
     installExternals(nitro)
+    await installNitroTypes(nitro)
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false || (resolved && !resolved.imports)
     if (!importsExplicitlyDisabled) {
