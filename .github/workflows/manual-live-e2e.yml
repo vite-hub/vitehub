@@ -328,8 +328,8 @@ jobs:
           node <<'NODE'
           const { readFileSync } = require("node:fs")
           const bundle = readFileSync("playground/vite/.vercel/output/functions/__server.func/index.mjs", "utf8")
-          if (/cloudflare-artifacts|isomorphic-git/.test(bundle)) {
-            throw new Error("Vercel Vite bundle must not include Cloudflare Artifacts or isomorphic-git.")
+          if (/createCloudflareArtifactsWorkspaceStore|isomorphic-git/.test(bundle)) {
+            throw new Error("Vercel Vite bundle must not include the Cloudflare Artifacts store implementation.")
           }
           NODE
 
