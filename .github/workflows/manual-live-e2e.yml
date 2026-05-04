@@ -121,12 +121,19 @@ jobs:
           VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
-          find_existing_blob_token() {
-            local env_name tmp value
+          find_project_blob_token() {
+            local app_dir project_name env_name tmp value
+            local -a SEARCH_CONFIG
+            app_dir="$1"
+            project_name="$2"
+
+            npx vercel link --yes --cwd "$app_dir" --project "$project_name" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || return 1
+            readarray -t SEARCH_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$app_dir")
+
             for env_name in production preview development; do
               tmp="$(mktemp)"
-              if VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-                npx vercel env pull "$tmp" --environment="$env_name" --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
+              if VERCEL_ORG_ID="${SEARCH_CONFIG[0]}" VERCEL_PROJECT_ID="${SEARCH_CONFIG[1]}" \
+                npx vercel env pull "$tmp" --environment="$env_name" --yes --cwd "$app_dir" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
                 value="$(node .github/scripts/get-env-value.mjs "$tmp" BLOB_READ_WRITE_TOKEN)"
                 rm -f "$tmp"
                 if [ -n "$value" ]; then
@@ -138,6 +145,21 @@ jobs:
               fi
             done
             return 1
+          }
+
+          find_existing_blob_token() {
+            local sibling_framework sibling_dir sibling_project
+
+            find_project_blob_token "$APP_DIR" "$PROJECT_NAME" && return 0
+
+            if [ "${{ matrix.framework }}" = "vite" ]; then
+              sibling_framework="nitro"
+            else
+              sibling_framework="vite"
+            fi
+            sibling_dir="playground/$sibling_framework"
+            sibling_project="vitehub-playground-$sibling_framework"
+            find_project_blob_token "$sibling_dir" "$sibling_project"
           }
 
           declare -A REQUIRED_ENV_KEYS=(

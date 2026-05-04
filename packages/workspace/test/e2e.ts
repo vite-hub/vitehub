@@ -8,7 +8,7 @@ const providers = ["cloudflare", "vercel"] as const
 const frameworks = ["nitro", "vite"] as const
 const expectedWorkspaceProviders = {
   cloudflare: "memory",
-  vercel: "memory",
+  vercel: "vercel-blob",
 } as const
 const liveOnlyMessage = "Workspace e2e requires a deployed app: pnpm --dir packages/workspace test:e2e --mode live --provider cloudflare|vercel --framework nitro|vite --url <url>"
 
