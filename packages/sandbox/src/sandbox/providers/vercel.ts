@@ -6,12 +6,14 @@ import type { ResolvedVercelSandboxCredentials } from './shared'
 type ResolvedVercelSandboxProvider = VercelSandboxProviderOptions & { credentials?: ResolvedVercelSandboxCredentials }
 
 type VercelSandboxNativeShape = {
+  fs?: VercelSandboxInstance['fs']
   runCommand: unknown
   writeFiles: unknown
   readFileToBuffer: unknown
   readFile: unknown
   mkDir: unknown
   domain: unknown
+  stop?: (opts?: { signal?: AbortSignal, blocking?: boolean }) => Promise<unknown>
   [Symbol.asyncDispose]?: () => PromiseLike<void>
 }
 
@@ -23,6 +25,7 @@ function wrapVercelSandbox(instance: VercelSandboxNativeShape): VercelSandboxIns
   const readFile = (instance.readFile as VercelSandboxInstance['readFile']).bind(instance) as VercelSandboxInstance['readFile']
   const mkDir = (instance.mkDir as VercelSandboxInstance['mkDir']).bind(instance) as VercelSandboxInstance['mkDir']
   const domain = (instance.domain as VercelSandboxInstance['domain']).bind(instance) as VercelSandboxInstance['domain']
+  const stop = typeof instance.stop === 'function' ? instance.stop.bind(instance) : undefined
   const rawAsyncDispose = instance[Symbol.asyncDispose]
   const asyncDispose = typeof rawAsyncDispose === 'function'
     ? async () => {
@@ -51,6 +54,8 @@ function wrapVercelSandbox(instance: VercelSandboxNativeShape): VercelSandboxIns
     readFile,
     mkDir,
     domain,
+    ...(instance.fs ? { fs: instance.fs } : {}),
+    ...(stop ? { stop } : {}),
     ...(asyncDispose ? { [Symbol.asyncDispose]: asyncDispose } : {}),
   } as VercelSandboxInstance
 }
@@ -62,9 +67,11 @@ async function loadVercelSandbox(): Promise<VercelSandboxSDK> {
       Sandbox: {
         create: async options => wrapVercelSandbox(await module.Sandbox.create(options as Parameters<typeof module.Sandbox.create>[0])),
         list: async () => {
-          const result = await module.Sandbox.list() as { sandboxes?: VercelSandboxListItem[] }
+          const result = await module.Sandbox.list() as { sandboxes?: VercelSandboxListItem[], json?: { sandboxes?: VercelSandboxListItem[], pagination?: { count: number, next: number | null, prev: number | null } }, pagination?: { count: number, next: number | null, prev: number | null } }
+          const json = result.json || result
           return {
-            sandboxes: (result.sandboxes || []).map((item) => ({
+            pagination: json.pagination,
+            sandboxes: (json.sandboxes || []).map((item) => ({
               id: item.id,
               status: item.status,
               createdAt: item.createdAt,

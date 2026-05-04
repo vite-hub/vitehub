@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import { posix } from 'node:path'
 import { Readable } from 'node:stream'
 
 import { NotSupportedError, SandboxError } from '../errors'
@@ -6,7 +7,7 @@ import { BaseSandboxAdapter } from './base'
 import { asRecord, buildCommandLabel, normalizeVercelExecError } from './vercel/error'
 import { collectDetachedCommandOutput, VercelProcessHandle } from './vercel/process'
 
-import type { SandboxExecOptions, SandboxExecResult, SandboxProcess, SandboxProcessOptions } from '../types/common'
+import type { SandboxExecOptions, SandboxExecResult, SandboxFileEntry, SandboxListFilesOptions, SandboxProcess, SandboxProcessOptions } from '../types/common'
 import type { SandboxNetworkPolicy, VercelSandboxInstance, VercelSandboxMetadata, VercelSandboxNamespace, VercelSandboxSnapshot } from '../types/vercel'
 
 class VercelNamespaceImpl implements VercelSandboxNamespace {
@@ -97,10 +98,10 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
     execEnv: true,
     execCwd: true,
     execSudo: true,
-    listFiles: false,
-    exists: false,
-    deleteFile: false,
-    moveFile: false,
+    listFiles: true,
+    exists: true,
+    deleteFile: true,
+    moveFile: true,
     readFileStream: true,
     startProcess: true,
   }
@@ -151,10 +152,17 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
   }
 
   async writeFile(path: string, content: string): Promise<void> {
+    if (this.native.fs?.writeFile) {
+      await this.native.fs.writeFile(path, content)
+      return
+    }
     await this.native.writeFiles([{ path, content: Buffer.from(content) }])
   }
 
   async readFile(path: string): Promise<string> {
+    if (this.native.fs?.readFile)
+      return await this.native.fs.readFile(path, 'utf8')
+
     const buffer = await this.native.readFileToBuffer({ path })
     if (!buffer)
       throw new SandboxError(`Failed to read file: ${path}`)
@@ -162,10 +170,18 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
   }
 
   async stop(): Promise<void> {
+    if (typeof this.native.stop === 'function') {
+      await this.native.stop({ blocking: true })
+      return
+    }
     await this.native[Symbol.asyncDispose]?.()
   }
 
   async mkdir(path: string, opts?: { recursive?: boolean }): Promise<void> {
+    if (this.native.fs?.mkdir) {
+      await this.native.fs.mkdir(path, opts)
+      return
+    }
     if (opts?.recursive) {
       const result = await this.exec('mkdir', ['-p', path])
       if (!result.ok)
@@ -192,5 +208,77 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
       detached: true,
     })
     return new VercelProcessHandle(processId, `${cmd} ${args.join(' ')}`, cmdResult, port => this.vercel.domain(port))
+  }
+
+  override async listFiles(path: string, opts?: SandboxListFilesOptions): Promise<SandboxFileEntry[]> {
+    const fs = this.native.fs
+    if (!fs?.readdir || !fs.stat)
+      return await super.listFiles(path, opts)
+
+    const root = path.replace(/\/+$/, '') || '/'
+    const entries: SandboxFileEntry[] = []
+
+    const visit = async (dir: string) => {
+      const names = await fs.readdir(dir)
+      await Promise.all(names.map(async (name) => {
+        const child = posix.join(dir, name)
+        const stat = await fs.stat(child)
+        const entry: SandboxFileEntry = {
+          mtime: stat.mtime?.toISOString?.() || (typeof stat.mtimeMs === 'number' ? new Date(stat.mtimeMs).toISOString() : undefined),
+          name,
+          path: child,
+          size: stat.isFile() ? stat.size : undefined,
+          type: stat.isDirectory() ? 'directory' : 'file',
+        }
+        entries.push(entry)
+        if (opts?.recursive && stat.isDirectory())
+          await visit(child)
+      }))
+    }
+
+    await visit(root)
+    return entries.sort((left, right) => left.path.localeCompare(right.path))
+  }
+
+  override async exists(path: string): Promise<boolean> {
+    const fs = this.native.fs
+    if (fs?.exists)
+      return await fs.exists(path)
+    if (fs?.access) {
+      try {
+        await fs.access(path)
+        return true
+      }
+      catch {
+        return false
+      }
+    }
+    try {
+      const result = await this.exec('test', ['-e', path])
+      return result.ok
+    }
+    catch {
+      return false
+    }
+  }
+
+  override async deleteFile(path: string): Promise<void> {
+    if (this.native.fs?.rm) {
+      await this.native.fs.rm(path, { force: true, recursive: true })
+      return
+    }
+    const result = await this.exec('rm', ['-rf', path])
+    if (!result.ok)
+      throw new SandboxError(`Failed to delete file: ${path}. ${result.stderr}`)
+  }
+
+  override async moveFile(src: string, dst: string): Promise<void> {
+    if (this.native.fs?.rename) {
+      await this.native.fs.rename(src, dst)
+      return
+    }
+    const result = await this.exec('mv', [src, dst])
+    if (!result.ok)
+      throw new SandboxError(`Failed to move file: ${src} -> ${dst}. ${result.stderr}`)
   }
 }

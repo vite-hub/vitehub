@@ -9,6 +9,7 @@ import { SandboxError } from '../sandbox/errors'
 import { detectSandbox, isSandboxAvailable } from '../sandbox/providers/shared'
 import { loadSandboxRuntimeProvider } from 'virtual:vitehub-sandbox-provider-loader'
 import { validateSandboxConfig } from '../sandbox/validation'
+import { safeUseRequest } from '../internal/shared/runtime'
 import { executeSandboxDefinition } from './execute'
 import { readSandboxErrorMetadata, toSandboxError } from './error-normalization'
 import {
@@ -52,13 +53,14 @@ export async function createSandboxWithConfig(
   context: { event?: SandboxEvent } = {},
 ) {
   assertSandboxDefinitionOptions(local)
+  const event = context.event ?? safeUseRequest<SandboxEvent>()
   const resolvedProviderConfig = getSandboxFeatureProvider(config)
-  const provider = resolveRuntimeProvider(resolvedProviderConfig, context.event)
+  const provider = resolveRuntimeProvider(resolvedProviderConfig, event)
   const { createSandboxClient, resolvedProvider } = await resolveSandboxProvider(
     provider,
     withSandboxProvider(provider, resolvedProviderConfig),
     local,
-    context,
+    { event },
   )
 
   const validation = validateSandboxConfig(resolvedProvider as SandboxProviderOptions)

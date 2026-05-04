@@ -23,6 +23,7 @@ declare global {
 describe("workspace types", () => {
   it("types the facade helpers", async () => {
     const definition = defineWorkspace({
+      runtime: "sandbox",
       sources: { docs: source.markdown({ path: "README.md" }) },
       loaders: [loader.files()],
       publish: [publish.virtualModule({ id: "virtual:vitehub/workspaces/typed" })],
@@ -54,8 +55,15 @@ describe("workspace types", () => {
     expectTypeOf(readonly.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(readonly.tools().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(readonly.tools()).toMatchTypeOf<ToolSet>()
+    // @ts-expect-error read-only facade does not expose executable write sessions
+    readonly.open()
     expectTypeOf(writable.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(writable.tools().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
+    expectTypeOf(writable.open).toBeFunction()
+    const session = null as unknown as Awaited<ReturnType<import("../src/types.ts").Workspace["open"]>>
+    expectTypeOf(session.exec).toBeFunction()
+    expectTypeOf(session.commit).toBeFunction()
+    expectTypeOf(session.close).toBeFunction()
     expectTypeOf(await readonly.fs.readFile("AGENTS.md")).toEqualTypeOf<string>()
     // @ts-expect-error typed workspace assets reject unknown literal paths when no fallback string is declared
     await readonly.fs.readFile("MISSING.md")
