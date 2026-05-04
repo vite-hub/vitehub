@@ -9,7 +9,7 @@ import { kv } from "@vitehub/kv"
 import { deferQueue, runQueue } from "@vitehub/queue"
 import { runSandbox } from "@vitehub/sandbox"
 import { useWorkspace } from "@vitehub/workspace"
-import { resetWorkspaceStoreCache } from "@vitehub/workspace/runtime/state"
+import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vitehub/workspace/runtime/state"
 import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vitehub/workflow"
 import { resolveTrustedMarkerCallbackUrl } from "../../_shared/queue-test"
 
@@ -61,7 +61,7 @@ function resolveKVProvider(event: unknown) {
 }
 
 function resolveWorkspaceProvider(_event: unknown) {
-  return "memory"
+  return getWorkspaceRuntimeConfig()?.store.provider ?? "memory"
 }
 
 function resolveSandboxHosting(event: { req: { runtime?: { name?: string }, waitUntil?: unknown } }) {
