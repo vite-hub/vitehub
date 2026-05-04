@@ -1,7 +1,11 @@
 name: pkg.pr.new
 
 on:
-  pull_request:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "!**"
   workflow_dispatch:
 
 concurrency:
