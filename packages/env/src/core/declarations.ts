@@ -1,15 +1,24 @@
 import type { EnvSource, EnvSourceResolver, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
 
 interface DefaultStringSchema {
+  __vitehubDefaultStringSchema: true
   safeParse: (input: unknown) => { data: string, success: true } | { error: Error, success: false }
 }
 
 export const defaultStringSchema: DefaultStringSchema = {
+  __vitehubDefaultStringSchema: true,
   safeParse(input: unknown): { data: string, success: true } | { error: Error, success: false } {
     return typeof input === "string"
       ? { data: input, success: true as const }
       : { error: new Error("Expected string"), success: false as const }
   },
+}
+
+export function isDefaultStringSchema(schema: unknown): schema is DefaultStringSchema {
+  return typeof schema === "object"
+    && schema !== null
+    && "__vitehubDefaultStringSchema" in schema
+    && schema.__vitehubDefaultStringSchema === true
 }
 
 export const envSource = {

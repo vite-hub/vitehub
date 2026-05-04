@@ -234,6 +234,29 @@ describe("Nitro module", () => {
     await expect(envNitro().setup(nitro as never)).rejects.toThrow("custom schema")
   })
 
+  it("accepts default runtime schemas from another module instance", async () => {
+    process.env.AUTH_SECRET = "a".repeat(32)
+
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
+    const declaration = envVariable({ secret: true })
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          authSecret: {
+            ...declaration,
+            schema: { ...(declaration.schema as Record<string, unknown>) },
+          },
+        },
+        rootDir: root,
+      },
+    }
+
+    await envNitro().setup(nitro as never)
+  })
+
   it("rejects custom runtime sources", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
     const nitro: NitroStub = {
