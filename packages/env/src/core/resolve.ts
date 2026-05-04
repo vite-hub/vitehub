@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
-import { defaultStringSchema } from "./declarations.ts"
+import { defaultStringSchema, isDefaultStringEnvVariable } from "./declarations.ts"
 import { EnvError } from "./errors.ts"
 
 import type {
@@ -169,7 +169,7 @@ function buildRegistry(declarations: EnvNitroConfigOptions | undefined, path: st
     if (source.kind !== "env") {
       throw new EnvError(`Runtime declaration ${valuePath} must use envSource.env() in v1.`)
     }
-    if (!isDefaultStringSchema(value.schema)) {
+    if (!isDefaultStringEnvVariable(value)) {
       throw new EnvError(`Runtime declaration ${valuePath} uses a custom schema, but Nitro runtime schemas cannot be serialized in v1.`)
     }
     if (value.type && value.type !== "string") {
@@ -186,28 +186,6 @@ function buildRegistry(declarations: EnvNitroConfigOptions | undefined, path: st
       type: value.type,
     }]
   }))
-}
-
-function isDefaultStringSchema(schema: unknown): boolean {
-  return schema === defaultStringSchema
-    || (
-      typeof schema === "object"
-      && schema !== null
-      && (schema as { __vitehubDefaultStringSchema?: unknown }).__vitehubDefaultStringSchema === true
-      && hasOnlyDefaultStringSchemaKeys(schema)
-    )
-}
-
-function hasOnlyDefaultStringSchemaKeys(schema: object): boolean {
-  if ("~standard" in schema || "parse" in schema) {
-    return false
-  }
-  const keys = Reflect.ownKeys(schema)
-  const safeParse = Object.getOwnPropertyDescriptor(schema, "safeParse")
-  return keys.length === 2
-    && keys.includes("__vitehubDefaultStringSchema")
-    && keys.includes("safeParse")
-    && safeParse?.value === defaultStringSchema.safeParse
 }
 
 export function resolveEnvSource(declaration: EnvVariableDeclaration, path: string, prefix = ""): EnvSource {

@@ -9,7 +9,9 @@ const buildMode: ViteHubMode = getViteMode() || VITEHUB_MODES.queue
 const inputByMode: Record<ViteHubMode, string> = {
   e2e: "src/server.e2e.ts",
   blob: "src/server.blob.ts",
+  chat: "src/server-chat.ts",
   db: "src/server.db.ts",
+  env: "src/server-env.ts",
   kv: "src/server.ts",
   queue: "src/server.ts",
   sandbox: "src/server.ts",
@@ -116,6 +118,36 @@ export default defineConfig(async () => {
       ...baseConfig,
       blob: {},
       plugins: [hubBlob()],
+    }
+  }
+
+  if (buildMode === VITEHUB_MODES.chat) {
+    const { hubChat } = await import("@vitehub/chat/vite")
+    return {
+      ...baseConfig,
+      chat: {
+        cloudflare: { durableObjectState: false },
+        dev: { initialize: false },
+        provider: "nitro",
+        webhook: false,
+      },
+      plugins: [hubChat()],
+    }
+  }
+
+  if (buildMode === VITEHUB_MODES.env) {
+    const { envVariable, envVite } = await import("@vitehub/env/vite")
+    return {
+      ...baseConfig,
+      env: {
+        define: {
+          __VITEHUB_PLAYGROUND_ENV__: envVariable({ default: "enabled", mode: "build" }),
+        },
+        public: {
+          appName: envVariable({ default: "Vite playground", mode: "build" }),
+        },
+      },
+      plugins: [envVite()],
     }
   }
 

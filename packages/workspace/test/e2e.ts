@@ -7,8 +7,8 @@ import { type FetchOptions, ofetch } from "ofetch"
 const providers = ["cloudflare", "vercel"] as const
 const frameworks = ["nitro", "vite"] as const
 const expectedWorkspaceProviders = {
-  cloudflare: "cloudflare-artifacts",
-  vercel: "memory",
+  cloudflare: "memory",
+  vercel: "vercel-blob",
 } as const
 const liveOnlyMessage = "Workspace e2e requires a deployed app: pnpm --dir packages/workspace test:e2e --mode live --provider cloudflare|vercel --framework nitro|vite --url <url>"
 
@@ -63,10 +63,8 @@ async function runLive(url: string, provider: Provider, framework: Framework) {
 
     assert.equal(result.ok, true)
     assert.equal(result.provider, expectedWorkspaceProviders[provider])
-    assert.ok(result.snapshot?.id)
-    assert.ok(result.committedSnapshot?.id)
+    assert.equal(result.path, writePath)
     assert.equal(result.readBack, writeContent)
-    assert.ok(result.diff.entries.some((entry: { path?: string, type?: string }) => entry.path === writePath && entry.type === "added"))
   })
 
   if (expectedWorkspaceProviders[provider] !== "memory") {

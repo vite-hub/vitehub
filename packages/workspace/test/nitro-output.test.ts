@@ -12,7 +12,7 @@ const playgroundDir = resolve(import.meta.dirname, "../../../playground/nitro")
 const repoRoot = resolve(playgroundDir, "../..")
 const testBuildDir = join(playgroundDir, "node_modules", ".workspace-nitro-output-test")
 const testOutputRoot = join(playgroundDir, ".workspace-test-output")
-const playgroundNitroPackages = ["blob", "kv", "queue", "sandbox", "workflow"] as const
+const playgroundNitroPackages = ["blob", "chat", "env", "kv", "queue", "sandbox", "workflow"] as const
 
 async function cleanupPlayground() {
   await rm(testBuildDir, { force: true, recursive: true, maxRetries: 10, retryDelay: 50 })
@@ -91,9 +91,7 @@ describe("Nitro workspace outputs", () => {
     expect(configTypes).toContain('"docs": true')
     expect(existsSync(join(cloudflareBuild.outputDir, cloudflareNitroJson.serverEntry))).toBe(true)
     const cloudflareWrangler = JSON.parse(await readFile(join(cloudflareBuild.outputDir, "server", "wrangler.json"), "utf8"))
-    expect(cloudflareWrangler.artifacts).toEqual([
-      expect.objectContaining({ binding: "WORKSPACE_ARTIFACTS", namespace: "vitehub" }),
-    ])
+    expect(cloudflareWrangler.artifacts).toBeUndefined()
     await assertNoNitroInternalVirtualImports(cloudflareBuild.outputDir)
     const cloudflareOutput = await readGeneratedJavaScript(cloudflareBuild.outputDir)
     expect(cloudflareOutput).not.toMatch(/(?:from|import\(|require\()\s*["']@vercel\/blob["']/)
@@ -102,7 +100,7 @@ describe("Nitro workspace outputs", () => {
     expect(cloudflareOutput).not.toContain("zstd.node")
     expect(cloudflareOutput).not.toContain("js-exec-worker")
     expect(cloudflareOutput).not.toMatch(/createRequire\([^)]*import\.meta\.url/)
-    expect(cloudflareOutput).toContain("createCloudflareArtifactsWorkspaceStore")
+    expect(cloudflareOutput).not.toContain("createCloudflareArtifactsWorkspaceStore")
 
     await cleanupPlayground()
 

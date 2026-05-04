@@ -234,6 +234,150 @@ describe("Nitro module", () => {
     await expect(envNitro().setup(nitro as never)).rejects.toThrow("custom schema")
   })
 
+  it("accepts default runtime schemas from another module instance", async () => {
+    process.env.AUTH_SECRET = "a".repeat(32)
+
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
+    const declaration = envVariable({ secret: true })
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          authSecret: {
+            ...declaration,
+            schema: { ...(declaration.schema as Record<string, unknown>) },
+          },
+        },
+        rootDir: root,
+      },
+    }
+
+    await envNitro().setup(nitro as never)
+  })
+
+  it("rejects runtime schemas that spoof default schema metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          apiKey: envVariable({
+            schema: {
+              __vitehubDefaultRuntimeSchema: "string",
+              safeParse(input: unknown) {
+                return { data: String(input), success: true as const }
+              },
+            },
+          }),
+        },
+        rootDir: root,
+      },
+    }
+
+    await expect(envNitro().setup(nitro as never)).rejects.toThrow("custom schema")
+  })
+
+  it("rejects default runtime declarations that are mutated to custom schemas", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
+    const apiKey = envVariable()
+    apiKey.schema = stringSchema()
+
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: { apiKey },
+        rootDir: root,
+      },
+    }
+
+    await expect(envNitro().setup(nitro as never)).rejects.toThrow("custom schema")
+  })
+
+  it("rejects custom runtime schemas that copy default runtime markers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
+    const defaultDeclaration = envVariable()
+    const marker = (defaultDeclaration as unknown as Record<string, unknown>).__vitehubDefaultRuntimeSchema
+    const schema = stringSchema() as ReturnType<typeof stringSchema> & { __vitehubDefaultRuntimeSchema?: unknown }
+    schema.__vitehubDefaultRuntimeSchema = marker
+    const apiKey = envVariable({ schema })
+    const apiKeyRecord = apiKey as unknown as Record<string, unknown>
+    apiKeyRecord.__vitehubDefaultRuntimeSchema = marker
+
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: { apiKey },
+        rootDir: root,
+      },
+    }
+
+    await expect(envNitro().setup(nitro as never)).rejects.toThrow("custom schema")
+  })
+
+  it("rejects custom runtime schemas that spoof the default parser source", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
+    const defaultDeclaration = envVariable()
+    const marker = (defaultDeclaration as unknown as Record<string, unknown>).__vitehubDefaultRuntimeSchema
+    const defaultSchema = defaultDeclaration.schema as { safeParse: (input: unknown) => unknown }
+    const schema = stringSchema() as ReturnType<typeof stringSchema> & { __vitehubDefaultRuntimeSchema?: unknown }
+    schema.__vitehubDefaultRuntimeSchema = marker
+    schema.safeParse.toString = () => defaultSchema.safeParse.toString()
+    const apiKey = envVariable({ schema })
+    const apiKeyRecord = apiKey as unknown as Record<string, unknown>
+    apiKeyRecord.__vitehubDefaultRuntimeSchema = marker
+
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: { apiKey },
+        rootDir: root,
+      },
+    }
+
+    await expect(envNitro().setup(nitro as never)).rejects.toThrow("custom schema")
+  })
+
+  it("rejects custom runtime schemas registered through a forged global parser allowlist", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
+    const defaultDeclaration = envVariable()
+    const marker = (defaultDeclaration as unknown as Record<string, unknown>).__vitehubDefaultRuntimeSchema
+    const schema = stringSchema() as ReturnType<typeof stringSchema> & { __vitehubDefaultRuntimeSchema?: unknown }
+    schema.__vitehubDefaultRuntimeSchema = marker
+    const parsersKey = Symbol.for("vitehub.env.defaultRuntimeSchemaParsers")
+    const forgedGlobal = globalThis as typeof globalThis & Record<symbol, WeakSet<typeof schema.safeParse> | undefined>
+    forgedGlobal[parsersKey] = new WeakSet([schema.safeParse])
+    const apiKey = envVariable({ schema })
+    const apiKeyRecord = apiKey as unknown as Record<string, unknown>
+    apiKeyRecord.__vitehubDefaultRuntimeSchema = marker
+
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: { apiKey },
+        rootDir: root,
+      },
+    }
+
+    try {
+      await expect(envNitro().setup(nitro as never)).rejects.toThrow("custom schema")
+    }
+    finally {
+      delete forgedGlobal[parsersKey]
+    }
+  })
+
   it("rejects custom runtime sources", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
     const nitro: NitroStub = {

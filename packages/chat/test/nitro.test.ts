@@ -451,6 +451,13 @@ describe("Nitro module", () => {
     await nitro.testHooks["build:before"]?.[0]?.()
     expect(nitro.options.rollupConfig.plugins?.filter(plugin => typeof plugin === "object" && plugin !== null && "name" in plugin && plugin.name === "vitehub-chat-cloudflare-exports:ChatStateDO")).toHaveLength(1)
 
+    const typesHook = nitro.testHooks["types:extend"]?.[0]
+    const tsConfig = { include: [] as string[] }
+    await typesHook?.({ tsConfig })
+    const types = await readFile(join(rootDir, ".nitro/types/vitehub-chat.d.ts"), "utf8")
+    expect(types).toContain(`import "@vitehub/chat/nitro"`)
+    expect(tsConfig.include).toContain(join(rootDir, ".nitro/types/vitehub-chat.d.ts"))
+
     const routeFile = nitro.options.handlers[0]!.handler
     const routeContents = await readFile(routeFile, "utf8")
     expect(routeContents).toContain("defineChatWebhookHandler(chat")

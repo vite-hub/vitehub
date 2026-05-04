@@ -140,11 +140,13 @@ describe("env declarations", () => {
   })
 
   it("rejects forged default string schema markers", () => {
+    const marker = defaultStringSchema.__vitehubDefaultRuntimeSchema
+
     expect(() => createRuntimeRegistry({
       appName: {
         ...envVariable({ default: "Docs App" }),
         schema: {
-          __vitehubDefaultStringSchema: true,
+          __vitehubDefaultRuntimeSchema: marker,
         },
       },
     })).toThrow("custom schema")
@@ -153,7 +155,7 @@ describe("env declarations", () => {
       appName: {
         ...envVariable({ default: "Docs App" }),
         schema: {
-          __vitehubDefaultStringSchema: true,
+          __vitehubDefaultRuntimeSchema: marker,
           safeParse: () => ({ data: 123, success: true }),
         },
       },
@@ -163,7 +165,7 @@ describe("env declarations", () => {
       appName: {
         ...envVariable({ default: "Docs App" }),
         schema: {
-          __vitehubDefaultStringSchema: true,
+          __vitehubDefaultRuntimeSchema: marker,
           "~standard": {
             validate: () => ({ value: 123 }),
           },
@@ -180,14 +182,14 @@ describe("env declarations", () => {
             validate: () => ({ value: 123 }),
           },
         }), {
-          __vitehubDefaultStringSchema: true,
+          __vitehubDefaultRuntimeSchema: marker,
           safeParse: defaultStringSchema.safeParse,
         }),
       },
     })).toThrow("custom schema")
 
     const accessorSchema = {
-      __vitehubDefaultStringSchema: true,
+      __vitehubDefaultRuntimeSchema: marker,
       get safeParse() {
         return defaultStringSchema.safeParse
       },
@@ -201,7 +203,7 @@ describe("env declarations", () => {
 
     let hasChecks = 0
     const proxySchema = new Proxy({
-      __vitehubDefaultStringSchema: true,
+      __vitehubDefaultRuntimeSchema: marker,
       safeParse: defaultStringSchema.safeParse,
     }, {
       get(target, property, receiver) {
