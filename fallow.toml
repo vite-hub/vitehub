@@ -25,13 +25,27 @@ dynamicallyLoaded = [
   "packages/blob/examples/**/nitro.config.ts",
   "packages/blob/examples/**/server/**",
   "packages/blob/examples/**/src/server.ts",
+  "packages/chat/examples/**/nitro.config.ts",
+  "packages/chat/examples/**/server/**",
+  "packages/chat/examples/**/src/server.ts",
+  "packages/chat/examples/**/src/**/*.chat.ts",
+  "packages/chat/test/**/*.test-d.ts",
   "packages/sandbox/test/**/*.test-d.ts",
   "packages/sandbox/examples/**/nitro.config.ts",
   "packages/sandbox/examples/**/server/**",
   "packages/sandbox/examples/**/src/server.ts",
   "packages/sandbox/examples/**/src/**/*.sandbox.ts",
+  "packages/workspace/test/e2e.ts",
+  "packages/workspace/test/**/*.test-d.ts",
+  "packages/workspace/src/stores/cloudflare-artifacts.ts",
+  "packages/workspace/src/stores/vercel-blob.ts",
+  "packages/workspace/examples/**/nitro.config.ts",
+  "packages/workspace/examples/**/server/**",
+  "packages/workspace/examples/**/src/server.ts",
+  "packages/workspace/examples/**/workspaces/**",
   "playground/nitro/nitro.config.ts",
   "playground/nitro/server/**",
+  "playground/nitro/workspaces/**",
   "playground/_shared/api/tests/**",
   "playground/vite/nitro.config.ts",
   "playground/vite/server/**",
@@ -39,8 +53,10 @@ dynamicallyLoaded = [
   "playground/vite/src/server.blob.ts",
   "playground/vite/src/server.db.ts",
   "playground/vite/src/server.e2e.ts",
+  "playground/vite/src/server-workspace.ts",
   "playground/vite/src/server-workflow.ts",
   "playground/vite/src/db/**",
+  "playground/vite/workspaces/**",
   "playground/vite/src/**/*.queue.ts",
   "playground/vite/src/**/*.workflow.ts",
 ]
@@ -48,14 +64,20 @@ dynamicallyLoaded = [
 ignoreDependencies = [
   "docus",
   "@cloudflare/sandbox",
+  "@vercel/blob",
   "@vercel/sandbox",
+  "async-retry",
   "esbuild",
   "exsolve",
+  "chat",
+  "chat-state-cloudflare-do",
   "publint",
 ]
 
 publicPackages = [
+  "@vitehub/chat",
   "@vitehub/sandbox",
+  "@vitehub/workspace",
 ]
 
 [[overrides]]
@@ -67,4 +89,8 @@ files = [
   "packages/sandbox/src/internal/shared/errors.ts",
   "packages/sandbox/src/sandbox/adapters/*.ts",
 ]
+rules = { "unused-class-members" = "off" }
+
+[[overrides]]
+files = ["packages/workspace/src/stores/memory-fs.ts"]
 rules = { "unused-class-members" = "off" }

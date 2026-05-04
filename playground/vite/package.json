@@ -6,12 +6,15 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@cloudflare/sandbox": "catalog:",
+    "@vercel/sandbox": "catalog:",
     "@vitehub/db": "workspace:*",
     "@vitehub/blob": "workspace:*",
     "@vitehub/internal": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
     "@vitehub/sandbox": "workspace:*",
+    "@vitehub/workspace": "workspace:*",
     "@vitehub/workflow": "workspace:*",
     "drizzle-orm": "catalog:",
     "h3": "catalog:",

@@ -50,9 +50,9 @@ export async function setupSandboxNitro(nitro: Nitro, sandboxConfig: AgentSandbo
 
   const defaultProvider = getSandboxFeatureProvider(sandboxConfig)
 
-  if (defaultProvider?.provider === 'vercel' && !hasInstalledDependency(deps, '@vercel/sandbox'))
+  if (defaultProvider?.provider === 'vercel' && !hasInstalledDependency(deps, '@vercel/sandbox', { paths: [nitro.options.rootDir] }))
     nitro.logger.warn('Install `@vercel/sandbox` for Vercel sandbox presets.')
-  if (defaultProvider?.provider === 'cloudflare' && !hasInstalledDependency(deps, '@cloudflare/sandbox'))
+  if (defaultProvider?.provider === 'cloudflare' && !hasInstalledDependency(deps, '@cloudflare/sandbox', { paths: [nitro.options.rootDir] }))
     nitro.logger.warn('Install `@cloudflare/sandbox` for Cloudflare sandbox presets.')
 
   nitro.logger.info('`@vitehub/sandbox` enabled')

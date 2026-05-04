@@ -1,0 +1,28 @@
+name: pkg.pr.new
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "!**"
+  workflow_dispatch:
+
+concurrency:
+  group: pkg-pr-new-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: publish preview packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - run: pnpm --filter @vitehub/workspace build
+      - run: pnpm --filter @vitehub/chat build
+
+      - name: Publish preview packages
+        run: pnpm dlx pkg-pr-new publish './packages/workspace' './packages/chat' --packageManager=pnpm
