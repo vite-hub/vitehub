@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { envSource, envVariable } from "../src/index.ts"
+import { defaultStringSchema } from "../src/core/declarations.ts"
 import { createRuntimeRegistry, resolveEnvSource, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { parseSchema } from "../src/schema.ts"
 
@@ -119,6 +120,118 @@ describe("env declarations", () => {
         },
       },
     })
+  })
+
+  it("accepts default string schemas after config cloning", () => {
+    const declaration = envVariable({ default: "Docs App" })
+    const schema = { ...(declaration.schema as Record<string, unknown>) }
+
+    expect(createRuntimeRegistry({
+      appName: {
+        ...declaration,
+        schema,
+      },
+    })).toMatchObject({
+      appName: {
+        default: "Docs App",
+        schema: { kind: "string" },
+      },
+    })
+  })
+
+  it("rejects forged default string schema markers", () => {
+    expect(() => createRuntimeRegistry({
+      appName: {
+        ...envVariable({ default: "Docs App" }),
+        schema: {
+          __vitehubDefaultStringSchema: true,
+        },
+      },
+    })).toThrow("custom schema")
+
+    expect(() => createRuntimeRegistry({
+      appName: {
+        ...envVariable({ default: "Docs App" }),
+        schema: {
+          __vitehubDefaultStringSchema: true,
+          safeParse: () => ({ data: 123, success: true }),
+        },
+      },
+    })).toThrow("custom schema")
+
+    expect(() => createRuntimeRegistry({
+      appName: {
+        ...envVariable({ default: "Docs App" }),
+        schema: {
+          __vitehubDefaultStringSchema: true,
+          "~standard": {
+            validate: () => ({ value: 123 }),
+          },
+          safeParse: defaultStringSchema.safeParse,
+        },
+      },
+    })).toThrow("custom schema")
+
+    expect(() => createRuntimeRegistry({
+      appName: {
+        ...envVariable({ default: "Docs App" }),
+        schema: Object.assign(Object.create({
+          "~standard": {
+            validate: () => ({ value: 123 }),
+          },
+        }), {
+          __vitehubDefaultStringSchema: true,
+          safeParse: defaultStringSchema.safeParse,
+        }),
+      },
+    })).toThrow("custom schema")
+
+    const accessorSchema = {
+      __vitehubDefaultStringSchema: true,
+      get safeParse() {
+        return defaultStringSchema.safeParse
+      },
+    }
+    expect(() => createRuntimeRegistry({
+      appName: {
+        ...envVariable({ default: "Docs App" }),
+        schema: accessorSchema,
+      },
+    })).toThrow("custom schema")
+
+    let hasChecks = 0
+    const proxySchema = new Proxy({
+      __vitehubDefaultStringSchema: true,
+      safeParse: defaultStringSchema.safeParse,
+    }, {
+      get(target, property, receiver) {
+        if (property === "~standard") {
+          return {
+            validate: () => ({ value: 123 }),
+          }
+        }
+        return Reflect.get(target, property, receiver)
+      },
+      getOwnPropertyDescriptor(target, property) {
+        return Reflect.getOwnPropertyDescriptor(target, property)
+      },
+      has(target, property) {
+        if (property === "~standard") {
+          hasChecks += 1
+          return hasChecks > 1
+        }
+        return Reflect.has(target, property)
+      },
+      ownKeys(target) {
+        return Reflect.ownKeys(target)
+      },
+    })
+    expect(() => createRuntimeRegistry({
+      appName: {
+        ...envVariable({ default: 123 as never }),
+        schema: proxySchema,
+      },
+    })).toThrow("Expected string")
   })
 
   it("rejects non-string Nitro runtime types", () => {
