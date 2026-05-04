@@ -5,8 +5,8 @@ import { dirname, resolve } from "node:path"
 import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 
 import {
-  collectWorkspaceAssetBundles,
-  syncDiscoveredWorkspaces,
+  collectDirectoryWorkspaceAssetBundles,
+  syncDiscoveredWorkspaceAssetBundles,
   writeWorkspaceAssetsRegistry,
 } from "./build-assets.ts"
 import {
@@ -53,8 +53,12 @@ export async function writeWorkspaceRuntimeRegistry(registryFile: string, defini
   return registryFile
 }
 
-export async function initializeWorkspaceAssetRegistry(assetsRegistryFile: string): Promise<void> {
-  await writeWorkspaceAssetsRegistry(assetsRegistryFile, [])
+export async function initializeWorkspaceAssetRegistry(
+  assetsRegistryFile: string,
+  definitions: DiscoveredWorkspaceDefinition[] = [],
+  rootDir = process.cwd(),
+): Promise<void> {
+  await writeWorkspaceAssetsRegistry(assetsRegistryFile, await collectDirectoryWorkspaceAssetBundles(definitions, rootDir))
 }
 
 export async function syncWorkspaceBuildAssets(
@@ -63,6 +67,9 @@ export async function syncWorkspaceBuildAssets(
   options: false | ResolvedWorkspaceModuleOptions,
   assetsRegistryFile: string,
 ): Promise<void> {
-  const workspaces = await syncDiscoveredWorkspaces(definitions, rootDir, options)
-  await writeWorkspaceAssetsRegistry(assetsRegistryFile, await collectWorkspaceAssetBundles(workspaces))
+  const syncedBundles = await syncDiscoveredWorkspaceAssetBundles(definitions, rootDir, options)
+  const syncedNames = new Set(syncedBundles.map(bundle => bundle.name))
+  const directoryBundles = (await collectDirectoryWorkspaceAssetBundles(definitions, rootDir))
+    .filter(bundle => !syncedNames.has(bundle.name))
+  await writeWorkspaceAssetsRegistry(assetsRegistryFile, [...directoryBundles, ...syncedBundles])
 }

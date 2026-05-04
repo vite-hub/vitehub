@@ -181,7 +181,7 @@ const workspaceNitroModule: NitroModule = {
     let definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
     const registryFile = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
     const assetsRegistryFile = assetsRegistryPath(nitro)
-    await initializeWorkspaceAssetRegistry(assetsRegistryFile)
+    await initializeWorkspaceAssetRegistry(assetsRegistryFile, definitions, nitro.options.rootDir)
     const plugin = await writePlugin(nitro, registryFile, assetsRegistryFile, resolved)
     nitro.options.alias["#vitehub-workspace-registry"] = registryFile
     nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile

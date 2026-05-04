@@ -68,6 +68,7 @@ beforeAll(async () => {
     await execFileAsync("pnpm", ["--filter", `@vitehub/${name}`, "build"], {
       cwd: repoRoot,
       env: process.env,
+      maxBuffer: 1024 * 1024 * 16,
     })
   }
 }, 120_000)

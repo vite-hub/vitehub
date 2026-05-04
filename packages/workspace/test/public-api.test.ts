@@ -77,6 +77,38 @@ describe("workspace public API", () => {
     await expect(workspace.fs.stat("README.md")).resolves.toMatchObject({ path: "README.md", type: "file" })
   })
 
+  it("merges bundled assets with lazy runtime sources in the read-only facade", async () => {
+    setWorkspaceRuntimeAssetsRegistry({
+      docs: createWorkspaceAssets({
+        "AGENTS.md": { load: async () => "# Instructions\n" },
+      }),
+    })
+    setWorkspaceRegistry({
+      docs: async () => ({ default: defineWorkspace({
+        store: { provider: "memory" },
+        sources: {
+          repo: source.file({
+            content: "# Repo\n",
+            materialize: "lazy",
+            mount: "repo",
+            workspacePath: "README.md",
+          }),
+        },
+      }) }),
+    })
+
+    const workspace = useWorkspace("docs")
+
+    await expect(workspace.fs.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
+    await expect(workspace.fs.readFile("repo/README.md")).resolves.toBe("# Repo\n")
+    await expect(workspace.fs.exists("repo/README.md")).resolves.toBe(true)
+    await expect(workspace.fs.list("", { recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "AGENTS.md", type: "file" }),
+      expect.objectContaining({ path: "repo", type: "directory" }),
+      expect.objectContaining({ path: "repo/README.md", type: "file" }),
+    ])
+  })
+
   it("uses runtime workspace root for default local stores", async () => {
     const root = await createRoot()
     const configuredRoot = join(root, "runtime-workspaces")

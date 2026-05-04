@@ -1,6 +1,8 @@
 import { Buffer } from "node:buffer"
 import { gunzipSync } from "node:zlib"
 
+import { getActiveCloudflareBinding } from "@vitehub/internal/runtime/cloudflare-env"
+
 import { WorkspaceError } from "../errors.ts"
 import { matchesAny, normalizeWorkspacePath } from "../path.ts"
 import type { WorkspaceSource } from "../types.ts"
@@ -48,14 +50,30 @@ interface GitHubArchiveFile {
 export function github(options: GitHubSourceOptions): WorkspaceSource {
   const ref = options.ref || "main"
   const root = normalizeWorkspacePath(options.root || "")
+  let auth: string | undefined
   let filesPromise: Promise<GitHubFile[]> | undefined
   const contentPromises = new Map<string, Promise<Uint8Array>>()
 
-  async function request<T>(url: string): Promise<T> {
+  function resolveAuth(): string | undefined {
+    const token = options.auth || getActiveCloudflareBinding<string>("GITHUB_TOKEN") || process.env.GITHUB_TOKEN
+    return typeof token === "string" && token.length > 0 ? token : undefined
+  }
+
+  function refreshAuth(): string | undefined {
+    const nextAuth = resolveAuth()
+    if (nextAuth !== auth) {
+      auth = nextAuth
+      filesPromise = undefined
+      contentPromises.clear()
+    }
+    return auth
+  }
+
+  async function request<T>(url: string, token = auth): Promise<T> {
     const response = await fetch(url, {
       headers: {
         accept: "application/vnd.github+json",
-        ...(options.auth ? { authorization: `Bearer ${options.auth}` } : {}),
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
         "user-agent": "vitehub-workspace",
         "x-github-api-version": "2022-11-28",
       },
@@ -135,8 +153,8 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       .filter((file): file is GitHubFile => Boolean(file))
   }
 
-  async function loadFiles() {
-    if (options.auth) return await loadTreeFiles()
+  async function loadFiles(token: string | undefined) {
+    if (token) return await loadTreeFiles()
 
     try {
       return await loadTreeFiles()
@@ -150,7 +168,8 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
   }
 
   function getFiles() {
-    if (!filesPromise) filesPromise = loadFiles()
+    const token = refreshAuth()
+    if (!filesPromise) filesPromise = loadFiles(token)
     return filesPromise
   }
 
@@ -163,11 +182,13 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
 
     const repoPath = repoPathForKey(key)
     const encodedPath = encodeURIComponent(repoPath).replaceAll("%2F", "/")
-    if (!options.auth) {
+    const token = refreshAuth()
+    if (!token) {
       return fetchRawContent(repoPath, encodedPath)
     }
     return request<GitHubContentResponse>(
       `https://api.github.com/repos/${options.repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
+      token,
     ).then((file) => {
       if (file.encoding !== "base64" || typeof file.content !== "string") {
         throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) received unsupported content for ${JSON.stringify(repoPath)}.`)
