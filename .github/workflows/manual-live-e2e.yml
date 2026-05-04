@@ -173,6 +173,7 @@ jobs:
             existing_blob_token="$(find_existing_blob_token || true)"
             if [ -n "$existing_blob_token" ]; then
               echo "::add-mask::$existing_blob_token"
+              blob_token="$existing_blob_token"
               printf '%s' "$existing_blob_token" | npx vercel env add BLOB_READ_WRITE_TOKEN production --force --sensitive --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
             else
               create_log="$(mktemp)"
@@ -186,6 +187,9 @@ jobs:
             fi
             VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
               npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+            if [ -z "$blob_token" ]; then
+              blob_token="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
+            fi
           fi
 
           missing=()
@@ -193,6 +197,9 @@ jobs:
           for output_name in "${!REQUIRED_ENV_KEYS[@]}"; do
             env_name="${REQUIRED_ENV_KEYS[$output_name]}"
             value="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" "$env_name")"
+            if [ "$env_name" = "BLOB_READ_WRITE_TOKEN" ] && [ -z "$value" ]; then
+              value="$blob_token"
+            fi
 
             if [ -z "$value" ]; then
               missing+=("$env_name")
