@@ -181,7 +181,7 @@ const workspaceNitroModule: NitroModule = {
     let definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
     const registryFile = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
     const assetsRegistryFile = assetsRegistryPath(nitro)
-    await initializeWorkspaceAssetRegistry(assetsRegistryFile)
+    await initializeWorkspaceAssetRegistry(assetsRegistryFile, definitions, nitro.options.rootDir)
     const plugin = await writePlugin(nitro, registryFile, assetsRegistryFile, resolved)
     nitro.options.alias["#vitehub-workspace-registry"] = registryFile
     nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
@@ -211,8 +211,10 @@ const workspaceNitroModule: NitroModule = {
     nitro.hooks.hook("dev:reload", async () => {
       definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
       const nextPath = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
+      await initializeWorkspaceAssetRegistry(assetsRegistryFile, definitions, nitro.options.rootDir)
       nitro.options.alias ||= {}
       nitro.options.alias["#vitehub-workspace-registry"] = nextPath
+      nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
     })
 
     nitro.logger.info(`@vitehub/workspace enabled with ${definitions.length} workspace definition${definitions.length === 1 ? "" : "s"}`)
