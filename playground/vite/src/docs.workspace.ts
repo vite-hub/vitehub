@@ -3,14 +3,15 @@ import { defineWorkspace, loader } from "@vitehub/workspace"
 export default defineWorkspace({
   sources: [
     {
+      mount: "README.md",
       name: "inline-markdown",
       async getKeys() {
-        return ["README.md"]
+        return [""]
       },
       async getItem() {
         return {
-          key: "README.md",
-          path: "README.md",
+          key: "",
+          path: "",
           content: "# Vite playground workspace\n",
           mediaType: "text/markdown",
         }

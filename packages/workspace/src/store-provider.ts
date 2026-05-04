@@ -90,7 +90,7 @@ export function normalizeWorkspaceStoreOptions(
   if (store?.provider === "vercel-blob") return resolveVercelBlobWorkspaceStore(store, env)
   if (store?.provider === "local" || store?.root) return defu(store, { provider: "local" as const }) as ResolvedWorkspaceStoreOptions
 
-  if (hosting.includes("cloudflare")) return resolveCloudflareArtifactsStore({}, env)
+  if (hosting.includes("cloudflare")) return { provider: "memory" as const }
   if (hasVercelWorkspaceBlobEnv(env)) return resolveVercelBlobWorkspaceStore({}, env)
   if (hosting.includes("vercel")) return { provider: "memory" as const }
 

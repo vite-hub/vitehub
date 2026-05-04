@@ -17,7 +17,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Build vitehub packages
-        run: pnpm -r --filter '@vitehub/blob' --filter '@vitehub/db' --filter '@vitehub/kv' --filter '@vitehub/queue' --filter '@vitehub/sandbox' --filter '@vitehub/workflow' --filter '@vitehub/workspace' build
+        run: pnpm -r --filter '@vitehub/blob' --filter '@vitehub/chat' --filter '@vitehub/db' --filter '@vitehub/env' --filter '@vitehub/kv' --filter '@vitehub/queue' --filter '@vitehub/sandbox' --filter '@vitehub/workflow' --filter '@vitehub/workspace' build
 
       - name: Upload package builds
         uses: actions/upload-artifact@v6
@@ -25,7 +25,9 @@ jobs:
           name: vitehub-package-dist
           path: |
             packages/blob/dist
+            packages/chat/dist
             packages/db/dist
+            packages/env/dist
             packages/kv/dist
             packages/queue/dist
             packages/sandbox/dist
@@ -52,29 +54,6 @@ jobs:
           if [ -n "$CLOUDFLARE_R2_BUCKET_NAME" ] && ! npx wrangler r2 bucket list | grep -q "$CLOUDFLARE_R2_BUCKET_NAME"; then
             npx wrangler r2 bucket create "$CLOUDFLARE_R2_BUCKET_NAME"
           fi
-
-      - name: Ensure Cloudflare Workspace Artifacts
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          WORKSPACE_ARTIFACTS_NAMESPACE: vitehub-e2e
-        run: |
-          BASE_URL="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/artifacts/namespaces/$WORKSPACE_ARTIFACTS_NAMESPACE"
-          for repo in vitehub-workspace-docs vitehub-playground-vite-docs vitehub-playground-nitro-docs; do
-            status="$(curl -sS -o /tmp/artifacts-repo.json -w '%{http_code}' "$BASE_URL/repos/$repo" \
-              --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN")"
-            if [ "$status" = "200" ]; then
-              continue
-            fi
-            if [ "$status" != "404" ]; then
-              cat /tmp/artifacts-repo.json >&2
-              exit 1
-            fi
-            curl -sS --fail --request POST "$BASE_URL/repos" \
-              --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              --header "Content-Type: application/json" \
-              --data "{\"name\":\"$repo\"}" >/dev/null
-          done
 
   live-e2e:
     name: live e2e
@@ -142,6 +121,47 @@ jobs:
           VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
+          find_project_blob_token() {
+            local app_dir project_name env_name tmp value
+            local -a SEARCH_CONFIG
+            app_dir="$1"
+            project_name="$2"
+
+            npx vercel link --yes --cwd "$app_dir" --project "$project_name" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || return 1
+            readarray -t SEARCH_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$app_dir")
+
+            for env_name in production preview development; do
+              tmp="$(mktemp)"
+              if VERCEL_ORG_ID="${SEARCH_CONFIG[0]}" VERCEL_PROJECT_ID="${SEARCH_CONFIG[1]}" \
+                npx vercel env pull "$tmp" --environment="$env_name" --yes --cwd "$app_dir" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
+                value="$(node .github/scripts/get-env-value.mjs "$tmp" BLOB_READ_WRITE_TOKEN)"
+                rm -f "$tmp"
+                if [ -n "$value" ]; then
+                  printf '%s' "$value"
+                  return 0
+                fi
+              else
+                rm -f "$tmp"
+              fi
+            done
+            return 1
+          }
+
+          find_existing_blob_token() {
+            local sibling_framework sibling_dir sibling_project
+
+            find_project_blob_token "$APP_DIR" "$PROJECT_NAME" && return 0
+
+            if [ "${{ matrix.framework }}" = "vite" ]; then
+              sibling_framework="nitro"
+            else
+              sibling_framework="vite"
+            fi
+            sibling_dir="playground/$sibling_framework"
+            sibling_project="vitehub-playground-$sibling_framework"
+            find_project_blob_token "$sibling_dir" "$sibling_project"
+          }
+
           declare -A REQUIRED_ENV_KEYS=(
             [blob_token]=BLOB_READ_WRITE_TOKEN
             [kv_token]=KV_REST_API_TOKEN
@@ -150,9 +170,26 @@ jobs:
 
           blob_token="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
           if [ -z "$blob_token" ]; then
-            npx vercel blob create-store "vitehub-workspace-${{ matrix.framework }}" --access private --region iad1 --yes --environment production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+            existing_blob_token="$(find_existing_blob_token || true)"
+            if [ -n "$existing_blob_token" ]; then
+              echo "::add-mask::$existing_blob_token"
+              blob_token="$existing_blob_token"
+              printf '%s' "$existing_blob_token" | npx vercel env add BLOB_READ_WRITE_TOKEN production --force --sensitive --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+            else
+              create_log="$(mktemp)"
+              if ! npx vercel blob create-store "vitehub-workspace-${{ matrix.framework }}" --access private --region iad1 --yes --environment production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >"$create_log" 2>&1; then
+                if ! grep -q 'existing environment variable with name BLOB_READ_WRITE_TOKEN' "$create_log"; then
+                  cat "$create_log" >&2
+                  exit 1
+                fi
+              fi
+              rm -f "$create_log"
+            fi
             VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
               npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+            if [ -z "$blob_token" ]; then
+              blob_token="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
+            fi
           fi
 
           missing=()
@@ -160,6 +197,9 @@ jobs:
           for output_name in "${!REQUIRED_ENV_KEYS[@]}"; do
             env_name="${REQUIRED_ENV_KEYS[$output_name]}"
             value="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" "$env_name")"
+            if [ "$env_name" = "BLOB_READ_WRITE_TOKEN" ] && [ -z "$value" ]; then
+              value="$blob_token"
+            fi
 
             if [ -z "$value" ]; then
               missing+=("$env_name")
@@ -196,8 +236,6 @@ jobs:
         if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
         env:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
-          VITEHUB_WORKSPACE_ARTIFACTS_NAMESPACE: vitehub-e2e
-          VITEHUB_WORKSPACE_ARTIFACTS_REPO_PREFIX: vitehub-playground-nitro-
         run: pnpm --dir playground/nitro exec nitro build --preset cloudflare-module
 
       - name: Assert Nitro Cloudflare bindings
@@ -209,8 +247,8 @@ jobs:
           if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
             throw new Error("Expected Nitro Cloudflare wrangler.json to include kv_namespaces.")
           }
-          if (!Array.isArray(wrangler.artifacts) || !wrangler.artifacts.some(binding => binding.binding === "WORKSPACE_ARTIFACTS")) {
-            throw new Error("Expected Nitro Cloudflare wrangler.json to include Workspace Artifacts binding.")
+          if (typeof wrangler.artifacts !== "undefined") {
+            throw new Error("Nitro Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
           }
           NODE
 
@@ -235,8 +273,6 @@ jobs:
           VITEHUB_CLOUDFLARE_WORKER_NAME: vitehub-playground-vite
           VITEHUB_HOSTING: cloudflare
           VITEHUB_VITE_MODE: e2e
-          VITEHUB_WORKSPACE_ARTIFACTS_NAMESPACE: vitehub-e2e
-          VITEHUB_WORKSPACE_ARTIFACTS_REPO_PREFIX: vitehub-playground-vite-
         run: pnpm --dir playground/vite build
 
       - name: Assert Vite Cloudflare artifact purity
@@ -258,8 +294,8 @@ jobs:
           if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
             throw new Error("Expected Vite Cloudflare wrangler.json to include kv_namespaces.")
           }
-          if (!Array.isArray(wrangler.artifacts) || !wrangler.artifacts.some(binding => binding.binding === "WORKSPACE_ARTIFACTS")) {
-            throw new Error("Expected Vite Cloudflare wrangler.json to include Workspace Artifacts binding.")
+          if (typeof wrangler.artifacts !== "undefined") {
+            throw new Error("Vite Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
           }
           NODE
 
@@ -292,8 +328,8 @@ jobs:
           node <<'NODE'
           const { readFileSync } = require("node:fs")
           const bundle = readFileSync("playground/vite/.vercel/output/functions/__server.func/index.mjs", "utf8")
-          if (/cloudflare-artifacts|isomorphic-git/.test(bundle)) {
-            throw new Error("Vercel Vite bundle must not include Cloudflare Artifacts or isomorphic-git.")
+          if (/createCloudflareArtifactsWorkspaceStore|isomorphic-git/.test(bundle)) {
+            throw new Error("Vercel Vite bundle must not include the Cloudflare Artifacts store implementation.")
           }
           NODE
 

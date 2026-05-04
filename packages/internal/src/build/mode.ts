@@ -5,7 +5,9 @@ export const VITEHUB_HOSTING_KEY = "VITEHUB_HOSTING"
 export const VITEHUB_MODES = {
   e2e: "e2e",
   blob: "blob",
+  chat: "chat",
   db: "db",
+  env: "env",
   kv: "kv",
   queue: "queue",
   sandbox: "sandbox",

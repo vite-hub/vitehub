@@ -9,6 +9,8 @@ export default defineNitroConfig({
     "async-retry": require.resolve("async-retry"),
   },
   modules: [
+    "@vitehub/env/nitro",
+    "@vitehub/chat/nitro",
     "@vitehub/queue/nitro",
     "@vitehub/kv/nitro",
     "@vitehub/blob/nitro",
@@ -17,6 +19,12 @@ export default defineNitroConfig({
     "@vitehub/workflow/nitro",
   ],
   blob: {},
+  chat: {
+    cloudflare: { durableObjectState: false },
+    dev: { initialize: false },
+    provider: "nitro",
+    webhook: false,
+  },
   queue: {},
   sandbox: {},
   serverDir: "./server",
