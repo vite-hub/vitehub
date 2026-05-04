@@ -5,16 +5,15 @@ import { ensureDocsWorkspace } from "../../utils/workspace"
 
 export default defineEventHandler(async () => {
   ensureDocsWorkspace()
-  const workspace = await useWorkspace("docs")
-  await workspace.sync()
+  const workspace = useWorkspace("docs", { allowWrite: true })
   const runtimeConfig = getWorkspaceRuntimeConfig()
   const generatedPath = "generated/notes.md"
   return {
     ok: true,
     provider: runtimeConfig ? runtimeConfig.store.provider : "local",
-    files: await workspace.list("", { recursive: true }),
-    markdown: await workspace.glob("**/*.md"),
-    readme: await workspace.readFile("README.md"),
-    generated: await workspace.exists(generatedPath) ? await workspace.readFile(generatedPath) : null,
+    files: await workspace.fs.list("", { recursive: true }),
+    markdown: await workspace.fs.glob("**/*.md"),
+    readme: await workspace.fs.readFile("README.md"),
+    generated: await workspace.fs.exists(generatedPath) ? await workspace.fs.readFile(generatedPath) : null,
   }
 })

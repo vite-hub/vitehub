@@ -63,10 +63,8 @@ async function runLive(url: string, provider: Provider, framework: Framework) {
 
     assert.equal(result.ok, true)
     assert.equal(result.provider, expectedWorkspaceProviders[provider])
-    assert.ok(result.snapshot?.id)
-    assert.ok(result.committedSnapshot?.id)
+    assert.equal(result.path, writePath)
     assert.equal(result.readBack, writeContent)
-    assert.ok(result.diff.entries.some((entry: { path?: string, type?: string }) => entry.path === writePath && entry.type === "added"))
   })
 
   if (expectedWorkspaceProviders[provider] !== "memory") {

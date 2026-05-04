@@ -121,6 +121,25 @@ jobs:
           VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
+          find_existing_blob_token() {
+            local env_name tmp value
+            for env_name in production preview development; do
+              tmp="$(mktemp)"
+              if VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
+                npx vercel env pull "$tmp" --environment="$env_name" --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
+                value="$(node .github/scripts/get-env-value.mjs "$tmp" BLOB_READ_WRITE_TOKEN)"
+                rm -f "$tmp"
+                if [ -n "$value" ]; then
+                  printf '%s' "$value"
+                  return 0
+                fi
+              else
+                rm -f "$tmp"
+              fi
+            done
+            return 1
+          }
+
           declare -A REQUIRED_ENV_KEYS=(
             [blob_token]=BLOB_READ_WRITE_TOKEN
             [kv_token]=KV_REST_API_TOKEN
@@ -129,7 +148,20 @@ jobs:
 
           blob_token="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
           if [ -z "$blob_token" ]; then
-            npx vercel blob create-store "vitehub-workspace-${{ matrix.framework }}" --access private --region iad1 --yes --environment production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+            existing_blob_token="$(find_existing_blob_token || true)"
+            if [ -n "$existing_blob_token" ]; then
+              echo "::add-mask::$existing_blob_token"
+              printf '%s' "$existing_blob_token" | npx vercel env add BLOB_READ_WRITE_TOKEN production --force --sensitive --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+            else
+              create_log="$(mktemp)"
+              if ! npx vercel blob create-store "vitehub-workspace-${{ matrix.framework }}" --access private --region iad1 --yes --environment production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >"$create_log" 2>&1; then
+                if ! grep -q 'existing environment variable with name BLOB_READ_WRITE_TOKEN' "$create_log"; then
+                  cat "$create_log" >&2
+                  exit 1
+                fi
+              fi
+              rm -f "$create_log"
+            fi
             VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
               npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
           fi
