@@ -7,6 +7,7 @@ dynamicallyLoaded = [
   "packages/kv/test/helpers/*.ts",
   "packages/kv/test/**/*.test-d.ts",
   "packages/db/test/**/*.test-d.ts",
+  "packages/env/test/**/*.test-d.ts",
   "packages/db/examples/**/src/server.ts",
   "packages/db/examples/**/src/db/**",
   "packages/queue/test/e2e-live.mjs",

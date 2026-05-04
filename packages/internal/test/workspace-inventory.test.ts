@@ -11,6 +11,7 @@ describe("workspace inventory", () => {
       "blob",
       "chat",
       "db",
+      "env",
       "kv",
       "queue",
       "sandbox",
