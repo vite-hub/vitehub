@@ -5,7 +5,7 @@ interface DefaultStringSchema {
   safeParse: (input: unknown) => { data: string, success: true } | { error: Error, success: false }
 }
 
-export const defaultStringSchema: DefaultStringSchema = {
+const defaultStringSchema: DefaultStringSchema = {
   __vitehubDefaultStringSchema: true,
   safeParse(input: unknown): { data: string, success: true } | { error: Error, success: false } {
     return typeof input === "string"
