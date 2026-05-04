@@ -57,7 +57,8 @@ export interface WorkspaceSyncOptions {
 }
 
 export interface WorkspaceOpenOptions {
-  runtime?: "local" | "cloudflare-shell" | "cloudflare-sandbox" | "vercel-sandbox" | (string & {})
+  runtime?: never
+  sandbox?: never
 }
 
 export type WorkspaceMountMode = "read-only" | "read-write" | "copy-on-write"
@@ -79,6 +80,7 @@ export interface WorkspaceMount {
 export interface ExecOptions {
   cwd?: string
   env?: Record<string, string>
+  timeout?: number
 }
 
 export interface ExecResult {
@@ -94,13 +96,14 @@ export interface WorkspaceSession {
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
-  search?(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
-  diff?(): Promise<WorkspaceDiff>
-  exec?(command: string, args?: string[], options?: ExecOptions): Promise<ExecResult>
+  search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
+  diff(): Promise<WorkspaceDiff>
+  commit(options?: { message?: string }): Promise<void>
+  exec(command: string, args?: string[], options?: ExecOptions): Promise<ExecResult>
   tools?: {
     aiSdk?(): Promise<Record<string, unknown>>
   }
-  close?(): Promise<void>
+  close(): Promise<void>
 }
 
 declare global {
@@ -306,6 +309,7 @@ export type WorkspaceStoreOptions =
 export interface WorkspaceDefinition {
   name: string
   rootDir?: string
+  runtime?: "sandbox"
   store?: WorkspaceStoreOptions
   sources?: Record<string, WorkspaceSource>
   loaders?: WorkspaceLoader[]

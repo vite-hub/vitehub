@@ -29,11 +29,46 @@ export default defineWorkspace({
 
 When `provider: 'vercel-blob'` is configured, or `BLOB_READ_WRITE_TOKEN` is available during automatic resolution, the runtime reads `BLOB_READ_WRITE_TOKEN`. `snapshot()` writes a ViteHub manifest into the Blob store; it is not provider-native Git history. Vercel Sandbox persistence remains a runtime/session capability, not the identity of the workspace.
 
-Vercel runtime integration should read from the facade and hand those files to the sandbox runtime explicitly:
+Configure Vercel Sandbox once at app level:
 
-```ts
-const workspace = useWorkspace('docs')
-const files = await workspace.fs.list('', { recursive: true })
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { hubSandbox } from '@vitehub/sandbox/vite'
+import { hubWorkspace } from '@vitehub/workspace/vite'
+
+export default defineConfig({
+  plugins: [hubSandbox(), hubWorkspace()],
+  sandbox: {
+    provider: 'vercel',
+    runtime: 'node24',
+  },
+})
 ```
 
-The workspace remains the file tree. Sandbox runs code against that file tree.
+Then opt a workspace into sandbox execution with `runtime: 'sandbox'`:
+
+```ts
+export default defineWorkspace({
+  store: {
+    provider: 'vercel-blob',
+    prefix: '.vitehub/workspaces',
+    access: 'private',
+  },
+  runtime: 'sandbox',
+  sources: {
+    // ...
+  },
+})
+```
+
+```ts
+import { useWorkspace } from '@vitehub/workspace'
+
+const session = await useWorkspace('docs', { allowWrite: true }).open()
+
+await session.exec('pnpm', ['test'])
+await session.commit()
+await session.close()
+```
+
+The workspace remains the file tree. On open, ViteHub reads the canonical store, writes the files into Vercel Sandbox, runs commands there, and commits filesystem changes back through the workspace store.

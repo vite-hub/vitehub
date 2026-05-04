@@ -100,6 +100,52 @@ const tools = useWorkspace('docs', { allowWrite: true }).tools()
 
 Applications that use `AGENTS.md` as the model instruction source should preload it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')`.
 
+## Sandbox runtime
+
+Set `runtime: 'sandbox'` when a workspace needs commands, package managers, compilers, or provider-managed filesystem execution:
+
+```ts [src/docs.workspace.ts]
+import { defineWorkspace } from '@vitehub/workspace'
+
+export default defineWorkspace({
+  store: { provider: 'memory' },
+  runtime: 'sandbox',
+  sources: {
+    // ...
+  },
+})
+```
+
+Sandbox provider selection belongs to app config, not `workspace.open()`:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { hubSandbox } from '@vitehub/sandbox/vite'
+import { hubWorkspace } from '@vitehub/workspace/vite'
+
+export default defineConfig({
+  plugins: [hubSandbox(), hubWorkspace()],
+  sandbox: {
+    provider: 'cloudflare',
+    binding: 'SANDBOX',
+    sandboxId: 'app-sandbox',
+  },
+})
+```
+
+```ts
+import { useWorkspace } from '@vitehub/workspace'
+
+const session = await useWorkspace('docs', { allowWrite: true }).open()
+
+await session.exec('pnpm', ['test'])
+const changes = await session.diff()
+await session.commit({ message: 'Apply generated changes' })
+await session.close()
+```
+
+On open, ViteHub syncs the readable workspace contents into the configured sandbox provider. Writes happen in the sandbox session. `diff()` compares sandbox filesystem changes against the workspace store, and `commit()` persists sandbox changes back to that store.
+
 ## Lazy materialization
 
 Source mounts default to `materialize: 'build'`, which syncs files into the workspace store during build or explicit workspace sync.
@@ -134,7 +180,7 @@ The v1 provider is local-first. Hosted runtimes select the smallest adapter that
 | Primitive | Workspace role |
 | --- | --- |
 | Cloudflare Artifacts | Future canonical versioned file-tree store. |
-| Cloudflare Shell / Sandbox | Runtime filesystem and execution adapters. |
+| Cloudflare Sandbox | Runtime filesystem and execution adapter. |
 | Cloudflare R2 | Large-object spillover for workspace stores. |
 | Memory | Default ephemeral store for unconfigured Vercel hosting. |
 | Vercel Blob | Optional object/file backing store, not Git-like workspace state. |

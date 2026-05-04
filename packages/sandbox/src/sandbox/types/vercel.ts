@@ -11,6 +11,20 @@ export interface VercelSandboxRunCommandParams {
 }
 
 export interface VercelSandboxInstance {
+  fs?: {
+    readFile: {
+      (path: string, options?: { encoding?: null, signal?: AbortSignal } | null): Promise<Uint8Array>
+      (path: string, options: { encoding: BufferEncoding, signal?: AbortSignal } | BufferEncoding): Promise<string>
+    }
+    writeFile: (path: string, data: string | Uint8Array, options?: { encoding?: BufferEncoding, signal?: AbortSignal } | BufferEncoding) => Promise<void>
+    mkdir: (path: string, options?: { recursive?: boolean, signal?: AbortSignal } | number) => Promise<string | undefined>
+    readdir: (path: string, options?: { signal?: AbortSignal, withFileTypes?: false }) => Promise<string[]>
+    stat: (path: string, options?: { signal?: AbortSignal }) => Promise<{ isFile(): boolean, isDirectory(): boolean, isSymbolicLink(): boolean, size: number, mtime?: Date, mtimeMs?: number }>
+    rm: (path: string, options?: { recursive?: boolean, force?: boolean, signal?: AbortSignal }) => Promise<void>
+    rename: (oldPath: string, newPath: string, options?: { signal?: AbortSignal }) => Promise<void>
+    exists?: (path: string, options?: { signal?: AbortSignal }) => Promise<boolean>
+    access?: (path: string, options?: { signal?: AbortSignal }) => Promise<void>
+  }
   runCommand: {
     (cmd: string, args?: string[], opts?: { signal?: AbortSignal }): Promise<VercelSandboxCommandResult>
     (params: VercelSandboxRunCommandParams & { detached: true }): Promise<VercelSandboxCommandResult>
@@ -21,6 +35,7 @@ export interface VercelSandboxInstance {
   readFile: (opts: { path: string, cwd?: string }, opts2?: { signal?: AbortSignal }) => Promise<NodeJS.ReadableStream | null>
   mkDir: (path: string, opts?: { signal?: AbortSignal }) => Promise<void>
   domain: (port: number) => string
+  stop?: (opts?: { signal?: AbortSignal, blocking?: boolean }) => Promise<unknown>
   [Symbol.asyncDispose]?: () => Promise<void>
 }
 
@@ -36,7 +51,7 @@ export interface VercelSandboxCommandResult {
 export interface VercelSandboxSDK {
   Sandbox: {
     create: (options: VercelSandboxCreateOptions) => Promise<VercelSandboxInstance>
-    list: () => Promise<{ sandboxes: VercelSandboxListItem[] }>
+    list: () => Promise<{ sandboxes: VercelSandboxListItem[], pagination?: { count: number, next: number | null, prev: number | null } }>
     get: (params: { sandboxId: string, token?: string, teamId?: string, projectId?: string } | string) => Promise<VercelSandboxInstance | null>
   }
 }
@@ -62,7 +77,7 @@ export interface VercelSandboxCreateOptions {
 export interface VercelSandboxListItem {
   id: string
   status: string
-  createdAt: string
+  createdAt: string | number
 }
 
 export interface VercelSandboxSnapshot {
@@ -71,10 +86,12 @@ export interface VercelSandboxSnapshot {
   createdAt: string
 }
 
-export interface SandboxNetworkPolicy {
-  allowInternet?: boolean
-  allowedHosts?: string[]
-  blockedHosts?: string[]
+export type SandboxNetworkPolicy = 'allow-all' | 'deny-all' | {
+  allow?: string[] | Record<string, Array<{ transform?: Array<{ headers?: Record<string, string> }> }>>
+  subnets?: {
+    allow?: string[]
+    deny?: string[]
+  }
 }
 
 export interface VercelSandboxMetadata {

@@ -57,19 +57,13 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       return await store.diff(options)
     },
     async open(options): Promise<WorkspaceSession> {
-      const session: WorkspaceSession = {
-        readFile: workspace.readFile,
-        writeFile: workspace.writeFile,
-        list: workspace.list,
-        glob: workspace.glob,
-        search: workspace.search,
-        diff: workspace.diff,
+      if (definition.runtime === "sandbox") {
+        const { createSandboxWorkspaceSession } = await import("./runtimes/sandbox.ts")
+        return await createSandboxWorkspaceSession(definition, workspace, store)
       }
-      if (options?.runtime === "local") {
-        const { execLocal } = await import("./runtimes/local.ts")
-        session.exec = execLocal
-      }
-      return session
+
+      const { createBasicWorkspaceSession } = await import("./runtimes/sandbox.ts")
+      return createBasicWorkspaceSession(workspace)
     },
     mount(options?: WorkspaceMountOptions): WorkspaceMount {
       const mode = options?.mode || "read-only"

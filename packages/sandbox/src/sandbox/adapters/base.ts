@@ -1,5 +1,5 @@
 import type { CloudflareSandboxNamespace } from '../types/cloudflare'
-import type { SandboxCapabilities, SandboxExecOptions, SandboxExecResult, SandboxFileEntry, SandboxListFilesOptions, SandboxProcess, SandboxProcessOptions, SandboxProvider } from '../types/common'
+import type { SandboxCapabilities, SandboxExecOptions, SandboxExecResult, SandboxFileContent, SandboxFileEntry, SandboxListFilesOptions, SandboxProcess, SandboxProcessOptions, SandboxProvider, SandboxReadFileOptions } from '../types/common'
 import type { SandboxClientBase } from '../types/index'
 import type { VercelSandboxNamespace } from '../types/vercel'
 import { NotSupportedError } from '../errors'
@@ -11,8 +11,9 @@ export abstract class BaseSandboxAdapter<P extends SandboxProvider = SandboxProv
   abstract readonly native: SandboxClientBase<P>['native']
 
   abstract exec(cmd: string, args?: string[], opts?: SandboxExecOptions): Promise<SandboxExecResult>
-  abstract writeFile(path: string, content: string): Promise<void>
-  abstract readFile(path: string): Promise<string>
+  abstract writeFile(path: string, content: SandboxFileContent): Promise<void>
+  abstract readFile(path: string, opts: SandboxReadFileOptions & { encoding: 'binary' }): Promise<Uint8Array>
+  abstract readFile(path: string, opts?: SandboxReadFileOptions): Promise<string>
   abstract stop(): Promise<void>
 
   abstract mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>

@@ -2,6 +2,12 @@ import type { SandboxNetworkPolicy, VercelSandboxSource } from './vercel'
 
 export type SandboxProvider = 'vercel' | 'cloudflare'
 
+export type SandboxFileContent = string | Uint8Array
+
+export interface SandboxReadFileOptions {
+  encoding?: 'utf8' | 'binary'
+}
+
 export interface SandboxDetectionResult {
   type: 'cloudflare' | 'vercel' | 'none'
   details?: Record<string, unknown>

@@ -67,12 +67,16 @@
     "tinyglobby": "^0.2.16"
   },
   "peerDependencies": {
+    "@vitehub/sandbox": "workspace:*",
     "@vercel/blob": "^2.3.3",
     "ai": "^6.0.0",
     "nitro": "^3.0.0-0",
     "vite": ">=8.0.0"
   },
   "peerDependenciesMeta": {
+    "@vitehub/sandbox": {
+      "optional": true
+    },
     "@vercel/blob": {
       "optional": true
     },
@@ -87,6 +91,7 @@
     "@types/node": "^25.6.0",
     "@vercel/blob": "^2.3.3",
     "@vitehub/internal": "workspace:*",
+    "@vitehub/sandbox": "workspace:*",
     "@vitehub/unshell": "workspace:*",
     "ai": "^6.0.172",
     "nitro": "3.0.260311-beta",
