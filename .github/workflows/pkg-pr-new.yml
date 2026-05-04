@@ -1,7 +1,6 @@
 name: pkg.pr.new
 
 on:
-  pull_request:
   push:
     branches:
       - "**"
@@ -23,6 +22,7 @@ jobs:
 
       - run: pnpm --filter @vitehub/workspace build
       - run: pnpm --filter @vitehub/chat build
+      - run: pnpm --filter @vitehub/shell build
 
       - name: Publish preview packages
-        run: pnpm dlx pkg-pr-new publish './packages/workspace' './packages/chat' --packageManager=pnpm
+        run: pnpm dlx pkg-pr-new publish './packages/workspace' './packages/chat' './packages/shell' --packageManager=pnpm
