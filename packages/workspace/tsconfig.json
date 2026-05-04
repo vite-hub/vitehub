@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@vitehub/unshell": ["../unshell/src/index.ts"]
+    },
+    "rootDir": ".."
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "test/**/*.ts",
+    "test/**/*.test-d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "docs",
+    "examples",
+    "node_modules"
+  ]
+}

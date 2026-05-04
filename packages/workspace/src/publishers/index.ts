@@ -1,0 +1,6 @@
+export { manifest } from "./manifest.ts"
+export type { ManifestPublisherOptions } from "./manifest.ts"
+export { types } from "./types.ts"
+export type { TypesPublisherOptions } from "./types.ts"
+export { virtualModule } from "./virtual-module.ts"
+export type { VirtualModulePublisherOptions } from "./virtual-module.ts"

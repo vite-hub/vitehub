@@ -9,6 +9,7 @@ export const VITEHUB_MODES = {
   kv: "kv",
   queue: "queue",
   sandbox: "sandbox",
+  workspace: "workspace",
   workflow: "workflow",
 } as const
 
