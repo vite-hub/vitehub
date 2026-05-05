@@ -381,6 +381,7 @@ describe("defineChatWebhookHandler", () => {
       userName: "ViteHub Chat",
     })
     bot.onDirectMessage(async (thread) => {
+      await thread.startTyping()
       async function* stream() {
         yield "Hel"
         await gate
@@ -401,6 +402,7 @@ describe("defineChatWebhookHandler", () => {
     })
 
     const first = await handler(createDevtoolsEvent({ stream: true, text: "Hi" }) as never) as unknown as { pending?: boolean, messages: Array<{ text: string }> }
+    const firstLastText = first.messages.at(-1)?.text
     await new Promise(resolve => setTimeout(resolve, 10))
     const pending = await handler(createDevtoolsEvent({}) as never) as unknown as { pending?: boolean, messages: Array<{ text: string }> }
     release()
@@ -412,6 +414,7 @@ describe("defineChatWebhookHandler", () => {
 
     expect(first.pending).toBe(true)
     expect(pending.pending).toBe(true)
+    expect(firstLastText).toBe("Thinking...")
     expect(pending.messages.at(-1)?.text).toContain("Hel")
   })
 })
