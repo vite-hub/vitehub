@@ -4,6 +4,7 @@ import { createChatDevtoolsAdapter, chatDevtoolsAdapterName } from "./integratio
 import { isChatDefinition } from "./runtime/definition.ts"
 import { createMemoryChatStateAdapter } from "./runtime/memory-state.ts"
 
+export { createChatDevtoolsToolStatus, reportChatDevtoolsToolStep } from "./devtools.ts"
 export { postChatStream } from "./stream.ts"
 
 import type {
