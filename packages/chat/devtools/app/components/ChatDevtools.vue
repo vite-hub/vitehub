@@ -34,6 +34,7 @@ const pending = ref(false)
 const connectionError = ref("")
 const draft = ref("")
 const chatName = ref("chat")
+const bridgeStatus = ref("Ready")
 const chats = ref<string[]>([])
 const messages = ref<ChatDevtoolsTranscriptMessage[]>([])
 const demoReplyTimer = ref<ReturnType<typeof setInterval>>()
@@ -50,10 +51,19 @@ const chatItems = computed(() => {
   return [...new Set(names)].map(name => ({ label: name, value: name }))
 })
 const hasMultipleChats = computed(() => chatItems.value.length > 1)
-const chatStatus = computed<"ready" | "submitted">(() => pending.value ? "submitted" : "ready")
 const streamingAssistantMessageId = computed(() => {
   if (!pending.value) return undefined
   return [...messages.value].reverse().find(message => message.author === "assistant")?.id
+})
+const chatStatus = computed<"ready" | "submitted" | "streaming">(() => {
+  if (!pending.value) return "ready"
+  return streamingAssistantMessageId.value ? "streaming" : "submitted"
+})
+const activityText = computed(() => {
+  if (connecting.value) return "Connecting"
+  if (previewMode.value) return connectionError.value ? "Preview mode" : "Ready"
+  if (pending.value) return bridgeStatus.value || "Running"
+  return bridgeStatus.value || "Ready"
 })
 const uiMessages = computed<ChatUiMessage[]>(() => messages.value.map(message => ({
   id: message.id,
@@ -66,6 +76,7 @@ function applyResult(result: ChatDevtoolsResult) {
   chatName.value = result.chatName || result.chats?.[0] || chatName.value || "chat"
   messages.value = result.messages || []
   pending.value = !!result.pending
+  bridgeStatus.value = result.status || (result.pending ? "Running" : "Ready")
 }
 
 function shouldPollBridge() {
@@ -130,6 +141,7 @@ function scheduleBridgePolling(attemptsRemaining = 600) {
 function streamDemoReply(text: string) {
   stopDemoReply()
   pending.value = true
+  bridgeStatus.value = "Preview streaming"
 
   const reply = createMessage("assistant", "")
   messages.value = [...messages.value, reply]
@@ -149,6 +161,7 @@ function streamDemoReply(text: string) {
     if (index >= response.length) {
       stopDemoReply()
       pending.value = false
+      bridgeStatus.value = "Ready"
     }
   }, 18)
 }
@@ -261,6 +274,9 @@ watch([() => messages.value.length, () => messages.value.at(-1)?.text], async ()
         <p class="truncate text-sm font-medium">
           ViteHub Chat
         </p>
+        <p class="truncate text-xs text-muted">
+          {{ activityText }}
+        </p>
       </div>
 
       <div class="flex shrink-0 items-center gap-2">
@@ -322,16 +338,35 @@ watch([() => messages.value.length, () => messages.value.at(-1)?.text], async ()
         :messages="uiMessages"
         :status="chatStatus"
       >
+        <template #indicator>
+          <div
+            v-if="pending"
+            class="flex items-center gap-2 px-2 py-1 text-xs text-muted"
+          >
+            <UIcon
+              name="i-lucide-loader-circle"
+              class="size-3 animate-spin"
+            />
+            <UChatShimmer :text="activityText" />
+          </div>
+        </template>
+
         <template #content="{ message }">
           <template
             v-for="(part, index) in message.parts"
             :key="`${message.id}-${part.type}-${index}`"
           >
-            <ChatComark
-              v-if="message.role === 'assistant'"
-              :markdown="textPartText(part)"
-              :streaming="message.id === streamingAssistantMessageId"
-            />
+            <template v-if="message.role === 'assistant'">
+              <UChatShimmer
+                v-if="message.id === streamingAssistantMessageId && pending"
+                :text="textPartText(part)"
+              />
+              <ChatComark
+                v-else
+                :markdown="textPartText(part)"
+                :streaming="message.id === streamingAssistantMessageId"
+              />
+            </template>
             <p
               v-else
               class="whitespace-pre-wrap"

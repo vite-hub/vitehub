@@ -334,13 +334,14 @@ function trackChatDevtoolsTasks(chatName: string, tasks: Promise<unknown>[]): vo
   pendingDevtoolsTasks.set(key, task)
 }
 
-function createChatDevtoolsResult(chatNames: string[], chatName?: string, status = "Ready"): ChatDevtoolsResult {
+function createChatDevtoolsResult(chatNames: string[], chatName?: string, status?: string): ChatDevtoolsResult {
+  const pending = isChatDevtoolsPending(chatName)
   return {
     chatName,
     chats: chatNames,
     messages: getChatDevtoolsTranscript(chatName),
-    pending: isChatDevtoolsPending(chatName),
-    status,
+    pending,
+    status: status ?? (pending ? "Running" : "Ready"),
   }
 }
 
