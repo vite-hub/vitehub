@@ -375,7 +375,14 @@ importers:
         version: 8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
   packages/env:
+    dependencies:
+      '@nuxt/kit':
+        specifier: 'catalog:'
+        version: 4.4.2(magicast@0.5.2)
     devDependencies:
+      '@nuxt/schema':
+        specifier: 'catalog:'
+        version: 4.4.2
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal

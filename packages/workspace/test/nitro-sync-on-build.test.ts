@@ -365,4 +365,49 @@ export default {
     await expect(registry.docs.exists(".config.mjs" as never)).resolves.toBe(false)
     await expect(registry.docs.exists(".hidden.md" as never)).resolves.toBe(false)
   })
+
+  it("refreshes directory workspace assets during dev reload", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", "docs", ".config.mjs"), [
+      `export default {`,
+      `  store: { provider: "memory" },`,
+      `}`,
+      ``,
+    ].join("\n"))
+    const agentsPath = join(root, "server", "workspaces", "docs", "AGENTS.md")
+    await writeFile(agentsPath, "before\n", "utf8")
+
+    const hooks: Record<string, Array<() => Promise<void>>> = {}
+    const nitro = {
+      hooks: {
+        hook(name: string, callback: () => Promise<void>) {
+          hooks[name] ||= []
+          hooks[name].push(callback)
+        },
+      },
+      logger: {
+        info() {},
+      },
+      options: {
+        _config: {},
+        dev: true,
+        rootDir: root,
+        runtimeConfig: {},
+      },
+    }
+
+    await workspaceNitroModule.setup!(nitro as never)
+    let importVersion = 0
+    let registryFile = join(root, ".vitehub/nitro-runtime/workspace/assets/registry.mjs")
+    let registry = (await import(`${pathToFileURL(registryFile).href}?t=${++importVersion}`)).default
+    await expect(registry.docs.readFile("AGENTS.md")).resolves.toBe("before\n")
+
+    await writeFile(agentsPath, "after\n", "utf8")
+    for (const callback of hooks["dev:reload"] ?? []) await callback()
+
+    registryFile = join(root, ".vitehub/nitro-runtime/workspace/assets/registry.mjs")
+    registry = (await import(`${pathToFileURL(registryFile).href}?t=${++importVersion}`)).default
+    await expect(registry.docs.readFile("AGENTS.md")).resolves.toBe("after\n")
+  })
 })

@@ -1,5 +1,6 @@
 import { readPackageJSON } from 'pkg-types'
 import { resolve as resolveFs } from 'pathe'
+import { assertNoVitePluginInNitro } from '@vitehub/internal/nitro'
 import type { Nitro, NitroModule } from 'nitro/types'
 import type { ConfigEnv, UserConfig } from 'vite'
 import { detectHosting } from './hosting'
@@ -195,6 +196,8 @@ export function createFeatureNitroBridge<TOptions, TInput, TConfig>(
   return {
     name: engine.name,
     async setup(nitro) {
+      await assertNoVitePluginInNitro(nitro, `${engine.name}/vite`, `${engine.name}/nitro`)
+
       const context = await buildFeatureNitroContext(engine, nitro)
       if (!context)
         return

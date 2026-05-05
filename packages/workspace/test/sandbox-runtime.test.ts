@@ -269,6 +269,47 @@ describe("sandbox workspace runtime", () => {
     expect(await session.search({ cwd: "docs", pattern: "target" })).toEqual([
       expect.objectContaining({ path: "docs/a.md" }),
     ])
+    expect(await session.search({ cwd: "./docs/", pattern: "target" })).toEqual([
+      expect.objectContaining({ path: "docs/a.md" }),
+    ])
+    expect(await session.search({ paths: ["docs/"], pattern: "target" })).toEqual([
+      expect.objectContaining({ path: "docs/a.md" }),
+    ])
+    expect(await session.search({ cwd: ".", pattern: "target" })).toHaveLength(2)
+  })
+
+  it("rejects sandbox commits that write source-backed paths", async () => {
+    const fake = createFakeSandbox("cloudflare")
+    const sandboxPackage = await import("@vitehub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "sandbox",
+        store: { provider: "memory" },
+        sources: {
+          docs: {
+            name: "docs",
+            materialize: "lazy",
+            async getKeys() {
+              return ["README.md"]
+            },
+            async getItem() {
+              return { content: "# Lazy docs\n", key: "README.md" }
+            },
+          },
+        },
+      }),
+      name: "docs",
+    })
+    await workspace.sync()
+
+    const session = await workspace.open()
+    await session.writeFile("docs/README.md", "# Edited\n")
+
+    await expect(session.commit()).rejects.toThrow("Source-backed workspace paths are read-only")
+    await expect(workspace.readFile("docs/README.md")).resolves.toBe("# Lazy docs\n")
   })
 
   it("keeps session methods present for non-executable workspaces", async () => {

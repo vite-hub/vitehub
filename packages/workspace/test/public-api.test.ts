@@ -66,6 +66,7 @@ describe("workspace public API", () => {
     const workspace = useWorkspace("docs")
 
     await expect(workspace.fs.readFile("README.md")).resolves.toBe("# Docs\n")
+    await expect(workspace.fs.readFile("missing.md" as never)).rejects.toThrow("Workspace file does not exist: missing.md")
     await expect(workspace.fs.exists("README.md")).resolves.toBe(true)
     await expect(workspace.fs.exists("missing.md" as never)).resolves.toBe(false)
     await expect(workspace.fs.list()).resolves.toEqual([
@@ -75,6 +76,64 @@ describe("workspace public API", () => {
       expect.objectContaining({ path: "README.md", type: "file" }),
     ])
     await expect(workspace.fs.stat("README.md")).resolves.toMatchObject({ path: "README.md", type: "file" })
+    await expect(workspace.fs.stat("missing.md" as never)).rejects.toThrow("Workspace file does not exist: missing.md")
+  })
+
+  it("merges bundled assets with lazy runtime sources in the read-only facade", async () => {
+    setWorkspaceRuntimeAssetsRegistry({
+      docs: createWorkspaceAssets({
+        "AGENTS.md": { load: async () => "# Instructions\n" },
+      }),
+    })
+    setWorkspaceRegistry({
+      docs: async () => ({ default: defineWorkspace({
+        store: { provider: "memory" },
+        sources: {
+          repo: source.file({
+            content: "# Repo\n",
+            materialize: "lazy",
+            mount: "repo",
+            workspacePath: "README.md",
+          }),
+        },
+      }) }),
+    })
+
+    const workspace = useWorkspace("docs")
+
+    await expect(workspace.fs.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
+    await expect(workspace.fs.readFile("repo/README.md")).resolves.toBe("# Repo\n")
+    await expect(workspace.fs.exists("repo/README.md")).resolves.toBe(true)
+    await expect(workspace.fs.list("", { recursive: true })).resolves.toEqual([
+      expect.objectContaining({ path: "AGENTS.md", type: "file" }),
+      expect.objectContaining({ path: "repo", type: "directory" }),
+      expect.objectContaining({ path: "repo/README.md", type: "file" }),
+    ])
+  })
+
+  it("caps merged read-only search results", async () => {
+    setWorkspaceRuntimeAssetsRegistry({
+      docs: createWorkspaceAssets({
+        "AGENTS.md": { load: async () => "needle in assets\n" },
+      }),
+    })
+    setWorkspaceRegistry({
+      docs: async () => ({ default: defineWorkspace({
+        store: { provider: "memory" },
+        sources: {
+          repo: source.file({
+            content: "needle in runtime\n",
+            materialize: "lazy",
+            mount: "repo",
+            workspacePath: "README.md",
+          }),
+        },
+      }) }),
+    })
+
+    const workspace = useWorkspace("docs")
+
+    await expect(workspace.fs.search({ limit: 1, pattern: "needle" })).resolves.toHaveLength(1)
   })
 
   it("uses runtime workspace root for default local stores", async () => {

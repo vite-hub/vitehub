@@ -56,10 +56,10 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     async diff(options) {
       return await store.diff(options)
     },
-    async open(options): Promise<WorkspaceSession> {
+    async open(_options): Promise<WorkspaceSession> {
       if (definition.runtime === "sandbox") {
         const { createSandboxWorkspaceSession } = await import("./runtimes/sandbox.ts")
-        return await createSandboxWorkspaceSession(definition, workspace, store)
+        return await createSandboxWorkspaceSession(definition, workspace)
       }
 
       const { createBasicWorkspaceSession } = await import("./runtimes/sandbox.ts")

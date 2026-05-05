@@ -28,9 +28,6 @@ export function validateEnvConfigShape(config: EnvNitroConfigOptions | EnvViteCo
 
   if (target === "nitro") {
     const nitroConfig = config as EnvNitroConfigOptions
-    if ("public" in nitroConfig) {
-      throw new EnvError("`env.public` is not available in Nitro env config. Nitro env is private runtime config; expose public values through an explicit endpoint.")
-    }
     if ("server" in nitroConfig) {
       throw new EnvError("`env.server` is not available in Nitro env config. Put private runtime declarations directly under `env`.")
     }
@@ -228,12 +225,24 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
 function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: string): void {
   for (const [key, value] of Object.entries(declarations)) {
     const valuePath = `${path}.${key}`
+    if (path === "env" && key === "public") {
+      if (!isPlainRecord(value) || isEnvVariableDeclaration(value)) {
+        throw new EnvError("Invalid declaration at env.public. Use a nested object of public envVariable() declarations.")
+      }
+      validateNitroDeclarations(value as EnvNitroConfigOptions, valuePath)
+      continue
+    }
     if (isEnvVariableDeclaration(value)) {
       if (value.mode !== "runtime") {
         throw new EnvError(`${valuePath} must use runtime mode.`)
       }
       if (value.source && value.source.kind !== "env") {
         throw new EnvError(`${valuePath} must use an env source in runtime mode for v1. Custom, package, and git sources are build-only.`)
+      }
+      if (path === "env.public" || path.startsWith("env.public.")) {
+        if (value.secret) {
+          throw new EnvError(`${valuePath} cannot be marked secret because public runtime config is exposed to the client.`)
+        }
       }
       continue
     }

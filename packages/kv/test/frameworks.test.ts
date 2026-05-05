@@ -3,12 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 interface NitroHarnessOptions {
   imports?: boolean
   kv?: unknown
-  modules?: string[]
+  modules?: unknown[]
+  vite?: {
+    plugins?: unknown
+  }
 }
 
 interface NuxtHarnessOptions {
   kv?: unknown
   nitro?: NitroHarnessOptions
+  vite?: {
+    plugins?: unknown
+  }
 }
 
 interface NuxtModuleDefinitionLike {
@@ -31,6 +37,9 @@ interface NitroStub {
     cloudflare?: unknown
     kv?: unknown
     preset?: string
+    vite?: {
+      plugins?: unknown
+    }
   }
 }
 
@@ -189,6 +198,19 @@ describe("Nitro module", () => {
     })
   })
 
+  it("rejects direct Vite plugin configuration with the Nitro module", async () => {
+    const nitro = createNitroStub({
+      vite: {
+        plugins: [{ name: "@vitehub/kv/vite" }],
+      },
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await expect(module.setup(nitro as never)).rejects.toThrow(
+      "[vitehub] Do not configure @vitehub/kv/vite when using @vitehub/kv/nitro.",
+    )
+  })
+
   it("warns when Vercel is configured to use fs-lite", async () => {
     const nitro = createNitroStub({
       preset: "vercel",
@@ -291,6 +313,38 @@ describe("Nuxt module", () => {
     expect(nitroConfig.kv).toEqual({
       driver: "upstash",
     })
+  })
+
+  it("rejects direct Vite plugin configuration with the Nuxt module", async () => {
+    const module = (await import("../src/nuxt/module.ts")).default as (
+      inlineOptions: unknown,
+      nuxt: unknown,
+    ) => Promise<void>
+    const nuxt = createNuxtHarness({
+      vite: {
+        plugins: [{ name: "@vitehub/kv/vite" }],
+      },
+    })
+
+    await expect(module(undefined, nuxt as never)).rejects.toThrow(
+      "[vitehub] Do not configure @vitehub/kv/vite when using @vitehub/kv/nuxt.",
+    )
+  })
+
+  it("rejects direct Nitro module configuration with the Nuxt module", async () => {
+    const module = (await import("../src/nuxt/module.ts")).default as (
+      inlineOptions: unknown,
+      nuxt: unknown,
+    ) => Promise<void>
+    const nuxt = createNuxtHarness({
+      nitro: {
+        modules: ["@vitehub/kv/nitro"],
+      },
+    })
+
+    await expect(module(undefined, nuxt as never)).rejects.toThrow(
+      "[vitehub] Do not configure @vitehub/kv/nitro when using @vitehub/kv/nuxt.",
+    )
   })
 
   it("does not force fs-lite when no Nuxt config is provided", async () => {

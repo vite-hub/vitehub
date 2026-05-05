@@ -7,11 +7,13 @@ export default defineConfig({
   ],
   deps: {
     alwaysBundle: [/^@vitehub\/internal/],
+    onlyBundle: false,
   },
   dts: true,
   entry: [
     "src/index.ts",
     "src/nitro.ts",
+    "src/nuxt.ts",
     "src/runtime/server.ts",
     "src/schema.ts",
     "src/virtual.ts",

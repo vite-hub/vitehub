@@ -17,7 +17,6 @@ import type {
   WorkspaceFile,
   WorkspaceSearchHit,
   WorkspaceSession,
-  WorkspaceStore,
   WriteFileOptions,
 } from "../types.ts"
 
@@ -30,8 +29,9 @@ function unsupportedExec(): never {
   throw new WorkspaceError("[vitehub] Workspace does not configure an executable runtime. Set `runtime: 'sandbox'` in the workspace definition.")
 }
 
-function commandLabel(command: string, args: string[]) {
-  return args.length ? `${command} ${args.join(" ")}` : command
+function normalizeSearchRoot(path: string) {
+  const normalized = posix.normalize(path.replace(/\\/g, "/"))
+  return normalized === "." ? "" : normalizeSafeWorkspacePath(normalized, { allowEmpty: true })
 }
 
 function toSandboxPath(path = "") {
@@ -117,25 +117,25 @@ async function materializeWorkspace(workspace: Workspace, sandbox: SandboxClient
 
 async function commitSandboxChanges(
   sandbox: SandboxClient,
-  store: WorkspaceStore,
+  workspace: Workspace,
   diff: WorkspaceDiff,
 ) {
   for (const entry of diff.entries) {
     if (entry.after?.type === "directory") {
-      await store.mkdir(entry.path, { recursive: true })
+      await workspace.mkdir(entry.path, { recursive: true })
       continue
     }
     if (entry.type === "removed") {
-      await store.rm(entry.path, { force: true, recursive: true })
+      await workspace.rm(entry.path, { force: true, recursive: true })
       continue
     }
     if (entry.after?.type === "file") {
       const file = await readSandboxFile(sandbox, toSandboxPath(entry.path))
       if (file)
-        await store.writeFile(entry.path, file)
+        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType })
     }
   }
-  await store.snapshot({ name: "sandbox-commit" })
+  await workspace.snapshot({ name: "sandbox-commit" })
 }
 
 export function createBasicWorkspaceSession(workspace: Workspace): WorkspaceSession {
@@ -149,7 +149,7 @@ export function createBasicWorkspaceSession(workspace: Workspace): WorkspaceSess
     async commit(options) {
       await workspace.snapshot({ name: options?.message || "session-commit" })
     },
-    async exec(command: string, args: string[] = [], _options?: ExecOptions): Promise<ExecResult> {
+    async exec(_command: string, _args: string[] = [], _options?: ExecOptions): Promise<ExecResult> {
       unsupportedExec()
     },
     async close() {},
@@ -159,7 +159,6 @@ export function createBasicWorkspaceSession(workspace: Workspace): WorkspaceSess
 export async function createSandboxWorkspaceSession(
   definition: WorkspaceDefinition,
   workspace: Workspace,
-  store: WorkspaceStore,
 ): Promise<WorkspaceSession> {
   const sandboxPackage = await import("@vitehub/sandbox").catch((error) => {
     throw new WorkspaceError(`[vitehub] Sandbox workspace runtime requires @vitehub/sandbox. ${error instanceof Error ? error.message : String(error)}`)
@@ -211,11 +210,12 @@ export async function createSandboxWorkspaceSession(
     async search(query) {
       assertOpen()
       const { searchText } = await import("../search.ts")
-      const searchRoots = query.paths?.length ? query.paths : query.cwd ? [query.cwd] : undefined
+      const searchRoots = [...new Set((query.paths?.length ? query.paths : [query.cwd || ""]).map(normalizeSearchRoot))]
+      const scopedSearchRoots = searchRoots.filter(Boolean)
       const limit = query.limit ?? 100
       const hits: WorkspaceSearchHit[] = []
       for (const entry of (await listSandboxEntries(sandbox, "", true)).filter(item => item.type === "file")) {
-        if (searchRoots?.length && !searchRoots.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
+        if (scopedSearchRoots.length && !scopedSearchRoots.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
         const text = await sandbox.readFile(toSandboxPath(entry.path))
         hits.push(...searchText(entry.path, text, { ...query, limit: limit - hits.length }))
         if (hits.length >= limit) break
@@ -227,7 +227,7 @@ export async function createSandboxWorkspaceSession(
     },
     async commit(options) {
       const diff = await currentDiff()
-      await commitSandboxChanges(sandbox, store, diff)
+      await commitSandboxChanges(sandbox, workspace, diff)
       baseline = await snapshotSandbox(sandbox, options?.message || "sandbox-commit")
     },
     async exec(command, args = [], options = {}) {
