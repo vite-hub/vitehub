@@ -437,7 +437,7 @@ watch([() => messages.value.length, () => messages.value.at(-1)?.text], async ()
                   :streaming="tool.status === 'running'"
                   :text="tool.text"
                   variant="card"
-                  :ui="{ root: 'max-w-full', trigger: 'max-w-full', label: 'truncate', body: 'p-0' }"
+                  :ui="{ root: 'max-w-full', trigger: 'max-w-full', label: 'truncate font-mono', body: 'p-0' }"
                 >
                   <div
                     v-if="hasShellOutput(tool)"
