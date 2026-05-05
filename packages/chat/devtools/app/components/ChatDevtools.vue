@@ -112,6 +112,10 @@ function isActiveAssistantActivity(message: { id: string, role: string }) {
   return pending.value && message.role === "assistant" && message.id === activeAssistantActivityMessageId.value
 }
 
+function transcriptMessageForId(id: string) {
+  return messages.value.find(message => message.id === id)
+}
+
 function stopDemoReply() {
   if (!demoReplyTimer.value) return
   clearInterval(demoReplyTimer.value)
@@ -371,9 +375,26 @@ watch([() => messages.value.length, () => messages.value.at(-1)?.text], async ()
                 variant="card"
                 :ui="{ root: 'my-1 max-w-full', trigger: 'max-w-full', label: 'truncate' }"
               >
-                <p class="text-xs text-muted">
-                  {{ activityText }}
-                </p>
+                <dl class="grid gap-1 text-xs text-muted sm:grid-cols-[auto_1fr]">
+                  <dt class="font-medium text-default">
+                    Status
+                  </dt>
+                  <dd>{{ activityText }}</dd>
+                  <dt class="font-medium text-default">
+                    Chat
+                  </dt>
+                  <dd>{{ transcriptMessageForId(message.id)?.chat || chatName }}</dd>
+                  <dt class="font-medium text-default">
+                    Thread
+                  </dt>
+                  <dd class="break-all">
+                    {{ transcriptMessageForId(message.id)?.threadId || "devtools:chat" }}
+                  </dd>
+                  <dt class="font-medium text-default">
+                    Updated
+                  </dt>
+                  <dd>{{ transcriptMessageForId(message.id)?.timestamp || "" }}</dd>
+                </dl>
               </UChatTool>
               <ChatComark
                 v-else
