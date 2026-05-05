@@ -867,6 +867,9 @@ importers:
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vitehub/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       '@vitehub/unshell':
         specifier: workspace:*
         version: link:../unshell

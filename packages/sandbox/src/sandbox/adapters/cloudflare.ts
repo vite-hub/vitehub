@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer'
+
 import { NotSupportedError, SandboxError } from '../errors'
 import { shellQuote } from '../utils'
 import { BaseSandboxAdapter } from './base'
@@ -12,7 +14,7 @@ import {
 } from './cloudflare/transport'
 
 import type { CloudflareSandboxNamespace, CloudflareSandboxSession, CloudflareSandboxSessionOptions, SandboxCodeContext, SandboxCodeContextOptions, SandboxCodeExecutionResult, SandboxExposedPort, SandboxExposePortOptions, SandboxGitCheckoutOptions, SandboxGitCheckoutResult, SandboxMountBucketOptions, SandboxRunCodeOptions } from '../types/cloudflare'
-import type { CloudflareSandboxStub, SandboxCapabilities, SandboxExecOptions, SandboxExecResult, SandboxFileEntry, SandboxListFilesOptions, SandboxProcess, SandboxProcessOptions } from '../types/common'
+import type { CloudflareSandboxStub, SandboxCapabilities, SandboxExecOptions, SandboxExecResult, SandboxFileContent, SandboxFileEntry, SandboxListFilesOptions, SandboxProcess, SandboxProcessOptions, SandboxReadFileOptions } from '../types/common'
 
 type CloudflareExtendedStub = CloudflareSandboxStub & {
   gitCheckout?: (url: string, opts?: SandboxGitCheckoutOptions) => Promise<SandboxGitCheckoutResult>
@@ -201,16 +203,22 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
     return { ok: result.success, stdout: result.stdout, stderr: result.stderr, code: result.exitCode }
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
-    const result = await withCloudflareTransportRetry('writeFile', async () => await withCloudflareDeadline('writeFile', CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, async () => await this.native.writeFile(path, content)))
+  async writeFile(path: string, content: SandboxFileContent): Promise<void> {
+    const body = typeof content === 'string' ? content : Buffer.from(content).toString('base64')
+    const options = typeof content === 'string' ? undefined : { encoding: 'base64' }
+    const result = await withCloudflareTransportRetry('writeFile', async () => await withCloudflareDeadline('writeFile', CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS, async () => await this.native.writeFile(path, body, options)))
     if (!result.success)
       throw new SandboxError(`Failed to write file: ${path}`)
   }
 
-  async readFile(path: string): Promise<string> {
-    const result = await withCloudflareTransportRetry('readFile', async () => await withCloudflareDeadline('readFile', CLOUDFLARE_READ_FILE_TIMEOUT_MS, async () => await this.native.readFile(path)))
+  async readFile(path: string, opts: SandboxReadFileOptions & { encoding: 'binary' }): Promise<Uint8Array>
+  async readFile(path: string, opts?: SandboxReadFileOptions): Promise<string>
+  async readFile(path: string, opts?: SandboxReadFileOptions): Promise<string | Uint8Array> {
+    const result = await withCloudflareTransportRetry('readFile', async () => await withCloudflareDeadline('readFile', CLOUDFLARE_READ_FILE_TIMEOUT_MS, async () => await this.native.readFile(path, opts?.encoding === 'binary' ? { encoding: 'base64' } : undefined)))
     if (!result.success)
       throw new SandboxError(`Failed to read file: ${path}`)
+    if (opts?.encoding === 'binary')
+      return new Uint8Array(Buffer.from(result.content, 'base64'))
     return result.content
   }
 

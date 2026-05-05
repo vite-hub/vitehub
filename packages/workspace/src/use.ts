@@ -25,9 +25,11 @@ import type {
   WorkspaceAssets,
   WorkspaceContent,
   WorkspaceEntry,
+  WorkspaceOpenOptions,
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceSession,
   WorkspaceStat,
   WriteFileOptions,
 } from "./types.ts"
@@ -89,6 +91,7 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
 
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   fs: WritableWorkspaceFs<Name>
+  open(options?: WorkspaceOpenOptions): Promise<WorkspaceSession>
   tools: WorkspaceWriteToolSet
 }
 
@@ -365,6 +368,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     })
     return {
       fs: createWritableFs<Name>(workspace),
+      open: async options => await workspace.open(options),
       tools: createDefaultToolSetFactory<
         WritableWorkspaceFacadeToolOptions,
         WorkspaceWriteTools
