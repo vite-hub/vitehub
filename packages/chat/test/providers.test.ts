@@ -302,7 +302,7 @@ describe("Vite plugin", () => {
     const use = vi.fn()
     const plugin = chatDevtools({ dev: { devtools: { url: "https://example.com/chat" } } })
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
-      `<script src="/_nuxt/app.js"></script><script>window.__NUXT__={config:{app:{cdnURL:""}}}</script>`,
+      `<script type="module" src="/_nuxt/app.js"></script><script>window.__NUXT__={config:{app:{cdnURL:""}}}</script>`,
       { headers: { "content-type": "text/html" } },
     ))
     const response = {
@@ -319,6 +319,7 @@ describe("Vite plugin", () => {
     expect(fetchMock).toHaveBeenCalledWith("https://example.com/chat")
     expect(response.end).toHaveBeenCalledWith(expect.stringContaining(`src="https://example.com/_nuxt/app.js"`))
     expect(response.end).toHaveBeenCalledWith(expect.stringContaining(`cdnURL:"https://example.com"`))
+    expect(response.end).toHaveBeenCalledWith(expect.stringContaining(`history.replaceState(history.state,"","/chat"+location.search+location.hash)`))
 
     fetchMock.mockRestore()
   })

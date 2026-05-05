@@ -66,6 +66,7 @@ export default defineNuxtConfig({
       },
       "/_nuxt/**": {
         headers: {
+          "access-control-allow-origin": "*",
           "cache-control": "public, max-age=31536000, immutable",
           "x-content-type-options": "nosniff",
         },

@@ -66,9 +66,11 @@ function warnMissingViteDevtools(config: ResolvedConfig, chat: ChatModuleOptions
 
 function rewriteChatDevtoolsHtml(html: string, url: string): string {
   const origin = new URL(url).origin
+  const routeNormalizationScript = `<script>if(location.pathname===${JSON.stringify(chatDevtoolsLocalUiRoute)})history.replaceState(history.state,"","/chat"+location.search+location.hash)</script>`
   return html
     .replaceAll(`"/_nuxt/`, `"${origin}/_nuxt/`)
     .replaceAll(`'/_nuxt/`, `'${origin}/_nuxt/`)
+    .replace(/<script type="module"/, `${routeNormalizationScript}<script type="module"`)
     .replace(`cdnURL:""`, `cdnURL:${JSON.stringify(origin)}`)
 }
 
