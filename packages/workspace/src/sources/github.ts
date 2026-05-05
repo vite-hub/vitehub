@@ -2,10 +2,11 @@ import { Buffer } from "node:buffer"
 import { gunzipSync } from "node:zlib"
 
 import { getActiveCloudflareBinding } from "@vitehub/internal/runtime/cloudflare-env"
+import { defineCachedFunction } from "ocache"
 
 import { WorkspaceError } from "../errors.ts"
 import { matchesAny, normalizeWorkspacePath } from "../path.ts"
-import type { WorkspaceSource } from "../types.ts"
+import type { WorkspaceCacheOptions, WorkspaceSource } from "../types.ts"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "swr" | "validate">
 
@@ -51,8 +52,7 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
   const ref = options.ref || "main"
   const root = normalizeWorkspacePath(options.root || "")
   let auth: string | undefined
-  let filesPromise: Promise<GitHubFile[]> | undefined
-  const contentPromises = new Map<string, Promise<Uint8Array>>()
+  const providerCache = normalizeProviderCache(options)
 
   function resolveAuth(): string | undefined {
     const token = options.auth || getActiveCloudflareBinding<string>("GITHUB_TOKEN") || process.env.GITHUB_TOKEN
@@ -63,8 +63,6 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
     const nextAuth = resolveAuth()
     if (nextAuth !== auth) {
       auth = nextAuth
-      filesPromise = undefined
-      contentPromises.clear()
     }
     return auth
   }
@@ -153,7 +151,7 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       .filter((file): file is GitHubFile => Boolean(file))
   }
 
-  async function loadFiles() {
+  async function loadFiles(token = auth) {
     try {
       return await loadTreeFiles()
     }
@@ -165,22 +163,25 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
     }
   }
 
+  const cachedLoadFiles = defineCachedFunction(loadFiles, {
+    ...providerCache,
+    getKey: token => cacheKey("tree", token || ""),
+    name: "github-source-tree",
+  })
+
   function getFiles() {
-    refreshAuth()
-    if (!filesPromise) filesPromise = loadFiles()
-    return filesPromise
+    return cachedLoadFiles(refreshAuth())
   }
 
   function repoPathForKey(key: string) {
     return root ? `${root}/${key}` : key
   }
 
-  function fetchContent(key: string, file: GitHubFile) {
+  function fetchContent(key: string, file: GitHubFile, token = auth) {
     if (file.content) return Promise.resolve(file.content)
 
     const repoPath = repoPathForKey(key)
     const encodedPath = encodeURIComponent(repoPath).replaceAll("%2F", "/")
-    const token = refreshAuth()
     if (!token) {
       return fetchRawContent(repoPath, encodedPath)
     }
@@ -193,6 +194,34 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       }
       return new Uint8Array(Buffer.from(file.content, "base64"))
     })
+  }
+
+  const cachedFetchContent = defineCachedFunction(
+    async (key: string, token: string | undefined) => {
+      const file = (await getFiles()).find(file => file.key === key)
+      if (!file) {
+        throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
+      }
+      return await fetchContent(key, file, token)
+    },
+    {
+      ...providerCache,
+      getKey: (key, token) => cacheKey("content", token || "", key),
+      name: "github-source-content",
+    },
+  )
+
+  function cacheKey(kind: string, token: string, key = "") {
+    return [
+      kind,
+      options.repo,
+      ref,
+      root,
+      normalizePatternCacheKey(options.include),
+      normalizePatternCacheKey(options.exclude),
+      token,
+      key,
+    ].join(":")
   }
 
   async function fetchRawContent(repoPath: string, encodedPath: string, token = auth) {
@@ -230,19 +259,36 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       }
     },
     async getItem(key) {
+      const token = refreshAuth()
       const file = (await getFiles()).find(file => file.key === key)
       if (!file) {
         throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
       }
-      const contentPromise = contentPromises.get(key) || fetchContent(key, file)
-      contentPromises.set(key, contentPromise)
       return {
         key,
         path: file.path,
-        content: await contentPromise,
+        content: await cachedFetchContent(key, token),
       }
     },
   }
+}
+
+function normalizeProviderCache(options: Pick<WorkspaceSource, "cache" | "swr">): WorkspaceCacheOptions {
+  if (options.cache === false) return { maxAge: 0, swr: false }
+  if (options.cache && typeof options.cache === "object") {
+    return {
+      maxAge: options.cache.maxAge ?? 1,
+      staleMaxAge: options.cache.staleMaxAge,
+      swr: options.cache.swr ?? true,
+    }
+  }
+  if (typeof options.swr === "number") return { maxAge: options.swr, swr: true }
+  return { maxAge: 1, swr: options.swr === false ? false : true }
+}
+
+function normalizePatternCacheKey(value: string | string[] | undefined) {
+  if (!value) return ""
+  return Array.isArray(value) ? value.join(",") : value
 }
 
 function parseGitHubArchive(bytes: Uint8Array) {

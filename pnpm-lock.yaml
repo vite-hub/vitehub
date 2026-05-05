@@ -912,6 +912,9 @@ importers:
       mrmime:
         specifier: ^2.0.1
         version: 2.0.1
+      ocache:
+        specifier: ^0.1.4
+        version: 0.1.4
       tinyglobby:
         specifier: ^0.2.16
         version: 0.2.16
@@ -15812,7 +15815,7 @@ snapshots:
       perfect-debounce: 2.1.0
       sirv: 3.0.2
       tinyexec: 1.1.2
-      vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.18)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+      vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.18)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
       vue: 3.5.33(typescript@6.0.2)
       ws: 8.20.0
     transitivePeerDependencies:
@@ -19555,7 +19558,7 @@ snapshots:
       giget: 3.2.0
       jiti: 2.6.1
       rollup: 4.60.1
-      vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.18)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+      vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.18)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -22516,7 +22519,7 @@ snapshots:
       tinyglobby: 0.2.16
     optionalDependencies:
       '@types/node': 25.6.0
-      '@vitejs/devtools': 0.1.18(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260505.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
+      '@vitejs/devtools': 0.1.18(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.4(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260505.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
       esbuild: 0.28.0
       fsevents: 2.3.3
       jiti: 2.6.1

@@ -40,6 +40,7 @@ catalog:
   mrmime: ^2.0.1
   nitro: 3.0.260311-beta
   nuxt: ^4.4.2
+  ocache: ^0.1.4
   ofetch: ^1.5.1
   oxlint: ^1.60.0
   pathe: ^2.0.3

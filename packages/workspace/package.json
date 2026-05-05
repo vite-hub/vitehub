@@ -64,6 +64,7 @@
     "isomorphic-git": "^1.37.6",
     "minimatch": "^10.1.1",
     "mrmime": "^2.0.1",
+    "ocache": "^0.1.4",
     "tinyglobby": "^0.2.16"
   },
   "peerDependencies": {
