@@ -2,7 +2,7 @@ import { resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { resolveRuntimeEntry } from "@vitehub/internal/nitro"
+import { assertNoVitePluginInNitro, resolveRuntimeEntry } from "@vitehub/internal/nitro"
 
 import { formatDiagnostics } from "../core/diagnostics.ts"
 import { envSource, envVariable } from "../core/declarations.ts"
@@ -13,11 +13,7 @@ import type { Nitro, NitroModule } from "nitro/types"
 
 export { envSource, envVariable }
 
-const VITE_PLUGIN_NAME = "@vitehub/env/vite"
-
-type EnvVitePluginConfig = {
-  plugins?: unknown
-}
+const ENV_VITE_PLUGIN_NAME = "@vitehub/env/vite"
 
 function resolveEntry(srcRelative: string, packageSubpath: string): string {
   return resolveRuntimeEntry(srcRelative, packageSubpath, import.meta.url)
@@ -108,25 +104,11 @@ function resolveTypeName(entry: EnvRegistryEntry): string {
   return entry.required || typeof entry.default !== "undefined" ? "string" : "string | undefined"
 }
 
-function hasEnvVitePlugin(plugin: unknown): boolean {
-  if (Array.isArray(plugin)) {
-    return plugin.some(hasEnvVitePlugin)
-  }
-  return typeof plugin === "object" && plugin !== null && "name" in plugin && plugin.name === VITE_PLUGIN_NAME
-}
-
-function assertNoEnvVitePlugin(nitro: Nitro): void {
-  const options = nitro.options as typeof nitro.options & { vite?: EnvVitePluginConfig }
-  if (hasEnvVitePlugin(options.vite?.plugins)) {
-    throw new Error("[vitehub] Do not configure @vitehub/env/vite when using @vitehub/env/nitro.")
-  }
-}
-
 export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
   return {
     name: "@vitehub/env",
     async setup(nitro) {
-      assertNoEnvVitePlugin(nitro)
+      await assertNoVitePluginInNitro(nitro, ENV_VITE_PLUGIN_NAME, "@vitehub/env/nitro")
 
       const config = (nitro.options as typeof nitro.options & EnvNitroUserConfig).env
       validateEnvConfigShape(config, "nitro")

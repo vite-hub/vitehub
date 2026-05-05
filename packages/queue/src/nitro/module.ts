@@ -1,6 +1,6 @@
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { createGeneratedDefinitionPath, createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import { resolve } from "node:path"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
@@ -29,6 +29,7 @@ function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[])
 }
 
 const QUEUE_NITRO_IMPORTS_PRESET = { from: "@vitehub/queue", imports: ["defineQueue", "deferQueue", "getQueue", "runQueue"] }
+const QUEUE_VITE_PLUGIN_NAME = "@vitehub/queue/vite"
 
 function createNitroQueueRegistryPath(rootDir: string, buildDir: string) {
   return createGeneratedDefinitionPath(rootDir, { buildDir, fileName: "nitro-registry.mjs", segments: generatedDirSegments })
@@ -142,6 +143,8 @@ async function writeNitroQueueRuntimeFiles(nitro: { options: { buildDir: string,
 const queueNitroModule: NitroModule = {
   name: "@vitehub/queue",
   async setup(nitro: any) {
+    await assertNoVitePluginInNitro(nitro, QUEUE_VITE_PLUGIN_NAME, "@vitehub/queue/nitro")
+
     const resolved = normalizeQueueOptions(nitro.options.queue, {
       hosting: nitro.options.preset,
     })

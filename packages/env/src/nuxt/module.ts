@@ -1,12 +1,14 @@
 import { addServerImports, defineNuxtModule } from "@nuxt/kit"
+import { assertNoNitroModule, assertNoVitePlugin, hasNitroModule } from "@vitehub/internal/nitro"
 import { envNitro } from "../nitro/module.ts"
-import type { NitroConfig, NitroModule, NitroModuleInput } from "nitro/types"
+import type { NitroConfig, NitroModuleInput } from "nitro/types"
 import type { NuxtModule } from "@nuxt/schema"
 
 import type { EnvIntegrationOptions, EnvNitroConfigOptions } from "../types.ts"
 
 const NITRO_MODULE_ID = "@vitehub/env/nitro"
 const NITRO_MODULE_NAME = "@vitehub/env"
+const NUXT_MODULE_ID = "@vitehub/env/nuxt"
 const VITE_PLUGIN_NAME = "@vitehub/env/vite"
 
 type EnvNitroConfig = NitroConfig & {
@@ -19,37 +21,11 @@ type EnvVitePluginConfig = {
 }
 
 function hasEnvNitroModule(entry: NitroModuleInput): boolean {
-  if (entry === NITRO_MODULE_ID) {
-    return true
-  }
-  if (typeof entry !== "object" || entry === null) {
-    return false
-  }
-  const module = "nitro" in entry ? entry.nitro : entry
-  return (module as Partial<NitroModule>).name === NITRO_MODULE_NAME
-}
-
-function hasEnvVitePlugin(plugin: unknown): boolean {
-  if (Array.isArray(plugin)) {
-    return plugin.some(hasEnvVitePlugin)
-  }
-  return typeof plugin === "object" && plugin !== null && "name" in plugin && plugin.name === VITE_PLUGIN_NAME
+  return hasNitroModule(entry, NITRO_MODULE_ID, NITRO_MODULE_NAME)
 }
 
 function createEnvNitroModuleEntry(options: EnvIntegrationOptions): NitroModuleInput {
   return Object.keys(options).length === 0 ? NITRO_MODULE_ID : envNitro(options)
-}
-
-function assertNoEnvNitroModule(nitro: EnvNitroConfig): void {
-  if (nitro.modules?.some(hasEnvNitroModule)) {
-    throw new Error("[vitehub] Do not configure @vitehub/env/nitro when using @vitehub/env/nuxt.")
-  }
-}
-
-function assertNoEnvVitePlugin(vite: EnvVitePluginConfig | undefined): void {
-  if (hasEnvVitePlugin(vite?.plugins)) {
-    throw new Error("[vitehub] Do not configure @vitehub/env/vite when using @vitehub/env/nuxt.")
-  }
 }
 
 function installEnvNitroModule(nitro: EnvNitroConfig, env: EnvNitroConfigOptions | undefined, options: EnvIntegrationOptions): void {
@@ -63,15 +39,15 @@ function installEnvNitroModule(nitro: EnvNitroConfig, env: EnvNitroConfigOptions
 }
 
 const envNuxtModule: NuxtModule<EnvIntegrationOptions, EnvIntegrationOptions, false> = defineNuxtModule<EnvIntegrationOptions>({
-  meta: { name: "@vitehub/env/nuxt" },
-  setup(inlineOptions = {}, nuxt) {
+  meta: { name: NUXT_MODULE_ID },
+  async setup(inlineOptions = {}, nuxt) {
     if (nuxt.options.env === false) {
       return
     }
 
     const nitro = (nuxt.options.nitro ||= {}) as EnvNitroConfig
-    assertNoEnvVitePlugin(nuxt.options.vite as EnvVitePluginConfig | undefined)
-    assertNoEnvNitroModule(nitro)
+    await assertNoVitePlugin(nuxt.options.vite as EnvVitePluginConfig | undefined, VITE_PLUGIN_NAME, NUXT_MODULE_ID)
+    assertNoNitroModule(nitro, NITRO_MODULE_ID, NITRO_MODULE_NAME, NUXT_MODULE_ID)
     installEnvNitroModule(nitro, nuxt.options.env, inlineOptions)
     nuxt.hook("nitro:config", (config) => {
       const env = nuxt.options.env
