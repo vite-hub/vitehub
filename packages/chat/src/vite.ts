@@ -22,6 +22,12 @@ import type { ChatModuleOptions } from "./types.ts"
 export type ChatVitePlugin = PluginWithDevTools & { nitro: NitroModule }
 export type ChatDevtoolsVitePlugin = PluginWithDevTools
 
+declare module "@vitejs/devtools-kit" {
+  interface DevToolsRpcSharedStates {
+    "@vitehub/chat:state": ChatDevtoolsState
+  }
+}
+
 const chatPackageName = "@vitehub/chat"
 const mergeNoExternal = createNoExternalMerger(chatPackageName)
 const cloudflareWorkersDevAlias = new URL("./runtime/cloudflare-workers-dev.js", import.meta.url).pathname

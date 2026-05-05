@@ -36,12 +36,6 @@ export interface ChatDevtoolsState extends ChatDevtoolsResult {
   pending: boolean
 }
 
-declare module "@vitejs/devtools-kit" {
-  interface DevToolsRpcSharedStates {
-    "@vitehub/chat:state": ChatDevtoolsState
-  }
-}
-
 export interface ChatDevtoolsSendParams {
   chatName?: string
   text?: string
