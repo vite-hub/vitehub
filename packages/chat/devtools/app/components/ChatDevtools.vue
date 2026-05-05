@@ -372,29 +372,12 @@ watch([() => messages.value.length, () => messages.value.at(-1)?.text], async ()
                 loading
                 streaming
                 :text="textPartText(part)"
-                variant="card"
-                :ui="{ root: 'my-1 max-w-full', trigger: 'max-w-full', label: 'truncate' }"
+                variant="inline"
+                :ui="{ root: 'my-1 max-w-full', trigger: 'max-w-full', label: 'truncate', body: 'py-1' }"
               >
-                <dl class="grid gap-1 text-xs text-muted sm:grid-cols-[auto_1fr]">
-                  <dt class="font-medium text-default">
-                    Status
-                  </dt>
-                  <dd>{{ activityText }}</dd>
-                  <dt class="font-medium text-default">
-                    Chat
-                  </dt>
-                  <dd>{{ transcriptMessageForId(message.id)?.chat || chatName }}</dd>
-                  <dt class="font-medium text-default">
-                    Thread
-                  </dt>
-                  <dd class="break-all">
-                    {{ transcriptMessageForId(message.id)?.threadId || "devtools:chat" }}
-                  </dd>
-                  <dt class="font-medium text-default">
-                    Updated
-                  </dt>
-                  <dd>{{ transcriptMessageForId(message.id)?.timestamp || "" }}</dd>
-                </dl>
+                <p class="truncate text-xs text-muted">
+                  {{ activityText }} · {{ transcriptMessageForId(message.id)?.threadId || "devtools:chat" }}
+                </p>
               </UChatTool>
               <ChatComark
                 v-else
