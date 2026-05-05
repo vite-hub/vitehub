@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace } from "../src/index.ts"
@@ -5,6 +8,14 @@ import { createWorkspace } from "../src/workspace.ts"
 import { setSandboxRuntimeConfig } from "@vitehub/sandbox/runtime/state"
 
 type FakeEntry = { content?: string | Uint8Array, type: "directory" | "file" }
+
+const tempDirs: string[] = []
+
+async function createTempDir() {
+  const dir = await mkdtemp(join(tmpdir(), "vitehub-workspace-sandbox-"))
+  tempDirs.push(dir)
+  return dir
+}
 
 function createFakeSandbox(provider: "cloudflare" | "vercel") {
   const files = new Map<string, FakeEntry>([
@@ -114,6 +125,7 @@ vi.mock("@vitehub/sandbox", async (importOriginal) => {
 
 afterEach(async () => {
   setSandboxRuntimeConfig(undefined)
+  await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
   const sandboxPackage = await import("@vitehub/sandbox")
   vi.mocked(sandboxPackage.createSandboxWithConfig).mockReset()
 })
@@ -310,6 +322,35 @@ describe("sandbox workspace runtime", () => {
 
     await expect(session.commit()).rejects.toThrow("Source-backed workspace paths are read-only")
     await expect(workspace.readFile("docs/README.md")).resolves.toBe("# Lazy docs\n")
+  })
+
+  it("commits file-to-directory replacements to local stores", async () => {
+    const fake = createFakeSandbox("cloudflare")
+    const sandboxPackage = await import("@vitehub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
+
+    const rootDir = await createTempDir()
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "sandbox",
+        rootDir,
+        store: { provider: "local", root: "docs-store" },
+      }),
+      name: "docs",
+    })
+    await workspace.sync()
+    await workspace.writeFile("target", "file\n")
+
+    const session = await workspace.open()
+    await fake.sandbox.deleteFile("/workspace/target")
+    await fake.sandbox.mkdir("/workspace/target")
+    await fake.sandbox.writeFile("/workspace/target/nested.txt", "nested\n")
+
+    await session.commit()
+
+    await expect(workspace.readFile("target/nested.txt")).resolves.toBe("nested\n")
+    await expect(workspace.stat("target")).resolves.toEqual(expect.objectContaining({ type: "directory" }))
   })
 
   it("keeps session methods present for non-executable workspaces", async () => {

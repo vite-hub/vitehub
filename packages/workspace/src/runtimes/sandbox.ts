@@ -122,6 +122,8 @@ async function commitSandboxChanges(
 ) {
   for (const entry of diff.entries) {
     if (entry.after?.type === "directory") {
+      if (entry.before?.type === "file")
+        await workspace.rm(entry.path, { force: true })
       await workspace.mkdir(entry.path, { recursive: true })
       continue
     }
@@ -130,6 +132,8 @@ async function commitSandboxChanges(
       continue
     }
     if (entry.after?.type === "file") {
+      if (entry.before?.type === "directory")
+        await workspace.rm(entry.path, { force: true, recursive: true })
       const file = await readSandboxFile(sandbox, toSandboxPath(entry.path))
       if (file)
         await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType })
