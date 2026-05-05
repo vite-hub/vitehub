@@ -7,6 +7,7 @@ import {
   type WorkspaceWriteToolMap,
 } from "./ai.ts"
 import { useWorkspaceAssets } from "./asset-registry.ts"
+import { WorkspaceNotFoundError } from "./errors.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
@@ -222,6 +223,111 @@ function createWritableFs<Name extends WorkspaceName>(workspace: Workspace): Wri
   }
 }
 
+function useOptionalWorkspaceAssets<Name extends WorkspaceName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> | undefined {
+  try {
+    return useWorkspaceAssets(name)
+  }
+  catch (error) {
+    if (error instanceof WorkspaceNotFoundError) return undefined
+    throw error
+  }
+}
+
+async function ignoreMissingWorkspace<T>(operation: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await operation()
+  }
+  catch (error) {
+    if (error instanceof WorkspaceNotFoundError) return undefined
+    throw error
+  }
+}
+
+function mergeEntries(primary: WorkspaceEntry[] = [], fallback: WorkspaceEntry[] = []) {
+  const entries = new Map<string, WorkspaceEntry>()
+  for (const entry of fallback) entries.set(entry.path, entry)
+  for (const entry of primary) entries.set(entry.path, entry)
+  return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function mergeSearchHits(primary: WorkspaceSearchHit[] = [], fallback: WorkspaceSearchHit[] = []) {
+  const seen = new Set<string>()
+  return [...primary, ...fallback].filter((hit) => {
+    const key = `${hit.path}:${hit.line}:${hit.column}:${hit.text}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function createReadonlyFs<Name extends WorkspaceName>(
+  name: Name,
+  workspace: Workspace,
+): ReadonlyWorkspaceFs<Name> {
+  const assets = useOptionalWorkspaceAssets(name)
+
+  return {
+    readFile: async (path, options) => {
+      const normalized = normalizePath(path)
+      if (assets && await assets.exists(normalized as WorkspaceAssetPath<Name>)) {
+        return await assets.readFile(normalized as WorkspaceAssetPath<Name>, options as never)
+      }
+      try {
+        return await workspace.readFile(normalized, options as never)
+      }
+      catch (error) {
+        if (assets && error instanceof WorkspaceNotFoundError) {
+          return await assets.readFile(normalized as WorkspaceAssetPath<Name>, options as never)
+        }
+        throw error
+      }
+    },
+    stat: async (path) => {
+      const normalized = normalizePath(path)
+      if (assets && await assets.exists(normalized as WorkspaceAssetPath<Name>)) {
+        return await assets.stat(normalized as WorkspaceAssetPath<Name>)
+      }
+      try {
+        return await workspace.stat(normalized)
+      }
+      catch (error) {
+        if (assets && error instanceof WorkspaceNotFoundError) {
+          return await assets.stat(normalized as WorkspaceAssetPath<Name>)
+        }
+        throw error
+      }
+    },
+    exists: async (path) => {
+      const normalized = normalizePath(path)
+      if (assets && await assets.exists(normalized as WorkspaceAssetPath<Name>)) return true
+      return await ignoreMissingWorkspace(() => workspace.exists(normalized)) ?? false
+    },
+    list: async (path, options) => {
+      const normalized = path ? normalizeListPath(path) : ""
+      const assetEntries = assets ? await assets.list(normalized as WorkspaceAssetPath<Name>, options) : []
+      const workspaceEntries = await ignoreMissingWorkspace(() => workspace.list(normalized, options)) ?? []
+      return mergeEntries(assetEntries, workspaceEntries)
+    },
+    glob: async (pattern, options) => {
+      const normalized = normalizePattern(pattern as string | string[])
+      const assetEntries = assets ? await assets.glob(normalized as WorkspaceAssetPath<Name>, options) : []
+      const workspaceEntries = await ignoreMissingWorkspace(() => workspace.glob(normalized, options)) ?? []
+      return mergeEntries(assetEntries, workspaceEntries)
+    },
+    search: async (query) => {
+      const normalized = {
+        ...query,
+        cwd: query.cwd ? normalizeListPath(query.cwd) : query.cwd,
+        paths: query.paths?.map(path => normalizeListPath(path)),
+      }
+      const limit = normalized.limit ?? 100
+      const assetHits = assets ? await assets.search(normalized) : []
+      const workspaceHits = await ignoreMissingWorkspace(() => workspace.search(normalized)) ?? []
+      return mergeSearchHits(assetHits, workspaceHits).slice(0, limit)
+    },
+  }
+}
+
 function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {
   return { list: options?.list, read: options?.read, search: options?.search }
 }
@@ -266,7 +372,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     }
   }
 
-  const fs = useWorkspaceAssets(name)
+  const fs = createReadonlyFs(name, createLazyWorkspace(name))
   const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     cwd: opts?.cwd,
     maxOutputLength: opts?.maxOutputLength,

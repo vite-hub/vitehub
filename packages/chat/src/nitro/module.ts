@@ -1,6 +1,6 @@
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { createGeneratedDefinitionPath, createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
@@ -16,6 +16,7 @@ const CHAT_NITRO_IMPORTS_PRESET = {
   from: "@vitehub/chat",
   imports: ["defineChat"],
 }
+const CHAT_VITE_PLUGIN_NAME = "@vitehub/chat/vite"
 const chatCloudflareExportsModulePrefix = "virtual:vitehub-chat-cloudflare-exports"
 
 interface RollupPluginLike {
@@ -495,6 +496,8 @@ async function installCloudflareStateConfig(
 const chatNitroModule: NitroModule = {
   name: "@vitehub/chat",
   async setup(nitro) {
+    await assertNoVitePluginInNitro(nitro, CHAT_VITE_PLUGIN_NAME, "@vitehub/chat/nitro")
+
     const resolved = resolveNitroChatOptions(nitro)
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
     if (nitro.options.preset) runtimeConfig.hosting ||= nitro.options.preset

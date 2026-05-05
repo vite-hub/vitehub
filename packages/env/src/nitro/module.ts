@@ -2,7 +2,7 @@ import { resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { resolveRuntimeEntry } from "@vitehub/internal/nitro"
+import { assertNoVitePluginInNitro, resolveRuntimeEntry } from "@vitehub/internal/nitro"
 
 import { formatDiagnostics } from "../core/diagnostics.ts"
 import { envSource, envVariable } from "../core/declarations.ts"
@@ -12,6 +12,8 @@ import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, 
 import type { Nitro, NitroModule } from "nitro/types"
 
 export { envSource, envVariable }
+
+const ENV_VITE_PLUGIN_NAME = "@vitehub/env/vite"
 
 function resolveEntry(srcRelative: string, packageSubpath: string): string {
   return resolveRuntimeEntry(srcRelative, packageSubpath, import.meta.url)
@@ -70,6 +72,12 @@ function createNitroTypes(registry: EnvRuntimeRegistry): string {
     "  }",
     "}",
     "",
+    "declare module \"@vitehub/chat\" {",
+    "  export interface ChatRuntimeConfig {",
+    ...fields,
+    "  }",
+    "}",
+    "",
     "export {}",
     "",
   ].join("\n")
@@ -100,6 +108,8 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
   return {
     name: "@vitehub/env",
     async setup(nitro) {
+      await assertNoVitePluginInNitro(nitro, ENV_VITE_PLUGIN_NAME, "@vitehub/env/nitro")
+
       const config = (nitro.options as typeof nitro.options & EnvNitroUserConfig).env
       validateEnvConfigShape(config, "nitro")
       const registry = createRuntimeRegistry(config, { prefix: options.prefix })
@@ -188,8 +198,11 @@ function describeRuntimeEntries(
     const source = resolveEnvSource(value, valuePath, prefix)
     const hasRuntimeValue = source.kind === "env" && typeof process.env[source.name] !== "undefined"
     const hasDefault = typeof value.default !== "undefined"
+    const exposure = valuePath === "env.public" || valuePath.startsWith("env.public.")
+      ? "public runtime transport"
+      : "server only"
     return {
-      exposed: value.secret ? "server only, masked" : "server only",
+      exposed: value.secret ? `${exposure}, masked` : exposure,
       key: valuePath,
       masked: value.secret,
       mode: "runtime",

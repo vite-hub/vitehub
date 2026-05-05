@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets, writeWorkspaceRuntimeRegistry } from "../build-integration.ts"
 import { normalizeWorkspaceOptions } from "../config.ts"
@@ -19,6 +19,7 @@ const WORKSPACE_NITRO_IMPORTS_PRESET = {
   from: "@vitehub/workspace",
   imports: ["defineWorkspace", "useWorkspace"],
 }
+const WORKSPACE_VITE_PLUGIN_NAME = "@vitehub/workspace/vite"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string) {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
@@ -157,6 +158,8 @@ async function writePlugin(nitro: Nitro, registryFile: string, assetsRegistryFil
 const workspaceNitroModule: NitroModule = {
   name: "@vitehub/workspace",
   async setup(nitro) {
+    await assertNoVitePluginInNitro(nitro, WORKSPACE_VITE_PLUGIN_NAME, "@vitehub/workspace/nitro")
+
     const isDev = nitro.options.dev || process.env.VITEHUB_WORKSPACE_DEV === "true"
     const resolved = normalizeWorkspaceOptions((nitro.options as typeof nitro.options & { workspace?: false | WorkspaceModuleOptions }).workspace, {
       dev: isDev,
@@ -181,7 +184,7 @@ const workspaceNitroModule: NitroModule = {
     let definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
     const registryFile = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
     const assetsRegistryFile = assetsRegistryPath(nitro)
-    await initializeWorkspaceAssetRegistry(assetsRegistryFile)
+    await initializeWorkspaceAssetRegistry(assetsRegistryFile, definitions, nitro.options.rootDir)
     const plugin = await writePlugin(nitro, registryFile, assetsRegistryFile, resolved)
     nitro.options.alias["#vitehub-workspace-registry"] = registryFile
     nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
@@ -211,8 +214,10 @@ const workspaceNitroModule: NitroModule = {
     nitro.hooks.hook("dev:reload", async () => {
       definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
       const nextPath = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
+      await initializeWorkspaceAssetRegistry(assetsRegistryFile, definitions, nitro.options.rootDir)
       nitro.options.alias ||= {}
       nitro.options.alias["#vitehub-workspace-registry"] = nextPath
+      nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
     })
 
     nitro.logger.info(`@vitehub/workspace enabled with ${definitions.length} workspace definition${definitions.length === 1 ? "" : "s"}`)

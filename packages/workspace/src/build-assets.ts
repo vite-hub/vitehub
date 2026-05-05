@@ -1,16 +1,21 @@
 import { createHash } from "node:crypto"
-import { mkdir, rm, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { existsSync } from "node:fs"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
+import { listMatchingFiles } from "@vitehub/internal/definition-catalog"
 import { resolveRuntimeEntry } from "@vitehub/internal/nitro"
 
+import { syncWorkspaceDefinition } from "./lifecycle.ts"
 import { normalizeSafeWorkspacePath } from "./path.ts"
+import { createMemoryWorkspaceStore } from "./stores/memory.ts"
 import { createWorkspace } from "./workspace.ts"
+import { isWorkspaceAssetFile, workspaceConfigFileNames } from "./workspace-config.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
-import type { ResolvedWorkspaceModuleOptions, Workspace, WorkspaceContent, WorkspaceDefinitionInput } from "./types.ts"
+import type { ResolvedWorkspaceModuleOptions, Workspace, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "./types.ts"
 
 export interface WorkspaceAssetFile {
   content: WorkspaceContent
@@ -23,12 +28,12 @@ export interface WorkspaceAssetBundle {
   name: string
 }
 
-function shouldSyncWorkspace(syncOnBuild: boolean | string[] | undefined, name: string) {
+export function shouldSyncWorkspace(syncOnBuild: boolean | string[] | undefined, name: string) {
   return syncOnBuild === undefined || syncOnBuild === true || (Array.isArray(syncOnBuild) && syncOnBuild.includes(name))
 }
 
-function assetModuleName(workspace: string, path: string) {
-  const hash = createHash("sha256").update(`${workspace}\0${path}`).digest("hex").slice(0, 16)
+function assetModuleName(workspace: string, path: string, content: WorkspaceContent) {
+  const hash = createHash("sha256").update(`${workspace}\0${path}\0`).update(content).digest("hex").slice(0, 16)
   return `${hash}.mjs`
 }
 
@@ -84,6 +89,70 @@ export async function collectWorkspaceAssetBundles(workspaces: Workspace[]): Pro
   return await Promise.all(workspaces.map(workspace => collectWorkspaceAssetBundle(workspace)))
 }
 
+export async function collectWorkspaceStoreAssetBundle(name: string, store: WorkspaceStore): Promise<WorkspaceAssetBundle> {
+  const entries = (await store.glob("**/*")).filter(entry => entry.type === "file")
+  const files: WorkspaceAssetFile[] = []
+  for (const entry of entries) {
+    const path = normalizeSafeWorkspacePath(entry.path)
+    const file = await store.readFile(path)
+    if (file) {
+      files.push({ content: file.content, mediaType: file.mediaType, path })
+    }
+  }
+
+  files.sort((a, b) => a.path.localeCompare(b.path))
+  return { files, name }
+}
+
+export async function syncDiscoveredWorkspaceAssetBundles(
+  definitions: DiscoveredWorkspaceDefinition[],
+  rootDir: string,
+  options: false | ResolvedWorkspaceModuleOptions,
+): Promise<WorkspaceAssetBundle[]> {
+  if (!options) return []
+
+  const bundles: WorkspaceAssetBundle[] = []
+  for (const definition of definitions) {
+    if (!shouldSyncWorkspace(options.syncOnBuild, definition.name)) continue
+
+    const mod = await import(pathToFileURL(definition.path).href) as { default?: WorkspaceDefinitionInput }
+    if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      ...mod.default,
+      name: definition.name,
+      rootDir: mod.default.rootDir || rootDir,
+      store,
+    }, store)
+    bundles.push(await collectWorkspaceStoreAssetBundle(definition.name, store))
+  }
+
+  return bundles
+}
+
+export async function collectDirectoryWorkspaceAssetBundles(
+  definitions: DiscoveredWorkspaceDefinition[],
+  rootDir: string,
+): Promise<WorkspaceAssetBundle[]> {
+  const bundles: WorkspaceAssetBundle[] = []
+  for (const definition of definitions) {
+    const directory = definition.path ? dirname(definition.path) : resolve(rootDir, "server", "workspaces", ...definition.name.split("/"))
+    if (!workspaceConfigFileNames.some(file => existsSync(resolve(directory, file)))) continue
+
+    const files = await Promise.all(listMatchingFiles(directory, isWorkspaceAssetFile).map(async (file) => {
+      const path = normalizeSafeWorkspacePath(relative(directory, file))
+      return {
+        content: await readFile(file),
+        path,
+      }
+    }))
+    files.sort((a, b) => a.path.localeCompare(b.path))
+    bundles.push({ files, name: definition.name })
+  }
+  return bundles
+}
+
 export async function writeWorkspaceAssetsRegistry(registryFile: string, bundles: WorkspaceAssetBundle[]): Promise<string> {
   const modulesDir = join(dirname(registryFile), "modules")
   await rm(modulesDir, { force: true, recursive: true })
@@ -94,7 +163,7 @@ export async function writeWorkspaceAssetsRegistry(registryFile: string, bundles
     const workspaceDir = join(modulesDir, encodeURIComponent(bundle.name))
     await mkdir(workspaceDir, { recursive: true })
     for (const file of bundle.files) {
-      const modulePath = join(workspaceDir, assetModuleName(bundle.name, file.path))
+      const modulePath = join(workspaceDir, assetModuleName(bundle.name, file.path, file.content))
       await writeFile(modulePath, `export default ${serializeContent(file.content)}\n`, "utf8")
       modulePaths.set(`${bundle.name}\0${file.path}`, modulePath)
     }

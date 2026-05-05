@@ -11,7 +11,7 @@ const iframeContentSecurityPolicy = [
 ].join("; ")
 
 export default defineNuxtConfig({
-  modules: ["@nuxt/ui"],
+  modules: ["@nuxt/ui", "@vueuse/nuxt"],
   ssr: false,
   compatibilityDate: "2026-05-05",
   devtools: {
@@ -23,6 +23,20 @@ export default defineNuxtConfig({
       htmlAttrs: {
         lang: "en",
       },
+    },
+  },
+  icon: {
+    provider: "server",
+    serverBundle: {
+      collections: ["lucide"],
+    },
+    clientBundle: {
+      icons: ["lucide:arrow-up", "lucide:info", "lucide:loader-circle", "lucide:square", "lucide:trash-2"],
+    },
+  },
+  vite: {
+    resolve: {
+      dedupe: ["vue", "@vue/runtime-core", "@vue/runtime-dom", "@vue/reactivity", "@vue/shared"],
     },
   },
   nitro: {

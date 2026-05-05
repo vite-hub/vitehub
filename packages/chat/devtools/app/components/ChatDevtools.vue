@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef } from "vue"
 import {
   chatDevtoolsRpcClear,
   chatDevtoolsRpcGetState,
@@ -10,6 +9,7 @@ import {
 
 type DevtoolsRpcClient = {
   call<T>(name: string, params?: Record<string, unknown>): Promise<T>
+  ensureTrusted?: () => Promise<boolean>
 }
 
 type ChatUiMessage = {
@@ -21,18 +21,18 @@ type ChatUiMessage = {
 const rpc = shallowRef<DevtoolsRpcClient>()
 const connecting = ref(true)
 const pending = ref(false)
-const status = ref("Connecting")
-const connectionHint = ref("")
+const connectionError = ref("")
 const draft = ref("")
 const chatName = ref("chat")
 const chats = ref<string[]>([])
 const messages = ref<ChatDevtoolsTranscriptMessage[]>([])
-const queuedDemoText = ref("")
+const demoReplyTimer = ref<ReturnType<typeof setInterval>>()
 const transcript = useTemplateRef<HTMLElement>("transcript")
-const demoReplyTimeout = ref<ReturnType<typeof setTimeout>>()
+const { y: transcriptScrollTop } = useScroll(transcript, { behavior: "smooth" })
 
 const connected = computed(() => !!rpc.value)
-const canUseComposer = computed(() => connected.value || !!connectionHint.value)
+const previewMode = computed(() => !connecting.value && !connected.value)
+const canUseComposer = computed(() => connected.value || previewMode.value)
 const chatItems = computed(() => {
   const names = chats.value.length ? chats.value : [chatName.value || "chat"]
   return [...new Set(names)].map(name => ({ label: name, value: name }))
@@ -45,18 +45,10 @@ const uiMessages = computed<ChatUiMessage[]>(() => messages.value.map(message =>
   parts: [{ type: "text", text: message.text }],
 })))
 
-function scrollTranscript() {
-  void nextTick(() => {
-    transcript.value?.scrollTo({ top: transcript.value.scrollHeight })
-  })
-}
-
 function applyResult(result: ChatDevtoolsResult) {
-  status.value = result.status || "Ready"
   chats.value = result.chats || []
   chatName.value = result.chatName || result.chats?.[0] || chatName.value || "chat"
   messages.value = result.messages || []
-  scrollTranscript()
 }
 
 function createMessage(author: ChatDevtoolsTranscriptMessage["author"], text: string): ChatDevtoolsTranscriptMessage {
@@ -67,59 +59,62 @@ function createMessage(author: ChatDevtoolsTranscriptMessage["author"], text: st
     chat,
     id: globalThis.crypto?.randomUUID?.() || `${author}-${Date.now()}-${messages.value.length}`,
     text,
-    threadId: `demo:${chat}`,
+    threadId: `preview:${chat}`,
     timestamp: new Date().toISOString(),
   }
 }
 
 function stopDemoReply() {
-  if (demoReplyTimeout.value) {
-    clearTimeout(demoReplyTimeout.value)
-    demoReplyTimeout.value = undefined
-  }
+  if (!demoReplyTimer.value) return
+  clearInterval(demoReplyTimer.value)
+  demoReplyTimer.value = undefined
 }
 
-function startDemoReply() {
+function streamDemoReply(text: string) {
   stopDemoReply()
-  demoReplyTimeout.value = setTimeout(() => {
-    const text = queuedDemoText.value
-    messages.value = [
-      ...messages.value,
-      createMessage("assistant", `Dummy reply from ${chatName.value || "chat"}: ${text}`),
-    ]
-    pending.value = false
-    status.value = "Demo mode"
-    scrollTranscript()
-  }, 400)
+  pending.value = true
+
+  const reply = createMessage("assistant", "")
+  messages.value = [...messages.value, reply]
+
+  const response = [
+    "Preview mode: the Chat DevTools UI is working.",
+    "Open it from Vite DevTools to connect to the local Nitro bridge and run real get, send, and clear actions.",
+    `Your draft was: "${text}"`,
+  ].join("\n\n")
+  let index = 0
+
+  demoReplyTimer.value = setInterval(() => {
+    index += 3
+    reply.text = response.slice(0, index)
+    messages.value = [...messages.value]
+
+    if (index >= response.length) {
+      stopDemoReply()
+      pending.value = false
+    }
+  }, 18)
 }
 
-function sendDemoMessage(text: string) {
-  queuedDemoText.value = text
-  status.value = "Demo reply pending"
-  chats.value = [chatName.value || "chat"]
-  messages.value = [
-    ...messages.value,
-    createMessage("user", text),
-  ]
-  scrollTranscript()
-  startDemoReply()
-}
-
-async function refresh() {
-  if (!rpc.value) {
-    chats.value = [chatName.value || "chat"]
+async function runBridge(action: (client: DevtoolsRpcClient) => Promise<ChatDevtoolsResult>) {
+  const client = rpc.value
+  if (!client) {
     return
   }
 
   pending.value = true
   try {
-    applyResult(await rpc.value.call<ChatDevtoolsResult>(chatDevtoolsRpcGetState, {
-      chatName: chatName.value,
-    }))
+    applyResult(await action(client))
   }
   finally {
     pending.value = false
   }
+}
+
+async function refresh() {
+  await runBridge(client => client.call<ChatDevtoolsResult>(chatDevtoolsRpcGetState, {
+    chatName: chatName.value,
+  }))
 }
 
 async function send() {
@@ -130,54 +125,39 @@ async function send() {
 
   draft.value = ""
   if (!rpc.value) {
-    pending.value = true
-    sendDemoMessage(text)
+    messages.value = [...messages.value, createMessage("user", text)]
+    streamDemoReply(text)
     return
   }
 
-  pending.value = true
-  try {
-    applyResult(await rpc.value.call<ChatDevtoolsResult>(chatDevtoolsRpcSend, {
-      chatName: chatName.value,
-      text,
-    }))
-  }
-  finally {
-    pending.value = false
-  }
+  await runBridge(client => client.call<ChatDevtoolsResult>(chatDevtoolsRpcSend, {
+    chatName: chatName.value,
+    text,
+  }))
 }
 
 async function clear() {
   if (!rpc.value) {
     stopDemoReply()
-    messages.value = []
-    queuedDemoText.value = ""
     pending.value = false
-    status.value = connectionHint.value ? "Demo mode" : status.value
+    messages.value = []
     return
   }
 
-  pending.value = true
-  try {
-    applyResult(await rpc.value.call<ChatDevtoolsResult>(chatDevtoolsRpcClear, {
-      chatName: chatName.value,
-    }))
-  }
-  finally {
-    pending.value = false
-  }
+  await runBridge(client => client.call<ChatDevtoolsResult>(chatDevtoolsRpcClear, {
+    chatName: chatName.value,
+  }))
 }
 
 onMounted(async () => {
   try {
     const { connectRemoteDevTools } = await import("@vitejs/devtools-kit/client")
     rpc.value = await connectRemoteDevTools() as DevtoolsRpcClient
+    await rpc.value.ensureTrusted?.()
     await refresh()
   }
   catch (cause) {
-    connectionHint.value = cause instanceof Error ? cause.message : String(cause)
-    status.value = "Demo mode"
-    chats.value = [chatName.value]
+    connectionError.value = cause instanceof Error ? cause.message : String(cause)
   }
   finally {
     connecting.value = false
@@ -185,6 +165,11 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(stopDemoReply)
+
+watch([() => messages.value.length, () => messages.value.at(-1)?.text], async () => {
+  await nextTick()
+  transcriptScrollTop.value = transcript.value?.scrollHeight || 0
+})
 </script>
 
 <template>
@@ -238,11 +223,10 @@ onBeforeUnmount(stopDemoReply)
       />
 
       <UAlert
-        v-if="connectionHint"
-        color="neutral"
-        variant="subtle"
+        v-if="previewMode && connectionError"
         icon="i-lucide-info"
-        description="Open from Vite DevTools to reach the local chat bridge. Direct access uses dummy replies."
+        title="Preview mode"
+        description="Open from Vite DevTools to reach the local chat bridge. The composer below streams a local preview reply."
         class="mb-3"
       />
 
@@ -257,9 +241,6 @@ onBeforeUnmount(stopDemoReply)
         v-else-if="messages.length > 0"
         :messages="uiMessages"
         :status="chatStatus"
-        compact
-        :user="{ side: 'right', variant: 'soft' }"
-        :assistant="{ side: 'left', variant: 'naked' }"
       />
     </section>
 
@@ -270,14 +251,11 @@ onBeforeUnmount(stopDemoReply)
         placeholder="Type a message..."
         aria-label="Message"
         :rows="1"
-        size="sm"
         :maxrows="4"
-        variant="outline"
         @submit="send"
       >
         <UChatPromptSubmit
           :status="chatStatus"
-          size="sm"
           :disabled="!canUseComposer || !draft.trim()"
           aria-label="Send message"
           title="Send message"

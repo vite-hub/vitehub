@@ -9,7 +9,7 @@ import workspaceNitroModule from "./nitro/module.ts"
 import { workspaceSuffixPattern } from "./workspace-config.ts"
 
 import type { NitroModule } from "nitro/types"
-import type { HmrContext, Plugin, ResolvedConfig, ViteDevServer } from "vite"
+import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { WorkspaceBuildState } from "./build-integration.ts"
 import type { WorkspaceModuleOptions } from "./types.ts"
 
@@ -23,9 +23,20 @@ const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
 const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
+const generatedWorkspaceFilesPattern = "**/.vitehub/**"
+
+type WatchIgnored = NonNullable<NonNullable<UserConfig["server"]>["watch"]>["ignored"]
 
 function isWorkspaceFile(file: string) {
   return workspaceSuffixPattern.test(file) || workspacesDirSegment.test(file)
+}
+
+function mergeWatchIgnored(ignored: WatchIgnored): WatchIgnored {
+  if (!ignored) return [generatedWorkspaceFilesPattern]
+  if (Array.isArray(ignored)) {
+    return ignored.includes(generatedWorkspaceFilesPattern) ? ignored : [...ignored, generatedWorkspaceFilesPattern]
+  }
+  return [ignored, generatedWorkspaceFilesPattern] as WatchIgnored
 }
 
 export interface WorkspaceVitePluginAPI {
@@ -71,6 +82,15 @@ export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePl
       getWorkspaces: () => manifest.workspaces,
     },
     nitro: workspaceNitroModule,
+    config(config) {
+      return {
+        server: {
+          watch: {
+            ignored: mergeWatchIgnored(config.server?.watch?.ignored),
+          },
+        },
+      }
+    },
     async configResolved(config) {
       resolved = config
       if (config.command !== "build")

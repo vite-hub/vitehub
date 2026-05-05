@@ -1,4 +1,4 @@
-import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { assertNoVitePluginInNitro, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { normalizeBlobOptions, warnVercelBlobFallback } from "../config.ts"
@@ -6,13 +6,17 @@ import { configureCloudflareR2 } from "../integrations/cloudflare.ts"
 
 import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../types.ts"
 
+const BLOB_VITE_PLUGIN_NAME = "@vitehub/blob/vite"
+
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
 }
 
 const blobNitroModule: NitroModule = {
   name: "@vitehub/blob",
-  setup(nitro) {
+  async setup(nitro) {
+    await assertNoVitePluginInNitro(nitro, BLOB_VITE_PLUGIN_NAME, "@vitehub/blob/nitro")
+
     const resolved = normalizeBlobOptions(nitro.options.blob, {
       env: process.env,
       hosting: nitro.options.preset,

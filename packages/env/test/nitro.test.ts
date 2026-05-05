@@ -1,12 +1,16 @@
-import { mkdtemp, readFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { envNitro, envSource, envVariable } from "../src/nitro.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
+
+const execFileAsync = promisify(execFile)
 
 interface NitroStub {
   hooks: { hook: ReturnType<typeof vi.fn> }
@@ -26,6 +30,9 @@ interface NitroStub {
     plugins?: string[]
     preset?: string
     rootDir: string
+    vite?: {
+      plugins?: unknown
+    }
   }
 }
 
@@ -40,6 +47,7 @@ describe("Nitro module", () => {
   it("writes runtime files, installs aliases, and describes runtime env", async () => {
     process.env.AUTH_SECRET = "a".repeat(32)
     process.env.DATABASE_URL = "https://db.example.com"
+    process.env.PUBLIC_API_BASE = "https://api.example.com"
     process.env.TELEGRAM_BOT_TOKEN = "telegram-secret"
 
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
@@ -59,6 +67,9 @@ describe("Nitro module", () => {
           authSecret: envVariable({ secret: true }),
           databaseUrl: envVariable(),
           optionalApiBase: envVariable({ optional: true, source: envSource.env("PUBLIC_API_BASE") }),
+          public: {
+            apiBase: envVariable({ source: envSource.env("PUBLIC_API_BASE") }),
+          },
           telegram: {
             apiBaseUrl: envVariable({ optional: true }),
             botToken: envVariable({ secret: true }),
@@ -79,6 +90,8 @@ describe("Nitro module", () => {
     expect(nitro.options.handlers).toBeUndefined()
     expect(nitro.options.cloudflare?.wrangler?.secrets?.required).toEqual(["EXISTING_SECRET", "AUTH_SECRET", "TELEGRAM_BOT_TOKEN"])
     expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("env.databaseUrl"))
+    expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("env.public.apiBase"))
+    expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("public runtime transport"))
     expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("env.telegram.botToken"))
 
     const typesHook = nitro.hooks.hook.mock.calls.find(([name]) => name === "types:extend")?.[1]
@@ -88,6 +101,8 @@ describe("Nitro module", () => {
     expect(types).toContain("export interface SafeRuntimeConfig")
     expect(types).toContain("\"databaseUrl\": string")
     expect(types).toContain("\"optionalApiBase\": string | undefined")
+    expect(types).toContain("\"public\": {")
+    expect(types).toContain("\"apiBase\": string")
     expect(types).toContain("\"telegram\": {")
     expect(types).toContain("\"apiBaseUrl\": string | undefined")
     expect(types).toContain("\"botToken\": string")
@@ -96,18 +111,88 @@ describe("Nitro module", () => {
     expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
     expect(types).toContain("declare module \"nitro/types\"")
     expect(types).toContain("export interface NitroRuntimeConfig")
-    expect(types).not.toContain("declare module \"@vitehub/chat\"")
-    expect(types).not.toContain("ChatRuntimeConfig")
-    expect(types).not.toContain("declare module \"@vitehub/chat/nitro\"")
+    expect(types).toContain("declare module \"@vitehub/chat\"")
+    expect(types).toContain("export interface ChatRuntimeConfig")
+    expect(types).toContain("\"botToken\": string")
     expect(types).not.toContain("NitroChatRuntimeConfig")
     expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env.d.ts"))
 
     const registry = await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8")
     expect(registry).toContain("DATABASE_URL")
+    expect(registry).toContain("PUBLIC_API_BASE")
     expect(registry).toContain("TELEGRAM_BOT_TOKEN")
     expect(registry).toContain("\"required\": false")
     expect(registry).not.toContain("aaaaaaaa")
     expect(registry).not.toContain("telegram-secret")
+  })
+
+  it("types defineChat runtime config from generated env declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-chat-types-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          teams: {
+            apiUrl: envVariable({ optional: true }),
+            appId: envVariable({ secret: true }),
+          },
+          vertex: {
+            model: envVariable({ default: "gemini-3.1-pro-preview-customtools" }),
+          },
+        },
+        rootDir: root,
+      },
+    }
+
+    await envNitro().setup(nitro as never)
+    const typesHook = nitro.hooks.hook.mock.calls.find(([name]) => name === "types:extend")?.[1]
+    await typesHook?.({ tsConfig: { include: [] } })
+
+    await writeFile(join(root, "typecheck.ts"), [
+      "import { defineChat } from '@vitehub/chat'",
+      "",
+      "defineChat({",
+      "  adapters({ runtimeConfig }) {",
+      "    const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",
+      "    const appId: string = runtimeConfig.teams.appId",
+      "    const model: string = runtimeConfig.vertex.model",
+      "    void apiUrl",
+      "    void appId",
+      "    void model",
+      "    return {}",
+      "  },",
+      "  state: {} as never,",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({
+      compilerOptions: {
+        allowSyntheticDefaultImports: true,
+        allowImportingTsExtensions: true,
+        baseUrl: root,
+        ignoreDeprecations: "6.0",
+        paths: {
+          "@vitehub/chat": [join(import.meta.dirname, "../../chat/src/index.ts")],
+        },
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        target: "ES2023",
+      },
+      files: [
+        join(root, ".nitro/types/vitehub-env.d.ts"),
+        join(root, "typecheck.ts"),
+      ],
+    }, null, 2))
+
+    await execFileAsync("pnpm", ["exec", "tsc", "--noEmit", "-p", join(root, "tsconfig.json")], {
+      cwd: join(import.meta.dirname, ".."),
+      maxBuffer: 1024 * 1024 * 4,
+    })
   })
 
   it("applies prefixes to inferred Nitro env names and required Cloudflare secrets", async () => {
@@ -134,11 +219,41 @@ describe("Nitro module", () => {
     expect(registry).toContain("VITEHUB_TELEGRAM_BOT_TOKEN")
   })
 
+  it("rejects direct Vite plugin configuration with the Nitro module", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          authSecret: envVariable({ secret: true }),
+        },
+        rootDir: root,
+        vite: {
+          plugins: [{ name: "@vitehub/env/vite" }],
+        },
+      },
+    }
+
+    await expect(envNitro().setup(nitro as never)).rejects.toThrow(
+      "Do not configure @vitehub/env/vite when using @vitehub/env/nitro",
+    )
+  })
+
   it("resolves nested runtime config objects", async () => {
     const { applyEnvRegistryToRuntimeConfig, setEnvRegistry, useSafeRuntimeConfig } = await import("../src/runtime/server.ts")
+    process.env.PUBLIC_API_BASE = "https://api.example.com"
     process.env.TELEGRAM_BOT_TOKEN = "telegram-secret"
 
     setEnvRegistry({
+      public: {
+        apiBase: {
+          required: true,
+          secret: false,
+          source: { kind: "env", label: "env:PUBLIC_API_BASE", name: "PUBLIC_API_BASE", serializable: true },
+        },
+      },
       telegram: {
         apiBaseUrl: {
           required: false,
@@ -162,18 +277,21 @@ describe("Nitro module", () => {
     })
 
     const config = useSafeRuntimeConfig(undefined) as {
+      public: { apiBase: string }
       telegram: { apiBaseUrl?: string, botToken: string }
       vertex: { model: string }
     }
 
     expect(config.telegram.botToken).toBe("telegram-secret")
     expect(config.telegram.apiBaseUrl).toBeUndefined()
+    expect(config.public.apiBase).toBe("https://api.example.com")
     expect(config.vertex.model).toBe("gemini-3.1-pro-preview-customtools")
 
-    const runtimeConfig = { chat: { enabled: true } } as Record<string, unknown>
+    const runtimeConfig = { chat: { enabled: true }, public: { existing: "keep" } } as Record<string, unknown>
     applyEnvRegistryToRuntimeConfig(runtimeConfig)
     expect(runtimeConfig).toMatchObject({
       chat: { enabled: true },
+      public: { apiBase: "https://api.example.com", existing: "keep" },
       telegram: { botToken: "telegram-secret" },
       vertex: { model: "gemini-3.1-pro-preview-customtools" },
     })
