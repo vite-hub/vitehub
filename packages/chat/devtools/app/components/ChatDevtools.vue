@@ -55,9 +55,10 @@ const streamingAssistantMessageId = computed(() => {
   if (!pending.value) return undefined
   return [...messages.value].reverse().find(message => message.author === "assistant")?.id
 })
+const activeAssistantActivityMessageId = computed(() => streamingAssistantMessageId.value)
 const chatStatus = computed<"ready" | "submitted" | "streaming">(() => {
   if (!pending.value) return "ready"
-  return streamingAssistantMessageId.value ? "streaming" : "submitted"
+  return activeAssistantActivityMessageId.value ? "streaming" : "submitted"
 })
 const activityText = computed(() => {
   if (connecting.value) return "Connecting"
@@ -105,6 +106,10 @@ function textPartText(part: unknown): string {
     return part.text
   }
   return ""
+}
+
+function isActiveAssistantActivity(message: { id: string, role: string }) {
+  return pending.value && message.role === "assistant" && message.id === activeAssistantActivityMessageId.value
 }
 
 function stopDemoReply() {
@@ -357,10 +362,19 @@ watch([() => messages.value.length, () => messages.value.at(-1)?.text], async ()
             :key="`${message.id}-${part.type}-${index}`"
           >
             <template v-if="message.role === 'assistant'">
-              <UChatShimmer
-                v-if="message.id === streamingAssistantMessageId && pending"
+              <UChatTool
+                v-if="isActiveAssistantActivity(message)"
+                icon="i-lucide-database-zap"
+                loading
+                streaming
                 :text="textPartText(part)"
-              />
+                variant="card"
+                :ui="{ root: 'my-1 max-w-full', trigger: 'max-w-full', label: 'truncate' }"
+              >
+                <p class="text-xs text-muted">
+                  {{ activityText }}
+                </p>
+              </UChatTool>
               <ChatComark
                 v-else
                 :markdown="textPartText(part)"
