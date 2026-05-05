@@ -189,15 +189,16 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       token,
     ).then((file) => {
       if (file.encoding !== "base64" || typeof file.content !== "string") {
-        throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) received unsupported content for ${JSON.stringify(repoPath)}.`)
+        return fetchRawContent(repoPath, encodedPath, token)
       }
       return new Uint8Array(Buffer.from(file.content, "base64"))
     })
   }
 
-  async function fetchRawContent(repoPath: string, encodedPath: string) {
+  async function fetchRawContent(repoPath: string, encodedPath: string, token = auth) {
     const response = await fetch(`https://raw.githubusercontent.com/${options.repo}/${encodeURIComponent(ref)}/${encodedPath}`, {
       headers: {
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
         "user-agent": "vitehub-workspace",
       },
     })

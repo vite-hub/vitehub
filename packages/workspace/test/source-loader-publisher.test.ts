@@ -216,6 +216,38 @@ describe("sources, loaders, and publishers", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("https://codeload.github.com/"))).toBe(true)
   })
 
+  it("falls back to raw GitHub bytes when the contents API does not return base64", async () => {
+    stubGitHubSource({
+      "metadata.xml": "<metadata />\n",
+    })
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const requestUrl = String(url)
+      if (requestUrl.includes("/git/trees/")) {
+        return jsonResponse({
+          sha: "tree-sha",
+          tree: [{ path: "metadata.xml", type: "blob" }],
+        })
+      }
+      if (requestUrl.includes("/contents/")) {
+        return jsonResponse({ content: "", encoding: "none" })
+      }
+      if (requestUrl.startsWith("https://raw.githubusercontent.com/")) {
+        expect((init?.headers as Record<string, string>).authorization).toBe("Bearer token")
+        return new Response("<metadata />\n")
+      }
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    })
+
+    const githubSource = source.github({
+      auth: "token",
+      repo: "acme/app",
+    })
+
+    const item = await githubSource.getItem("metadata.xml", { rootDir: "", workspace: "github-raw-fallback" })
+
+    expect(Buffer.from(item.content as Uint8Array).toString("utf8")).toBe("<metadata />\n")
+  })
+
   it("loads GitHub file bytes and writes them through the files loader", async () => {
     const root = await createRoot()
     stubGitHubSource({
