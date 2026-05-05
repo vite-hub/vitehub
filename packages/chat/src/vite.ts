@@ -35,7 +35,7 @@ declare module "@vitejs/devtools-kit" {
 const chatPackageName = "@vitehub/chat"
 const mergeNoExternal = createNoExternalMerger(chatPackageName)
 const cloudflareWorkersDevAlias = new URL("./runtime/cloudflare-workers-dev.js", import.meta.url).pathname
-const chatDevtoolsClientDist = new URL("../dist/devtools-client", import.meta.url).pathname
+const chatDevtoolsClientDist = new URL("../devtools/.output/public", import.meta.url).pathname
 const missingDevtoolsWarning = [
   "[vitehub] Chat DevTools requires @vitejs/devtools. Add DevTools() before chatDevtools() in vite.config.ts:",
   "plugins: [DevTools(), chatDevtools(), nitro({ modules: ['@vitehub/chat/nitro'] })]",

@@ -40,11 +40,12 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "devtools/.output/public",
     "dist",
     "package.json"
   ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json && pnpm --dir devtools exec nuxt generate && node scripts/copy-devtools-client.mjs",
+    "build": "tsdown --tsconfig tsconfig.build.json && pnpm --dir devtools exec nuxt generate",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "pnpm --filter @vitehub/chat build && vitest run"
