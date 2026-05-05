@@ -8,6 +8,7 @@ import { gzipSync } from "node:zlib"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectWorkspaceAssetBundle, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
+import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build-integration.ts"
 import { defineWorkspace, loader, publish, registerWorkspace, useWorkspace } from "../src/index.ts"
 import { useRegisteredWorkspace } from "../src/registry.ts"
 import * as source from "../src/source.ts"
@@ -22,6 +23,8 @@ async function createRoot() {
 }
 
 afterEach(async () => {
+  delete process.env.GITHUB_TOKEN
+  delete (globalThis as { __env__?: Record<string, unknown> }).__env__
   vi.unstubAllGlobals()
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -145,6 +148,39 @@ describe("sources, loaders, and publishers", () => {
     ])
   })
 
+  it("resolves GitHub auth lazily from runtime env", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+    process.env.GITHUB_TOKEN = "first-token"
+
+    const githubSource = source.github({ repo: "acme/private" })
+
+    await expect(githubSource.getKeys({ rootDir: "", workspace: "github-auth" })).resolves.toEqual(["docs/README.md"])
+    process.env.GITHUB_TOKEN = "second-token"
+    await expect(githubSource.getKeys({ rootDir: "", workspace: "github-auth" })).resolves.toEqual(["docs/README.md"])
+
+    const treeCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/git/trees/"))
+    expect(treeCalls.map(([, init]) => (init?.headers as Record<string, string>).authorization)).toEqual([
+      "Bearer first-token",
+      "Bearer second-token",
+    ])
+  })
+
+  it("prefers explicit GitHub auth over Cloudflare runtime env", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
+
+    const githubSource = source.github({ auth: "explicit-token", repo: "acme/private" })
+
+    await githubSource.getKeys({ rootDir: "", workspace: "github-auth" })
+
+    const treeCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).includes("/git/trees/"))
+    expect((treeCall?.[1]?.headers as Record<string, string>).authorization).toBe("Bearer explicit-token")
+  })
+
   it("falls back to GitHub archives when the public tree API is rate limited", async () => {
     stubGitHubSource({
       "dbt/models/marts/orders.sql": "select 1\n",
@@ -162,6 +198,22 @@ describe("sources, loaders, and publishers", () => {
     const item = await githubSource.getItem("models/marts/orders.sql", { rootDir: "", workspace: "github-archive" })
     expect(item.key).toBe("models/marts/orders.sql")
     expect(Buffer.from(item.content as Uint8Array).toString("utf8")).toBe("select 1\n")
+  })
+
+  it("falls back to GitHub archives when an env token is rate limited", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    }, { apiStatus: 403 })
+    process.env.GITHUB_TOKEN = "stale-token"
+
+    const githubSource = source.github({
+      repo: "acme/app",
+    })
+
+    await expect(githubSource.getKeys({ rootDir: "", workspace: "github-archive" })).resolves.toEqual([
+      "docs/README.md",
+    ])
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("https://codeload.github.com/"))).toBe(true)
   })
 
   it("loads GitHub file bytes and writes them through the files loader", async () => {
@@ -185,6 +237,123 @@ describe("sources, loaders, and publishers", () => {
     const workspace = useWorkspace("github-loader", { allowWrite: true })
 
     await expect(workspace.fs.readFile("docs/models/marts/orders.sql")).resolves.toBe("select 1\n")
+  })
+
+  it("initializes directory workspace assets for Nitro dev", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "workspaces", "docs")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, ".config.ts"), "export default {}\n")
+    await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
+    await writeFile(join(directory, "README.md"), "# Docs\n")
+    const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
+
+    await initializeWorkspaceAssetRegistry(registryFile, [{
+      handler: join(directory, ".config.ts"),
+      name: "docs",
+      path: join(directory, ".config.ts"),
+      source: "test",
+    }], root)
+
+    const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
+    await expect(registry.docs.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
+    await expect(registry.docs.glob("**/*.md")).resolves.toHaveLength(2)
+  })
+
+  it("keeps one asset bundle when directory workspaces are synced on build", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "workspaces", "docs")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, ".config.mjs"), "export default {}\n")
+    await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
+    const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
+
+    await syncWorkspaceBuildAssets([{
+      handler: join(directory, ".config.mjs"),
+      name: "docs",
+      path: join(directory, ".config.mjs"),
+      source: "test",
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      syncOnBuild: true,
+    }, registryFile)
+
+    const contents = await readFile(registryFile, "utf8")
+    expect(contents.match(/"docs": createWorkspaceAssets/g)).toHaveLength(1)
+    expect(contents.match(/"AGENTS.md"/g)).toHaveLength(1)
+  })
+
+  it("filters directory workspace assets by syncOnBuild", async () => {
+    const root = await createRoot()
+    const selectedDirectory = join(root, "server", "workspaces", "selected")
+    const skippedDirectory = join(root, "server", "workspaces", "skipped")
+    await mkdir(selectedDirectory, { recursive: true })
+    await mkdir(skippedDirectory, { recursive: true })
+    await writeFile(join(selectedDirectory, ".config.mjs"), "export default {}\n")
+    await writeFile(join(selectedDirectory, "AGENTS.md"), "# Selected\n")
+    await writeFile(join(skippedDirectory, ".config.mjs"), "export default {}\n")
+    await writeFile(join(skippedDirectory, "AGENTS.md"), "# Skipped\n")
+    const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
+
+    await syncWorkspaceBuildAssets([{
+      handler: join(selectedDirectory, ".config.mjs"),
+      name: "selected",
+      path: join(selectedDirectory, ".config.mjs"),
+      source: "test",
+    }, {
+      handler: join(skippedDirectory, ".config.mjs"),
+      name: "skipped",
+      path: join(skippedDirectory, ".config.mjs"),
+      source: "test",
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      syncOnBuild: ["selected"],
+    }, registryFile)
+
+    const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
+    await expect(registry.selected.readFile("AGENTS.md")).resolves.toBe("# Selected\n")
+    expect(registry.skipped).toBeUndefined()
+  })
+
+  it("does not fetch lazy sources while syncing build assets", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "workspaces", "docs")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, ".config.mjs"), [
+      "export default {",
+      "  sources: {",
+      "    docs: {",
+      "      materialize: 'lazy',",
+      "      name: 'lazy-test',",
+      "      async getKeys() { throw new Error('lazy source should not be fetched') },",
+      "      async getItem() { throw new Error('lazy source should not be fetched') },",
+      "    },",
+      "  },",
+      "}",
+      "",
+    ].join("\n"))
+    await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
+    const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
+    vi.stubGlobal("fetch", vi.fn(() => {
+      throw new Error("lazy source should not be fetched")
+    }))
+
+    await syncWorkspaceBuildAssets([{
+      handler: join(directory, ".config.mjs"),
+      name: "docs",
+      path: join(directory, ".config.mjs"),
+      source: "test",
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      syncOnBuild: true,
+    }, registryFile)
+
+    expect(fetch).not.toHaveBeenCalled()
+    const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
+    await expect(registry.docs.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
   })
 
   it("reports inaccessible GitHub repositories with a source-specific error", async () => {

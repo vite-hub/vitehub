@@ -31,6 +31,19 @@ afterEach(async () => {
 })
 
 describe("hubWorkspace", () => {
+  it("ignores generated workspace files in the Vite dev watcher", async () => {
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (config: { server?: { watch?: { ignored?: string | string[] } } }) => { server?: { watch?: { ignored?: string[] } } }
+
+    expect(config({}).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
+    expect(config({ server: { watch: { ignored: ["**/node_modules/**"] } } }).server?.watch?.ignored).toEqual([
+      "**/node_modules/**",
+      "**/.vitehub/**",
+    ])
+    expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } } }).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
+  })
+
   it("attaches Nitro, noExternal, and virtual workspace manifests", async () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
