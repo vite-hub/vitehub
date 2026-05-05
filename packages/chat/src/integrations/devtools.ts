@@ -155,14 +155,25 @@ function replaceTranscriptMessage(threadId: string, messageId: string, text: str
   })
 }
 
+function findLatestAssistantMessageForTurn(threadId: string): ChatDevtoolsTranscriptMessage | undefined {
+  const messages = getMessages(chatNameFromThreadId(threadId))
+  const latestUserIndex = messages.findLastIndex(message => message.threadId === threadId && message.author === "user")
+  for (let index = messages.length - 1; index > latestUserIndex; index -= 1) {
+    const message = messages[index]
+    if (message?.threadId === threadId && message.author === "assistant") {
+      return message
+    }
+  }
+}
+
 function addToolTranscriptMessage(threadId: string, text: string): RawMessage<ChatDevtoolsTranscriptMessage> | undefined {
   const tool = parseDevtoolsToolStatus(text)
   if (!tool) return undefined
 
   const chatName = chatNameFromThreadId(threadId)
-  const messageId = typingMessages.get(threadId) || createId("assistant")
+  const messageId = typingMessages.get(threadId) || findLatestAssistantMessageForTurn(threadId)?.id || createId("assistant")
   typingMessages.set(threadId, messageId)
-  const entry = replaceTranscriptMessage(threadId, messageId, "")
+  const entry = getMessages(chatName).find(message => message.id === messageId) || replaceTranscriptMessage(threadId, messageId, "")
   const tools = entry.tools ||= []
   const existing = tools.find(item => item.id === tool.id)
   const next = {
@@ -192,7 +203,8 @@ function createOrUpdateTypingMessage(threadId: string, text: string): RawMessage
 
 function postOrReplaceTypingMessage(threadId: string, message: AdapterPostableMessage): RawMessage<ChatDevtoolsTranscriptMessage> {
   const text = normalizePostableMessage(message)
-  const typingMessageId = typingMessages.get(threadId)
+  const latestAssistant = findLatestAssistantMessageForTurn(threadId)
+  const typingMessageId = typingMessages.get(threadId) || (latestAssistant?.tools?.length ? latestAssistant.id : undefined)
   if (typingMessageId) {
     typingMessages.delete(threadId)
     const entry = replaceTranscriptMessage(threadId, typingMessageId, text)

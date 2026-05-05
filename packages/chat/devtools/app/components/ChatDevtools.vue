@@ -131,6 +131,26 @@ function formatToolDetail(value: unknown): string {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object"
+}
+
+function toolExitCode(tool: NonNullable<ChatDevtoolsTranscriptMessage["tools"]>[number]) {
+  return isRecord(tool.output) && typeof tool.output.exitCode === "number" ? tool.output.exitCode : undefined
+}
+
+function toolStdout(tool: NonNullable<ChatDevtoolsTranscriptMessage["tools"]>[number]) {
+  return isRecord(tool.output) && typeof tool.output.stdout === "string" ? tool.output.stdout.trimEnd() : ""
+}
+
+function toolStderr(tool: NonNullable<ChatDevtoolsTranscriptMessage["tools"]>[number]) {
+  return isRecord(tool.output) && typeof tool.output.stderr === "string" ? tool.output.stderr.trimEnd() : ""
+}
+
+function hasShellOutput(tool: NonNullable<ChatDevtoolsTranscriptMessage["tools"]>[number]) {
+  return toolExitCode(tool) !== undefined || !!toolStdout(tool) || !!toolStderr(tool)
+}
+
 function toolIcon(status: string) {
   if (status === "error") return "i-lucide-circle-alert"
   if (status === "running") return "i-lucide-loader-circle"
@@ -139,6 +159,12 @@ function toolIcon(status: string) {
 
 function toolLoading(status: string) {
   return status === "running"
+}
+
+function toolTone(tool: NonNullable<ChatDevtoolsTranscriptMessage["tools"]>[number]) {
+  if (tool.status === "error" || (toolExitCode(tool) ?? 0) !== 0) return "error"
+  if (tool.status === "running") return "warning"
+  return "success"
 }
 
 function isActiveAssistantActivity(message: { id: string, role: string }) {
@@ -311,7 +337,7 @@ watch([() => messages.value.length, () => messages.value.at(-1)?.text], async ()
   <main
     class="fixed inset-0 flex h-dvh max-h-dvh w-dvw max-w-dvw flex-col overflow-hidden bg-default text-default"
   >
-    <header class="flex h-[50px] shrink-0 items-center justify-between border-b border-default px-3">
+    <header class="flex h-[45px] shrink-0 items-center justify-between border-b border-default px-3">
       <div class="min-w-0">
         <p class="truncate text-sm font-medium">
           ViteHub Chat
@@ -410,27 +436,50 @@ watch([() => messages.value.length, () => messages.value.at(-1)?.text], async ()
                   :loading="toolLoading(tool.status)"
                   :streaming="tool.status === 'running'"
                   :text="tool.text"
-                  variant="inline"
-                  :ui="{ root: 'max-w-full', trigger: 'max-w-full', label: 'truncate', body: 'py-2' }"
+                  variant="card"
+                  :ui="{ root: 'max-w-full', trigger: 'max-w-full', label: 'truncate', body: 'p-0' }"
                 >
-                  <div class="space-y-2 text-xs text-muted">
-                    <div class="grid gap-1">
-                      <span class="font-medium text-default">Tool</span>
-                      <code class="block overflow-x-auto rounded border border-default bg-muted px-2 py-1">{{ tool.name }}</code>
+                  <div
+                    v-if="hasShellOutput(tool)"
+                    class="text-xs"
+                  >
+                    <pre
+                      v-if="toolStdout(tool)"
+                      class="max-h-56 overflow-auto p-2 text-toned whitespace-pre-wrap"
+                    >{{ toolStdout(tool) }}</pre>
+                    <pre
+                      v-else-if="toolStderr(tool)"
+                      class="max-h-40 overflow-auto p-2 text-error whitespace-pre-wrap"
+                    >{{ toolStderr(tool) }}</pre>
+                  </div>
+
+                  <div
+                    v-else
+                    class="space-y-2 p-2 text-xs text-muted"
+                  >
+                    <div class="flex flex-wrap items-center gap-2">
+                      <UBadge
+                        :color="toolTone(tool)"
+                        variant="soft"
+                        size="sm"
+                      >
+                        {{ tool.status }}
+                      </UBadge>
+                      <code class="rounded bg-muted px-1.5 py-0.5 text-toned">{{ tool.name }}</code>
                     </div>
                     <div
                       v-if="formatToolDetail(tool.input)"
                       class="grid gap-1"
                     >
-                      <span class="font-medium text-default">Input</span>
-                      <pre class="max-h-40 overflow-auto rounded border border-default bg-muted px-2 py-1 whitespace-pre-wrap">{{ formatToolDetail(tool.input) }}</pre>
+                      <span>Input</span>
+                      <pre class="max-h-40 overflow-auto rounded bg-muted px-2 py-1.5 text-toned whitespace-pre-wrap">{{ formatToolDetail(tool.input) }}</pre>
                     </div>
                     <div
                       v-if="formatToolDetail(tool.output)"
                       class="grid gap-1"
                     >
-                      <span class="font-medium text-default">Output</span>
-                      <pre class="max-h-56 overflow-auto rounded border border-default bg-muted px-2 py-1 whitespace-pre-wrap">{{ formatToolDetail(tool.output) }}</pre>
+                      <span>Output</span>
+                      <pre class="max-h-56 overflow-auto rounded bg-muted px-2 py-1.5 text-toned whitespace-pre-wrap">{{ formatToolDetail(tool.output) }}</pre>
                     </div>
                   </div>
                 </UChatTool>

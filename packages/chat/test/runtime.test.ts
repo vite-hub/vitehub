@@ -326,6 +326,34 @@ describe("defineChat", () => {
       },
     ])
   })
+
+  it("keeps late DevTools tool activity on the same assistant reply", async () => {
+    const { clearChatDevtoolsTranscript, createChatDevtoolsAdapter, getChatDevtoolsTranscript } = await import("../src/integrations/devtools.ts")
+    clearChatDevtoolsTranscript("runtime-test")
+    const adapter = createChatDevtoolsAdapter("ViteHub Chat", "Thinking...")
+    const threadId = "devtools:runtime-test"
+    await adapter.startTyping(threadId)
+    await adapter.postMessage(threadId, "Done")
+    await adapter.startTyping(threadId, JSON.stringify({
+      id: "tool-1",
+      input: { command: "ls" },
+      name: "shell",
+      output: "AGENTS.md",
+      status: "completed",
+      text: "Ran shell: ls",
+      type: "vitehub.chat.devtools.tool",
+    }))
+
+    const messages = getChatDevtoolsTranscript("runtime-test")
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      author: "assistant",
+      text: "Done",
+      tools: [
+        { input: { command: "ls" }, name: "shell", output: "AGENTS.md", text: "Ran shell: ls" },
+      ],
+    })
+  })
 })
 
 describe("runtime context", () => {
