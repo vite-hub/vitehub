@@ -14,7 +14,7 @@ import type {
   RawMessage,
   ThreadInfo,
 } from "chat"
-import type { ChatDevtoolsTranscriptMessage } from "../devtools.ts"
+import type { ChatDevtoolsTranscriptMessage, ChatDevtoolsTranscriptTool } from "../devtools.ts"
 
 export { chatDevtoolsAdapterName, chatDevtoolsRoute }
 export type { ChatDevtoolsResult, ChatDevtoolsTranscriptMessage } from "../devtools.ts"
@@ -77,6 +77,30 @@ function normalizePostableMessage(message: AdapterPostableMessage): string {
   return "[Unsupported DevTools message]"
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object"
+}
+
+function parseDevtoolsToolStatus(text: string): Omit<ChatDevtoolsTranscriptTool, "timestamp"> | undefined {
+  try {
+    const parsed = JSON.parse(text) as unknown
+    if (!isRecord(parsed) || parsed.type !== "vitehub.chat.devtools.tool") return undefined
+    const name = typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : "tool"
+    const status = parsed.status === "running" || parsed.status === "error" ? parsed.status : "completed"
+    return {
+      id: typeof parsed.id === "string" && parsed.id ? parsed.id : createId("tool"),
+      input: parsed.input,
+      name,
+      output: parsed.output,
+      status,
+      text: typeof parsed.text === "string" && parsed.text.trim() ? parsed.text.trim() : name,
+    }
+  }
+  catch {
+    return undefined
+  }
+}
+
 function createRawMessage(chatName: string, id: string, threadId: string, text: string): RawMessage<ChatDevtoolsTranscriptMessage> {
   const entry = addTranscriptMessage(chatName, {
     author: "assistant",
@@ -131,7 +155,35 @@ function replaceTranscriptMessage(threadId: string, messageId: string, text: str
   })
 }
 
+function addToolTranscriptMessage(threadId: string, text: string): RawMessage<ChatDevtoolsTranscriptMessage> | undefined {
+  const tool = parseDevtoolsToolStatus(text)
+  if (!tool) return undefined
+
+  const chatName = chatNameFromThreadId(threadId)
+  const messageId = typingMessages.get(threadId) || createId("assistant")
+  typingMessages.set(threadId, messageId)
+  const entry = replaceTranscriptMessage(threadId, messageId, "")
+  const tools = entry.tools ||= []
+  const existing = tools.find(item => item.id === tool.id)
+  const next = {
+    ...tool,
+    timestamp: new Date().toISOString(),
+  }
+  if (existing) {
+    Object.assign(existing, next)
+  }
+  else {
+    tools.push(next)
+  }
+  entry.chat = chatName
+  entry.timestamp = next.timestamp
+  return { id: messageId, raw: entry, threadId }
+}
+
 function createOrUpdateTypingMessage(threadId: string, text: string): RawMessage<ChatDevtoolsTranscriptMessage> {
+  const toolMessage = addToolTranscriptMessage(threadId, text)
+  if (toolMessage) return toolMessage
+
   const messageId = typingMessages.get(threadId) || createId("assistant")
   typingMessages.set(threadId, messageId)
   const entry = replaceTranscriptMessage(threadId, messageId, text)

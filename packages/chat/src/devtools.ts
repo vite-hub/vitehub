@@ -8,6 +8,16 @@ export const chatDevtoolsRpcGetState = "@vitehub/chat:get-state"
 export const chatDevtoolsRpcSend = "@vitehub/chat:send"
 export const chatDevtoolsStateKey = "@vitehub/chat:state"
 
+export interface ChatDevtoolsTranscriptTool {
+  id: string
+  input?: unknown
+  name: string
+  output?: unknown
+  status: "running" | "completed" | "error"
+  text: string
+  timestamp: string
+}
+
 export interface ChatDevtoolsTranscriptMessage {
   author: "assistant" | "user"
   chat: string
@@ -15,6 +25,7 @@ export interface ChatDevtoolsTranscriptMessage {
   text: string
   threadId: string
   timestamp: string
+  tools?: ChatDevtoolsTranscriptTool[]
 }
 
 export interface ChatDevtoolsRequest {

@@ -224,7 +224,8 @@ describe("defineChat", () => {
   })
 
   it("sends DevTools messages and records fallback streaming edits", async () => {
-    const { getChatDevtoolsTranscript, submitChatDevtoolsMessage } = await import("../src/integrations/devtools.ts")
+    const { clearChatDevtoolsTranscript, getChatDevtoolsTranscript, submitChatDevtoolsMessage } = await import("../src/integrations/devtools.ts")
+    clearChatDevtoolsTranscript("runtime-test")
     const state = createState()
     state.setIfNotExists.mockResolvedValue(true)
     state.acquireLock.mockResolvedValue({
@@ -265,6 +266,64 @@ describe("defineChat", () => {
     expect(messages).toMatchObject([
       { author: "user", text: "Ping" },
       { author: "assistant", text: "Hello from DevTools" },
+    ])
+  })
+
+  it("records ordered DevTools tool activity on the pending assistant message", async () => {
+    const { clearChatDevtoolsTranscript, getChatDevtoolsTranscript, submitChatDevtoolsMessage } = await import("../src/integrations/devtools.ts")
+    clearChatDevtoolsTranscript("runtime-test")
+    const state = createState()
+    state.setIfNotExists.mockResolvedValue(true)
+    state.acquireLock.mockResolvedValue({
+      expiresAt: Date.now() + 1_000,
+      threadId: "devtools:runtime-test",
+      token: "lock",
+    })
+    state.isSubscribed.mockResolvedValue(false)
+    const tasks: Promise<unknown>[] = []
+    const bot = new Chat({
+      adapters: {},
+      fallbackStreamingPlaceholderText: "Thinking...",
+      state: state as never,
+      streamingUpdateIntervalMs: 1,
+      userName: "ViteHub Chat",
+    })
+    bot.onDirectMessage(async (thread) => {
+      await thread.startTyping(JSON.stringify({
+        id: "tool-1",
+        input: { command: "ls" },
+        name: "shell",
+        output: "AGENTS.md",
+        status: "completed",
+        text: "Ran shell: ls",
+        type: "vitehub.chat.devtools.tool",
+      }))
+      await thread.startTyping(JSON.stringify({
+        id: "tool-2",
+        input: { command: "cat AGENTS.md" },
+        name: "shell",
+        output: "Instructions",
+        status: "completed",
+        text: "Ran shell: cat AGENTS.md",
+        type: "vitehub.chat.devtools.tool",
+      }))
+      await thread.post("Done")
+    })
+
+    await submitChatDevtoolsMessage(bot, "runtime-test", "Ping", task => tasks.push(task))
+    await Promise.allSettled(tasks)
+
+    const messages = getChatDevtoolsTranscript("runtime-test")
+    expect(messages).toMatchObject([
+      { author: "user", text: "Ping" },
+      {
+        author: "assistant",
+        text: "Done",
+        tools: [
+          { input: { command: "ls" }, name: "shell", output: "AGENTS.md", text: "Ran shell: ls" },
+          { input: { command: "cat AGENTS.md" }, name: "shell", output: "Instructions", text: "Ran shell: cat AGENTS.md" },
+        ],
+      },
     ])
   })
 })

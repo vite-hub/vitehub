@@ -25,7 +25,10 @@ type DevtoolsRpcClient = {
 type ChatUiMessage = {
   id: string
   role: "user" | "assistant"
-  parts: Array<{ type: "text", text: string }>
+  parts: Array<
+    | { type: "text", text: string }
+    | { type: "tools", tools: NonNullable<ChatDevtoolsTranscriptMessage["tools"]> }
+  >
 }
 
 const rpc = shallowRef<DevtoolsRpcClient>()
@@ -66,11 +69,20 @@ const activityText = computed(() => {
   if (pending.value) return bridgeStatus.value || "Running"
   return bridgeStatus.value || "Ready"
 })
-const uiMessages = computed<ChatUiMessage[]>(() => messages.value.map(message => ({
-  id: message.id,
-  role: message.author === "user" ? "user" : "assistant",
-  parts: [{ type: "text", text: message.text }],
-})))
+const uiMessages = computed<ChatUiMessage[]>(() => messages.value.map((message) => {
+  const parts: ChatUiMessage["parts"] = []
+  if (message.tools?.length) {
+    parts.push({ type: "tools", tools: message.tools })
+  }
+  if (message.text || !parts.length) {
+    parts.push({ type: "text", text: message.text })
+  }
+  return {
+    id: message.id,
+    role: message.author === "user" ? "user" : "assistant",
+    parts,
+  }
+}))
 
 function applyResult(result: ChatDevtoolsResult) {
   chats.value = result.chats || []
@@ -106,6 +118,27 @@ function textPartText(part: unknown): string {
     return part.text
   }
   return ""
+}
+
+function formatToolDetail(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value === undefined || value === null) return ""
+  try {
+    return JSON.stringify(value, null, 2)
+  }
+  catch {
+    return String(value)
+  }
+}
+
+function toolIcon(status: string) {
+  if (status === "error") return "i-lucide-circle-alert"
+  if (status === "running") return "i-lucide-loader-circle"
+  return "i-lucide-terminal"
+}
+
+function toolLoading(status: string) {
+  return status === "running"
 }
 
 function isActiveAssistantActivity(message: { id: string, role: string }) {
@@ -366,8 +399,44 @@ watch([() => messages.value.length, () => messages.value.at(-1)?.text], async ()
             :key="`${message.id}-${part.type}-${index}`"
           >
             <template v-if="message.role === 'assistant'">
+              <div
+                v-if="part.type === 'tools'"
+                class="my-1 flex max-w-full flex-col gap-1"
+              >
+                <UChatTool
+                  v-for="tool in part.tools"
+                  :key="tool.id"
+                  :icon="toolIcon(tool.status)"
+                  :loading="toolLoading(tool.status)"
+                  :streaming="tool.status === 'running'"
+                  :text="tool.text"
+                  variant="inline"
+                  :ui="{ root: 'max-w-full', trigger: 'max-w-full', label: 'truncate', body: 'py-2' }"
+                >
+                  <div class="space-y-2 text-xs text-muted">
+                    <div class="grid gap-1">
+                      <span class="font-medium text-default">Tool</span>
+                      <code class="block overflow-x-auto rounded border border-default bg-muted px-2 py-1">{{ tool.name }}</code>
+                    </div>
+                    <div
+                      v-if="formatToolDetail(tool.input)"
+                      class="grid gap-1"
+                    >
+                      <span class="font-medium text-default">Input</span>
+                      <pre class="max-h-40 overflow-auto rounded border border-default bg-muted px-2 py-1 whitespace-pre-wrap">{{ formatToolDetail(tool.input) }}</pre>
+                    </div>
+                    <div
+                      v-if="formatToolDetail(tool.output)"
+                      class="grid gap-1"
+                    >
+                      <span class="font-medium text-default">Output</span>
+                      <pre class="max-h-56 overflow-auto rounded border border-default bg-muted px-2 py-1 whitespace-pre-wrap">{{ formatToolDetail(tool.output) }}</pre>
+                    </div>
+                  </div>
+                </UChatTool>
+              </div>
               <UChatTool
-                v-if="isActiveAssistantActivity(message)"
+                v-else-if="isActiveAssistantActivity(message)"
                 icon="i-lucide-database-zap"
                 loading
                 streaming
