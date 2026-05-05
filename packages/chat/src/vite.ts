@@ -140,7 +140,9 @@ function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions
     title: "Chat",
     type: "iframe",
     url: resolveChatDevtoolsUrl(chat),
-    remote: true,
+    remote: {
+      originLock: false,
+    },
   })
   ctx.rpc.register(defineRpcFunction({
     name: chatDevtoolsRpcGetState,

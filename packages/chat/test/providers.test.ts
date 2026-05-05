@@ -261,7 +261,9 @@ describe("Vite plugin", () => {
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
       icon: "ph:chat-duotone",
       id: "@vitehub/chat",
-      remote: true,
+      remote: {
+        originLock: false,
+      },
       title: "Chat",
       type: "iframe",
       url: "https://devtools.vitehub.dev/chat",
