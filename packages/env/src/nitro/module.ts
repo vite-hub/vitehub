@@ -13,6 +13,12 @@ import type { Nitro, NitroModule } from "nitro/types"
 
 export { envSource, envVariable }
 
+const VITE_PLUGIN_NAME = "@vitehub/env/vite"
+
+type EnvVitePluginConfig = {
+  plugins?: unknown
+}
+
 function resolveEntry(srcRelative: string, packageSubpath: string): string {
   return resolveRuntimeEntry(srcRelative, packageSubpath, import.meta.url)
 }
@@ -102,10 +108,26 @@ function resolveTypeName(entry: EnvRegistryEntry): string {
   return entry.required || typeof entry.default !== "undefined" ? "string" : "string | undefined"
 }
 
+function hasEnvVitePlugin(plugin: unknown): boolean {
+  if (Array.isArray(plugin)) {
+    return plugin.some(hasEnvVitePlugin)
+  }
+  return typeof plugin === "object" && plugin !== null && "name" in plugin && plugin.name === VITE_PLUGIN_NAME
+}
+
+function assertNoEnvVitePlugin(nitro: Nitro): void {
+  const options = nitro.options as typeof nitro.options & { vite?: EnvVitePluginConfig }
+  if (hasEnvVitePlugin(options.vite?.plugins)) {
+    throw new Error("[vitehub] Do not configure @vitehub/env/vite when using @vitehub/env/nitro.")
+  }
+}
+
 export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
   return {
     name: "@vitehub/env",
     async setup(nitro) {
+      assertNoEnvVitePlugin(nitro)
+
       const config = (nitro.options as typeof nitro.options & EnvNitroUserConfig).env
       validateEnvConfigShape(config, "nitro")
       const registry = createRuntimeRegistry(config, { prefix: options.prefix })
@@ -194,8 +216,11 @@ function describeRuntimeEntries(
     const source = resolveEnvSource(value, valuePath, prefix)
     const hasRuntimeValue = source.kind === "env" && typeof process.env[source.name] !== "undefined"
     const hasDefault = typeof value.default !== "undefined"
+    const exposure = valuePath === "env.public" || valuePath.startsWith("env.public.")
+      ? "public runtime transport"
+      : "server only"
     return {
-      exposed: value.secret ? "server only, masked" : "server only",
+      exposed: value.secret ? `${exposure}, masked` : exposure,
       key: valuePath,
       masked: value.secret,
       mode: "runtime",
