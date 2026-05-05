@@ -3,19 +3,22 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "nuxt build",
     "deploy": "pnpm build && wrangler deploy",
-    "dev": "vite --host 127.0.0.1 --port 5174",
-    "typecheck": "tsc --noEmit"
+    "dev": "nuxt dev --host 127.0.0.1 --port 5174",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt prepare && vue-tsc --noEmit"
   },
   "dependencies": {
+    "@nuxt/ui": "^4.6.1",
     "@vitehub/chat": "workspace:*",
-    "@vitejs/devtools-kit": "catalog:"
+    "@vitejs/devtools-kit": "catalog:",
+    "nuxt": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260430.0",
     "typescript": "catalog:",
-    "vite": "catalog:",
+    "vue-tsc": "catalog:",
     "wrangler": "^4.87.0"
   }
 }
