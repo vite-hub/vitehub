@@ -2,6 +2,7 @@ import { createError, defineEventHandler, getRouterParam, readBody } from "h3"
 import { createHooks } from "hookable"
 
 import { resolveChat } from "../index.ts"
+import type { ChatDevtoolsRequest, ChatDevtoolsResult } from "../devtools.ts"
 import { clearChatDevtoolsTranscript, getChatDevtoolsTranscript, submitChatDevtoolsMessage } from "../integrations/devtools.ts"
 import { createMemo } from "../runtime/context.ts"
 import { getChatDefinitionLifecycleHooks } from "../runtime/definition.ts"
@@ -212,11 +213,6 @@ export function defineChatWebhookHandler(
 
 type ChatRegistryModule = { default?: ChatInput<NitroChatRuntimeContext> } | ChatInput<NitroChatRuntimeContext>
 type ChatRegistry = Record<string, () => Promise<ChatRegistryModule>>
-interface ChatDevtoolsSendPayload {
-  chatName?: string
-  clear?: boolean
-  text?: string
-}
 
 function resolveRegistryModule(module: ChatRegistryModule): ChatInput<NitroChatRuntimeContext> {
   return typeof module === "object" && module !== null && "default" in module
@@ -293,12 +289,12 @@ export function defineChatDevRegistryInitializer(
   }
 }
 
-async function readChatDevtoolsPayload(event: H3Event): Promise<ChatDevtoolsSendPayload> {
+async function readChatDevtoolsPayload(event: H3Event): Promise<ChatDevtoolsRequest> {
   if (typeof event.req?.json === "function") {
     return await event.req.json().catch(() => ({}))
   }
 
-  return await readBody(event).catch(() => ({})) as ChatDevtoolsSendPayload
+  return await readBody(event).catch(() => ({})) as ChatDevtoolsRequest
 }
 
 function createDevtoolsContext(event: H3Event): NitroChatRuntimeContext & { pendingTasks: Promise<unknown>[] } {
@@ -319,7 +315,7 @@ function createDevtoolsContext(event: H3Event): NitroChatRuntimeContext & { pend
   }
 }
 
-function createChatDevtoolsResult(chatNames: string[], chatName?: string, status = "Ready") {
+function createChatDevtoolsResult(chatNames: string[], chatName?: string, status = "Ready"): ChatDevtoolsResult {
   return {
     chatName,
     chats: chatNames,

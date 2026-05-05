@@ -29,6 +29,7 @@
     ".": "./dist/index.js",
     "./cli": "./dist/cli.js",
     "./cloudflare": "./dist/cloudflare.js",
+    "./devtools": "./dist/devtools.js",
     "./nitro": "./dist/nitro.js",
     "./runtime/cloudflare-workers-dev": "./dist/runtime/cloudflare-workers-dev.js",
     "./runtime/nitro-dev-initialize": "./dist/runtime/nitro-dev-initialize.js",

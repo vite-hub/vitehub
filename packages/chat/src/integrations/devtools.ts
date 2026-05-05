@@ -1,5 +1,7 @@
 import { Message, parseMarkdown, stringifyMarkdown } from "chat"
 
+import { chatDevtoolsAdapterName, chatDevtoolsRoute } from "../devtools.ts"
+
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -12,24 +14,10 @@ import type {
   RawMessage,
   ThreadInfo,
 } from "chat"
+import type { ChatDevtoolsTranscriptMessage } from "../devtools.ts"
 
-export const chatDevtoolsAdapterName = "devtools"
-export const chatDevtoolsRoute = "/__vitehub/chat/devtools"
-
-export interface ChatDevtoolsTranscriptMessage {
-  author: "assistant" | "user"
-  chat: string
-  id: string
-  text: string
-  threadId: string
-  timestamp: string
-}
-
-export interface ChatDevtoolsSendResult {
-  chats: string[]
-  messages: ChatDevtoolsTranscriptMessage[]
-  status: string
-}
+export { chatDevtoolsAdapterName, chatDevtoolsRoute }
+export type { ChatDevtoolsResult, ChatDevtoolsTranscriptMessage } from "../devtools.ts"
 
 const transcript = new Map<string, ChatDevtoolsTranscriptMessage[]>()
 let messageId = 0

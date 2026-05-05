@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@nuxt/content": "catalog:",
+    "@vitehub/chat": "workspace:*",
+    "@vitejs/devtools-kit": "catalog:",
     "docus": "catalog:",
     "h3": "catalog:h3v1",
     "nuxt": "catalog:",

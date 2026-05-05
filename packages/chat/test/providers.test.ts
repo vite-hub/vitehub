@@ -8,21 +8,6 @@ const vercelFunctionsMock = vi.hoisted(() => ({
   waitUntil: vi.fn(),
 }))
 
-const viteDevtoolsMock = vi.hoisted(() => ({
-  context: {
-    docks: {
-      values: vi.fn(() => [{
-        action: { importFrom: "virtual:action" },
-        id: "example",
-        type: "action",
-      }]),
-    },
-  },
-  createDevToolsContext: vi.fn(),
-  createDevToolsMiddleware: vi.fn(),
-  middleware: vi.fn(),
-}))
-
 vi.mock("chat-state-cloudflare-do", () => ({
   ChatStateDO: class ChatStateDO {},
   createCloudflareState: cloudflareStateMock.createCloudflareState,
@@ -32,21 +17,16 @@ vi.mock("@vercel/functions", () => ({
   waitUntil: vercelFunctionsMock.waitUntil,
 }))
 
-vi.mock("@vitejs/devtools", () => ({
-  createDevToolsContext: viteDevtoolsMock.createDevToolsContext,
-  createDevToolsMiddleware: viteDevtoolsMock.createDevToolsMiddleware,
-}))
-
 beforeEach(() => {
   cloudflareStateMock.createCloudflareState.mockClear()
   vercelFunctionsMock.waitUntil.mockClear()
-  viteDevtoolsMock.createDevToolsContext.mockReset()
-  viteDevtoolsMock.createDevToolsMiddleware.mockReset()
-  viteDevtoolsMock.middleware.mockReset()
-  viteDevtoolsMock.context.docks.values.mockClear()
-  viteDevtoolsMock.createDevToolsContext.mockResolvedValue(viteDevtoolsMock.context)
-  viteDevtoolsMock.createDevToolsMiddleware.mockResolvedValue({ middleware: viteDevtoolsMock.middleware })
 })
+
+function runConfigResolved(plugin: { configResolved?: unknown }, config: unknown): void {
+  if (typeof plugin.configResolved === "function") {
+    plugin.configResolved.call({} as never, config as never)
+  }
+}
 
 describe("Cloudflare helpers", () => {
   it("looks up the Durable Object binding from request context", async () => {
@@ -224,66 +204,52 @@ describe("Vite plugin", () => {
     expect(result).toEqual({ chat: { webhook: "/api/webhooks/[platform]" } })
   })
 
-  it("enables Vite DevTools automatically in dev", async () => {
-    const { hubChat } = await import("../src/vite.ts")
-    const plugin = hubChat()
-    const result = typeof plugin.config === "function"
-      ? await plugin.config.call({} as never, {}, { command: "serve", mode: "development" })
-      : undefined
+  it("exposes chatDevtools without Nitro integration", async () => {
+    const { chatDevtools, hubChat } = await import("../src/vite.ts")
 
-    expect(result).toMatchObject({ devtools: { enabled: true } })
+    expect("nitro" in chatDevtools()).toBe(false)
+    expect(hubChat().nitro).toBeTruthy()
   })
 
-  it("mounts the Vite DevTools middleware by default", async () => {
-    const { hubChat } = await import("../src/vite.ts")
-    const plugin = hubChat()
-    const use = vi.fn()
-    const devServer = {
-      config: {
-        plugins: [plugin],
-        root: "/tmp/app",
-        server: { host: "127.0.0.1", port: 5173 },
-      },
-      middlewares: { use },
-    }
+  it("does not mount Vite DevTools middleware", async () => {
+    const { chatDevtools, hubChat } = await import("../src/vite.ts")
 
-    await (plugin.configureServer as (server: unknown) => Promise<void>)(devServer)
-
-    expect(viteDevtoolsMock.createDevToolsContext).toHaveBeenCalledWith(devServer.config, devServer)
-    expect(viteDevtoolsMock.createDevToolsMiddleware).toHaveBeenCalledWith(expect.objectContaining({
-      context: viteDevtoolsMock.context,
-      cwd: "/tmp/app",
-      websocket: { host: "127.0.0.1" },
-    }))
-    expect(use).toHaveBeenCalledWith("/.devtools/", viteDevtoolsMock.middleware)
-    expect((plugin.resolveId as (id: string) => string)("/.devtools-client-imports.js")).toBe("/.devtools-client-imports.js")
-    expect((plugin.load as (id: string) => string)("/.devtools-client-imports.js")).toContain("virtual:action")
+    expect(chatDevtools().configureServer).toBeUndefined()
+    expect(hubChat().configureServer).toBeUndefined()
   })
 
-  it("does not duplicate existing Vite DevTools middleware", async () => {
-    const { hubChat } = await import("../src/vite.ts")
-    const plugin = hubChat()
-    const use = vi.fn()
+  it("warns when Chat DevTools is enabled without Vite DevTools", async () => {
+    const { chatDevtools } = await import("../src/vite.ts")
+    const plugin = chatDevtools()
+    const warn = vi.fn()
 
-    await (plugin.configureServer as (server: unknown) => Promise<void>)({
-      config: {
-        plugins: [{ name: "vite:devtools:server" }],
-        root: "/tmp/app",
-        server: { port: 5173 },
-      },
-      middlewares: { use },
-    } as never)
+    runConfigResolved(plugin, {
+      chat: undefined,
+      logger: { warn },
+      plugins: [plugin],
+    })
 
-    expect(use).not.toHaveBeenCalled()
-    expect(viteDevtoolsMock.createDevToolsContext).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Chat DevTools requires @vitejs/devtools"))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("DevTools(), chatDevtools(), nitro"))
   })
 
-  it("registers the Vite DevTools JSON Render dock by default", async () => {
-    const { hubChat } = await import("../src/vite.ts")
-    const plugin = hubChat()
-    const ui = { updateSpec: vi.fn(), updateState: vi.fn() }
+  it("does not warn when Vite DevTools is already installed", async () => {
+    const { chatDevtools } = await import("../src/vite.ts")
+    const plugin = chatDevtools()
+    const warn = vi.fn()
+
+    runConfigResolved(plugin, {
+      logger: { warn },
+      plugins: [{ name: "vite:devtools:server" }, plugin],
+    })
+
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it("registers the Vite DevTools iframe dock by default", async () => {
+    const { chatDevtools } = await import("../src/vite.ts")
+    const plugin = chatDevtools()
     const ctx = {
-      createJsonRenderer: vi.fn(() => ui),
       docks: { register: vi.fn() },
       rpc: { register: vi.fn() },
       viteConfig: { server: { port: 5173 } },
@@ -292,32 +258,47 @@ describe("Vite plugin", () => {
 
     await plugin.devtools?.setup(ctx as never)
 
-    expect(ctx.createJsonRenderer).toHaveBeenCalledWith(expect.objectContaining({
-      elements: expect.objectContaining({
-        "chat-input": expect.objectContaining({ type: "TextInput" }),
-        "clear-button": expect.objectContaining({ type: "Button" }),
-        "message-input": expect.objectContaining({ type: "TextInput" }),
-        "send-button": expect.objectContaining({ type: "Button" }),
-        transcript: expect.objectContaining({ type: "Stack" }),
-      }),
-      root: "root",
-    }))
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
       icon: "ph:chat-duotone",
       id: "@vitehub/chat",
+      remote: true,
       title: "Chat",
-      type: "json-render",
-      ui,
+      type: "iframe",
+      url: "https://vitehub.dev/playground/chat",
     }))
-    expect(ctx.rpc.register).toHaveBeenCalledTimes(2)
+    expect(ctx.rpc.register).toHaveBeenCalledTimes(3)
+  })
+
+  it("uses configured and environment DevTools iframe URLs", async () => {
+    const { chatDevtools } = await import("../src/vite.ts")
+    const ctx = {
+      docks: { register: vi.fn() },
+      rpc: { register: vi.fn() },
+      viteConfig: { server: { port: 5173 } },
+    }
+
+    await chatDevtools({ dev: { devtools: { url: "https://example.com/chat" } } }).devtools?.setup(ctx as never)
+    expect(ctx.docks.register).toHaveBeenLastCalledWith(expect.objectContaining({
+      url: "https://example.com/chat",
+    }))
+
+    vi.stubEnv("VITEHUB_CHAT_DEVTOOLS_URL", "http://localhost:3000/chat")
+    try {
+      await chatDevtools({ dev: { devtools: { url: "https://example.com/chat" } } }).devtools?.setup(ctx as never)
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+
+    expect(ctx.docks.register).toHaveBeenLastCalledWith(expect.objectContaining({
+      url: "http://localhost:3000/chat",
+    }))
   })
 
   it("sends the selected chat name through the DevTools bridge", async () => {
-    const { hubChat } = await import("../src/vite.ts")
-    const plugin = hubChat()
-    const ui = { updateSpec: vi.fn(), updateState: vi.fn() }
+    const { chatDevtools } = await import("../src/vite.ts")
+    const plugin = chatDevtools()
     const ctx = {
-      createJsonRenderer: vi.fn(() => ui),
       docks: { register: vi.fn() },
       rpc: { register: vi.fn() },
       viteConfig: { server: { port: 5173 } },
@@ -336,10 +317,13 @@ describe("Vite plugin", () => {
       const sendDefinition = ctx.rpc.register.mock.calls
         .map(([definition]) => definition)
         .find(definition => definition.name === "@vitehub/chat:send") as {
-          setup: () => { handler: (params: { chatName?: string, text?: string }) => Promise<void> }
+          setup: () => { handler: (params: { chatName?: string, text?: string }) => Promise<unknown> }
         }
 
-      await sendDefinition.setup().handler({ chatName: "support", text: "hello" })
+      await expect(sendDefinition.setup().handler({ chatName: "support", text: "hello" })).resolves.toMatchObject({
+        chatName: "support",
+        status: "Sent",
+      })
     }
     finally {
       vi.unstubAllGlobals()
@@ -349,18 +333,55 @@ describe("Vite plugin", () => {
       chatName: "support",
       text: "hello",
     })
-    expect(ui.updateSpec).toHaveBeenCalledWith(expect.objectContaining({
-      state: expect.objectContaining({
-        "chat-name": "support",
-      }),
-    }))
+  })
+
+  it("gets and clears state through the DevTools bridge", async () => {
+    const { chatDevtools } = await import("../src/vite.ts")
+    const plugin = chatDevtools()
+    const ctx = {
+      docks: { register: vi.fn() },
+      rpc: { register: vi.fn() },
+      viteConfig: { server: { port: 5173 } },
+      viteServer: { resolvedUrls: { local: ["http://localhost:5173/"] } },
+    }
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const payload = JSON.parse(init.body as string)
+      return new Response(JSON.stringify({
+        chatName: payload.chatName || "chat",
+        chats: ["chat"],
+        messages: [],
+        status: payload.clear ? "Cleared" : "Ready",
+      }), { headers: { "content-type": "application/json" } })
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      await plugin.devtools?.setup(ctx as never)
+      const definitions = ctx.rpc.register.mock.calls.map(([definition]) => definition)
+      const getStateDefinition = definitions.find(definition => definition.name === "@vitehub/chat:get-state") as {
+        setup: () => { handler: (params?: { chatName?: string }) => Promise<unknown> }
+      }
+      const clearDefinition = definitions.find(definition => definition.name === "@vitehub/chat:clear") as {
+        setup: () => { handler: (params?: { chatName?: string }) => Promise<unknown> }
+      }
+
+      await expect(getStateDefinition.setup().handler({ chatName: "chat" })).resolves.toMatchObject({ status: "Ready" })
+      await expect(clearDefinition.setup().handler({ chatName: "chat" })).resolves.toMatchObject({ status: "Cleared" })
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(fetchMock.mock.calls.map(call => JSON.parse(call[1]!.body as string))).toEqual([
+      { chatName: "chat" },
+      { chatName: "chat", clear: true },
+    ])
   })
 
   it("does not register Vite DevTools when disabled", async () => {
-    const { hubChat } = await import("../src/vite.ts")
-    const plugin = hubChat({ dev: { devtools: false } })
+    const { chatDevtools } = await import("../src/vite.ts")
+    const plugin = chatDevtools({ dev: { devtools: false } })
     const ctx = {
-      createJsonRenderer: vi.fn(),
       docks: { register: vi.fn() },
       rpc: { register: vi.fn() },
       viteConfig: { server: { port: 5173 } },
@@ -368,8 +389,20 @@ describe("Vite plugin", () => {
 
     await plugin.devtools?.setup(ctx as never)
 
-    expect(ctx.createJsonRenderer).not.toHaveBeenCalled()
     expect(ctx.docks.register).not.toHaveBeenCalled()
     expect(ctx.rpc.register).not.toHaveBeenCalled()
+  })
+
+  it("does not warn when Chat DevTools is disabled", async () => {
+    const { chatDevtools } = await import("../src/vite.ts")
+    const plugin = chatDevtools({ dev: { devtools: false } })
+    const warn = vi.fn()
+
+    runConfigResolved(plugin, {
+      logger: { warn },
+      plugins: [plugin],
+    })
+
+    expect(warn).not.toHaveBeenCalled()
   })
 })

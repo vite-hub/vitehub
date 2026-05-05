@@ -403,7 +403,9 @@ describe("Nitro module", () => {
 
     expect(nitro.options.runtimeConfig.chat).toMatchObject({
       dev: {
-        devtools: true,
+        devtools: {
+          url: "https://vitehub.dev/playground/chat",
+        },
         initialize: true,
         localStateFallback: true,
       },

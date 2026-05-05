@@ -6,8 +6,8 @@ import { resolve } from "node:path"
 
 import { defaultChatCloudflareDurableObjectName, defaultChatCloudflareDurableObjectState, normalizeChatOptions } from "../config.ts"
 import { discoverChatDefinitions } from "../discovery.ts"
+import { chatDevtoolsRoute } from "../devtools.ts"
 import { configureCloudflareChatState, discoverCloudflareChatStateConfig } from "../integrations/cloudflare.ts"
-import { chatDevtoolsRoute } from "../integrations/devtools.ts"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
 import type { ChatModuleOptions, DiscoveredChatDefinition, ResolvedChatModuleOptions } from "../types.ts"
