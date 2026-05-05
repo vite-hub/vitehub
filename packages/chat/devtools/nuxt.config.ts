@@ -14,6 +14,7 @@ const iframeContentSecurityPolicy = [
 
 export default defineNuxtConfig({
   modules: [ui, vueUse],
+  css: ["~/assets/css/main.css"],
   ssr: false,
   compatibilityDate: "2026-05-05",
   devtools: {
