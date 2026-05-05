@@ -242,7 +242,9 @@ describe("defineChat", () => {
       userName: "ViteHub Chat",
     })
     bot.onDirectMessage(async (thread) => {
+      await thread.startTyping()
       async function* stream() {
+        await new Promise(resolve => setTimeout(resolve, 25))
         yield "Hello "
         yield "from DevTools"
       }
@@ -251,6 +253,12 @@ describe("defineChat", () => {
     })
 
     await submitChatDevtoolsMessage(bot, "runtime-test", "Ping", task => tasks.push(task))
+    await vi.waitFor(() => {
+      expect(getChatDevtoolsTranscript("runtime-test")).toMatchObject([
+        { author: "user", text: "Ping" },
+        { author: "assistant", text: "Thinking..." },
+      ])
+    })
     await Promise.allSettled(tasks)
 
     const messages = getChatDevtoolsTranscript("runtime-test")

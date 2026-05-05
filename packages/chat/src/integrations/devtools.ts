@@ -20,6 +20,7 @@ export { chatDevtoolsAdapterName, chatDevtoolsRoute }
 export type { ChatDevtoolsResult, ChatDevtoolsTranscriptMessage } from "../devtools.ts"
 
 const transcript = new Map<string, ChatDevtoolsTranscriptMessage[]>()
+const typingMessages = new Map<string, string>()
 let messageId = 0
 
 function createId(prefix: string): string {
@@ -130,6 +131,25 @@ function replaceTranscriptMessage(threadId: string, messageId: string, text: str
   })
 }
 
+function createOrUpdateTypingMessage(threadId: string, text: string): RawMessage<ChatDevtoolsTranscriptMessage> {
+  const messageId = typingMessages.get(threadId) || createId("assistant")
+  typingMessages.set(threadId, messageId)
+  const entry = replaceTranscriptMessage(threadId, messageId, text)
+  return { id: messageId, raw: entry, threadId }
+}
+
+function postOrReplaceTypingMessage(threadId: string, message: AdapterPostableMessage): RawMessage<ChatDevtoolsTranscriptMessage> {
+  const text = normalizePostableMessage(message)
+  const typingMessageId = typingMessages.get(threadId)
+  if (typingMessageId) {
+    typingMessages.delete(threadId)
+    const entry = replaceTranscriptMessage(threadId, typingMessageId, text)
+    return { id: typingMessageId, raw: entry, threadId }
+  }
+
+  return createRawMessage(chatNameFromThreadId(threadId), createId("assistant"), threadId, text)
+}
+
 export function getChatDevtoolsTranscript(chatName?: string): ChatDevtoolsTranscriptMessage[] {
   if (chatName) {
     return [...getMessages(chatName)]
@@ -141,13 +161,19 @@ export function getChatDevtoolsTranscript(chatName?: string): ChatDevtoolsTransc
 export function clearChatDevtoolsTranscript(chatName?: string): void {
   if (chatName) {
     transcript.set(chatName, [])
+    for (const [threadId] of typingMessages) {
+      if (chatNameFromThreadId(threadId) === chatName) {
+        typingMessages.delete(threadId)
+      }
+    }
     return
   }
 
   transcript.clear()
+  typingMessages.clear()
 }
 
-export function createChatDevtoolsAdapter(userName: string): Adapter<string, ChatDevtoolsTranscriptMessage> {
+export function createChatDevtoolsAdapter(userName: string, fallbackStreamingPlaceholderText: string | null = "..."): Adapter<string, ChatDevtoolsTranscriptMessage> {
   return {
     addReaction: unsupported,
     channelIdFromThreadId: threadId => threadId,
@@ -175,12 +201,21 @@ export function createChatDevtoolsAdapter(userName: string): Adapter<string, Cha
     isDM: () => true,
     name: chatDevtoolsAdapterName,
     parseMessage: toChatMessage,
-    postMessage: async (threadId, message) => createRawMessage(chatNameFromThreadId(threadId), createId("assistant"), threadId, normalizePostableMessage(message)),
+    postMessage: async (threadId, message) => postOrReplaceTypingMessage(threadId, message),
     removeReaction: unsupported,
     renderFormatted: (content: FormattedContent) => stringifyMarkdown(content),
-    startTyping: async () => {},
+    startTyping: async (threadId, status) => {
+      const text = status ?? fallbackStreamingPlaceholderText
+      if (text !== null) {
+        createOrUpdateTypingMessage(threadId, text)
+      }
+    },
     userName,
   }
+}
+
+function getFallbackStreamingPlaceholderText(bot: Chat): string | null {
+  return (bot as unknown as { _fallbackStreamingPlaceholderText?: string | null })._fallbackStreamingPlaceholderText ?? "..."
 }
 
 export async function submitChatDevtoolsMessage(
@@ -191,7 +226,7 @@ export async function submitChatDevtoolsMessage(
 ): Promise<void> {
   const normalizedChatName = chatName || "chat"
   const threadId = threadIdForChat(normalizedChatName)
-  const adapter = createChatDevtoolsAdapter(bot.getUserName())
+  const adapter = createChatDevtoolsAdapter(bot.getUserName(), getFallbackStreamingPlaceholderText(bot))
   await adapter.initialize(bot)
   await bot.initialize()
 
@@ -201,6 +236,7 @@ export async function submitChatDevtoolsMessage(
     text,
     threadId,
   })
+  await adapter.startTyping(threadId)
   const task = (async () => {
     try {
       const directDispatch = bot as unknown as {
