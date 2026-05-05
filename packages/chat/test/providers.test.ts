@@ -344,9 +344,9 @@ describe("Vite plugin", () => {
 
     const configureServer = plugin.configureServer as (server: unknown) => void
     configureServer({ middlewares: { use } })
-    await use.mock.calls[0][1]({}, response, vi.fn())
+    await use.mock.calls[1][1]({}, response, vi.fn())
 
-    expect(use.mock.calls[0][0]).toBe("/__vitehub/chat/devtools-ui")
+    expect(use.mock.calls[1][0]).toBe("/__vitehub/chat/devtools-ui")
     expect(fetchMock).toHaveBeenCalledWith("https://example.com/chat")
     expect(response.end).toHaveBeenCalledWith(expect.stringContaining(`src="https://example.com/_nuxt/app.js"`))
     expect(response.end).toHaveBeenCalledWith(expect.stringContaining(`cdnURL:"https://example.com"`))

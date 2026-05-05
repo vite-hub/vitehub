@@ -1,6 +1,7 @@
 export const chatDevtoolsAdapterName = "devtools"
 export const chatDevtoolsDefaultUrl = "https://devtools.vitehub.dev/chat"
 export const chatDevtoolsDockId = "@vitehub/chat"
+export const chatDevtoolsLocalAssetsRoute = "/__vitehub/chat/devtools-assets"
 export const chatDevtoolsLocalUiRoute = "/__vitehub/chat/devtools-ui"
 export const chatDevtoolsRoute = "/__vitehub/chat/devtools"
 export const chatDevtoolsRpcClear = "@vitehub/chat:clear"

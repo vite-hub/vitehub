@@ -1,9 +1,13 @@
+import { existsSync, readFileSync } from "node:fs"
+import type { ServerResponse } from "node:http"
+import { extname, join } from "node:path"
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 import { defineRpcFunction } from "@vitejs/devtools-kit"
 
 import { normalizeChatOptions } from "./config.ts"
 import {
   chatDevtoolsDockId,
+  chatDevtoolsLocalAssetsRoute,
   chatDevtoolsLocalUiRoute,
   chatDevtoolsRpcClear,
   chatDevtoolsRpcGetState,
@@ -31,12 +35,23 @@ declare module "@vitejs/devtools-kit" {
 const chatPackageName = "@vitehub/chat"
 const mergeNoExternal = createNoExternalMerger(chatPackageName)
 const cloudflareWorkersDevAlias = new URL("./runtime/cloudflare-workers-dev.js", import.meta.url).pathname
+const chatDevtoolsClientDist = new URL("../dist/devtools-client", import.meta.url).pathname
 const missingDevtoolsWarning = [
   "[vitehub] Chat DevTools requires @vitejs/devtools. Add DevTools() before chatDevtools() in vite.config.ts:",
   "plugins: [DevTools(), chatDevtools(), nitro({ modules: ['@vitehub/chat/nitro'] })]",
 ].join("\n")
 const chatDevtoolsPollingIntervalMs = 100
 const chatDevtoolsMaxPollAttempts = 600
+const chatDevtoolsAssetContentTypes: Record<string, string> = {
+  ".css": "text/css;charset=utf-8",
+  ".html": "text/html;charset=utf-8",
+  ".js": "text/javascript;charset=utf-8",
+  ".json": "application/json;charset=utf-8",
+  ".map": "application/json;charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+}
 
 function isChatDevtoolsEnabled(chat: ChatModuleOptions | false | undefined): boolean {
   const resolved = normalizeChatOptions(chat)
@@ -83,7 +98,50 @@ function rewriteChatDevtoolsHtml(html: string, url: string): string {
     .replace(`cdnURL:""`, `cdnURL:${JSON.stringify(origin)}`)
 }
 
+function rewriteLocalChatDevtoolsHtml(html: string): string {
+  const routeNormalizationScript = `<script>if(location.pathname!=="/chat")history.replaceState(history.state,"","/chat"+location.search+location.hash)</script>`
+  return html
+    .replaceAll(`"/_nuxt/`, `"${chatDevtoolsLocalAssetsRoute}/_nuxt/`)
+    .replaceAll(`'/_nuxt/`, `'${chatDevtoolsLocalAssetsRoute}/_nuxt/`)
+    .replace(/<script type="module"/, `${routeNormalizationScript}<script type="module"`)
+    .replace(`buildAssetsDir:"/_nuxt/"`, `buildAssetsDir:"${chatDevtoolsLocalAssetsRoute}/_nuxt/"`)
+}
+
+function serveLocalChatDevtoolsUi(requestPath: string, response: ServerResponse): boolean {
+  if (!existsSync(chatDevtoolsClientDist)) {
+    return false
+  }
+
+  if (requestPath === chatDevtoolsLocalUiRoute || requestPath === `${chatDevtoolsLocalUiRoute}/chat`) {
+    const indexPath = join(chatDevtoolsClientDist, "index.html")
+    if (!existsSync(indexPath)) return false
+    response.setHeader("cache-control", "no-cache")
+    response.setHeader("content-type", "text/html;charset=utf-8")
+    response.end(rewriteLocalChatDevtoolsHtml(readFileSync(indexPath, "utf8")))
+    return true
+  }
+
+  if (requestPath.startsWith(`${chatDevtoolsLocalAssetsRoute}/`)) {
+    const filePath = join(chatDevtoolsClientDist, requestPath.slice(chatDevtoolsLocalAssetsRoute.length))
+    if (!existsSync(filePath)) return false
+    response.setHeader("cache-control", "public, max-age=31536000, immutable")
+    response.setHeader("content-type", chatDevtoolsAssetContentTypes[extname(filePath)] || "application/octet-stream")
+    response.end(readFileSync(filePath))
+    return true
+  }
+
+  return false
+}
+
 function mountChatDevtoolsUi(server: ViteDevServer, getChat: () => ChatModuleOptions | false | undefined): void {
+  server.middlewares.use((request, response, next) => {
+    const requestPath = request.url?.split("?")[0] || "/"
+    if (serveLocalChatDevtoolsUi(requestPath, response)) {
+      return
+    }
+    next()
+  })
+
   server.middlewares.use(chatDevtoolsLocalUiRoute, async (_request, response, next) => {
     const chat = getChat()
     if (!isChatDevtoolsEnabled(chat)) {
