@@ -20,6 +20,9 @@ export default defineNuxtConfig({
   devtools: {
     enabled: false,
   },
+  alias: {
+    "@vitehub/chat/devtools": "../packages/chat/src/devtools.ts",
+  },
   nitro: {
     prerender: {
       crawlLinks: true,

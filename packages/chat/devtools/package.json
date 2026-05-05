@@ -16,6 +16,7 @@
     "@vitejs/devtools-kit": "catalog:",
     "@vueuse/nuxt": "^14.2.1",
     "nuxt": "catalog:",
+    "tailwindcss": "^4.2.4",
     "vue": "^3.5.32"
   },
   "devDependencies": {

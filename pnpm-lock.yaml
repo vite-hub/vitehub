@@ -329,6 +329,9 @@ importers:
       nuxt:
         specifier: 'catalog:'
         version: 4.4.2(86044f7b22cbb195f513a399a8500081)
+      tailwindcss:
+        specifier: ^4.2.4
+        version: 4.2.4
       vue:
         specifier: ^3.5.32
         version: 3.5.33(typescript@6.0.2)
