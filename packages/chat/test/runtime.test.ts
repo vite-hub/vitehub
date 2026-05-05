@@ -354,6 +354,64 @@ describe("defineChat", () => {
       ],
     })
   })
+
+  it("reports DevTools tool steps with command labels and truncated string output", async () => {
+    const { clearChatDevtoolsTranscript, createChatDevtoolsAdapter, getChatDevtoolsTranscript } = await import("../src/integrations/devtools.ts")
+    const { reportChatDevtoolsToolStep } = await import("../src/devtools.ts")
+    clearChatDevtoolsTranscript("runtime-test")
+    const adapter = createChatDevtoolsAdapter("ViteHub Chat", "Thinking...")
+    const threadId = "devtools:runtime-test"
+    await adapter.startTyping(threadId)
+    await reportChatDevtoolsToolStep({
+      startTyping: async text => await adapter.startTyping(threadId, text),
+    }, {
+      toolResults: [{
+        input: { command: "ls -al" },
+        output: "abcdef",
+        toolCallId: "tool-1",
+        toolName: "shell",
+      }],
+    }, {
+      outputPreviewLength: 4,
+    })
+
+    expect(getChatDevtoolsTranscript("runtime-test")).toMatchObject([
+      {
+        author: "assistant",
+        text: "Thinking...",
+        tools: [
+          { input: { command: "ls -al" }, name: "shell", output: "a...", text: "ls -al" },
+        ],
+      },
+    ])
+  })
+
+  it("posts a chat stream and only emits fallback when no text is streamed", async () => {
+    const { postChatStream } = await import("../src/index.ts")
+    const posted: unknown[] = []
+    const thread = {
+      post: vi.fn(async (message: string | AsyncIterable<unknown>) => {
+        posted.push(message)
+        if (typeof message !== "string") {
+          for await (const _chunk of message) {
+            // consume stream
+          }
+        }
+      }),
+    }
+
+    const textResult = await postChatStream(thread, (async function* () {
+      yield { delta: "Hello", type: "text-delta" }
+    })(), { noTextFallback: "No text" })
+    const emptyResult = await postChatStream(thread, (async function* () {
+      yield { type: "tool-call" }
+    })(), { noTextFallback: "No text" })
+
+    expect(textResult.sawText).toBe(true)
+    expect(emptyResult.sawText).toBe(false)
+    expect(posted.at(-1)).toBe("No text")
+    expect(thread.post).toHaveBeenCalledTimes(3)
+  })
 })
 
 describe("runtime context", () => {
