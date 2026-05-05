@@ -1,3 +1,5 @@
+import ui from "@nuxt/ui"
+import vueUse from "@vueuse/nuxt"
 import { defineNuxtConfig } from "nuxt/config"
 
 const iframeContentSecurityPolicy = [
@@ -11,7 +13,7 @@ const iframeContentSecurityPolicy = [
 ].join("; ")
 
 export default defineNuxtConfig({
-  modules: ["@nuxt/ui", "@vueuse/nuxt"],
+  modules: [ui, vueUse],
   ssr: false,
   compatibilityDate: "2026-05-05",
   devtools: {
