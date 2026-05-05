@@ -1,9 +1,9 @@
-import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { assertNoVitePluginInNitro, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { warnVercelKVFallback } from "../config.ts"
 import { configureCloudflareKV } from "../integrations/cloudflare.ts"
-import { resolveKVViteConfig } from "../vite-config.ts"
+import { KV_VITE_PLUGIN_NAME, resolveKVViteConfig } from "../vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "../types.ts"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
@@ -12,7 +12,9 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
 
 const kvNitroModule: NitroModule = {
   name: "@vitehub/kv",
-  setup(nitro) {
+  async setup(nitro) {
+    await assertNoVitePluginInNitro(nitro, KV_VITE_PLUGIN_NAME, "@vitehub/kv/nitro")
+
     const viteConfig = resolveKVViteConfig(nitro.options.kv, {
       env: process.env,
       hosting: nitro.options.preset,

@@ -15,7 +15,7 @@
     "typecheck": "pnpm --dir docs typecheck && pnpm -r --filter './packages/*' --if-present run typecheck",
     "test:contracts": "vitest run",
     "test": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test",
-    "build": "pnpm -r --filter './packages/*' --if-present run build",
+    "build": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run build",
     "playground:vite:build": "pnpm --dir playground/vite build",
     "docs:dev": "pnpm --dir docs dev",
     "docs:build": "pnpm --dir docs build"

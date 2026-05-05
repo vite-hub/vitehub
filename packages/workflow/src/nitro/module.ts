@@ -3,7 +3,7 @@ import { join, resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { createGeneratedDefinitionPath, createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
 
@@ -13,6 +13,7 @@ import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions } from "../types.ts"
 
 const WORKFLOW_NITRO_IMPORTS_PRESET = { from: "@vitehub/workflow", imports: ["createWorkflow", "deferWorkflow", "defineWorkflow", "getWorkflowRun", "runWorkflow"] }
+const WORKFLOW_VITE_PLUGIN_NAME = "@vitehub/workflow/vite"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
@@ -114,6 +115,8 @@ async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFile
 const workflowNitroModule: NitroModule = {
   name: "@vitehub/workflow",
   async setup(nitro) {
+    await assertNoVitePluginInNitro(nitro, WORKFLOW_VITE_PLUGIN_NAME, "@vitehub/workflow/nitro")
+
     const resolved = normalizeWorkflowOptions(nitro.options.workflow, { hosting: nitro.options.preset })
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
     if (nitro.options.preset) runtimeConfig.hosting ||= nitro.options.preset
