@@ -134,9 +134,12 @@ async function commitSandboxChanges(
     if (entry.after?.type === "file") {
       if (entry.before?.type === "directory")
         await workspace.rm(entry.path, { force: true, recursive: true })
+      const before = entry.before?.type === "file"
+        ? await workspace.stat(entry.path).catch(() => undefined)
+        : undefined
       const file = await readSandboxFile(sandbox, toSandboxPath(entry.path))
       if (file)
-        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType })
+        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType || before?.mediaType })
     }
   }
   await workspace.snapshot({ name: "sandbox-commit" })

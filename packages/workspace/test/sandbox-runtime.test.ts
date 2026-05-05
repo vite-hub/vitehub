@@ -259,6 +259,30 @@ describe("sandbox workspace runtime", () => {
     await expect(workspace.readFile("generated/out.bin", { encoding: "binary" })).resolves.toEqual(output)
   })
 
+  it("preserves media type when committing modified sandbox files", async () => {
+    const fake = createFakeSandbox("cloudflare")
+    const sandboxPackage = await import("@vitehub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "sandbox",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    await workspace.sync()
+    await workspace.writeFile("asset.json", "{\"ok\":false}\n", { mediaType: "application/json" })
+
+    const session = await workspace.open()
+    await session.writeFile("asset.json", "{\"ok\":true}\n")
+    await session.commit()
+
+    await expect(workspace.readFile("asset.json")).resolves.toBe("{\"ok\":true}\n")
+    await expect(workspace.stat("asset.json")).resolves.toEqual(expect.objectContaining({ mediaType: "application/json" }))
+  })
+
   it("scopes sandbox session search by cwd", async () => {
     const fake = createFakeSandbox("cloudflare")
     const sandboxPackage = await import("@vitehub/sandbox")
