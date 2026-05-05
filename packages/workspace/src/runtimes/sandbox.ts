@@ -119,6 +119,7 @@ async function commitSandboxChanges(
   sandbox: SandboxClient,
   workspace: Workspace,
   diff: WorkspaceDiff,
+  mediaTypes: Map<string, string>,
 ) {
   for (const entry of diff.entries) {
     if (entry.after?.type === "directory") {
@@ -139,7 +140,7 @@ async function commitSandboxChanges(
         : undefined
       const file = await readSandboxFile(sandbox, toSandboxPath(entry.path))
       if (file)
-        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType || before?.mediaType })
+        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType || mediaTypes.get(entry.path) || before?.mediaType })
     }
   }
   await workspace.snapshot({ name: "sandbox-commit" })
@@ -178,6 +179,7 @@ export async function createSandboxWorkspaceSession(
 
   const sandbox = await sandboxPackage.createSandboxWithConfig(sandboxConfig)
   let baseline = await materializeWorkspace(workspace, sandbox)
+  const mediaTypes = new Map<string, string>()
   let closed = false
 
   function assertOpen() {
@@ -197,11 +199,16 @@ export async function createSandboxWorkspaceSession(
       if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, options)
     },
-    async writeFile(path: string, content: WorkspaceContent, _options?: WriteFileOptions) {
+    async writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions) {
       assertOpen()
       const target = toSandboxPath(path)
       await ensureSandboxParent(sandbox, target)
       await sandbox.writeFile(target, content)
+      const workspacePath = fromSandboxPath(target)
+      if (options?.mediaType)
+        mediaTypes.set(workspacePath, options.mediaType)
+      else
+        mediaTypes.delete(workspacePath)
     },
     async list(path = "", options = {}) {
       assertOpen()
@@ -234,7 +241,7 @@ export async function createSandboxWorkspaceSession(
     },
     async commit(options) {
       const diff = await currentDiff()
-      await commitSandboxChanges(sandbox, workspace, diff)
+      await commitSandboxChanges(sandbox, workspace, diff, mediaTypes)
       baseline = await snapshotSandbox(sandbox, options?.message || "sandbox-commit")
     },
     async exec(command, args = [], options = {}) {

@@ -283,6 +283,29 @@ describe("sandbox workspace runtime", () => {
     await expect(workspace.stat("asset.json")).resolves.toEqual(expect.objectContaining({ mediaType: "application/json" }))
   })
 
+  it("preserves media type when committing added sandbox files", async () => {
+    const fake = createFakeSandbox("cloudflare")
+    const sandboxPackage = await import("@vitehub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "sandbox",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    await workspace.sync()
+
+    const session = await workspace.open()
+    await session.writeFile("generated/asset.svg", "<svg />\n", { mediaType: "image/svg+xml" })
+    await session.commit()
+
+    await expect(workspace.readFile("generated/asset.svg")).resolves.toBe("<svg />\n")
+    await expect(workspace.stat("generated/asset.svg")).resolves.toEqual(expect.objectContaining({ mediaType: "image/svg+xml" }))
+  })
+
   it("scopes sandbox session search by cwd", async () => {
     const fake = createFakeSandbox("cloudflare")
     const sandboxPackage = await import("@vitehub/sandbox")
