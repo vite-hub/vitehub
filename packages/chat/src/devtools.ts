@@ -6,6 +6,7 @@ export const chatDevtoolsRoute = "/__vitehub/chat/devtools"
 export const chatDevtoolsRpcClear = "@vitehub/chat:clear"
 export const chatDevtoolsRpcGetState = "@vitehub/chat:get-state"
 export const chatDevtoolsRpcSend = "@vitehub/chat:send"
+export const chatDevtoolsStateKey = "@vitehub/chat:state"
 
 export interface ChatDevtoolsTranscriptMessage {
   author: "assistant" | "user"
@@ -19,6 +20,7 @@ export interface ChatDevtoolsTranscriptMessage {
 export interface ChatDevtoolsRequest {
   chatName?: string
   clear?: boolean
+  stream?: boolean
   text?: string
 }
 
@@ -26,7 +28,18 @@ export interface ChatDevtoolsResult {
   chatName?: string
   chats: string[]
   messages: ChatDevtoolsTranscriptMessage[]
+  pending?: boolean
   status: string
+}
+
+export interface ChatDevtoolsState extends ChatDevtoolsResult {
+  pending: boolean
+}
+
+declare module "@vitejs/devtools-kit" {
+  interface DevToolsRpcSharedStates {
+    "@vitehub/chat:state": ChatDevtoolsState
+  }
 }
 
 export interface ChatDevtoolsSendParams {

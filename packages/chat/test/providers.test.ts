@@ -28,6 +28,26 @@ function runConfigResolved(plugin: { configResolved?: unknown }, config: unknown
   }
 }
 
+function createSharedStateMock() {
+  const state = {
+    current: undefined as unknown,
+    mutate: vi.fn((fn: (value: Record<string, unknown>) => void) => fn(state.current as Record<string, unknown>)),
+    on: vi.fn(),
+    value: vi.fn(() => state.current),
+  }
+  return {
+    state,
+    host: {
+      get: vi.fn(async (_key: string, options?: { initialValue?: unknown }) => {
+        if (typeof state.current === "undefined") {
+          state.current = options?.initialValue
+        }
+        return state
+      }),
+    },
+  }
+}
+
 describe("Cloudflare helpers", () => {
   it("looks up the Durable Object binding from request context", async () => {
     const { cloudflareDurableObjectState } = await import("../src/cloudflare.ts")
@@ -249,9 +269,10 @@ describe("Vite plugin", () => {
   it("registers the Vite DevTools iframe dock by default", async () => {
     const { chatDevtools } = await import("../src/vite.ts")
     const plugin = chatDevtools()
+    const sharedState = createSharedStateMock()
     const ctx = {
       docks: { register: vi.fn() },
-      rpc: { register: vi.fn() },
+      rpc: { register: vi.fn(), sharedState: sharedState.host },
       viteConfig: { server: { port: 5173 } },
       viteServer: { resolvedUrls: { local: ["http://localhost:5173/"] } },
     }
@@ -268,14 +289,24 @@ describe("Vite plugin", () => {
       type: "iframe",
       url: "/__vitehub/chat/devtools-ui",
     }))
+    expect(sharedState.host.get).toHaveBeenCalledWith("@vitehub/chat:state", {
+      initialValue: {
+        chatName: undefined,
+        chats: [],
+        messages: [],
+        pending: false,
+        status: "Ready",
+      },
+    })
     expect(ctx.rpc.register).toHaveBeenCalledTimes(3)
   })
 
   it("uses the same-origin shell for configured and environment DevTools iframe URLs", async () => {
     const { chatDevtools } = await import("../src/vite.ts")
+    const sharedState = createSharedStateMock()
     const ctx = {
       docks: { register: vi.fn() },
-      rpc: { register: vi.fn() },
+      rpc: { register: vi.fn(), sharedState: sharedState.host },
       viteConfig: { server: { port: 5173 } },
     }
 
@@ -327,9 +358,10 @@ describe("Vite plugin", () => {
   it("sends the selected chat name through the DevTools bridge", async () => {
     const { chatDevtools } = await import("../src/vite.ts")
     const plugin = chatDevtools()
+    const sharedState = createSharedStateMock()
     const ctx = {
       docks: { register: vi.fn() },
-      rpc: { register: vi.fn() },
+      rpc: { register: vi.fn(), sharedState: sharedState.host },
       viteConfig: { server: { port: 5173 } },
       viteServer: { resolvedUrls: { local: ["http://localhost:5173/"] } },
     }
@@ -360,16 +392,19 @@ describe("Vite plugin", () => {
 
     expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
       chatName: "support",
+      stream: true,
       text: "hello",
     })
+    expect(sharedState.state.mutate).toHaveBeenCalled()
   })
 
   it("gets and clears state through the DevTools bridge", async () => {
     const { chatDevtools } = await import("../src/vite.ts")
     const plugin = chatDevtools()
+    const sharedState = createSharedStateMock()
     const ctx = {
       docks: { register: vi.fn() },
-      rpc: { register: vi.fn() },
+      rpc: { register: vi.fn(), sharedState: sharedState.host },
       viteConfig: { server: { port: 5173 } },
       viteServer: { resolvedUrls: { local: ["http://localhost:5173/"] } },
     }
@@ -405,6 +440,53 @@ describe("Vite plugin", () => {
       { chatName: "chat" },
       { chatName: "chat", clear: true },
     ])
+  })
+
+  it("polls streamed DevTools sends into shared state until complete", async () => {
+    vi.useFakeTimers()
+    const { chatDevtools } = await import("../src/vite.ts")
+    const plugin = chatDevtools()
+    const sharedState = createSharedStateMock()
+    const ctx = {
+      docks: { register: vi.fn() },
+      rpc: { register: vi.fn() },
+      viteConfig: { server: { port: 5173 } },
+      viteServer: { resolvedUrls: { local: ["http://localhost:5173/"] } },
+    }
+    const results = [
+      { chatName: "chat", chats: ["chat"], messages: [{ author: "user", chat: "chat", id: "1", text: "hi", threadId: "devtools:chat", timestamp: "now" }], pending: true, status: "Sending" },
+      { chatName: "chat", chats: ["chat"], messages: [{ author: "assistant", chat: "chat", id: "2", text: "hel", threadId: "devtools:chat", timestamp: "now" }], pending: true, status: "Ready" },
+      { chatName: "chat", chats: ["chat"], messages: [{ author: "assistant", chat: "chat", id: "2", text: "hello", threadId: "devtools:chat", timestamp: "now" }], pending: false, status: "Ready" },
+    ]
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify(results.shift()), { headers: { "content-type": "application/json" } }))
+
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      await plugin.devtools?.setup({ ...ctx, rpc: { ...ctx.rpc, sharedState: sharedState.host } } as never)
+      const sendDefinition = ctx.rpc.register.mock.calls
+        .map(([definition]) => definition)
+        .find(definition => definition.name === "@vitehub/chat:send") as {
+          setup: () => { handler: (params: { chatName?: string, text?: string }) => Promise<unknown> }
+        }
+
+      await expect(sendDefinition.setup().handler({ chatName: "chat", text: "hi" })).resolves.toMatchObject({ pending: true })
+      await vi.advanceTimersByTimeAsync(100)
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+
+    expect(fetchMock.mock.calls.map(call => JSON.parse(call[1]!.body as string))).toEqual([
+      { chatName: "chat", stream: true, text: "hi" },
+      { chatName: "chat" },
+      { chatName: "chat" },
+    ])
+    expect(sharedState.state.current).toMatchObject({
+      messages: [{ text: "hello" }],
+      pending: false,
+    })
   })
 
   it("does not register Vite DevTools when disabled", async () => {

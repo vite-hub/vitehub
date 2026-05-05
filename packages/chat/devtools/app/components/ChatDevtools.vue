@@ -3,13 +3,23 @@ import {
   chatDevtoolsRpcClear,
   chatDevtoolsRpcGetState,
   chatDevtoolsRpcSend,
+  chatDevtoolsStateKey,
   type ChatDevtoolsResult,
+  type ChatDevtoolsState,
   type ChatDevtoolsTranscriptMessage,
 } from "@vitehub/chat/devtools"
+
+type SharedState<T> = {
+  value: () => T
+  on: (event: "updated", handler: (state: T) => void) => (() => void) | void
+}
 
 type DevtoolsRpcClient = {
   call<T>(name: string, params?: Record<string, unknown>): Promise<T>
   ensureTrusted?: () => Promise<boolean>
+  sharedState: {
+    get<T>(key: string): Promise<SharedState<T>>
+  }
 }
 
 type ChatUiMessage = {
@@ -27,6 +37,7 @@ const chatName = ref("chat")
 const chats = ref<string[]>([])
 const messages = ref<ChatDevtoolsTranscriptMessage[]>([])
 const demoReplyTimer = ref<ReturnType<typeof setInterval>>()
+let unsubscribeSharedState: (() => void) | void
 const transcript = useTemplateRef<HTMLElement>("transcript")
 const { y: transcriptScrollTop } = useScroll(transcript, { behavior: "smooth" })
 
@@ -39,6 +50,10 @@ const chatItems = computed(() => {
 })
 const hasMultipleChats = computed(() => chatItems.value.length > 1)
 const chatStatus = computed<"ready" | "submitted">(() => pending.value ? "submitted" : "ready")
+const streamingAssistantMessageId = computed(() => {
+  if (!pending.value) return undefined
+  return [...messages.value].reverse().find(message => message.author === "assistant")?.id
+})
 const uiMessages = computed<ChatUiMessage[]>(() => messages.value.map(message => ({
   id: message.id,
   role: message.author === "user" ? "user" : "assistant",
@@ -49,6 +64,7 @@ function applyResult(result: ChatDevtoolsResult) {
   chats.value = result.chats || []
   chatName.value = result.chatName || result.chats?.[0] || chatName.value || "chat"
   messages.value = result.messages || []
+  pending.value = !!result.pending
 }
 
 function createMessage(author: ChatDevtoolsTranscriptMessage["author"], text: string): ChatDevtoolsTranscriptMessage {
@@ -62,6 +78,13 @@ function createMessage(author: ChatDevtoolsTranscriptMessage["author"], text: st
     threadId: `preview:${chat}`,
     timestamp: new Date().toISOString(),
   }
+}
+
+function textPartText(part: unknown): string {
+  if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+    return part.text
+  }
+  return ""
 }
 
 function stopDemoReply() {
@@ -96,25 +119,32 @@ function streamDemoReply(text: string) {
   }, 18)
 }
 
-async function runBridge(action: (client: DevtoolsRpcClient) => Promise<ChatDevtoolsResult>) {
+function applySharedState(state: ChatDevtoolsState) {
+  applyResult(state)
+}
+
+async function runBridge(action: (client: DevtoolsRpcClient) => Promise<ChatDevtoolsResult>, fallbackPending = true) {
   const client = rpc.value
   if (!client) {
     return
   }
 
-  pending.value = true
+  if (fallbackPending) {
+    pending.value = true
+  }
   try {
     applyResult(await action(client))
   }
-  finally {
+  catch (cause) {
     pending.value = false
+    throw cause
   }
 }
 
 async function refresh() {
   await runBridge(client => client.call<ChatDevtoolsResult>(chatDevtoolsRpcGetState, {
     chatName: chatName.value,
-  }))
+  }), false)
 }
 
 async function send() {
@@ -154,6 +184,9 @@ onMounted(async () => {
     const { connectRemoteDevTools } = await import("@vitejs/devtools-kit/client")
     rpc.value = await connectRemoteDevTools() as DevtoolsRpcClient
     await rpc.value.ensureTrusted?.()
+    const sharedState = await rpc.value.sharedState.get<ChatDevtoolsState>(chatDevtoolsStateKey)
+    applySharedState(sharedState.value())
+    unsubscribeSharedState = sharedState.on("updated", applySharedState)
     await refresh()
   }
   catch (cause) {
@@ -164,7 +197,10 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(stopDemoReply)
+onBeforeUnmount(() => {
+  stopDemoReply()
+  unsubscribeSharedState?.()
+})
 
 watch([() => messages.value.length, () => messages.value.at(-1)?.text], async () => {
   await nextTick()
@@ -241,7 +277,26 @@ watch([() => messages.value.length, () => messages.value.at(-1)?.text], async ()
         v-else-if="messages.length > 0"
         :messages="uiMessages"
         :status="chatStatus"
-      />
+      >
+        <template #content="{ message }">
+          <template
+            v-for="(part, index) in message.parts"
+            :key="`${message.id}-${part.type}-${index}`"
+          >
+            <ChatComark
+              v-if="message.role === 'assistant'"
+              :markdown="textPartText(part)"
+              :streaming="message.id === streamingAssistantMessageId"
+            />
+            <p
+              v-else
+              class="whitespace-pre-wrap"
+            >
+              {{ textPartText(part) }}
+            </p>
+          </template>
+        </template>
+      </UChatMessages>
     </section>
 
     <footer class="shrink-0 p-3">

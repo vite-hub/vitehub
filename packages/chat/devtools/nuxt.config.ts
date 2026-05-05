@@ -1,3 +1,4 @@
+import comark from "@comark/nuxt"
 import ui from "@nuxt/ui"
 import vueUse from "@vueuse/nuxt"
 import { defineNuxtConfig } from "nuxt/config"
@@ -13,7 +14,7 @@ const iframeContentSecurityPolicy = [
 ].join("; ")
 
 export default defineNuxtConfig({
-  modules: [ui, vueUse],
+  modules: [ui, comark, vueUse],
   css: ["~/assets/css/main.css"],
   ssr: false,
   compatibilityDate: "2026-05-05",
@@ -34,7 +35,7 @@ export default defineNuxtConfig({
       collections: ["lucide"],
     },
     clientBundle: {
-      icons: ["lucide:arrow-up", "lucide:info", "lucide:loader-circle", "lucide:square", "lucide:trash-2"],
+      icons: ["lucide:arrow-up", "lucide:copy", "lucide:info", "lucide:loader-circle", "lucide:square", "lucide:trash-2"],
     },
   },
   vite: {

@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { Readable } from "node:stream"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { Chat } from "chat"
 
 const runtimeConfigMock = vi.hoisted(() => ({
   value: {} as Record<string, unknown>,
@@ -70,6 +71,29 @@ function createNitroStub(rootDir: string, chat: unknown = {}) {
       runtimeConfig: {} as Record<string, unknown>,
     },
     testHooks: hooks,
+  }
+}
+
+function createState() {
+  return {
+    acquireLock: vi.fn(),
+    appendToList: vi.fn(),
+    connect: vi.fn(),
+    delete: vi.fn(),
+    dequeue: vi.fn(),
+    disconnect: vi.fn(),
+    enqueue: vi.fn(),
+    extendLock: vi.fn(),
+    forceReleaseLock: vi.fn(),
+    get: vi.fn(),
+    getList: vi.fn(),
+    isSubscribed: vi.fn(),
+    queueDepth: vi.fn(),
+    releaseLock: vi.fn(),
+    set: vi.fn(),
+    setIfNotExists: vi.fn(),
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
   }
 }
 
@@ -333,6 +357,62 @@ describe("defineChatWebhookHandler", () => {
 
     expect(adapters).toHaveBeenCalledTimes(1)
     expect(initialize).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns pending DevTools transcript state for streamed sends", async () => {
+    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
+    const state = createState()
+    state.setIfNotExists.mockResolvedValue(true)
+    state.acquireLock.mockResolvedValue({
+      expiresAt: Date.now() + 1_000,
+      threadId: "devtools:chat",
+      token: "lock",
+    })
+    state.isSubscribed.mockResolvedValue(false)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bot = new Chat({
+      adapters: {},
+      fallbackStreamingPlaceholderText: "Thinking...",
+      state: state as never,
+      streamingUpdateIntervalMs: 1,
+      userName: "ViteHub Chat",
+    })
+    bot.onDirectMessage(async (thread) => {
+      async function* stream() {
+        yield "Hel"
+        await gate
+        yield "lo"
+      }
+
+      await thread.post(stream())
+    })
+    const handler = defineChatDevtoolsHandler(bot)
+    const createDevtoolsEvent = (body: unknown) => ({
+      context: {},
+      req: new Request("https://example.com/__vitehub/chat/devtools", {
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    })
+
+    const first = await handler(createDevtoolsEvent({ stream: true, text: "Hi" }) as never) as unknown as { pending?: boolean, messages: Array<{ text: string }> }
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const pending = await handler(createDevtoolsEvent({}) as never) as unknown as { pending?: boolean, messages: Array<{ text: string }> }
+    release()
+    await vi.waitFor(async () => {
+      const complete = await handler(createDevtoolsEvent({}) as never) as unknown as { pending?: boolean, messages: Array<{ text: string }> }
+      expect(complete.pending).toBe(false)
+      expect(complete.messages.at(-1)?.text).toBe("Hello")
+    })
+
+    expect(first.pending).toBe(true)
+    expect(pending.pending).toBe(true)
+    expect(pending.messages.at(-1)?.text).toContain("Hel")
   })
 })
 

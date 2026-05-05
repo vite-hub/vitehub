@@ -9,13 +9,14 @@ import {
   chatDevtoolsRpcGetState,
   chatDevtoolsRpcSend,
   chatDevtoolsRoute,
+  chatDevtoolsStateKey,
 } from "./devtools.ts"
 import chatNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
 import type { PluginWithDevTools, ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
 import type { ResolvedConfig, UserConfig, ViteDevServer } from "vite"
-import type { ChatDevtoolsChatParams, ChatDevtoolsRequest, ChatDevtoolsResult, ChatDevtoolsSendParams } from "./devtools.ts"
+import type { ChatDevtoolsChatParams, ChatDevtoolsRequest, ChatDevtoolsResult, ChatDevtoolsSendParams, ChatDevtoolsState } from "./devtools.ts"
 import type { ChatModuleOptions } from "./types.ts"
 
 export type ChatVitePlugin = PluginWithDevTools & { nitro: NitroModule }
@@ -28,6 +29,7 @@ const missingDevtoolsWarning = [
   "[vitehub] Chat DevTools requires @vitejs/devtools. Add DevTools() before chatDevtools() in vite.config.ts:",
   "plugins: [DevTools(), chatDevtools(), nitro({ modules: ['@vitehub/chat/nitro'] })]",
 ].join("\n")
+const chatDevtoolsPollingIntervalMs = 100
 
 function isChatDevtoolsEnabled(chat: ChatModuleOptions | false | undefined): boolean {
   const resolved = normalizeChatOptions(chat)
@@ -162,16 +164,72 @@ async function postChatDevtoolsPayload(baseUrls: string[], payload: ChatDevtools
       threadId: "devtools:chat",
       timestamp: new Date().toISOString(),
     }],
+    pending: false,
     status: "Connection failed",
   }
 }
 
-function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions | false | undefined): void {
+function createChatDevtoolsState(result?: ChatDevtoolsResult): ChatDevtoolsState {
+  return {
+    chatName: result?.chatName,
+    chats: result?.chats || [],
+    messages: result?.messages || [],
+    pending: !!result?.pending,
+    status: result?.status || "Ready",
+  }
+}
+
+function updateChatDevtoolsState(state: { mutate: (fn: (draft: ChatDevtoolsState) => void) => void }, result: ChatDevtoolsResult): ChatDevtoolsState {
+  const next = createChatDevtoolsState(result)
+  state.mutate((draft) => {
+    draft.chatName = next.chatName
+    draft.chats = next.chats
+    draft.messages = next.messages
+    draft.pending = next.pending
+    draft.status = next.status
+  })
+  return next
+}
+
+async function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions | false | undefined): Promise<void> {
   if (!isChatDevtoolsEnabled(chat)) {
     return
   }
 
   const baseUrls = getDevtoolsBaseUrls(ctx)
+  const sharedState = await ctx.rpc.sharedState.get(chatDevtoolsStateKey, {
+    initialValue: createChatDevtoolsState(),
+  })
+  const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const normalizeChatName = (chatName: string) => chatName || "chat"
+  const stopPolling = (chatName: string) => {
+    const key = normalizeChatName(chatName)
+    const timer = pollTimers.get(key)
+    if (timer) {
+      clearTimeout(timer)
+      pollTimers.delete(key)
+    }
+  }
+  const refreshSharedState = async (payload: ChatDevtoolsRequest): Promise<ChatDevtoolsState> => {
+    const result = await postChatDevtoolsPayload(baseUrls, payload)
+    return updateChatDevtoolsState(sharedState, result)
+  }
+  const schedulePolling = (chatName: string) => {
+    const key = normalizeChatName(chatName)
+    stopPolling(key)
+    const timer = setTimeout(async () => {
+      try {
+        const next = await refreshSharedState({ chatName: key })
+        if (next.pending) {
+          schedulePolling(key)
+        }
+      }
+      catch {
+        stopPolling(key)
+      }
+    }, chatDevtoolsPollingIntervalMs)
+    pollTimers.set(key, timer)
+  }
   ctx.docks.register({
     icon: "ph:chat-duotone",
     id: chatDevtoolsDockId,
@@ -189,7 +247,11 @@ function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions
     setup: () => ({
       handler: async (params: ChatDevtoolsChatParams = {}) => {
         const chatName = typeof params.chatName === "string" ? params.chatName.trim() : ""
-        return await postChatDevtoolsPayload(baseUrls, { chatName })
+        const result = await refreshSharedState({ chatName })
+        if (result.pending) {
+          schedulePolling(result.chatName || chatName)
+        }
+        return result
       },
     }),
   }) as never)
@@ -202,10 +264,14 @@ function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions
         const chatName = typeof params.chatName === "string" ? params.chatName.trim() : ""
         const text = typeof params.text === "string" ? params.text : ""
         if (!text.trim()) {
-          return await postChatDevtoolsPayload(baseUrls, { chatName })
+          return await refreshSharedState({ chatName })
         }
 
-        return await postChatDevtoolsPayload(baseUrls, { chatName, text })
+        const result = await refreshSharedState({ chatName, stream: true, text })
+        if (result.pending) {
+          schedulePolling(result.chatName || chatName)
+        }
+        return result
       },
     }),
   }) as never)
@@ -216,7 +282,8 @@ function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions
     setup: () => ({
       handler: async (params: ChatDevtoolsChatParams = {}) => {
         const chatName = typeof params.chatName === "string" ? params.chatName.trim() : ""
-        return await postChatDevtoolsPayload(baseUrls, { chatName, clear: true })
+        stopPolling(chatName)
+        return await refreshSharedState({ chatName, clear: true })
       },
     }),
   }) as never)
@@ -229,7 +296,7 @@ export function chatDevtools(options?: ChatModuleOptions): ChatDevtoolsVitePlugi
     name: "@vitehub/chat/devtools",
     devtools: {
       setup(ctx) {
-        setupChatDevtools(ctx, chat)
+        return setupChatDevtools(ctx, chat)
       },
     },
     configResolved(config) {
@@ -250,7 +317,7 @@ export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
     nitro: chatNitroModule,
     devtools: {
       setup(ctx) {
-        setupChatDevtools(ctx, chat)
+        return setupChatDevtools(ctx, chat)
       },
     },
     config(config, env) {

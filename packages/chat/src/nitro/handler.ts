@@ -27,6 +27,7 @@ type WebhookHandler = (request: Request, options?: WebhookOptions) => unknown
 
 type RequestInitWithDuplex = RequestInit & { duplex?: "half" }
 type RequestHeaders = NonNullable<RequestInit["headers"]>
+const pendingDevtoolsTasks = new Map<string, Promise<unknown>>()
 
 interface RequestLike {
   body?: RequestInit["body"] | null
@@ -315,11 +316,30 @@ function createDevtoolsContext(event: H3Event): NitroChatRuntimeContext & { pend
   }
 }
 
+function isChatDevtoolsPending(chatName?: string): boolean {
+  return pendingDevtoolsTasks.has(chatName || "chat")
+}
+
+function trackChatDevtoolsTasks(chatName: string, tasks: Promise<unknown>[]): void {
+  if (tasks.length === 0) {
+    return
+  }
+
+  const key = chatName || "chat"
+  const task = Promise.allSettled(tasks).finally(() => {
+    if (pendingDevtoolsTasks.get(key) === task) {
+      pendingDevtoolsTasks.delete(key)
+    }
+  })
+  pendingDevtoolsTasks.set(key, task)
+}
+
 function createChatDevtoolsResult(chatNames: string[], chatName?: string, status = "Ready"): ChatDevtoolsResult {
   return {
     chatName,
     chats: chatNames,
     messages: getChatDevtoolsTranscript(chatName),
+    pending: isChatDevtoolsPending(chatName),
     status,
   }
 }
@@ -334,6 +354,7 @@ export function defineChatDevtoolsHandler(
     const chatName = options.inferredName || "chat"
     if (payload.clear) {
       clearChatDevtoolsTranscript(chatName)
+      pendingDevtoolsTasks.delete(chatName)
       return createChatDevtoolsResult([chatName], chatName, "Cleared")
     }
     if (!text) {
@@ -343,6 +364,11 @@ export function defineChatDevtoolsHandler(
     const context = createDevtoolsContext(event)
     const bot = await resolveChat(chat, context, { inferredName: chatName })
     await submitChatDevtoolsMessage(bot, chatName, text, context.waitUntil)
+    if (payload.stream) {
+      trackChatDevtoolsTasks(chatName, context.pendingTasks)
+      return createChatDevtoolsResult([chatName], chatName, "Sending")
+    }
+
     await Promise.allSettled(context.pendingTasks)
     return createChatDevtoolsResult([chatName], chatName, "Sent")
   })
@@ -360,6 +386,7 @@ export function defineChatDevtoolsRegistryHandler(
     }
     if (payload.clear) {
       clearChatDevtoolsTranscript(chatName)
+      pendingDevtoolsTasks.delete(chatName)
       return createChatDevtoolsResult(chatNames, chatName, "Cleared")
     }
 
@@ -372,6 +399,11 @@ export function defineChatDevtoolsRegistryHandler(
     const chat = resolveRegistryModule(await chats[chatName]!())
     const bot = await resolveChat(chat, context, { inferredName: chatName })
     await submitChatDevtoolsMessage(bot, chatName, text, context.waitUntil)
+    if (payload.stream) {
+      trackChatDevtoolsTasks(chatName, context.pendingTasks)
+      return createChatDevtoolsResult(chatNames, chatName, "Sending")
+    }
+
     await Promise.allSettled(context.pendingTasks)
     return createChatDevtoolsResult(chatNames, chatName, "Sent")
   })
