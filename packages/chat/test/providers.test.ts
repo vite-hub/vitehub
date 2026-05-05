@@ -489,6 +489,53 @@ describe("Vite plugin", () => {
     })
   })
 
+  it("keeps polling after a send while the latest message is still from the user", async () => {
+    vi.useFakeTimers()
+    const { chatDevtools } = await import("../src/vite.ts")
+    const plugin = chatDevtools()
+    const sharedState = createSharedStateMock()
+    const ctx = {
+      docks: { register: vi.fn() },
+      rpc: { register: vi.fn() },
+      viteConfig: { server: { port: 5173 } },
+      viteServer: { resolvedUrls: { local: ["http://localhost:5173/"] } },
+    }
+    const results = [
+      { chatName: "chat", chats: ["chat"], messages: [{ author: "user", chat: "chat", id: "1", text: "hi", threadId: "devtools:chat", timestamp: "now" }], pending: false, status: "Sent" },
+      { chatName: "chat", chats: ["chat"], messages: [{ author: "user", chat: "chat", id: "1", text: "hi", threadId: "devtools:chat", timestamp: "now" }], pending: false, status: "Ready" },
+      { chatName: "chat", chats: ["chat"], messages: [{ author: "assistant", chat: "chat", id: "2", text: "hello", threadId: "devtools:chat", timestamp: "now" }], pending: false, status: "Ready" },
+    ]
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify(results.shift()), { headers: { "content-type": "application/json" } }))
+
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      await plugin.devtools?.setup({ ...ctx, rpc: { ...ctx.rpc, sharedState: sharedState.host } } as never)
+      const sendDefinition = ctx.rpc.register.mock.calls
+        .map(([definition]) => definition)
+        .find(definition => definition.name === "@vitehub/chat:send") as {
+          setup: () => { handler: (params: { chatName?: string, text?: string }) => Promise<unknown> }
+        }
+
+      await expect(sendDefinition.setup().handler({ chatName: "chat", text: "hi" })).resolves.toMatchObject({ pending: false })
+      await vi.advanceTimersByTimeAsync(100)
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+
+    expect(fetchMock.mock.calls.map(call => JSON.parse(call[1]!.body as string))).toEqual([
+      { chatName: "chat", stream: true, text: "hi" },
+      { chatName: "chat" },
+      { chatName: "chat" },
+    ])
+    expect(sharedState.state.current).toMatchObject({
+      messages: [{ text: "hello" }],
+      pending: false,
+    })
+  })
+
   it("does not register Vite DevTools when disabled", async () => {
     const { chatDevtools } = await import("../src/vite.ts")
     const plugin = chatDevtools({ dev: { devtools: false } })

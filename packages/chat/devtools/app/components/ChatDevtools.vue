@@ -37,6 +37,7 @@ const chatName = ref("chat")
 const chats = ref<string[]>([])
 const messages = ref<ChatDevtoolsTranscriptMessage[]>([])
 const demoReplyTimer = ref<ReturnType<typeof setInterval>>()
+const bridgePollTimer = ref<ReturnType<typeof setTimeout>>()
 let unsubscribeSharedState: (() => void) | void
 const transcript = useTemplateRef<HTMLElement>("transcript")
 const { y: transcriptScrollTop } = useScroll(transcript, { behavior: "smooth" })
@@ -67,6 +68,14 @@ function applyResult(result: ChatDevtoolsResult) {
   pending.value = !!result.pending
 }
 
+function shouldPollBridge() {
+  if (pending.value) {
+    return true
+  }
+
+  return messages.value.at(-1)?.author === "user"
+}
+
 function createMessage(author: ChatDevtoolsTranscriptMessage["author"], text: string): ChatDevtoolsTranscriptMessage {
   const chat = chatName.value || "chat"
 
@@ -91,6 +100,31 @@ function stopDemoReply() {
   if (!demoReplyTimer.value) return
   clearInterval(demoReplyTimer.value)
   demoReplyTimer.value = undefined
+}
+
+function stopBridgePolling() {
+  if (!bridgePollTimer.value) return
+  clearTimeout(bridgePollTimer.value)
+  bridgePollTimer.value = undefined
+}
+
+function scheduleBridgePolling(attemptsRemaining = 600) {
+  stopBridgePolling()
+  if (attemptsRemaining <= 0 || !rpc.value) {
+    return
+  }
+
+  bridgePollTimer.value = setTimeout(async () => {
+    try {
+      await refresh()
+      if (shouldPollBridge()) {
+        scheduleBridgePolling(attemptsRemaining - 1)
+      }
+    }
+    catch {
+      stopBridgePolling()
+    }
+  }, 100)
 }
 
 function streamDemoReply(text: string) {
@@ -160,10 +194,15 @@ async function send() {
     return
   }
 
+  messages.value = [...messages.value, createMessage("user", text)]
+  pending.value = true
   await runBridge(client => client.call<ChatDevtoolsResult>(chatDevtoolsRpcSend, {
     chatName: chatName.value,
     text,
-  }))
+  }), false)
+  if (shouldPollBridge()) {
+    scheduleBridgePolling()
+  }
 }
 
 async function clear() {
@@ -174,6 +213,7 @@ async function clear() {
     return
   }
 
+  stopBridgePolling()
   await runBridge(client => client.call<ChatDevtoolsResult>(chatDevtoolsRpcClear, {
     chatName: chatName.value,
   }))
@@ -188,6 +228,9 @@ onMounted(async () => {
     applySharedState(sharedState.value())
     unsubscribeSharedState = sharedState.on("updated", applySharedState)
     await refresh()
+    if (shouldPollBridge()) {
+      scheduleBridgePolling()
+    }
   }
   catch (cause) {
     connectionError.value = cause instanceof Error ? cause.message : String(cause)
@@ -199,6 +242,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   stopDemoReply()
+  stopBridgePolling()
   unsubscribeSharedState?.()
 })
 

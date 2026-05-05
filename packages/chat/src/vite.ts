@@ -30,6 +30,7 @@ const missingDevtoolsWarning = [
   "plugins: [DevTools(), chatDevtools(), nitro({ modules: ['@vitehub/chat/nitro'] })]",
 ].join("\n")
 const chatDevtoolsPollingIntervalMs = 100
+const chatDevtoolsMaxPollAttempts = 600
 
 function isChatDevtoolsEnabled(chat: ChatModuleOptions | false | undefined): boolean {
   const resolved = normalizeChatOptions(chat)
@@ -191,6 +192,14 @@ function updateChatDevtoolsState(state: { mutate: (fn: (draft: ChatDevtoolsState
   return next
 }
 
+function shouldPollChatDevtoolsState(state: ChatDevtoolsState): boolean {
+  if (state.pending) {
+    return true
+  }
+
+  return state.messages.at(-1)?.author === "user"
+}
+
 async function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions | false | undefined): Promise<void> {
   if (!isChatDevtoolsEnabled(chat)) {
     return
@@ -214,14 +223,17 @@ async function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleO
     const result = await postChatDevtoolsPayload(baseUrls, payload)
     return updateChatDevtoolsState(sharedState, result)
   }
-  const schedulePolling = (chatName: string) => {
+  const schedulePolling = (chatName: string, attemptsRemaining = chatDevtoolsMaxPollAttempts) => {
     const key = normalizeChatName(chatName)
     stopPolling(key)
+    if (attemptsRemaining <= 0) {
+      return
+    }
     const timer = setTimeout(async () => {
       try {
         const next = await refreshSharedState({ chatName: key })
-        if (next.pending) {
-          schedulePolling(key)
+        if (shouldPollChatDevtoolsState(next)) {
+          schedulePolling(key, attemptsRemaining - 1)
         }
       }
       catch {
@@ -248,7 +260,7 @@ async function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleO
       handler: async (params: ChatDevtoolsChatParams = {}) => {
         const chatName = typeof params.chatName === "string" ? params.chatName.trim() : ""
         const result = await refreshSharedState({ chatName })
-        if (result.pending) {
+        if (shouldPollChatDevtoolsState(result)) {
           schedulePolling(result.chatName || chatName)
         }
         return result
@@ -268,7 +280,7 @@ async function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleO
         }
 
         const result = await refreshSharedState({ chatName, stream: true, text })
-        if (result.pending) {
+        if (shouldPollChatDevtoolsState(result)) {
           schedulePolling(result.chatName || chatName)
         }
         return result
