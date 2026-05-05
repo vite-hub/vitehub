@@ -1,0 +1,21 @@
+{
+  "name": "@vitehub/chat-devtools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "deploy": "pnpm build && wrangler deploy",
+    "dev": "vite --host 127.0.0.1 --port 5174",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vitehub/chat": "workspace:*",
+    "@vitejs/devtools-kit": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260430.0",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "wrangler": "^4.87.0"
+  }
+}

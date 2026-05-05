@@ -264,7 +264,7 @@ describe("Vite plugin", () => {
       remote: true,
       title: "Chat",
       type: "iframe",
-      url: "https://vitehub.dev/playground/chat",
+      url: "https://devtools.vitehub.dev/chat",
     }))
     expect(ctx.rpc.register).toHaveBeenCalledTimes(3)
   })
