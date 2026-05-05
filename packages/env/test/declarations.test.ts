@@ -84,17 +84,23 @@ describe("env declarations", () => {
     }, "vite")).toThrow("Invalid declaration")
   })
 
-  it("rejects nested Nitro server and public buckets", () => {
+  it("rejects nested Nitro server buckets", () => {
     expect(() => validateEnvConfigShape({
       server: envVariable(),
     }, "nitro")).toThrow("`env.server` is not available")
-    expect(() => validateEnvConfigShape({
-      public: envVariable(),
-    }, "nitro")).toThrow("`env.public` is not available")
   })
 
-  it("accepts nested Nitro runtime declaration groups", () => {
+  it("rejects scalar Nitro public runtime declarations", () => {
     expect(() => validateEnvConfigShape({
+      public: envVariable(),
+    }, "nitro")).toThrow("Invalid declaration at env.public")
+  })
+
+  it("accepts nested Nitro runtime declaration groups and public runtime transport", () => {
+    expect(() => validateEnvConfigShape({
+      public: {
+        apiBase: envVariable(),
+      },
       telegram: {
         botToken: envVariable({ secret: true }),
       },
@@ -102,6 +108,14 @@ describe("env declarations", () => {
         model: envVariable({ default: "gemini-3.1-pro-preview-customtools" }),
       },
     }, "nitro")).not.toThrow()
+  })
+
+  it("rejects secret Nitro public runtime declarations", () => {
+    expect(() => validateEnvConfigShape({
+      public: {
+        apiBase: envVariable({ secret: true }),
+      },
+    }, "nitro")).toThrow("env.public.apiBase cannot be marked secret")
   })
 
   it("creates a runtime registry with inferred nested env sources", () => {
