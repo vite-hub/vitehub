@@ -211,11 +211,11 @@ describe("Vite plugin", () => {
     expect(hubChat().nitro).toBeTruthy()
   })
 
-  it("does not mount Vite DevTools middleware", async () => {
+  it("mounts only the Chat DevTools iframe shell", async () => {
     const { chatDevtools, hubChat } = await import("../src/vite.ts")
 
-    expect(chatDevtools().configureServer).toBeUndefined()
-    expect(hubChat().configureServer).toBeUndefined()
+    expect(chatDevtools().configureServer).toBeTypeOf("function")
+    expect(hubChat().configureServer).toBeTypeOf("function")
   })
 
   it("warns when Chat DevTools is enabled without Vite DevTools", async () => {
@@ -266,12 +266,12 @@ describe("Vite plugin", () => {
       },
       title: "Chat",
       type: "iframe",
-      url: "https://devtools.vitehub.dev/chat",
+      url: "/__vitehub/chat/devtools-ui",
     }))
     expect(ctx.rpc.register).toHaveBeenCalledTimes(3)
   })
 
-  it("uses configured and environment DevTools iframe URLs", async () => {
+  it("uses the same-origin shell for configured and environment DevTools iframe URLs", async () => {
     const { chatDevtools } = await import("../src/vite.ts")
     const ctx = {
       docks: { register: vi.fn() },
@@ -281,7 +281,7 @@ describe("Vite plugin", () => {
 
     await chatDevtools({ dev: { devtools: { url: "https://example.com/chat" } } }).devtools?.setup(ctx as never)
     expect(ctx.docks.register).toHaveBeenLastCalledWith(expect.objectContaining({
-      url: "https://example.com/chat",
+      url: "/__vitehub/chat/devtools-ui",
     }))
 
     vi.stubEnv("VITEHUB_CHAT_DEVTOOLS_URL", "http://localhost:3000/chat")
@@ -293,8 +293,34 @@ describe("Vite plugin", () => {
     }
 
     expect(ctx.docks.register).toHaveBeenLastCalledWith(expect.objectContaining({
-      url: "http://localhost:3000/chat",
+      url: "/__vitehub/chat/devtools-ui",
     }))
+  })
+
+  it("serves the iframe shell from the configured DevTools URL", async () => {
+    const { chatDevtools } = await import("../src/vite.ts")
+    const use = vi.fn()
+    const plugin = chatDevtools({ dev: { devtools: { url: "https://example.com/chat" } } })
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      `<script src="/_nuxt/app.js"></script><script>window.__NUXT__={config:{app:{cdnURL:""}}}</script>`,
+      { headers: { "content-type": "text/html" } },
+    ))
+    const response = {
+      end: vi.fn(),
+      setHeader: vi.fn(),
+      statusCode: 200,
+    }
+
+    const configureServer = plugin.configureServer as (server: unknown) => void
+    configureServer({ middlewares: { use } })
+    await use.mock.calls[0][1]({}, response, vi.fn())
+
+    expect(use.mock.calls[0][0]).toBe("/__vitehub/chat/devtools-ui")
+    expect(fetchMock).toHaveBeenCalledWith("https://example.com/chat")
+    expect(response.end).toHaveBeenCalledWith(expect.stringContaining(`src="https://example.com/_nuxt/app.js"`))
+    expect(response.end).toHaveBeenCalledWith(expect.stringContaining(`cdnURL:"https://example.com"`))
+
+    fetchMock.mockRestore()
   })
 
   it("sends the selected chat name through the DevTools bridge", async () => {

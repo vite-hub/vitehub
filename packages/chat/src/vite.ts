@@ -4,6 +4,7 @@ import { defineRpcFunction } from "@vitejs/devtools-kit"
 import { normalizeChatOptions } from "./config.ts"
 import {
   chatDevtoolsDockId,
+  chatDevtoolsLocalUiRoute,
   chatDevtoolsRpcClear,
   chatDevtoolsRpcGetState,
   chatDevtoolsRpcSend,
@@ -13,7 +14,7 @@ import chatNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
 import type { PluginWithDevTools, ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
-import type { ResolvedConfig, UserConfig } from "vite"
+import type { ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ChatDevtoolsChatParams, ChatDevtoolsRequest, ChatDevtoolsResult, ChatDevtoolsSendParams } from "./devtools.ts"
 import type { ChatModuleOptions } from "./types.ts"
 
@@ -61,6 +62,41 @@ function warnMissingViteDevtools(config: ResolvedConfig, chat: ChatModuleOptions
     return
   }
   config.logger.warn(missingDevtoolsWarning)
+}
+
+function rewriteChatDevtoolsHtml(html: string, url: string): string {
+  const origin = new URL(url).origin
+  return html
+    .replaceAll(`"/_nuxt/`, `"${origin}/_nuxt/`)
+    .replaceAll(`'/_nuxt/`, `'${origin}/_nuxt/`)
+    .replace(`cdnURL:""`, `cdnURL:${JSON.stringify(origin)}`)
+}
+
+function mountChatDevtoolsUi(server: ViteDevServer, getChat: () => ChatModuleOptions | false | undefined): void {
+  server.middlewares.use(chatDevtoolsLocalUiRoute, async (_request, response, next) => {
+    const chat = getChat()
+    if (!isChatDevtoolsEnabled(chat)) {
+      next()
+      return
+    }
+
+    try {
+      const url = resolveChatDevtoolsUrl(chat)
+      const upstream = await fetch(url)
+      if (!upstream.ok) {
+        response.statusCode = upstream.status
+        response.end(await upstream.text())
+        return
+      }
+
+      response.setHeader("cache-control", "no-cache")
+      response.setHeader("content-type", "text/html;charset=utf-8")
+      response.end(rewriteChatDevtoolsHtml(await upstream.text(), url))
+    }
+    catch (error) {
+      next(error)
+    }
+  })
 }
 
 function getDevtoolsBaseUrls(ctx: ViteDevToolsNodeContext): string[] {
@@ -139,7 +175,7 @@ function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions
     id: chatDevtoolsDockId,
     title: "Chat",
     type: "iframe",
-    url: resolveChatDevtoolsUrl(chat),
+    url: chatDevtoolsLocalUiRoute,
     remote: {
       originLock: false,
     },
@@ -198,6 +234,9 @@ export function chatDevtools(options?: ChatModuleOptions): ChatDevtoolsVitePlugi
       chat = config.chat ?? chat
       warnMissingViteDevtools(config, chat)
     },
+    configureServer(server) {
+      mountChatDevtoolsUi(server, () => chat)
+    },
   }
 }
 
@@ -233,6 +272,9 @@ export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
     configResolved(config) {
       chat = config.chat ?? chat
       warnMissingViteDevtools(config, chat)
+    },
+    configureServer(server) {
+      mountChatDevtoolsUi(server, () => chat)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
