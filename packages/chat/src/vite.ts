@@ -145,6 +145,7 @@ function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions
   ctx.rpc.register(defineRpcFunction({
     name: chatDevtoolsRpcGetState,
     type: "query",
+    jsonSerializable: true,
     setup: () => ({
       handler: async (params: ChatDevtoolsChatParams = {}) => {
         const chatName = typeof params.chatName === "string" ? params.chatName.trim() : ""
@@ -155,6 +156,7 @@ function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions
   ctx.rpc.register(defineRpcFunction({
     name: chatDevtoolsRpcSend,
     type: "action",
+    jsonSerializable: true,
     setup: () => ({
       handler: async (params: ChatDevtoolsSendParams) => {
         const chatName = typeof params.chatName === "string" ? params.chatName.trim() : ""
@@ -170,6 +172,7 @@ function setupChatDevtools(ctx: ViteDevToolsNodeContext, chat: ChatModuleOptions
   ctx.rpc.register(defineRpcFunction({
     name: chatDevtoolsRpcClear,
     type: "action",
+    jsonSerializable: true,
     setup: () => ({
       handler: async (params: ChatDevtoolsChatParams = {}) => {
         const chatName = typeof params.chatName === "string" ? params.chatName.trim() : ""
