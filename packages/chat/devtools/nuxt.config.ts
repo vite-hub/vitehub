@@ -35,7 +35,18 @@ export default defineNuxtConfig({
       collections: ["lucide"],
     },
     clientBundle: {
-      icons: ["lucide:arrow-up", "lucide:copy", "lucide:info", "lucide:loader-circle", "lucide:square", "lucide:trash-2"],
+      icons: [
+        "lucide:arrow-up",
+        "lucide:chevron-down",
+        "lucide:circle-alert",
+        "lucide:copy",
+        "lucide:database-zap",
+        "lucide:info",
+        "lucide:loader-circle",
+        "lucide:square",
+        "lucide:terminal",
+        "lucide:trash-2",
+      ],
     },
   },
   vite: {
