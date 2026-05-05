@@ -1,12 +1,16 @@
-import { mkdtemp, readFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { envNitro, envSource, envVariable } from "../src/nitro.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
+
+const execFileAsync = promisify(execFile)
 
 interface NitroStub {
   hooks: { hook: ReturnType<typeof vi.fn> }
@@ -96,9 +100,9 @@ describe("Nitro module", () => {
     expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
     expect(types).toContain("declare module \"nitro/types\"")
     expect(types).toContain("export interface NitroRuntimeConfig")
-    expect(types).not.toContain("declare module \"@vitehub/chat\"")
-    expect(types).not.toContain("ChatRuntimeConfig")
-    expect(types).not.toContain("declare module \"@vitehub/chat/nitro\"")
+    expect(types).toContain("declare module \"@vitehub/chat\"")
+    expect(types).toContain("export interface ChatRuntimeConfig")
+    expect(types).toContain("\"botToken\": string")
     expect(types).not.toContain("NitroChatRuntimeConfig")
     expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env.d.ts"))
 
@@ -108,6 +112,75 @@ describe("Nitro module", () => {
     expect(registry).toContain("\"required\": false")
     expect(registry).not.toContain("aaaaaaaa")
     expect(registry).not.toContain("telegram-secret")
+  })
+
+  it("types defineChat runtime config from generated env declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-chat-types-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          teams: {
+            apiUrl: envVariable({ optional: true }),
+            appId: envVariable({ secret: true }),
+          },
+          vertex: {
+            model: envVariable({ default: "gemini-3.1-pro-preview-customtools" }),
+          },
+        },
+        rootDir: root,
+      },
+    }
+
+    await envNitro().setup(nitro as never)
+    const typesHook = nitro.hooks.hook.mock.calls.find(([name]) => name === "types:extend")?.[1]
+    await typesHook?.({ tsConfig: { include: [] } })
+
+    await writeFile(join(root, "typecheck.ts"), [
+      "import { defineChat } from '@vitehub/chat'",
+      "",
+      "defineChat({",
+      "  adapters({ runtimeConfig }) {",
+      "    const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",
+      "    const appId: string = runtimeConfig.teams.appId",
+      "    const model: string = runtimeConfig.vertex.model",
+      "    void apiUrl",
+      "    void appId",
+      "    void model",
+      "    return {}",
+      "  },",
+      "  state: {} as never,",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({
+      compilerOptions: {
+        allowSyntheticDefaultImports: true,
+        allowImportingTsExtensions: true,
+        baseUrl: root,
+        ignoreDeprecations: "6.0",
+        paths: {
+          "@vitehub/chat": [join(import.meta.dirname, "../../chat/src/index.ts")],
+        },
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        target: "ES2023",
+      },
+      files: [
+        join(root, ".nitro/types/vitehub-env.d.ts"),
+        join(root, "typecheck.ts"),
+      ],
+    }, null, 2))
+
+    await execFileAsync("pnpm", ["exec", "tsc", "--noEmit", "-p", join(root, "tsconfig.json")], {
+      cwd: join(import.meta.dirname, ".."),
+      maxBuffer: 1024 * 1024 * 4,
+    })
   })
 
   it("applies prefixes to inferred Nitro env names and required Cloudflare secrets", async () => {

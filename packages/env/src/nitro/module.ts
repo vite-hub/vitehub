@@ -70,6 +70,12 @@ function createNitroTypes(registry: EnvRuntimeRegistry): string {
     "  }",
     "}",
     "",
+    "declare module \"@vitehub/chat\" {",
+    "  export interface ChatRuntimeConfig {",
+    ...fields,
+    "  }",
+    "}",
+    "",
     "export {}",
     "",
   ].join("\n")
