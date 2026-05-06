@@ -541,6 +541,10 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
   const nitroModule: NitroModule = {
     name: "@vitehub/chat/devtools",
     setup(nitro) {
+      if (options.devtools === false || !nitro.options.dev) {
+        return
+      }
+
       nitro.options.handlers ||= []
       const handlerExtension = import.meta.url.endsWith(".ts") ? ".ts" : ".js"
       const handler = new URL(`./runtime/chat-devtools-handler${handlerExtension}`, import.meta.url).pathname

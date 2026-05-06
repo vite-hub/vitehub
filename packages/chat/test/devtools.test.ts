@@ -77,7 +77,7 @@ describe("Chat DevTools Vite integration", () => {
   it("registers standalone panel, RPC functions, and Nitro singleton bridge route", async () => {
     const { chatDevtoolsBridgeRoute, chatDevTools } = await import("../src/devtools.ts")
     const ctx = createDevtoolsContext()
-    const nitro = { options: { handlers: [] } }
+    const nitro = { options: { dev: true, handlers: [] } }
     const plugin = chatDevTools()
 
     ;(plugin as { devtools: { setup: (ctx: unknown) => void } }).devtools.setup(ctx)
@@ -95,6 +95,26 @@ describe("Chat DevTools Vite integration", () => {
         handler: expect.stringContaining("chat-devtools-handler.ts"),
       }),
     ])
+  })
+
+  it("does not install the standalone bridge route when DevTools are disabled", async () => {
+    const { chatDevTools } = await import("../src/devtools.ts")
+    const nitro = { options: { dev: true, handlers: [] } }
+    const plugin = chatDevTools({ devtools: false })
+
+    ;(plugin as { nitro: { setup: (nitro: unknown) => void } }).nitro.setup(nitro)
+
+    expect(nitro.options.handlers).toEqual([])
+  })
+
+  it("does not install the standalone bridge route outside Nitro dev mode", async () => {
+    const { chatDevTools } = await import("../src/devtools.ts")
+    const nitro = { options: { dev: false, handlers: [] } }
+    const plugin = chatDevTools()
+
+    ;(plugin as { nitro: { setup: (nitro: unknown) => void } }).nitro.setup(nitro)
+
+    expect(nitro.options.handlers).toEqual([])
   })
 
   it("registers the local iframe panel and hosted static assets by default", async () => {
