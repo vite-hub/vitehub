@@ -2,6 +2,8 @@ dynamicallyLoaded = [
   ".github/scripts/*.mjs",
   "docs/content.config.ts",
   "docs/app/assets/main.css",
+  "packages/devtools/devtools/chat/app/app.vue",
+  "packages/devtools/devtools/chat/app/assets/css/main.css",
   "packages/kv/examples/**/nitro.config.ts",
   "packages/kv/examples/**/server/**",
   "packages/kv/test/helpers/*.ts",
