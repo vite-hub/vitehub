@@ -4,7 +4,6 @@ import { join } from "node:path"
 import { Readable } from "node:stream"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { Chat } from "chat"
 
 const runtimeConfigMock = vi.hoisted(() => ({
   value: {} as Record<string, unknown>,
@@ -57,7 +56,6 @@ function createNitroStub(rootDir: string, chat: unknown = {}) {
           migrations?: Array<{ new_sqlite_classes?: string[], tag: string }>
         }
       },
-      dev: true,
       handlers: [] as Array<{ handler: string, method?: string, route: string }>,
       imports: {},
       externals: {} as { inline?: string[] },
@@ -71,29 +69,6 @@ function createNitroStub(rootDir: string, chat: unknown = {}) {
       runtimeConfig: {} as Record<string, unknown>,
     },
     testHooks: hooks,
-  }
-}
-
-function createState() {
-  return {
-    acquireLock: vi.fn(),
-    appendToList: vi.fn(),
-    connect: vi.fn(),
-    delete: vi.fn(),
-    dequeue: vi.fn(),
-    disconnect: vi.fn(),
-    enqueue: vi.fn(),
-    extendLock: vi.fn(),
-    forceReleaseLock: vi.fn(),
-    get: vi.fn(),
-    getList: vi.fn(),
-    isSubscribed: vi.fn(),
-    queueDepth: vi.fn(),
-    releaseLock: vi.fn(),
-    set: vi.fn(),
-    setIfNotExists: vi.fn(),
-    subscribe: vi.fn(),
-    unsubscribe: vi.fn(),
   }
 }
 
@@ -358,65 +333,6 @@ describe("defineChatWebhookHandler", () => {
     expect(adapters).toHaveBeenCalledTimes(1)
     expect(initialize).toHaveBeenCalledTimes(1)
   })
-
-  it("returns pending DevTools transcript state for streamed sends", async () => {
-    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
-    const state = createState()
-    state.setIfNotExists.mockResolvedValue(true)
-    state.acquireLock.mockResolvedValue({
-      expiresAt: Date.now() + 1_000,
-      threadId: "devtools:chat",
-      token: "lock",
-    })
-    state.isSubscribed.mockResolvedValue(false)
-    let release!: () => void
-    const gate = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    const bot = new Chat({
-      adapters: {},
-      fallbackStreamingPlaceholderText: "Thinking...",
-      state: state as never,
-      streamingUpdateIntervalMs: 1,
-      userName: "ViteHub Chat",
-    })
-    bot.onDirectMessage(async (thread) => {
-      await thread.startTyping()
-      async function* stream() {
-        yield "Hel"
-        await gate
-        yield "lo"
-      }
-
-      await thread.post(stream())
-    })
-    const handler = defineChatDevtoolsHandler(bot)
-    const createDevtoolsEvent = (body: unknown) => ({
-      context: {},
-      req: new Request("https://example.com/__vitehub/chat/devtools", {
-        body: JSON.stringify(body),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      }),
-      waitUntil: vi.fn(),
-    })
-
-    const first = await handler(createDevtoolsEvent({ stream: true, text: "Hi" }) as never) as unknown as { pending?: boolean, messages: Array<{ text: string }> }
-    const firstLastText = first.messages.at(-1)?.text
-    await new Promise(resolve => setTimeout(resolve, 10))
-    const pending = await handler(createDevtoolsEvent({}) as never) as unknown as { pending?: boolean, messages: Array<{ text: string }> }
-    release()
-    await vi.waitFor(async () => {
-      const complete = await handler(createDevtoolsEvent({}) as never) as unknown as { pending?: boolean, messages: Array<{ text: string }> }
-      expect(complete.pending).toBe(false)
-      expect(complete.messages.at(-1)?.text).toBe("Hello")
-    })
-
-    expect(first.pending).toBe(true)
-    expect(pending.pending).toBe(true)
-    expect(firstLastText).toBe("Thinking...")
-    expect(pending.messages.at(-1)?.text).toContain("Hel")
-  })
 })
 
 describe("Nitro module", () => {
@@ -486,9 +402,7 @@ describe("Nitro module", () => {
 
     expect(nitro.options.runtimeConfig.chat).toMatchObject({
       dev: {
-        devtools: {
-          url: "https://devtools.vitehub.dev/chat",
-        },
+        devtools: {},
         initialize: true,
         localStateFallback: true,
       },
@@ -515,6 +429,7 @@ describe("Nitro module", () => {
     expect(nitro.options.externals.inline).toEqual(expect.arrayContaining(["@vitehub/chat", "chat", "chat-state-cloudflare-do"]))
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChat")
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChatDevInitializer")
+    expect(JSON.stringify(nitro.options.imports)).toContain("defineChatDevtoolsHandler")
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChatWebhookHandler")
     expect(JSON.stringify(nitro.options.imports)).toContain("defineChatWebhookRegistryHandler")
     expect(nitro.options.cloudflare).toMatchObject({
@@ -541,13 +456,6 @@ describe("Nitro module", () => {
       .toContain(`export { ChatStateDO } from "./chat-cloudflare-exports-ChatStateDO.mjs"`)
     await nitro.testHooks["build:before"]?.[0]?.()
     expect(nitro.options.rollupConfig.plugins?.filter(plugin => typeof plugin === "object" && plugin !== null && "name" in plugin && plugin.name === "vitehub-chat-cloudflare-exports:ChatStateDO")).toHaveLength(1)
-
-    const typesHook = nitro.testHooks["types:extend"]?.[0]
-    const tsConfig = { include: [] as string[] }
-    await typesHook?.({ tsConfig })
-    const types = await readFile(join(rootDir, ".nitro/types/vitehub-chat.d.ts"), "utf8")
-    expect(types).toContain(`import "@vitehub/chat/nitro"`)
-    expect(tsConfig.include).toContain(join(rootDir, ".nitro/types/vitehub-chat.d.ts"))
 
     const routeFile = nitro.options.handlers[0]!.handler
     const routeContents = await readFile(routeFile, "utf8")
@@ -715,25 +623,6 @@ describe("Nitro module", () => {
     expect(nitro.options.plugins.some(plugin => plugin.includes("/packages/chat/src/runtime/nitro-plugin.ts"))).toBe(true)
   })
 
-  it("does not install DevTools routes outside Nitro dev", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-production-devtools-"))
-    await writeSingleChat(rootDir)
-    const nitro = createNitroStub(rootDir)
-    nitro.options.dev = false
-    const module = (await import("../src/nitro/module.ts")).default
-
-    await module.setup(nitro as never)
-
-    expect(nitro.options.runtimeConfig.chat).toMatchObject({
-      dev: {
-        devtools: false,
-        initialize: true,
-        localStateFallback: true,
-      },
-    })
-    expect(nitro.options.handlers.some(handler => handler.route === "/__vitehub/chat/devtools")).toBe(false)
-  })
-
   it("honors disabled dev initialization", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-disabled-dev-"))
     await writeSingleChat(rootDir)
@@ -746,16 +635,15 @@ describe("Nitro module", () => {
 
     expect(nitro.options.runtimeConfig.chat).toMatchObject({
       dev: {
-        devtools: false,
+        devtools: {},
         initialize: false,
         localStateFallback: true,
       },
     })
     expect(nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"]).toContain("/packages/chat/src/runtime/nitro-dev-initialize.ts")
-    expect(nitro.options.handlers.some(handler => handler.route === "/__vitehub/chat/devtools")).toBe(false)
   })
 
-  it("honors disabled devtools", async () => {
+  it("does not install DevTools route when DevTools are disabled", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-disabled-devtools-"))
     await writeSingleChat(rootDir)
     const nitro = createNitroStub(rootDir, {
@@ -765,13 +653,6 @@ describe("Nitro module", () => {
 
     await module.setup(nitro as never)
 
-    expect(nitro.options.runtimeConfig.chat).toMatchObject({
-      dev: {
-        devtools: false,
-        initialize: true,
-        localStateFallback: true,
-      },
-    })
     expect(nitro.options.handlers.some(handler => handler.route === "/__vitehub/chat/devtools")).toBe(false)
   })
 

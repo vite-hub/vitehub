@@ -1,11 +1,7 @@
 import { Chat } from "chat"
 
-import { createChatDevtoolsAdapter, chatDevtoolsAdapterName } from "./integrations/devtools.ts"
+import { chatDevtoolsAdapterName, observeChatDevtoolsStream } from "./devtools.ts"
 import { isChatDefinition } from "./runtime/definition.ts"
-import { createMemoryChatStateAdapter } from "./runtime/memory-state.ts"
-
-export { createChatDevtoolsToolStatus, reportChatDevtoolsToolStep } from "./devtools.ts"
-export { postChatStream } from "./stream.ts"
 
 import type {
   ChatActionHookInput,
@@ -71,6 +67,7 @@ export type {
   StateAdapter,
   Thread,
 } from "./types.ts"
+export * from "./devtools.ts"
 
 let definitionId = 0
 
@@ -123,7 +120,7 @@ function createMessageHook<TRuntimeConfig extends ChatRuntimeConfig>(
     context: context as never,
     message: message as Message,
     runtimeConfig,
-    thread: thread as never,
+    thread: wrapDevtoolsThread(thread) as never,
   })
 }
 
@@ -138,7 +135,42 @@ function createDirectMessageHook<TRuntimeConfig extends ChatRuntimeConfig>(
     context: context as never,
     message: message as Message,
     runtimeConfig,
-    thread: thread as never,
+    thread: wrapDevtoolsThread(thread) as never,
+  })
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return !!value && typeof value === "object" && Symbol.asyncIterator in value
+}
+
+function isDevtoolsThread(thread: unknown): thread is { adapter?: { name?: string }, post: (message: unknown) => unknown, startTyping: (text?: string) => Promise<unknown> } {
+  return !!thread
+    && typeof thread === "object"
+    && "post" in thread
+    && typeof (thread as { post?: unknown }).post === "function"
+    && "startTyping" in thread
+    && typeof (thread as { startTyping?: unknown }).startTyping === "function"
+    && (thread as { adapter?: { name?: string } }).adapter?.name === chatDevtoolsAdapterName
+}
+
+function wrapDevtoolsThread(thread: unknown): unknown {
+  if (!isDevtoolsThread(thread)) {
+    return thread
+  }
+
+  return new Proxy(thread, {
+    get(target, property, receiver) {
+      if (property !== "post") {
+        return Reflect.get(target, property, receiver)
+      }
+
+      return (message: unknown) => {
+        const next = isAsyncIterable(message)
+          ? observeChatDevtoolsStream(target, message)
+          : message
+        return target.post(next)
+      }
+    },
   })
 }
 
@@ -259,10 +291,6 @@ function registerChatHooks<TRuntimeConfig extends ChatRuntimeConfig>(
   registerModalSubmitHooks(bot, runtimeConfig, hooks.onModalSubmit)
 }
 
-function isChatDevtoolsBridgeContext(context: ChatRuntimeContext): boolean {
-  return context.devtools?.bridge === true
-}
-
 async function createChat<TRuntimeConfig extends ChatRuntimeConfig>(
   options: DefineChatOptions<TRuntimeConfig>,
   context: ChatRuntimeContext<TRuntimeConfig>,
@@ -270,6 +298,8 @@ async function createChat<TRuntimeConfig extends ChatRuntimeConfig>(
 ) {
   const runtimeConfig = context.runtimeConfig as TRuntimeConfig
   const resolvedContext = { ...context, runtimeConfig } as ResolvedChatRuntimeContext<TRuntimeConfig>
+  const adapters = await resolveAdapters(options.adapters, resolvedContext)
+  const state = await resolveValue(options.state, context)
   const {
     adapters: _adapters,
     hooks,
@@ -283,13 +313,6 @@ async function createChat<TRuntimeConfig extends ChatRuntimeConfig>(
   if (!userName) {
     throw new Error("Missing chat userName. Set userName in defineChat() or place the definition in a discovered chat file such as server/chat.ts.")
   }
-  const useDevtoolsBridge = isChatDevtoolsBridgeContext(context)
-  const adapters = useDevtoolsBridge
-    ? { [chatDevtoolsAdapterName]: createChatDevtoolsAdapter(userName) }
-    : await resolveAdapters(options.adapters, resolvedContext)
-  const state = useDevtoolsBridge
-    ? createMemoryChatStateAdapter()
-    : await resolveValue(options.state, context)
 
   const bot = new Chat({
     ...(chatOptions as Omit<ChatConfig, "adapters" | "state">),

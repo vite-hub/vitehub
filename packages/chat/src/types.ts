@@ -32,9 +32,6 @@ export interface ChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = C
     env?: Record<string, unknown>
   }
   dev?: boolean
-  devtools?: {
-    bridge?: boolean
-  }
   event?: unknown
   memo<T>(key: string, create: () => T): T
   platform?: string
@@ -203,12 +200,6 @@ export interface ChatDevModuleOptions {
   localStateFallback?: boolean
 }
 
-export interface ResolvedChatDevModuleOptions {
-  devtools: false | { url: string }
-  initialize: boolean
-  localStateFallback: boolean
-}
-
 export interface ChatModuleOptions {
   cloudflare?: {
     durableObjectState?: boolean | ChatCloudflareDurableObjectModuleOptions
@@ -226,7 +217,9 @@ export interface ResolvedChatModuleOptions {
       name?: string
     }
   }
-  dev: false | ResolvedChatDevModuleOptions
+  dev: false | Required<Omit<ChatDevModuleOptions, "devtools">> & {
+    devtools: false | { url?: string }
+  }
   imports: boolean
   provider: "auto" | "cloudflare" | "nitro" | "vercel"
   webhook: false | Required<ChatWebhookModuleOptions>

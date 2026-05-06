@@ -132,6 +132,83 @@ describe("defineChat", () => {
     })
   })
 
+  it("wraps devtools thread streams so tool parts are reported automatically", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const statuses: string[] = []
+    const posted: unknown[] = []
+    const onDirectMessage = vi.fn(async ({ thread }) => {
+      await thread.post((async function* () {
+        yield { id: "call-1", toolName: "read_file", type: "tool-input-start" }
+        yield { input: { path: "README.md" }, toolCallId: "call-1", toolName: "read_file", type: "tool-call" }
+        yield { input: { path: "README.md" }, output: "contents", toolCallId: "call-1", toolName: "read_file", type: "tool-result" }
+        yield { id: "text-1", text: "Done", type: "text-delta" }
+      })())
+    })
+    const context = createContext()
+    const definition = defineChat({
+      adapters: {},
+      hooks: { onDirectMessage },
+      state: createState() as never,
+      userName: "Quiver Chat",
+    })
+
+    await resolveChat(definition, context as never)
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({
+      adapter: { name: "devtools" },
+      id: "thread",
+      post: async (message: AsyncIterable<unknown>) => {
+        posted.push(message)
+        for await (const _part of message) {}
+      },
+      startTyping: async (status: string) => {
+        statuses.push(status)
+      },
+    } as never, { text: "hello" } as never, { id: "channel" } as never)
+
+    expect(posted).toHaveLength(1)
+    expect(statuses).toHaveLength(3)
+    expect(statuses.map(status => JSON.parse(status))).toEqual([
+      expect.objectContaining({ id: "call-1", name: "read_file", status: "running" }),
+      expect.objectContaining({ id: "call-1", input: { path: "README.md" }, name: "read_file", status: "running" }),
+      expect.objectContaining({ id: "call-1", name: "read_file", output: "contents", status: "completed" }),
+    ])
+  })
+
+  it("does not report tool status for plain async text streams", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const statuses: string[] = []
+    const onDirectMessage = vi.fn(async ({ thread }) => {
+      await thread.post((async function* () {
+        yield "hello"
+        yield " world"
+      })())
+    })
+
+    await resolveChat(defineChat({
+      adapters: {},
+      hooks: { onDirectMessage },
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext() as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({
+      adapter: { name: "devtools" },
+      id: "thread",
+      post: async (message: AsyncIterable<unknown>) => {
+        for await (const _part of message) {}
+      },
+      startTyping: async (status: string) => {
+        statuses.push(status)
+      },
+    } as never, { text: "hello" } as never, { id: "channel" } as never)
+
+    expect(statuses).toEqual([])
+  })
+
   it("registers the supported Chat SDK hook sugar methods", async () => {
     const { defineChat, resolveChat } = await import("../src/index.ts")
     const spies = [
@@ -184,233 +261,6 @@ describe("defineChat", () => {
     })
 
     expect(await resolveChat(bot as never, createContext() as never)).toBe(bot)
-  })
-
-  it("uses only the internal adapter and memory state for DevTools bridge resolution", async () => {
-    const { defineChat, resolveChat } = await import("../src/index.ts")
-    const adapterFactory = vi.fn(() => {
-      throw new Error("real adapter should not resolve")
-    })
-    const stateResolver = { resolve: vi.fn(() => {
-      throw new Error("real state should not resolve")
-    }) }
-
-    await expect(resolveChat(defineChat({
-      adapters: adapterFactory as never,
-      state: stateResolver as never,
-      userName: "ViteHub Chat",
-    }), createContext({ devtools: { bridge: true }, platform: "devtools" }) as never)).resolves.toBeInstanceOf(Chat)
-
-    expect(adapterFactory).not.toHaveBeenCalled()
-    expect(stateResolver.resolve).not.toHaveBeenCalled()
-  })
-
-  it("keeps regular devtools platform requests on configured adapters and state", async () => {
-    const { defineChat, resolveChat } = await import("../src/index.ts")
-    const adapter = {}
-    const state = createState()
-    const adapterFactory = vi.fn(() => adapter)
-    const stateResolver = { resolve: vi.fn(() => state) }
-    const context = createContext({ platform: "devtools" })
-
-    await expect(resolveChat(defineChat({
-      adapters: { devtools: adapterFactory as never },
-      state: stateResolver as never,
-      userName: "ViteHub Chat",
-    }), context as never)).resolves.toBeInstanceOf(Chat)
-
-    expect(adapterFactory).toHaveBeenCalledWith(context)
-    expect(stateResolver.resolve).toHaveBeenCalledWith(context)
-  })
-
-  it("sends DevTools messages and records fallback streaming edits", async () => {
-    const { clearChatDevtoolsTranscript, getChatDevtoolsTranscript, submitChatDevtoolsMessage } = await import("../src/integrations/devtools.ts")
-    clearChatDevtoolsTranscript("runtime-test")
-    const state = createState()
-    state.setIfNotExists.mockResolvedValue(true)
-    state.acquireLock.mockResolvedValue({
-      expiresAt: Date.now() + 1_000,
-      threadId: "devtools:runtime-test",
-      token: "lock",
-    })
-    state.isSubscribed.mockResolvedValue(false)
-    const tasks: Promise<unknown>[] = []
-    const bot = new Chat({
-      adapters: {},
-      fallbackStreamingPlaceholderText: "Thinking...",
-      state: state as never,
-      streamingUpdateIntervalMs: 1,
-      userName: "ViteHub Chat",
-    })
-    bot.onDirectMessage(async (thread) => {
-      await thread.startTyping()
-      async function* stream() {
-        await new Promise(resolve => setTimeout(resolve, 25))
-        yield "Hello "
-        yield "from DevTools"
-      }
-
-      await thread.post(stream())
-    })
-
-    await submitChatDevtoolsMessage(bot, "runtime-test", "Ping", task => tasks.push(task))
-    await vi.waitFor(() => {
-      expect(getChatDevtoolsTranscript("runtime-test")).toMatchObject([
-        { author: "user", text: "Ping" },
-        { author: "assistant", text: "Thinking..." },
-      ])
-    })
-    await Promise.allSettled(tasks)
-
-    const messages = getChatDevtoolsTranscript("runtime-test")
-    expect(messages).toMatchObject([
-      { author: "user", text: "Ping" },
-      { author: "assistant", text: "Hello from DevTools" },
-    ])
-  })
-
-  it("records ordered DevTools tool activity on the pending assistant message", async () => {
-    const { clearChatDevtoolsTranscript, getChatDevtoolsTranscript, submitChatDevtoolsMessage } = await import("../src/integrations/devtools.ts")
-    clearChatDevtoolsTranscript("runtime-test")
-    const state = createState()
-    state.setIfNotExists.mockResolvedValue(true)
-    state.acquireLock.mockResolvedValue({
-      expiresAt: Date.now() + 1_000,
-      threadId: "devtools:runtime-test",
-      token: "lock",
-    })
-    state.isSubscribed.mockResolvedValue(false)
-    const tasks: Promise<unknown>[] = []
-    const bot = new Chat({
-      adapters: {},
-      fallbackStreamingPlaceholderText: "Thinking...",
-      state: state as never,
-      streamingUpdateIntervalMs: 1,
-      userName: "ViteHub Chat",
-    })
-    bot.onDirectMessage(async (thread) => {
-      await thread.startTyping(JSON.stringify({
-        id: "tool-1",
-        input: { command: "ls" },
-        name: "shell",
-        output: "AGENTS.md",
-        status: "completed",
-        text: "Ran shell: ls",
-        type: "vitehub.chat.devtools.tool",
-      }))
-      await thread.startTyping(JSON.stringify({
-        id: "tool-2",
-        input: { command: "cat AGENTS.md" },
-        name: "shell",
-        output: "Instructions",
-        status: "completed",
-        text: "Ran shell: cat AGENTS.md",
-        type: "vitehub.chat.devtools.tool",
-      }))
-      await thread.post("Done")
-    })
-
-    await submitChatDevtoolsMessage(bot, "runtime-test", "Ping", task => tasks.push(task))
-    await Promise.allSettled(tasks)
-
-    const messages = getChatDevtoolsTranscript("runtime-test")
-    expect(messages).toMatchObject([
-      { author: "user", text: "Ping" },
-      {
-        author: "assistant",
-        text: "Done",
-        tools: [
-          { input: { command: "ls" }, name: "shell", output: "AGENTS.md", text: "Ran shell: ls" },
-          { input: { command: "cat AGENTS.md" }, name: "shell", output: "Instructions", text: "Ran shell: cat AGENTS.md" },
-        ],
-      },
-    ])
-  })
-
-  it("keeps late DevTools tool activity on the same assistant reply", async () => {
-    const { clearChatDevtoolsTranscript, createChatDevtoolsAdapter, getChatDevtoolsTranscript } = await import("../src/integrations/devtools.ts")
-    clearChatDevtoolsTranscript("runtime-test")
-    const adapter = createChatDevtoolsAdapter("ViteHub Chat", "Thinking...")
-    const threadId = "devtools:runtime-test"
-    await adapter.startTyping(threadId)
-    await adapter.postMessage(threadId, "Done")
-    await adapter.startTyping(threadId, JSON.stringify({
-      id: "tool-1",
-      input: { command: "ls" },
-      name: "shell",
-      output: "AGENTS.md",
-      status: "completed",
-      text: "Ran shell: ls",
-      type: "vitehub.chat.devtools.tool",
-    }))
-
-    const messages = getChatDevtoolsTranscript("runtime-test")
-    expect(messages).toHaveLength(1)
-    expect(messages[0]).toMatchObject({
-      author: "assistant",
-      text: "Done",
-      tools: [
-        { input: { command: "ls" }, name: "shell", output: "AGENTS.md", text: "Ran shell: ls" },
-      ],
-    })
-  })
-
-  it("reports DevTools tool steps with command labels and truncated string output", async () => {
-    const { clearChatDevtoolsTranscript, createChatDevtoolsAdapter, getChatDevtoolsTranscript } = await import("../src/integrations/devtools.ts")
-    const { reportChatDevtoolsToolStep } = await import("../src/devtools.ts")
-    clearChatDevtoolsTranscript("runtime-test")
-    const adapter = createChatDevtoolsAdapter("ViteHub Chat", "Thinking...")
-    const threadId = "devtools:runtime-test"
-    await adapter.startTyping(threadId)
-    await reportChatDevtoolsToolStep({
-      startTyping: async text => await adapter.startTyping(threadId, text),
-    }, {
-      toolResults: [{
-        input: { command: "ls -al" },
-        output: "abcdef",
-        toolCallId: "tool-1",
-        toolName: "shell",
-      }],
-    }, {
-      outputPreviewLength: 4,
-    })
-
-    expect(getChatDevtoolsTranscript("runtime-test")).toMatchObject([
-      {
-        author: "assistant",
-        text: "Thinking...",
-        tools: [
-          { input: { command: "ls -al" }, name: "shell", output: "a...", text: "ls -al" },
-        ],
-      },
-    ])
-  })
-
-  it("posts a chat stream and only emits fallback when no text is streamed", async () => {
-    const { postChatStream } = await import("../src/index.ts")
-    const posted: unknown[] = []
-    const thread = {
-      post: vi.fn(async (message: string | AsyncIterable<unknown>) => {
-        posted.push(message)
-        if (typeof message !== "string") {
-          for await (const _chunk of message) {
-            // consume stream
-          }
-        }
-      }),
-    }
-
-    const textResult = await postChatStream(thread, (async function* () {
-      yield { delta: "Hello", type: "text-delta" }
-    })(), { noTextFallback: "No text" })
-    const emptyResult = await postChatStream(thread, (async function* () {
-      yield { type: "tool-call" }
-    })(), { noTextFallback: "No text" })
-
-    expect(textResult.sawText).toBe(true)
-    expect(emptyResult.sawText).toBe(false)
-    expect(posted.at(-1)).toBe("No text")
-    expect(thread.post).toHaveBeenCalledTimes(3)
   })
 })
 

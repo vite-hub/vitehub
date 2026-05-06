@@ -1,5 +1,3 @@
-import { chatDevtoolsDefaultUrl } from "./devtools.ts"
-
 import type { ChatModuleOptions, ResolvedChatModuleOptions } from "./types.ts"
 
 const defaultChatWebhookRoute = "/api/webhooks/[platform]"
@@ -41,13 +39,13 @@ function normalizeDevOptions(dev: ChatModuleOptions["dev"]): ResolvedChatModuleO
     return false
   }
 
-  const initialize = dev?.initialize !== false
-  const devtoolsUrl = process.env.VITEHUB_CHAT_DEVTOOLS_URL
-    || (typeof dev?.devtools === "object" ? dev.devtools.url : undefined)
-    || chatDevtoolsDefaultUrl
   return {
-    devtools: initialize && dev?.devtools !== false ? { url: devtoolsUrl } : false,
-    initialize,
+    devtools: dev?.devtools === false
+      ? false
+      : typeof dev?.devtools === "object"
+        ? { url: dev.devtools.url }
+        : {},
+    initialize: dev?.initialize !== false,
     localStateFallback: dev?.localStateFallback !== false,
   }
 }

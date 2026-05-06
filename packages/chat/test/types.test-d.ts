@@ -7,9 +7,6 @@ import {
   defineCloudflareChatHandler,
   type CloudflareExportedHandlerFetchHandler,
 } from "@vitehub/chat/cloudflare"
-import type { PluginWithDevTools } from "@vitejs/devtools-kit"
-import type { NitroModule } from "nitro/types"
-import { chatDevtools, hubChat } from "../src/vite.ts"
 
 declare module "nitro/types" {
   interface NitroRuntimeConfig {
@@ -40,10 +37,5 @@ describe("Nitro runtime config types", () => {
 
   it("accepts dev initialization options", () => {
     expectTypeOf<ChatModuleOptions["dev"]>().toEqualTypeOf<false | { devtools?: boolean | { url?: string }, initialize?: boolean, localStateFallback?: boolean } | undefined>()
-  })
-
-  it("publishes separate Vite plugin types for Chat DevTools and full Chat integration", () => {
-    expectTypeOf(chatDevtools()).toMatchTypeOf<PluginWithDevTools & { nitro?: never }>()
-    expectTypeOf(hubChat()).toMatchTypeOf<PluginWithDevTools & { nitro: NitroModule }>()
   })
 })
