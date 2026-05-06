@@ -1,9 +1,10 @@
 import { createFeatureNitroBridge } from "@vitehub/internal/feature-bridge/engine"
 
 import { kvFeatureEngine } from "../feature.ts"
+import type { NitroModule } from "nitro/types"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "../types.ts"
 
-const kvNitroModule = createFeatureNitroBridge(kvFeatureEngine)
+const kvNitroModule: NitroModule = createFeatureNitroBridge(kvFeatureEngine)
 
 export default kvNitroModule
 
