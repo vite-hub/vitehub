@@ -1,6 +1,7 @@
 import { getActiveCloudflareBinding } from "@vitehub/internal/runtime/cloudflare-env"
 import { github as createGitHubSource, type GitHubSourceOptions as UnsourceGitHubSourceOptions } from "@vitehub/unsource"
 
+import { resolveWorkspaceEnv } from "../env.ts"
 import type { SourceContext, WorkspaceSource } from "../types.ts"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "swr" | "validate">
@@ -11,79 +12,63 @@ export interface GitHubSourceOptions extends Omit<UnsourceGitHubSourceOptions, "
 }
 
 export function github(options: GitHubSourceOptions): WorkspaceSource {
-  let envFileToken: string | undefined
-  async function prepareEnvFileToken(ctx: SourceContext) {
-    envFileToken = await prepareGitHubEnvFileToken(ctx.rootDir)
+  const baseSource = createGitHubSource({
+    ...options,
+    auth: createGitHubAuthResolver(options.auth),
+  })
+  const sourceByRoot = new Map<string, typeof baseSource>()
+
+  async function getSourceForRoot(rootDir: string) {
+    const cachedSource = sourceByRoot.get(rootDir)
+    if (cachedSource) return cachedSource
+    const envFileToken = await resolveWorkspaceEnv(rootDir, "GITHUB_TOKEN")
+    const source = createGitHubSource({
+      ...options,
+      auth: createGitHubAuthResolver(options.auth, envFileToken),
+    })
+    sourceByRoot.set(rootDir, source)
+    return source
   }
 
-  const source = createGitHubSource({
-    ...options,
-    auth: createGitHubAuthResolver(options.auth, () => envFileToken),
-  })
-
   return {
-    ...source,
+    ...baseSource,
     cache: options.cache,
     materialize: options.materialize,
     mount: options.mount,
     swr: options.swr,
     validate: options.validate,
     async prepare(ctx) {
-      await prepareEnvFileToken(ctx)
+      const source = await getSourceForRoot(ctx.rootDir)
       await source.prepare?.(ctx)
     },
     async getKeys(ctx) {
-      await prepareEnvFileToken(ctx)
+      const source = await getSourceForRoot(ctx.rootDir)
       return await source.getKeys(ctx)
     },
     async getItem(key, ctx) {
-      await prepareEnvFileToken(ctx)
+      const source = await getSourceForRoot(ctx.rootDir)
       return await source.getItem(key, ctx)
     },
     async getMeta(key, ctx) {
-      await prepareEnvFileToken(ctx)
+      const source = await getSourceForRoot(ctx.rootDir)
       return await source.getMeta?.(key, ctx)
     },
     async search(query, ctx) {
-      await prepareEnvFileToken(ctx)
+      const source = await getSourceForRoot(ctx.rootDir)
       return await source.search?.(query, ctx) ?? []
     },
   }
 }
 
-const envFileTokenByRoot = new Map<string, string | undefined>()
-let viteLoadEnv: ((mode: string, root: string, prefix: string) => Record<string, string>) | undefined | null
-
-function createGitHubAuthResolver(auth: GitHubAuth | undefined, getEnvFileToken: () => string | undefined) {
+function createGitHubAuthResolver(auth: GitHubAuth | undefined, envFileToken?: string) {
   return () => {
     return resolveGitHubAuth(auth)
       || getActiveCloudflareBinding<string>("GITHUB_TOKEN")
       || process.env.GITHUB_TOKEN
-      || getEnvFileToken()
+      || envFileToken
   }
 }
 
 function resolveGitHubAuth(auth: GitHubAuth | undefined): string | undefined {
   return typeof auth === "function" ? auth() : auth
-}
-
-async function prepareGitHubEnvFileToken(rootDir: string): Promise<string | undefined> {
-  if (envFileTokenByRoot.has(rootDir)) return envFileTokenByRoot.get(rootDir)
-  const token = (await loadViteEnv(rootDir))?.GITHUB_TOKEN
-  envFileTokenByRoot.set(rootDir, token)
-  return token
-}
-
-async function loadViteEnv(rootDir: string): Promise<Record<string, string> | undefined> {
-  if (viteLoadEnv === null) return
-  if (!viteLoadEnv) {
-    try {
-      viteLoadEnv = (await import("vite")).loadEnv
-    }
-    catch {
-      viteLoadEnv = null
-      return
-    }
-  }
-  return viteLoadEnv("", rootDir, "")
 }
