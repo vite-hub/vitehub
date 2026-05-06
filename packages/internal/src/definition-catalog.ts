@@ -41,6 +41,42 @@ export type DefinitionCatalogSource<TDefinition extends DiscoveredDefinition> =
   | DirectoryDefinitionCatalogSource<TDefinition>
   | SuffixDefinitionCatalogSource<TDefinition>
 
+export function resolveDefinitionScanRoots(rootDir: string, scanDirs: string[] | undefined = []): string[] {
+  return [...new Set([rootDir, ...scanDirs].filter(Boolean))]
+}
+
+export function createDirectoryDefinitionSource<TDefinition extends DiscoveredDefinition>(
+  source: string,
+  scanDirs: string[],
+  subdir: string,
+  options: Pick<DirectoryDefinitionCatalogSource<TDefinition>, "createDefinition" | "includeHidden" | "normalizeName"> = {},
+): DirectoryDefinitionCatalogSource<TDefinition> {
+  return {
+    ...options,
+    kind: "directory",
+    scanDirs,
+    source,
+    subdir,
+  }
+}
+
+export function createSuffixDefinitionSource<TDefinition extends DiscoveredDefinition>(
+  source: string,
+  roots: string[],
+  pattern: RegExp,
+  normalizeName: SuffixDefinitionCatalogSource<TDefinition>["normalizeName"],
+  options: Pick<SuffixDefinitionCatalogSource<TDefinition>, "createDefinition" | "includeHidden"> = {},
+): SuffixDefinitionCatalogSource<TDefinition> {
+  return {
+    ...options,
+    kind: "suffix",
+    normalizeName,
+    pattern,
+    roots,
+    source,
+  }
+}
+
 function readDirEntries(root: string): Dirent[] {
   try {
     return readdirSync(root, { withFileTypes: true })

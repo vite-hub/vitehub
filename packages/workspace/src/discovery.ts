@@ -2,7 +2,14 @@ import { readdirSync } from "node:fs"
 import { basename, dirname, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { createRuntimeRegistryContents, discoverDefinitions, normalizePathDefinitionName, normalizeSuffixDefinitionName } from "@vitehub/internal/definition-catalog"
+import {
+  createDirectoryDefinitionSource,
+  createRuntimeRegistryContents,
+  createSuffixDefinitionSource,
+  discoverDefinitions,
+  normalizePathDefinitionName,
+  normalizeSuffixDefinitionName,
+} from "@vitehub/internal/definition-catalog"
 
 import { workspaceConfigFileNames, workspaceConfigPattern, workspaceSuffixPattern } from "./workspace-config.ts"
 
@@ -71,36 +78,23 @@ function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource
   }
 
   return [
-    {
-      kind: "directory",
+    createDirectoryDefinitionSource("nitro-server-workspaces-directory-config", [resolve(rootDir, "server")], "workspaces", {
       includeHidden: true,
       normalizeName: normalizeDirectoryName,
-      scanDirs: [resolve(rootDir, "server")],
-      source: "nitro-server-workspaces-directory-config",
-      subdir: "workspaces",
       createDefinition: ({ file, name }) => ({ handler: file, name, path: file, source: "nitro-server-workspaces-directory-config" }),
-    },
-    {
-      kind: "directory",
+    }),
+    createDirectoryDefinitionSource("nitro-server-workspaces", [resolve(rootDir, "server")], "workspaces", {
       normalizeName: normalizeFlatName,
-      scanDirs: [resolve(rootDir, "server")],
-      source: "nitro-server-workspaces",
-      subdir: "workspaces",
       createDefinition: ({ file, name }) => ({ handler: file, name, path: file, source: "nitro-server-workspaces" }),
-    },
+    }),
   ]
 }
 
 function viteWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
   return [
-    {
-      kind: "suffix",
-      normalizeName: (root, file) => normalizeSuffixDefinitionName(root, file, workspaceSuffixPattern, { stripPrefix: "src/" }),
-      pattern: workspaceSuffixPattern,
-      roots: [rootDir],
-      source: "vite-workspace-suffix",
+    createSuffixDefinitionSource("vite-workspace-suffix", [rootDir], workspaceSuffixPattern, (root, file) => normalizeSuffixDefinitionName(root, file, workspaceSuffixPattern, { stripPrefix: "src/" }), {
       createDefinition: ({ file, name }) => ({ handler: file, name, path: file, source: "vite-workspace-suffix" }),
-    },
+    }),
   ]
 }
 

@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { discoverNitroWorkspaceDefinitions } from "../src/discovery.ts"
+import { createWorkspaceRegistryContents, discoverNitroWorkspaceDefinitions } from "../src/discovery.ts"
 
 const tempDirs: string[] = []
 
@@ -46,5 +46,15 @@ describe("discoverNitroWorkspaceDefinitions", () => {
     await writeFile(join(root, "server", "workspaces", "docs", ".config.ts"), "export default {}\n", "utf8")
 
     expect(() => discoverNitroWorkspaceDefinitions(root)).toThrow('Duplicate workspace name "docs"')
+  })
+
+  it("creates registry entries from discovered workspace definitions", async () => {
+    const root = await createRoot()
+    const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
+    await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default {}\n", "utf8")
+
+    expect(createWorkspaceRegistryContents(registryFile, discoverNitroWorkspaceDefinitions(root))).toContain(
+      '"docs": async () => import(',
+    )
   })
 })

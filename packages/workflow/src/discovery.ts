@@ -1,9 +1,12 @@
-import { normalize, relative, resolve } from "pathe"
+import { normalize, resolve } from "pathe"
 
 import {
+  createDirectoryDefinitionSource,
+  createSuffixDefinitionSource,
   discoverDefinitions,
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
+  resolveDefinitionScanRoots,
 } from "@vitehub/internal/definition-catalog"
 
 import type { DiscoveredWorkflowDefinition } from "./types.ts"
@@ -19,25 +22,15 @@ export function discoverWorkflowDefinitions(options:
   | { mode: "nitro-server-workflows", scanDirs: string[] }
 ): DiscoveredWorkflowDefinition[] {
   if (options.mode === "nitro-server-workflows") {
-    return discoverDefinitions("workflow", [{
-      kind: "directory",
-      scanDirs: options.scanDirs,
-      source: "nitro-server-workflows",
-      subdir: "workflows",
-    }])
+    return discoverDefinitions("workflow", [
+      createDirectoryDefinitionSource("nitro-server-workflows", options.scanDirs, "workflows"),
+    ])
   }
 
-  const roots = new Set([options.rootDir, ...(options.scanDirs || [])].filter(Boolean))
+  const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
   return discoverDefinitions("workflow", [
-    {
-      kind: "suffix",
-      normalizeName: normalizeSuffixWorkflowName,
-      pattern: workflowSuffixPattern,
-      roots: [...roots],
-      source: "vite-suffix",
-    },
-    {
-      kind: "directory",
+    createSuffixDefinitionSource("vite-suffix", roots, workflowSuffixPattern, normalizeSuffixWorkflowName),
+    createDirectoryDefinitionSource("nitro-server-workflows", roots.map(root => resolve(root, "server")), "workflows", {
       normalizeName(directory, file) {
         const serverWorkflowDir = normalize(directory)
         const normalizedFile = normalize(file)
@@ -45,9 +38,6 @@ export function discoverWorkflowDefinitions(options:
           return normalizePathDefinitionName(serverWorkflowDir, file)
         }
       },
-      scanDirs: [...roots].map(root => resolve(root, "server")),
-      source: "nitro-server-workflows",
-      subdir: "workflows",
-    },
+    }),
   ])
 }
