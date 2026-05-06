@@ -354,6 +354,43 @@ describe("Chat DevTools Nitro bridge", () => {
     })
   })
 
+  it("exposes previous registry bridge turns to chat handlers", async () => {
+    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
+    const seenHistory: string[][] = []
+    const chat = {
+      handleIncomingMessage: vi.fn(async (adapter, threadId, message) => {
+        const history = await adapter.fetchMessages(threadId)
+        seenHistory.push(history.messages.map((item: { text: string }) => item.text))
+        await adapter.postMessage(threadId, `history: ${history.messages.length}; ${message.text}`)
+      }),
+      initialize: vi.fn(),
+    }
+    const handler = defineChatDevtoolsHandler(chat as never)
+
+    await handler(createBridgeEvent({ action: "send", text: "first" }) as never)
+    await handler(createBridgeEvent({ action: "send", text: "second" }) as never)
+
+    expect(seenHistory).toEqual([
+      ["first"],
+      ["first", "history: 1; first", "second"],
+    ])
+  })
+
+  it("does not synthesize a selectable chat for an empty registry", async () => {
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/nitro.ts")
+    const handler = defineChatDevtoolsRegistryHandler({})
+
+    const result = await handler(createBridgeEvent({ action: "get-state" }) as never) as ChatDevtoolsStateResult
+
+    expect(result).toEqual({
+      chats: [],
+      selected: "",
+    })
+    await expect(handler(createBridgeEvent({ action: "send", text: "hello" }) as never)).rejects.toMatchObject({
+      statusCode: 404,
+    })
+  })
+
   it("preserves previous registry bridge turns across sends", async () => {
     const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
     const chat = {
