@@ -19,7 +19,11 @@ interface ChatRuntimeConfig {
 
 export default defineChat<ChatRuntimeConfig>({
   adapters({ runtimeConfig }) {
-    const telegram = runtimeConfig!.telegram
+    const telegram = runtimeConfig?.telegram
+    if (!telegram?.botToken || !telegram.webhookSecretToken) {
+      return {}
+    }
+
     const apiBaseUrl = telegram.apiBaseUrl?.trim()
     const botUsername = telegram.botUsername?.trim()
 
@@ -36,10 +40,11 @@ export default defineChat<ChatRuntimeConfig>({
   hooks: {
     async onDirectMessage({ message, runtimeConfig, thread }) {
       await thread.startTyping().catch(() => {})
+      const vertex = runtimeConfig?.vertex
       const result = await answerWithContext(
         message.text,
-        runtimeConfig!.vertex.apiKey,
-        runtimeConfig!.vertex.model,
+        vertex?.apiKey || "devtools",
+        vertex?.model || "dummy",
       )
       await thread.post(result.fullStream)
     },

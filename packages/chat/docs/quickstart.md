@@ -16,8 +16,8 @@ The example uses a small in-memory state adapter so you can verify routing local
 ```txt [Prompt]
 Set up @vitehub/chat in this app.
 
-- Install @vitehub/chat and chat
-- Register hubChat() with Nitro or add @vitehub/chat/nitro
+- Install @vitehub/chat, chat, and @vitejs/devtools
+- Register hubChat() with Nitro or add @vitehub/chat/nitro with chatDevTools()
 - Add server/chat.ts with defineChat()
 - Configure a local state adapter for development
 - Verify that /api/webhooks/demo reaches the generated handler
@@ -32,7 +32,7 @@ Docs: /docs/vite/chat/quickstart or /docs/nitro/chat/quickstart
 ### Install Chat
 
 ```bash
-pnpm add @vitehub/chat chat chat-state-cloudflare-do
+pnpm add @vitehub/chat chat chat-state-cloudflare-do @vitejs/devtools
 ```
 
 ### Register the integration
@@ -42,16 +42,39 @@ Register the Vite plugin next to Nitro:
 
 ```ts [vite.config.ts]
 import { hubChat } from '@vitehub/chat/vite'
+import { DevTools } from '@vitejs/devtools'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
+    DevTools(),
     hubChat(),
-    ...nitro(),
+    nitro(),
   ],
 })
 ```
+
+If you want to keep Chat registered as a Nitro module, add the Chat DevTools companion as a Vite plugin:
+
+```ts [vite.config.ts]
+import { chatDevTools } from '@vitehub/chat/devtools'
+import { DevTools } from '@vitejs/devtools'
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    DevTools(),
+    chatDevTools(),
+    nitro({
+      modules: ['@vitehub/chat/nitro'],
+    }),
+  ],
+})
+```
+
+`@vitehub/chat/nitro` creates the bridge route and runtime wiring. `chatDevTools()` adds only the Vite DevTools dock and RPC calls for that bridge. `DevTools()` plus `nitro({ modules: ['@vitehub/chat/nitro'] })` alone cannot show the Chat dock because Vite DevTools discovers panels from Vite plugins.
 ::
 
 ::fw{id="nitro:dev nitro:build"}

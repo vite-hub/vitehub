@@ -35,6 +35,7 @@ dynamicallyLoaded = [
   "packages/chat/examples/**/server/**",
   "packages/chat/examples/**/src/server.ts",
   "packages/chat/examples/**/src/**/*.chat.ts",
+  "packages/devtools/devtools/**",
   "packages/chat/test/**/*.test-d.ts",
   "packages/sandbox/test/**/*.test-d.ts",
   "packages/sandbox/examples/**/nitro.config.ts",
@@ -80,6 +81,10 @@ ignoreDependencies = [
   "chat",
   "chat-state-cloudflare-do",
   "publint",
+  "@iconify-json/lucide",
+  "@comark/nuxt",
+  "@vitejs/devtools",
+  "@vueuse/nuxt",
 ]
 
 publicPackages = [

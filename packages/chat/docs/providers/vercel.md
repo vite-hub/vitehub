@@ -16,15 +16,17 @@ Set the provider to `vercel` when automatic provider detection is not enough.
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
 import { hubChat } from '@vitehub/chat/vite'
+import { DevTools } from '@vitejs/devtools'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
+    DevTools(),
     hubChat({
       provider: 'vercel',
     }),
-    ...nitro({
+    nitro({
       preset: 'vercel',
     }),
   ],
