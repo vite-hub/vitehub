@@ -56,6 +56,7 @@ function createNitroStub(rootDir: string, chat: unknown = {}) {
           migrations?: Array<{ new_sqlite_classes?: string[], tag: string }>
         }
       },
+      dev: true,
       handlers: [] as Array<{ handler: string, method?: string, route: string }>,
       imports: {},
       externals: {} as { inline?: string[] },
@@ -654,6 +655,30 @@ describe("Nitro module", () => {
     await module.setup(nitro as never)
 
     expect(nitro.options.handlers.some(handler => handler.route === "/__vitehub/chat/devtools")).toBe(false)
+  })
+
+  it("does not install DevTools route outside Nitro dev mode", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-prod-devtools-"))
+    await writeSingleChat(rootDir)
+    const nitro = createNitroStub(rootDir)
+    nitro.options.dev = false
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.handlers.some(handler => handler.route === "/__vitehub/chat/devtools")).toBe(false)
+  })
+
+  it("generates the empty DevTools handler with no discovered chats", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-empty-devtools-"))
+    const nitro = createNitroStub(rootDir)
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    const devtoolsHandler = nitro.options.handlers.find(handler => handler.route === "/__vitehub/chat/devtools")
+    expect(devtoolsHandler).toBeDefined()
+    expect(await readFile(devtoolsHandler!.handler, "utf8")).toContain("defineChatDevtoolsRegistryHandler({})")
   })
 
   it("requires a chat route param for multiple discovered chats", async () => {

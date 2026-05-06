@@ -272,8 +272,9 @@ describe("Chat DevTools Nitro bridge", () => {
       state: createState() as never,
       userName: "Devtools Test",
     }).registerSingleton()
-    const processMessage = vi.spyOn(chat, "processMessage").mockImplementation((adapter, threadId, messageOrFactory) => {
+    const processMessage = vi.spyOn(chat, "processMessage").mockImplementation(async (adapter, threadId, messageOrFactory) => {
       const message = typeof messageOrFactory === "function" ? undefined : messageOrFactory
+      await Promise.resolve()
       void adapter.postMessage(threadId, `echo: ${message?.text || ""}`)
     })
     const handler = defineChatDevtoolsSingletonHandler()

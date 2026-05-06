@@ -76,6 +76,25 @@ describe("registerViteHubDevtoolsPanel", () => {
     }))
   })
 
+  it("hosts local static assets at a non-HTTP URL override", () => {
+    const ctx = createContext()
+
+    const result = registerViteHubDevtoolsPanel(ctx as never, {
+      distDir: "/tmp/client",
+      icon: "i-lucide-message-square",
+      id: "@vitehub/test",
+      route: "/__vitehub/test/",
+      title: "ViteHub Test",
+      url: "/custom-panel/",
+    })
+
+    expect(result).toEqual({ remote: false, url: "/custom-panel/" })
+    expect(ctx.views.hostStatic).toHaveBeenCalledWith("/custom-panel/", "/tmp/client")
+    expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
+      url: "/custom-panel/",
+    }))
+  })
+
   it("marks absolute overrides as remote iframes", () => {
     const ctx = createContext()
 
