@@ -27,11 +27,11 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
 }
 
-export function normalizeKVPublicOptions(options: KVModuleOptions | false | undefined): KVModuleOptions | undefined {
+function normalizeKVPublicOptions(options: KVModuleOptions | false | undefined): KVModuleOptions | undefined {
   return normalizeFeaturePublicOptions("kv", options)
 }
 
-export function readKVPublicOptions(source: FeatureStateSource<KVModuleOptions>): KVModuleOptions | undefined {
+function readKVPublicOptions(source: FeatureStateSource<KVModuleOptions>): KVModuleOptions | undefined {
   const options = readFeaturePublicOptions<KVModuleOptions>(source, "kv")
   return typeof options === "undefined" ? ({} as KVModuleOptions) : options
 }

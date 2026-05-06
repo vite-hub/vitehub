@@ -1,6 +1,6 @@
 import { isPlainObject } from '@vitehub/internal/object'
 
-export function cloneFeatureOptions<T extends object>(feature: string, options: T): T {
+function cloneFeatureOptions<T extends object>(feature: string, options: T): T {
   if (!isPlainObject(options))
     throw new TypeError(`[vitehub] \`${feature}\` must be a plain object.`)
 
