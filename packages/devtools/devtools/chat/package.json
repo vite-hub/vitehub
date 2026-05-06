@@ -1,0 +1,5 @@
+{
+  "name": "@vitehub/devtools-chat-client",
+  "private": true,
+  "type": "module"
+}
