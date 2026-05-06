@@ -2,13 +2,14 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { resolve } from "pathe"
 
 import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { writeCloudflareDeploymentOutput, writeVercelDeploymentOutput } from "@vitehub/internal/build/deployment-output"
+import { writeProviderDeploymentOutputs } from "@vitehub/internal/build/deployment-output"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
 import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../config.ts"
 
 import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../types.ts"
+import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 
 export const blobPackageName = "@vitehub/blob"
 const productName = "blob"
@@ -189,7 +190,7 @@ async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | R
   } satisfies GeneratedBlobArtifacts
 }
 
-async function writeCloudflareOutput(rootDir: string, clientOutDir: string, blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, artifacts: GeneratedBlobArtifacts) {
+function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, artifacts: GeneratedBlobArtifacts): CloudflareProviderDeploymentOutput {
   const resolved = resolveBlobConfig(blob, "cloudflare")
 
   const wranglerConfig: CloudflareBlobConfig = {
@@ -200,7 +201,7 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, blob
     ...(createCloudflareR2Bindings(resolved) ? { r2_buckets: createCloudflareR2Bindings(resolved) } : {}),
   }
 
-  await writeCloudflareDeploymentOutput({
+  return {
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
       alias: {
@@ -211,14 +212,12 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, blob
       format: "esm",
       platform: "neutral",
     },
-    clientOutDir,
-    rootDir,
     wranglerConfig,
-  })
+  }
 }
 
-async function writeVercelOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedBlobArtifacts) {
-  await writeVercelDeploymentOutput({
+function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDeploymentOutput {
+  return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
       alias: {
@@ -228,16 +227,16 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, artifact
       format: "esm",
       platform: "node",
     },
-    clientOutDir,
-    rootDir,
-  })
+  }
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.blob)
-  await Promise.all([
-    writeCloudflareOutput(options.rootDir, options.clientOutDir, options.blob, artifacts),
-    writeVercelOutput(options.rootDir, options.clientOutDir, artifacts),
-  ])
+  await writeProviderDeploymentOutputs({
+    clientOutDir: options.clientOutDir,
+    cloudflare: createCloudflareOutput(options.blob, artifacts),
+    rootDir: options.rootDir,
+    vercel: createVercelOutput(artifacts),
+  })
   return artifacts
 }

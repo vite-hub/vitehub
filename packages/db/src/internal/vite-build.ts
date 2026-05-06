@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises"
 
-import { writeCloudflareDeploymentOutput, writeVercelDeploymentOutput } from "@vitehub/internal/build/deployment-output"
+import { writeProviderDeploymentOutputs } from "@vitehub/internal/build/deployment-output"
 import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
 import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
@@ -9,6 +9,7 @@ import { resolve } from "pathe"
 import { serializeSchemaObject } from "./schema-serializer.ts"
 
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
+import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 
 export const dbPackageName = "@vitehub/db"
 const productName = "db"
@@ -187,7 +188,7 @@ interface ProviderWriteOptions {
   runtimeConfig: ResolvedDBViteConfig
 }
 
-async function writeCloudflareOutput({ artifacts, clientOutDir, rootDir, runtimeConfig }: ProviderWriteOptions) {
+function createCloudflareOutput({ artifacts, runtimeConfig }: ProviderWriteOptions): CloudflareProviderDeploymentOutput {
   const databasesMissingNames = getCloudflareDatabasesMissingNames(runtimeConfig)
   if (databasesMissingNames.length) {
     throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseName\` when \`db.cloudflare.databaseId\` is set for databases: ${databasesMissingNames.join(", ")}.`)
@@ -208,7 +209,7 @@ async function writeCloudflareOutput({ artifacts, clientOutDir, rootDir, runtime
     observability: { enabled: true },
   }
 
-  await writeCloudflareDeploymentOutput({
+  return {
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
       alias: { "@vitehub/db/drizzle": artifacts.runtimeModuleFiles.cloudflare },
@@ -217,33 +218,34 @@ async function writeCloudflareOutput({ artifacts, clientOutDir, rootDir, runtime
       format: "esm",
       platform: "neutral",
     },
-    clientOutDir,
-    rootDir,
     wranglerConfig,
-  })
+  }
 }
 
-async function writeVercelOutput({ artifacts, clientOutDir, rootDir, runtimeConfig }: ProviderWriteOptions) {
+function createVercelOutput({ artifacts, runtimeConfig }: ProviderWriteOptions): VercelProviderDeploymentOutput {
   const unsupportedDatabases = getVercelUnsupportedDatabases(runtimeConfig)
   if (unsupportedDatabases.length) {
     throw new Error(`[vitehub] Vercel output requires a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
   }
 
-  await writeVercelDeploymentOutput({
+  return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
       alias: { "@vitehub/db/drizzle": artifacts.runtimeModuleFiles.vercel },
       format: "esm",
       platform: "node",
     },
-    clientOutDir,
-    rootDir,
-  })
+  }
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedDBArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig)
   const writeOptions: ProviderWriteOptions = { artifacts, ...options }
-  await Promise.all([writeCloudflareOutput(writeOptions), writeVercelOutput(writeOptions)])
+  await writeProviderDeploymentOutputs({
+    clientOutDir: options.clientOutDir,
+    cloudflare: createCloudflareOutput(writeOptions),
+    rootDir: options.rootDir,
+    vercel: createVercelOutput(writeOptions),
+  })
   return artifacts
 }

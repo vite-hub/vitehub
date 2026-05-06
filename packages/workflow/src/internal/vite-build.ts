@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, writeCloudflareDeploymentOutput, writeVercelDeploymentOutput } from "@vitehub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vitehub/internal/build/deployment-output"
 import { VITEHUB_MODES, getViteMode } from "@vitehub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
 import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
@@ -13,6 +13,7 @@ import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
+import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 
 export const workflowPackageName = "@vitehub/workflow"
 const productName = "workflow"
@@ -173,8 +174,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
   }
 }
 
-async function writeCloudflareOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedWorkflowArtifacts) {
-  const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+function createCloudflareOutput(rootDir: string, artifacts: GeneratedWorkflowArtifacts): CloudflareProviderDeploymentOutput {
   const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
@@ -189,7 +189,7 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
     ...(workflows ? { workflows } : {}),
   }
 
-  await writeCloudflareDeploymentOutput({
+  return {
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
       conditions: ["workerd", "worker", "browser", "default"],
@@ -209,33 +209,39 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
       platform: "neutral",
     },
     bundleOutfileName: "worker.mjs",
-    clientOutDir,
-    outputRoot,
-    rootDir,
+    outputRoot: createDefaultCloudflareOutputRoot(rootDir),
     wranglerConfig,
-  })
+  }
+}
 
+async function writeCloudflareWorkflowWrapper(rootDir: string, artifacts: GeneratedWorkflowArtifacts) {
+  const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+  const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
+    ? artifacts.cloudflareWorkflowConfig
+    : false
+  const workflowDefinitions = workflowConfig ? artifacts.definitions : []
   await writeFile(resolve(outputRoot, "index.js"), renderCloudflareWorkerWrapper(workflowDefinitions), "utf8")
 }
 
-async function writeVercelOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedWorkflowArtifacts) {
-  await writeVercelDeploymentOutput({
+function createVercelOutput(artifacts: GeneratedWorkflowArtifacts): VercelProviderDeploymentOutput {
+  return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
       external: ["@cloudflare/sandbox", "cloudflare:workers", "workflow", "workflow/api", "workflow/runtime"],
       format: "esm",
       platform: "node",
     },
-    clientOutDir,
-    rootDir,
-  })
+  }
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedWorkflowArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow)
-  await Promise.all([
-    writeCloudflareOutput(options.rootDir, options.clientOutDir, artifacts),
-    writeVercelOutput(options.rootDir, options.clientOutDir, artifacts),
-  ])
+  await writeProviderDeploymentOutputs({
+    clientOutDir: options.clientOutDir,
+    cloudflare: createCloudflareOutput(options.rootDir, artifacts),
+    rootDir: options.rootDir,
+    vercel: createVercelOutput(artifacts),
+  })
+  await writeCloudflareWorkflowWrapper(options.rootDir, artifacts)
   return artifacts
 }

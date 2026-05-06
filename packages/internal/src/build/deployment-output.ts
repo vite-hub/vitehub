@@ -32,6 +32,14 @@ export interface VercelDeploymentOutputOptions extends SharedDeploymentOptions {
   staticOutputDir?: string
 }
 
+export type CloudflareProviderDeploymentOutput = Omit<CloudflareDeploymentOutputOptions, keyof SharedDeploymentOptions>
+export type VercelProviderDeploymentOutput = Omit<VercelDeploymentOutputOptions, keyof SharedDeploymentOptions>
+
+export interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
+  cloudflare: CloudflareProviderDeploymentOutput
+  vercel: VercelProviderDeploymentOutput
+}
+
 interface ResolvedClientOutput {
   clientDir: string
   staticIndex: boolean
@@ -95,5 +103,20 @@ export async function writeVercelDeploymentOutput(options: VercelDeploymentOutpu
     staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
       : Promise.resolve(),
+  ])
+}
+
+export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {
+  await Promise.all([
+    writeCloudflareDeploymentOutput({
+      ...options.cloudflare,
+      clientOutDir: options.clientOutDir,
+      rootDir: options.rootDir,
+    }),
+    writeVercelDeploymentOutput({
+      ...options.vercel,
+      clientOutDir: options.clientOutDir,
+      rootDir: options.rootDir,
+    }),
   ])
 }
