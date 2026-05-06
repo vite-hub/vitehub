@@ -12,30 +12,49 @@ export interface GlobSourceOptions {
   root?: string
 }
 
-async function assertKnownKey<TKey extends string>(source: Source<TKey>, key: TKey, ctx: SourceContext) {
-  if ((await source.getKeys(ctx)).includes(key)) return
+async function assertKnownKey<TKey extends string>(getKeys: (ctx: SourceContext) => Promise<TKey[]>, key: TKey, ctx: SourceContext) {
+  if ((await getKeys(ctx)).includes(key)) return
   throw new UnsourceError(`[vitehub] source.glob could not find ${JSON.stringify(key)}.`)
 }
 
 export function glob<const TKey extends string = string>(options: GlobSourceOptions): Source<TKey> {
+  let snapshot: { key: string, keys: Promise<TKey[]> } | undefined
+
+  async function loadKeys(ctx: SourceContext) {
+    const { resolve } = await import("node:path")
+    const cwd = resolve(ctx.rootDir, options.cwd || ".")
+    const files = await tinyglobby(options.include, {
+      cwd,
+      dot: true,
+      ignore: ["**/.git/**", "**/node_modules/**", ...(Array.isArray(options.exclude) ? options.exclude : options.exclude ? [options.exclude] : [])],
+      onlyFiles: true,
+    })
+    return files
+      .map(file => normalizeSourcePath(file))
+      .filter(file => matchesAny(file, options.include) && !(options.exclude && matchesAny(file, options.exclude)))
+      .sort((left, right) => left.localeCompare(right)) as TKey[]
+  }
+
+  async function getCachedKeys(ctx: SourceContext) {
+    const { resolve } = await import("node:path")
+    const key = resolve(ctx.rootDir, options.cwd || ".")
+    if (!snapshot || snapshot.key !== key) {
+      snapshot = { key, keys: loadKeys(ctx) }
+    }
+    return await snapshot.keys
+  }
+
   const source: Source<TKey> = {
     name: "glob",
-    async getKeys(ctx: SourceContext) {
-      const { resolve } = await import("node:path")
-      const cwd = resolve(ctx.rootDir, options.cwd || ".")
-      const files = await tinyglobby(options.include, {
-        cwd,
-        dot: true,
-        ignore: ["**/.git/**", "**/node_modules/**", ...(Array.isArray(options.exclude) ? options.exclude : options.exclude ? [options.exclude] : [])],
-        onlyFiles: true,
-      })
-      return files
-        .map(file => normalizeSourcePath(file))
-        .filter(file => matchesAny(file, options.include) && !(options.exclude && matchesAny(file, options.exclude)))
-        .sort((left, right) => left.localeCompare(right)) as TKey[]
+    async prepare(ctx: SourceContext) {
+      snapshot = undefined
+      await getCachedKeys(ctx)
+    },
+    getKeys(ctx: SourceContext) {
+      return getCachedKeys(ctx)
     },
     async getMeta(key: TKey, ctx: SourceContext) {
-      await assertKnownKey(source, key, ctx)
+      await assertKnownKey(getCachedKeys, key, ctx)
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
       const cwd = resolve(ctx.rootDir, options.cwd || ".")
@@ -45,7 +64,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       }
     },
     async getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey>> {
-      await assertKnownKey(source, key, ctx)
+      await assertKnownKey(getCachedKeys, key, ctx)
       const { readFile, stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
       const cwd = resolve(ctx.rootDir, options.cwd || ".")

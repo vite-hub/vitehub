@@ -1,0 +1,43 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { glob as tinyglobby } from "tinyglobby"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { glob } from "../../src/index.ts"
+
+vi.mock("tinyglobby", () => ({
+  glob: vi.fn(async () => ["docs/README.md"]),
+}))
+
+const tempDirs: string[] = []
+
+async function createRoot() {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-unsource-glob-cache-"))
+  tempDirs.push(root)
+  return root
+}
+
+afterEach(async () => {
+  vi.clearAllMocks()
+  await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
+})
+
+describe("@vitehub/unsource glob source cache", () => {
+  it("reuses a prepared glob listing for item reads and metadata", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "README.md"), "# Docs\n")
+
+    const docs = glob({ include: "**/*.md" })
+    const ctx = { rootDir: root }
+
+    await docs.prepare?.(ctx)
+    await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/README.md"])
+    await expect(docs.getItem("docs/README.md", ctx)).resolves.toMatchObject({ key: "docs/README.md" })
+    await expect(docs.getMeta?.("docs/README.md", ctx)).resolves.toMatchObject({ digest: expect.any(String) })
+
+    expect(tinyglobby).toHaveBeenCalledTimes(1)
+  })
+})

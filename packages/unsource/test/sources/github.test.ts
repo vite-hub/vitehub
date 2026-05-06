@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer"
+
 import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -110,6 +112,43 @@ describe("@vitehub/unsource GitHub source", () => {
       "Bearer first-token",
       "Bearer second-token",
     ])
+  })
+
+  it("uses the same GitHub auth token for item and content lookup", async () => {
+    const tokens = ["first-token", "second-token"]
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const requestUrl = String(url)
+      const authorization = (init?.headers as Record<string, string> | undefined)?.authorization
+
+      if (requestUrl.includes("/git/trees/")) {
+        return jsonResponse({
+          sha: "tree-sha",
+          tree: [
+            {
+              path: authorization === "Bearer first-token" ? "first.md" : "second.md",
+              type: "blob",
+            },
+          ],
+        })
+      }
+
+      if (requestUrl.includes("/contents/first.md")) {
+        expect(authorization).toBe("Bearer first-token")
+        return jsonResponse({
+          content: Buffer.from("first\n").toString("base64"),
+          encoding: "base64",
+        })
+      }
+
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+
+    registerSources({ github: github({ auth: () => tokens.shift(), repo: "acme/private" }) })
+
+    await expect(useSource("github").read("first.md")).resolves.toBe("first\n")
+
+    const treeCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/git/trees/"))
+    expect(treeCalls.map(([, init]) => (init?.headers as Record<string, string> | undefined)?.authorization)).toEqual(["Bearer first-token"])
   })
 
   it("falls back to raw GitHub bytes when the contents API does not return base64", async () => {

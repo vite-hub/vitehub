@@ -106,8 +106,8 @@ export function github<const TKey extends string = string>(options: GitHubSource
     },
   )
 
-  function getFiles() {
-    return cachedLoadFiles(refreshAuth())
+  function getFiles(token = refreshAuth()) {
+    return cachedLoadFiles(token)
   }
 
   function repoPathForKey(key: string) {
@@ -139,7 +139,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
 
   const cachedFetchContent = defineCachedFunction(
     async (key: TKey, token: string | undefined) => {
-      const file = (await getFiles()).find(file => file.key === key)
+      const file = (await getFiles(token)).find(file => file.key === key)
       if (!file) {
         throw new UnsourceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
       }
@@ -177,7 +177,8 @@ export function github<const TKey extends string = string>(options: GitHubSource
       return (await getFiles()).map(file => file.key)
     },
     async getMeta(key) {
-      const file = (await getFiles()).find(file => file.key === key)
+      const token = refreshAuth()
+      const file = (await getFiles(token)).find(file => file.key === key)
       if (!file) return
       return {
         ref,
@@ -186,7 +187,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
     },
     async getItem(key) {
       const token = refreshAuth()
-      const file = (await getFiles()).find(file => file.key === key)
+      const file = (await getFiles(token)).find(file => file.key === key)
       if (!file) {
         throw new UnsourceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
       }
