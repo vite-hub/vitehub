@@ -34,13 +34,15 @@ export default defineChat({
 
 ```ts [vite.config.ts]
 import { hubChat } from '@vitehub/chat/vite'
+import { DevTools } from '@vitejs/devtools'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
+    DevTools(),
     hubChat(),
-    ...nitro(),
+    nitro(),
   ],
 })
 ```
@@ -100,6 +102,8 @@ Adapter packages, bot tokens, and webhook secrets come from the provider you are
 
 ::fw{id="vite:dev vite:build"}
 Vite apps use `hubChat()` and Nitro's Vite plugin together. Chat definitions are discovered from the Nitro server tree.
+
+If you prefer to register `@vitehub/chat/nitro` directly in `nitro({ modules })`, add `chatDevtools()` as the Vite-side companion when you want the Chat panel in Vite DevTools. The Nitro module owns the generated bridge route and runtime behavior; `chatDevtools()` only exposes that bridge in `/.devtools/`.
 ::
 
 ::fw{id="nitro:dev nitro:build"}

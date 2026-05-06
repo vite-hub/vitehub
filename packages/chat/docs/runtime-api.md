@@ -18,10 +18,10 @@ import { defineChat, resolveChat } from '@vitehub/chat'
 ```
 
 ::fw{id="vite:dev vite:build"}
-Vite config imports the plugin from `@vitehub/chat/vite`:
+Vite config imports the full plugin or the DevTools-only companion from `@vitehub/chat/vite`:
 
 ```ts
-import { hubChat } from '@vitehub/chat/vite'
+import { chatDevtools, hubChat } from '@vitehub/chat/vite'
 ```
 ::
 
@@ -34,6 +34,8 @@ export default defineNitroConfig({
 })
 ```
 ::
+
+`hubChat()` is the Vite-first integration and contributes the Chat Nitro module automatically. `chatDevtools()` is only the Vite DevTools dock/RPC companion for apps that register `@vitehub/chat/nitro` themselves.
 
 Cloudflare helpers import from `@vitehub/chat/cloudflare`:
 

@@ -132,14 +132,18 @@ Pass `webhook` options in config when the default route does not match your prov
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
 import { hubChat } from '@vitehub/chat/vite'
+import { DevTools } from '@vitejs/devtools'
 
 export default defineConfig({
-  plugins: [hubChat({
-    webhook: {
-      route: '/api/chat/[platform]',
-      routeParam: 'platform',
-    },
-  })],
+  plugins: [
+    DevTools(),
+    hubChat({
+      webhook: {
+        route: '/api/chat/[platform]',
+        routeParam: 'platform',
+      },
+    }),
+  ],
 })
 ```
 ::
