@@ -6,7 +6,7 @@ import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { envNitro, envSource, envVariable } from "../src/nitro.ts"
+import { env, envNitro } from "../src/nitro.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
 
@@ -64,25 +64,25 @@ describe("Nitro module", () => {
           },
         },
         env: {
-          authSecret: envVariable({ secret: true }),
-          databaseUrl: envVariable(),
-          optionalApiBase: envVariable({ optional: true, source: envSource.env("PUBLIC_API_BASE") }),
+          authSecret: env({ secret: true }),
+          databaseUrl: env(),
+          optionalApiBase: env({ optional: true, source: env.source("PUBLIC_API_BASE") }),
           public: {
-            apiBase: envVariable({ source: envSource.env("PUBLIC_API_BASE") }),
+            apiBase: env({ source: env.source("PUBLIC_API_BASE") }),
           },
           teams: {
-            apiUrl: envVariable({ optional: true }),
-            appId: envVariable({ secret: true }),
-            appPassword: envVariable({ secret: true }),
-            appTenantId: envVariable({ secret: true }),
+            apiUrl: env({ optional: true }),
+            appId: env({ secret: true }),
+            appPassword: env({ secret: true }),
+            appTenantId: env({ secret: true }),
             appType: "SingleTenant",
           },
           telegram: {
-            apiBaseUrl: envVariable({ optional: true }),
-            botToken: envVariable({ secret: true }),
+            apiBaseUrl: env({ optional: true }),
+            botToken: env({ secret: true }),
           },
           vertex: {
-            model: envVariable({ default: "gemini-3.1-pro-preview-customtools" }),
+            model: env({ default: "gemini-3.1-pro-preview-customtools" }),
           },
         },
         preset: "cloudflare-module",
@@ -148,11 +148,11 @@ describe("Nitro module", () => {
         buildDir: join(root, ".nitro"),
         env: {
           teams: {
-            apiUrl: envVariable({ optional: true }),
-            appId: envVariable({ secret: true }),
+            apiUrl: env({ optional: true }),
+            appId: env({ secret: true }),
           },
           vertex: {
-            model: envVariable({ default: "gemini-3.1-pro-preview-customtools" }),
+            model: env({ default: "gemini-3.1-pro-preview-customtools" }),
           },
         },
         rootDir: root,
@@ -218,7 +218,7 @@ describe("Nitro module", () => {
         cloudflare: {},
         env: {
           telegram: {
-            botToken: envVariable({ secret: true }),
+            botToken: env({ secret: true }),
           },
         },
         rootDir: root,
@@ -240,7 +240,7 @@ describe("Nitro module", () => {
       options: {
         buildDir: join(root, ".nitro"),
         env: {
-          authSecret: envVariable({ secret: true }),
+          authSecret: env({ secret: true }),
         },
         rootDir: root,
         vite: {
@@ -362,7 +362,7 @@ describe("Nitro module", () => {
       options: {
         buildDir: join(root, ".nitro"),
         env: {
-          sentryDebug: envVariable({
+          sentryDebug: env({
             schema: booleanSchema(),
             type: "boolean",
           }),
@@ -378,7 +378,7 @@ describe("Nitro module", () => {
     process.env.AUTH_SECRET = "a".repeat(32)
 
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
-    const declaration = envVariable({ secret: true })
+    const declaration = env({ secret: true })
     const nitro: NitroStub = {
       hooks: { hook: vi.fn() },
       logger: { info: vi.fn() },
@@ -405,7 +405,7 @@ describe("Nitro module", () => {
       options: {
         buildDir: join(root, ".nitro"),
         env: {
-          apiKey: envVariable({
+          apiKey: env({
             schema: {
               __vitehubDefaultRuntimeSchema: "string",
               safeParse(input: unknown) {
@@ -423,7 +423,7 @@ describe("Nitro module", () => {
 
   it("rejects default runtime declarations that are mutated to custom schemas", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
-    const apiKey = envVariable()
+    const apiKey = env()
     apiKey.schema = stringSchema()
 
     const nitro: NitroStub = {
@@ -441,11 +441,11 @@ describe("Nitro module", () => {
 
   it("rejects custom runtime schemas that copy default runtime markers", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
-    const defaultDeclaration = envVariable()
+    const defaultDeclaration = env()
     const marker = (defaultDeclaration as unknown as Record<string, unknown>).__vitehubDefaultRuntimeSchema
     const schema = stringSchema() as ReturnType<typeof stringSchema> & { __vitehubDefaultRuntimeSchema?: unknown }
     schema.__vitehubDefaultRuntimeSchema = marker
-    const apiKey = envVariable({ schema })
+    const apiKey = env({ schema })
     const apiKeyRecord = apiKey as unknown as Record<string, unknown>
     apiKeyRecord.__vitehubDefaultRuntimeSchema = marker
 
@@ -464,13 +464,13 @@ describe("Nitro module", () => {
 
   it("rejects custom runtime schemas that spoof the default parser source", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
-    const defaultDeclaration = envVariable()
+    const defaultDeclaration = env()
     const marker = (defaultDeclaration as unknown as Record<string, unknown>).__vitehubDefaultRuntimeSchema
     const defaultSchema = defaultDeclaration.schema as { safeParse: (input: unknown) => unknown }
     const schema = stringSchema() as ReturnType<typeof stringSchema> & { __vitehubDefaultRuntimeSchema?: unknown }
     schema.__vitehubDefaultRuntimeSchema = marker
     schema.safeParse.toString = () => defaultSchema.safeParse.toString()
-    const apiKey = envVariable({ schema })
+    const apiKey = env({ schema })
     const apiKeyRecord = apiKey as unknown as Record<string, unknown>
     apiKeyRecord.__vitehubDefaultRuntimeSchema = marker
 
@@ -489,14 +489,14 @@ describe("Nitro module", () => {
 
   it("rejects custom runtime schemas registered through a forged global parser allowlist", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))
-    const defaultDeclaration = envVariable()
+    const defaultDeclaration = env()
     const marker = (defaultDeclaration as unknown as Record<string, unknown>).__vitehubDefaultRuntimeSchema
     const schema = stringSchema() as ReturnType<typeof stringSchema> & { __vitehubDefaultRuntimeSchema?: unknown }
     schema.__vitehubDefaultRuntimeSchema = marker
     const parsersKey = Symbol.for("vitehub.env.defaultRuntimeSchemaParsers")
     const forgedGlobal = globalThis as typeof globalThis & Record<symbol, WeakSet<typeof schema.safeParse> | undefined>
     forgedGlobal[parsersKey] = new WeakSet([schema.safeParse])
-    const apiKey = envVariable({ schema })
+    const apiKey = env({ schema })
     const apiKeyRecord = apiKey as unknown as Record<string, unknown>
     apiKeyRecord.__vitehubDefaultRuntimeSchema = marker
 
@@ -526,9 +526,9 @@ describe("Nitro module", () => {
       options: {
         buildDir: join(root, ".nitro"),
         env: {
-          commit: envVariable({
+          commit: env({
             schema: stringSchema(),
-            source: envSource.custom("custom", () => "abc123"),
+            source: env.custom("custom", () => "abc123"),
           }),
         },
         rootDir: root,

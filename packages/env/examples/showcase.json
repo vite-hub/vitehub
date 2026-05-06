@@ -9,7 +9,7 @@
       "id": "cloudflare",
       "label": "Cloudflare",
       "icon": "i-simple-icons-cloudflare",
-      "configOverride": "  env: {\n    auth: {\n      token: envVariable({ secret: true }),\n    },\n  },",
+      "configOverride": "  env: {\n    auth: {\n      token: env({ secret: true }),\n    },\n  },",
       "envOverride": "AUTH_TOKEN=<auth-token>"
     },
     {
@@ -17,7 +17,7 @@
       "label": "Vercel",
       "icon": "i-simple-icons-vercel",
       "darkInvert": true,
-      "configOverride": "  env: {\n    auth: {\n      token: envVariable({ secret: true }),\n    },\n  },",
+      "configOverride": "  env: {\n    auth: {\n      token: env({ secret: true }),\n    },\n  },",
       "envOverride": "AUTH_TOKEN=<auth-token>"
     }
   ],

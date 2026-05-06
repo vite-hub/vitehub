@@ -16,7 +16,7 @@ When a declaration has no explicit source, Env infers an environment variable na
 ```ts
 env: {
   auth: {
-    token: envVariable({ secret: true }),
+    token: env({ secret: true }),
   },
 }
 ```
@@ -39,7 +39,7 @@ Use `default` when local development can use a safe fallback.
 ```ts
 env: {
   app: {
-    name: envVariable({
+    name: env({
       default: 'Docs App',
     }),
   },
@@ -54,25 +54,25 @@ Use `optional: true` when missing values should resolve to `undefined`.
 
 ```ts
 env: {
-  optionalApiBase: envVariable({
+  optionalApiBase: env({
     optional: true,
   }),
 }
 ```
 
-Do not combine `optional` and `required`. `envVariable()` rejects declarations that set both.
+Do not combine `optional` and `required`. `env()` rejects declarations that set both.
 
 ## Use explicit sources
 
-Use `envSource.env()` when the env var name should not be inferred from the config path.
+Use `env.source()` when the env var name should not be inferred from the config path.
 
 ```ts
-import { envSource, envVariable } from '@vitehub/env/nitro'
+import { env } from '@vitehub/env/nitro'
 
 env: {
-  optionalApiBase: envVariable({
+  optionalApiBase: env({
     optional: true,
-    source: envSource.env('PUBLIC_API_BASE'),
+    source: env.source('PUBLIC_API_BASE'),
   }),
 }
 ```
@@ -80,17 +80,17 @@ env: {
 Use build-only sources for values that can be resolved during Vite config:
 
 ```ts
-import { envSource, envVariable } from '@vitehub/env/vite'
+import { env } from '@vitehub/env/vite'
 
 env: {
   define: {
-    __APP_VERSION__: envVariable({
+    __APP_VERSION__: env({
       mode: 'build',
-      source: envSource.packageJson('version'),
+      source: env.packageJson('version'),
     }),
-    __GIT_COMMIT__: envVariable({
+    __GIT_COMMIT__: env({
       mode: 'build',
-      source: envSource.gitCommit({ short: true }),
+      source: env.gitCommit({ short: true }),
     }),
   },
 }
@@ -113,7 +113,7 @@ const booleanSchema = {
 
 env: {
   define: {
-    __SENTRY_DEBUG__: envVariable({
+    __SENTRY_DEBUG__: env({
       mode: 'build',
       schema: booleanSchema,
       type: 'boolean',

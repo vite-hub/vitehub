@@ -136,15 +136,15 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.env) {
-    const { envVariable, envVite } = await import("@vitehub/env/vite")
+    const { env, envVite } = await import("@vitehub/env/vite")
     return {
       ...baseConfig,
       env: {
         define: {
-          __VITEHUB_PLAYGROUND_ENV__: envVariable({ default: "enabled", mode: "build" }),
+          __VITEHUB_PLAYGROUND_ENV__: env({ default: "enabled", mode: "build" }),
         },
         public: {
-          appName: envVariable({ default: "Vite playground", mode: "build" }),
+          appName: env({ default: "Vite playground", mode: "build" }),
         },
       },
       plugins: [envVite()],

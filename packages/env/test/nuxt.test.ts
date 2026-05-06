@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { envVariable } from "../src/index.ts"
+import { env as vitehubEnv } from "../src/index.ts"
 
 interface NitroHarnessOptions {
   env?: unknown
@@ -83,8 +83,8 @@ describe("Nuxt module", () => {
       nuxt: unknown,
     ) => Promise<void>
     const env = {
-      authSecret: envVariable({ secret: true }),
-      databaseUrl: envVariable(),
+      authSecret: vitehubEnv.variable({ secret: true }),
+      databaseUrl: vitehubEnv.variable(),
     }
     const inlineOptions = { diagnostics: "trace" as const, prefix: "VITEHUB_" }
     const nuxt = createNuxtHarness({
@@ -140,9 +140,9 @@ describe("Nuxt module", () => {
       nuxt: unknown,
     ) => Promise<void>
     const env = {
-      authSecret: envVariable({ secret: true }),
+      authSecret: vitehubEnv.variable({ secret: true }),
       public: {
-        apiBase: envVariable(),
+        apiBase: vitehubEnv.variable(),
       },
     }
     const nuxt = createNuxtHarness({
@@ -174,11 +174,11 @@ describe("Nuxt module", () => {
       nuxt: unknown,
     ) => Promise<void>
     const initialEnv = {
-      authSecret: envVariable({ secret: true }),
+      authSecret: vitehubEnv.variable({ secret: true }),
     }
     const updatedEnv = {
-      authSecret: envVariable({ secret: true }),
-      databaseUrl: envVariable(),
+      authSecret: vitehubEnv.variable({ secret: true }),
+      databaseUrl: vitehubEnv.variable(),
     }
     const nuxt = createNuxtHarness({
       env: initialEnv,
@@ -223,7 +223,7 @@ describe("Nuxt module", () => {
       nuxt: unknown,
     ) => Promise<void>
     const env = {
-      authSecret: envVariable({ secret: true }),
+      authSecret: vitehubEnv.variable({ secret: true }),
     }
     const nuxt = createNuxtHarness({
       env,
@@ -243,7 +243,7 @@ describe("Nuxt module", () => {
       nuxt: unknown,
     ) => Promise<void>
     const env = {
-      authSecret: envVariable({ secret: true }),
+      authSecret: vitehubEnv.variable({ secret: true }),
     }
     const existingModule = { name: "@vitehub/env", setup: vi.fn() }
     const nuxt = createNuxtHarness({
@@ -265,7 +265,7 @@ describe("Nuxt module", () => {
     ) => Promise<void>
     const nuxt = createNuxtHarness({
       env: {
-        authSecret: envVariable({ secret: true }),
+        authSecret: vitehubEnv.variable({ secret: true }),
       },
       vite: {
         plugins: [{ name: "@vitehub/env/vite" }],

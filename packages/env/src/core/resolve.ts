@@ -168,7 +168,7 @@ function buildRegistry(declarations: EnvNitroConfigOptions | undefined, path: st
     }
     const source = resolveEnvSource(value, valuePath, prefix)
     if (source.kind !== "env") {
-      throw new EnvError(`Runtime declaration ${valuePath} must use envSource.env() in v1.`)
+      throw new EnvError(`Runtime declaration ${valuePath} must use env.source() in v1.`)
     }
     if (!isDefaultStringEnvVariable(value)) {
       throw new EnvError(`Runtime declaration ${valuePath} uses a custom schema, but Nitro runtime schemas cannot be serialized in v1.`)
@@ -231,7 +231,7 @@ function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: st
     const valuePath = `${path}.${key}`
     if (path === "env" && key === "public") {
       if (!isPlainRecord(value) || isEnvVariableDeclaration(value)) {
-        throw new EnvError("Invalid declaration at env.public. Use a nested object of public envVariable() declarations.")
+        throw new EnvError("Invalid declaration at env.public. Use a nested object of public env() declarations.")
       }
       validateNitroDeclarations(value as EnvNitroConfigOptions, valuePath)
       continue
@@ -254,7 +254,7 @@ function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: st
       continue
     }
     if (!isPlainRecord(value)) {
-      throw new EnvError(`Invalid declaration at ${valuePath}. Use envVariable(), a serializable literal, or a nested object.`)
+      throw new EnvError(`Invalid declaration at ${valuePath}. Use env(), a serializable literal, or a nested object.`)
     }
     validateNitroDeclarations(value as EnvNitroConfigOptions, valuePath)
   }
@@ -262,7 +262,7 @@ function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: st
 
 function assertEnvVariableDeclaration(path: string, declaration: unknown): asserts declaration is EnvVariableDeclaration {
   if (!isEnvVariableDeclaration(declaration)) {
-    throw new EnvError(`Invalid declaration at ${path}. Use envVariable().`)
+    throw new EnvError(`Invalid declaration at ${path}. Use env().`)
   }
 }
 

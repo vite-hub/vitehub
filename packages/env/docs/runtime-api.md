@@ -14,14 +14,14 @@ Use this page when you need exact names and option fields. For a guided setup, s
 Shared helpers import from `@vitehub/env`:
 
 ```ts
-import { envSource, envVariable, parseSchema } from '@vitehub/env'
+import { env, parseSchema } from '@vitehub/env'
 ```
 
 ::fw{id="vite:dev vite:build"}
 Vite config imports from `@vitehub/env/vite`:
 
 ```ts
-import { envSource, envVariable, envVite } from '@vitehub/env/vite'
+import { env, envVite } from '@vitehub/env/vite'
 ```
 ::
 
@@ -29,7 +29,7 @@ import { envSource, envVariable, envVite } from '@vitehub/env/vite'
 Nitro config registers the module function:
 
 ```ts
-import { envNitro, envSource, envVariable } from '@vitehub/env/nitro'
+import { env, envNitro } from '@vitehub/env/nitro'
 
 export default defineNitroConfig({
   modules: [envNitro()],
@@ -43,10 +43,13 @@ import { useSafeRuntimeConfig } from '#vitehub/env/server'
 ```
 ::
 
-## `envVariable()`
+## `env()`
 
 ```ts
-function envVariable(options?: EnvVariableOptions): EnvVariableDeclaration
+const env: {
+  (options?: EnvVariableOptions): EnvVariableDeclaration
+  variable(options?: EnvVariableOptions): EnvVariableDeclaration
+}
 ```
 
 ```ts
@@ -76,14 +79,14 @@ interface EnvVariableOptions {
 ## Sources
 
 ```ts
-envSource.env(name)
-envSource.packageJson(path)
-envSource.gitBranch()
-envSource.gitCommit({ short: true })
-envSource.custom(label, resolver)
+env.source(name)
+env.packageJson(path)
+env.gitBranch()
+env.gitCommit({ short: true })
+env.custom(label, resolver)
 ```
 
-Runtime Nitro registries can serialize `envSource.env()` values. Build-time Vite declarations can also use package, git, and custom sources.
+Runtime Nitro registries can serialize `env.source()` values. Build-time Vite declarations can also use package, git, and custom sources.
 
 ## Vite plugin
 

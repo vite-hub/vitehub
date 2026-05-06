@@ -4,7 +4,7 @@ import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { loadEnv } from "vite"
 
 import { formatDiagnostics } from "./core/diagnostics.ts"
-import { envSource, envVariable } from "./core/declarations.ts"
+import { env } from "./core/declarations.ts"
 import { createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
 
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "./types.ts"
@@ -15,7 +15,7 @@ export const ENV_BUILD_VIRTUAL_ID = "virtual:@vitehub/env/build"
 
 const RESOLVED_BUILD_VIRTUAL_ID = `\0${ENV_BUILD_VIRTUAL_ID}`
 
-export { envSource, envVariable }
+export { env }
 
 export interface EnvVitePluginAPI {
   getBuildConfig: () => Record<string, unknown>
