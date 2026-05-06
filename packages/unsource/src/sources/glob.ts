@@ -13,13 +13,14 @@ export interface GlobSourceOptions {
   root?: string
 }
 
-async function assertKnownKey<TKey extends string>(getKeys: (ctx: SourceContext) => Promise<TKey[]>, key: TKey, ctx: SourceContext) {
-  if ((await getKeys(ctx)).includes(key)) return
-  throw new UnsourceError(`[vitehub] source.glob could not find ${JSON.stringify(key)}.`)
-}
-
 export function glob<const TKey extends string = string>(options: GlobSourceOptions): Source<TKey> {
   let snapshot: { key: string, keys: Promise<TKey[]> } | undefined
+  let latest: { key: string, keys: TKey[] } | undefined
+
+  async function getContextKey(ctx: SourceContext) {
+    const { resolve } = await import("node:path")
+    return resolve(ctx.rootDir, options.cwd || ".")
+  }
 
   async function loadKeys(ctx: SourceContext) {
     const { resolve } = await import("node:path")
@@ -36,14 +37,36 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       .sort((left, right) => left.localeCompare(right)) as TKey[]
   }
 
+  async function refreshKeys(ctx: SourceContext) {
+    const key = await getContextKey(ctx)
+    const keys = await loadKeys(ctx)
+    latest = { key, keys }
+    return keys
+  }
+
   async function getCachedKeys(ctx: SourceContext) {
-    if (options.keyCache === false) return await loadKeys(ctx)
-    const { resolve } = await import("node:path")
-    const key = resolve(ctx.rootDir, options.cwd || ".")
+    if (options.keyCache === false) return await refreshKeys(ctx)
+    const key = await getContextKey(ctx)
     if (!snapshot || snapshot.key !== key) {
-      snapshot = { key, keys: loadKeys(ctx) }
+      snapshot = { key, keys: refreshKeys(ctx) }
     }
     return await snapshot.keys
+  }
+
+  async function getKnownKeys(ctx: SourceContext) {
+    const key = await getContextKey(ctx)
+    if (latest?.key === key) return latest.keys
+    return await getCachedKeys(ctx)
+  }
+
+  async function assertKey(key: TKey, ctx: SourceContext) {
+    const keys = await getKnownKeys(ctx)
+    if (keys.includes(key)) return
+    if (options.keyCache !== false) {
+      throw new UnsourceError(`[vitehub] source.glob could not find ${JSON.stringify(key)}.`)
+    }
+    if ((await refreshKeys(ctx)).includes(key)) return
+    throw new UnsourceError(`[vitehub] source.glob could not find ${JSON.stringify(key)}.`)
   }
 
   const source: Source<TKey> = {
@@ -56,7 +79,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       return getCachedKeys(ctx)
     },
     async getMeta(key: TKey, ctx: SourceContext) {
-      await assertKnownKey(getCachedKeys, key, ctx)
+      await assertKey(key, ctx)
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
       const cwd = resolve(ctx.rootDir, options.cwd || ".")
@@ -66,7 +89,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       }
     },
     async getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey>> {
-      await assertKnownKey(getCachedKeys, key, ctx)
+      await assertKey(key, ctx)
       const { readFile, stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
       const cwd = resolve(ctx.rootDir, options.cwd || ".")
