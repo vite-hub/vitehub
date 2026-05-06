@@ -47,7 +47,7 @@ export function registerViteHubDevtoolsPanel(
       return
     }
 
-    ctx.views.hostStatic(options.route, options.distDir)
+    ctx.views.hostStatic(url, options.distDir)
   }
 
   const entry: DevToolsViewIframe = {

@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 
+import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectWorkspaceAssetBundle, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
@@ -25,6 +26,7 @@ async function createRoot() {
 afterEach(async () => {
   delete process.env.GITHUB_TOKEN
   delete (globalThis as { __env__?: Record<string, unknown> }).__env__
+  setStorage(createMemoryStorage())
   vi.unstubAllGlobals()
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -214,6 +216,104 @@ describe("sources, loaders, and publishers", () => {
       "docs/README.md",
     ])
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("https://codeload.github.com/"))).toBe(true)
+  })
+
+  it("falls back to raw GitHub bytes when the contents API does not return base64", async () => {
+    stubGitHubSource({
+      "metadata.xml": "<metadata />\n",
+    })
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const requestUrl = String(url)
+      if (requestUrl.includes("/git/trees/")) {
+        return jsonResponse({
+          sha: "tree-sha",
+          tree: [{ path: "metadata.xml", type: "blob" }],
+        })
+      }
+      if (requestUrl.includes("/contents/")) {
+        return jsonResponse({ content: "", encoding: "none" })
+      }
+      if (requestUrl.startsWith("https://raw.githubusercontent.com/")) {
+        expect((init?.headers as Record<string, string>).authorization).toBe("Bearer token")
+        return new Response("<metadata />\n")
+      }
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    })
+
+    const githubSource = source.github({
+      auth: "token",
+      repo: "acme/app",
+    })
+
+    const item = await githubSource.getItem("metadata.xml", { rootDir: "", workspace: "github-raw-fallback" })
+
+    expect(Buffer.from(item.content as Uint8Array).toString("utf8")).toBe("<metadata />\n")
+  })
+
+  it("reuses cached GitHub tree listings across lazy source navigation", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+      "docs/guide/setup.md": "# Setup\n",
+    })
+
+    registerWorkspace("github-lazy-tree-cache", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        docs: source.github({
+          cache: { maxAge: 3600, swr: true },
+          materialize: "lazy",
+          repo: "acme/app",
+          root: "docs",
+        }),
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("github-lazy-tree-cache")
+    await workspace.sync()
+
+    await expect(workspace.list("docs")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "docs/README.md", type: "file" }),
+      expect.objectContaining({ path: "docs/guide", type: "directory" }),
+    ]))
+    await expect(workspace.stat("docs/README.md")).resolves.toMatchObject({ path: "docs/README.md", type: "file" })
+    await expect(workspace.exists("docs/guide/setup.md")).resolves.toBe(true)
+
+    const treeCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/git/trees/"))
+    expect(treeCalls).toHaveLength(1)
+    await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
+  })
+
+  it("dedupes concurrent cached GitHub content reads while materializing once", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    registerWorkspace("github-lazy-content-cache", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        docs: source.github({
+          cache: { maxAge: 3600, swr: true },
+          materialize: "lazy",
+          repo: "acme/app",
+          root: "docs",
+          validate: "request",
+        }),
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("github-lazy-content-cache")
+    await workspace.sync()
+
+    await expect(Promise.all([
+      workspace.readFile("docs/README.md"),
+      workspace.readFile("docs/README.md"),
+    ])).resolves.toEqual(["# Docs\n", "# Docs\n"])
+
+    const contentCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://raw.githubusercontent.com/"))
+    expect(contentCalls).toHaveLength(1)
+    await expect(workspace.diff()).resolves.toMatchObject({
+      entries: expect.arrayContaining([expect.objectContaining({ path: "docs/README.md", type: "added" })]),
+    })
   })
 
   it("loads GitHub file bytes and writes them through the files loader", async () => {

@@ -265,7 +265,7 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
       }
 
       const message = adapter.createDevtoolsMessage(text, body.chat)
-      chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
+      await chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
       return adapter.getDevtoolsState(body.chat)
     }
 

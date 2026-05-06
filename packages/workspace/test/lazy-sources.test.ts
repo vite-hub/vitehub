@@ -10,6 +10,7 @@ import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
 afterEach(() => {
   resetWorkspaceRegistry()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe("lazy sources", () => {
@@ -107,6 +108,8 @@ describe("lazy sources", () => {
       expect.objectContaining({ path: "docs/foo.md", type: "file" }),
       expect.objectContaining({ path: "docs/nested/bar.md", type: "file" }),
     ]))
+    await expect(workspace.stat("docs/foo.md")).resolves.toMatchObject({ path: "docs/foo.md", type: "file" })
+    await expect(workspace.exists("docs/nested/bar.md")).resolves.toBe(true)
     expect(getItem).not.toHaveBeenCalled()
     await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
 
@@ -178,7 +181,7 @@ describe("lazy sources", () => {
     await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
   })
 
-  it("falls back to source scanning for search without materializing files", async () => {
+  it("does not scan unmaterialized source files during search", async () => {
     const getItem = vi.fn(async (key: string) => ({
       key,
       path: key,
@@ -202,15 +205,52 @@ describe("lazy sources", () => {
     const workspace = await useRegisteredWorkspace("lazy-fallback-search")
     await workspace.sync()
 
-    await expect(workspace.search({ pattern: "hello", paths: ["docs"] })).resolves.toEqual([
-      { path: "docs/foo.md", line: 1, column: 1, text: "hello world" },
-    ])
-    expect(getItem).toHaveBeenCalledTimes(2)
+    await expect(workspace.search({ pattern: "hello", paths: ["docs"] })).resolves.toEqual([])
+    expect(getItem).not.toHaveBeenCalled()
     await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
 
     await expect(workspace.readFile("docs/foo.md")).resolves.toBe("hello world\n")
+    expect(getItem).toHaveBeenCalledTimes(1)
+    await expect(workspace.search({ pattern: "hello", paths: ["docs"] })).resolves.toEqual([
+      { path: "docs/foo.md", line: 1, column: 1, text: "hello world" },
+    ])
+    expect(getItem).toHaveBeenCalledTimes(1)
     await expect(workspace.diff()).resolves.toMatchObject({
       entries: expect.arrayContaining([expect.objectContaining({ path: "docs/foo.md", type: "added" })]),
     })
+  })
+
+  it("reuses cached materialized files within max age", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-05T12:00:00Z"))
+    const getItem = vi.fn(async (key: string) => ({
+      key,
+      path: key,
+      content: `version ${getItem.mock.calls.length}\n`,
+    }))
+
+    registerWorkspace("lazy-cache", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        docs: source.custom({
+          name: "docs",
+          cache: { maxAge: 3600, swr: true },
+          materialize: "lazy",
+          validate: "request",
+          async getKeys() {
+            return ["foo.md"]
+          },
+          getItem,
+        }),
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("lazy-cache")
+    await workspace.sync()
+
+    await expect(workspace.readFile("docs/foo.md")).resolves.toBe("version 1\n")
+    vi.setSystemTime(new Date("2026-05-05T12:30:00Z"))
+    await expect(workspace.readFile("docs/foo.md")).resolves.toBe("version 1\n")
+    expect(getItem).toHaveBeenCalledTimes(1)
   })
 })
