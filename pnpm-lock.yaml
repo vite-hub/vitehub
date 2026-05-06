@@ -21,9 +21,6 @@ catalogs:
     '@nuxt/schema':
       specifier: ^4.4.2
       version: 4.4.2
-    '@nuxt/ui':
-      specifier: ^4.6.1
-      version: 4.6.1
     '@types/node':
       specifier: ^25.6.0
       version: 25.6.0
@@ -99,9 +96,6 @@ catalogs:
     shiki:
       specifier: ^4.0.2
       version: 4.0.2
-    tailwindcss:
-      specifier: ^4.1.18
-      version: 4.2.2
     tsx:
       specifier: ^4.21.0
       version: 4.21.0
@@ -405,7 +399,7 @@ importers:
         version: 2.0.3
     devDependencies:
       '@nuxt/ui':
-        specifier: 'catalog:'
+        specifier: ^4.6.1
         version: 4.6.1(6c2becf4508c446218712695372cf3d2)
       '@types/node':
         specifier: 'catalog:'
@@ -414,7 +408,7 @@ importers:
         specifier: 'catalog:'
         version: 4.4.2(280b94d7a3a9f7c281dc991e0d99fca7)
       tailwindcss:
-        specifier: 'catalog:'
+        specifier: ^4.1.18
         version: 4.2.2
       tsdown:
         specifier: ^0.21.8

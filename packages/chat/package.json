@@ -45,8 +45,11 @@
     "package.json"
   ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
+    "build": "pnpm build:code && pnpm build:devtools",
+    "build:code": "tsdown --tsconfig tsconfig.build.json",
+    "build:devtools": "pnpm --filter @vitehub/devtools build:chat",
     "dev": "tsdown --watch",
+    "dev:devtools": "pnpm --filter @vitehub/devtools dev:chat",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "pnpm --filter @vitehub/chat build && vitest run"
   },
