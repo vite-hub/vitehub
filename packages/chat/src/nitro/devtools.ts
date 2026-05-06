@@ -80,6 +80,16 @@ function createSdkMessage(session: ChatDevtoolsSession, text: string): ChatMessa
 
 function createSessionDevtoolsAdapter(session: ChatDevtoolsSession): Adapter {
   const adapter = createBaseDevtoolsAdapter()
+
+  function syncAdapterMessages() {
+    const messages = adapter.getDevtoolsState(session.name).chats[0]?.messages || []
+    for (const message of messages) {
+      const existing = session.messages.find(item => item.id === message.id)
+      if (existing) Object.assign(existing, message)
+      else session.messages.push(message)
+    }
+  }
+
   return {
     ...adapter,
     name: chatDevtoolsAdapterName,
@@ -91,7 +101,7 @@ function createSessionDevtoolsAdapter(session: ChatDevtoolsSession): Adapter {
     deleteMessage: async () => {},
     editMessage: async (threadId, messageId, message) => {
       const result = await adapter.editMessage(threadId, messageId, message)
-      session.messages = adapter.getDevtoolsState(session.name).chats[0]?.messages || []
+      syncAdapterMessages()
       return result
     },
     fetchMessages: async () => ({ messages: [] }),
@@ -107,14 +117,14 @@ function createSessionDevtoolsAdapter(session: ChatDevtoolsSession): Adapter {
     parseMessage: raw => raw as ChatMessage,
     postMessage: async (threadId, message): Promise<RawMessage> => {
       const result = await adapter.postMessage(threadId, message)
-      session.messages = adapter.getDevtoolsState(session.name).chats[0]?.messages || []
+      syncAdapterMessages()
       return result
     },
     removeReaction: async () => {},
     renderFormatted: content => toPlainText(content),
     startTyping: async (_threadId, status) => {
       await adapter.startTyping(_threadId, status)
-      session.messages = adapter.getDevtoolsState(session.name).chats[0]?.messages || []
+      syncAdapterMessages()
     },
   }
 }
