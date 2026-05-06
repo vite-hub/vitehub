@@ -1,5 +1,3 @@
-import { relative, resolve, sep } from "node:path"
-
 import { minimatch } from "minimatch"
 
 import { SourcePathError } from "./errors.ts"
@@ -10,7 +8,7 @@ export function normalizeSourcePath(path = ""): string {
   return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
 }
 
-export interface SafeSourcePathOptions {
+interface SafeSourcePathOptions {
   allowEmpty?: boolean
   allowReserved?: boolean
 }
@@ -25,19 +23,6 @@ export function normalizeSafeSourcePath(path = "", options: SafeSourcePathOption
   if (!options.allowReserved && (parts[0] === ".git" || parts[0] === ".vitehub")) throw new SourcePathError(path)
 
   return normalized
-}
-
-export function resolveInside(root: string, path = ""): string {
-  const resolvedRoot = resolve(root)
-  const resolved = resolve(resolvedRoot, normalizeSourcePath(path))
-  const rel = relative(resolvedRoot, resolved)
-
-  if (rel.startsWith("..") || rel === ".." || rel.includes(`..${sep}`) || rel === "") {
-    if (rel === "") return resolved
-    throw new SourcePathError(path)
-  }
-
-  return resolved
 }
 
 export function matchesAny(path: string, patterns?: string | string[]): boolean {

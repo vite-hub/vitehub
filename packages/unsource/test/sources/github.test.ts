@@ -28,6 +28,20 @@ describe("@vitehub/unsource GitHub source", () => {
     ])
   })
 
+  it("normalizes relative GitHub root paths before filtering tree entries", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+      "docs/guide.md": "# Guide\n",
+    })
+
+    registerSources({ docs: github({ repo: "acme/app", root: "./docs" }) })
+
+    await expect(useSource("docs").keys()).resolves.toEqual([
+      "README.md",
+      "guide.md",
+    ])
+  })
+
   it("applies GitHub include and exclude filters to root-relative keys", async () => {
     stubGitHubSource({
       "dbt/models/marts/orders.sql": "select 1\n",

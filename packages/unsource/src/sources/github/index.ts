@@ -11,9 +11,13 @@ import { fetchGitHubArchive, fetchGitHubRawContent, requestGitHubJson } from "./
 import type { Source } from "../../core/types.ts"
 import type { GitHubContentResponse, GitHubFile, GitHubSourceOptions, GitHubTreeResponse } from "./types.ts"
 
+function normalizeGitHubRoot(path = "") {
+  return normalizeSourcePath(path).split("/").filter(part => part && part !== ".").join("/")
+}
+
 export function github<const TKey extends string = string>(options: GitHubSourceOptions): Source<TKey> {
   const ref = options.ref || "main"
-  const root = normalizeSourcePath(options.root || "")
+  const root = normalizeGitHubRoot(options.root || "")
   let auth: string | undefined
   const providerCache = normalizeGitHubCache(options)
 

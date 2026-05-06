@@ -11,7 +11,7 @@ export interface GitHubSourceOptions {
   swr?: boolean | number
 }
 
-export interface GitHubTreeItem {
+interface GitHubTreeItem {
   path: string
   sha?: string
   type: "blob" | "tree"
