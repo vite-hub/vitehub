@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeWorkspaceSources } from "../src/source-config.ts"
@@ -5,12 +9,22 @@ import { createWorkspaceSourceView } from "../src/source-view.ts"
 import { defineWorkspace, registerWorkspace, source } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/registry.ts"
 import { useRegisteredWorkspace } from "../src/registry.ts"
+import { glob as globSource } from "../src/source.ts"
 import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
 
-afterEach(() => {
+const tempDirs: string[] = []
+
+async function createRoot() {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-lazy-sources-"))
+  tempDirs.push(root)
+  return root
+}
+
+afterEach(async () => {
   resetWorkspaceRegistry()
   vi.restoreAllMocks()
   vi.useRealTimers()
+  await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
 describe("lazy sources", () => {
@@ -119,6 +133,34 @@ describe("lazy sources", () => {
     await expect(workspace.diff()).resolves.toMatchObject({
       entries: expect.arrayContaining([expect.objectContaining({ path: "docs/foo.md", type: "added" })]),
     })
+  })
+
+  it("keeps lazy glob source listings live across workspace reads", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "README.md"), "# Docs\n")
+
+    registerWorkspace("lazy-glob-live", defineWorkspace({
+      rootDir: root,
+      store: { provider: "memory" },
+      sources: {
+        docs: globSource({ cwd: "docs", include: "*.md", materialize: "lazy" }),
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("lazy-glob-live")
+    await workspace.sync()
+
+    await expect(workspace.list("docs")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/README.md", type: "file" }),
+    ])
+
+    await writeFile(join(root, "docs", "guide.md"), "# Guide\n")
+
+    await expect(workspace.list("docs")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/guide.md", type: "file" }),
+      expect.objectContaining({ path: "docs/README.md", type: "file" }),
+    ])
   })
 
   it("keeps source-backed paths read-only while allowing normal store writes", async () => {

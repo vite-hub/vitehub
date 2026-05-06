@@ -1,77 +1,19 @@
-import { normalizeWorkspacePath } from "../path.ts"
-import { lookup } from "mrmime"
+import { file as createFileSource, type FileSourceOptions as UnsourceFileSourceOptions } from "@vitehub/unsource"
 
-import type { SourceContext, WorkspaceContent, WorkspaceSource } from "../types.ts"
+import type { WorkspaceSource } from "../types.ts"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "swr" | "validate">
 
-export interface FileSourcePathOptions {
-  path: string
-  workspacePath?: string
-  content?: WorkspaceContent
-  mediaType?: string
-}
+export type FileSourceOptions<TKey extends string = string> = UnsourceFileSourceOptions<TKey> & SourceRuntimeOptions
 
-export interface FileSourceInlineOptions {
-  workspacePath: string
-  content: WorkspaceContent
-  mediaType?: string
-  path?: never
-}
-
-export type FileSourceOptions = (FileSourcePathOptions | FileSourceInlineOptions) & SourceRuntimeOptions
-
-function basename(path: string) {
-  return path.replace(/\\/g, "/").split("/").filter(Boolean).pop() || path
-}
-
-function sourceKey(options: FileSourceOptions) {
-  if (options.workspacePath) return normalizeWorkspacePath(options.workspacePath)
-  if ("path" in options && options.path) return normalizeWorkspacePath(basename(options.path))
-  throw new TypeError("[vitehub] source.file requires a path or workspacePath.")
-}
-
-async function readSourceFile(options: FileSourceOptions, ctx: SourceContext) {
-  if (!("path" in options) || !options.path) {
-    throw new TypeError("[vitehub] source.file requires path when content is not provided.")
-  }
-  const { readFile } = await import("node:fs/promises")
-  const { resolve } = await import("node:path")
-  return new Uint8Array(await readFile(resolve(ctx.rootDir, options.path)))
-}
-
-export function file(options: FileSourceOptions): WorkspaceSource {
-  const key = sourceKey(options)
-  const mediaType = options.mediaType || lookup(key)
+export function file<const TKey extends string = string>(options: FileSourceOptions<TKey>): WorkspaceSource {
+  const source = createFileSource(options)
   return {
+    ...source,
     cache: options.cache,
     materialize: options.materialize,
     mount: options.mount,
-    name: "file",
     swr: options.swr,
     validate: options.validate,
-    async getKeys() {
-      return [key]
-    },
-    async getMeta(_key: string, ctx: SourceContext) {
-      if (!("path" in options) || !options.path) return
-      const { stat } = await import("node:fs/promises")
-      const { resolve } = await import("node:path")
-      const info = await stat(resolve(ctx.rootDir, options.path))
-      return {
-        digest: `${info.size}:${info.mtimeMs}`,
-      }
-    },
-    async getItem(_key: string, ctx: SourceContext) {
-      const content = typeof options.content === "undefined"
-        ? await readSourceFile(options, ctx)
-        : options.content
-      return {
-        key,
-        path: key,
-        content,
-        mediaType,
-      }
-    },
   }
 }
