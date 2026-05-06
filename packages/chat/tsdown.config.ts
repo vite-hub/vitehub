@@ -3,7 +3,7 @@ import { defineConfig } from "tsdown"
 export default defineConfig({
   clean: true,
   deps: {
-    alwaysBundle: [/^@vitehub\/internal/],
+    alwaysBundle: [/^@vitehub\/(devtools|internal)/],
     onlyBundle: false,
   },
   dts: true,
@@ -11,9 +11,11 @@ export default defineConfig({
     "src/index.ts",
     "src/cli.ts",
     "src/cloudflare.ts",
+    "src/devtools.ts",
     "src/nitro.ts",
     "src/runtime/nitro-dev-initialize.ts",
     "src/runtime/cloudflare-workers-dev.ts",
+    "src/runtime/chat-devtools-handler.ts",
     "src/runtime/nitro-runtime-config.ts",
     "src/runtime/nitro-plugin.ts",
     "src/vercel.ts",

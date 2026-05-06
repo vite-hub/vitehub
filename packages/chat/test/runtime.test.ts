@@ -132,6 +132,83 @@ describe("defineChat", () => {
     })
   })
 
+  it("wraps devtools thread streams so tool parts are reported automatically", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const statuses: string[] = []
+    const posted: unknown[] = []
+    const onDirectMessage = vi.fn(async ({ thread }) => {
+      await thread.post((async function* () {
+        yield { id: "call-1", toolName: "read_file", type: "tool-input-start" }
+        yield { input: { path: "README.md" }, toolCallId: "call-1", toolName: "read_file", type: "tool-call" }
+        yield { input: { path: "README.md" }, output: "contents", toolCallId: "call-1", toolName: "read_file", type: "tool-result" }
+        yield { id: "text-1", text: "Done", type: "text-delta" }
+      })())
+    })
+    const context = createContext()
+    const definition = defineChat({
+      adapters: {},
+      hooks: { onDirectMessage },
+      state: createState() as never,
+      userName: "Quiver Chat",
+    })
+
+    await resolveChat(definition, context as never)
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({
+      adapter: { name: "devtools" },
+      id: "thread",
+      post: async (message: AsyncIterable<unknown>) => {
+        posted.push(message)
+        for await (const _part of message) {}
+      },
+      startTyping: async (status: string) => {
+        statuses.push(status)
+      },
+    } as never, { text: "hello" } as never, { id: "channel" } as never)
+
+    expect(posted).toHaveLength(1)
+    expect(statuses).toHaveLength(3)
+    expect(statuses.map(status => JSON.parse(status))).toEqual([
+      expect.objectContaining({ id: "call-1", name: "read_file", status: "running" }),
+      expect.objectContaining({ id: "call-1", input: { path: "README.md" }, name: "read_file", status: "running" }),
+      expect.objectContaining({ id: "call-1", name: "read_file", output: "contents", status: "completed" }),
+    ])
+  })
+
+  it("does not report tool status for plain async text streams", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const statuses: string[] = []
+    const onDirectMessage = vi.fn(async ({ thread }) => {
+      await thread.post((async function* () {
+        yield "hello"
+        yield " world"
+      })())
+    })
+
+    await resolveChat(defineChat({
+      adapters: {},
+      hooks: { onDirectMessage },
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext() as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({
+      adapter: { name: "devtools" },
+      id: "thread",
+      post: async (message: AsyncIterable<unknown>) => {
+        for await (const _part of message) {}
+      },
+      startTyping: async (status: string) => {
+        statuses.push(status)
+      },
+    } as never, { text: "hello" } as never, { id: "channel" } as never)
+
+    expect(statuses).toEqual([])
+  })
+
   it("registers the supported Chat SDK hook sugar methods", async () => {
     const { defineChat, resolveChat } = await import("../src/index.ts")
     const spies = [

@@ -29,7 +29,9 @@
     ".": "./dist/index.js",
     "./cli": "./dist/cli.js",
     "./cloudflare": "./dist/cloudflare.js",
+    "./devtools": "./dist/devtools.js",
     "./nitro": "./dist/nitro.js",
+    "./runtime/chat-devtools-handler": "./dist/runtime/chat-devtools-handler.js",
     "./runtime/cloudflare-workers-dev": "./dist/runtime/cloudflare-workers-dev.js",
     "./runtime/nitro-dev-initialize": "./dist/runtime/nitro-dev-initialize.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
@@ -49,6 +51,7 @@
     "test": "pnpm --filter @vitehub/chat build && vitest run"
   },
   "dependencies": {
+    "@vitejs/devtools-kit": "^0.1.18",
     "@vercel/functions": "^3.4.3",
     "h3": "2.0.1-rc.20",
     "hookable": "^6.1.1"
@@ -72,6 +75,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "@vitehub/devtools": "workspace:*",
     "@vitehub/internal": "workspace:*",
     "chat": "^4.27.0",
     "chat-state-cloudflare-do": "^0.2.0",
