@@ -127,10 +127,6 @@ await blob.del('avatars/user-1.png')
 await blob.del(['avatars/user-2.png', 'avatars/user-3.png'])
 ```
 
-### `blob.delete(pathname | pathnames[])`
-
-Alias for `blob.del(...)`.
-
 ### `blob.serve(event, pathname)`
 
 Loads one blob body and returns a `ReadableStream`.

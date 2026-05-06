@@ -3,7 +3,7 @@ import { normalizeLogPattern, sleep } from '../_shared'
 
 import type { SandboxProcess, SandboxWaitForPortOptions } from '../../types/common'
 
-export type CloudflareProcessHandleCompat = {
+export type CloudflareNativeProcessHandle = {
   id: string
   command: string
   kill: (signal?: string) => Promise<void>

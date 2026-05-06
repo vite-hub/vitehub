@@ -17,7 +17,7 @@ function inferHosting(env: Record<string, string | undefined>) {
     return explicit
   }
 
-  return readEnv(env, "KV_REST_API_URL", "UPSTASH_REDIS_REST_URL") ? "vercel" : undefined
+  return readEnv(env, "KV_REST_API_URL") ? "vercel" : undefined
 }
 
 function shouldFallbackHostedConfigImport(error: unknown) {

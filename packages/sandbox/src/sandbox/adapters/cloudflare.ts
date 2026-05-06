@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer'
 import { NotSupportedError, SandboxError } from '../errors'
 import { shellQuote } from '../utils'
 import { BaseSandboxAdapter } from './base'
-import { CloudflareProcessHandle, type CloudflareProcessHandleCompat } from './cloudflare/process'
+import { CloudflareProcessHandle, type CloudflareNativeProcessHandle } from './cloudflare/process'
 import {
   CLOUDFLARE_CONTROL_PLANE_TIMEOUT_MS,
   CLOUDFLARE_READ_FILE_TIMEOUT_MS,
@@ -255,7 +255,7 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
     if (!this.native.startProcess)
       throw new NotSupportedError('startProcess', 'cloudflare')
 
-    const processInfo = await this.native.startProcess(args.length ? `${shellQuote(cmd)} ${args.map(shellQuote).join(' ')}` : shellQuote(cmd), opts) as CloudflareProcessHandleCompat
+    const processInfo = await this.native.startProcess(args.length ? `${shellQuote(cmd)} ${args.map(shellQuote).join(' ')}` : shellQuote(cmd), opts) as CloudflareNativeProcessHandle
     if (
       typeof processInfo.getLogs !== 'function'
       || typeof processInfo.waitForExit !== 'function'

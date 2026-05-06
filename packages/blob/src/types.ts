@@ -59,7 +59,6 @@ export interface BlobEnsureOptions {
 }
 
 export interface BlobStorage {
-  delete(pathnames: string | string[]): Promise<void>
   del(pathnames: string | string[]): Promise<void>
   get(pathname: string): Promise<Blob | null>
   head(pathname: string): Promise<BlobObject>

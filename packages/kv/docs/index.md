@@ -107,10 +107,9 @@ ViteHub resolves KV config in this order:
 | --- | --- | --- |
 | 1 | Explicit `kv.driver` | The configured driver |
 | 2 | `KV_REST_API_URL` and `KV_REST_API_TOKEN` | `upstash` |
-| 3 | `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` | `upstash` |
-| 4 | Vercel hosting | `upstash` |
-| 5 | Cloudflare hosting | `cloudflare-kv-binding` |
-| 6 | Everything else | `fs-lite` |
+| 3 | Vercel hosting | `upstash` |
+| 4 | Cloudflare hosting | `cloudflare-kv-binding` |
+| 5 | Everything else | `fs-lite` |
 
 Explicit config always wins. That means you can force `fs-lite` locally, force Cloudflare for a Worker, or force Upstash for any runtime.
 
