@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { writeCloudflareDeploymentOutput, writeVercelDeploymentOutput } from "@vitehub/internal/build/deployment-output"
+import { createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vitehub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg, toGeneratedPath } from "@vitehub/internal/build/paths"
 import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
@@ -15,6 +15,7 @@ import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../integr
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
+import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 
 export const queuePackageName = "@vitehub/queue"
 const productName = "queue"
@@ -147,7 +148,7 @@ export async function createCloudflareQueueConfig(options: CloudflareQueueConfig
   }
 }
 
-async function writeCloudflareOutput(rootDir: string, clientOutDir: string, artifacts: GeneratedQueueArtifacts) {
+function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareProviderDeploymentOutput {
   const queues = createCloudflareQueueBindings(artifacts.definitions)
 
   const wranglerConfig: CloudflareQueueConfig = {
@@ -158,7 +159,7 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
     ...(queues ? { queues } : {}),
   }
 
-  await writeCloudflareDeploymentOutput({
+  return {
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
       conditions: ["workerd", "worker", "browser", "default"],
@@ -166,10 +167,8 @@ async function writeCloudflareOutput(rootDir: string, clientOutDir: string, arti
       format: "esm",
       platform: "neutral",
     },
-    clientOutDir,
-    rootDir,
     wranglerConfig,
-  })
+  }
 }
 
 function sanitizeVercelConsumerName(functionPath: string) {
@@ -218,21 +217,20 @@ function createVercelQueueWrapperContents(file: string, registryFile: string, na
   ].join("\n")
 }
 
-async function writeVercelOutput(rootDir: string, clientOutDir: string, queue: QueueModuleOptions | undefined, artifacts: GeneratedQueueArtifacts) {
-  const outputRoot = resolve(rootDir, ".vercel", "output")
-  const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
-  const queueConfig = normalizeQueueOptions(queue, { hosting: "vercel" }) || false
-
-  await writeVercelDeploymentOutput({
+function createVercelOutput(artifacts: GeneratedQueueArtifacts): VercelProviderDeploymentOutput {
+  return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
       format: "esm",
       platform: "node",
     },
-    clientOutDir,
-    outputRoot,
-    rootDir,
-  })
+  }
+}
+
+async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOptions | undefined, artifacts: GeneratedQueueArtifacts) {
+  const outputRoot = createDefaultVercelOutputRoot(rootDir)
+  const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
+  const queueConfig = normalizeQueueOptions(queue, { hosting: "vercel" }) || false
 
   if (queueConfig === false) {
     return
@@ -272,9 +270,12 @@ async function writeVercelOutput(rootDir: string, clientOutDir: string, queue: Q
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue)
-  await Promise.all([
-    writeCloudflareOutput(options.rootDir, options.clientOutDir, artifacts),
-    writeVercelOutput(options.rootDir, options.clientOutDir, options.queue, artifacts),
-  ])
+  await writeProviderDeploymentOutputs({
+    clientOutDir: options.clientOutDir,
+    cloudflare: createCloudflareOutput(artifacts),
+    rootDir: options.rootDir,
+    vercel: createVercelOutput(artifacts),
+  })
+  await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts)
   return artifacts
 }
