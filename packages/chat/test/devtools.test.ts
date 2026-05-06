@@ -314,6 +314,9 @@ describe("Chat DevTools Nitro bridge", () => {
     const handler = defineChatDevtoolsHandler(chat as never)
 
     const result = await handler(createBridgeEvent({ action: "send", text: "hello" }) as never) as ChatDevtoolsStateResult
+    expect(result.chats[0]?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", text: "hello" }),
+    ]))
     const assistant = result.chats[0]?.messages.find((message): boolean => message.role === "assistant")
 
     expect(assistant).toMatchObject({
@@ -328,5 +331,26 @@ describe("Chat DevTools Nitro bridge", () => {
         }),
       ],
     })
+  })
+
+  it("preserves previous registry bridge turns across sends", async () => {
+    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
+    const chat = {
+      handleIncomingMessage: vi.fn(async (adapter, threadId, message) => {
+        await adapter.postMessage(threadId, `echo: ${message.text}`)
+      }),
+      initialize: vi.fn(),
+    }
+    const handler = defineChatDevtoolsHandler(chat as never)
+
+    await handler(createBridgeEvent({ action: "send", text: "first" }) as never)
+    const result = await handler(createBridgeEvent({ action: "send", text: "second" }) as never) as ChatDevtoolsStateResult
+
+    expect(result.chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "first" }),
+      expect.objectContaining({ role: "assistant", text: "echo: first" }),
+      expect.objectContaining({ role: "user", text: "second" }),
+      expect.objectContaining({ role: "assistant", text: "echo: second" }),
+    ])
   })
 })
