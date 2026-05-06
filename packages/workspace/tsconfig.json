@@ -13,6 +13,7 @@
       "virtual:vitehub-sandbox-registry": ["../sandbox/src/runtime/empty-registry.ts"],
       "@vitehub/sandbox": ["../sandbox/src/index.ts"],
       "@vitehub/sandbox/runtime/state": ["../sandbox/src/runtime/state.ts"],
+      "@vitehub/unsource": ["../unsource/src/index.ts"],
       "@vitehub/unshell": ["../unshell/src/index.ts"]
     },
     "rootDir": ".."
