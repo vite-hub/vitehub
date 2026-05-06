@@ -59,13 +59,11 @@
     "test": "pnpm --filter @vitehub/workspace... build && vitest run"
   },
   "dependencies": {
+    "@vitehub/unsource": "workspace:*",
     "defu": "^6.1.4",
     "exsolve": "^1.0.8",
     "isomorphic-git": "^1.37.6",
-    "minimatch": "^10.1.1",
-    "mrmime": "^2.0.1",
-    "ocache": "^0.1.4",
-    "tinyglobby": "^0.2.16"
+    "minimatch": "^10.1.1"
   },
   "peerDependencies": {
     "@vitehub/sandbox": "workspace:*",
@@ -96,6 +94,7 @@
     "@vitehub/unshell": "workspace:*",
     "ai": "^6.0.172",
     "nitro": "3.0.260311-beta",
+    "ocache": "^0.1.4",
     "ofetch": "^1.5.1",
     "publint": "^0.3.15",
     "tsdown": "^0.21.8",

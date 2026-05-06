@@ -1,9 +1,16 @@
-import { file, type FileSourceOptions } from "./file.ts"
+import { markdown as createMarkdownSource } from "@vitehub/unsource"
+
+import type { FileSourceOptions } from "./file.ts"
 import type { WorkspaceSource } from "../types.ts"
 
 export function markdown(options: FileSourceOptions): WorkspaceSource {
-  return file({
-    ...options,
-    mediaType: options.mediaType || "text/markdown",
-  })
+  const source = createMarkdownSource(options)
+  return {
+    ...source,
+    cache: options.cache,
+    materialize: options.materialize,
+    mount: options.mount,
+    swr: options.swr,
+    validate: options.validate,
+  }
 }
