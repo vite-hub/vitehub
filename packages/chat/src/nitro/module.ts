@@ -297,7 +297,7 @@ async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | Resolve
     scanDirs: resolveNitroChatScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
 
-  if (!options || !definitions.length) {
+  if (!options) {
     return { definitions }
   }
 
@@ -307,13 +307,13 @@ async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | Resolve
   }
 
   let registryFile: string | undefined
-  if (definitions.length > 1 || hasChatParam) {
+  if (definitions.length && (definitions.length > 1 || hasChatParam)) {
     registryFile = createNitroChatRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
     await writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions))
   }
 
   let routeFile: string | undefined
-  if (options.webhook) {
+  if (options.webhook && definitions.length) {
     routeFile = createNitroChatRoutePath(nitro.options.rootDir, nitro.options.buildDir)
   }
 
@@ -325,7 +325,7 @@ async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | Resolve
   }
 
   let devInitializerFile: string | undefined
-  if (options.dev && options.dev.initialize) {
+  if (options.dev && options.dev.initialize && definitions.length) {
     devInitializerFile = createNitroChatDevInitializerPath(nitro.options.rootDir, nitro.options.buildDir)
     if (definitions.length > 1 && registryFile) {
       await writeFileIfChanged(devInitializerFile, createNitroRegistryChatDevInitializerContents(devInitializerFile, registryFile))
@@ -407,7 +407,7 @@ function installRoute(nitro: Nitro, options: ResolvedChatModuleOptions, routeFil
 }
 
 function installDevtoolsRoute(nitro: Nitro, options: ResolvedChatModuleOptions, devtoolsFile: string | undefined): void {
-  if (!devtoolsFile || !options.dev || options.dev.devtools === false) {
+  if (!devtoolsFile || !nitro.options.dev || !options.dev || options.dev.devtools === false) {
     return
   }
 

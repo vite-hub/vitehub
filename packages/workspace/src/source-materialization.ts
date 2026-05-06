@@ -165,11 +165,6 @@ export async function searchResolvedSource(
   ctx: SourceContext,
 ): Promise<WorkspaceSearchHit[]> {
   const limit = query.limit ?? 100
-  const materializedPaths = new Set(
-    (await store.glob(`${source.mountPath}/**/*`))
-      .filter(entry => entry.type === "file")
-      .map(entry => entry.path),
-  )
   const materializedHits = await searchMaterializedStore(store, {
     ...query,
     paths: query.paths?.length ? query.paths : [source.mountPath],
@@ -189,22 +184,7 @@ export async function searchResolvedSource(
     }))]).slice(0, limit)
   }
 
-  const keys = await source.source.getKeys(ctx)
-  const result = [...materializedHits]
-
-  for (const key of keys) {
-    const fullPath = toMountedSourcePath(source, key)
-    if (!matchesSearchPath(fullPath, query.paths)) continue
-    if (materializedPaths.has(fullPath)) continue
-    if (result.length >= limit) break
-    const item = await source.source.getItem(key, ctx)
-    const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
-    const text = typeof content === "string" ? content : new TextDecoder().decode(content)
-    result.push(...searchText(fullPath, text, { ...query, limit: limit - result.length }))
-    if (result.length >= limit) break
-  }
-
-  return dedupeSearchHits(result).slice(0, limit)
+  return materializedHits.slice(0, limit)
 }
 
 export async function searchMaterializedStore(store: WorkspaceStore, query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]> {
@@ -322,11 +302,6 @@ function toSourceSearchPaths(source: ResolvedWorkspaceSource, paths: string[] | 
 
 function toMountedSourcePath(source: ResolvedWorkspaceSource, key: string) {
   return normalizeWorkspacePath(posix.join(source.mountPath, key))
-}
-
-function matchesSearchPath(path: string, paths: string[] | undefined) {
-  if (!paths?.length) return true
-  return paths.some(prefix => path === prefix || path.startsWith(`${prefix}/`))
 }
 
 function addVirtualParents(entries: Map<string, WorkspaceStat>, basePath: string, path: string) {
