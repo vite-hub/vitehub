@@ -1,9 +1,9 @@
 import { glob as tinyglobby } from "tinyglobby"
 
-import { UnsourceError } from "./errors.ts"
-import { matchesAny, normalizeSourcePath } from "./path.ts"
+import { UnsourceError } from "../core/errors.ts"
+import { matchesAny, normalizeSourcePath } from "../core/path.ts"
 
-import type { Source, SourceContext, SourceItem } from "./types.ts"
+import type { Source, SourceContext, SourceItem } from "../core/types.ts"
 
 export interface GlobSourceOptions {
   cwd?: string

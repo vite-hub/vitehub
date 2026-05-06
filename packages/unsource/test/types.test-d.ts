@@ -7,6 +7,7 @@ import {
   file,
   github,
   registerSources,
+  source,
   type Source,
   type SourceItem,
   useSource,
@@ -26,6 +27,7 @@ declare global {
 describe("@vitehub/unsource types", () => {
   it("types registered source names and keys", async () => {
     const staticSource = file({ content: "# Docs\n", workspacePath: "README.md" })
+    expectTypeOf(source.file({ content: "# Docs\n", workspacePath: "README.md" })).toMatchTypeOf<Source<"README.md">>()
     const sources = defineSources({
       docs: staticSource,
       dynamic: github({ repo: "acme/app" }),

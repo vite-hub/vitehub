@@ -23,6 +23,12 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./sources": "./dist/sources/index.js",
+    "./sources/custom": "./dist/sources/custom.js",
+    "./sources/file": "./dist/sources/file.js",
+    "./sources/github": "./dist/sources/github.js",
+    "./sources/glob": "./dist/sources/glob.js",
+    "./sources/markdown": "./dist/sources/markdown.js",
     "./package.json": "./package.json"
   },
   "files": [

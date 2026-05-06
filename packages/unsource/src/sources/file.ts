@@ -1,9 +1,9 @@
 import { lookup } from "mrmime"
 
-import { UnsourceError } from "./errors.ts"
-import { normalizeSourcePath } from "./path.ts"
+import { UnsourceError } from "../core/errors.ts"
+import { normalizeSourcePath } from "../core/path.ts"
 
-import type { Source, SourceContent, SourceContext } from "./types.ts"
+import type { Source, SourceContent, SourceContext } from "../core/types.ts"
 
 export interface FileSourcePathOptions<TKey extends string = string> {
   path: string
