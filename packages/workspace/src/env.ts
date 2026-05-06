@@ -1,4 +1,3 @@
-const envByRoot = new Map<string, Record<string, string>>()
 let viteLoadEnv: ((mode: string, root: string, prefix: string) => Record<string, string>) | undefined | null
 
 export async function resolveWorkspaceEnv(rootDir: string, name: string): Promise<string | undefined> {
@@ -6,10 +5,7 @@ export async function resolveWorkspaceEnv(rootDir: string, name: string): Promis
 }
 
 export async function loadWorkspaceEnv(rootDir: string): Promise<Record<string, string> | undefined> {
-  if (envByRoot.has(rootDir)) return envByRoot.get(rootDir)
-  const env = await loadViteEnv(rootDir)
-  if (env) envByRoot.set(rootDir, env)
-  return env
+  return await loadViteEnv(rootDir)
 }
 
 async function loadViteEnv(rootDir: string): Promise<Record<string, string> | undefined> {

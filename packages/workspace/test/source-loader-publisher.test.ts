@@ -194,6 +194,25 @@ describe("sources, loaders, and publishers", () => {
     expect(process.env.GITHUB_TOKEN).toBeUndefined()
   })
 
+  it("re-reads GitHub auth from local env files", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, ".env"), "GITHUB_TOKEN=first-env-file-token\n")
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    const githubSource = source.github({ repo: "acme/private" })
+
+    await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
+    await writeFile(join(root, ".env"), "GITHUB_TOKEN=second-env-file-token\n")
+    await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
+
+    expect(treeRequestAuthorizations()).toEqual([
+      "Bearer first-env-file-token",
+      "Bearer second-env-file-token",
+    ])
+  })
+
   it("prefers runtime GitHub auth over local env files", async () => {
     const root = await createRoot()
     await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")

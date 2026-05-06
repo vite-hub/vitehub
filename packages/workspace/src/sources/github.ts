@@ -16,17 +16,18 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
     ...options,
     auth: createGitHubAuthResolver(options.auth),
   })
-  const sourceByRoot = new Map<string, typeof baseSource>()
+  const sourceByRootAndToken = new Map<string, typeof baseSource>()
 
   async function getSourceForRoot(rootDir: string) {
-    const cachedSource = sourceByRoot.get(rootDir)
-    if (cachedSource) return cachedSource
     const envFileToken = await resolveWorkspaceEnv(rootDir, "GITHUB_TOKEN")
+    const cacheKey = `${rootDir}\0${envFileToken ?? ""}`
+    const cachedSource = sourceByRootAndToken.get(cacheKey)
+    if (cachedSource) return cachedSource
     const source = createGitHubSource({
       ...options,
       auth: createGitHubAuthResolver(options.auth, envFileToken),
     })
-    sourceByRoot.set(rootDir, source)
+    sourceByRootAndToken.set(cacheKey, source)
     return source
   }
 
