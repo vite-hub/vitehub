@@ -20,7 +20,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
-describe("Nitro syncOnBuild", () => {
+describe("Nitro workspace assets", () => {
   it("aliases workspace subpaths before the main package alias", async () => {
     const root = await createRoot()
     const hooks: Record<string, Array<() => Promise<void>>> = {}
@@ -112,7 +112,7 @@ describe("Nitro syncOnBuild", () => {
     })
   })
 
-  it("syncs selected workspaces during build:before", async () => {
+  it("bundles selected workspaces during build:before", async () => {
     const root = await createRoot()
     await mkdir(join(root, "server/workspaces"), { recursive: true })
     await writeFile(join(root, "server/workspaces/selected.mjs"), `
@@ -184,7 +184,7 @@ export default {
         rootDir: root,
         runtimeConfig: {},
         workspace: {
-          syncOnBuild: ["selected"],
+          assets: ["selected"],
         },
       },
     }
@@ -196,7 +196,7 @@ export default {
     await expect(readFile(join(root, "server/assets/context/skipped.txt"), "utf8")).rejects.toThrow()
   })
 
-  it("syncs all discovered workspaces during build:before by default", async () => {
+  it("bundles all discovered workspaces during build:before by default", async () => {
     const root = await createRoot()
     await mkdir(join(root, "server/workspaces"), { recursive: true })
     await writeFile(join(root, "server/workspaces/one.mjs"), `
@@ -296,7 +296,7 @@ export default {
         rootDir: root,
         runtimeConfig: {},
         workspace: {
-          syncOnBuild: ["docs"],
+          assets: ["docs"],
         },
       },
     }
@@ -343,7 +343,7 @@ export default {
         rootDir: root,
         runtimeConfig: {},
         workspace: {
-          syncOnBuild: ["docs"],
+          assets: ["docs"],
         },
       },
     }

@@ -23,8 +23,8 @@ export interface WorkspaceAssetBundle {
   name: string
 }
 
-function shouldSyncWorkspace(syncOnBuild: boolean | string[] | undefined, name: string) {
-  return syncOnBuild === undefined || syncOnBuild === true || (Array.isArray(syncOnBuild) && syncOnBuild.includes(name))
+function shouldBundleWorkspaceAssets(assets: boolean | string[] | undefined, name: string) {
+  return assets === undefined || assets === true || (Array.isArray(assets) && assets.includes(name))
 }
 
 function assetModuleName(workspace: string, path: string) {
@@ -50,7 +50,7 @@ export async function syncDiscoveredWorkspaces(
 
   const workspaces: Workspace[] = []
   for (const definition of definitions) {
-    if (!shouldSyncWorkspace(options.syncOnBuild, definition.name)) continue
+    if (!shouldBundleWorkspaceAssets(options.assets, definition.name)) continue
 
     const mod = await import(pathToFileURL(definition.path).href) as { default?: WorkspaceDefinitionInput }
     if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)

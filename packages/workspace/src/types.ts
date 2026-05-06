@@ -319,13 +319,13 @@ export type WorkspaceDefinitionInput = Omit<WorkspaceDefinition, "name"> & {
 
 export interface WorkspaceModuleOptions {
   root?: string
-  syncOnBuild?: boolean | string[]
+  assets?: boolean | string[]
   store?: WorkspaceStoreOptions
 }
 
 export interface ResolvedWorkspaceModuleOptions {
   root: string
-  syncOnBuild?: boolean | string[]
+  assets?: boolean | string[]
   store: Exclude<WorkspaceStoreOptions, WorkspaceStore>
 }
 

@@ -3,6 +3,48 @@ import { describe, expect, it } from "vitest"
 import { normalizeWorkspaceOptions, resolveRuntimeVercelBlobWorkspaceStore } from "../src/config.ts"
 
 describe("workspace config", () => {
+  it("leaves build assets enabled by default", () => {
+    const config = normalizeWorkspaceOptions({}, {
+      env: {},
+      rootDir: "/repo",
+    })
+
+    expect(config && config.assets).toBeUndefined()
+  })
+
+  it("preserves explicit build asset selection", () => {
+    const config = normalizeWorkspaceOptions({
+      assets: ["docs"],
+    }, {
+      env: {},
+      rootDir: "/repo",
+    })
+
+    expect(config && config.assets).toEqual(["docs"])
+  })
+
+  it("preserves disabled build assets", () => {
+    const config = normalizeWorkspaceOptions({
+      assets: false,
+    }, {
+      env: {},
+      rootDir: "/repo",
+    })
+
+    expect(config && config.assets).toBe(false)
+  })
+
+  it("preserves explicit all-workspace build assets", () => {
+    const config = normalizeWorkspaceOptions({
+      assets: true,
+    }, {
+      env: {},
+      rootDir: "/repo",
+    })
+
+    expect(config && config.assets).toBe(true)
+  })
+
   it("defaults to memory without workspace options on Cloudflare hosting", () => {
     const config = normalizeWorkspaceOptions(undefined, {
       env: {},
