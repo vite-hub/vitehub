@@ -1,4 +1,4 @@
-import { minimatch } from "minimatch"
+import picomatch from "picomatch"
 
 import { SourcePathError } from "./errors.ts"
 
@@ -29,7 +29,7 @@ export function matchesAny(path: string, patterns?: string | string[]): boolean 
   if (!patterns) return true
   const list = Array.isArray(patterns) ? patterns : [patterns]
   const normalizedPath = normalizeSourcePath(path)
-  return list.some(pattern => minimatch(normalizedPath, normalizeSourcePath(pattern), { dot: true }))
+  return picomatch.isMatch(normalizedPath, list.map(pattern => normalizeSourcePath(pattern)), { dot: true })
 }
 
 export function decodeSourceContent<TOptions extends ReadSourceOptions | undefined>(

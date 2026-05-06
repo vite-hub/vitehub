@@ -769,15 +769,15 @@ importers:
 
   packages/unsource:
     dependencies:
-      minimatch:
-        specifier: ^10.1.1
-        version: 10.2.5
       mrmime:
         specifier: 'catalog:'
         version: 2.0.1
       ocache:
         specifier: ^0.1.4
         version: 0.1.4
+      picomatch:
+        specifier: ^4.0.4
+        version: 4.0.4
       tinyglobby:
         specifier: ^0.2.16
         version: 0.2.16
@@ -785,6 +785,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
+      '@types/picomatch':
+        specifier: ^4.0.3
+        version: 4.0.3
       publint:
         specifier: ^0.3.15
         version: 0.3.18
@@ -5122,6 +5125,9 @@ packages:
   '@types/parse-path@7.1.0':
     resolution: {integrity: sha512-EULJ8LApcVEPbrfND0cRQqutIOdiIgJ1Mgrhpy755r14xMohPTEpkV/k28SJvuOs9bHRFW8x+KeDAEPiGQPB9Q==}
     deprecated: This is a stub types definition. parse-path provides its own type definitions, so you do not need this installed.
+
+  '@types/picomatch@4.0.3':
+    resolution: {integrity: sha512-iG0T6+nYJ9FAPmx9SsUlnwcq1ZVRuCXcVEvWnntoPlrOpwtSTKNDC9uVAxTsC3PUvJ+99n4RpAcNgBbHX3JSnQ==}
 
   '@types/resolve@1.20.2':
     resolution: {integrity: sha512-60BCwRFOZCQhDncwQdxxeOEEkbc5dIMccYLwbxsS4TUNeVECQ/pBJ0j09mrHOl/JJvpRPGwO9SvE4nR2Nb/a4Q==}
@@ -14555,6 +14561,8 @@ snapshots:
   '@types/parse-path@7.1.0':
     dependencies:
       parse-path: 7.1.0
+
+  '@types/picomatch@4.0.3': {}
 
   '@types/resolve@1.20.2': {}
 
