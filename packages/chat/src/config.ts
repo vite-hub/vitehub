@@ -40,6 +40,11 @@ function normalizeDevOptions(dev: ChatModuleOptions["dev"]): ResolvedChatModuleO
   }
 
   return {
+    devtools: dev?.devtools === false
+      ? false
+      : typeof dev?.devtools === "object"
+        ? { url: dev.devtools.url }
+        : {},
     initialize: dev?.initialize !== false,
     localStateFallback: dev?.localStateFallback !== false,
   }

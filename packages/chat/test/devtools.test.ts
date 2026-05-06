@@ -1,0 +1,414 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+import { Chat } from "chat"
+
+import type { ChatDevtoolsStateResult } from "../src/devtools.ts"
+
+function createState() {
+  return {
+    acquireLock: vi.fn(async () => ({ expiresAt: Date.now() + 1000, threadId: "thread", token: "lock" })),
+    appendToList: vi.fn(),
+    connect: vi.fn(),
+    delete: vi.fn(),
+    dequeue: vi.fn(async () => null),
+    disconnect: vi.fn(),
+    enqueue: vi.fn(async () => 1),
+    extendLock: vi.fn(async () => true),
+    forceReleaseLock: vi.fn(),
+    get: vi.fn(async () => null),
+    getList: vi.fn(async () => []),
+    isSubscribed: vi.fn(async () => false),
+    queueDepth: vi.fn(async () => 0),
+    releaseLock: vi.fn(),
+    set: vi.fn(),
+    setIfNotExists: vi.fn(async () => true),
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+  }
+}
+
+vi.mock("node:fs", async (importActual) => {
+  const actual = await importActual<typeof import("node:fs")>()
+  return {
+    ...actual,
+    existsSync: vi.fn(() => true),
+  }
+})
+
+function createDevtoolsContext() {
+  return {
+    docks: {
+      register: vi.fn(),
+    },
+    messages: {
+      add: vi.fn(),
+    },
+    rpc: {
+      register: vi.fn(),
+    },
+    views: {
+      hostStatic: vi.fn(),
+    },
+    viteConfig: {
+      server: {
+        port: 3000,
+      },
+    },
+    viteServer: {
+      resolvedUrls: {
+        local: ["http://127.0.0.1:3000/"],
+      },
+    },
+  }
+}
+
+async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
+  const result: T[] = []
+  for await (const item of stream) result.push(item)
+  return result
+}
+
+beforeEach(() => {
+  vi.stubEnv("VITEHUB_CHAT_DEVTOOLS_URL", "")
+  vi.restoreAllMocks()
+})
+
+describe("Chat DevTools Vite integration", () => {
+  it("registers standalone panel, RPC functions, and Nitro singleton bridge route", async () => {
+    const { chatDevtoolsBridgeRoute, chatDevTools } = await import("../src/devtools.ts")
+    const ctx = createDevtoolsContext()
+    const nitro = { options: { dev: true, handlers: [] } }
+    const plugin = chatDevTools()
+
+    ;(plugin as { devtools: { setup: (ctx: unknown) => void } }).devtools.setup(ctx)
+    ;(plugin as { nitro: { setup: (nitro: unknown) => void } }).nitro.setup(nitro)
+
+    expect(ctx.views.hostStatic).toHaveBeenCalledWith(
+      "/__vitehub/chat-devtools/",
+      expect.stringContaining("dist/devtools-client"),
+    )
+    expect(ctx.rpc.register).toHaveBeenCalledTimes(3)
+    expect(nitro.options.handlers).toEqual([
+      expect.objectContaining({
+        method: "POST",
+        route: chatDevtoolsBridgeRoute,
+        handler: expect.stringContaining("chat-devtools-handler.ts"),
+      }),
+    ])
+  })
+
+  it("does not install the standalone bridge route when DevTools are disabled", async () => {
+    const { chatDevTools } = await import("../src/devtools.ts")
+    const nitro = { options: { dev: true, handlers: [] } }
+    const plugin = chatDevTools({ devtools: false })
+
+    ;(plugin as { nitro: { setup: (nitro: unknown) => void } }).nitro.setup(nitro)
+
+    expect(nitro.options.handlers).toEqual([])
+  })
+
+  it("does not install the standalone bridge route outside Nitro dev mode", async () => {
+    const { chatDevTools } = await import("../src/devtools.ts")
+    const nitro = { options: { dev: false, handlers: [] } }
+    const plugin = chatDevTools()
+
+    ;(plugin as { nitro: { setup: (nitro: unknown) => void } }).nitro.setup(nitro)
+
+    expect(nitro.options.handlers).toEqual([])
+  })
+
+  it("registers the local iframe panel and hosted static assets by default", async () => {
+    const { hubChat } = await import("../src/vite.ts")
+    const ctx = createDevtoolsContext()
+    const plugin = hubChat()
+
+    ;(plugin as { devtools: { setup: (ctx: unknown) => void } }).devtools.setup(ctx)
+
+    expect(ctx.views.hostStatic).toHaveBeenCalledWith(
+      "/__vitehub/chat-devtools/",
+      expect.stringContaining("dist/devtools-client"),
+    )
+    expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
+      id: "@vitehub/chat",
+      title: "ViteHub Chat",
+      type: "iframe",
+      url: "/__vitehub/chat-devtools/",
+    }))
+    expect(ctx.docks.register.mock.calls[0]?.[0]).not.toHaveProperty("remote")
+  })
+
+  it("marks absolute URL overrides as remote iframes", async () => {
+    const { hubChat } = await import("../src/vite.ts")
+    const ctx = createDevtoolsContext()
+    const plugin = hubChat({ dev: { devtools: { url: "http://localhost:3300" } } })
+
+    ;(plugin as { devtools: { setup: (ctx: unknown) => void } }).devtools.setup(ctx)
+
+    expect(ctx.views.hostStatic).not.toHaveBeenCalled()
+    expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
+      remote: true,
+      url: "http://localhost:3300",
+    }))
+  })
+
+  it("registers no panel or RPC functions when DevTools are disabled", async () => {
+    const { hubChat } = await import("../src/vite.ts")
+    const ctx = createDevtoolsContext()
+    const plugin = hubChat({ dev: { devtools: false } })
+
+    ;(plugin as { devtools: { setup: (ctx: unknown) => void } }).devtools.setup(ctx)
+
+    expect(ctx.views.hostStatic).not.toHaveBeenCalled()
+    expect(ctx.docks.register).not.toHaveBeenCalled()
+    expect(ctx.rpc.register).not.toHaveBeenCalled()
+  })
+
+  it("RPC handlers call the Nitro bridge route", async () => {
+    const { hubChat } = await import("../src/vite.ts")
+    const ctx = createDevtoolsContext()
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      chats: [{ name: "default", messages: [] }],
+      selected: "default",
+    })))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const plugin = hubChat()
+    ;(plugin as { devtools: { setup: (ctx: unknown) => void } }).devtools.setup(ctx)
+
+    const functions = ctx.rpc.register.mock.calls.map(call => call[0])
+    await functions.find(fn => fn.name === "@vitehub/chat:get-state")!.setup().handler()
+    await functions.find(fn => fn.name === "@vitehub/chat:send")!.setup().handler({ chat: "default", text: "hello" })
+    await functions.find(fn => fn.name === "@vitehub/chat:clear")!.setup().handler({ chat: "default" })
+
+    expect(fetchMock).toHaveBeenCalledWith(new URL("http://127.0.0.1:3000/__vitehub/chat/devtools"), expect.objectContaining({
+      method: "POST",
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, expect.any(URL), expect.objectContaining({
+      body: JSON.stringify({ action: "send", chat: "default", text: "hello" }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, expect.any(URL), expect.objectContaining({
+      body: JSON.stringify({ action: "clear", chat: "default" }),
+    }))
+  })
+})
+
+describe("Chat DevTools Nitro bridge", () => {
+  function createBridgeEvent(body: unknown) {
+    return {
+      req: new Request("http://127.0.0.1:3000/__vitehub/chat/devtools", {
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    }
+  }
+
+  it("createDevtoolsAdapter records messages, edits, and tool status", async () => {
+    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const sent = await adapter.postMessage(user.threadId, "Thinking")
+
+    await adapter.startTyping(user.threadId, createChatDevtoolsToolStatus({
+      id: "call-1",
+      input: { query: "vite" },
+      name: "search",
+      status: "running",
+      text: "search",
+    }))
+    await adapter.editMessage(user.threadId, sent.id, "Done")
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({
+        role: "assistant",
+        text: "Done",
+        tools: [
+          expect.objectContaining({
+            id: "call-1",
+            input: { query: "vite" },
+            name: "search",
+            status: "running",
+          }),
+        ],
+      }),
+    ])
+  })
+
+  it("plain string streams do not create tool entries", async () => {
+    const { createDevtoolsAdapter, observeChatDevtoolsStream } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const stream = observeChatDevtoolsStream({ startTyping: status => adapter.startTyping(user.threadId, status) }, (async function* () {
+      yield "hel"
+      yield "lo"
+    })())
+
+    expect(await collect(stream)).toEqual(["hel", "lo"])
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+    ])
+  })
+
+  it("AI SDK full streams create completed tool entries without consuming stream parts", async () => {
+    const { createDevtoolsAdapter, observeChatDevtoolsStream } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const parts = [
+      { type: "tool-input-start", toolCallId: "call-1", toolName: "search" },
+      { type: "tool-call", toolCallId: "call-1", toolName: "search", input: { query: "vite" } },
+      { type: "tool-result", toolCallId: "call-1", toolName: "search", input: { query: "vite" }, output: "result" },
+    ]
+    const stream = observeChatDevtoolsStream({ startTyping: status => adapter.startTyping(user.threadId, status) }, (async function* () {
+      for (const part of parts) yield part
+    })())
+
+    expect(await collect(stream)).toEqual(parts)
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({
+        role: "assistant",
+        tools: [
+          expect.objectContaining({
+            id: "call-1",
+            input: { query: "vite" },
+            name: "search",
+            output: "result",
+            status: "completed",
+          }),
+        ],
+      }),
+    ])
+    expect(user.threadId).toBe("devtools:chat:thread")
+  })
+
+  it("singleton bridge dispatches through the registered devtools adapter", async () => {
+    const { createDevtoolsAdapter } = await import("../src/devtools.ts")
+    const { defineChatDevtoolsSingletonHandler } = await import("../src/nitro.ts")
+    const devtools = createDevtoolsAdapter()
+    const chat = new Chat({
+      adapters: { devtools },
+      state: createState() as never,
+      userName: "Devtools Test",
+    }).registerSingleton()
+    const processMessage = vi.spyOn(chat, "processMessage").mockImplementation(async (adapter, threadId, messageOrFactory) => {
+      const message = typeof messageOrFactory === "function" ? undefined : messageOrFactory
+      await Promise.resolve()
+      void adapter.postMessage(threadId, `echo: ${message?.text || ""}`)
+    })
+    const handler = defineChatDevtoolsSingletonHandler()
+
+    const result = await handler(createBridgeEvent({ action: "send", text: "hello" }) as never) as ChatDevtoolsStateResult
+
+    expect(processMessage).toHaveBeenCalledWith(devtools, "devtools:chat:thread", expect.objectContaining({ text: "hello" }), expect.any(Object))
+    expect(result.chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({ role: "assistant", text: "echo: hello" }),
+    ])
+  })
+
+  it("stores tool status updates on the assistant transcript message", async () => {
+    const { createChatDevtoolsToolStatus } = await import("../src/devtools.ts")
+    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
+    const chat = {
+      handleIncomingMessage: vi.fn(async (adapter, threadId) => {
+        await adapter.startTyping(threadId, createChatDevtoolsToolStatus({
+          id: "call-1",
+          input: { path: "README.md" },
+          name: "read_file",
+          status: "running",
+          text: "read_file",
+        }))
+        await adapter.startTyping(threadId, createChatDevtoolsToolStatus({
+          id: "call-1",
+          input: { path: "README.md" },
+          name: "read_file",
+          output: "contents",
+          status: "completed",
+          text: "read_file",
+        }))
+        await adapter.postMessage(threadId, "Done")
+      }),
+      initialize: vi.fn(),
+    }
+    const handler = defineChatDevtoolsHandler(chat as never)
+
+    const result = await handler(createBridgeEvent({ action: "send", text: "hello" }) as never) as ChatDevtoolsStateResult
+    expect(result.chats[0]?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", text: "hello" }),
+    ]))
+    const assistant = result.chats[0]?.messages.find((message): boolean => message.role === "assistant")
+
+    expect(assistant).toMatchObject({
+      text: "Done",
+      tools: [
+        expect.objectContaining({
+          id: "call-1",
+          input: { path: "README.md" },
+          name: "read_file",
+          output: "contents",
+          status: "completed",
+        }),
+      ],
+    })
+  })
+
+  it("exposes previous registry bridge turns to chat handlers", async () => {
+    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
+    const seenHistory: string[][] = []
+    const chat = {
+      handleIncomingMessage: vi.fn(async (adapter, threadId, message) => {
+        const history = await adapter.fetchMessages(threadId)
+        seenHistory.push(history.messages.map((item: { text: string }) => item.text))
+        await adapter.postMessage(threadId, `history: ${history.messages.length}; ${message.text}`)
+      }),
+      initialize: vi.fn(),
+    }
+    const handler = defineChatDevtoolsHandler(chat as never)
+
+    await handler(createBridgeEvent({ action: "send", text: "first" }) as never)
+    await handler(createBridgeEvent({ action: "send", text: "second" }) as never)
+
+    expect(seenHistory).toEqual([
+      ["first"],
+      ["first", "history: 1; first", "second"],
+    ])
+  })
+
+  it("does not synthesize a selectable chat for an empty registry", async () => {
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/nitro.ts")
+    const handler = defineChatDevtoolsRegistryHandler({})
+
+    const result = await handler(createBridgeEvent({ action: "get-state" }) as never) as ChatDevtoolsStateResult
+
+    expect(result).toEqual({
+      chats: [],
+      selected: "",
+    })
+    await expect(handler(createBridgeEvent({ action: "send", text: "hello" }) as never)).rejects.toMatchObject({
+      statusCode: 404,
+    })
+  })
+
+  it("preserves previous registry bridge turns across sends", async () => {
+    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
+    const chat = {
+      handleIncomingMessage: vi.fn(async (adapter, threadId, message) => {
+        await adapter.postMessage(threadId, `echo: ${message.text}`)
+      }),
+      initialize: vi.fn(),
+    }
+    const handler = defineChatDevtoolsHandler(chat as never)
+
+    await handler(createBridgeEvent({ action: "send", text: "first" }) as never)
+    const result = await handler(createBridgeEvent({ action: "send", text: "second" }) as never) as ChatDevtoolsStateResult
+
+    expect(result.chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "first" }),
+      expect.objectContaining({ role: "assistant", text: "echo: first" }),
+      expect.objectContaining({ role: "user", text: "second" }),
+      expect.objectContaining({ role: "assistant", text: "echo: second" }),
+    ])
+  })
+})

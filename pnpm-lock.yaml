@@ -259,6 +259,9 @@ importers:
       '@vercel/functions':
         specifier: ^3.4.3
         version: 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13)
+      '@vitejs/devtools-kit':
+        specifier: ^0.1.18
+        version: 0.1.18(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
       h3:
         specifier: 2.0.1-rc.20
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
@@ -269,6 +272,9 @@ importers:
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
+      '@vitehub/devtools':
+        specifier: workspace:*
+        version: link:../devtools
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
