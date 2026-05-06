@@ -71,7 +71,21 @@ await workspace.fs.writeFile('generated/notes.md', 'Hello')
 const files = await workspace.fs.glob('**/*.md')
 ```
 
-For build-time, read-only context, enable `syncOnBuild` and read bundled assets:
+Build-time, read-only context is bundled into an asset registry during production builds by default. Use `workspace.assets` in app config when you want to select or disable bundled workspaces:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { hubWorkspace } from '@vitehub/workspace/vite'
+
+export default defineConfig({
+  plugins: [hubWorkspace()],
+  workspace: {
+    assets: ['docs'],
+  },
+})
+```
+
+Read bundled assets through the same workspace facade:
 
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
@@ -148,7 +162,7 @@ On open, ViteHub syncs the readable workspace contents into the configured sandb
 
 ## Lazy materialization
 
-Source mounts default to `materialize: 'build'`, which syncs files into the workspace store during build or explicit workspace sync.
+Source mounts default to `materialize: 'build'`, which syncs files into the workspace store during build or explicit workspace sync. This is separate from `workspace.assets`, which controls whether synced workspace files are also emitted into the read-only build asset registry.
 
 Use `materialize: 'lazy'` when the agent only needs source files on demand:
 

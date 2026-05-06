@@ -6,7 +6,7 @@ import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 
 import {
   collectDirectoryWorkspaceAssetBundles,
-  shouldSyncWorkspace,
+  shouldBundleWorkspaceAssets,
   syncDiscoveredWorkspaceAssetBundles,
   writeWorkspaceAssetsRegistry,
 } from "./build-assets.ts"
@@ -70,7 +70,7 @@ export async function syncWorkspaceBuildAssets(
 ): Promise<void> {
   const syncedBundles = await syncDiscoveredWorkspaceAssetBundles(definitions, rootDir, options)
   const syncedNames = new Set(syncedBundles.map(bundle => bundle.name))
-  const selectedDefinitions = options ? definitions.filter(definition => shouldSyncWorkspace(options.syncOnBuild, definition.name)) : []
+  const selectedDefinitions = options ? definitions.filter(definition => shouldBundleWorkspaceAssets(options.assets, definition.name)) : []
   const directoryBundles = (await collectDirectoryWorkspaceAssetBundles(selectedDefinitions, rootDir))
     .filter(bundle => !syncedNames.has(bundle.name))
   await writeWorkspaceAssetsRegistry(assetsRegistryFile, [...directoryBundles, ...syncedBundles])

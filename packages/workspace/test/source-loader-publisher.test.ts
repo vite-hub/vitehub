@@ -376,7 +376,7 @@ describe("sources, loaders, and publishers", () => {
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
       store: { provider: "memory" },
-      syncOnBuild: true,
+      assets: true,
     }, registryFile)
 
     const contents = await readFile(registryFile, "utf8")
@@ -384,7 +384,7 @@ describe("sources, loaders, and publishers", () => {
     expect(contents.match(/"AGENTS.md"/g)).toHaveLength(1)
   })
 
-  it("filters directory workspace assets by syncOnBuild", async () => {
+  it("filters directory workspace assets by configured assets", async () => {
     const root = await createRoot()
     const selectedDirectory = join(root, "server", "workspaces", "selected")
     const skippedDirectory = join(root, "server", "workspaces", "skipped")
@@ -409,7 +409,7 @@ describe("sources, loaders, and publishers", () => {
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
       store: { provider: "memory" },
-      syncOnBuild: ["selected"],
+      assets: ["selected"],
     }, registryFile)
 
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
@@ -448,7 +448,7 @@ describe("sources, loaders, and publishers", () => {
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
       store: { provider: "memory" },
-      syncOnBuild: true,
+      assets: true,
     }, registryFile)
 
     expect(fetch).not.toHaveBeenCalled()

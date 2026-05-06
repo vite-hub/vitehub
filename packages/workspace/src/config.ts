@@ -33,8 +33,8 @@ export function normalizeWorkspaceOptions(
   const rootDir = input.rootDir || process.cwd()
   const root = resolvedOptions.root || ".vitehub/workspaces"
   return {
+    assets: resolvedOptions.assets,
     root: resolve(rootDir, root),
     store: normalizeWorkspaceStoreOptions(resolvedOptions.store, input) || { provider: "local" },
-    syncOnBuild: resolvedOptions.syncOnBuild,
   }
 }
