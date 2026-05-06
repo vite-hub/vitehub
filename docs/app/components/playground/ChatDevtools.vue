@@ -54,7 +54,9 @@ function scrollTranscript() {
 function applyResult(result: ChatDevtoolsStateResult) {
   status.value = "Ready"
   chats.value = result.chats.map(chat => chat.name)
-  chatName.value = result.selected || result.chats[0]?.name || chatName.value || "chat"
+  chatName.value = chats.value.includes(chatName.value)
+    ? chatName.value
+    : result.selected || result.chats[0]?.name || chatName.value || "chat"
   messages.value = result.chats.find(chat => chat.name === chatName.value)?.messages || []
   scrollTranscript()
 }
