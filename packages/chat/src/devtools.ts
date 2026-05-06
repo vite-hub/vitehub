@@ -12,7 +12,7 @@ import {
   chatDevtoolsSendRpc,
   chatDevtoolsTitle,
   chatDevtoolsUrlEnv,
-} from "./devtools-shared.ts"
+} from "./devtools-shared.js"
 
 import type { Adapter, AdapterPostableMessage, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
 import type { NitroModule } from "nitro/types"
@@ -27,7 +27,7 @@ import type {
   ChatDevtoolsStateResult,
   ChatDevtoolsTool,
   ChatDevtoolsToolStatus,
-} from "./devtools-shared.ts"
+} from "./devtools-shared.js"
 
 export {
   chatDevtoolsAdapterName,
@@ -39,7 +39,7 @@ export {
   chatDevtoolsSendRpc,
   chatDevtoolsTitle,
   chatDevtoolsUrlEnv,
-} from "./devtools-shared.ts"
+} from "./devtools-shared.js"
 
 export type {
   ChatDevtoolsClearInput,
@@ -50,7 +50,7 @@ export type {
   ChatDevtoolsStateResult,
   ChatDevtoolsTool,
   ChatDevtoolsToolStatus,
-} from "./devtools-shared.ts"
+} from "./devtools-shared.js"
 
 export const chatDevtoolsRpcClear: string = chatDevtoolsClearRpc
 export const chatDevtoolsRpcGetState: string = chatDevtoolsGetStateRpc
