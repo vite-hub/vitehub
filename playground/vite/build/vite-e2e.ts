@@ -404,6 +404,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   if (typeof options.sandbox !== "undefined") {
     const sandboxRuntimeFile = resolve(generatedDir, "sandbox-runtime.mjs")
+    alias["@vitehub/sandbox/runtime/state"] = resolve(sandboxPackageDir, "src/runtime/state.ts")
     alias["@vitehub/sandbox"] = sandboxRuntimeFile
     runtimeWrites.push(writeFile(sandboxRuntimeFile, renderSandboxRuntimeModule(sandboxRuntimeFile), "utf8"))
   }
