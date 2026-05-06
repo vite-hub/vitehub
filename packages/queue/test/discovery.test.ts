@@ -86,4 +86,20 @@ describe("discoverQueueDefinitions", () => {
       scanDirs: [firstNitroScanDir, secondNitroScanDir],
     })).toThrow(/Duplicate queue name/)
   })
+
+  it("deduplicates repeated scan roots without suppressing real duplicate names", async () => {
+    const viteRootDir = await createTempDir("vitehub-queue-vite-root-dedupe-")
+    await writeFile(join(viteRootDir, "welcome.queue.ts"), "export default null\n", "utf8")
+
+    expect(discoverQueueDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+      scanDirs: [viteRootDir],
+    })).toEqual([
+      expect.objectContaining({
+        name: "welcome",
+        source: "vite-suffix",
+      }),
+    ])
+  })
 })
