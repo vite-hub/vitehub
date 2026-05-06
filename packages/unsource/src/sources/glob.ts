@@ -9,6 +9,7 @@ export interface GlobSourceOptions {
   cwd?: string
   include: string | string[]
   exclude?: string | string[]
+  keyCache?: boolean
   root?: string
 }
 
@@ -36,6 +37,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
   }
 
   async function getCachedKeys(ctx: SourceContext) {
+    if (options.keyCache === false) return await loadKeys(ctx)
     const { resolve } = await import("node:path")
     const key = resolve(ctx.rootDir, options.cwd || ".")
     if (!snapshot || snapshot.key !== key) {

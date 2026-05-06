@@ -79,6 +79,18 @@ describe("@vitehub/unsource GitHub source", () => {
     await expect(dbt.read("models/marts/orders.sql")).resolves.toBe("select 1\n")
   })
 
+  it("falls back to GitHub archives when the tree API returns a truncated tree", async () => {
+    stubGitHubSource({
+      "dbt/models/marts/orders.sql": "select 1\n",
+      "docs/README.md": "# Docs\n",
+    }, { treeTruncated: true })
+
+    registerSources({ dbt: github({ repo: "acme/app", root: "dbt" }) })
+
+    await expect(useSource("dbt").keys()).resolves.toEqual(["models/marts/orders.sql"])
+    await expect(useSource("dbt").read("models/marts/orders.sql")).resolves.toBe("select 1\n")
+  })
+
   it("sends GitHub auth on archive fallback requests", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",

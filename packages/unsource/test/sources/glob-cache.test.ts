@@ -40,4 +40,20 @@ describe("@vitehub/unsource glob source cache", () => {
 
     expect(tinyglobby).toHaveBeenCalledTimes(1)
   })
+
+  it("can refresh glob keys on each read", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "README.md"), "# Docs\n")
+    vi.mocked(tinyglobby)
+      .mockResolvedValueOnce(["docs/README.md"])
+      .mockResolvedValueOnce(["docs/README.md", "docs/guide.md"])
+
+    const docs = glob({ include: "**/*.md", keyCache: false })
+    const ctx = { rootDir: root }
+
+    await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/README.md"])
+    await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/guide.md", "docs/README.md"])
+    expect(tinyglobby).toHaveBeenCalledTimes(2)
+  })
 })

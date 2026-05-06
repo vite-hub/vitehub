@@ -94,11 +94,16 @@ export function github<const TKey extends string = string>(options: GitHubSource
       return await loadTreeFiles(token)
     }
     catch (error) {
-      if (error instanceof UnsourceError && error.message.includes(" request failed with 403 ")) {
+      if (shouldLoadArchive(error)) {
         return await loadArchiveFiles(token)
       }
       throw error
     }
+  }
+
+  function shouldLoadArchive(error: unknown) {
+    return error instanceof UnsourceError
+      && (error.message.includes(" request failed with 403 ") || error.message.includes(" received a truncated tree "))
   }
 
   const cachedLoadFiles = defineCachedFunction(

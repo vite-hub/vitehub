@@ -13,6 +13,7 @@ export function jsonResponse(value: unknown, status = 200) {
 export interface StubGitHubSourceOptions {
   apiStatus?: number
   archiveStatus?: number
+  treeTruncated?: boolean
 }
 
 export function createTarGz(files: Record<string, string>) {
@@ -43,6 +44,7 @@ export function createTarGz(files: Record<string, string>) {
 export function stubGitHubSource(files: Record<string, string>, options: StubGitHubSourceOptions | number = 200) {
   const apiStatus = typeof options === "number" ? options : options.apiStatus ?? 200
   const archiveStatus = typeof options === "number" ? options : options.archiveStatus ?? 200
+  const treeTruncated = typeof options === "number" ? false : options.treeTruncated ?? false
 
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
     const requestUrl = String(url)
@@ -59,6 +61,7 @@ export function stubGitHubSource(files: Record<string, string>, options: StubGit
     if (requestUrl.includes("/git/trees/")) {
       return jsonResponse({
         sha: "tree-sha",
+        truncated: treeTruncated,
         tree: [
           ...Object.keys(files).map(path => ({ path, sha: `sha-${path}`, type: "blob" })),
           { path: "docs/guide", type: "tree" },
