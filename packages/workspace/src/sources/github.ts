@@ -87,6 +87,29 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
     return await response.json() as T
   }
 
+  async function requestRawContent(repoPath: string, encodedPath: string, token: string) {
+    const response = await fetch(
+      `https://api.github.com/repos/${options.repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
+      {
+        headers: {
+          accept: "application/vnd.github.raw+json",
+          authorization: `Bearer ${token}`,
+          "user-agent": "vitehub-workspace",
+          "x-github-api-version": "2022-11-28",
+        },
+      },
+    )
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(repoPath)} at ref ${JSON.stringify(ref)}.`)
+      }
+      throw new WorkspaceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) raw content request failed with ${response.status} for ${repoPath}.`)
+    }
+    const content = new Uint8Array(await response.arrayBuffer())
+    rejectUnsupportedRawContentPayload(repoPath, response.headers.get("content-type"), content)
+    return content
+  }
+
   function keyForRepoPath(path: string) {
     const normalized = normalizeWorkspacePath(path)
     if (!root) return normalized
@@ -190,7 +213,7 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       token,
     ).then((file) => {
       if (file.encoding !== "base64" || typeof file.content !== "string") {
-        return fetchRawContent(repoPath, encodedPath, token)
+        return requestRawContent(repoPath, encodedPath, token)
       }
       return new Uint8Array(Buffer.from(file.content, "base64"))
     })
@@ -357,4 +380,28 @@ function stripArchiveRoot(path: string) {
   const slash = path.indexOf("/")
   if (slash === -1) return
   return normalizeWorkspacePath(path.slice(slash + 1))
+}
+
+function rejectUnsupportedRawContentPayload(repoPath: string, contentType: string | null, content: Uint8Array) {
+  if (!contentType?.includes("json")) return
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(Buffer.from(content).toString("utf8"))
+  }
+  catch {
+    return
+  }
+
+  if (isGitHubContentsPayload(payload) && payload.type !== "file") {
+    throw new WorkspaceError(`[vitehub] source.github raw content for ${JSON.stringify(repoPath)} resolved to unsupported GitHub content type ${JSON.stringify(payload.type)}.`)
+  }
+}
+
+function isGitHubContentsPayload(value: unknown): value is { type: string } {
+  return typeof value === "object"
+    && value !== null
+    && "type" in value
+    && typeof (value as { type?: unknown }).type === "string"
+    && ("download_url" in value || "git_url" in value || "html_url" in value || "url" in value)
 }

@@ -41,6 +41,7 @@ function jsonResponse(value: unknown, status = 200) {
 interface StubGitHubSourceOptions {
   apiStatus?: number
   archiveStatus?: number
+  rawPayloads?: Record<string, unknown>
 }
 
 function createTarGz(files: Record<string, string>) {
@@ -72,7 +73,7 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
   const apiStatus = typeof options === "number" ? options : options.apiStatus ?? 200
   const archiveStatus = typeof options === "number" ? options : options.archiveStatus ?? 200
 
-  vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const requestUrl = String(url)
 
     if (requestUrl.startsWith("https://codeload.github.com/")) {
@@ -103,6 +104,16 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
     }
 
     const path = decodeURIComponent(requestUrl.match(/contents\/(?<path>.+)\?ref/)?.groups?.path ?? "")
+    const rawPayload = typeof options === "number" ? undefined : options.rawPayloads?.[path]
+    if (init?.headers && new Headers(init.headers).get("accept") === "application/vnd.github.raw+json") {
+      if (rawPayload) return jsonResponse(rawPayload)
+      return new Response(files[path] ?? "", {
+        headers: { "content-type": "application/vnd.github.raw+json" },
+      })
+    }
+    if (rawPayload) {
+      return jsonResponse({ content: "", encoding: "none" })
+    }
     return jsonResponse({
       content: Buffer.from(files[path] || "").toString("base64"),
       encoding: "base64",
@@ -231,11 +242,13 @@ describe("sources, loaders, and publishers", () => {
         })
       }
       if (requestUrl.includes("/contents/")) {
+        if (new Headers(init?.headers).get("accept") === "application/vnd.github.raw+json") {
+          expect((init?.headers as Record<string, string>).authorization).toBe("Bearer token")
+          return new Response("<metadata />\n", {
+            headers: { "content-type": "application/vnd.github.raw+json" },
+          })
+        }
         return jsonResponse({ content: "", encoding: "none" })
-      }
-      if (requestUrl.startsWith("https://raw.githubusercontent.com/")) {
-        expect((init?.headers as Record<string, string>).authorization).toBe("Bearer token")
-        return new Response("<metadata />\n")
       }
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
     })
@@ -248,6 +261,30 @@ describe("sources, loaders, and publishers", () => {
     const item = await githubSource.getItem("metadata.xml", { rootDir: "", workspace: "github-raw-fallback" })
 
     expect(Buffer.from(item.content as Uint8Array).toString("utf8")).toBe("<metadata />\n")
+  })
+
+  it("rejects non-file GitHub contents API payloads from authenticated raw content", async () => {
+    const symlinkPath = "docs/linked.md"
+    stubGitHubSource({
+      [symlinkPath]: "",
+    }, {
+      rawPayloads: {
+        [symlinkPath]: {
+          download_url: null,
+          html_url: "https://github.com/acme/app/blob/main/docs/linked.md",
+          type: "symlink",
+          url: "https://api.github.com/repos/acme/app/contents/docs/linked.md",
+        },
+      },
+    })
+
+    const githubSource = source.github({
+      auth: "github-token",
+      repo: "acme/app",
+    })
+
+    await expect(githubSource.getItem(symlinkPath, { rootDir: "", workspace: "github-raw" }))
+      .rejects.toThrow("unsupported GitHub content type")
   })
 
   it("reuses cached GitHub tree listings across lazy source navigation", async () => {
