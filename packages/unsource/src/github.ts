@@ -123,9 +123,10 @@ export function github<const TKey extends string = string>(options: GitHubSource
       .filter((file): file is GitHubFile<TKey> => Boolean(file))
   }
 
-  async function loadArchiveFiles() {
+  async function loadArchiveFiles(token = auth) {
     const response = await fetch(`https://codeload.github.com/${options.repo}/tar.gz/${encodeURIComponent(ref)}`, {
       headers: {
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
         "user-agent": "vitehub-unsource",
       },
     })
@@ -152,12 +153,13 @@ export function github<const TKey extends string = string>(options: GitHubSource
   }
 
   async function loadFiles() {
+    const token = auth
     try {
       return await loadTreeFiles()
     }
     catch (error) {
       if (error instanceof UnsourceError && error.message.includes(" request failed with 403 ")) {
-        return await loadArchiveFiles()
+        return await loadArchiveFiles(token)
       }
       throw error
     }

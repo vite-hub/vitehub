@@ -1,5 +1,6 @@
 import { glob as tinyglobby } from "tinyglobby"
 
+import { UnsourceError } from "./errors.ts"
 import { matchesAny, normalizeSourcePath } from "./path.ts"
 
 import type { Source, SourceContext, SourceItem } from "./types.ts"
@@ -11,8 +12,13 @@ export interface GlobSourceOptions {
   root?: string
 }
 
+async function assertKnownKey<TKey extends string>(source: Source<TKey>, key: TKey, ctx: SourceContext) {
+  if ((await source.getKeys(ctx)).includes(key)) return
+  throw new UnsourceError(`[vitehub] source.glob could not find ${JSON.stringify(key)}.`)
+}
+
 export function glob<const TKey extends string = string>(options: GlobSourceOptions): Source<TKey> {
-  return {
+  const source: Source<TKey> = {
     name: "glob",
     async getKeys(ctx: SourceContext) {
       const { resolve } = await import("node:path")
@@ -29,6 +35,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
         .sort((left, right) => left.localeCompare(right)) as TKey[]
     },
     async getMeta(key: TKey, ctx: SourceContext) {
+      await assertKnownKey(source, key, ctx)
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
       const cwd = resolve(ctx.rootDir, options.cwd || ".")
@@ -38,6 +45,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       }
     },
     async getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey>> {
+      await assertKnownKey(source, key, ctx)
       const { readFile, stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
       const cwd = resolve(ctx.rootDir, options.cwd || ".")
@@ -52,4 +60,5 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       }
     },
   }
+  return source
 }

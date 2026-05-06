@@ -164,6 +164,10 @@ describe("@vitehub/unsource providers", () => {
     await expect(useSource("readme", { rootDir: root }).get("README.md")).resolves.toMatchObject({
       mediaType: "text/markdown",
     })
+    await expect(useSource("readme", { rootDir: root }).read("missing.md" as any))
+      .rejects.toThrow("source.file could not find")
+    await expect(useSource("docs", { rootDir: root }).read("../package.json" as any))
+      .rejects.toThrow("source.glob could not find")
   })
 
   it("lists GitHub files under the configured root with relative keys", async () => {
@@ -216,6 +220,19 @@ describe("@vitehub/unsource providers", () => {
 
     await expect(dbt.keys()).resolves.toEqual(["models/marts/orders.sql"])
     await expect(dbt.read("models/marts/orders.sql")).resolves.toBe("select 1\n")
+  })
+
+  it("sends GitHub auth on archive fallback requests", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    }, { apiStatus: 403 })
+
+    registerSources({ docs: github({ auth: () => "github-token", repo: "acme/app", root: "docs" }) })
+
+    await expect(useSource("docs").keys()).resolves.toEqual(["README.md"])
+
+    const archiveCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect((archiveCall?.[1]?.headers as Record<string, string> | undefined)?.authorization).toBe("Bearer github-token")
   })
 
   it("falls back to raw GitHub bytes when the contents API does not return base64", async () => {

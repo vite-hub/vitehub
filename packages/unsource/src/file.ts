@@ -1,5 +1,6 @@
 import { lookup } from "mrmime"
 
+import { UnsourceError } from "./errors.ts"
 import { normalizeSourcePath } from "./path.ts"
 
 import type { Source, SourceContent, SourceContext } from "./types.ts"
@@ -49,7 +50,8 @@ export function file<const TKey extends string = string>(options: FileSourceOpti
     async getKeys() {
       return [key]
     },
-    async getMeta(_key: TKey, ctx: SourceContext) {
+    async getMeta(requestedKey: TKey, ctx: SourceContext) {
+      if (requestedKey !== key) return
       if (!("path" in options) || !options.path) return
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
@@ -58,7 +60,10 @@ export function file<const TKey extends string = string>(options: FileSourceOpti
         digest: `${info.size}:${info.mtimeMs}`,
       }
     },
-    async getItem(_key: TKey, ctx: SourceContext) {
+    async getItem(requestedKey: TKey, ctx: SourceContext) {
+      if (requestedKey !== key) {
+        throw new UnsourceError(`[vitehub] source.file could not find ${JSON.stringify(requestedKey)}.`)
+      }
       const content = typeof options.content === "undefined"
         ? await readSourceFile(options, ctx)
         : options.content
