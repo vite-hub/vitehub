@@ -2,7 +2,7 @@ import { appendFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
-import { createGeneratedDefinitionPath, createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
+import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeRuntimeRegistryFiles } from "@vitehub/internal/definition-catalog"
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
@@ -19,7 +19,7 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
 }
 
 function createNitroWorkflowRegistryPath(rootDir: string, buildDir: string) {
-  return createGeneratedDefinitionPath(rootDir, {
+  return createNitroRuntimeFilePath(rootDir, {
     buildDir,
     fileName: "nitro-registry.mjs",
     segments: ["vitehub", "workflow"],
@@ -27,7 +27,7 @@ function createNitroWorkflowRegistryPath(rootDir: string, buildDir: string) {
 }
 
 function createNitroWorkflowPluginPath(rootDir: string, buildDir: string) {
-  return createGeneratedDefinitionPath(rootDir, {
+  return createNitroRuntimeFilePath(rootDir, {
     buildDir,
     fileName: "nitro-plugin.ts",
     segments: ["vitehub", "workflow"],
@@ -103,12 +103,12 @@ async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFile
     scanDirs: resolveNitroWorkflowScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
 
-  await Promise.all([
-    writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
-    writeFileIfChanged(pluginFile, createNitroWorkflowPluginContents(pluginFile, registryFile)),
-  ])
-
-  return { definitions, pluginFile, registryFile }
+  return await writeRuntimeRegistryFiles({
+    createPluginContents: createNitroWorkflowPluginContents,
+    definitions,
+    pluginFile,
+    registryFile,
+  })
 }
 
 const workflowNitroModule: NitroModule = {
@@ -125,7 +125,7 @@ const workflowNitroModule: NitroModule = {
     nitro.options.alias["@vitehub/workflow/runtime/cloudflare-runner"] = resolveRuntimeEntry("../runtime/cloudflare-runner", "@vitehub/workflow/runtime/cloudflare-runner")
 
     let runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro)
-    nitro.options.alias["#vitehub/workflow/registry"] = runtimeFiles.registryFile
+    applyNitroRuntimeAliases(nitro, { "#vitehub/workflow/registry": runtimeFiles.registryFile })
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
     if (!importsExplicitlyDisabled) {
@@ -156,11 +156,9 @@ const workflowNitroModule: NitroModule = {
       }
     }
 
-    nitro.hooks.hook("build:before", async () => {
-      runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro)
-    })
-    nitro.hooks.hook("dev:reload", async () => {
-      runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro)
+    hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroWorkflowRuntimeFiles(nitro), (nextRuntimeFiles) => {
+      runtimeFiles = nextRuntimeFiles
+      applyNitroRuntimeAliases(nitro, { "#vitehub/workflow/registry": runtimeFiles.registryFile })
     })
     nitro.hooks.hook("compiled", async (currentNitro) => {
       if (resolved.provider !== "cloudflare" || !currentNitro.options.preset?.includes("cloudflare")) {
