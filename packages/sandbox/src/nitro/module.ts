@@ -1,6 +1,6 @@
 import { readPackageJSON } from 'pkg-types'
 
-import { writeFileIfChanged } from '@vitehub/internal/definition-discovery'
+import { hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from '@vitehub/internal/definition-discovery'
 
 import { createSandboxProviderLoaderContents } from '../feature'
 import { hasInstalledDependency } from '../internal/shared/dependency'
@@ -55,11 +55,8 @@ const sandboxNitroModule: NitroModule = {
 
     extendSandboxNitro(nitro, config, deps, providerLoader.providerLoaderTarget)
 
-    nitro.hooks.hook('build:before', async () => {
-      runtimeFiles = await writeNitroSandboxRuntimeFiles(nitro)
-    })
-    nitro.hooks.hook('dev:reload', async () => {
-      runtimeFiles = await writeNitroSandboxRuntimeFiles(nitro)
+    hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroSandboxRuntimeFiles(nitro), (nextRuntimeFiles) => {
+      runtimeFiles = nextRuntimeFiles
     })
 
     if (provider?.provider === 'vercel' && !hasInstalledDependency(deps, '@vercel/sandbox', { paths: [nitro.options.rootDir] }))

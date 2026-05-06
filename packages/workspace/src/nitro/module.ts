@@ -1,9 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
-import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
+import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets, writeWorkspaceRuntimeRegistry } from "../build-integration.ts"
@@ -38,15 +37,24 @@ function resolveIsomorphicGitHttpWebEsmEntry() {
 }
 
 function registryPath(nitro: Nitro) {
-  return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/workspace/registry.mjs")
+  return createNitroRuntimeFilePath(nitro.options.rootDir, {
+    fileName: "registry.mjs",
+    segments: [".vitehub", "nitro-runtime", "workspace"],
+  })
 }
 
 function pluginPath(nitro: Nitro) {
-  return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/workspace/plugin.mjs")
+  return createNitroRuntimeFilePath(nitro.options.rootDir, {
+    fileName: "plugin.mjs",
+    segments: [".vitehub", "nitro-runtime", "workspace"],
+  })
 }
 
 function assetsRegistryPath(nitro: Nitro) {
-  return resolve(nitro.options.rootDir, ".vitehub/nitro-runtime/workspace/assets/registry.mjs")
+  return createNitroRuntimeFilePath(nitro.options.rootDir, {
+    fileName: "assets/registry.mjs",
+    segments: [".vitehub", "nitro-runtime", "workspace"],
+  })
 }
 
 function workspaceNitroConfigTypes(definitions: DiscoveredWorkspaceDefinition[]) {
@@ -150,9 +158,15 @@ function createNitroPluginContents(file: string, registryFile: string, assetsReg
 
 async function writePlugin(nitro: Nitro, registryFile: string, assetsRegistryFile: string, options: false | ResolvedWorkspaceModuleOptions) {
   const path = pluginPath(nitro)
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, createNitroPluginContents(path, registryFile, assetsRegistryFile, options), "utf8")
+  await writeFileIfChanged(path, createNitroPluginContents(path, registryFile, assetsRegistryFile, options))
   return path
+}
+
+function applyWorkspaceRuntimeAliases(nitro: Nitro, registryFile: string, assetsRegistryFile: string) {
+  applyNitroRuntimeAliases(nitro, {
+    "#vitehub-workspace-assets-registry": assetsRegistryFile,
+    "#vitehub-workspace-registry": registryFile,
+  })
 }
 
 const workspaceNitroModule: NitroModule = {
@@ -186,8 +200,7 @@ const workspaceNitroModule: NitroModule = {
     const assetsRegistryFile = assetsRegistryPath(nitro)
     await initializeWorkspaceAssetRegistry(assetsRegistryFile, definitions, nitro.options.rootDir)
     const plugin = await writePlugin(nitro, registryFile, assetsRegistryFile, resolved)
-    nitro.options.alias["#vitehub-workspace-registry"] = registryFile
-    nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
+    applyWorkspaceRuntimeAliases(nitro, registryFile, assetsRegistryFile)
     installNitroConfigTypes(nitro, () => definitions)
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
@@ -202,22 +215,16 @@ const workspaceNitroModule: NitroModule = {
       configureCloudflareArtifacts(nitro.options, resolved)
     }
 
-    nitro.hooks.hook("build:before", async () => {
+    hookNitroRuntimeRegistryRefresh(nitro, async () => {
       definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
       const nextPath = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
-      nitro.options.alias ||= {}
-      nitro.options.alias["#vitehub-workspace-registry"] = nextPath
-      nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
-      await syncWorkspaceBuildAssets(definitions, nitro.options.rootDir, resolved, assetsRegistryFile)
-      await writePlugin(nitro, nextPath, assetsRegistryFile, resolved)
-    })
-    nitro.hooks.hook("dev:reload", async () => {
-      definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
-      const nextPath = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
-      await initializeWorkspaceAssetRegistry(assetsRegistryFile, definitions, nitro.options.rootDir)
-      nitro.options.alias ||= {}
-      nitro.options.alias["#vitehub-workspace-registry"] = nextPath
-      nitro.options.alias["#vitehub-workspace-assets-registry"] = assetsRegistryFile
+      return { definitions, registryFile: nextPath }
+    }, async (runtimeFiles, hookName) => {
+      applyWorkspaceRuntimeAliases(nitro, runtimeFiles.registryFile, assetsRegistryFile)
+      if (hookName === "build:before") {
+        await syncWorkspaceBuildAssets(definitions, nitro.options.rootDir, resolved, assetsRegistryFile)
+        await writePlugin(nitro, runtimeFiles.registryFile, assetsRegistryFile, resolved)
+      }
     })
 
     nitro.logger.info(`@vitehub/workspace enabled with ${definitions.length} workspace definition${definitions.length === 1 ? "" : "s"}`)

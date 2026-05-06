@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { createImportPath, generatedDirSegments } from '@vitehub/internal/build/paths'
-import { createGeneratedDefinitionPath, createRuntimeRegistryContents, sanitizeDefinitionFilename, writeFileIfChanged } from '@vitehub/internal/definition-catalog'
+import { createNitroRuntimeFilePath, sanitizeDefinitionFilename, writeFileIfChanged, writeRuntimeRegistryFiles } from '@vitehub/internal/definition-catalog'
 
 import { bundleSandboxDefinition } from '../bundle'
 import { extractSandboxDefinitionOptions } from '../definition-options'
@@ -16,15 +16,15 @@ import type { Nitro } from 'nitro/types'
 export const sandboxGeneratedDir = generatedDirSegments('sandbox')
 
 export function createNitroSandboxRegistryPath(rootDir: string, buildDir: string) {
-  return createGeneratedDefinitionPath(rootDir, { buildDir, fileName: 'nitro-registry.mjs', segments: sandboxGeneratedDir })
+  return createNitroRuntimeFilePath(rootDir, { buildDir, fileName: 'nitro-registry.mjs', segments: sandboxGeneratedDir })
 }
 
 export function createNitroSandboxPluginPath(rootDir: string, buildDir: string) {
-  return createGeneratedDefinitionPath(rootDir, { buildDir, fileName: 'nitro-plugin.ts', segments: sandboxGeneratedDir })
+  return createNitroRuntimeFilePath(rootDir, { buildDir, fileName: 'nitro-plugin.ts', segments: sandboxGeneratedDir })
 }
 
 export function createNitroSandboxDefinitionPath(rootDir: string, buildDir: string, name: string) {
-  return createGeneratedDefinitionPath(rootDir, {
+  return createNitroRuntimeFilePath(rootDir, {
     buildDir,
     fileName: `definitions/${sanitizeDefinitionFilename(name)}.mjs`,
     segments: sandboxGeneratedDir,
@@ -91,8 +91,12 @@ export async function writeNitroSandboxRuntimeFiles(nitro: Nitro) {
   }))
 
   registryDefinitions.sort((left, right) => left.name.localeCompare(right.name))
-  await writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, registryDefinitions))
-  await writeFileIfChanged(pluginFile, createNitroSandboxPluginContents(pluginFile, registryFile))
+  await writeRuntimeRegistryFiles({
+    createPluginContents: createNitroSandboxPluginContents,
+    definitions: registryDefinitions,
+    pluginFile,
+    registryFile,
+  })
 
   return {
     definitions,
