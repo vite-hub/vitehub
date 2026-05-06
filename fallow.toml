@@ -38,6 +38,7 @@ dynamicallyLoaded = [
   "packages/devtools/devtools/**",
   "packages/chat/test/**/*.test-d.ts",
   "packages/sandbox/test/**/*.test-d.ts",
+  "packages/unsource/test/**/*.test-d.ts",
   "packages/sandbox/examples/**/nitro.config.ts",
   "packages/sandbox/examples/**/server/**",
   "packages/sandbox/examples/**/src/server.ts",

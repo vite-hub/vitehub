@@ -17,6 +17,7 @@ describe("workspace inventory", () => {
       "sandbox",
       "shell",
       "unshell",
+      "unsource",
       "workflow",
       "workspace",
     ])
