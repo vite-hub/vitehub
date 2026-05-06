@@ -117,6 +117,51 @@ describe("defineChatWebhookHandler", () => {
     expect(waitUntil).toHaveBeenCalledWith(task)
   })
 
+  it("can await Nitro webhook waitUntil tasks inline", async () => {
+    const { defineChatWebhookHandler } = await import("../src/nitro.ts")
+    const waitUntil = vi.fn()
+    let completed = false
+    const task = (async () => {
+      await Promise.resolve()
+      completed = true
+    })()
+    const webhook = vi.fn((_request: Request, options: { waitUntil: (promise: Promise<unknown>) => void }) => {
+      options.waitUntil(task)
+      return new Response("ok")
+    })
+    const handler = defineChatWebhookHandler({
+      webhooks: { telegram: webhook },
+    } as never, { processing: "inline" })
+
+    const response = await handler(createEvent("telegram", waitUntil) as never)
+
+    expect(response).toBeInstanceOf(Response)
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(completed).toBe(true)
+  })
+
+  it("awaits Nitro inline tasks when the webhook throws", async () => {
+    const { defineChatWebhookHandler } = await import("../src/nitro.ts")
+    const waitUntil = vi.fn()
+    let completed = false
+    const task = (async () => {
+      await Promise.resolve()
+      completed = true
+    })()
+    const webhook = vi.fn((_request: Request, options: { waitUntil: (promise: Promise<unknown>) => void }) => {
+      options.waitUntil(task)
+      throw new Error("webhook failed")
+    })
+    const handler = defineChatWebhookHandler({
+      webhooks: { telegram: webhook },
+    } as never, { processing: "inline" })
+
+    await expect(handler(createEvent("telegram", waitUntil) as never)).rejects.toThrow("webhook failed")
+
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(completed).toBe(true)
+  })
+
   it("forwards Node-style Nitro request bodies to webhooks", async () => {
     const { defineChatWebhookHandler } = await import("../src/nitro.ts")
     const webhook = vi.fn(async (request: Request) => new Response(await request.text()))
@@ -410,6 +455,7 @@ describe("Nitro module", () => {
       imports: true,
       webhook: {
         chatParam: "chat",
+        processing: "defer",
         route: "/api/webhooks/[platform]",
         routeParam: "platform",
       },
@@ -462,6 +508,7 @@ describe("Nitro module", () => {
     const routeContents = await readFile(routeFile, "utf8")
     expect(routeContents).toContain("defineChatWebhookHandler(chat")
     expect(routeContents).toContain("inferredName: \"chat\"")
+    expect(routeContents).not.toContain("processing:")
     const devInitializerFile = nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"]
     expect(devInitializerFile).toContain("/.nitro/.vitehub/nitro-runtime/chat/dev-initialize.mjs")
     const devInitializerContents = await readFile(devInitializerFile, "utf8")
@@ -470,6 +517,22 @@ describe("Nitro module", () => {
     const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
     expect(devtoolsContents).toContain("defineChatDevtoolsHandler(chat")
     expect(devtoolsContents).toContain("inferredName: \"chat\"")
+  })
+
+  it("writes inline webhook processing to generated Nitro routes", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-"))
+    await writeSingleChat(rootDir, [
+      `export default defineChat({ state: {}, adapters: {} })`,
+    ].join("\n"))
+    const nitro = createNitroStub(rootDir, {
+      webhook: { processing: "inline" },
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    const routeContents = await readFile(nitro.options.handlers[0]!.handler, "utf8")
+    expect(routeContents).toContain("processing: \"inline\"")
   })
 
   it("keeps the default Nitro runtime config reader when the env Nitro module is installed", async () => {

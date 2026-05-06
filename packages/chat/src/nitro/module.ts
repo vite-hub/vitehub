@@ -210,6 +210,7 @@ function createNitroSingleChatRouteContents(file: string, definition: Discovered
     `import { defineChatWebhookHandler } from "@vitehub/chat/nitro"`,
     "",
     `export default defineChatWebhookHandler(chat, ${renderOptions({
+      processing: options.webhook && options.webhook.processing !== "defer" ? options.webhook.processing : undefined,
       inferredName: definition.name,
       routeParam: options.webhook && options.webhook.routeParam !== "platform" ? options.webhook.routeParam : undefined,
     })})`,
@@ -224,6 +225,7 @@ function createNitroRegistryChatRouteContents(file: string, registryFile: string
     "",
     `export default defineChatWebhookRegistryHandler(chatRegistry, ${renderOptions({
       chatParam: options.webhook && options.webhook.chatParam !== "chat" ? options.webhook.chatParam : undefined,
+      processing: options.webhook && options.webhook.processing !== "defer" ? options.webhook.processing : undefined,
       routeParam: options.webhook && options.webhook.routeParam !== "platform" ? options.webhook.routeParam : undefined,
     })})`,
     "",

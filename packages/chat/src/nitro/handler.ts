@@ -173,7 +173,11 @@ export function defineChatWebhookHandler(
     }
 
     const runtimeConfig = getRuntimeConfig(event)
-    const waitUntil: ChatWaitUntil = task => event.waitUntil(task)
+    const pendingTasks: Promise<unknown>[] = []
+    const processing = options.processing || "defer"
+    const waitUntil: ChatWaitUntil = processing === "inline"
+      ? task => pendingTasks.push(task)
+      : task => event.waitUntil(task)
     const context: NitroChatRuntimeContext = {
       cloudflare: getCloudflareRuntime(event, runtimeConfig),
       event,
@@ -199,7 +203,14 @@ export function defineChatWebhookHandler(
       }
 
       await hooks.callHook("webhook", { ...context, bot })
-      return await handler(context.request!, { waitUntil })
+      try {
+        return await handler(context.request!, { waitUntil })
+      }
+      finally {
+        if (processing === "inline") {
+          await Promise.all(pendingTasks)
+        }
+      }
     }
     catch (error) {
       await hooks.callHook("error", error, context)

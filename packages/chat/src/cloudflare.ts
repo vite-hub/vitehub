@@ -9,6 +9,7 @@ import type {
   ChatInput,
   ChatRuntimeContext,
   ChatWaitUntil,
+  ChatWebhookProcessingMode,
   CloudflareExportedHandlerFetchHandler,
   CloudflareDurableObjectStateOptions,
 } from "./types.ts"
@@ -151,7 +152,7 @@ export function cloudflareDurableObjectState(
 
 export function defineCloudflareChatHandler(
   chat: ChatInput<ChatRuntimeContext>,
-  options: { platform?: string } = {},
+  options: { processing?: ChatWebhookProcessingMode, platform?: string } = {},
 ): CloudflareExportedHandlerFetchHandler<Record<string, unknown>> {
   return async (request, env, executionContext) => {
     const platform = options.platform || inferPlatform(request)
@@ -159,7 +160,11 @@ export function defineCloudflareChatHandler(
       return new Response("Missing chat platform.", { status: 400 })
     }
 
-    const waitUntil: ChatWaitUntil = task => executionContext.waitUntil?.(task)
+    const pendingTasks: Promise<unknown>[] = []
+    const processing = options.processing || "defer"
+    const waitUntil: ChatWaitUntil = processing === "inline"
+      ? task => pendingTasks.push(task)
+      : task => executionContext.waitUntil?.(task)
     const runtimeContext = createChatRuntimeContext({
       cloudflare: {
         context: executionContext,
@@ -177,6 +182,13 @@ export function defineCloudflareChatHandler(
       return new Response(`Unknown chat platform: ${platform}`, { status: 404 })
     }
 
-    return await handler(request, { waitUntil }) as Response
+    try {
+      return await handler(request, { waitUntil }) as Response
+    }
+    finally {
+      if (processing === "inline") {
+        await Promise.all(pendingTasks)
+      }
+    }
   }
 }
