@@ -91,6 +91,17 @@ describe("@vitehub/unsource GitHub source", () => {
     await expect(useSource("dbt").read("models/marts/orders.sql")).resolves.toBe("select 1\n")
   })
 
+  it("reads non-ASCII paths from GitHub archive PAX headers", async () => {
+    stubGitHubSource({
+      "docs/café.md": "# Café\n",
+    }, { apiStatus: 403 })
+
+    registerSources({ docs: github({ repo: "acme/app", root: "docs" }) })
+
+    await expect(useSource("docs").keys()).resolves.toEqual(["café.md"])
+    await expect(useSource("docs").read("café.md" as any)).resolves.toBe("# Café\n")
+  })
+
   it("sends GitHub auth on archive fallback requests", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",

@@ -53,16 +53,20 @@ function readTarString(buffer: Uint8Array, offset: number, length: number) {
 }
 
 function readPaxPath(content: Uint8Array) {
-  const text = Buffer.from(content).toString("utf8")
   let index = 0
-  while (index < text.length) {
-    const space = text.indexOf(" ", index)
-    if (space === -1) return
-    const length = Number.parseInt(text.slice(index, space), 10)
-    if (!length) return
-    const record = text.slice(space + 1, index + length - 1)
-    const equals = record.indexOf("=")
-    if (equals !== -1 && record.slice(0, equals) === "path") return record.slice(equals + 1)
+  while (index < content.length) {
+    let space = index
+    while (space < content.length && content[space] !== 32) space++
+    if (space >= content.length) return
+
+    const length = Number.parseInt(Buffer.from(content.subarray(index, space)).toString("ascii"), 10)
+    if (!Number.isFinite(length) || length <= 0 || index + length > content.length) return
+
+    const record = content.subarray(space + 1, index + length - 1)
+    const equals = record.indexOf(61)
+    if (equals !== -1 && Buffer.from(record.subarray(0, equals)).toString("utf8") === "path") {
+      return Buffer.from(record.subarray(equals + 1)).toString("utf8")
+    }
     index += length
   }
 }
