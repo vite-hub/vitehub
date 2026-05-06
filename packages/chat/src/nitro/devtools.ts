@@ -104,7 +104,7 @@ function createSessionDevtoolsAdapter(session: ChatDevtoolsSession): Adapter {
       syncAdapterMessages()
       return result
     },
-    fetchMessages: async () => ({ messages: [] }),
+    fetchMessages: async () => ({ messages: [...session.messages] as never }),
     fetchThread: async threadId => ({
       id: threadId,
       channelId: `devtools:${session.name}`,
@@ -150,8 +150,7 @@ function resolveRegistryModule(module: unknown): ChatInput<NitroChatRuntimeConte
 }
 
 function getChatNames(state: ChatDevtoolsHandlerState): string[] {
-  const names = Object.keys(state.registry)
-  return names.length ? names : ["default"]
+  return Object.keys(state.registry)
 }
 
 function getSession(state: ChatDevtoolsHandlerState, name: string): ChatDevtoolsSession {
@@ -192,7 +191,7 @@ function serializeState(state: ChatDevtoolsHandlerState, selected?: string): Cha
 
   return {
     chats,
-    selected: selected && names.includes(selected) ? selected : names[0]!,
+    selected: selected && names.includes(selected) ? selected : names[0] || "",
   }
 }
 
@@ -205,7 +204,14 @@ async function sendDevtoolsMessage(event: H3Event, state: ChatDevtoolsHandlerSta
     })
   }
 
-  const selected = input.chat || getChatNames(state)[0]!
+  const selected = input.chat || getChatNames(state)[0]
+  if (!selected) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: "No chats are registered for DevTools.",
+    })
+  }
+
   const session = getSession(state, selected)
   const adapter = createSessionDevtoolsAdapter(session)
   const message = createSdkMessage(session, text)
@@ -277,7 +283,8 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
 }
 
 function clearDevtoolsMessages(state: ChatDevtoolsHandlerState, input: { chat?: string }): ChatDevtoolsStateResult {
-  const selected = input.chat || getChatNames(state)[0]!
+  const selected = input.chat || getChatNames(state)[0]
+  if (!selected) return serializeState(state)
   getSession(state, selected).messages = []
   return serializeState(state, selected)
 }
