@@ -6,6 +6,7 @@ import { computed } from "vue";
 import { useDocsPage } from "../../composables/useDocsPage";
 import { useFrameworkPreference } from "../../composables/useFrameworkPreference";
 import { getDocsPage, getDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { getDocsPageFallback } from "~~/modules/vitehub-docs/runtime/utils/docs-rendering";
 
 definePageMeta({
   layout: "docs",
@@ -28,7 +29,7 @@ if (!docsPage) {
 const { page } = useDocsPage(
   computed(() => "/docs"),
   rawDoc,
-  { title: docsPage.title, sourceTitle: docsPage.sourceTitle, description: docsPage.description },
+  getDocsPageFallback(docsPage),
 );
 </script>
 

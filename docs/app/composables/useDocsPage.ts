@@ -4,36 +4,18 @@ import { useDocsRenderMode } from "./useDocsRenderMode";
 import { useFrameworkPreference } from "./useFrameworkPreference";
 import { useUsageModePreference } from "./useUsageModePreference";
 import type { DocsCollectionItem } from "@nuxt/content";
-import { normalizeFrameworkPage } from "~~/modules/vitehub-docs/runtime/utils/framework-content";
+import { renderDocsPage, type DocsPageFallback, type DocsPageState } from "~~/modules/vitehub-docs/runtime/utils/docs-rendering";
 
-export type ContentPage = DocsCollectionItem & {
-  data?: Record<string, unknown>;
-  seo?: { title?: string; description?: string };
-};
+export type ContentPage = DocsPageState<DocsCollectionItem>;
 
-export function useDocsPage(sourcePath: string | ComputedRef<string>, rawDoc: Ref<DocsCollectionItem | null | undefined>, fallback: { title: string; sourceTitle: string | null; description: string | null }) {
+export function useDocsPage(sourcePath: string | ComputedRef<string>, rawDoc: Ref<DocsCollectionItem | null | undefined>, fallback: DocsPageFallback) {
   const { current: framework } = useFrameworkPreference();
   const { current: mode } = useUsageModePreference();
   const { renderMode } = useDocsRenderMode();
 
   const path = typeof sourcePath === "string" ? computed(() => sourcePath) : sourcePath;
 
-  const sourcePage = computed(() => {
-    const doc = rawDoc.value;
-    if (!doc) return null;
-    const title = String(doc.title || fallback.sourceTitle || fallback.title);
-    const description = doc.description || fallback.description || "";
-    return {
-      ...doc,
-      path: path.value,
-      title,
-      description,
-      seo: { title: doc.seo?.title || title, description: doc.seo?.description || description },
-      data: doc.meta || {},
-    } satisfies ContentPage;
-  });
-
-  const page = computed<ContentPage | null>(() => normalizeFrameworkPage(sourcePage.value, {
+  const page = computed<ContentPage | null>(() => renderDocsPage(rawDoc.value, path.value, fallback, {
     framework: framework.value,
     mode: mode.value,
     renderMode: renderMode.value,
