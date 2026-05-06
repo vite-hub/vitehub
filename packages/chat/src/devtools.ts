@@ -1,7 +1,6 @@
 import { registerViteHubDevtoolsPanel } from "@vitehub/devtools"
 import { defineRpcFunction } from "@vitejs/devtools-kit"
 import { Message, parseMarkdown, toPlainText } from "chat"
-import { fileURLToPath } from "node:url"
 
 import {
   chatDevtoolsAdapterName,
@@ -52,6 +51,30 @@ export type {
   ChatDevtoolsTool,
   ChatDevtoolsToolStatus,
 } from "./devtools-shared.ts"
+
+export const chatDevtoolsRpcClear: string = chatDevtoolsClearRpc
+export const chatDevtoolsRpcGetState: string = chatDevtoolsGetStateRpc
+export const chatDevtoolsRpcSend: string = chatDevtoolsSendRpc
+
+export interface ChatDevtoolsTranscriptMessage {
+  author: ChatDevtoolsMessageRole
+  chat?: string
+  id: string
+  text: string
+  threadId?: string
+  timestamp: string
+  tools?: ChatDevtoolsTool[]
+}
+
+export type ChatDevtoolsTranscriptTool = ChatDevtoolsTool
+
+export interface ChatDevtoolsResult {
+  chatName?: string
+  chats?: string[]
+  messages?: ChatDevtoolsTranscriptMessage[]
+  selected?: string
+  status?: string
+}
 
 export interface ChatDevtoolsAdapter extends Adapter {
   clearDevtoolsTranscript(chat?: string): void
@@ -119,7 +142,7 @@ interface ChatDevtoolsFullStreamToolPart {
 
 const chatDevtoolsToolStatusType = "vitehub.chat.devtools.tool"
 const defaultOutputPreviewLength = 4_000
-const chatDevtoolsClientDist = fileURLToPath(new URL("../dist/devtools-client", import.meta.url))
+const chatDevtoolsClientDist = new URL("../dist/devtools-client", import.meta.url).pathname
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object"
@@ -520,7 +543,7 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
     setup(nitro) {
       nitro.options.handlers ||= []
       const handlerExtension = import.meta.url.endsWith(".ts") ? ".ts" : ".js"
-      const handler = fileURLToPath(new URL(`./runtime/chat-devtools-handler${handlerExtension}`, import.meta.url))
+      const handler = new URL(`./runtime/chat-devtools-handler${handlerExtension}`, import.meta.url).pathname
       if (!nitro.options.handlers.some(item => item.route === route && item.method === "POST" && item.handler === handler)) {
         nitro.options.handlers.push({ handler, method: "POST", route })
       }

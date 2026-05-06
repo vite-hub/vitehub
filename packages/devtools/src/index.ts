@@ -1,5 +1,4 @@
 import { defineDockEntry } from "@vitejs/devtools-kit"
-import { existsSync } from "node:fs"
 
 import type { DevToolsDockEntry, DevToolsViewIframe, ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
 
@@ -38,15 +37,7 @@ export function registerViteHubDevtoolsPanel(
   const remote = isAbsoluteHttpUrl(url)
 
   if (!remote) {
-    if (existsSync(options.distDir)) {
-      ctx.views.hostStatic(options.route, options.distDir)
-    }
-    else {
-      ctx.messages.add({
-        level: "warn",
-        message: `${options.title} DevTools client is not built. Run the package build before opening ${options.route}, or set a dev URL override while editing the client.`,
-      })
-    }
+    ctx.views.hostStatic(options.route, options.distDir)
   }
 
   const entry: DevToolsViewIframe = {
