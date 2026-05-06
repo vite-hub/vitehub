@@ -7,7 +7,10 @@ type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mou
 export type GlobSourceOptions = UnsourceGlobSourceOptions & SourceRuntimeOptions
 
 export function glob(options: GlobSourceOptions): WorkspaceSource {
-  const source = createGlobSource(options)
+  const source = createGlobSource({
+    ...options,
+    keyCache: options.keyCache ?? !isLazySource(options),
+  })
   return {
     ...source,
     cache: options.cache,
@@ -16,4 +19,9 @@ export function glob(options: GlobSourceOptions): WorkspaceSource {
     swr: options.swr,
     validate: options.validate,
   }
+}
+
+function isLazySource(options: GlobSourceOptions) {
+  if (options.materialize === "lazy") return true
+  return typeof options.mount === "object" && options.mount?.materialize === "lazy"
 }
