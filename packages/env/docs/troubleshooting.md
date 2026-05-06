@@ -19,7 +19,7 @@ Fix: set the environment variable, add a safe `default`, or mark the declaration
 
 ```ts
 env: {
-  optionalApiBase: envVariable({
+  optionalApiBase: env({
     optional: true,
   }),
 }
@@ -34,9 +34,9 @@ Fix: use an explicit source when the provider uses a different name.
 ```ts
 env: {
   auth: {
-    token: envVariable({
+    token: env({
       secret: true,
-      source: envSource.env('TELEGRAM_BOT_TOKEN'),
+      source: env.source('TELEGRAM_BOT_TOKEN'),
     }),
   },
 }

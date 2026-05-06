@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { envSource, envVariable, envVite } from "../src/vite.ts"
+import { env, envVite } from "../src/vite.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
 
@@ -19,23 +19,23 @@ describe("Vite plugin", () => {
     const result = await configHook({
       env: {
         define: {
-          __APP_VERSION__: envVariable({
+          __APP_VERSION__: env({
             mode: "build",
             schema: stringSchema(),
-            source: envSource.packageJson("version"),
+            source: env.packageJson("version"),
           }),
-          __GIT_COMMIT__: envVariable({
+          __GIT_COMMIT__: env({
             mode: "build",
             schema: stringSchema(),
-            source: envSource.custom("git:commit", () => "abc123"),
+            source: env.custom("git:commit", () => "abc123"),
           }),
-          __SENTRY_DEBUG__: envVariable({
+          __SENTRY_DEBUG__: env({
             mode: "build",
             schema: booleanSchema(),
           }),
         },
         public: {
-          appName: envVariable({
+          appName: env({
             mode: "build",
             schema: stringSchema(),
           }),
@@ -78,7 +78,7 @@ describe("Vite plugin", () => {
     await configHook({
       env: {
         public: {
-          appName: envVariable({
+          appName: env({
             mode: "build",
             schema: stringSchema(),
           }),

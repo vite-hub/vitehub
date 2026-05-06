@@ -1,22 +1,22 @@
-import { envNitro, envSource, envVariable } from '@vitehub/env/nitro'
+import { env, envNitro } from '@vitehub/env/nitro'
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
   modules: [envNitro()],
   env: {
     app: {
-      name: envVariable({
+      name: env({
         default: 'ViteHub Env',
       }),
     },
     auth: {
-      token: envVariable({
+      token: env({
         secret: true,
       }),
     },
-    optionalApiBase: envVariable({
+    optionalApiBase: env({
       optional: true,
-      source: envSource.env('PUBLIC_API_BASE'),
+      source: env.source('PUBLIC_API_BASE'),
     }),
   },
 })

@@ -142,7 +142,10 @@ interface ChatDevtoolsFullStreamToolPart {
 
 const chatDevtoolsToolStatusType = "vitehub.chat.devtools.tool"
 const defaultOutputPreviewLength = 4_000
-const chatDevtoolsClientDist = new URL("../dist/devtools-client", import.meta.url).pathname
+
+function resolveChatDevtoolsClientDist(): string {
+  return new URL("../dist/devtools-client", import.meta.url).pathname
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object"
@@ -562,7 +565,7 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
         if (options.devtools === false) return
 
         registerViteHubDevtoolsPanel(ctx, {
-          distDir: chatDevtoolsClientDist,
+          distDir: resolveChatDevtoolsClientDist(),
           icon: "i-lucide-message-square",
           id: chatDevtoolsPanelId,
           route: chatDevtoolsRoute,

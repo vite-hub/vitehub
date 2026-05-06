@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest"
 
-import { envSource, envVariable } from "../src/index.ts"
+import { env } from "../src/index.ts"
 import { defaultStringSchema } from "../src/core/declarations.ts"
 import { createRuntimeRegistry, resolveEnvSource, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { parseSchema } from "../src/schema.ts"
 
 describe("env declarations", () => {
   it("defaults env variable declarations to required runtime strings", () => {
-    expect(envVariable()).toMatchObject({
+    expect(env()).toMatchObject({
       kind: "env-variable",
       mode: "runtime",
       required: true,
@@ -16,7 +16,7 @@ describe("env declarations", () => {
   })
 
   it("supports optional and secret env variable options", () => {
-    expect(envVariable({
+    expect(env({
       optional: true,
       secret: true,
     })).toMatchObject({
@@ -26,23 +26,23 @@ describe("env declarations", () => {
   })
 
   it("rejects conflicting optional and required options", () => {
-    expect(() => envVariable({
+    expect(() => env({
       optional: true,
       required: true,
     })).toThrow("cannot use both optional and required")
   })
 
   it("rejects legacy string arguments", () => {
-    expect(() => envVariable("DATABASE_URL" as never)).toThrow("single options object")
+    expect(() => env("DATABASE_URL" as never)).toThrow("single options object")
   })
 
   it("infers env sources from config paths and prefixes", () => {
-    expect(resolveEnvSource(envVariable(), "env.telegram.botToken")).toMatchObject({
+    expect(resolveEnvSource(env(), "env.telegram.botToken")).toMatchObject({
       kind: "env",
       label: "env:TELEGRAM_BOT_TOKEN",
       name: "TELEGRAM_BOT_TOKEN",
     })
-    expect(resolveEnvSource(envVariable(), "env.define.__APP_VERSION__", "VITEHUB_")).toMatchObject({
+    expect(resolveEnvSource(env(), "env.define.__APP_VERSION__", "VITEHUB_")).toMatchObject({
       kind: "env",
       label: "env:VITEHUB_DEFINE_APP_VERSION",
       name: "VITEHUB_DEFINE_APP_VERSION",
@@ -50,7 +50,7 @@ describe("env declarations", () => {
   })
 
   it("keeps explicit env source overrides", () => {
-    expect(resolveEnvSource(envVariable({ source: envSource.env("CUSTOM_NAME") }), "env.telegram.botToken")).toMatchObject({
+    expect(resolveEnvSource(env({ source: env.source("CUSTOM_NAME") }), "env.telegram.botToken")).toMatchObject({
       kind: "env",
       label: "env:CUSTOM_NAME",
       name: "CUSTOM_NAME",
@@ -58,21 +58,21 @@ describe("env declarations", () => {
   })
 
   it("creates built-in and custom sources", () => {
-    expect(envSource.packageJson("version")).toMatchObject({
+    expect(env.packageJson("version")).toMatchObject({
       kind: "package-json",
       label: "package.json:version",
       path: "version",
     })
-    expect(envSource.gitBranch()).toMatchObject({
+    expect(env.gitBranch()).toMatchObject({
       kind: "git-branch",
       label: "git:branch",
     })
-    expect(envSource.gitCommit({ short: true })).toMatchObject({
+    expect(env.gitCommit({ short: true })).toMatchObject({
       kind: "git-commit",
       label: "git:commit",
       short: true,
     })
-    expect(envSource.custom("custom:preview", () => true)).toMatchObject({
+    expect(env.custom("custom:preview", () => true)).toMatchObject({
       kind: "custom",
       label: "custom:preview",
       serializable: false,
@@ -81,36 +81,36 @@ describe("env declarations", () => {
 
   it("rejects flat runtime declarations in Vite config", () => {
     expect(() => validateEnvConfigShape({
-      databaseUrl: envVariable(),
+      databaseUrl: env(),
     }, "vite")).toThrow("Invalid declaration")
   })
 
   it("rejects nested Nitro server buckets", () => {
     expect(() => validateEnvConfigShape({
-      server: envVariable(),
+      server: env(),
     }, "nitro")).toThrow("`env.server` is not available")
   })
 
   it("rejects scalar Nitro public runtime declarations", () => {
     expect(() => validateEnvConfigShape({
-      public: envVariable(),
+      public: env(),
     }, "nitro")).toThrow("Invalid declaration at env.public")
   })
 
   it("accepts nested Nitro runtime declaration groups and public runtime transport", () => {
     expect(() => validateEnvConfigShape({
       public: {
-        apiBase: envVariable(),
+        apiBase: env(),
       },
       teams: {
-        appId: envVariable({ secret: true }),
+        appId: env({ secret: true }),
         appType: "SingleTenant",
       },
       telegram: {
-        botToken: envVariable({ secret: true }),
+        botToken: env({ secret: true }),
       },
       vertex: {
-        model: envVariable({ default: "gemini-3.1-pro-preview-customtools" }),
+        model: env({ default: "gemini-3.1-pro-preview-customtools" }),
       },
     }, "nitro")).not.toThrow()
   })
@@ -149,7 +149,7 @@ describe("env declarations", () => {
   it("rejects secret Nitro public runtime declarations", () => {
     expect(() => validateEnvConfigShape({
       public: {
-        apiBase: envVariable({ secret: true }),
+        apiBase: env({ secret: true }),
       },
     }, "nitro")).toThrow("env.public.apiBase cannot be marked secret")
   })
@@ -160,7 +160,7 @@ describe("env declarations", () => {
         appType: "SingleTenant",
       },
       telegram: {
-        botToken: envVariable({ secret: true }),
+        botToken: env({ secret: true }),
       },
     }, { prefix: "VITEHUB_" })).toMatchObject({
       teams: {
@@ -181,7 +181,7 @@ describe("env declarations", () => {
   })
 
   it("accepts default string schemas after config cloning", () => {
-    const declaration = envVariable({ default: "Docs App" })
+    const declaration = env({ default: "Docs App" })
     const schema = { ...(declaration.schema as Record<string, unknown>) }
 
     expect(createRuntimeRegistry({
@@ -202,7 +202,7 @@ describe("env declarations", () => {
 
     expect(() => createRuntimeRegistry({
       appName: {
-        ...envVariable({ default: "Docs App" }),
+        ...env({ default: "Docs App" }),
         schema: {
           __vitehubDefaultRuntimeSchema: marker,
         },
@@ -211,7 +211,7 @@ describe("env declarations", () => {
 
     expect(() => createRuntimeRegistry({
       appName: {
-        ...envVariable({ default: "Docs App" }),
+        ...env({ default: "Docs App" }),
         schema: {
           __vitehubDefaultRuntimeSchema: marker,
           safeParse: () => ({ data: 123, success: true }),
@@ -221,7 +221,7 @@ describe("env declarations", () => {
 
     expect(() => createRuntimeRegistry({
       appName: {
-        ...envVariable({ default: "Docs App" }),
+        ...env({ default: "Docs App" }),
         schema: {
           __vitehubDefaultRuntimeSchema: marker,
           "~standard": {
@@ -234,7 +234,7 @@ describe("env declarations", () => {
 
     expect(() => createRuntimeRegistry({
       appName: {
-        ...envVariable({ default: "Docs App" }),
+        ...env({ default: "Docs App" }),
         schema: Object.assign(Object.create({
           "~standard": {
             validate: () => ({ value: 123 }),
@@ -254,7 +254,7 @@ describe("env declarations", () => {
     }
     expect(() => createRuntimeRegistry({
       appName: {
-        ...envVariable({ default: "Docs App" }),
+        ...env({ default: "Docs App" }),
         schema: accessorSchema,
       },
     })).toThrow("custom schema")
@@ -288,7 +288,7 @@ describe("env declarations", () => {
     })
     expect(() => createRuntimeRegistry({
       appName: {
-        ...envVariable({ default: 123 as never }),
+        ...env({ default: 123 as never }),
         schema: proxySchema,
       },
     })).toThrow("Expected string")
@@ -296,15 +296,15 @@ describe("env declarations", () => {
 
   it("rejects non-string Nitro runtime types", () => {
     expect(() => createRuntimeRegistry({
-      sentryDebug: envVariable({ type: "boolean" }),
+      sentryDebug: env({ type: "boolean" }),
     })).toThrow("Nitro runtime values are strings")
   })
 
   it("rejects custom runtime sources in Nitro config", () => {
     expect(() => validateEnvConfigShape({
-      commit: envVariable({
+      commit: env({
         mode: "runtime",
-        source: envSource.gitCommit(),
+        source: env.gitCommit(),
       }),
     }, "nitro")).toThrow("build-only")
   })

@@ -1,4 +1,4 @@
-export { envSource, envVariable } from "./core/declarations.ts"
+export { env } from "./core/declarations.ts"
 export { parseSchema } from "./schema.ts"
 export type { StandardSchemaV1 } from "./schema.ts"
 export type {

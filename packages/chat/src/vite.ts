@@ -26,7 +26,10 @@ export type ChatVitePlugin = Plugin & { nitro: NitroModule }
 const chatPackageName = "@vitehub/chat"
 const mergeNoExternal = createNoExternalMerger(chatPackageName)
 const cloudflareWorkersDevAlias = new URL("./runtime/cloudflare-workers-dev.js", import.meta.url).pathname
-const chatDevtoolsClientDist = fileURLToPath(new URL("../dist/devtools-client", import.meta.url))
+
+function resolveChatDevtoolsClientDist(): string {
+  return fileURLToPath(new URL("../dist/devtools-client", import.meta.url))
+}
 
 function isChatDevtoolsEnabled(chat: ChatModuleOptions | false | undefined): boolean {
   return chat !== false && chat?.dev !== false && chat?.dev?.devtools !== false
@@ -136,7 +139,7 @@ export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
         }
 
         registerViteHubDevtoolsPanel(ctx, {
-          distDir: chatDevtoolsClientDist,
+          distDir: resolveChatDevtoolsClientDist(),
           icon: "i-lucide-message-square",
           id: chatDevtoolsPanelId,
           route: chatDevtoolsRoute,

@@ -13,20 +13,20 @@ Use Env when configuration needs to be explicit and typed instead of scattered a
 
 ::code-group
 ```ts [vite.config.ts]
-import { envSource, envVariable, envVite } from '@vitehub/env/vite'
+import { env, envVite } from '@vitehub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [envVite({ prefix: 'VITEHUB_' })],
   env: {
     define: {
-      __APP_VERSION__: envVariable({
+      __APP_VERSION__: env({
         mode: 'build',
-        source: envSource.packageJson('version'),
+        source: env.packageJson('version'),
       }),
     },
     public: {
-      appName: envVariable({
+      appName: env({
         default: 'ViteHub Env',
         mode: 'build',
       }),
@@ -36,14 +36,14 @@ export default defineConfig({
 ```
 
 ```ts [nitro.config.ts]
-import { envNitro, envVariable } from '@vitehub/env/nitro'
+import { env, envNitro } from '@vitehub/env/nitro'
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
   modules: [envNitro()],
   env: {
     auth: {
-      token: envVariable({ secret: true }),
+      token: env({ secret: true }),
     },
   },
 })
@@ -100,11 +100,11 @@ Nitro handles server runtime values. Use nested `env` declarations, then read th
 
 ## Source model
 
-Each `envVariable()` declaration can read from:
+Each `env()` declaration can read from:
 
 - an inferred environment variable name
-- an explicit environment variable through `envSource.env(name)`
-- `package.json` through `envSource.packageJson(path)`
+- an explicit environment variable through `env.source(name)`
+- `package.json` through `env.packageJson(path)`
 - git branch or commit metadata
 - a custom build-only resolver
 

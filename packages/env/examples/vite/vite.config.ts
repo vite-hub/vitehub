@@ -1,17 +1,17 @@
-import { envSource, envVariable, envVite } from '@vitehub/env/vite'
+import { env, envVite } from '@vitehub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [envVite({ prefix: 'VITEHUB_' })],
   env: {
     define: {
-      __APP_VERSION__: envVariable({
+      __APP_VERSION__: env({
         mode: 'build',
-        source: envSource.packageJson('version'),
+        source: env.packageJson('version'),
       }),
     },
     public: {
-      appName: envVariable({
+      appName: env({
         default: 'ViteHub Env',
         mode: 'build',
       }),

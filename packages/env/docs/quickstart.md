@@ -42,14 +42,14 @@ pnpm add @vitehub/env
 Register `envVite()` and declare a public build value:
 
 ```ts [vite.config.ts]
-import { envVariable, envVite } from '@vitehub/env/vite'
+import { env, envVite } from '@vitehub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [envVite({ prefix: 'VITEHUB_' })],
   env: {
     public: {
-      appName: envVariable({
+      appName: env({
         default: 'ViteHub Env',
         mode: 'build',
       }),
@@ -63,14 +63,14 @@ export default defineConfig({
 Register the Nitro module and declare a server-only secret:
 
 ```ts [nitro.config.ts]
-import { envNitro, envVariable } from '@vitehub/env/nitro'
+import { env, envNitro } from '@vitehub/env/nitro'
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
   modules: [envNitro()],
   env: {
     auth: {
-      token: envVariable({
+      token: env({
         secret: true,
       }),
     },

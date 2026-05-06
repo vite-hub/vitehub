@@ -5,13 +5,13 @@ import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { assertNoVitePluginInNitro, resolveRuntimeEntry } from "@vitehub/internal/nitro"
 
 import { formatDiagnostics } from "../core/diagnostics.ts"
-import { envSource, envVariable } from "../core/declarations.ts"
+import { env } from "../core/declarations.ts"
 import { createRuntimeRegistry, isEnvVariableDeclaration, resolveEnvSource, validateEnvConfigShape } from "../core/resolve.ts"
 
 import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue } from "../types.ts"
 import type { Nitro, NitroModule } from "nitro/types"
 
-export { envSource, envVariable }
+export { env }
 
 const ENV_VITE_PLUGIN_NAME = "@vitehub/env/vite"
 
