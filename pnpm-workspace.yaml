@@ -17,6 +17,7 @@ catalog:
   '@vercel/blob': ^2.3.3
   '@vercel/functions': ^3.4.3
   '@vercel/sandbox': ^1.10.0
+  '@vitejs/devtools-kit': ^0.1.18
   chat: ^4.27.0
   chat-state-cloudflare-do: ^0.2.0
   '@vueuse/nuxt': ^14.2.1
