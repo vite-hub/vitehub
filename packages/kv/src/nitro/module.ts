@@ -1,49 +1,10 @@
-import { assertNoVitePluginInNitro, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
-import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
+import { createFeatureNitroBridge } from "@vitehub/internal/feature-bridge"
 
-import { warnVercelKVFallback } from "../config.ts"
-import { configureCloudflareKV } from "../integrations/cloudflare.ts"
-import { KV_VITE_PLUGIN_NAME, resolveKVViteConfig } from "../vite-config.ts"
+import { kvFeatureEngine } from "../feature.ts"
+import type { NitroModule } from "nitro/types"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "../types.ts"
 
-function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
-  return resolveEntry(srcRelative, packageSubpath, import.meta.url)
-}
-
-const kvNitroModule: NitroModule = {
-  name: "@vitehub/kv",
-  async setup(nitro) {
-    await assertNoVitePluginInNitro(nitro, KV_VITE_PLUGIN_NAME, "@vitehub/kv/nitro")
-
-    const viteConfig = resolveKVViteConfig(nitro.options.kv, {
-      env: process.env,
-      hosting: nitro.options.preset,
-    })
-    const { hosting } = viteConfig
-
-    const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
-    if (hosting) runtimeConfig.hosting ||= hosting
-    runtimeConfig.kv = viteConfig.kv
-
-    if (!viteConfig.kv) return
-    const resolved = viteConfig.kv
-
-    nitro.options.alias ||= {}
-    nitro.options.alias["@vitehub/kv"] = resolveRuntimeEntry("../index", "@vitehub/kv")
-
-    nitro.options.plugins ||= []
-    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/kv/runtime/nitro-plugin")
-    if (!nitro.options.plugins.includes(plugin)) {
-      nitro.options.plugins.push(plugin)
-    }
-
-    nitro.options.storage ||= {}
-    nitro.options.storage.kv = resolved.store
-
-    configureCloudflareKV(nitro.options, resolved)
-    warnVercelKVFallback(nitro, resolved, hosting)
-  },
-}
+const kvNitroModule: NitroModule = createFeatureNitroBridge(kvFeatureEngine)
 
 export default kvNitroModule
 

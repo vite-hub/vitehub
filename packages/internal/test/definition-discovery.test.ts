@@ -6,12 +6,15 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import {
   createRuntimeRegistryContents,
+  createNitroRuntimeFilePath,
+  hookNitroRuntimeRegistryRefresh,
   listSourceFiles,
   mergeDefinitions,
   normalizePathDefinitionName,
   registerDefinition,
   sanitizeDefinitionFilename,
   writeFileIfChanged,
+  writeRuntimeRegistryFiles,
 } from "../src/definition-discovery.ts"
 
 const dirs: string[] = []
@@ -100,6 +103,60 @@ describe("createRuntimeRegistryContents", () => {
     }])
     expect(contents).toContain('"release-notes": async () => import("../../server/sandboxes/release-notes.ts")')
     expect(contents).toContain("export default registry")
+  })
+})
+
+describe("createNitroRuntimeFilePath", () => {
+  it("keeps build-dir generated Nitro runtime paths stable", () => {
+    expect(createNitroRuntimeFilePath("/root", {
+      buildDir: "node_modules/.nitro",
+      fileName: "nitro-registry.mjs",
+      segments: [".vitehub", "queue"],
+    })).toBe("/root/node_modules/.nitro/.vitehub/queue/nitro-registry.mjs")
+  })
+
+  it("keeps root generated Nitro runtime paths stable", () => {
+    expect(createNitroRuntimeFilePath("/root", {
+      fileName: "assets/registry.mjs",
+      segments: [".vitehub", "nitro-runtime", "workspace"],
+    })).toBe("/root/.vitehub/nitro-runtime/workspace/assets/registry.mjs")
+  })
+})
+
+describe("writeRuntimeRegistryFiles", () => {
+  it("writes registry and plugin files with direct relative registry imports", async () => {
+    const root = await createTempDir("vitehub-internal-runtime-files-")
+    const registryFile = join(root, ".vitehub", "queue", "nitro-registry.mjs")
+    const pluginFile = join(root, ".vitehub", "queue", "nitro-plugin.ts")
+
+    await writeRuntimeRegistryFiles({
+      createPluginContents: (_plugin, registry) => `import registry from ${JSON.stringify(`./${registry.split("/").pop()}`)}\nexport default registry\n`,
+      definitions: [{ handler: join(root, "server", "queues", "welcome.ts"), name: "welcome" }],
+      pluginFile,
+      registryFile,
+    })
+
+    await expect(readFile(registryFile, "utf8")).resolves.toContain('"welcome": async () => import("../../server/queues/welcome.ts")')
+    await expect(readFile(pluginFile, "utf8")).resolves.toContain('import registry from "./nitro-registry.mjs"')
+  })
+})
+
+describe("hookNitroRuntimeRegistryRefresh", () => {
+  it("refreshes runtime files on build and dev reload hooks", async () => {
+    const handlers = new Map<string, () => Promise<void>>()
+    const refreshed: string[] = []
+    let count = 0
+
+    hookNitroRuntimeRegistryRefresh(
+      { hooks: { hook: (name, handler) => handlers.set(name, handler) } },
+      async () => ({ registryFile: `registry-${++count}.mjs` }),
+      async runtimeFiles => refreshed.push(runtimeFiles.registryFile),
+    )
+
+    await handlers.get("build:before")?.()
+    await handlers.get("dev:reload")?.()
+
+    expect(refreshed).toEqual(["registry-1.mjs", "registry-2.mjs"])
   })
 })
 

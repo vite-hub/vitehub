@@ -4,35 +4,32 @@ import { createError } from "#app/composables/error";
 import { definePageMeta } from "#app/composables/pages";
 import { useRoute } from "#app/composables/router";
 import { useDocsPage } from "../../../composables/useDocsPage";
-import { getDocsPage, getDocsPath, getDocsPathMeta } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import type { Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
+import { getDocsPageFallback, resolveDocsRoute } from "~~/modules/vitehub-docs/runtime/utils/docs-rendering";
 
 definePageMeta({
   layout: "docs",
 });
 
 const route = useRoute();
-const routeMeta = getDocsPathMeta(route.path);
+const routeState = resolveDocsRoute(route.path);
 
-if (!routeMeta) {
+if (!routeState) {
   throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true });
 }
 
-const docsPage = getDocsPage(routeMeta.section, routeMeta.page);
-const sourcePath = getDocsPath(routeMeta.section, routeMeta.framework as Framework, routeMeta.page);
 const { data: rawDoc } = await useAsyncData(
-  `docs:${sourcePath}`,
-  () => queryCollection("docs").path(sourcePath).first(),
+  `docs:${routeState.sourcePath}`,
+  () => queryCollection("docs").path(routeState.sourcePath).first(),
 );
 
-if (!docsPage || !docsPage.frameworks.includes(routeMeta.framework as Framework) || !rawDoc.value) {
+if (!routeState.page || !routeState.supported || !rawDoc.value) {
   throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true });
 }
 
 const { page } = useDocsPage(
-  sourcePath,
+  routeState.sourcePath,
   rawDoc,
-  { title: docsPage.title, sourceTitle: docsPage.sourceTitle, description: docsPage.description },
+  getDocsPageFallback(routeState.page),
 );
 </script>
 

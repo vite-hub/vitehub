@@ -41,6 +41,42 @@ export type DefinitionCatalogSource<TDefinition extends DiscoveredDefinition> =
   | DirectoryDefinitionCatalogSource<TDefinition>
   | SuffixDefinitionCatalogSource<TDefinition>
 
+export function resolveDefinitionScanRoots(rootDir: string, scanDirs: string[] | undefined = []): string[] {
+  return [...new Set([rootDir, ...scanDirs].filter(Boolean))]
+}
+
+export function createDirectoryDefinitionSource<TDefinition extends DiscoveredDefinition>(
+  source: string,
+  scanDirs: string[],
+  subdir: string,
+  options: Pick<DirectoryDefinitionCatalogSource<TDefinition>, "createDefinition" | "includeHidden" | "normalizeName"> = {},
+): DirectoryDefinitionCatalogSource<TDefinition> {
+  return {
+    ...options,
+    kind: "directory",
+    scanDirs,
+    source,
+    subdir,
+  }
+}
+
+export function createSuffixDefinitionSource<TDefinition extends DiscoveredDefinition>(
+  source: string,
+  roots: string[],
+  pattern: RegExp,
+  normalizeName: SuffixDefinitionCatalogSource<TDefinition>["normalizeName"],
+  options: Pick<SuffixDefinitionCatalogSource<TDefinition>, "createDefinition" | "includeHidden"> = {},
+): SuffixDefinitionCatalogSource<TDefinition> {
+  return {
+    ...options,
+    kind: "suffix",
+    normalizeName,
+    pattern,
+    roots,
+    source,
+  }
+}
+
 function readDirEntries(root: string): Dirent[] {
   try {
     return readdirSync(root, { withFileTypes: true })
@@ -267,6 +303,65 @@ export function createGeneratedDefinitionPath(
     ? [rootDir, options.buildDir, ...segments, options.fileName]
     : [rootDir, ...segments, options.fileName]
   return resolve(...pathSegments)
+}
+
+export function createNitroRuntimeFilePath(
+  rootDir: string,
+  options: {
+    buildDir?: string
+    fileName: string
+    productName?: string
+    segments?: readonly string[]
+  },
+): string {
+  return createGeneratedDefinitionPath(rootDir, options)
+}
+
+export interface RuntimeRegistryFiles<TDefinition extends Pick<DiscoveredDefinition, "handler" | "name">> {
+  definitions: TDefinition[]
+  pluginFile: string
+  registryFile: string
+}
+
+export async function writeRuntimeRegistryFiles<TDefinition extends Pick<DiscoveredDefinition, "handler" | "name">>(
+  options: {
+    createPluginContents: (pluginFile: string, registryFile: string) => string
+    definitions: TDefinition[]
+    pluginFile: string
+    registryFile: string
+  },
+): Promise<RuntimeRegistryFiles<TDefinition>> {
+  await Promise.all([
+    writeFileIfChanged(options.registryFile, createRuntimeRegistryContents(options.registryFile, options.definitions)),
+    writeFileIfChanged(options.pluginFile, options.createPluginContents(options.pluginFile, options.registryFile)),
+  ])
+
+  return {
+    definitions: options.definitions,
+    pluginFile: options.pluginFile,
+    registryFile: options.registryFile,
+  }
+}
+
+export function applyNitroRuntimeAliases(
+  nitro: { options: { alias?: Record<string, string> } },
+  aliases: Record<string, string>,
+): void {
+  nitro.options.alias ||= {}
+  Object.assign(nitro.options.alias, aliases)
+}
+
+export function hookNitroRuntimeRegistryRefresh<TRuntimeFiles>(
+  nitro: { hooks: { hook: (name: "build:before" | "dev:reload", handler: () => Promise<void>) => void } },
+  refresh: () => Promise<TRuntimeFiles>,
+  onRefresh: (runtimeFiles: TRuntimeFiles, hookName: "build:before" | "dev:reload") => Promise<void> | void = () => {},
+): void {
+  for (const hookName of ["build:before", "dev:reload"] as const) {
+    nitro.hooks.hook(hookName, async () => {
+      const runtimeFiles = await refresh()
+      await onRefresh(runtimeFiles, hookName)
+    })
+  }
 }
 
 export async function writeFileIfChanged(file: string, contents: string): Promise<void> {
