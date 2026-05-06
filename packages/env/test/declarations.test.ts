@@ -128,6 +128,24 @@ describe("env declarations", () => {
     } as never, "nitro")).toThrow("serializable literal")
   })
 
+  it("rejects Nitro runtime literals that JSON cannot preserve", () => {
+    expect(() => validateEnvConfigShape({
+      teams: {
+        retryDelay: Number.NaN,
+      },
+    }, "nitro")).toThrow("serializable literal")
+    expect(() => validateEnvConfigShape({
+      teams: {
+        retryDelay: Number.POSITIVE_INFINITY,
+      },
+    }, "nitro")).toThrow("serializable literal")
+    expect(() => validateEnvConfigShape({
+      teams: {
+        labels: [, "primary"],
+      },
+    } as never, "nitro")).toThrow("serializable literal")
+  })
+
   it("rejects secret Nitro public runtime declarations", () => {
     expect(() => validateEnvConfigShape({
       public: {

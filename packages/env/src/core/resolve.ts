@@ -314,11 +314,20 @@ function isNitroStaticValue(value: unknown): value is EnvNitroStaticValue {
   }
   switch (typeof value) {
     case "boolean":
-    case "number":
     case "string":
       return true
+    case "number":
+      return Number.isFinite(value)
     case "object":
-      return Array.isArray(value) && value.every(isNitroStaticValue)
+      if (!Array.isArray(value)) {
+        return false
+      }
+      for (let index = 0; index < value.length; index += 1) {
+        if (!(index in value) || !isNitroStaticValue(value[index])) {
+          return false
+        }
+      }
+      return true
     default:
       return false
   }
