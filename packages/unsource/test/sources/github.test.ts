@@ -76,6 +76,42 @@ describe("@vitehub/unsource GitHub source", () => {
     expect((archiveCall?.[1]?.headers as Record<string, string> | undefined)?.authorization).toBe("Bearer github-token")
   })
 
+  it("keys GitHub tree cache by the resolved auth token", async () => {
+    let token = "first-token"
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const requestUrl = String(url)
+      const authorization = (init?.headers as Record<string, string> | undefined)?.authorization
+
+      if (requestUrl.includes("/git/trees/")) {
+        return jsonResponse({
+          sha: "tree-sha",
+          tree: [
+            {
+              path: authorization === "Bearer first-token" ? "first.md" : "second.md",
+              type: "blob",
+            },
+          ],
+        })
+      }
+
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+
+    registerSources({ docs: github({ auth: () => token, repo: "acme/private" }) })
+
+    await expect(useSource("docs").keys()).resolves.toEqual(["first.md"])
+
+    token = "second-token"
+
+    await expect(useSource("docs").keys()).resolves.toEqual(["second.md"])
+
+    const treeCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/git/trees/"))
+    expect(treeCalls.map(([, init]) => (init?.headers as Record<string, string> | undefined)?.authorization)).toEqual([
+      "Bearer first-token",
+      "Bearer second-token",
+    ])
+  })
+
   it("falls back to raw GitHub bytes when the contents API does not return base64", async () => {
     stubGitHubSource({ "metadata.xml": "<metadata />\n" })
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {

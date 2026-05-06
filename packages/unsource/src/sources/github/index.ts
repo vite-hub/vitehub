@@ -43,11 +43,11 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return true
   }
 
-  async function loadTreeFiles() {
+  async function loadTreeFiles(token = auth) {
     const tree = await requestGitHubJson<GitHubTreeResponse>({
       ref,
       repo: options.repo,
-      token: auth,
+      token,
       url: `https://api.github.com/repos/${options.repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
     })
 
@@ -85,10 +85,9 @@ export function github<const TKey extends string = string>(options: GitHubSource
       .filter((file): file is GitHubFile<TKey> => Boolean(file))
   }
 
-  async function loadFiles() {
-    const token = auth
+  async function loadFiles(token = auth) {
     try {
-      return await loadTreeFiles()
+      return await loadTreeFiles(token)
     }
     catch (error) {
       if (error instanceof UnsourceError && error.message.includes(" request failed with 403 ")) {
@@ -98,15 +97,17 @@ export function github<const TKey extends string = string>(options: GitHubSource
     }
   }
 
-  const cachedLoadFiles = defineCachedFunction(loadFiles, {
-    ...providerCache,
-    getKey: () => cacheKey("tree", auth || ""),
-    name: "github-source-tree",
-  })
+  const cachedLoadFiles = defineCachedFunction(
+    async (token: string | undefined) => await loadFiles(token),
+    {
+      ...providerCache,
+      getKey: token => cacheKey("tree", token || ""),
+      name: "github-source-tree",
+    },
+  )
 
   function getFiles() {
-    refreshAuth()
-    return cachedLoadFiles()
+    return cachedLoadFiles(refreshAuth())
   }
 
   function repoPathForKey(key: string) {
