@@ -110,6 +110,17 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
   }))
 }
 
+function treeRequestAuthorizations() {
+  return vi.mocked(fetch).mock.calls
+    .filter(([url]) => String(url).includes("/git/trees/"))
+    .map(([, init]) => (init?.headers as Record<string, string> | undefined)?.authorization)
+}
+
+function treeRequestAuthorization() {
+  const [authorization] = treeRequestAuthorizations()
+  return authorization
+}
+
 describe("sources, loaders, and publishers", () => {
   it("lists GitHub files under the configured root with relative keys", async () => {
     stubGitHubSource({
@@ -162,11 +173,74 @@ describe("sources, loaders, and publishers", () => {
     process.env.GITHUB_TOKEN = "second-token"
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-auth" })).resolves.toEqual(["docs/README.md"])
 
-    const treeCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/git/trees/"))
-    expect(treeCalls.map(([, init]) => (init?.headers as Record<string, string>).authorization)).toEqual([
+    expect(treeRequestAuthorizations()).toEqual([
       "Bearer first-token",
       "Bearer second-token",
     ])
+  })
+
+  it("resolves GitHub auth from local env files without mutating process env", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    const githubSource = source.github({ repo: "acme/private" })
+
+    await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
+
+    expect(treeRequestAuthorization()).toBe("Bearer env-file-token")
+    expect(process.env.GITHUB_TOKEN).toBeUndefined()
+  })
+
+  it("re-reads GitHub auth from local env files", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, ".env"), "GITHUB_TOKEN=first-env-file-token\n")
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    const githubSource = source.github({ repo: "acme/private" })
+
+    await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
+    await writeFile(join(root, ".env"), "GITHUB_TOKEN=second-env-file-token\n")
+    await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
+
+    expect(treeRequestAuthorizations()).toEqual([
+      "Bearer first-env-file-token",
+      "Bearer second-env-file-token",
+    ])
+  })
+
+  it("prefers runtime GitHub auth over local env files", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+    process.env.GITHUB_TOKEN = "runtime-token"
+
+    const githubSource = source.github({ repo: "acme/private" })
+
+    await githubSource.getKeys({ rootDir: root, workspace: "github-runtime-auth" })
+
+    expect(treeRequestAuthorization()).toBe("Bearer runtime-token")
+  })
+
+  it("prefers Cloudflare GitHub auth over local env files", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
+
+    const githubSource = source.github({ repo: "acme/private" })
+
+    await githubSource.getKeys({ rootDir: root, workspace: "github-cloudflare-auth" })
+
+    expect(treeRequestAuthorization()).toBe("Bearer cloudflare-token")
   })
 
   it("prefers explicit GitHub auth over Cloudflare runtime env", async () => {
@@ -179,8 +253,33 @@ describe("sources, loaders, and publishers", () => {
 
     await githubSource.getKeys({ rootDir: "", workspace: "github-auth" })
 
-    const treeCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).includes("/git/trees/"))
-    expect((treeCall?.[1]?.headers as Record<string, string>).authorization).toBe("Bearer explicit-token")
+    expect(treeRequestAuthorization()).toBe("Bearer explicit-token")
+  })
+
+  it("prefers explicit GitHub auth over local env files", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    const githubSource = source.github({ auth: "explicit-token", repo: "acme/private" })
+
+    await githubSource.getKeys({ rootDir: root, workspace: "github-explicit-auth" })
+
+    expect(treeRequestAuthorization()).toBe("Bearer explicit-token")
+  })
+
+  it("keeps public GitHub source requests unauthenticated when no token exists", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    const githubSource = source.github({ repo: "acme/public" })
+
+    await githubSource.getKeys({ rootDir: "", workspace: "github-public" })
+
+    expect(treeRequestAuthorization()).toBeUndefined()
   })
 
   it("falls back to GitHub archives when the public tree API is rate limited", async () => {
@@ -234,7 +333,7 @@ describe("sources, loaders, and publishers", () => {
         return jsonResponse({ content: "", encoding: "none" })
       }
       if (requestUrl.startsWith("https://raw.githubusercontent.com/")) {
-        expect((init?.headers as Record<string, string>).authorization).toBe("Bearer token")
+        expect((init?.headers as Record<string, string> | undefined)?.authorization).toBe("Bearer token")
         return new Response("<metadata />\n")
       }
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
