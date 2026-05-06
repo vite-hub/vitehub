@@ -11,7 +11,7 @@ import {
 import { normalizeFrameworkPage, type DocsRenderOptions } from "./framework-content";
 import type { Framework } from "./frameworks";
 
-export type DocsRouteMeta = Omit<NonNullable<ReturnType<typeof getDocsPathMeta>>, "framework"> & { framework: Framework };
+type DocsRouteMeta = Omit<NonNullable<ReturnType<typeof getDocsPathMeta>>, "framework"> & { framework: Framework };
 
 type ContentPageInput = {
   title?: unknown;
@@ -35,7 +35,7 @@ export type DocsPageState<T extends ContentPageInput> = T & {
   data: Record<string, unknown>;
 };
 
-export type DocsResolvedRoute = {
+type DocsResolvedRoute = {
   meta: DocsRouteMeta;
   page: DocsPage | null;
   sourcePath: string;
@@ -140,7 +140,7 @@ function toNavigationItem(item: { title: string; path: string; icon?: string | n
   } satisfies ContentNavigationItem;
 }
 
-export function getSupportedDocsPages(section: DocsSection, framework: Framework) {
+function getSupportedDocsPages(section: DocsSection, framework: Framework) {
   return section.pages.filter(page => isDocsPageSupported(section.id, page.id, framework));
 }
 
