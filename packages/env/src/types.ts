@@ -77,7 +77,9 @@ export interface EnvViteConfigOptions {
   public?: Record<string, EnvVariableDeclaration>
 }
 
-type EnvNitroConfigValue = EnvNitroConfigOptions | EnvVariableDeclaration
+export type EnvNitroStaticValue = null | string | number | boolean | EnvNitroStaticValue[]
+
+type EnvNitroConfigValue = EnvNitroConfigOptions | EnvNitroStaticValue | EnvVariableDeclaration
 
 export interface EnvNitroConfigOptions {
   [key: string]: EnvNitroConfigValue
@@ -125,7 +127,12 @@ export interface EnvRuntimeSchema {
   kind: "string"
 }
 
-export type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeRegistry
+export interface EnvRuntimeLiteralEntry {
+  kind: "literal"
+  value: EnvNitroStaticValue
+}
+
+export type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeLiteralEntry | EnvRuntimeRegistry
 
 export interface EnvRuntimeRegistry {
   [key: string]: EnvRuntimeRegistryValue

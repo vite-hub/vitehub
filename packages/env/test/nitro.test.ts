@@ -70,6 +70,13 @@ describe("Nitro module", () => {
           public: {
             apiBase: envVariable({ source: envSource.env("PUBLIC_API_BASE") }),
           },
+          teams: {
+            apiUrl: envVariable({ optional: true }),
+            appId: envVariable({ secret: true }),
+            appPassword: envVariable({ secret: true }),
+            appTenantId: envVariable({ secret: true }),
+            appType: "SingleTenant",
+          },
           telegram: {
             apiBaseUrl: envVariable({ optional: true }),
             botToken: envVariable({ secret: true }),
@@ -88,10 +95,11 @@ describe("Nitro module", () => {
     expect(nitro.options.alias?.["#vitehub/env/server"]).toContain("/packages/env/src/runtime/server.ts")
     expect(nitro.options.plugins).toHaveLength(1)
     expect(nitro.options.handlers).toBeUndefined()
-    expect(nitro.options.cloudflare?.wrangler?.secrets?.required).toEqual(["EXISTING_SECRET", "AUTH_SECRET", "TELEGRAM_BOT_TOKEN"])
+    expect(nitro.options.cloudflare?.wrangler?.secrets?.required).toEqual(["EXISTING_SECRET", "AUTH_SECRET", "TEAMS_APP_ID", "TEAMS_APP_PASSWORD", "TEAMS_APP_TENANT_ID", "TELEGRAM_BOT_TOKEN"])
     expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("env.databaseUrl"))
     expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("env.public.apiBase"))
     expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("public runtime transport"))
+    expect(nitro.logger.info).not.toHaveBeenCalledWith(expect.stringContaining("env.teams.appType"))
     expect(nitro.logger.info).toHaveBeenCalledWith(expect.stringContaining("env.telegram.botToken"))
 
     const typesHook = nitro.hooks.hook.mock.calls.find(([name]) => name === "types:extend")?.[1]
@@ -103,6 +111,8 @@ describe("Nitro module", () => {
     expect(types).toContain("\"optionalApiBase\": string | undefined")
     expect(types).toContain("\"public\": {")
     expect(types).toContain("\"apiBase\": string")
+    expect(types).toContain("\"teams\": {")
+    expect(types).toContain("\"appType\": \"SingleTenant\"")
     expect(types).toContain("\"telegram\": {")
     expect(types).toContain("\"apiBaseUrl\": string | undefined")
     expect(types).toContain("\"botToken\": string")
@@ -120,6 +130,9 @@ describe("Nitro module", () => {
     const registry = await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8")
     expect(registry).toContain("DATABASE_URL")
     expect(registry).toContain("PUBLIC_API_BASE")
+    expect(registry).toContain("SingleTenant")
+    expect(registry).toContain("\"kind\": \"literal\"")
+    expect(registry).not.toContain("TEAMS_APP_TYPE")
     expect(registry).toContain("TELEGRAM_BOT_TOKEN")
     expect(registry).toContain("\"required\": false")
     expect(registry).not.toContain("aaaaaaaa")
@@ -254,6 +267,12 @@ describe("Nitro module", () => {
           source: { kind: "env", label: "env:PUBLIC_API_BASE", name: "PUBLIC_API_BASE", serializable: true },
         },
       },
+      teams: {
+        appType: {
+          kind: "literal",
+          value: "SingleTenant",
+        },
+      },
       telegram: {
         apiBaseUrl: {
           required: false,
@@ -278,10 +297,12 @@ describe("Nitro module", () => {
 
     const config = useSafeRuntimeConfig(undefined) as {
       public: { apiBase: string }
+      teams: { appType: "SingleTenant" }
       telegram: { apiBaseUrl?: string, botToken: string }
       vertex: { model: string }
     }
 
+    expect(config.teams.appType).toBe("SingleTenant")
     expect(config.telegram.botToken).toBe("telegram-secret")
     expect(config.telegram.apiBaseUrl).toBeUndefined()
     expect(config.public.apiBase).toBe("https://api.example.com")
@@ -292,6 +313,7 @@ describe("Nitro module", () => {
     expect(runtimeConfig).toMatchObject({
       chat: { enabled: true },
       public: { apiBase: "https://api.example.com", existing: "keep" },
+      teams: { appType: "SingleTenant" },
       telegram: { botToken: "telegram-secret" },
       vertex: { model: "gemini-3.1-pro-preview-customtools" },
     })

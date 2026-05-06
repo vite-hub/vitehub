@@ -102,6 +102,10 @@ describe("env declarations", () => {
       public: {
         apiBase: envVariable(),
       },
+      teams: {
+        appId: envVariable({ secret: true }),
+        appType: "SingleTenant",
+      },
       telegram: {
         botToken: envVariable({ secret: true }),
       },
@@ -109,6 +113,37 @@ describe("env declarations", () => {
         model: envVariable({ default: "gemini-3.1-pro-preview-customtools" }),
       },
     }, "nitro")).not.toThrow()
+  })
+
+  it("rejects unsupported Nitro runtime values", () => {
+    expect(() => validateEnvConfigShape({
+      teams: {
+        appType: () => "SingleTenant",
+      },
+    } as never, "nitro")).toThrow("serializable literal")
+    expect(() => validateEnvConfigShape({
+      teams: {
+        createdAt: new Date(),
+      },
+    } as never, "nitro")).toThrow("serializable literal")
+  })
+
+  it("rejects Nitro runtime literals that JSON cannot preserve", () => {
+    expect(() => validateEnvConfigShape({
+      teams: {
+        retryDelay: Number.NaN,
+      },
+    }, "nitro")).toThrow("serializable literal")
+    expect(() => validateEnvConfigShape({
+      teams: {
+        retryDelay: Number.POSITIVE_INFINITY,
+      },
+    }, "nitro")).toThrow("serializable literal")
+    expect(() => validateEnvConfigShape({
+      teams: {
+        labels: [, "primary"],
+      },
+    } as never, "nitro")).toThrow("serializable literal")
   })
 
   it("rejects secret Nitro public runtime declarations", () => {
@@ -121,10 +156,19 @@ describe("env declarations", () => {
 
   it("creates a runtime registry with inferred nested env sources", () => {
     expect(createRuntimeRegistry({
+      teams: {
+        appType: "SingleTenant",
+      },
       telegram: {
         botToken: envVariable({ secret: true }),
       },
     }, { prefix: "VITEHUB_" })).toMatchObject({
+      teams: {
+        appType: {
+          kind: "literal",
+          value: "SingleTenant",
+        },
+      },
       telegram: {
         botToken: {
           source: {
