@@ -37,16 +37,10 @@ export default defineNuxtConfig({
 
 **Cause:** The active driver is `upstash`, but the runtime environment does not contain a REST URL.
 
-**Fix:** Set one of the supported URL variables:
+**Fix:** Set the supported URL variable:
 
 ```bash
 KV_REST_API_URL=https://example.upstash.io
-```
-
-or:
-
-```bash
-UPSTASH_REDIS_REST_URL=https://example.upstash.io
 ```
 
 **Verify:** Restart the runtime and call the KV route again.
@@ -55,16 +49,10 @@ UPSTASH_REDIS_REST_URL=https://example.upstash.io
 
 **Cause:** The active driver is `upstash`, but the runtime environment does not contain a REST token.
 
-**Fix:** Set one of the supported token variables:
+**Fix:** Set the supported token variable:
 
 ```bash
 KV_REST_API_TOKEN=<upstash-rest-token>
-```
-
-or:
-
-```bash
-UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>
 ```
 
 **Verify:** Restart the runtime and call the KV route again.

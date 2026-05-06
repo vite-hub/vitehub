@@ -136,10 +136,10 @@ When credentials come from env vars, ViteHub stores masked placeholders at build
 
 Supported env vars:
 
-| Value | Preferred env var | Alias |
-| --- | --- | --- |
-| REST URL | `KV_REST_API_URL` | `UPSTASH_REDIS_REST_URL` |
-| REST token | `KV_REST_API_TOKEN` | `UPSTASH_REDIS_REST_TOKEN` |
+| Value | Env var |
+| --- | --- |
+| REST URL | `KV_REST_API_URL` |
+| REST token | `KV_REST_API_TOKEN` |
 
 ### `FsLiteKVStoreConfig`
 

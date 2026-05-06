@@ -66,16 +66,6 @@ const payload = await readValidatedPayload(body, validateReleaseNotes, {
 })
 ```
 
-## Use `validatePayload`
-
-`validatePayload` is an alias for `readValidatedPayload`.
-
-```ts
-import { validatePayload } from '@vitehub/sandbox'
-
-const payload = await validatePayload(body, validateReleaseNotes)
-```
-
 ## Full route
 
 ::fw{id="vite:dev vite:build"}

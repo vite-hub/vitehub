@@ -60,7 +60,6 @@ async function resolveStorage() {
 }
 
 export const blob: BlobStorage = {
-  async delete(pathnames) { await (await resolveStorage()).delete(pathnames) },
   async del(pathnames) { await (await resolveStorage()).del(pathnames) },
   async get(pathname) { return (await resolveStorage()).get(pathname) },
   async head(pathname) { return (await resolveStorage()).head(pathname) },

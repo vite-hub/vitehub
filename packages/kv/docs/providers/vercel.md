@@ -62,18 +62,11 @@ export default defineNuxtConfig({
 
 ## Add Runtime Environment Variables
 
-Set the preferred Upstash REST variables:
+Set the Upstash REST variables:
 
 ```bash
 KV_REST_API_URL=https://example.upstash.io
 KV_REST_API_TOKEN=<upstash-rest-token>
-```
-
-ViteHub also accepts the Upstash Redis REST aliases:
-
-```bash
-UPSTASH_REDIS_REST_URL=https://example.upstash.io
-UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>
 ```
 
 ## Let Hosting Select Upstash
@@ -146,8 +139,8 @@ Expected response:
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `Missing runtime environment variable \`KV_REST_API_URL\`` | Upstash URL is missing at runtime. | Set `KV_REST_API_URL` or `UPSTASH_REDIS_REST_URL`. |
-| `Missing runtime environment variable \`KV_REST_API_TOKEN\`` | Upstash token is missing at runtime. | Set `KV_REST_API_TOKEN` or `UPSTASH_REDIS_REST_TOKEN`. |
+| `Missing runtime environment variable \`KV_REST_API_URL\`` | Upstash URL is missing at runtime. | Set `KV_REST_API_URL`. |
+| `Missing runtime environment variable \`KV_REST_API_TOKEN\`` | Upstash token is missing at runtime. | Set `KV_REST_API_TOKEN`. |
 | Vercel logs warn about `fs-lite` | Explicit local driver was deployed. | Set `kv.driver` to `upstash` or rely on Vercel hosting inference. |
 
 ## Related Pages

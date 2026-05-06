@@ -129,12 +129,10 @@ export default defineEventHandler(async (event) => {
 
 ## Delete One or Many Objects
 
-`del()` and `delete()` are aliases.
-
 ```ts
 await blob.del('avatars/user-1.png')
 
-await blob.delete([
+await blob.del([
   'avatars/user-2.png',
   'avatars/user-3.png',
 ])

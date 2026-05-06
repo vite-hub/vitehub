@@ -19,7 +19,6 @@ import {
   readRequestPayload,
   readValidatedPayload,
   runSandbox,
-  validatePayload,
 } from '@vitehub/sandbox'
 ```
 
@@ -189,16 +188,6 @@ const payload = await readValidatedPayload(body, (value) => {
     notes: String((value as { notes?: unknown }).notes || ''),
   }
 })
-```
-
-### `validatePayload`
-
-`validatePayload` is an alias for `readValidatedPayload`.
-
-```ts
-import { validatePayload } from '@vitehub/sandbox'
-
-const payload = await validatePayload(body, validator)
 ```
 
 ## Provider config

@@ -1,4 +1,1 @@
-export {
-  readValidatedPayload,
-  readValidatedPayload as validatePayload,
-} from '../internal/shared/validation'
+export { readValidatedPayload } from '../internal/shared/validation'

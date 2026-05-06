@@ -68,9 +68,6 @@ function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
 
 export function createBlobStorage(driver: BlobDriverAdapter<any>): BlobStorage {
   return {
-    async delete(pathnames: string | string[]) {
-      await this.del(pathnames)
-    },
     async del(pathnames: string | string[]) {
       await driver.delete(toArray(pathnames).map(value => normalizePathname(value)))
     },
