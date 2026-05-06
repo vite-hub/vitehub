@@ -1,6 +1,6 @@
 import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
 
-import type { EnvRegistryEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvRuntimeSchema, SafeRuntimeConfig } from "../types.ts"
+import type { EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvRuntimeSchema, SafeRuntimeConfig } from "../types.ts"
 
 let registry: EnvRuntimeRegistry = {}
 
@@ -33,6 +33,10 @@ function resolveRuntimeEnv(event?: unknown): Record<string, string | undefined> 
 function resolveRuntimeValues(declarations: EnvRuntimeRegistry, env: Record<string, string | undefined>, path = "env"): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   for (const [key, entry] of Object.entries(declarations)) {
+    if (isLiteralEntry(entry)) {
+      values[key] = entry.value
+      continue
+    }
     if (!isRegistryEntry(entry)) {
       values[key] = resolveRuntimeValues(entry, env, `${path}.${key}`)
       continue
@@ -80,6 +84,13 @@ function isRegistryEntry(value: EnvRuntimeRegistryValue): value is EnvRegistryEn
     && source !== null
     && (source as { kind?: unknown }).kind === "env"
     && typeof (source as { name?: unknown }).name === "string"
+}
+
+function isLiteralEntry(value: EnvRuntimeRegistryValue): value is EnvRuntimeLiteralEntry {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value)
+    && (value as { kind?: unknown }).kind === "literal"
 }
 
 function isPlainRuntimeObject(value: unknown): value is Record<string, unknown> {

@@ -8,7 +8,7 @@ import { formatDiagnostics } from "../core/diagnostics.ts"
 import { envSource, envVariable } from "../core/declarations.ts"
 import { createRuntimeRegistry, isEnvVariableDeclaration, resolveEnvSource, validateEnvConfigShape } from "../core/resolve.ts"
 
-import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRegistryEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue } from "../types.ts"
+import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue } from "../types.ts"
 import type { Nitro, NitroModule } from "nitro/types"
 
 export { envSource, envVariable }
@@ -89,6 +89,9 @@ function createTypeFields(registry: EnvRuntimeRegistry, indent: number): string[
     if (isRegistryEntry(entry)) {
       return [`${prefix}${JSON.stringify(key)}: ${resolveTypeName(entry)}`]
     }
+    if (isLiteralEntry(entry)) {
+      return [`${prefix}${JSON.stringify(key)}: ${resolveLiteralTypeName(entry.value)}`]
+    }
     return [
       `${prefix}${JSON.stringify(key)}: {`,
       ...createTypeFields(entry, indent + 2),
@@ -102,6 +105,21 @@ function resolveTypeName(entry: EnvRegistryEntry): string {
     return entry.type
   }
   return entry.required || typeof entry.default !== "undefined" ? "string" : "string | undefined"
+}
+
+function resolveLiteralTypeName(value: unknown): string {
+  switch (typeof value) {
+    case "boolean":
+      return value ? "true" : "false"
+    case "number":
+      return Number.isFinite(value) ? JSON.stringify(value) : "number"
+    case "string":
+      return JSON.stringify(value)
+    case "object":
+      return value === null ? "null" : "unknown[]"
+    default:
+      return "unknown"
+  }
 }
 
 export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
@@ -175,6 +193,9 @@ function collectRequiredSecretNames(declarations: EnvNitroConfigOptions | undefi
       const source = resolveEnvSource(value, valuePath, prefix)
       return value.secret && value.required && source.kind === "env" ? [source.name] : []
     }
+    if (!isPlainRecord(value)) {
+      return []
+    }
     return collectRequiredSecretNames(value as EnvNitroConfigOptions, prefix, valuePath)
   })
 }
@@ -193,6 +214,9 @@ function describeRuntimeEntries(
   return Object.entries(declarations || {}).flatMap(([key, value]) => {
     const valuePath = `${path}.${key}`
     if (!isEnvVariableDeclaration(value)) {
+      if (!isPlainRecord(value)) {
+        return []
+      }
       return describeRuntimeEntries(value as EnvNitroConfigOptions, prefix, valuePath)
     }
     const source = resolveEnvSource(value, valuePath, prefix)
@@ -220,6 +244,21 @@ function isRegistryEntry(value: EnvRuntimeRegistryValue): value is EnvRegistryEn
     && source !== null
     && (source as { kind?: unknown }).kind === "env"
     && typeof (source as { name?: unknown }).name === "string"
+}
+
+function isLiteralEntry(value: EnvRuntimeRegistryValue): value is EnvRuntimeLiteralEntry {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value)
+    && (value as { kind?: unknown }).kind === "literal"
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false
+  }
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === null || prototype === Object.prototype
 }
 
 const nitroModule: NitroModule = envNitro()

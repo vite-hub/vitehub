@@ -11,6 +11,7 @@ import type {
   EnvDiagnosticEntry,
   EnvMode,
   EnvNitroConfigOptions,
+  EnvNitroStaticValue,
   EnvRuntimeRegistry,
   EnvSource,
   EnvSourceContext,
@@ -160,6 +161,9 @@ function buildRegistry(declarations: EnvNitroConfigOptions | undefined, path: st
   return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
     const valuePath = `${path}.${key}`
     if (!isEnvVariableDeclaration(value)) {
+      if (isNitroStaticValue(value)) {
+        return [key, { kind: "literal", value }]
+      }
       return [key, buildRegistry(value as EnvNitroConfigOptions, valuePath, prefix)]
     }
     const source = resolveEnvSource(value, valuePath, prefix)
@@ -246,8 +250,11 @@ function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: st
       }
       continue
     }
+    if (isNitroStaticValue(value)) {
+      continue
+    }
     if (!isPlainRecord(value)) {
-      throw new EnvError(`Invalid declaration at ${valuePath}. Use envVariable() or a nested object of envVariable() declarations.`)
+      throw new EnvError(`Invalid declaration at ${valuePath}. Use envVariable(), a serializable literal, or a nested object.`)
     }
     validateNitroDeclarations(value as EnvNitroConfigOptions, valuePath)
   }
@@ -294,7 +301,27 @@ export function isEnvVariableDeclaration(value: unknown): value is EnvVariableDe
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false
+  }
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === null || prototype === Object.prototype
+}
+
+function isNitroStaticValue(value: unknown): value is EnvNitroStaticValue {
+  if (value === null) {
+    return true
+  }
+  switch (typeof value) {
+    case "boolean":
+    case "number":
+    case "string":
+      return true
+    case "object":
+      return Array.isArray(value) && value.every(isNitroStaticValue)
+    default:
+      return false
+  }
 }
 
 async function readPackageJson(rootDir: string): Promise<Record<string, unknown>> {
