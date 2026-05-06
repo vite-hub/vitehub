@@ -25,6 +25,28 @@ async function createViteRoot() {
   return rootDir
 }
 
+async function createViteAssetRoot() {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-assets-"))
+  tempDirs.push(root)
+  await mkdir(join(root, "src"), { recursive: true })
+  for (const name of ["docs", "notes"]) {
+    await writeFile(join(root, "src", `${name}.workspace.mjs`), [
+      `export default {`,
+      `  store: { provider: "memory" },`,
+      `  sources: {`,
+      `    files: {`,
+      `      name: "inline",`,
+      `      async getKeys() { return ["README.md"] },`,
+      `      async getItem(key) { return { key, path: key, content: "${name}\\n" } },`,
+      `    },`,
+      `  },`,
+      `}`,
+      ``,
+    ].join("\n"))
+  }
+  return root
+}
+
 afterEach(async () => {
   delete process.env.VITEHUB_WORKSPACE_DEV
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
@@ -72,22 +94,7 @@ describe("hubWorkspace", () => {
   })
 
   it("emits build-time workspace assets for Vite builds", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-assets-"))
-    tempDirs.push(root)
-    await mkdir(join(root, "src"), { recursive: true })
-    await writeFile(join(root, "src/docs.workspace.mjs"), [
-      `export default {`,
-      `  store: { provider: "memory" },`,
-      `  sources: {`,
-      `    files: {`,
-      `      name: "inline",`,
-      `      async getKeys() { return ["README.md"] },`,
-      `      async getItem(key) { return { key, path: key, content: "docs\\n" } },`,
-      `    },`,
-      `  },`,
-      `}`,
-      ``,
-    ].join("\n"))
+    const root = await createViteAssetRoot()
 
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
@@ -102,9 +109,52 @@ describe("hubWorkspace", () => {
     const registry = (await import(`${pathToFileURL(registryId).href}?t=${Date.now()}`)).default
 
     await expect(readFile(registryId, "utf8")).resolves.toContain('"docs"')
+    await expect(readFile(registryId, "utf8")).resolves.toContain('"notes"')
     await expect(registry.docs.list()).resolves.toEqual([
       expect.objectContaining({ path: "files", type: "directory" }),
     ])
     await expect(registry.docs.readFile("files/README.md")).resolves.toBe("docs\n")
+    await expect(registry.notes.readFile("files/README.md")).resolves.toBe("notes\n")
+  })
+
+  it("emits selected build-time workspace assets for Vite builds", async () => {
+    const root = await createViteAssetRoot()
+
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: ["docs"] })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const buildStart = plugin.buildStart as () => Promise<void>
+    const resolveId = plugin.resolveId as (id: string) => string | undefined
+
+    await configResolved({ command: "build", root })
+    await buildStart()
+
+    const registryId = resolveId("#vitehub-workspace-assets-registry")!
+    const registry = (await import(`${pathToFileURL(registryId).href}?t=${Date.now()}`)).default
+
+    await expect(readFile(registryId, "utf8")).resolves.toContain('"docs"')
+    await expect(readFile(registryId, "utf8")).resolves.not.toContain('"notes"')
+    await expect(registry.docs.readFile("files/README.md")).resolves.toBe("docs\n")
+    expect(registry.notes).toBeUndefined()
+  })
+
+  it("can disable build-time workspace assets for Vite builds", async () => {
+    const root = await createViteAssetRoot()
+
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const buildStart = plugin.buildStart as () => Promise<void>
+    const resolveId = plugin.resolveId as (id: string) => string | undefined
+
+    await configResolved({ command: "build", root })
+    await buildStart()
+
+    const registryId = resolveId("#vitehub-workspace-assets-registry")!
+    const registry = (await import(`${pathToFileURL(registryId).href}?t=${Date.now()}`)).default
+
+    await expect(readFile(registryId, "utf8")).resolves.not.toContain('"docs"')
+    await expect(readFile(registryId, "utf8")).resolves.not.toContain('"notes"')
+    expect(registry).toEqual({})
   })
 })

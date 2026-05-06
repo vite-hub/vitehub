@@ -13,6 +13,7 @@ import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as source from "../src/source.ts"
 import { hubWorkspace } from "../src/vite.ts"
+import type { WorkspaceModuleOptions } from "../src/types.ts"
 
 declare global {
   interface ViteHubWorkspaceAssetMap {
@@ -60,6 +61,11 @@ describe("workspace types", () => {
     expectTypeOf(writable.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(writable.tools().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.open).toBeFunction()
+    const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
+    // @ts-expect-error syncOnBuild was removed in favor of assets
+    const removedOptions: WorkspaceModuleOptions = { syncOnBuild: true }
+    expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
+    expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     const session = null as unknown as Awaited<ReturnType<import("../src/types.ts").Workspace["open"]>>
     const workspace = null as unknown as import("../src/types.ts").Workspace
     // @ts-expect-error runtime selection belongs in workspace config, not open options
