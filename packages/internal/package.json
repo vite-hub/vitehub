@@ -13,7 +13,6 @@
     "./definition-catalog": "./src/definition-catalog.ts",
     "./definition-discovery": "./src/definition-discovery.ts",
     "./feature-bridge": "./src/feature-bridge/feature-engine.ts",
-    "./feature-bridge/engine": "./src/feature-bridge/feature-engine.ts",
     "./feature-bridge/hosting": "./src/feature-bridge/hosting.ts",
     "./integrations/hex": "./src/integrations/hex.ts",
     "./nitro": "./src/nitro.ts",

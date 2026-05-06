@@ -1,12 +1,12 @@
-import { createFeatureEngine, normalizeFeaturePublicOptions, readFeaturePublicOptions } from "@vitehub/internal/feature-bridge/engine"
+import { createFeatureEngine, normalizeFeaturePublicOptions, readFeaturePublicOptions } from "@vitehub/internal/feature-bridge"
 import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { warnVercelKVFallback } from "./config.ts"
 import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 import { resolveKVViteConfig } from "./vite-config.ts"
 
-import type { FeatureStateSource } from "@vitehub/internal/feature-bridge/engine"
-import type { FeatureNitroLike } from "@vitehub/internal/feature-bridge/engine"
+import type { FeatureStateSource } from "@vitehub/internal/feature-bridge"
+import type { FeatureNitroLike } from "@vitehub/internal/feature-bridge"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
 
 type KVNitroOptions = FeatureNitroLike["options"] & {
