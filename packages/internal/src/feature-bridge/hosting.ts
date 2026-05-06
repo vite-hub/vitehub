@@ -16,7 +16,7 @@ export function normalizeHosting(hosting?: string | null): string {
 }
 
 export function detectHosting(target: HostingDetectionTarget) {
-  return normalizeHosting(process.env.NITRO_PRESET || target.options.nitro?.preset || target.options.preset || '')
+  return normalizeHosting(target.options.nitro?.preset || target.options.preset || process.env.NITRO_PRESET || '')
 }
 
 export function getHostingProvider(hosting?: string | null): HostingProvider | undefined {

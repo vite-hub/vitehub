@@ -71,10 +71,10 @@ export interface FeatureEngine<TOptions, TInput, TConfig = TInput> {
   configKey: string
   defaultOptions?: TOptions | (() => TOptions)
   loadDeps?: boolean
-  normalizeOptions: (options: TOptions | undefined) => TInput | undefined
+  normalizeOptions: (options: TOptions | false | undefined) => TInput | undefined
   resolveConfig?: (config: TInput, hosting?: string) => TConfig
   assignRuntimeConfig?: (runtimeConfig: Record<string, unknown>, config: TConfig) => void
-  readPublicOptions: (source: FeatureStateSource<TOptions>) => TOptions | undefined
+  readPublicOptions: (source: FeatureStateSource<TOptions>) => TOptions | false | undefined
   setupVite?: (context: FeatureViteContext<TConfig>) => Promise<FeatureViteSetupResult | void> | FeatureViteSetupResult | void
   setupNitro?: (nitro: FeatureNitroLike, context: FeatureModuleContext<TConfig>) => void | Promise<void>
 }
@@ -141,13 +141,22 @@ function resolveNormalizedConfig<TOptions, TInput, TConfig>(
   engine: FeatureEngine<TOptions, TInput, TConfig>,
   source: FeatureStateSource<TOptions>,
 ) {
-  const normalizedOptions = engine.normalizeOptions(resolveRawOptions(engine, source))
-  if (!normalizedOptions)
-    return undefined
-
+  const rawOptions = resolveRawOptions(engine, source)
   const hosting = source.kind === 'vite'
     ? detectHosting({ options: source.userConfig as { nitro?: { preset?: string | null }, preset?: string | null } })
     : detectHosting(source.nitro)
+
+  if (rawOptions === false) {
+    return {
+      config: false as TConfig,
+      hosting: hosting || undefined,
+    }
+  }
+
+  const normalizedOptions = engine.normalizeOptions(rawOptions)
+  if (!normalizedOptions)
+    return undefined
+
   const config = engine.resolveConfig
     ? engine.resolveConfig(normalizedOptions, hosting)
     : normalizedOptions as unknown as TConfig
