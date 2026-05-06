@@ -2,10 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 import { registerViteHubDevtoolsPanel } from "../src/index.ts"
 
-vi.mock("node:fs", () => ({
-  existsSync: vi.fn((path: string) => !path.includes("missing")),
-}))
-
 function createContext() {
   return {
     docks: {
@@ -79,10 +75,10 @@ describe("registerViteHubDevtoolsPanel", () => {
     expect(ctx.docks.register).not.toHaveBeenCalled()
   })
 
-  it("warns when the local client is missing", () => {
+  it("hosts local static assets without checking the filesystem", () => {
     const ctx = createContext()
 
-    registerViteHubDevtoolsPanel(ctx as never, {
+    const result = registerViteHubDevtoolsPanel(ctx as never, {
       distDir: "/tmp/missing-client",
       icon: "i-lucide-message-square",
       id: "@vitehub/test",
@@ -90,10 +86,8 @@ describe("registerViteHubDevtoolsPanel", () => {
       title: "ViteHub Test",
     })
 
-    expect(ctx.views.hostStatic).not.toHaveBeenCalled()
-    expect(ctx.messages.add).toHaveBeenCalledWith(expect.objectContaining({
-      level: "warn",
-      message: expect.stringContaining("ViteHub Test DevTools client is not built"),
-    }))
+    expect(result).toEqual({ remote: false, url: "/__vitehub/test/" })
+    expect(ctx.views.hostStatic).toHaveBeenCalledWith("/__vitehub/test/", "/tmp/missing-client")
+    expect(ctx.docks.register).toHaveBeenCalled()
   })
 })
