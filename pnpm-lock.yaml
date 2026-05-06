@@ -167,12 +167,6 @@ importers:
       '@nuxt/content':
         specifier: 'catalog:'
         version: 3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.3.1(typescript@6.0.2))
-      '@vitehub/chat':
-        specifier: workspace:*
-        version: link:../packages/chat
-      '@vitejs/devtools-kit':
-        specifier: 'catalog:'
-        version: 0.1.18(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
       docus:
         specifier: 'catalog:'
         version: 5.9.0(4ee59c058e907bed7be328a9141e0bfe)
@@ -909,9 +903,6 @@ importers:
       mrmime:
         specifier: ^2.0.1
         version: 2.0.1
-      ocache:
-        specifier: ^0.1.4
-        version: 0.1.4
       tinyglobby:
         specifier: ^0.2.16
         version: 0.2.16
@@ -925,6 +916,9 @@ importers:
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vitehub/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       '@vitehub/unshell':
         specifier: workspace:*
         version: link:../unshell
@@ -15202,21 +15196,6 @@ snapshots:
       - bare-abort-controller
       - react-native-b4a
 
-  '@vitejs/devtools-kit@0.1.18(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))':
-    dependencies:
-      birpc: 4.0.0
-      devframe: 0.1.18(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
-      ohash: 2.0.11
-      sirv: 3.0.2
-      vite: 8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
-    transitivePeerDependencies:
-      - '@modelcontextprotocol/sdk'
-      - '@nuxt/kit'
-      - bufferutil
-      - launch-editor
-      - typescript
-      - utf-8-validate
-
   '@vitejs/devtools-kit@0.1.18(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))':
     dependencies:
       birpc: 4.0.0
@@ -16579,29 +16558,6 @@ snapshots:
   devalue@5.6.3: {}
 
   devalue@5.7.1: {}
-
-  devframe@0.1.18(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2):
-    dependencies:
-      '@valibot/to-json-schema': 1.6.0(valibot@1.3.1(typescript@6.0.2))
-      ansis: 4.2.0
-      birpc: 4.0.0
-      cac: 7.0.0
-      h3: 1.15.11
-      logs-sdk: 0.0.6
-      ohash: 2.0.11
-      pathe: 2.0.3
-      sirv: 3.0.2
-      structured-clone-es: 2.0.0
-      valibot: 1.3.1(typescript@6.0.2)
-      ws: 8.20.0
-    optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
-      '@nuxt/kit': 4.4.2(magicast@0.5.2)
-      launch-editor: 2.13.2
-    transitivePeerDependencies:
-      - bufferutil
-      - typescript
-      - utf-8-validate
 
   devframe@0.1.18(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2):
     dependencies:
