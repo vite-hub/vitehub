@@ -9,8 +9,12 @@ const primaryLinks = [
   <div class="sticky top-0 z-50">
     <UHeader :to="'/'" title="ViteHub" :links="primaryLinks">
       <template #title>
-        <img src="/favicon.svg" alt="ViteHub" class="h-6 w-auto shrink-0 self-baseline">
-        <span>ViteHub</span>
+        <UColorModeImage
+          light="/vitehub-logo-header.png"
+          dark="/vitehub-logo-header-dark.png"
+          alt="ViteHub"
+          class="h-7 w-auto shrink-0 self-baseline"
+        />
       </template>
 
       <template #right>

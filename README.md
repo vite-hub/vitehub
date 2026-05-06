@@ -1,6 +1,18 @@
-# ViteHub
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vite-hub/vitehub/main/docs/public/vitehub-logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/vite-hub/vitehub/main/docs/public/vitehub-logo.png">
+    <img alt="ViteHub" src="https://raw.githubusercontent.com/vite-hub/vitehub/main/docs/public/vitehub-logo.png" width="360">
+  </picture>
+</p>
 
-Server primitives for Vite, with a workspace shaped around package-owned development and verification.
+<p align="center">
+  Server primitives for any host.
+</p>
+
+<p align="center">
+  <a href="https://vitehub.dev">Documentation</a>
+</p>
 
 ## Workspace Rules
 
