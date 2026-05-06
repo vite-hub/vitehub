@@ -17,8 +17,8 @@ const error = ref<string | undefined>()
 const connected = ref(false)
 const pendingUserMessageId = ref<string | undefined>()
 const state = ref<ChatDevtoolsStateResult>({
-  chats: [{ name: "dev", messages: [] }],
-  selected: "dev",
+  chats: [],
+  selected: "",
 })
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 
@@ -45,7 +45,7 @@ function isSendPending() {
   const assistant = chatMessages.slice(userIndex + 1).findLast(message => message.role === "assistant")
   if (!assistant) return true
   const hasRunningTool = assistant.tools?.some(tool => tool.status === "running")
-  return hasRunningTool || !assistant.text.trim()
+  return hasRunningTool || (!assistant.text.trim() && !assistant.tools?.length)
 }
 
 function renderToolOutput(output: unknown) {
@@ -113,8 +113,9 @@ async function send() {
   error.value = undefined
 
   try {
+    const chat = selectedChat()?.name
     state.value = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsSendRpc, {
-      chat: state.value.selected,
+      ...(chat ? { chat } : {}),
       text,
     })
     pendingUserMessageId.value = selectedChat()?.messages.findLast(message => message.role === "user")?.id
