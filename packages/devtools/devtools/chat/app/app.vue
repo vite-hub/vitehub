@@ -125,8 +125,13 @@ async function send() {
       await refresh()
     }
   }
-  catch {
-    connected.value = false
+  catch (cause) {
+    const message = cause instanceof Error ? cause.message : "Chat DevTools send failed."
+    if (connected.value) {
+      error.value = message
+      return
+    }
+
     appendDummy({
       id: `user-${Date.now()}`,
       role: "user",
