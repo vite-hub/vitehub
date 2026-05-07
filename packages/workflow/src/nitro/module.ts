@@ -8,7 +8,7 @@ import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { normalizeWorkflowOptions } from "../config.ts"
-import { discoverInlineWorkflowDefinitions, discoverWorkflowDefinitions } from "../discovery.ts"
+import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions } from "../types.ts"
 
@@ -108,17 +108,9 @@ async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFile
     mode: "nitro-server-workflows",
     scanDirs: resolveNitroWorkflowScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
-  const inlineDefinitions = discoverInlineWorkflowDefinitions({
-    rootDir: nitro.options.rootDir,
-    scanDirs: resolveNitroWorkflowScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
-  })
-  const duplicateInlineDefinition = inlineDefinitions.find(inline => definitions.some(definition => definition.name === inline.name))
-  if (duplicateInlineDefinition) {
-    throw new Error(`Duplicate workflow name "${duplicateInlineDefinition.name}" from inline and discovered definitions.`)
-  }
-  const providerDefinitions = [...definitions, ...inlineDefinitions].sort((left, right) => left.name.localeCompare(right.name))
+  const providerDefinitions = definitions
 
-  return await writeRuntimeRegistryFiles({
+  const runtimeFiles = await writeRuntimeRegistryFiles({
     createPluginContents: createNitroWorkflowPluginContents,
     definitions,
     pluginFile,
