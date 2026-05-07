@@ -11,6 +11,7 @@ import {
   chatDevtoolsPanelId,
   chatDevtoolsRoute,
   chatDevtoolsSendRpc,
+  chatDevtoolsStreamChannel,
   chatDevtoolsTitle,
   chatDevtoolsUrlEnv,
 } from "./devtools.ts"
@@ -18,7 +19,7 @@ import {
 import type { NitroModule } from "nitro/types"
 import type { Plugin, UserConfig } from "vite"
 import type { ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
-import type { ChatDevtoolsBridgeRequest, ChatDevtoolsStateResult } from "./devtools.ts"
+import type { ChatDevtoolsBridgeRequest, ChatDevtoolsSendResult, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "./devtools.ts"
 import type { ChatModuleOptions } from "./types.ts"
 
 export type ChatVitePlugin = Plugin & { nitro: NitroModule }
@@ -76,7 +77,72 @@ async function postChatDevtoolsBridge(ctx: ViteDevToolsNodeContext, body: ChatDe
   return await response.json() as ChatDevtoolsStateResult
 }
 
+async function writeChatDevtoolsStream(
+  ctx: ViteDevToolsNodeContext,
+  body: ChatDevtoolsBridgeRequest,
+  stream: { close: () => void, error: (error: unknown) => void, signal: AbortSignal, write: (event: ChatDevtoolsStreamEvent) => unknown },
+): Promise<void> {
+  try {
+    const response = await fetch(new URL(chatDevtoolsBridgeRoute, resolveViteServerUrl(ctx)), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ ...body, stream: true }),
+      signal: stream.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(`Chat DevTools bridge failed with ${response.status}: ${await response.text()}`)
+    }
+    if (!response.body) {
+      throw new Error("Chat DevTools bridge did not return a stream.")
+    }
+
+    const decoder = new TextDecoder()
+    const reader = response.body.getReader()
+    let pending = ""
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      pending += decoder.decode(value, { stream: true })
+      const lines = pending.split("\n")
+      pending = lines.pop() || ""
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const event = JSON.parse(line) as ChatDevtoolsStreamEvent
+        if (event.type === "error") {
+          stream.write(event)
+          stream.close()
+          return
+        }
+        if (event.type === "done") {
+          stream.close()
+          return
+        }
+        stream.write(event)
+      }
+    }
+    const tail = pending.trim()
+    if (tail) {
+      stream.write(JSON.parse(tail) as ChatDevtoolsStreamEvent)
+    }
+    stream.close()
+  }
+  catch (cause) {
+    if (!stream.signal.aborted) {
+      stream.error(cause)
+    }
+  }
+}
+
 function registerChatDevtoolsRpc(ctx: ViteDevToolsNodeContext): void {
+  const streaming = (ctx.rpc as { streaming?: { create: <T>(name: string, options?: { closedStreamRetention?: number, replayWindow?: number }) => { start: () => { close: () => void, error: (error: unknown) => void, id: string, signal: AbortSignal, write: (event: T) => unknown } } } }).streaming
+  const chatStream = streaming?.create<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, {
+    replayWindow: 1024,
+    closedStreamRetention: 30_000,
+  })
+
   ctx.rpc.register(defineRpcFunction({
     name: chatDevtoolsGetStateRpc,
     type: "query",
@@ -91,7 +157,18 @@ function registerChatDevtoolsRpc(ctx: ViteDevToolsNodeContext): void {
     type: "action",
     jsonSerializable: true,
     setup: () => ({
-      handler: async input => await postChatDevtoolsBridge(ctx, { action: "send", ...input }),
+      handler: async (input): Promise<ChatDevtoolsSendResult> => {
+        if (!chatStream) {
+          throw new Error("Chat DevTools streaming requires a Vite DevTools version with ctx.rpc.streaming.")
+        }
+        const stream = chatStream.start()
+        void writeChatDevtoolsStream(ctx, { action: "send", ...input }, stream)
+        const state = await postChatDevtoolsBridge(ctx, { action: "get-state" })
+        return {
+          ...state,
+          streamId: stream.id,
+        }
+      },
     }),
   }) as never)
 

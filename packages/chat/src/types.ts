@@ -22,6 +22,7 @@ import type {
 export type MaybePromise<T> = T | Promise<T>
 export type ChatRuntimeName = "nitro" | "cloudflare" | "vercel" | "unknown"
 export type ChatWaitUntil = (task: Promise<unknown>) => void
+export type ChatWebhookProcessingMode = "defer" | "inline"
 
 export interface ChatRuntimeConfig {}
 
@@ -190,6 +191,7 @@ export interface ChatCloudflareDurableObjectModuleOptions {
 
 export interface ChatWebhookModuleOptions {
   chatParam?: string
+  processing?: ChatWebhookProcessingMode
   route?: string
   routeParam?: string
 }
@@ -226,6 +228,7 @@ export interface ResolvedChatModuleOptions {
 }
 
 export interface ChatWebhookHandlerOptions<TContext extends ChatRuntimeContext = ChatRuntimeContext> {
+  processing?: ChatWebhookProcessingMode
   inferredName?: string
   lifecycleHooks?: ChatWebhookRuntimeHooks<TContext>
   platform?: string

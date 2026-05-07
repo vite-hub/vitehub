@@ -10,6 +10,7 @@ import {
   chatDevtoolsPanelId,
   chatDevtoolsRoute,
   chatDevtoolsSendRpc,
+  chatDevtoolsStreamChannel,
   chatDevtoolsTitle,
   chatDevtoolsUrlEnv,
 } from "./devtools-shared.js"
@@ -24,7 +25,9 @@ import type {
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
+  ChatDevtoolsSendResult,
   ChatDevtoolsStateResult,
+  ChatDevtoolsStreamEvent,
   ChatDevtoolsTool,
   ChatDevtoolsToolStatus,
 } from "./devtools-shared.js"
@@ -37,6 +40,7 @@ export {
   chatDevtoolsPanelId,
   chatDevtoolsRoute,
   chatDevtoolsSendRpc,
+  chatDevtoolsStreamChannel,
   chatDevtoolsTitle,
   chatDevtoolsUrlEnv,
 } from "./devtools-shared.js"
@@ -47,7 +51,9 @@ export type {
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
+  ChatDevtoolsSendResult,
   ChatDevtoolsStateResult,
+  ChatDevtoolsStreamEvent,
   ChatDevtoolsTool,
   ChatDevtoolsToolStatus,
 } from "./devtools-shared.js"
@@ -535,6 +541,64 @@ async function postChatDevtoolsBridge(ctx: ViteDevToolsNodeContext, route: strin
   return await response.json() as ChatDevtoolsStateResult
 }
 
+async function writeChatDevtoolsStream(
+  ctx: ViteDevToolsNodeContext,
+  route: string,
+  body: ChatDevtoolsBridgeRequest,
+  stream: { close: () => void, error: (error: unknown) => void, signal: AbortSignal, write: (event: ChatDevtoolsStreamEvent) => unknown },
+): Promise<void> {
+  try {
+    const response = await fetch(new URL(route, resolveViteServerUrl(ctx)), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...body, stream: true }),
+      signal: stream.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(`Chat DevTools bridge failed with ${response.status}: ${await response.text()}`)
+    }
+    if (!response.body) {
+      throw new Error("Chat DevTools bridge did not return a stream.")
+    }
+
+    const decoder = new TextDecoder()
+    const reader = response.body.getReader()
+    let pending = ""
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      pending += decoder.decode(value, { stream: true })
+      const lines = pending.split("\n")
+      pending = lines.pop() || ""
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const event = JSON.parse(line) as ChatDevtoolsStreamEvent
+        if (event.type === "error") {
+          stream.write(event)
+          stream.close()
+          return
+        }
+        if (event.type === "done") {
+          stream.close()
+          return
+        }
+        stream.write(event)
+      }
+    }
+    const tail = pending.trim()
+    if (tail) {
+      stream.write(JSON.parse(tail) as ChatDevtoolsStreamEvent)
+    }
+    stream.close()
+  }
+  catch (cause) {
+    if (!stream.signal.aborted) {
+      stream.error(cause)
+    }
+  }
+}
+
 export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlugin {
   const route = options.route || chatDevtoolsBridgeRoute
   const devtoolsUrl = options.devtools && typeof options.devtools === "object"
@@ -564,6 +628,12 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
       setup(ctx) {
         if (options.devtools === false) return
 
+        const streaming = (ctx.rpc as { streaming?: { create: <T>(name: string, options?: { closedStreamRetention?: number, replayWindow?: number }) => { start: () => { close: () => void, error: (error: unknown) => void, id: string, signal: AbortSignal, write: (event: T) => unknown } } } }).streaming
+        const chatStream = streaming?.create<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, {
+          replayWindow: 1024,
+          closedStreamRetention: 30_000,
+        })
+
         registerViteHubDevtoolsPanel(ctx, {
           distDir: resolveChatDevtoolsClientDist(),
           icon: "i-lucide-message-square",
@@ -583,7 +653,20 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
           name: chatDevtoolsSendRpc,
           type: "action",
           jsonSerializable: true,
-          setup: () => ({ handler: async input => await postChatDevtoolsBridge(ctx, route, { action: "send", ...input }) }),
+          setup: () => ({
+            handler: async (input): Promise<ChatDevtoolsSendResult> => {
+              if (!chatStream) {
+                throw new Error("Chat DevTools streaming requires a Vite DevTools version with ctx.rpc.streaming.")
+              }
+              const stream = chatStream.start()
+              void writeChatDevtoolsStream(ctx, route, { action: "send", ...input }, stream)
+              const state = await postChatDevtoolsBridge(ctx, route, { action: "get-state" })
+              return {
+                ...state,
+                streamId: stream.id,
+              }
+            },
+          }),
         }) as never)
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsClearRpc,
@@ -599,7 +682,7 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
 declare module "@vitejs/devtools-kit" {
   interface DevToolsRpcServerFunctions {
     [chatDevtoolsGetStateRpc]: () => Promise<ChatDevtoolsStateResult>
-    [chatDevtoolsSendRpc]: (input: ChatDevtoolsSendInput) => Promise<ChatDevtoolsStateResult>
+    [chatDevtoolsSendRpc]: (input: ChatDevtoolsSendInput) => Promise<ChatDevtoolsSendResult>
     [chatDevtoolsClearRpc]: (input: ChatDevtoolsClearInput) => Promise<ChatDevtoolsStateResult>
   }
 }

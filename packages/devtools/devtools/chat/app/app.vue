@@ -5,8 +5,11 @@ import {
   chatDevtoolsClearRpc,
   chatDevtoolsGetStateRpc,
   chatDevtoolsSendRpc,
+  chatDevtoolsStreamChannel,
   type ChatDevtoolsMessage,
+  type ChatDevtoolsSendResult,
   type ChatDevtoolsStateResult,
+  type ChatDevtoolsStreamEvent,
 } from "../../../../chat/src/devtools-shared"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
@@ -21,6 +24,7 @@ const state = ref<ChatDevtoolsStateResult>({
   selected: "",
 })
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
+let currentReader: { cancel: () => unknown } | undefined
 
 const messages = computed(() => {
   const selected = state.value.chats.find(chat => chat.name === state.value.selected) || state.value.chats[0]
@@ -46,6 +50,16 @@ function isSendPending() {
   if (!assistant) return true
   const hasRunningTool = assistant.tools?.some(tool => tool.status === "running")
   return hasRunningTool || (!assistant.text.trim() && !assistant.tools?.length)
+}
+
+function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
+  if (event.type === "state") {
+    state.value = event.state
+    return
+  }
+  if (event.type === "error") {
+    error.value = event.message
+  }
 }
 
 function renderToolOutput(output: unknown) {
@@ -114,16 +128,30 @@ async function send() {
 
   try {
     const chat = selectedChat()?.name
-    state.value = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsSendRpc, {
+    currentReader?.cancel()
+    currentReader = undefined
+
+    const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
       text,
     })
+    state.value = result.state
     pendingUserMessageId.value = selectedChat()?.messages.findLast(message => message.role === "user")?.id
     status.value = "streaming"
-    for (let attempt = 0; attempt < 300 && isSendPending(); attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 100))
-      await refresh()
+
+    const reader = rpcClient?.streaming.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, result.streamId, {
+      highWaterMark: 1024,
+    })
+    if (!reader) {
+      throw new Error("Chat DevTools streaming client is unavailable.")
     }
+    currentReader = reader
+
+    for await (const event of reader) {
+      applyStreamEvent(event)
+      if (event.type === "error") break
+    }
+    status.value = isSendPending() ? "submitted" : "ready"
   }
   catch (cause) {
     const message = cause instanceof Error ? cause.message : "Chat DevTools send failed."
@@ -148,12 +176,15 @@ async function send() {
   }
   finally {
     pendingUserMessageId.value = undefined
+    currentReader = undefined
     status.value = "ready"
   }
 }
 
 async function clear() {
   try {
+    currentReader?.cancel()
+    currentReader = undefined
     state.value = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
       chat: state.value.selected,
     })

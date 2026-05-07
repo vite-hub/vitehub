@@ -5,6 +5,7 @@ export const chatDevtoolsBridgeRoute = "/__vitehub/chat/devtools"
 export const chatDevtoolsGetStateRpc = "@vitehub/chat:get-state"
 export const chatDevtoolsSendRpc = "@vitehub/chat:send"
 export const chatDevtoolsClearRpc = "@vitehub/chat:clear"
+export const chatDevtoolsStreamChannel = "@vitehub/chat:stream"
 export const chatDevtoolsUrlEnv = "VITEHUB_CHAT_DEVTOOLS_URL"
 export const chatDevtoolsAdapterName = "devtools"
 
@@ -47,3 +48,12 @@ export interface ChatDevtoolsSendInput {
 export interface ChatDevtoolsClearInput {
   chat?: string
 }
+
+export interface ChatDevtoolsSendResult extends ChatDevtoolsStateResult {
+  streamId: string
+}
+
+export type ChatDevtoolsStreamEvent =
+  | { state: ChatDevtoolsStateResult, type: "state" }
+  | { type: "done" }
+  | { message: string, type: "error" }

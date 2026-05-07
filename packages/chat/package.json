@@ -54,7 +54,7 @@
     "test": "pnpm --filter @vitehub/chat build && vitest run"
   },
   "dependencies": {
-    "@vitejs/devtools-kit": "^0.1.18",
+    "@vitejs/devtools-kit": "catalog:",
     "@vercel/functions": "^3.4.3",
     "h3": "2.0.1-rc.20",
     "hookable": "^6.1.1"

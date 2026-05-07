@@ -8,7 +8,7 @@ import { getChatRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 
 import type { Adapter, AdapterPostableMessage, Chat as ChatInstance, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
 import type { EventHandler, H3Event } from "h3"
-import type { ChatDevtoolsAdapter, ChatDevtoolsBridgeRequest, ChatDevtoolsConversation, ChatDevtoolsMessage, ChatDevtoolsStateResult } from "../devtools.ts"
+import type { ChatDevtoolsAdapter, ChatDevtoolsBridgeRequest, ChatDevtoolsConversation, ChatDevtoolsMessage, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
 import type { ChatInput } from "../types.ts"
 import type { NitroChatRuntimeConfig, NitroChatRuntimeContext } from "./handler.ts"
 
@@ -27,6 +27,8 @@ interface ChatDevtoolsHandlerState {
   registry: ChatDevtoolsRegistry
   sessions: Map<string, ChatDevtoolsSession>
 }
+
+type ChatDevtoolsBridgeBody = ChatDevtoolsBridgeRequest & { stream?: boolean }
 
 function createChatDevtoolsMessage(role: ChatDevtoolsMessage["role"], text: string): ChatDevtoolsMessage {
   return {
@@ -78,16 +80,17 @@ function createSdkMessage(session: ChatDevtoolsSession, text: string): ChatMessa
   })
 }
 
-function createSessionDevtoolsAdapter(session: ChatDevtoolsSession): Adapter {
+function createSessionDevtoolsAdapter(session: ChatDevtoolsSession, onChange?: () => void | Promise<void>): Adapter {
   const adapter = createBaseDevtoolsAdapter()
 
-  function syncAdapterMessages() {
+  async function syncAdapterMessages() {
     const messages = adapter.getDevtoolsState(session.name).chats[0]?.messages || []
     for (const message of messages) {
       const existing = session.messages.find(item => item.id === message.id)
       if (existing) Object.assign(existing, message)
       else session.messages.push(message)
     }
+    await onChange?.()
   }
 
   return {
@@ -101,7 +104,7 @@ function createSessionDevtoolsAdapter(session: ChatDevtoolsSession): Adapter {
     deleteMessage: async () => {},
     editMessage: async (threadId, messageId, message) => {
       const result = await adapter.editMessage(threadId, messageId, message)
-      syncAdapterMessages()
+      await syncAdapterMessages()
       return result
     },
     fetchMessages: async () => ({ messages: [...session.messages] as never }),
@@ -117,14 +120,14 @@ function createSessionDevtoolsAdapter(session: ChatDevtoolsSession): Adapter {
     parseMessage: raw => raw as ChatMessage,
     postMessage: async (threadId, message): Promise<RawMessage> => {
       const result = await adapter.postMessage(threadId, message)
-      syncAdapterMessages()
+      await syncAdapterMessages()
       return result
     },
     removeReaction: async () => {},
     renderFormatted: content => toPlainText(content),
     startTyping: async (_threadId, status) => {
       await adapter.startTyping(_threadId, status)
-      syncAdapterMessages()
+      await syncAdapterMessages()
     },
   }
 }
@@ -195,7 +198,12 @@ function serializeState(state: ChatDevtoolsHandlerState, selected?: string): Cha
   }
 }
 
-async function sendDevtoolsMessage(event: H3Event, state: ChatDevtoolsHandlerState, input: { chat?: string, text?: string }): Promise<ChatDevtoolsStateResult> {
+async function sendDevtoolsMessage(
+  event: H3Event,
+  state: ChatDevtoolsHandlerState,
+  input: { chat?: string, text?: string },
+  onChange?: (next: ChatDevtoolsStateResult) => void | Promise<void>,
+): Promise<ChatDevtoolsStateResult> {
   const text = input.text?.trim()
   if (!text) {
     throw createError({
@@ -213,14 +221,43 @@ async function sendDevtoolsMessage(event: H3Event, state: ChatDevtoolsHandlerSta
   }
 
   const session = getSession(state, selected)
-  const adapter = createSessionDevtoolsAdapter(session)
+  const adapter = createSessionDevtoolsAdapter(session, async () => {
+    await onChange?.(serializeState(state, selected))
+  })
   const message = createSdkMessage(session, text)
   session.messages.push(createChatDevtoolsMessage("user", text))
+  await onChange?.(serializeState(state, selected))
 
   const bot = await resolveDevtoolsChat(event, state, session)
   await bot.handleIncomingMessage(adapter, message.threadId, message)
 
   return serializeState(state, selected)
+}
+
+function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void) => Promise<void>): Response {
+  const encoder = new TextEncoder()
+  return new Response(new ReadableStream({
+    start(controller) {
+      const emit = (event: ChatDevtoolsStreamEvent) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+      }
+
+      run(emit)
+        .then(() => {
+          emit({ type: "done" })
+          controller.close()
+        })
+        .catch((cause) => {
+          emit({
+            type: "error",
+            message: cause instanceof Error ? cause.message : "Chat DevTools stream failed.",
+          })
+          controller.close()
+        })
+    },
+  }), {
+    headers: { "content-type": "application/x-ndjson" },
+  })
 }
 
 function isChatDevtoolsAdapter(adapter: Adapter): adapter is ChatDevtoolsAdapter {
@@ -250,7 +287,7 @@ function getSingletonDevtoolsAdapter(): { adapter: ChatDevtoolsAdapter, chat: Ch
 
 export function defineChatDevtoolsSingletonHandler(): EventHandler {
   return defineEventHandler(async (event) => {
-    const body = await readBody<ChatDevtoolsBridgeRequest>(event)
+    const body = await readBody<ChatDevtoolsBridgeBody>(event)
     const { adapter, chat } = getSingletonDevtoolsAdapter()
     if (!body || typeof body.action !== "string" || body.action === "get-state") {
       return adapter.getDevtoolsState()
@@ -267,6 +304,15 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
         throw createError({
           statusCode: 400,
           statusMessage: "Missing chat message text.",
+        })
+      }
+
+      if (body.stream) {
+        return createChatDevtoolsStreamResponse(async (emit) => {
+          const message = adapter.createDevtoolsMessage(text, body.chat)
+          emit({ type: "state", state: adapter.getDevtoolsState(body.chat) })
+          await chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
+          emit({ type: "state", state: adapter.getDevtoolsState(body.chat) })
         })
       }
 
@@ -296,7 +342,7 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
   }
 
   return defineEventHandler(async (event) => {
-    const body = await readBody<ChatDevtoolsBridgeRequest>(event)
+    const body = await readBody<ChatDevtoolsBridgeBody>(event)
     if (!body || typeof body.action !== "string") {
       throw createError({
         statusCode: 400,
@@ -308,6 +354,11 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
       return serializeState(state)
     }
     if (body.action === "send") {
+      if (body.stream) {
+        return createChatDevtoolsStreamResponse(async (emit) => {
+          await sendDevtoolsMessage(event, state, body, next => emit({ type: "state", state: next }))
+        })
+      }
       return await sendDevtoolsMessage(event, state, body)
     }
     if (body.action === "clear") {

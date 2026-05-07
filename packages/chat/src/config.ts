@@ -3,6 +3,7 @@ import type { ChatModuleOptions, ResolvedChatModuleOptions } from "./types.ts"
 const defaultChatWebhookRoute = "/api/webhooks/[platform]"
 const defaultChatWebhookChatParam = "chat"
 const defaultChatWebhookRouteParam = "platform"
+const defaultChatWebhookProcessing = "defer"
 const defaultChatCloudflareDurableObjectBinding = "CHAT_STATE"
 const defaultChatCloudflareDurableObjectClassName = "ChatStateDO"
 const defaultChatCloudflareDurableObjectMigrationTag = "v1"
@@ -22,6 +23,7 @@ function normalizeWebhookOptions(webhook: ChatModuleOptions["webhook"]): Resolve
   if (typeof webhook === "string") {
     return {
       chatParam: defaultChatWebhookChatParam,
+      processing: defaultChatWebhookProcessing,
       route: webhook,
       routeParam: defaultChatWebhookRouteParam,
     }
@@ -29,6 +31,7 @@ function normalizeWebhookOptions(webhook: ChatModuleOptions["webhook"]): Resolve
 
   return {
     chatParam: webhook?.chatParam || defaultChatWebhookChatParam,
+    processing: webhook?.processing || defaultChatWebhookProcessing,
     route: webhook?.route || defaultChatWebhookRoute,
     routeParam: webhook?.routeParam || defaultChatWebhookRouteParam,
   }
