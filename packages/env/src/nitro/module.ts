@@ -160,6 +160,7 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
       nitro.options.alias ||= {}
       nitro.options.alias["@vitehub/env"] = resolveEntry("../index", "@vitehub/env")
       nitro.options.alias["#vitehub/env/server"] = resolveEntry("../runtime/server", "@vitehub/env/runtime/server")
+      nitro.options.alias["#vitehub/env/registry"] = registryFile
 
       nitro.options.plugins ||= []
       if (!nitro.options.plugins.includes(pluginFile)) {

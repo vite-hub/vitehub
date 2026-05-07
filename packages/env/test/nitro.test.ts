@@ -93,6 +93,7 @@ describe("Nitro module", () => {
     await envNitro({ diagnostics: "trace" }).setup(nitro as never)
 
     expect(nitro.options.alias?.["#vitehub/env/server"]).toContain("/packages/env/src/runtime/server.ts")
+    expect(nitro.options.alias?.["#vitehub/env/registry"]).toBe(join(root, ".vitehub/nitro-runtime/env/registry.mjs"))
     expect(nitro.options.plugins).toHaveLength(1)
     expect(nitro.options.handlers).toBeUndefined()
     expect(nitro.options.cloudflare?.wrangler?.secrets?.required).toEqual(["EXISTING_SECRET", "AUTH_SECRET", "TEAMS_APP_ID", "TEAMS_APP_PASSWORD", "TEAMS_APP_TENANT_ID", "TELEGRAM_BOT_TOKEN"])
