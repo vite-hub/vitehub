@@ -135,7 +135,7 @@ async function send() {
       ...(chat ? { chat } : {}),
       text,
     })
-    state.value = result.state
+    state.value = result
     pendingUserMessageId.value = selectedChat()?.messages.findLast(message => message.role === "user")?.id
     status.value = "streaming"
 

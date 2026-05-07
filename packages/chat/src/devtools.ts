@@ -543,6 +543,10 @@ async function postChatDevtoolsBridge(ctx: ViteDevToolsNodeContext, route: strin
   return await response.json() as ChatDevtoolsStateResult
 }
 
+function toChatDevtoolsErrorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause)
+}
+
 async function writeChatDevtoolsStream(
   ctx: ViteDevToolsNodeContext,
   route: string,
@@ -596,7 +600,8 @@ async function writeChatDevtoolsStream(
   }
   catch (cause) {
     if (!stream.signal.aborted) {
-      stream.error(cause)
+      stream.write({ message: toChatDevtoolsErrorMessage(cause), type: "error" })
+      stream.close()
     }
   }
 }
@@ -666,7 +671,6 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsSendRpc,
           type: "action",
-          jsonSerializable: true,
           setup: () => ({
             handler: async (input): Promise<ChatDevtoolsSendResult> => {
               if (!chatStream) {

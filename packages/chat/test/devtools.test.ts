@@ -264,6 +264,43 @@ describe("Chat DevTools Vite integration", () => {
     }))
   })
 
+  it("keeps send RPC errors JSON-safe", async () => {
+    const { hubChat } = await import("../src/vite.ts")
+    const ctx = createDevtoolsContext()
+    const fetchMock = vi.fn(async (_url: URL, init?: RequestInit) => {
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as { stream?: boolean } : {}
+      if (body.stream) {
+        return new Response("boom", { status: 500 })
+      }
+      return new Response(JSON.stringify({
+        chats: [{ name: "default", messages: [] }],
+        selected: "default",
+      }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const plugin = hubChat()
+    ;(plugin as { devtools: { setup: (ctx: unknown) => void } }).devtools.setup(ctx)
+
+    const functions = ctx.rpc.register.mock.calls.map(call => call[0])
+    const send = functions.find(fn => fn.name === "@vitehub/chat:send")!
+    const sendResult = await send.setup().handler({ chat: "default", text: "hello" })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(send).not.toHaveProperty("jsonSerializable")
+    expect(sendResult).toMatchObject({
+      chats: [{ name: "default", messages: [] }],
+      selected: "default",
+      streamId: "stream-1",
+    })
+    expect(ctx.stream.write).toHaveBeenCalledWith({
+      message: "Chat DevTools bridge failed with 500: boom",
+      type: "error",
+    })
+    expect(ctx.stream.error).not.toHaveBeenCalled()
+    expect(ctx.stream.close).toHaveBeenCalled()
+  })
+
   it("auto-adds the panel-only Vite plugin from the Nitro module in dev", async () => {
     const chatNitroModule = (await import("../src/nitro/module.ts")).default
     const { chatDevtoolsBridgeRoute, chatDevtoolsPanelPluginName } = await import("../src/devtools.ts")
