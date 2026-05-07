@@ -163,9 +163,10 @@ function registerChatDevtoolsRpc(ctx: ViteDevToolsNodeContext): void {
         }
         const stream = chatStream.start()
         void writeChatDevtoolsStream(ctx, { action: "send", ...input }, stream)
+        const state = await postChatDevtoolsBridge(ctx, { action: "get-state" })
         return {
+          ...state,
           streamId: stream.id,
-          state: await postChatDevtoolsBridge(ctx, { action: "get-state" }),
         }
       },
     }),

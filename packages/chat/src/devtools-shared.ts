@@ -49,8 +49,7 @@ export interface ChatDevtoolsClearInput {
   chat?: string
 }
 
-export interface ChatDevtoolsSendResult {
-  state: ChatDevtoolsStateResult
+export interface ChatDevtoolsSendResult extends ChatDevtoolsStateResult {
   streamId: string
 }
 

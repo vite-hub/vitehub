@@ -660,9 +660,10 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
               }
               const stream = chatStream.start()
               void writeChatDevtoolsStream(ctx, route, { action: "send", ...input }, stream)
+              const state = await postChatDevtoolsBridge(ctx, route, { action: "get-state" })
               return {
+                ...state,
                 streamId: stream.id,
-                state: await postChatDevtoolsBridge(ctx, route, { action: "get-state" }),
               }
             },
           }),

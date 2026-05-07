@@ -210,7 +210,11 @@ describe("Chat DevTools Vite integration", () => {
     await functions.find(fn => fn.name === "@vitehub/chat:clear")!.setup().handler({ chat: "default" })
     await new Promise(resolve => setTimeout(resolve, 0))
 
-    expect(sendResult).toMatchObject({ streamId: "stream-1" })
+    expect(sendResult).toMatchObject({
+      chats: [{ name: "default", messages: [] }],
+      selected: "default",
+      streamId: "stream-1",
+    })
     expect(ctx.stream.write).toHaveBeenCalledWith(expect.objectContaining({ type: "state" }))
     expect(ctx.stream.close).toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledWith(new URL("http://127.0.0.1:3000/__vitehub/chat/devtools"), expect.objectContaining({
