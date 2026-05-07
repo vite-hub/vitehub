@@ -36,6 +36,13 @@ vi.mock("node:fs", async (importActual) => {
 })
 
 function createDevtoolsContext() {
+  const stream = {
+    close: vi.fn(),
+    error: vi.fn(),
+    id: "stream-1",
+    signal: new AbortController().signal,
+    write: vi.fn(),
+  }
   return {
     docks: {
       register: vi.fn(),
@@ -45,6 +52,11 @@ function createDevtoolsContext() {
     },
     rpc: {
       register: vi.fn(),
+      streaming: {
+        create: vi.fn(() => ({
+          start: vi.fn(() => stream),
+        })),
+      },
     },
     views: {
       hostStatic: vi.fn(),
@@ -59,6 +71,7 @@ function createDevtoolsContext() {
         local: ["http://127.0.0.1:3000/"],
       },
     },
+    stream,
   }
 }
 
@@ -88,6 +101,10 @@ describe("Chat DevTools Vite integration", () => {
       expect.stringContaining("dist/devtools-client"),
     )
     expect(ctx.rpc.register).toHaveBeenCalledTimes(3)
+    expect(ctx.rpc.streaming.create).toHaveBeenCalledWith("@vitehub/chat:stream", {
+      replayWindow: 1024,
+      closedStreamRetention: 30_000,
+    })
     expect(nitro.options.handlers).toEqual([
       expect.objectContaining({
         method: "POST",
@@ -166,10 +183,22 @@ describe("Chat DevTools Vite integration", () => {
   it("RPC handlers call the Nitro bridge route", async () => {
     const { hubChat } = await import("../src/vite.ts")
     const ctx = createDevtoolsContext()
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      chats: [{ name: "default", messages: [] }],
-      selected: "default",
-    })))
+    const fetchMock = vi.fn(async (_url: URL, init?: RequestInit) => {
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as { stream?: boolean } : {}
+      if (body.stream) {
+        return new Response(`${JSON.stringify({
+          type: "state",
+          state: {
+            chats: [{ name: "default", messages: [] }],
+            selected: "default",
+          },
+        })}\n${JSON.stringify({ type: "done" })}\n`)
+      }
+      return new Response(JSON.stringify({
+        chats: [{ name: "default", messages: [] }],
+        selected: "default",
+      }))
+    })
     vi.stubGlobal("fetch", fetchMock)
 
     const plugin = hubChat()
@@ -177,16 +206,20 @@ describe("Chat DevTools Vite integration", () => {
 
     const functions = ctx.rpc.register.mock.calls.map(call => call[0])
     await functions.find(fn => fn.name === "@vitehub/chat:get-state")!.setup().handler()
-    await functions.find(fn => fn.name === "@vitehub/chat:send")!.setup().handler({ chat: "default", text: "hello" })
+    const sendResult = await functions.find(fn => fn.name === "@vitehub/chat:send")!.setup().handler({ chat: "default", text: "hello" })
     await functions.find(fn => fn.name === "@vitehub/chat:clear")!.setup().handler({ chat: "default" })
+    await new Promise(resolve => setTimeout(resolve, 0))
 
+    expect(sendResult).toMatchObject({ streamId: "stream-1" })
+    expect(ctx.stream.write).toHaveBeenCalledWith(expect.objectContaining({ type: "state" }))
+    expect(ctx.stream.close).toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledWith(new URL("http://127.0.0.1:3000/__vitehub/chat/devtools"), expect.objectContaining({
       method: "POST",
     }))
     expect(fetchMock).toHaveBeenNthCalledWith(2, expect.any(URL), expect.objectContaining({
-      body: JSON.stringify({ action: "send", chat: "default", text: "hello" }),
+      body: JSON.stringify({ action: "send", chat: "default", text: "hello", stream: true }),
     }))
-    expect(fetchMock).toHaveBeenNthCalledWith(3, expect.any(URL), expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(4, expect.any(URL), expect.objectContaining({
       body: JSON.stringify({ action: "clear", chat: "default" }),
     }))
   })
