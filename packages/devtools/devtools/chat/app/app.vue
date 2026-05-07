@@ -23,6 +23,7 @@ const state = ref<ChatDevtoolsStateResult>({
   chats: [],
   selected: "",
 })
+const pendingUserMessage = ref<ChatDevtoolsMessage | undefined>()
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 
@@ -37,6 +38,49 @@ const messages = computed(() => {
 
 function selectedChat() {
   return state.value.chats.find(chat => chat.name === state.value.selected) || state.value.chats[0]
+}
+
+function selectedChatName() {
+  return state.value.selected || state.value.chats[0]?.name || "dev"
+}
+
+function stateWithPendingUser(next: ChatDevtoolsStateResult) {
+  const pending = pendingUserMessage.value
+  if (!pending) {
+    return next
+  }
+
+  const selected = next.selected || selectedChatName()
+  const chats = next.chats.length ? next.chats : [{ name: selected, messages: [] }]
+  const selectedIndex = Math.max(0, chats.findIndex(chat => chat.name === selected))
+  const selectedChat = chats[selectedIndex] || chats[0]!
+  const serverHasUser = selectedChat.messages.some(message =>
+    message.role === "user"
+    && message.id !== pending.id
+    && message.text === pending.text
+    && new Date(message.createdAt).getTime() >= new Date(pending.createdAt).getTime() - 5_000,
+  )
+
+  if (serverHasUser || selectedChat.messages.some(message => message.id === pending.id)) {
+    if (serverHasUser) {
+      pendingUserMessage.value = undefined
+    }
+    return next
+  }
+
+  const mergedChats = chats.map((chat, index) => index === selectedIndex
+    ? { ...chat, messages: [...chat.messages, pending] }
+    : chat)
+
+  return {
+    ...next,
+    chats: mergedChats,
+    selected,
+  }
+}
+
+function applyState(next: ChatDevtoolsStateResult) {
+  state.value = stateWithPendingUser(next)
 }
 
 function isSendPending() {
@@ -54,7 +98,7 @@ function isSendPending() {
 
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
   if (event.type === "state") {
-    state.value = event.state
+    applyState(event.state)
     return
   }
   if (event.type === "error") {
@@ -92,6 +136,28 @@ function appendDummy(message: ChatDevtoolsMessage) {
   chat.messages.push(message)
 }
 
+function appendPendingUserMessage(text: string, chat = selectedChatName()) {
+  const message: ChatDevtoolsMessage = {
+    id: `pending-user-${Date.now()}`,
+    role: "user",
+    text,
+    createdAt: new Date().toISOString(),
+  }
+  pendingUserMessage.value = message
+
+  const chats = state.value.chats.length ? state.value.chats : [{ name: chat, messages: [] }]
+  const selected = state.value.selected || chat
+  const selectedIndex = Math.max(0, chats.findIndex(item => item.name === selected))
+  const selectedChat = chats[selectedIndex] || chats[0]!
+  state.value = {
+    chats: chats.map((item, index) => index === selectedIndex
+      ? { ...item, messages: [...item.messages, message] }
+      : item),
+    selected: selectedChat.name,
+  }
+  pendingUserMessageId.value = message.id
+}
+
 async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
   if (!rpcClient) {
     try {
@@ -107,7 +173,7 @@ async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
 
 async function refresh() {
   try {
-    state.value = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc)
+    applyState(await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc))
     error.value = undefined
   }
   catch (cause) {
@@ -130,12 +196,13 @@ async function send() {
     const chat = selectedChat()?.name
     currentReader?.cancel()
     currentReader = undefined
+    appendPendingUserMessage(text, chat)
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
       text,
     })
-    state.value = result
+    applyState(result)
     pendingUserMessageId.value = selectedChat()?.messages.findLast(message => message.role === "user")?.id
     if (!result.streamId) {
       status.value = "ready"
@@ -193,6 +260,7 @@ async function clear() {
     state.value = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
       chat: state.value.selected,
     })
+    pendingUserMessage.value = undefined
     error.value = undefined
   }
   catch {
