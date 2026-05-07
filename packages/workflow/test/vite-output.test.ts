@@ -103,6 +103,26 @@ describe("Vite workflow provider outputs", () => {
     expect(serverEntryContents).toContain('__vitehubRunNitroWorkflowDefinition("welcome"')
   }, 30_000)
 
+  it("infers Nitro Cloudflare workflow output when workflow options are omitted", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-cloudflare-inferred-")
+    const nitroConfig = join(rootDir, "nitro.config.ts")
+    await writeFile(nitroConfig, (await readFile(nitroConfig, "utf8")).replace("  workflow: workflowEnabled ? {} : false,\n", ""))
+
+    await execFileAsync("pnpm", ["exec", "nitro", "build", "--preset", "cloudflare-module"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_NITRO_MODE: "workflow" },
+    })
+
+    const wrangler = JSON.parse(await readFile(join(rootDir, ".output", "server", "wrangler.json"), "utf8"))
+    const className = getCloudflareWorkflowClassName("welcome")
+
+    expect(wrangler.workflows).toContainEqual({
+      binding: "WORKFLOW_77656C636F6D65",
+      class_name: className,
+      name: "workflow--77656c636f6d65",
+    })
+  }, 30_000)
+
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
     const viteConfig = join(rootDir, "vite.config.ts")

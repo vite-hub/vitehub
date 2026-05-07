@@ -11,6 +11,12 @@ describe("workflow config", () => {
     })
   })
 
+  it("infers cloudflare from hosting without workflow options", () => {
+    expect(normalizeWorkflowOptions(undefined, { hosting: "cloudflare-module" })).toEqual({
+      provider: "cloudflare",
+    })
+  })
+
   it("defaults to vercel", () => {
     expect(normalizeWorkflowOptions(undefined)).toEqual({
       provider: "vercel",

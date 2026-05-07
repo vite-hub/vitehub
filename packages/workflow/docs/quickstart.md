@@ -18,7 +18,7 @@ Set up @vitehub/workflow in this app.
 
 - Install @vitehub/workflow
 - Register hubWorkflow() for Vite or @vitehub/workflow/nitro for Nitro
-- Configure workflow.provider as cloudflare or vercel
+- Configure workflow.provider only when the hosting provider cannot be inferred
 - Define welcome as a discovered workflow
 - Call runWorkflow('welcome', payload) from a route
 - Return the workflow run to the caller
@@ -41,7 +41,7 @@ Cloudflare uses runtime Workflow bindings. Vercel uses generated ViteHub runtime
 ### Register the integration
 
 ::fw{id="vite:dev vite:build"}
-Register the Vite plugin and choose the provider:
+Register the Vite plugin. Cloudflare and Vercel hosting are detected automatically; set `workflow.provider` only when you need to override the detected provider.
 
 ::tabs{sync="provider"}
   :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
@@ -51,9 +51,6 @@ Register the Vite plugin and choose the provider:
 
     export default defineConfig({
       plugins: [hubWorkflow()],
-      workflow: {
-        provider: 'cloudflare',
-      },
     })
     ```
   :::
@@ -75,7 +72,7 @@ Register the Vite plugin and choose the provider:
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Register the Nitro module and choose the provider:
+Register the Nitro module. Cloudflare and Vercel hosting are detected automatically; set `workflow.provider` only when you need to override the detected provider.
 
 ::tabs{sync="provider"}
   :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
@@ -84,9 +81,6 @@ Register the Nitro module and choose the provider:
 
     export default defineNitroConfig({
       modules: ['@vitehub/workflow/nitro'],
-      workflow: {
-        provider: 'cloudflare',
-      },
     })
     ```
   :::
