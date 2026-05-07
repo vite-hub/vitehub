@@ -155,7 +155,17 @@ export default defineEventHandler((event) => {
 })
 ```
 
-The Nitro module also augments Nitro runtime config types with the generated shape.
+When application helpers need an explicit config type, import the generated type from the same module instead of declaring your own runtime config interface.
+
+```ts
+import type { RuntimeEnvConfig } from '#vitehub/env/server'
+
+export function createAgent(config: RuntimeEnvConfig) {
+  return createVertex({ apiKey: config.vertex.apiKey })(config.vertex.model)
+}
+```
+
+The Nitro module also augments Nitro runtime config and ViteHub Chat runtime config types with the generated shape.
 
 ## Enable diagnostics
 

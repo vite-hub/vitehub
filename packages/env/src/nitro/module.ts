@@ -39,32 +39,44 @@ function createPluginContents(file: string, registryFile: string): string {
   ].join("\n")
 }
 
-async function writeNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): Promise<string> {
+async function writeNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): Promise<string[]> {
   const dtsPath = resolve(nitro.options.buildDir, "types", "vitehub-env.d.ts")
-  await writeFileIfChanged(dtsPath, createNitroTypes(registry))
-  return dtsPath
+  const integrationsDtsPath = resolve(nitro.options.buildDir, "types", "vitehub-env-integrations.d.ts")
+  await writeFileIfChanged(dtsPath, createNitroServerTypes(registry))
+  await writeFileIfChanged(integrationsDtsPath, createNitroIntegrationTypes(registry))
+  return [dtsPath, integrationsDtsPath]
 }
 
 async function installNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): Promise<void> {
   await writeNitroTypes(nitro, registry)
   nitro.hooks.hook("types:extend", async (types: { tsConfig?: { include?: string[] } }) => {
-    const dtsPath = await writeNitroTypes(nitro, registry)
+    const dtsPaths = await writeNitroTypes(nitro, registry)
     if (types.tsConfig) {
       types.tsConfig.include ||= []
-      types.tsConfig.include.push(dtsPath)
+      types.tsConfig.include.push(...dtsPaths)
     }
   })
 }
 
-function createNitroTypes(registry: EnvRuntimeRegistry): string {
+function createNitroServerTypes(registry: EnvRuntimeRegistry): string {
   const fields = createTypeFields(registry, 4)
   return [
     "declare module \"#vitehub/env/server\" {",
     "  export interface SafeRuntimeConfig {",
     ...fields,
     "  }",
+    "  export type RuntimeEnvConfig = SafeRuntimeConfig",
+    "  export type ViteHubEnvConfig = SafeRuntimeConfig",
     "  export function useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig",
     "}",
+    "",
+  ].join("\n")
+}
+
+function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
+  const fields = createTypeFields(registry, 4)
+  return [
+    "import \"nitro/types\"",
     "",
     "declare module \"nitro/types\" {",
     "  export interface NitroRuntimeConfig {",

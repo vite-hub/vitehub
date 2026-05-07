@@ -106,6 +106,7 @@ describe("Nitro module", () => {
     const tsConfig = { include: [] as string[] }
     await typesHook?.({ tsConfig })
     const types = await readFile(join(root, ".nitro/types/vitehub-env.d.ts"), "utf8")
+    const integrationTypes = await readFile(join(root, ".nitro/types/vitehub-env-integrations.d.ts"), "utf8")
     expect(types).toContain("export interface SafeRuntimeConfig")
     expect(types).toContain("\"databaseUrl\": string")
     expect(types).toContain("\"optionalApiBase\": string | undefined")
@@ -118,14 +119,23 @@ describe("Nitro module", () => {
     expect(types).toContain("\"botToken\": string")
     expect(types).toContain("\"vertex\": {")
     expect(types).toContain("\"model\": string")
+    expect(types).toContain("export type RuntimeEnvConfig = SafeRuntimeConfig")
+    expect(types).toContain("export type ViteHubEnvConfig = SafeRuntimeConfig")
     expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
-    expect(types).toContain("declare module \"nitro/types\"")
-    expect(types).toContain("export interface NitroRuntimeConfig")
-    expect(types).toContain("declare module \"@vitehub/chat\"")
-    expect(types).toContain("export interface ChatRuntimeConfig")
+    expect(types).not.toContain("declare module \"nitro/types\"")
+    expect(types).not.toContain("export {}")
+    expect(integrationTypes).not.toContain("import \"@vitehub/chat\"")
+    expect(integrationTypes).toContain("import \"nitro/types\"")
+    expect(integrationTypes).toContain("declare module \"nitro/types\"")
+    expect(integrationTypes).toContain("export interface NitroRuntimeConfig")
+    expect(integrationTypes).toContain("declare module \"@vitehub/chat\"")
+    expect(integrationTypes).toContain("export interface ChatRuntimeConfig")
     expect(types).toContain("\"botToken\": string")
-    expect(types).not.toContain("NitroChatRuntimeConfig")
+    expect(integrationTypes).toContain("\"botToken\": string")
+    expect(integrationTypes).not.toContain("NitroChatRuntimeConfig")
+    expect(integrationTypes).toContain("export {}")
     expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env.d.ts"))
+    expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env-integrations.d.ts"))
 
     const registry = await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8")
     expect(registry).toContain("DATABASE_URL")
@@ -198,6 +208,81 @@ describe("Nitro module", () => {
       },
       files: [
         join(root, ".nitro/types/vitehub-env.d.ts"),
+        join(root, ".nitro/types/vitehub-env-integrations.d.ts"),
+        join(root, "typecheck.ts"),
+      ],
+    }, null, 2))
+
+    await execFileAsync("pnpm", ["exec", "tsc", "--noEmit", "-p", join(root, "tsconfig.json")], {
+      cwd: join(import.meta.dirname, ".."),
+      maxBuffer: 1024 * 1024 * 4,
+    })
+  })
+
+  it("exports generated runtime config types for application code", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-runtime-types-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          telegram: {
+            apiBaseUrl: env({ optional: true }),
+            botToken: env({ secret: true }),
+          },
+          vertex: {
+            apiKey: env({ secret: true }),
+            model: env({ default: "gemini-3.1-pro-preview-customtools" }),
+          },
+        },
+        rootDir: root,
+      },
+    }
+
+    await envNitro().setup(nitro as never)
+    const typesHook = nitro.hooks.hook.mock.calls.find(([name]) => name === "types:extend")?.[1]
+    await typesHook?.({ tsConfig: { include: [] } })
+
+    await writeFile(join(root, "typecheck.ts"), [
+      "import { useSafeRuntimeConfig } from '#vitehub/env/server'",
+      "import type { RuntimeEnvConfig, SafeRuntimeConfig, ViteHubEnvConfig } from '#vitehub/env/server'",
+      "",
+      "function createAgent(config: RuntimeEnvConfig) {",
+      "  const apiKey: string = config.vertex.apiKey",
+      "  const model: string = config.vertex.model",
+      "  void apiKey",
+      "  void model",
+      "}",
+      "",
+      "function createTelegramAdapter(config: ViteHubEnvConfig) {",
+      "  const apiBaseUrl: string | undefined = config.telegram.apiBaseUrl",
+      "  const botToken: string = config.telegram.botToken",
+      "  void apiBaseUrl",
+      "  void botToken",
+      "}",
+      "",
+      "const config: SafeRuntimeConfig = useSafeRuntimeConfig()",
+      "createAgent(config)",
+      "createTelegramAdapter(config)",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({
+      compilerOptions: {
+        allowSyntheticDefaultImports: true,
+        allowImportingTsExtensions: true,
+        baseUrl: root,
+        ignoreDeprecations: "6.0",
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        target: "ES2023",
+      },
+      files: [
+        join(root, ".nitro/types/vitehub-env.d.ts"),
+        join(root, ".nitro/types/vitehub-env-integrations.d.ts"),
         join(root, "typecheck.ts"),
       ],
     }, null, 2))
