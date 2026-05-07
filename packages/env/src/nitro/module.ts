@@ -31,6 +31,7 @@ function createPluginContents(file: string, registryFile: string): string {
     "",
     "export default function vitehubEnvPlugin(nitroApp) {",
     "  setEnvRegistry(registry)",
+    "  globalThis.__vitehubApplyEnvRuntimeConfig = (runtimeConfig, event) => applyEnvRegistryToRuntimeConfig(runtimeConfig, event)",
     "  nitroApp?.hooks?.hook?.(\"request\", (event) => {",
     "    applyEnvRegistryToRuntimeConfig(useRuntimeConfig(), event)",
     "  })",

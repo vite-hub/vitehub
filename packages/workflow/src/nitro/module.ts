@@ -39,36 +39,19 @@ function resolveNitroWorkflowScanDirs(rootDir: string, scanDirs: string[] | unde
   return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
 }
 
-function createNitroWorkflowPluginContents(file: string, registryFile: string, envRegistryAlias?: string) {
-  const envRuntimeImports = envRegistryAlias
-    ? [
-        "import envRegistry from \"#vitehub/env/registry\"",
-        "import { applyEnvRegistryToRuntimeConfig, setEnvRegistry as setViteHubEnvRegistry } from \"#vitehub/env/server\"",
-      ]
-    : []
-  const envRuntimeHelpers = envRegistryAlias
-    ? [
-        "",
-        "function applyWorkflowEnvRuntimeConfig(runtimeConfig, env) {",
-        "  setViteHubEnvRegistry(envRegistry)",
-        "  applyEnvRegistryToRuntimeConfig(runtimeConfig, { env: env || {} })",
-        "}",
-      ]
-    : [
-        "",
-        "function applyWorkflowEnvRuntimeConfig() {}",
-      ]
-
+function createNitroWorkflowPluginContents(file: string, registryFile: string) {
   return [
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
     "import { useRuntimeConfig } from \"nitro/runtime-config\"",
     "",
     "import { runCloudflareWorkflow } from \"@vitehub/workflow/runtime/cloudflare-runner\"",
     "import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from \"@vitehub/workflow/runtime/state\"",
-    ...envRuntimeImports,
     "",
     `import workflowRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    ...envRuntimeHelpers,
+    "",
+    "function applyWorkflowEnvRuntimeConfig(runtimeConfig, env) {",
+    "  globalThis.__vitehubApplyEnvRuntimeConfig?.(runtimeConfig, { env: env || {} })",
+    "}",
     "",
     "export async function runNitroWorkflowDefinition(name, env, event, step) {",
     "  const runtimeConfig = useRuntimeConfig()",
@@ -121,14 +104,13 @@ interface RuntimeFiles { definitions: DiscoveredWorkflowDefinition[], pluginFile
 async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFiles> {
   const registryFile = createNitroWorkflowRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
   const pluginFile = createNitroWorkflowPluginPath(nitro.options.rootDir, nitro.options.buildDir)
-  const envRegistryAlias = nitro.options.alias?.["#vitehub/env/registry"]
   const definitions = discoverWorkflowDefinitions({
     mode: "nitro-server-workflows",
     scanDirs: resolveNitroWorkflowScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
 
   return await writeRuntimeRegistryFiles({
-    createPluginContents: (file, nextRegistryFile) => createNitroWorkflowPluginContents(file, nextRegistryFile, envRegistryAlias),
+    createPluginContents: createNitroWorkflowPluginContents,
     definitions,
     pluginFile,
     registryFile,
