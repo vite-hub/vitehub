@@ -176,7 +176,11 @@ async function resolveDevtoolsChat(event: H3Event, state: ChatDevtoolsHandlerSta
     }
 
     const chat = resolveRegistryModule(await loader())
-    const bot = await resolveChat(chat, createRuntimeContext(event, session), { inferredName: session.name })
+    const adapter = createSessionDevtoolsAdapter(session)
+    const bot = await resolveChat(chat, createRuntimeContext(event, session), {
+      adapters: { [chatDevtoolsAdapterName]: adapter },
+      inferredName: session.name,
+    })
     await bot.initialize()
     return bot
   })()

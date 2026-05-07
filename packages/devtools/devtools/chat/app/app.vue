@@ -204,7 +204,7 @@ onMounted(refresh)
 <template>
   <UApp>
     <main class="flex h-screen flex-col bg-default text-default">
-      <header class="flex h-16 shrink-0 items-center justify-between border-b border-default px-4">
+      <header class="flex h-[45px] shrink-0 items-center justify-between border-b border-default px-4">
         <h1 class="text-base font-semibold">
           ViteHub Chat
         </h1>

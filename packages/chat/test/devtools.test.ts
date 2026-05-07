@@ -182,6 +182,7 @@ describe("Chat DevTools Vite integration", () => {
       expect.stringContaining("dist/devtools-client"),
     )
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
+      icon: "lucide:message-square",
       id: "@vitehub/chat",
       title: "ViteHub Chat",
       type: "iframe",
@@ -465,6 +466,28 @@ describe("Chat DevTools Nitro bridge", () => {
     const result = await handler(createBridgeEvent({ action: "send", text: "hello" }) as never) as ChatDevtoolsStateResult
 
     expect(processMessage).toHaveBeenCalledWith(devtools, "devtools:chat:thread", expect.objectContaining({ text: "hello" }), expect.any(Object))
+    expect(result.chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({ role: "assistant", text: "echo: hello" }),
+    ])
+  })
+
+  it("registry bridge uses the DevTools adapter without resolving production adapters", async () => {
+    const { defineChat } = await import("../src/index.ts")
+    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
+    const chat = defineChat({
+      adapters: vi.fn(() => {
+        throw new Error("Production adapter should not be resolved")
+      }) as never,
+      state: createState() as never,
+      async onDirectMessage({ message, thread }) {
+        await thread.post(`echo: ${message.text}`)
+      },
+    })
+    const handler = defineChatDevtoolsHandler(chat as never)
+
+    const result = await handler(createBridgeEvent({ action: "send", text: "hello" }) as never) as ChatDevtoolsStateResult
+
     expect(result.chats[0]?.messages).toEqual([
       expect.objectContaining({ role: "user", text: "hello" }),
       expect.objectContaining({ role: "assistant", text: "echo: hello" }),

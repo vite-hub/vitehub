@@ -655,7 +655,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
 
         registerViteHubDevtoolsPanel(ctx, {
           distDir: resolveChatDevtoolsClientDist(),
-          icon: "i-lucide-message-square",
+          icon: "lucide:message-square",
           id: chatDevtoolsPanelId,
           route: chatDevtoolsRoute,
           title: chatDevtoolsTitle,
