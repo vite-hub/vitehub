@@ -53,6 +53,7 @@ interface GeneratedWorkflowArtifacts {
   cloudflareWorkflowConfig: false | ResolvedWorkflowOptions
   definitions: DiscoveredWorkflowDefinition[]
   generatedDir: string
+  providerDefinitions: DiscoveredWorkflowDefinition[]
   registryFile: string
   vercelServerFile: string
 }
@@ -148,6 +149,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir })
+  const providerDefinitions = definitions
   const userAppEntry = resolveWorkflowUserAppEntry(rootDir)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
@@ -169,6 +171,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
     cloudflareWorkflowConfig,
     definitions,
     generatedDir,
+    providerDefinitions,
     registryFile,
     vercelServerFile: entryFiles.vercel,
   }
@@ -178,7 +181,7 @@ function createCloudflareOutput(rootDir: string, artifacts: GeneratedWorkflowArt
   const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
-  const workflowDefinitions = workflowConfig ? artifacts.definitions : []
+  const workflowDefinitions = workflowConfig ? artifacts.providerDefinitions : []
   const workflows = createCloudflareWorkflowBindings(workflowDefinitions, workflowConfig)
 
   const wranglerConfig: CloudflareWorkflowConfig = {
@@ -219,7 +222,7 @@ async function writeCloudflareWorkflowWrapper(rootDir: string, artifacts: Genera
   const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
-  const workflowDefinitions = workflowConfig ? artifacts.definitions : []
+  const workflowDefinitions = workflowConfig ? artifacts.providerDefinitions : []
   await writeFile(resolve(outputRoot, "index.js"), renderCloudflareWorkerWrapper(workflowDefinitions), "utf8")
 }
 

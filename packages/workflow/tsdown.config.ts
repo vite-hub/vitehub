@@ -15,6 +15,7 @@ export default defineConfig({
     "src/runtime/cloudflare-runner.ts",
     "src/runtime/cloudflare-vite.ts",
     "src/runtime/cloudflare-shared.ts",
+    "src/runtime/execute.ts",
     "src/runtime/nitro-plugin.ts",
     "src/runtime/state.ts",
     "src/runtime/vercel-vite.ts",

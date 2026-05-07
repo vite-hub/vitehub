@@ -7,6 +7,7 @@ const RUNS_TTL_MS = 5 * 60 * 1000
 
 let runtimeConfig: false | ResolvedWorkflowOptions | undefined
 let runtimeRegistry: WorkflowDefinitionRegistry | undefined
+const inlineRegistry = new Map<string, WorkflowDefinition>()
 let fallbackEvent: unknown
 const eventStorage = new AsyncLocalStorage<unknown>()
 export interface WorkflowRunState<TResult = unknown> {
@@ -48,6 +49,19 @@ export function getWorkflowRuntimeRegistry(): WorkflowDefinitionRegistry | undef
   return runtimeRegistry
 }
 
+export function registerInlineWorkflowDefinition(name: string, definition: WorkflowDefinition): void {
+  if (!name || typeof name !== "string") {
+    throw new TypeError("`createWorkflow()` requires a workflow name.")
+  }
+
+  const existing = inlineRegistry.get(name)
+  if (existing && existing !== definition) {
+    throw new Error(`Duplicate workflow name "${name}" from inline definitions.`)
+  }
+
+  inlineRegistry.set(name, definition)
+}
+
 export function enterWorkflowRuntimeEvent(event: unknown): void {
   fallbackEvent = event
   try {
@@ -65,10 +79,21 @@ export async function runWithWorkflowRuntimeEvent<T>(event: unknown, run: () => 
 }
 
 export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefinition | undefined> {
+  const inlineDefinition = inlineRegistry.get(name)
   const entry = runtimeRegistry?.[name]
+
+  if (inlineDefinition && entry) {
+    throw new Error(`Duplicate workflow name "${name}" from inline and discovered definitions.`)
+  }
+
+  if (inlineDefinition) {
+    return inlineDefinition
+  }
+
   if (!entry) {
     return undefined
   }
+
   const loaded = await entry()
   if (!loaded || typeof loaded !== "object") {
     return undefined
@@ -109,6 +134,7 @@ export function getWorkflowRunState(name: string, id: string): WorkflowRunState 
 export function resetWorkflowRuntime(): void {
   runtimeConfig = undefined
   runtimeRegistry = undefined
+  inlineRegistry.clear()
   fallbackEvent = undefined
   runs.clear()
 }
