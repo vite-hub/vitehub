@@ -103,19 +103,49 @@ async function resolveWorkflowStartOptions<TPayload>(
 }
 
 export function createWorkflow<TPayload = unknown, TResult = unknown>(
+  options: WorkflowCreateOptions<TPayload, TResult> & { handler: WorkflowHandler<TPayload, TResult>, name: string },
+): WorkflowHandle<TPayload, TResult>
+export function createWorkflow<TPayload = unknown, TResult = unknown>(
   name: string,
-  options?: WorkflowCreateOptions<TPayload>,
+  options?: WorkflowCreateOptions<TPayload, TResult>,
 ): WorkflowHandle<TPayload, TResult>
 export function createWorkflow<TPayload = unknown, TResult = unknown>(
   name: string,
   handler: WorkflowHandler<TPayload, TResult>,
-  options?: WorkflowCreateOptions<TPayload>,
+  options?: WorkflowCreateOptions<TPayload, TResult>,
 ): WorkflowHandle<TPayload, TResult>
 export function createWorkflow<TPayload = unknown, TResult = unknown>(
-  name: string,
-  handlerOrOptions?: WorkflowCreateOptions<TPayload> | WorkflowHandler<TPayload, TResult>,
-  options?: WorkflowCreateOptions<TPayload>,
+  nameOrOptions: string | WorkflowCreateOptions<TPayload, TResult>,
+  handlerOrOptions?: WorkflowCreateOptions<TPayload, TResult> | WorkflowHandler<TPayload, TResult>,
+  options?: WorkflowCreateOptions<TPayload, TResult>,
 ): WorkflowHandle<TPayload, TResult> {
+  if (typeof nameOrOptions === "object" && nameOrOptions !== null) {
+    const createOptions = nameOrOptions
+    const { handler, name } = createOptions
+    if (!name || typeof name !== "string") {
+      throw new TypeError("`createWorkflow()` requires a workflow name.")
+    }
+    if (typeof handler !== "function") {
+      throw new TypeError("`createWorkflow()` requires a workflow handler.")
+    }
+    registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
+    return {
+      name,
+      defer: async (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflow<TPayload>(
+        name,
+        payload,
+        await resolveWorkflowStartOptions(name, payload, createOptions, options),
+      ),
+      getRun: (id: string) => getWorkflowRun<TPayload, TResult>(name, id),
+      run: async (payload?: TPayload, options: WorkflowStartOptions = {}) => runWorkflow<TPayload, TResult>(
+        name,
+        payload,
+        await resolveWorkflowStartOptions(name, payload, createOptions, options),
+      ),
+    }
+  }
+
+  const name = nameOrOptions
   if (!name || typeof name !== "string") {
     throw new TypeError("`createWorkflow()` requires a workflow name.")
   }

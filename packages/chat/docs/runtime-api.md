@@ -66,6 +66,14 @@ function defineChat<TRuntimeConfig extends ChatRuntimeConfig>(
 interface DefineChatOptions<TRuntimeConfig> {
   adapters: AdapterInput<ResolvedChatRuntimeContext<TRuntimeConfig>>
   state: MaybeResolvable<StateAdapter, ChatRuntimeContext<TRuntimeConfig>>
+  onDirectMessage?: ChatDirectMessageHook<TRuntimeConfig>
+  onNewMention?: ChatMessageHook<TRuntimeConfig>
+  onNewMessage?: ChatNewMessageHook<TRuntimeConfig> | ChatNewMessageHook<TRuntimeConfig>[]
+  onReaction?: ChatReactionHookInput<TRuntimeConfig>
+  onAction?: ChatActionHookInput<TRuntimeConfig>
+  onModalSubmit?: ChatModalSubmitHookInput<TRuntimeConfig>
+  onSubscribedMessage?: ChatMessageHook<TRuntimeConfig>
+  workflow?: ChatWorkflowHandle
   hooks?: ChatEventHooks<TRuntimeConfig>
   lifecycleHooks?: ChatWebhookRuntimeHooks<ChatRuntimeContext<TRuntimeConfig>>
   setup?: (bot: Chat, context: ResolvedChatRuntimeContext<TRuntimeConfig>) => MaybePromise<void>
@@ -74,6 +82,8 @@ interface DefineChatOptions<TRuntimeConfig> {
 ```
 
 The type also accepts Chat SDK config fields except `adapters`, `state`, and `userName`, which ViteHub wraps so they can use runtime context.
+
+Top-level event handlers are the preferred API. `hooks` remains supported for older definitions, but a handler cannot be defined in both places.
 
 ## `resolveChat()`
 

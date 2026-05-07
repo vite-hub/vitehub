@@ -64,7 +64,9 @@ import { cloudflareDurableObjectState } from '@vitehub/chat/cloudflare'
 
 export default defineChat({
   adapters,
-  hooks,
+  async onDirectMessage({ message, thread }) {
+    await thread.post(`Received: ${message.text}`)
+  },
   state: cloudflareDurableObjectState(),
   userName: 'Support Bot',
 })

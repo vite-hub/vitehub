@@ -36,48 +36,9 @@ export default defineNitroConfig({
 })
 ```
 
-## `createWorkflow(name, handler?, options?)`
-
-Creates a typed workflow handle. When `handler` is passed, the workflow is defined inline and does not need a file under `server/workflows`.
-
-```ts
-const welcome = createWorkflow<WelcomePayload, WelcomeResult>('welcome', async ({ payload }) => {
-  return { message: `Welcome ${payload.email}` }
-})
-
-await welcome.run({ email: 'ava@example.com' })
-await welcome.defer({ email: 'ava@example.com' })
-await welcome.getRun('welcome-signup-42')
-```
-
-When `handler` is omitted, the handle references an existing discovered workflow:
-
-```ts
-const welcome = createWorkflow<WelcomePayload, WelcomeResult>('welcome')
-await welcome.run({ email: 'ava@example.com' })
-```
-
-A workflow name can only be defined once. Do not define the same name inline and under `server/workflows`.
-
-Pass an `id` resolver when the workflow owns stable run identity. The resolved value is canonicalized and hashed with the workflow name. An explicit `run(payload, { id })` still wins.
-
-```ts
-const chatReply = createWorkflow<ChatReplyPayload, ChatReplyResult>('chat-reply', async ({ payload }) => {
-  return await replyToMessage(payload)
-}, {
-  id: ({ payload }) => ({
-    platform: payload?.platform,
-    threadId: payload?.threadId,
-    messageId: payload?.messageId,
-  }),
-})
-
-await chatReply.run(payload)
-```
-
 ## `defineWorkflow(handler, options?)`
 
-Defines a discovered workflow file. Prefer `createWorkflow(name, handler)` for inline one-step workflows.
+Defines a discovered workflow.
 
 ```ts
 export default defineWorkflow<Payload, Result>(async (context) => {
@@ -181,6 +142,25 @@ Reads and validates a Web `Request`.
 ```ts
 const payload = await readValidatedPayload(request, schema)
 ```
+
+## `createWorkflow(options)`
+
+Defines an inline workflow and returns a typed handle for starting and observing runs.
+
+```ts
+const chatReply = createWorkflow<ChatReplyPayload, ChatReplyResult>({
+  name: 'chat-reply',
+  handler: async ({ payload }) => {
+    return await answerWithContext(payload.text)
+  },
+  id: ({ payload: { threadId, messageId } }) => `${threadId}:${messageId}`,
+})
+
+const run = await chatReply.run(payload)
+const result = await chatReply.getRun(run.id)
+```
+
+`id` is optional. When provided, it must return a string. Passing `run(payload, { id })` or `defer(payload, { id })` overrides the resolver.
 
 ## Config options
 

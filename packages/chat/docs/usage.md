@@ -11,21 +11,19 @@ Use this page after the [Quickstart](./quickstart) when you need more than the d
 
 ## Define one chat
 
-`defineChat()` accepts Chat SDK config plus ViteHub-specific resolvers for adapters, state, hooks, and lifecycle behavior.
+`defineChat()` accepts Chat SDK config plus ViteHub-specific resolvers for adapters, state, top-level event handlers, and lifecycle behavior.
 
 ```ts [server/chat.ts]
 import { defineChat } from '@vitehub/chat'
 
 export default defineChat({
-  adapters: {
-    telegram: ({ runtimeConfig }) => createTelegramAdapter({
+  adapters: ({ runtimeConfig }) => ({
+    telegram: createTelegramAdapter({
       botToken: runtimeConfig.telegram.botToken,
     }),
-  },
-  hooks: {
-    async onDirectMessage({ message, thread }) {
-      await thread.post(`Received: ${message.text}`)
-    },
+  }),
+  async onDirectMessage({ message, thread }) {
+    await thread.post(`Received: ${message.text}`)
   },
   state: ({ runtimeConfig }) => createState(runtimeConfig),
   userName: 'Support Bot',
@@ -46,13 +44,11 @@ interface ChatRuntimeConfig {
 }
 
 export default defineChat<ChatRuntimeConfig>({
-  adapters({ runtimeConfig }) {
-    return {
-      telegram: createTelegramAdapter({
-        botToken: runtimeConfig.telegram.botToken,
-      }),
-    }
-  },
+  adapters: ({ runtimeConfig }) => ({
+    telegram: createTelegramAdapter({
+      botToken: runtimeConfig.telegram.botToken,
+    }),
+  }),
   state,
   userName: 'Support Bot',
 })
@@ -62,25 +58,23 @@ Pair Chat with `@vitehub/env` when you want typed server-only runtime config for
 
 ## Handle events
 
-The `hooks` object wraps common Chat SDK event registrations and passes object-style arguments.
+Top-level event handlers wrap common Chat SDK event registrations and pass object-style arguments.
 
 ```ts
 export default defineChat({
   adapters,
-  hooks: {
-    onDirectMessage: async ({ message, thread }) => {
-      await thread.post(`Received: ${message.text}`)
+  async onDirectMessage({ message, thread }) {
+    await thread.post(`Received: ${message.text}`)
+  },
+  onNewMessage: {
+    pattern: /^!help/,
+    handler: async ({ thread }) => {
+      await thread.post('Available commands: !help')
     },
-    onNewMessage: {
-      pattern: /^!help/,
-      handler: async ({ thread }) => {
-        await thread.post('Available commands: !help')
-      },
-    },
-    onReaction: {
-      thumbs_up: async ({ event }) => {
-        console.log('Reaction received', event)
-      },
+  },
+  onReaction: {
+    thumbs_up: async ({ event }) => {
+      console.log('Reaction received', event)
     },
   },
   state,
@@ -88,7 +82,7 @@ export default defineChat({
 })
 ```
 
-Supported hook keys are `onDirectMessage`, `onNewMention`, `onSubscribedMessage`, `onNewMessage`, `onReaction`, `onAction`, and `onModalSubmit`.
+Supported top-level handler keys are `onDirectMessage`, `onNewMention`, `onSubscribedMessage`, `onNewMessage`, `onReaction`, `onAction`, and `onModalSubmit`. The older `hooks` object still works, but do not define the same handler in both places.
 
 ## Run setup code
 

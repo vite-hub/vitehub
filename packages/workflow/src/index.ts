@@ -17,6 +17,7 @@ export type {
   WorkflowDefinition,
   WorkflowDefinitionOptions,
   WorkflowDefinitionRegistry,
+  WorkflowCreateOptions,
   WorkflowDeferOptions,
   WorkflowExecutionContext,
   WorkflowHandle,

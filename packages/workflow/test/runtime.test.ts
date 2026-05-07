@@ -217,6 +217,17 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("does not recurse when an inline registry entry registers no definition", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      missing: async () => await runWorkflow("missing", {}),
+    } as never)
+
+    await expect(runWorkflow("missing", {})).rejects.toMatchObject({
+      code: "WORKFLOW_DEFINITION_NOT_FOUND",
+    })
+  })
+
   it("returns nonblocking status while local workflow runs are pending", async () => {
     let resolveRun: ((value: { ok: boolean }) => void) | undefined
     setWorkflowRuntimeConfig({ provider: "vercel" })

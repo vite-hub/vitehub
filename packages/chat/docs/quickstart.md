@@ -99,10 +99,8 @@ import { cloudflareDurableObjectState } from '@vitehub/chat/cloudflare'
 
 export default defineChat({
   adapters: {},
-  hooks: {
-    async onDirectMessage({ message, thread }) {
-      await thread.post(`Received: ${message.text}`)
-    },
+  async onDirectMessage({ message, thread }) {
+    await thread.post(`Received: ${message.text}`)
   },
   state: cloudflareDurableObjectState(),
   userName: 'Demo Bot',
@@ -138,11 +136,11 @@ import { createTelegramAdapter } from '@chat-adapter/telegram'
 import { defineChat } from '@vitehub/chat'
 
 export default defineChat({
-  adapters: {
-    telegram: ({ runtimeConfig }) => createTelegramAdapter({
+  adapters: ({ runtimeConfig }) => ({
+    telegram: createTelegramAdapter({
       botToken: runtimeConfig.telegram.botToken,
     }),
-  },
+  }),
   state,
   userName: 'Support Bot',
 })

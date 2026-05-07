@@ -129,7 +129,51 @@ describe("defineChat", () => {
       message: { text: "hello" },
       runtimeConfig: context.runtimeConfig,
       thread: { id: "thread" },
+      workflow: undefined,
     })
+  })
+
+  it("registers top-level direct message hooks and passes workflow handles", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const workflow = {
+      defer: vi.fn(),
+      getRun: vi.fn(),
+      name: "chat-reply",
+      run: vi.fn(),
+    }
+    const onDirectMessage = vi.fn()
+
+    const bot = await resolveChat(defineChat({
+      adapters: {},
+      onDirectMessage,
+      state: createState() as never,
+      userName: "Quiver Chat",
+      workflow,
+    }), createContext() as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({ id: "thread" } as never, { text: "hello" } as never, { id: "channel" } as never)
+
+    expect(onDirectMessage).toHaveBeenCalledWith(expect.objectContaining({
+      bot,
+      message: { text: "hello" },
+      thread: { id: "thread" },
+      workflow,
+    }))
+  })
+
+  it("rejects duplicate flat and nested chat hooks", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const definition = defineChat({
+      adapters: {},
+      hooks: { onDirectMessage: vi.fn() },
+      onDirectMessage: vi.fn(),
+      state: createState() as never,
+      userName: "Quiver Chat",
+    })
+
+    await expect(resolveChat(definition, createContext() as never)).rejects.toThrow("Duplicate chat hook \"onDirectMessage\"")
   })
 
   it("wraps devtools thread streams so tool parts are reported automatically", async () => {
