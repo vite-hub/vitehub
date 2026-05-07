@@ -80,7 +80,6 @@ function createNitroWorkflowPluginContents(file: string, registryFile: string, e
     "",
     "const workflowNitroPlugin = defineNitroPlugin((nitroApp) => {",
     "  const runtimeConfig = useRuntimeConfig()",
-    "  applyWorkflowEnvRuntimeConfig(runtimeConfig)",
     "  setWorkflowRuntimeConfig(runtimeConfig.workflow)",
     "  setWorkflowRuntimeRegistry(workflowRegistry)",
     "",

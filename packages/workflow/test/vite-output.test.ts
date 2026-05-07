@@ -143,6 +143,8 @@ describe("Vite workflow provider outputs", () => {
 
     expect(serverEntryContents).toContain("applyEnvRegistryToRuntimeConfig")
     expect(serverEntryContents).toContain("VERTEX_API_KEY")
+    expect(serverEntryContents).toContain("applyWorkflowEnvRuntimeConfig(runtimeConfig, env)")
+    expect(serverEntryContents).not.toContain("applyWorkflowEnvRuntimeConfig(runtimeConfig)\n  setWorkflowRuntimeConfig")
   }, 30_000)
 
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
