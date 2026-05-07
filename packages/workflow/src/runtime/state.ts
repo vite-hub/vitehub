@@ -8,6 +8,7 @@ const RUNS_TTL_MS = 5 * 60 * 1000
 let runtimeConfig: false | ResolvedWorkflowOptions | undefined
 let runtimeRegistry: WorkflowDefinitionRegistry | undefined
 const inlineRegistry = new Map<string, WorkflowDefinition>()
+const loadingRegistryEntries = new Set<string>()
 let fallbackEvent: unknown
 const eventStorage = new AsyncLocalStorage<unknown>()
 export interface WorkflowRunState<TResult = unknown> {
@@ -93,13 +94,25 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
   if (!entry) {
     return undefined
   }
-
-  const loaded = await entry()
-  if (!loaded || typeof loaded !== "object") {
+  if (loadingRegistryEntries.has(name)) {
     return undefined
   }
-  const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
-  return definition && typeof definition.handler === "function" ? definition : undefined
+  loadingRegistryEntries.add(name)
+  try {
+    const loaded = await entry()
+    const registeredInlineDefinition = inlineRegistry.get(name)
+    if (registeredInlineDefinition) {
+      return registeredInlineDefinition
+    }
+    if (!loaded || typeof loaded !== "object") {
+      return undefined
+    }
+    const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
+    return definition && typeof definition.handler === "function" ? definition : undefined
+  }
+  finally {
+    loadingRegistryEntries.delete(name)
+  }
 }
 
 export function setWorkflowRun<TResult = unknown>(
