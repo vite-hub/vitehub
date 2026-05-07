@@ -36,7 +36,7 @@ export default defineNitroConfig({
 })
 ```
 
-## `createWorkflow(name, handler?)`
+## `createWorkflow(name, handler?, options?)`
 
 Creates a typed workflow handle. When `handler` is passed, the workflow is defined inline and does not need a file under `server/workflows`.
 
@@ -58,6 +58,22 @@ await welcome.run({ email: 'ava@example.com' })
 ```
 
 A workflow name can only be defined once. Do not define the same name inline and under `server/workflows`.
+
+Pass an `id` resolver when the workflow owns stable run identity. The resolved value is canonicalized and hashed with the workflow name. An explicit `run(payload, { id })` still wins.
+
+```ts
+const chatReply = createWorkflow<ChatReplyPayload, ChatReplyResult>('chat-reply', async ({ payload }) => {
+  return await replyToMessage(payload)
+}, {
+  id: ({ payload }) => ({
+    platform: payload?.platform,
+    threadId: payload?.threadId,
+    messageId: payload?.messageId,
+  }),
+})
+
+await chatReply.run(payload)
+```
 
 ## `defineWorkflow(handler, options?)`
 

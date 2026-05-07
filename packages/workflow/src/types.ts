@@ -78,6 +78,19 @@ export interface WorkflowExecutionContext<TPayload = unknown> {
 
 export type WorkflowHandler<TPayload = unknown, TResult = unknown> = (context: WorkflowExecutionContext<TPayload>) => TResult | Promise<TResult>
 
+export type WorkflowRunIdValue =
+  | boolean
+  | null
+  | number
+  | string
+  | undefined
+  | { readonly [key: string]: WorkflowRunIdValue }
+  | readonly WorkflowRunIdValue[]
+
+export interface WorkflowCreateOptions<TPayload = unknown> {
+  id?: (context: { name: string, payload?: TPayload }) => Promise<WorkflowRunIdValue> | WorkflowRunIdValue
+}
+
 export interface WorkflowDefinitionOptions {
   id?: string
   rootStep?: boolean

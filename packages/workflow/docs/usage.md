@@ -154,6 +154,21 @@ Pass the id in options when the caller needs to persist or poll a known id:
 await welcomeWorkflow.run(payload, { id: 'welcome-signup-42' })
 ```
 
+When stable identity belongs to the workflow, define it once on the handle:
+
+```ts
+const welcomeWorkflow = createWorkflow<WelcomePayload, WelcomeResult>('welcome', async ({ payload }) => {
+  return await sendWelcome(payload)
+}, {
+  id: ({ payload }) => ({
+    email: payload?.email,
+    marker: payload?.marker,
+  }),
+})
+
+await welcomeWorkflow.run(payload)
+```
+
 ## Defer dispatch until after the response
 
 Use `deferWorkflow()` when the route should return immediately and start dispatch can run through the current runtime context:

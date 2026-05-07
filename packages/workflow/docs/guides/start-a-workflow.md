@@ -81,6 +81,16 @@ Use a stable id when the caller needs to poll the run later:
 const run = await runWorkflow('welcome', { email: 'ava@example.com', marker: 'signup-42' }, { id: 'welcome-signup-42' })
 ```
 
+Prefer a workflow handle id resolver when the stable id is part of the workflow contract:
+
+```ts
+const welcomeWorkflow = createWorkflow('welcome', {
+  id: ({ payload }) => ({ marker: payload?.marker }),
+})
+
+const run = await welcomeWorkflow.run({ email: 'ava@example.com', marker: 'signup-42' })
+```
+
 ## Return the run from a route
 
 ::fw{id="vite:dev vite:build"}

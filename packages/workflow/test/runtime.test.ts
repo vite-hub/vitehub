@@ -75,6 +75,54 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("derives stable run ids from workflow handle options", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    const workflow = createWorkflow<
+      { messageId: string, placeholderMessageId: string, threadId: string },
+      { ok: boolean }
+    >("chat-reply", async () => ({ ok: true }), {
+      id: ({ payload }) => ({
+        messageId: payload?.messageId,
+        threadId: payload?.threadId,
+      }),
+    })
+
+    const first = await workflow.run({ messageId: "m1", placeholderMessageId: "p1", threadId: "t1" })
+    const second = await workflow.run({ messageId: "m1", placeholderMessageId: "p2", threadId: "t1" })
+
+    expect(first.id).toBe(second.id)
+    expect(first.id).toMatch(/^chat-reply-[a-f0-9]{32}$/)
+  })
+
+  it("lets explicit run ids override workflow handle id resolvers", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    const workflow = createWorkflow("stable-id", async () => "ok", {
+      id: () => "derived",
+    })
+
+    await expect(workflow.run({}, { id: "manual" })).resolves.toMatchObject({
+      id: "manual",
+    })
+  })
+
+  it("supports id resolvers on discovered workflow handles", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async ({ payload }) => ({ payload }) },
+      }),
+    })
+
+    const workflow = createWorkflow<{ accountId: string }, { payload: { accountId: string } }>("welcome", {
+      id: ({ payload }) => ({ accountId: payload?.accountId }),
+    })
+    const run = await workflow.defer({ accountId: "acct_1" })
+
+    expect(run.id).toMatch(/^welcome-[a-f0-9]{32}$/)
+  })
+
   it("rejects duplicate inline workflow definitions", () => {
     createWorkflow("duplicate", async () => "one")
     expect(() => createWorkflow("duplicate", async () => "two")).toThrow(/Duplicate workflow name "duplicate"/)

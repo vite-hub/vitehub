@@ -10,7 +10,7 @@ import { runWorkflowHandler } from "./execute.ts"
 import { getWorkflowRunState, getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRun } from "./state.ts"
 import { getVercelWorkflowRunState, setVercelWorkflowRunState } from "./vercel-state.ts"
 
-import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDeferOptions, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunStatus, WorkflowStartOptions } from "../types.ts"
+import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowRunStatus, WorkflowStartOptions } from "../types.ts"
 
 function resolveCloudflareBinding(binding: string | undefined, name: string) {
   const bindingName = binding || getCloudflareWorkflowBindingName(name)
@@ -54,26 +54,95 @@ function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
   return cloudflareStatusMap[String(value || "").toLowerCase()] || "unknown"
 }
 
+function normalizeWorkflowRunIdValue(value: WorkflowRunIdValue): unknown {
+  if (value === undefined) {
+    return null
+  }
+  if (value === null || typeof value !== "object") {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.map(item => normalizeWorkflowRunIdValue(item))
+  }
+  const record = value as { readonly [key: string]: WorkflowRunIdValue }
+  return Object.fromEntries(
+    Object.keys(record)
+      .filter(key => record[key] !== undefined)
+      .sort()
+      .map(key => [key, normalizeWorkflowRunIdValue(record[key])]),
+  )
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value)
+  const digest = await crypto.subtle.digest("SHA-256", data)
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
+async function createStableWorkflowRunId(name: string, value: WorkflowRunIdValue): Promise<string> {
+  const normalized = JSON.stringify(normalizeWorkflowRunIdValue(value))
+  const hash = await sha256Hex(`${name}:${normalized}`)
+  const prefix = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "workflow"
+  return `${prefix}-${hash.slice(0, 32)}`
+}
+
+async function resolveWorkflowStartOptions<TPayload>(
+  name: string,
+  payload: TPayload | undefined,
+  createOptions: WorkflowCreateOptions<TPayload> | undefined,
+  startOptions: WorkflowStartOptions,
+): Promise<WorkflowStartOptions> {
+  if (startOptions.id || !createOptions?.id) {
+    return startOptions
+  }
+
+  return {
+    ...startOptions,
+    id: await createStableWorkflowRunId(name, await createOptions.id({ name, payload })),
+  }
+}
+
 export function createWorkflow<TPayload = unknown, TResult = unknown>(
   name: string,
-  handler?: WorkflowHandler<TPayload, TResult>,
+  options?: WorkflowCreateOptions<TPayload>,
+): WorkflowHandle<TPayload, TResult>
+export function createWorkflow<TPayload = unknown, TResult = unknown>(
+  name: string,
+  handler: WorkflowHandler<TPayload, TResult>,
+  options?: WorkflowCreateOptions<TPayload>,
+): WorkflowHandle<TPayload, TResult>
+export function createWorkflow<TPayload = unknown, TResult = unknown>(
+  name: string,
+  handlerOrOptions?: WorkflowCreateOptions<TPayload> | WorkflowHandler<TPayload, TResult>,
+  options?: WorkflowCreateOptions<TPayload>,
 ): WorkflowHandle<TPayload, TResult> {
   if (!name || typeof name !== "string") {
     throw new TypeError("`createWorkflow()` requires a workflow name.")
   }
 
+  const handler = typeof handlerOrOptions === "function" ? handlerOrOptions : undefined
+  const createOptions = typeof handlerOrOptions === "function" ? options : handlerOrOptions
+
   if (handler !== undefined) {
-    if (typeof handler !== "function") {
-      throw new TypeError("`createWorkflow()` handler must be a function.")
-    }
     registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
+  }
+  else if (handlerOrOptions !== undefined && (typeof handlerOrOptions !== "object" || handlerOrOptions === null)) {
+    throw new TypeError("`createWorkflow()` options must be an object.")
   }
 
   return {
     name,
-    defer: (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflow<TPayload>(name, payload, options),
+    defer: async (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflow<TPayload>(
+      name,
+      payload,
+      await resolveWorkflowStartOptions(name, payload, createOptions, options),
+    ),
     getRun: (id: string) => getWorkflowRun<TPayload, TResult>(name, id),
-    run: (payload?: TPayload, options: WorkflowStartOptions = {}) => runWorkflow<TPayload, TResult>(name, payload, options),
+    run: async (payload?: TPayload, options: WorkflowStartOptions = {}) => runWorkflow<TPayload, TResult>(
+      name,
+      payload,
+      await resolveWorkflowStartOptions(name, payload, createOptions, options),
+    ),
   }
 }
 
