@@ -61,4 +61,80 @@ describe("workflow definitions", () => {
 
     expect(() => discoverWorkflowDefinitions({ mode: "nitro-server-workflows", scanDirs: [join(rootDir, "server")] })).toThrow(/Duplicate workflow name "welcome"/)
   })
+
+  it("discovers inline object workflows regardless of property order", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-object-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server"), { recursive: true })
+    await writeFile(join(rootDir, "server", "chat.ts"), [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `export const chatReply = createWorkflow<{ email: string; marker?: string }, { ok: boolean }>({`,
+      `  handler: async () => ({ ok: true }),`,
+      `  name: "chat-reply",`,
+      `})`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({
+        handler: join(rootDir, "server", "chat.ts"),
+        name: "chat-reply",
+        source: "inline",
+      }),
+    ])
+  })
+
+  it("ignores options-only createWorkflow calls", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-options-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server"), { recursive: true })
+    await writeFile(join(rootDir, "server", "chat.ts"), [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `export const welcome = createWorkflow("welcome", { id: () => "welcome" })`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([])
+  })
+
+  it("does not discover inline workflows outside runtime scan roots", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-scope-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "test"), { recursive: true })
+    await writeFile(join(rootDir, "test", "fixture.ts"), [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `export const fixture = createWorkflow({ name: "fixture", handler: async () => "ok" })`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([])
+  })
+
+  it("keeps root workflow files when the workflows directory has folder markers", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-root-flat-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+    await writeFile(join(rootDir, "server", "workflows", "index.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "server", "workflows", "welcome.ts"), "export default null\n", "utf8")
+
+    expect(discoverWorkflowDefinitions({ mode: "nitro-server-workflows", scanDirs: [join(rootDir, "server")] })).toContainEqual(
+      expect.objectContaining({ name: "welcome", source: "nitro-server-workflows" }),
+    )
+  })
+
+  it("prefers inline metadata over suffix discovery for the same file", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-suffix-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server"), { recursive: true })
+    const file = join(rootDir, "server", "chat.workflow.ts")
+    await writeFile(file, [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `export const chat = createWorkflow({ name: "server/chat", handler: async () => "ok" })`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({
+        handler: file,
+        name: "server/chat",
+        source: "inline",
+      }),
+    ])
+  })
 })
