@@ -13,87 +13,45 @@ import {
 } from "../../../../chat/src/devtools-shared"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
+type ChatMessage = {
+  id: string
+  role: "assistant" | "user"
+  parts: [{ type: "text", text: string }]
+}
 
 const input = ref("")
 const status = ref<ChatStatus>("ready")
 const error = ref<string | undefined>()
 const connected = ref(false)
-const pendingUserMessageId = ref<string | undefined>()
 const state = ref<ChatDevtoolsStateResult>({
   chats: [],
   selected: "",
 })
-const pendingUserMessage = ref<ChatDevtoolsMessage | undefined>()
+const messages = ref<ChatMessage[]>([])
+const pendingUserMessage = ref<ChatMessage | undefined>()
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 
-const messages = computed(() => {
-  const selected = state.value.chats.find(chat => chat.name === state.value.selected) || state.value.chats[0]
-  return (selected?.messages || []).map(message => ({
-    id: message.id,
-    role: message.role === "assistant" ? "assistant" : "user",
-    parts: [{ type: "text", text: renderMessageText(message) }],
-  }))
-})
-
-function selectedChat() {
-  return state.value.chats.find(chat => chat.name === state.value.selected) || state.value.chats[0]
+function selectedChat(next = state.value) {
+  return next.chats.find(chat => chat.name === next.selected) || next.chats[0]
 }
 
 function selectedChatName() {
   return state.value.selected || state.value.chats[0]?.name || "dev"
 }
 
-function stateWithPendingUser(next: ChatDevtoolsStateResult) {
-  const pending = pendingUserMessage.value
-  if (!pending) {
-    return next
-  }
-
-  const selected = next.selected || selectedChatName()
-  const chats = next.chats.length ? next.chats : [{ name: selected, messages: [] }]
-  const selectedIndex = Math.max(0, chats.findIndex(chat => chat.name === selected))
-  const selectedChat = chats[selectedIndex] || chats[0]!
-  const serverHasUser = selectedChat.messages.some(message =>
-    message.role === "user"
-    && message.id !== pending.id
-    && message.text === pending.text
-    && new Date(message.createdAt).getTime() >= new Date(pending.createdAt).getTime() - 5_000,
-  )
-
-  if (serverHasUser || selectedChat.messages.some(message => message.id === pending.id)) {
-    if (serverHasUser) {
-      pendingUserMessage.value = undefined
-    }
-    return next
-  }
-
-  const mergedChats = chats.map((chat, index) => index === selectedIndex
-    ? { ...chat, messages: [...chat.messages, pending] }
-    : chat)
-
-  return {
-    ...next,
-    chats: mergedChats,
-    selected,
-  }
-}
-
 function applyState(next: ChatDevtoolsStateResult) {
-  state.value = stateWithPendingUser(next)
-}
+  state.value = next
+  const nextMessages = (selectedChat(next)?.messages || []).map(toChatMessage)
+  const pending = pendingUserMessage.value
 
-function isSendPending() {
-  const chatMessages = selectedChat()?.messages || []
-  const userIndex = pendingUserMessageId.value
-    ? chatMessages.findIndex(message => message.id === pendingUserMessageId.value)
-    : chatMessages.findLastIndex(message => message.role === "user")
-  if (userIndex < 0) return false
+  if (pending && !nextMessages.some(message => message.role === "user" && message.parts[0].text === pending.parts[0].text)) {
+    messages.value = [...nextMessages, pending]
+    return
+  }
 
-  const assistant = chatMessages.slice(userIndex + 1).findLast(message => message.role === "assistant")
-  if (!assistant) return true
-  const hasRunningTool = assistant.tools?.some(tool => tool.status === "running")
-  return hasRunningTool || (!assistant.text.trim() && !assistant.tools?.length)
+  pendingUserMessage.value = undefined
+  messages.value = nextMessages
 }
 
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
@@ -103,6 +61,14 @@ function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
   }
   if (event.type === "error") {
     error.value = event.message
+  }
+}
+
+function toChatMessage(message: ChatDevtoolsMessage): ChatMessage {
+  return {
+    id: message.id,
+    role: message.role === "assistant" ? "assistant" : "user",
+    parts: [{ type: "text", text: renderMessageText(message) }],
   }
 }
 
@@ -132,30 +98,16 @@ function renderMessageText(message: ChatDevtoolsMessage) {
 }
 
 function appendDummy(message: ChatDevtoolsMessage) {
-  const chat = state.value.chats[0] ||= { name: "dev", messages: [] }
-  chat.messages.push(message)
+  messages.value = [...messages.value, toChatMessage(message)]
 }
 
-function appendPendingUserMessage(text: string, chat = selectedChatName()) {
-  const message: ChatDevtoolsMessage = {
+function appendPendingUserMessage(text: string) {
+  pendingUserMessage.value = {
     id: `pending-user-${Date.now()}`,
     role: "user",
-    text,
-    createdAt: new Date().toISOString(),
+    parts: [{ type: "text", text }],
   }
-  pendingUserMessage.value = message
-
-  const chats = state.value.chats.length ? state.value.chats : [{ name: chat, messages: [] }]
-  const selected = state.value.selected || chat
-  const selectedIndex = Math.max(0, chats.findIndex(item => item.name === selected))
-  const selectedChat = chats[selectedIndex] || chats[0]!
-  state.value = {
-    chats: chats.map((item, index) => index === selectedIndex
-      ? { ...item, messages: [...item.messages, message] }
-      : item),
-    selected: selectedChat.name,
-  }
-  pendingUserMessageId.value = message.id
+  messages.value = [...messages.value, pendingUserMessage.value]
 }
 
 async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
@@ -196,14 +148,13 @@ async function send() {
     const chat = selectedChat()?.name
     currentReader?.cancel()
     currentReader = undefined
-    appendPendingUserMessage(text, chat)
+    appendPendingUserMessage(text)
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
       text,
     })
     applyState(result)
-    pendingUserMessageId.value = selectedChat()?.messages.findLast(message => message.role === "user")?.id
     if (!result.streamId) {
       status.value = "ready"
       return
@@ -223,7 +174,6 @@ async function send() {
       applyStreamEvent(event)
       if (event.type === "error") break
     }
-    status.value = isSendPending() ? "submitted" : "ready"
   }
   catch (cause) {
     const message = cause instanceof Error ? cause.message : "Chat DevTools send failed."
@@ -247,7 +197,6 @@ async function send() {
     error.value = "Running without Vite DevTools RPC. Dummy replies are local only."
   }
   finally {
-    pendingUserMessageId.value = undefined
     currentReader = undefined
     status.value = "ready"
   }
@@ -257,9 +206,9 @@ async function clear() {
   try {
     currentReader?.cancel()
     currentReader = undefined
-    state.value = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
+    applyState(await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
       chat: state.value.selected,
-    })
+    }))
     pendingUserMessage.value = undefined
     error.value = undefined
   }
@@ -268,6 +217,7 @@ async function clear() {
       chats: [{ name: state.value.selected || "dev", messages: [] }],
       selected: state.value.selected || "dev",
     }
+    messages.value = []
   }
 }
 
@@ -295,6 +245,7 @@ onMounted(refresh)
         <UChatMessages
           v-if="messages.length"
           :messages="messages"
+          :status="status"
           class="h-full px-4 py-3"
         />
         <div v-else class="flex h-full items-center justify-center px-4">
