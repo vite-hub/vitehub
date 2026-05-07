@@ -105,6 +105,40 @@ describe("workflow definitions", () => {
     ])
   })
 
+  it("discovers inline workflows with method-style handlers", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-method-handler-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server"), { recursive: true })
+    await writeFile(join(rootDir, "server", "chat.ts"), [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `export const chatReply = createWorkflow({`,
+      `  name: "chat-reply",`,
+      `  async handler() { return { ok: true } },`,
+      `})`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({
+        handler: join(rootDir, "server", "chat.ts"),
+        name: "chat-reply",
+        source: "inline",
+      }),
+    ])
+  })
+
+  it("does not discover inline workflows inside comments", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-comments-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server"), { recursive: true })
+    await writeFile(join(rootDir, "server", "chat.ts"), [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `// createWorkflow({ name: "line-comment", handler: async () => "ok" })`,
+      `/* createWorkflow({ name: "block-comment", handler: async () => "ok" }) */`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([])
+  })
+
   it("ignores options-only createWorkflow calls", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-options-"))
     tempDirs.push(rootDir)

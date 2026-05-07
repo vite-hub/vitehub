@@ -225,7 +225,7 @@ function readObjectWorkflowName(argument: string) {
     if (key?.trim() === "name") {
       name = readStringLiteral(value)
     }
-    else if (key?.trim() === "handler" || property.trim() === "handler") {
+    else if (key?.trim() === "handler" || property.trim() === "handler" || /^(?:async\s+)?handler\s*\(/.test(property.trim())) {
       hasHandler = true
     }
   }
@@ -236,9 +236,42 @@ function isOptionsOnlyWorkflowCall(argumentsList: string[]) {
   return argumentsList.length === 2 && argumentsList[1]?.trim().startsWith("{")
 }
 
+function isInsideComment(source: string, offset: number) {
+  let index = 0
+  while (index < offset) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (isQuote(char)) {
+      index = skipQuoted(source, index)
+      continue
+    }
+    if (char === "/" && next === "/") {
+      const end = source.indexOf("\n", index + 2)
+      if (end === -1 || end >= offset) {
+        return true
+      }
+      index = end + 1
+      continue
+    }
+    if (char === "/" && next === "*") {
+      const end = source.indexOf("*/", index + 2)
+      if (end === -1 || end + 2 > offset) {
+        return true
+      }
+      index = end + 2
+      continue
+    }
+    index += 1
+  }
+  return false
+}
+
 function discoverInlineWorkflowNames(source: string) {
   const names: string[] = []
   for (const match of source.matchAll(createWorkflowPattern)) {
+    if (isInsideComment(source, match.index!)) {
+      continue
+    }
     const argumentsList = findCallArguments(source, match.index!)
     if (!argumentsList?.length) {
       continue
