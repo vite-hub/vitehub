@@ -6,10 +6,11 @@ import { WorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
-import { getWorkflowRunState, getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRun } from "./state.ts"
+import { runWorkflowHandler } from "./execute.ts"
+import { getWorkflowRunState, getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRun } from "./state.ts"
 import { getVercelWorkflowRunState, setVercelWorkflowRunState } from "./vercel-state.ts"
 
-import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDeferOptions, WorkflowProviderOptions, WorkflowRun, WorkflowRunStatus, WorkflowStartOptions } from "../types.ts"
+import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDeferOptions, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunStatus, WorkflowStartOptions } from "../types.ts"
 
 function resolveCloudflareBinding(binding: string | undefined, name: string) {
   const bindingName = binding || getCloudflareWorkflowBindingName(name)
@@ -53,8 +54,27 @@ function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
   return cloudflareStatusMap[String(value || "").toLowerCase()] || "unknown"
 }
 
-export async function createWorkflow(options: WorkflowProviderOptions): Promise<WorkflowProviderOptions> {
-  return options
+export function createWorkflow<TPayload = unknown, TResult = unknown>(
+  name: string,
+  handler?: WorkflowHandler<TPayload, TResult>,
+): WorkflowHandle<TPayload, TResult> {
+  if (!name || typeof name !== "string") {
+    throw new TypeError("`createWorkflow()` requires a workflow name.")
+  }
+
+  if (handler !== undefined) {
+    if (typeof handler !== "function") {
+      throw new TypeError("`createWorkflow()` handler must be a function.")
+    }
+    registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
+  }
+
+  return {
+    name,
+    defer: (payload?: TPayload, options: WorkflowStartOptions = {}) => deferWorkflow<TPayload>(name, payload, options),
+    getRun: (id: string) => getWorkflowRun<TPayload, TResult>(name, id),
+    run: (payload?: TPayload, options: WorkflowStartOptions = {}) => runWorkflow<TPayload, TResult>(name, payload, options),
+  }
 }
 
 export async function runWorkflow<TPayload = unknown, TResult = unknown>(
@@ -92,12 +112,12 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
   }
 
   const run = Promise.resolve()
-    .then(() => definition.handler({
+    .then(() => runWorkflowHandler({
       id,
       name,
       payload: payload as TPayload,
       provider: config.provider,
-    }) as TResult | Promise<TResult>)
+    }, definition as never) as TResult | Promise<TResult>)
     .then(result => ({ result, status: "completed" as const }))
     .catch(error => ({ error, status: "failed" as const }))
   const runState = setWorkflowRun(name, id, run)

@@ -32,4 +32,33 @@ describe("workflow definitions", () => {
       expect.objectContaining({ name: "welcome", source: "nitro-server-workflows" }),
     ])
   })
+
+  it("discovers server workflow folders as one workflow with ordered steps", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-folder-discovery-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server", "workflows", "import-products"), { recursive: true })
+    await writeFile(join(rootDir, "server", "workflows", "import-products", "02.load.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "server", "workflows", "import-products", "01.extract.ts"), "export default null\n", "utf8")
+
+    expect(discoverWorkflowDefinitions({ mode: "nitro-server-workflows", scanDirs: [join(rootDir, "server")] })).toEqual([
+      expect.objectContaining({
+        name: "import-products",
+        source: "nitro-server-workflows",
+        steps: [
+          join(rootDir, "server", "workflows", "import-products", "01.extract.ts"),
+          join(rootDir, "server", "workflows", "import-products", "02.load.ts"),
+        ],
+      }),
+    ])
+  })
+
+  it("fails when flat and folder workflows use the same name", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-folder-duplicate-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server", "workflows", "welcome"), { recursive: true })
+    await writeFile(join(rootDir, "server", "workflows", "welcome.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "server", "workflows", "welcome", "01.step.ts"), "export default null\n", "utf8")
+
+    expect(() => discoverWorkflowDefinitions({ mode: "nitro-server-workflows", scanDirs: [join(rootDir, "server")] })).toThrow(/Duplicate workflow name "welcome"/)
+  })
 })

@@ -45,23 +45,54 @@ export interface WorkflowRun<TPayload = unknown, TResult = unknown> {
 
 export type WorkflowRunStatus = "queued" | "running" | "completed" | "failed" | "unknown"
 
+export interface WorkflowStepOptions {
+  retries?: {
+    backoff?: string
+    delay?: string
+    limit?: number
+  }
+}
+
+export type WorkflowStepFunction<TInput = unknown, TResult = unknown> = (input: TInput) => TResult | Promise<TResult>
+
+export interface WorkflowProviderStep {
+  do?: <TResult>(
+    name: string,
+    options: WorkflowStepOptions,
+    run: () => TResult | Promise<TResult>,
+  ) => Promise<TResult>
+}
+
+export type WorkflowStepRunner<TSteps extends Record<string, WorkflowStepFunction> = Record<string, WorkflowStepFunction>> = {
+  [TName in keyof TSteps]: TSteps[TName]
+}
+
 export interface WorkflowExecutionContext<TPayload = unknown> {
   id?: string
   name: string
   payload: TPayload
   provider: WorkflowProvider
-  step?: unknown
+  step?: WorkflowProviderStep
+  steps?: WorkflowStepRunner
 }
 
 export type WorkflowHandler<TPayload = unknown, TResult = unknown> = (context: WorkflowExecutionContext<TPayload>) => TResult | Promise<TResult>
 
 export interface WorkflowDefinitionOptions {
   id?: string
+  rootStep?: boolean
 }
 
 export interface WorkflowDefinition<TPayload = unknown, TResult = unknown> {
   handler: WorkflowHandler<TPayload, TResult>
   options?: WorkflowDefinitionOptions
+}
+
+export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
+  defer: (payload?: TPayload, options?: WorkflowStartOptions) => Promise<WorkflowRun<TPayload>>
+  getRun: (id: string) => Promise<WorkflowRun<TPayload, TResult>>
+  name: string
+  run: (payload?: TPayload, options?: WorkflowStartOptions) => Promise<WorkflowRun<TPayload, TResult>>
 }
 
 export interface WorkflowStartOptions {
@@ -79,5 +110,6 @@ export interface WorkflowDefinitionRegistry {
 export interface DiscoveredWorkflowDefinition {
   handler: string
   name: string
-  source?: "nitro-server-workflows" | "vite-suffix"
+  source?: "inline" | "nitro-server-workflows" | "vite-suffix"
+  steps?: string[]
 }

@@ -9,9 +9,34 @@ frameworks: [vite, nitro]
 
 After the quickstart works, most Workflow code falls into four patterns: define a typed flow, start it from request code, choose whether dispatch is awaited or deferred, and check the normalized run later.
 
-## Define payload and result types
+## Define inline workflows
 
-Export payload and result types from the workflow definition when producer code needs them.
+Use `createWorkflow(name, handler)` when the workflow belongs to integration code or only needs one durable unit of work.
+
+```ts
+import { createWorkflow } from '@vitehub/workflow'
+
+type WelcomePayload = {
+  email: string
+  marker?: string
+}
+
+type WelcomeResult = {
+  message: string
+  marker?: string
+}
+
+export const welcomeWorkflow = createWorkflow<WelcomePayload, WelcomeResult>('welcome', async ({ payload }) => {
+  return {
+    message: `Welcome ${payload.email}`,
+    marker: payload.marker,
+  }
+})
+```
+
+## Define discovered workflows
+
+Use discovered workflow files or folders when the workflow should live outside the caller.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/welcome.workflow.ts]
@@ -59,14 +84,25 @@ export default defineWorkflow<WelcomePayload, WelcomeResult>(async ({ payload })
 ```
 ::
 
-The handler receives a `WorkflowExecutionContext<TPayload>` with `id`, `name`, `payload`, `provider`, and an optional provider `step`.
+The handler receives a `WorkflowExecutionContext<TPayload>` with `id`, `name`, `payload`, `provider`, and provider-owned step fields.
+
+For multi-step Nitro workflows, create a folder:
+
+```txt
+server/workflows/import-products/
+  index.ts
+  01.extract.ts
+  02.transform.ts
+```
+
+If `index.ts` is missing, step files run in sorted order and each result is passed to the next step.
 
 ## Keep producers provider-neutral
 
 The route should not know whether Cloudflare or Vercel is running the workflow.
 
 ```ts
-const run = await runWorkflow('welcome', payload)
+const run = await welcomeWorkflow.run(payload)
 ```
 
 Provider details belong in config:
@@ -94,7 +130,7 @@ Provider details belong in config:
 Pass the payload directly when you do not need a custom run id:
 
 ```ts
-await runWorkflow('welcome', {
+await welcomeWorkflow.run({
   email: 'ava@example.com',
   marker: 'signup-42',
 })
@@ -115,7 +151,7 @@ await runWorkflow('welcome', {
 Pass the id in options when the caller needs to persist or poll a known id:
 
 ```ts
-await runWorkflow('welcome', payload, { id: 'welcome-signup-42' })
+await welcomeWorkflow.run(payload, { id: 'welcome-signup-42' })
 ```
 
 ## Defer dispatch until after the response
@@ -123,10 +159,12 @@ await runWorkflow('welcome', payload, { id: 'welcome-signup-42' })
 Use `deferWorkflow()` when the route should return immediately and start dispatch can run through the current runtime context:
 
 ```ts
-import { deferWorkflow } from '@vitehub/workflow'
+import { createWorkflow } from '@vitehub/workflow'
+
+const welcomeWorkflow = createWorkflow('welcome')
 
 export default defineEventHandler(async () => {
-  await deferWorkflow('welcome', { email: 'ava@example.com', marker: 'signup-42' })
+  await welcomeWorkflow.defer({ email: 'ava@example.com', marker: 'signup-42' })
   return { ok: true }
 })
 ```
@@ -135,10 +173,10 @@ export default defineEventHandler(async () => {
 
 ## Observe a run
 
-Use `getWorkflowRun()` with the same workflow name and run id:
+Use the workflow handle with the run id:
 
 ```ts
-const run = await getWorkflowRun<WelcomePayload, WelcomeResult>('welcome', id)
+const run = await welcomeWorkflow.getRun(id)
 
 if (run.status === 'completed') {
   console.log(run.result?.message)

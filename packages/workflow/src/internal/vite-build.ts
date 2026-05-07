@@ -9,7 +9,7 @@ import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
 import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
 
 import { normalizeWorkflowOptions } from "../config.ts"
-import { discoverWorkflowDefinitions } from "../discovery.ts"
+import { discoverInlineWorkflowDefinitions, discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
@@ -53,6 +53,7 @@ interface GeneratedWorkflowArtifacts {
   cloudflareWorkflowConfig: false | ResolvedWorkflowOptions
   definitions: DiscoveredWorkflowDefinition[]
   generatedDir: string
+  providerDefinitions: DiscoveredWorkflowDefinition[]
   registryFile: string
   vercelServerFile: string
 }
@@ -148,6 +149,12 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir })
+  const inlineDefinitions = discoverInlineWorkflowDefinitions({ rootDir })
+  const duplicateInlineDefinition = inlineDefinitions.find(inline => definitions.some(definition => definition.name === inline.name))
+  if (duplicateInlineDefinition) {
+    throw new Error(`Duplicate workflow name "${duplicateInlineDefinition.name}" from inline and discovered definitions.`)
+  }
+  const providerDefinitions = [...definitions, ...inlineDefinitions].sort((left, right) => left.name.localeCompare(right.name))
   const userAppEntry = resolveWorkflowUserAppEntry(rootDir)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
@@ -169,6 +176,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
     cloudflareWorkflowConfig,
     definitions,
     generatedDir,
+    providerDefinitions,
     registryFile,
     vercelServerFile: entryFiles.vercel,
   }
@@ -178,7 +186,7 @@ function createCloudflareOutput(rootDir: string, artifacts: GeneratedWorkflowArt
   const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
-  const workflowDefinitions = workflowConfig ? artifacts.definitions : []
+  const workflowDefinitions = workflowConfig ? artifacts.providerDefinitions : []
   const workflows = createCloudflareWorkflowBindings(workflowDefinitions, workflowConfig)
 
   const wranglerConfig: CloudflareWorkflowConfig = {
@@ -219,7 +227,7 @@ async function writeCloudflareWorkflowWrapper(rootDir: string, artifacts: Genera
   const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
-  const workflowDefinitions = workflowConfig ? artifacts.definitions : []
+  const workflowDefinitions = workflowConfig ? artifacts.providerDefinitions : []
   await writeFile(resolve(outputRoot, "index.js"), renderCloudflareWorkerWrapper(workflowDefinitions), "utf8")
 }
 

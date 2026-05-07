@@ -28,6 +28,7 @@
     "./runtime/cloudflare-runner": "./dist/runtime/cloudflare-runner.js",
     "./runtime/cloudflare-shared": "./dist/runtime/cloudflare-shared.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
+    "./runtime/execute": "./dist/runtime/execute.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",

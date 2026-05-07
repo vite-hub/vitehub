@@ -8,7 +8,7 @@ import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { normalizeWorkflowOptions } from "../config.ts"
-import { discoverWorkflowDefinitions } from "../discovery.ts"
+import { discoverInlineWorkflowDefinitions, discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions } from "../types.ts"
 
@@ -99,7 +99,7 @@ function createCloudflareWorkflowClassExports(definitions: DiscoveredWorkflowDef
   ].flat().join("\n")
 }
 
-interface RuntimeFiles { definitions: DiscoveredWorkflowDefinition[], pluginFile: string, registryFile: string }
+interface RuntimeFiles { definitions: DiscoveredWorkflowDefinition[], pluginFile: string, providerDefinitions: DiscoveredWorkflowDefinition[], registryFile: string }
 
 async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFiles> {
   const registryFile = createNitroWorkflowRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
@@ -108,6 +108,15 @@ async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFile
     mode: "nitro-server-workflows",
     scanDirs: resolveNitroWorkflowScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
+  const inlineDefinitions = discoverInlineWorkflowDefinitions({
+    rootDir: nitro.options.rootDir,
+    scanDirs: resolveNitroWorkflowScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
+  })
+  const duplicateInlineDefinition = inlineDefinitions.find(inline => definitions.some(definition => definition.name === inline.name))
+  if (duplicateInlineDefinition) {
+    throw new Error(`Duplicate workflow name "${duplicateInlineDefinition.name}" from inline and discovered definitions.`)
+  }
+  const providerDefinitions = [...definitions, ...inlineDefinitions].sort((left, right) => left.name.localeCompare(right.name))
 
   return await writeRuntimeRegistryFiles({
     createPluginContents: createNitroWorkflowPluginContents,
@@ -115,6 +124,8 @@ async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFile
     pluginFile,
     registryFile,
   })
+
+  return { ...runtimeFiles, providerDefinitions }
 }
 
 const workflowNitroModule: NitroModule = {
@@ -130,6 +141,7 @@ const workflowNitroModule: NitroModule = {
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/workflow"] = resolveRuntimeEntry("../index", "@vitehub/workflow")
     nitro.options.alias["@vitehub/workflow/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/workflow/runtime/state")
+    nitro.options.alias["@vitehub/workflow/runtime/execute"] = resolveRuntimeEntry("../runtime/execute", "@vitehub/workflow/runtime/execute")
     nitro.options.alias["@vitehub/workflow/runtime/cloudflare-runner"] = resolveRuntimeEntry("../runtime/cloudflare-runner", "@vitehub/workflow/runtime/cloudflare-runner")
 
     let runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro)
@@ -150,7 +162,7 @@ const workflowNitroModule: NitroModule = {
     }
 
     const workflows = resolved.provider === "cloudflare"
-      ? createCloudflareWorkflowBindings(runtimeFiles.definitions, resolved)
+      ? createCloudflareWorkflowBindings(runtimeFiles.providerDefinitions, resolved)
       : undefined
     if (workflows && nitro.options.preset?.includes("cloudflare")) {
       nitro.options.cloudflare ||= {}
@@ -172,7 +184,7 @@ const workflowNitroModule: NitroModule = {
       if (resolved.provider !== "cloudflare" || !currentNitro.options.preset?.includes("cloudflare")) {
         return
       }
-      const classExports = createCloudflareWorkflowClassExports(runtimeFiles.definitions)
+      const classExports = createCloudflareWorkflowClassExports(runtimeFiles.providerDefinitions)
       if (!classExports) {
         return
       }
