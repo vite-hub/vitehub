@@ -182,7 +182,7 @@ describe("Chat DevTools Vite integration", () => {
       expect.stringContaining("dist/devtools-client"),
     )
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
-      icon: "lucide:message-square",
+      icon: "ph:chat-circle-duotone",
       id: "@vitehub/chat",
       title: "ViteHub Chat",
       type: "iframe",
@@ -300,6 +300,32 @@ describe("Chat DevTools Vite integration", () => {
     })
     expect(ctx.stream.error).not.toHaveBeenCalled()
     expect(ctx.stream.close).toHaveBeenCalled()
+  })
+
+  it("falls back to non-streaming sends when RPC streaming is unavailable", async () => {
+    const { hubChat } = await import("../src/vite.ts")
+    const ctx = createDevtoolsContext()
+    ;(ctx.rpc as { streaming?: unknown }).streaming = undefined
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      chats: [{ name: "default", messages: [{ createdAt: "now", id: "1", role: "user", text: "hello" }] }],
+      selected: "default",
+    })))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const plugin = hubChat()
+    ;(plugin as { devtools: { setup: (ctx: unknown) => void } }).devtools.setup(ctx)
+
+    const functions = ctx.rpc.register.mock.calls.map(call => call[0])
+    const sendResult = await functions.find(fn => fn.name === "@vitehub/chat:send")!.setup().handler({ chat: "default", text: "hello" })
+
+    expect(sendResult).toEqual({
+      chats: [{ name: "default", messages: [{ createdAt: "now", id: "1", role: "user", text: "hello" }] }],
+      selected: "default",
+    })
+    expect(fetchMock).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({
+      body: JSON.stringify({ action: "send", chat: "default", text: "hello" }),
+    }))
+    expect(ctx.rpc.streaming).toBeUndefined()
   })
 
   it("auto-adds the panel-only Vite plugin from the Nitro module in dev", async () => {

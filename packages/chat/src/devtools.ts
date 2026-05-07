@@ -655,7 +655,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
 
         registerViteHubDevtoolsPanel(ctx, {
           distDir: resolveChatDevtoolsClientDist(),
-          icon: "lucide:message-square",
+          icon: "ph:chat-circle-duotone",
           id: chatDevtoolsPanelId,
           route: chatDevtoolsRoute,
           title: chatDevtoolsTitle,
@@ -674,7 +674,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
           setup: () => ({
             handler: async (input): Promise<ChatDevtoolsSendResult> => {
               if (!chatStream) {
-                throw new Error("Chat DevTools streaming requires a Vite DevTools version with ctx.rpc.streaming.")
+                return await postChatDevtoolsBridge(ctx, route, { action: "send", ...input })
               }
               const stream = chatStream.start()
               void writeChatDevtoolsStream(ctx, route, { action: "send", ...input }, stream)

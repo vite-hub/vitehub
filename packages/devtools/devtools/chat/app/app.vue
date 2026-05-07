@@ -137,6 +137,11 @@ async function send() {
     })
     state.value = result
     pendingUserMessageId.value = selectedChat()?.messages.findLast(message => message.role === "user")?.id
+    if (!result.streamId) {
+      status.value = "ready"
+      return
+    }
+
     status.value = "streaming"
 
     const reader = rpcClient?.streaming.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, result.streamId, {
