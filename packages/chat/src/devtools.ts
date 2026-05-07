@@ -98,6 +98,7 @@ export interface ChatDevToolsOptions {
 }
 
 export type ChatDevToolsPlugin = Plugin & { nitro: NitroModule }
+export type ChatDevToolsPanelPlugin = Plugin
 
 export type ChatDevtoolsBridgeRequest =
   | { action: "get-state" }
@@ -147,6 +148,7 @@ interface ChatDevtoolsFullStreamToolPart {
 }
 
 const chatDevtoolsToolStatusType = "vitehub.chat.devtools.tool"
+export const chatDevtoolsPanelPluginName = "@vitehub/chat/devtools-panel"
 const defaultOutputPreviewLength = 4_000
 
 function resolveChatDevtoolsClientDist(): string {
@@ -624,6 +626,18 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
   return {
     name: "@vitehub/chat/devtools",
     nitro: nitroModule,
+    devtools: chatDevToolsPanel(options).devtools,
+  }
+}
+
+export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToolsPanelPlugin {
+  const route = options.route || chatDevtoolsBridgeRoute
+  const devtoolsUrl = options.devtools && typeof options.devtools === "object"
+    ? options.devtools.url
+    : process.env[chatDevtoolsUrlEnv]
+
+  return {
+    name: chatDevtoolsPanelPluginName,
     devtools: {
       setup(ctx) {
         if (options.devtools === false) return

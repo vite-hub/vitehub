@@ -55,10 +55,9 @@ export default defineConfig({
 })
 ```
 
-If you want to keep Chat registered as a Nitro module, add the Chat DevTools companion as a Vite plugin:
+If you want to keep Chat registered as a Nitro module, `@vitehub/chat/nitro` will add the Chat dock to Vite DevTools during development:
 
 ```ts [vite.config.ts]
-import { chatDevTools } from '@vitehub/chat/devtools'
 import { DevTools } from '@vitejs/devtools'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
@@ -66,7 +65,6 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [
     DevTools(),
-    chatDevTools(),
     nitro({
       modules: ['@vitehub/chat/nitro'],
     }),
@@ -74,7 +72,7 @@ export default defineConfig({
 })
 ```
 
-`@vitehub/chat/nitro` creates the bridge route and runtime wiring. `chatDevTools()` adds only the Vite DevTools dock and RPC calls for that bridge. `DevTools()` plus `nitro({ modules: ['@vitehub/chat/nitro'] })` alone cannot show the Chat dock because Vite DevTools discovers panels from Vite plugins.
+`@vitehub/chat/nitro` creates the bridge route and runtime wiring. In Vite dev, it also registers the Chat DevTools dock and RPC calls automatically.
 ::
 
 ::fw{id="nitro:dev nitro:build"}

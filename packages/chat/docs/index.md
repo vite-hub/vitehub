@@ -101,7 +101,7 @@ Adapter packages, bot tokens, and webhook secrets come from the provider you are
 ::fw{id="vite:dev vite:build"}
 Vite apps use `hubChat()` and Nitro's Vite plugin together. Chat definitions are discovered from the Nitro server tree.
 
-If you prefer to register `@vitehub/chat/nitro` directly in `nitro({ modules })`, add `chatDevTools()` as the Vite-side companion when you want the Chat panel in Vite DevTools. The Nitro module owns the generated bridge route and runtime behavior; `chatDevTools()` only exposes that bridge in `/.devtools/`.
+If you register `@vitehub/chat/nitro` directly in `nitro({ modules })`, the module adds the Chat panel to Vite DevTools automatically during development. The Nitro module owns the generated bridge route and runtime behavior.
 ::
 
 ::fw{id="nitro:dev nitro:build"}
