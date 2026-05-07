@@ -17,6 +17,10 @@ function resolveCloudflareBinding(binding: string | undefined, name: string) {
   return getCloudflareEnv(getWorkflowRuntimeEvent())?.[bindingName] as CloudflareWorkflowBinding | undefined
 }
 
+function shouldUseCloudflareBinding(): boolean {
+  return (import.meta as ImportMeta & { dev?: boolean }).dev !== true
+}
+
 function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
   const config = getWorkflowRuntimeConfig()
   if (config === false) {
@@ -191,7 +195,7 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
 
   const id = options.id || randomId("wrun")
   const definition = await loadRequiredWorkflowDefinition(name)
-  if (config.provider === "cloudflare") {
+  if (config.provider === "cloudflare" && shouldUseCloudflareBinding()) {
     const binding = resolveCloudflareBinding(config.binding, name)
     if (binding) {
       const start = binding.create({ id, params: payload })
@@ -250,7 +254,7 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
     })
   }
 
-  if (config.provider === "cloudflare") {
+  if (config.provider === "cloudflare" && shouldUseCloudflareBinding()) {
     const binding = resolveCloudflareBinding(config.binding, name)
     if (binding) {
       const instance = await binding.get(id)

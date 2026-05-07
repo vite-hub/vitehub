@@ -208,6 +208,33 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("shares in-flight discovered workflow definition loads", async () => {
+    let resolveDefinition: (() => void) | undefined
+    const entry = vi.fn(async () => {
+      await new Promise<void>(resolve => {
+        resolveDefinition = resolve
+      })
+      return {
+        default: { handler: async ({ payload }: { payload: unknown }) => ({ payload }) },
+      }
+    })
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({ welcome: entry })
+
+    const firstRun = runWorkflow("welcome", { message: "first" }, { id: "first" })
+    const secondRun = runWorkflow("welcome", { message: "second" }, { id: "second" })
+
+    await vi.waitFor(() => {
+      expect(resolveDefinition).toBeDefined()
+    })
+    resolveDefinition?.()
+
+    await expect(firstRun).resolves.toMatchObject({ id: "first", status: "queued" })
+    await expect(secondRun).resolves.toMatchObject({ id: "second", status: "queued" })
+    expect(entry).toHaveBeenCalledTimes(1)
+  })
+
   it("throws for missing definitions", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({})
