@@ -302,7 +302,7 @@ function resolveInlineWorkflowScanRoots(options: { rootDir: string, scanDirs?: s
   return [resolve(options.rootDir, "server")]
 }
 
-export function discoverInlineWorkflowDefinitions(options: { rootDir: string, scanDirs?: string[] }): DiscoveredWorkflowDefinition[] {
+function discoverInlineWorkflowDefinitions(options: { rootDir: string, scanDirs?: string[] }): DiscoveredWorkflowDefinition[] {
   const definitions = new Map<string, DiscoveredWorkflowDefinition>()
   const roots = resolveInlineWorkflowScanRoots(options)
   const seenFiles = new Set<string>()
