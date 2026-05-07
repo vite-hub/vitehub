@@ -10,13 +10,15 @@ import {
   type ChatDevtoolsSendResult,
   type ChatDevtoolsStateResult,
   type ChatDevtoolsStreamEvent,
+  type ChatDevtoolsTool,
 } from "../../../../chat/src/devtools-shared"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = {
+  content?: string
   id: string
   role: "assistant" | "user"
-  parts: [{ type: "text", text: string }]
+  parts: Array<{ type: "tool", tool: ChatDevtoolsTool }>
 }
 
 const input = ref("")
@@ -36,16 +38,12 @@ function selectedChat(next = state.value) {
   return next.chats.find(chat => chat.name === next.selected) || next.chats[0]
 }
 
-function selectedChatName() {
-  return state.value.selected || state.value.chats[0]?.name || "dev"
-}
-
 function applyState(next: ChatDevtoolsStateResult) {
   state.value = next
   const nextMessages = (selectedChat(next)?.messages || []).map(toChatMessage)
   const pending = pendingUserMessage.value
 
-  if (pending && !nextMessages.some(message => message.role === "user" && message.parts[0].text === pending.parts[0].text)) {
+  if (pending && !nextMessages.some(message => message.role === "user" && message.content === pending.content)) {
     messages.value = [...nextMessages, pending]
     return
   }
@@ -66,35 +64,26 @@ function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
 
 function toChatMessage(message: ChatDevtoolsMessage): ChatMessage {
   return {
+    content: message.text || undefined,
     id: message.id,
     role: message.role === "assistant" ? "assistant" : "user",
-    parts: [{ type: "text", text: renderMessageText(message) }],
+    parts: (message.tools || []).map(tool => ({ type: "tool", tool })),
   }
 }
 
-function renderToolOutput(output: unknown) {
-  if (output == null) {
+function renderToolValue(value: unknown) {
+  if (value == null) {
     return ""
   }
-  return typeof output === "string" ? output : JSON.stringify(output)
-}
-
-function renderMessageText(message: ChatDevtoolsMessage) {
-  const tools = message.tools || []
-  if (!tools.length) {
-    return message.text
+  if (typeof value === "string") {
+    return value
   }
-
-  const toolText = tools
-    .map((tool) => {
-      const output = renderToolOutput(tool.output)
-      return output
-        ? `- ${tool.status}: ${tool.text} -> ${output}`
-        : `- ${tool.status}: ${tool.text}`
-    })
-    .join("\n")
-
-  return [message.text, `Tools:\n${toolText}`].filter(Boolean).join("\n\n")
+  try {
+    return JSON.stringify(value, null, 2)
+  }
+  catch {
+    return String(value)
+  }
 }
 
 function appendDummy(message: ChatDevtoolsMessage) {
@@ -103,9 +92,10 @@ function appendDummy(message: ChatDevtoolsMessage) {
 
 function appendPendingUserMessage(text: string) {
   pendingUserMessage.value = {
+    content: text,
     id: `pending-user-${Date.now()}`,
     role: "user",
-    parts: [{ type: "text", text }],
+    parts: [],
   }
   messages.value = [...messages.value, pendingUserMessage.value]
 }
@@ -247,7 +237,49 @@ onMounted(refresh)
           :messages="messages"
           :status="status"
           class="h-full px-4 py-3"
-        />
+        >
+          <template #content="{ content, parts }">
+            <div class="flex flex-col gap-2">
+              <p
+                v-if="content"
+                class="whitespace-pre-wrap"
+              >
+                {{ content }}
+              </p>
+              <UChatTool
+                v-for="part in parts"
+                :key="part.tool.id"
+                :text="part.tool.text || part.tool.name"
+                :suffix="part.tool.status"
+                :loading="part.tool.status === 'running'"
+                :streaming="part.tool.status === 'running'"
+                variant="card"
+                :default-open="part.tool.status !== 'completed'"
+              >
+                <div class="space-y-2">
+                  <div
+                    v-if="part.tool.input !== undefined"
+                    class="space-y-1"
+                  >
+                    <div class="text-xs font-medium text-muted">
+                      Input
+                    </div>
+                    <pre class="overflow-x-auto text-xs">{{ renderToolValue(part.tool.input) }}</pre>
+                  </div>
+                  <div
+                    v-if="part.tool.output !== undefined"
+                    class="space-y-1"
+                  >
+                    <div class="text-xs font-medium text-muted">
+                      Output
+                    </div>
+                    <pre class="overflow-x-auto text-xs">{{ renderToolValue(part.tool.output) }}</pre>
+                  </div>
+                </div>
+              </UChatTool>
+            </div>
+          </template>
+        </UChatMessages>
         <div v-else class="flex h-full items-center justify-center px-4">
           <UEmpty
             icon="i-lucide-message-square"
