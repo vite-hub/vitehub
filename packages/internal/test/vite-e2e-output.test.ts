@@ -11,6 +11,7 @@ const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
 const workspacePackages = ["blob", "chat", "db", "env", "kv", "queue", "sandbox", "unsource", "workflow", "workspace"] as const
 const tempDirs: string[] = []
+const execMaxBuffer = 16 * 1024 * 1024
 
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
@@ -64,6 +65,7 @@ beforeAll(async () => {
     await execFileAsync("pnpm", ["--filter", `@vitehub/${name}`, "build"], {
       cwd: repoRoot,
       env: process.env,
+      maxBuffer: execMaxBuffer,
     })
   }
 }, 120_000)
@@ -87,6 +89,7 @@ describe("unified vite e2e hosted outputs", () => {
         VITEHUB_HOSTING: "cloudflare",
         VITEHUB_VITE_MODE: "e2e",
       },
+      maxBuffer: execMaxBuffer,
     })
 
     const cloudflareWorker = join(rootDir, "dist", "vite", "index.js")
@@ -152,6 +155,7 @@ describe("unified vite e2e hosted outputs", () => {
         VITE_SANDBOX_TEAM_ID: "team-id",
         VITE_SANDBOX_TOKEN: "sandbox-token",
       },
+      maxBuffer: execMaxBuffer,
     })
 
     const vercelConfig = await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")
@@ -186,6 +190,7 @@ describe("unified vite e2e hosted outputs", () => {
         ...process.env,
         VITEHUB_VITE_MODE: "env",
       },
+      maxBuffer: execMaxBuffer,
     })
 
     const envOutput = await readGeneratedJavaScript(join(envRoot, "dist"))
@@ -200,6 +205,7 @@ describe("unified vite e2e hosted outputs", () => {
         ...process.env,
         VITEHUB_VITE_MODE: "chat",
       },
+      maxBuffer: execMaxBuffer,
     })
 
     const chatOutput = await readGeneratedJavaScript(join(chatRoot, "dist"))
