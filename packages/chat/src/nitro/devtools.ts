@@ -313,10 +313,17 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
 
       if (body.stream) {
         return createChatDevtoolsStreamResponse(async (emit) => {
+          const emitState = () => emit({ type: "state" as const, state: adapter.getDevtoolsState(body.chat) })
           const message = adapter.createDevtoolsMessage(text, body.chat)
-          emit({ type: "state", state: adapter.getDevtoolsState(body.chat) })
-          await chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
-          emit({ type: "state", state: adapter.getDevtoolsState(body.chat) })
+          emitState()
+          const interval = setInterval(emitState, 250)
+          try {
+            await chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
+          }
+          finally {
+            clearInterval(interval)
+          }
+          emitState()
         })
       }
 

@@ -231,12 +231,13 @@ onMounted(refresh)
         />
       </header>
 
-      <section class="min-h-0 flex-1 overflow-hidden">
+      <section class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         <UChatMessages
           v-if="messages.length"
           :messages="messages"
           :status="status"
-          class="h-full px-4 py-3"
+          :should-auto-scroll="status === 'streaming'"
+          class="min-h-full px-4 py-3"
         >
           <template #content="{ content, parts }">
             <div class="flex flex-col gap-2">
