@@ -87,8 +87,10 @@ export type WorkflowRunIdValue =
   | { readonly [key: string]: WorkflowRunIdValue }
   | readonly WorkflowRunIdValue[]
 
-export interface WorkflowCreateOptions<TPayload = unknown> {
+export interface WorkflowCreateOptions<TPayload = unknown, TResult = unknown> {
+  handler?: WorkflowHandler<TPayload, TResult>
   id?: (context: { name: string, payload?: TPayload }) => Promise<WorkflowRunIdValue> | WorkflowRunIdValue
+  name?: string
 }
 
 export interface WorkflowDefinitionOptions {

@@ -16,6 +16,7 @@ import type {
   ChatReactionHookInput,
   ChatRuntimeConfig,
   ChatRuntimeContext,
+  ChatWorkflowHandle,
   DefineChatOptions,
   MaybeResolvable,
   ResolvedChatRuntimeContext,
@@ -51,6 +52,7 @@ export type {
   ChatWebhookModuleOptions,
   ChatWebhookRegistryHandlerOptions,
   ChatWebhookRuntimeHooks,
+  ChatWorkflowHandle,
   CloudflareDurableObjectStateOptions,
   DefineChatOptions,
   DiscoveredChatDefinition,
@@ -66,6 +68,7 @@ export type {
   ResolvedChatModuleOptions,
   StateAdapter,
   Thread,
+  WorkflowRunLike,
 } from "./types.ts"
 export * from "./devtools.ts"
 
@@ -96,7 +99,7 @@ async function resolveValue<T, TContext extends ChatRuntimeContext>(
 }
 
 async function resolveAdapters<TRuntimeConfig extends ChatRuntimeConfig>(
-  adapters: DefineChatOptions<TRuntimeConfig>["adapters"],
+  adapters: DefineChatOptions<TRuntimeConfig, ChatWorkflowHandle<any, any> | undefined>["adapters"],
   context: ResolvedChatRuntimeContext<TRuntimeConfig>,
 ): Promise<Record<string, Adapter>> {
   if (typeof adapters === "function" || isResolvable(adapters as MaybeResolvable<Record<string, Adapter>, typeof context>)) {
@@ -110,10 +113,14 @@ async function resolveAdapters<TRuntimeConfig extends ChatRuntimeConfig>(
   return resolved
 }
 
-function createMessageHook<TRuntimeConfig extends ChatRuntimeConfig>(
+function createMessageHook<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
   bot: Chat,
   runtimeConfig: TRuntimeConfig,
-  hook: ChatMessageHook<TRuntimeConfig>,
+  hook: ChatMessageHook<TRuntimeConfig, TWorkflow>,
+  workflow: TWorkflow,
 ) {
   return (thread: unknown, message: unknown, context?: unknown) => hook({
     bot,
@@ -121,13 +128,18 @@ function createMessageHook<TRuntimeConfig extends ChatRuntimeConfig>(
     message: message as Message,
     runtimeConfig,
     thread: wrapDevtoolsThread(thread) as never,
+    workflow,
   })
 }
 
-function createDirectMessageHook<TRuntimeConfig extends ChatRuntimeConfig>(
+function createDirectMessageHook<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
   bot: Chat,
   runtimeConfig: TRuntimeConfig,
-  hook: ChatDirectMessageHook<TRuntimeConfig>,
+  hook: ChatDirectMessageHook<TRuntimeConfig, TWorkflow>,
+  workflow: TWorkflow,
 ) {
   return (thread: unknown, message: unknown, channel: unknown, context?: unknown) => hook({
     bot,
@@ -136,6 +148,7 @@ function createDirectMessageHook<TRuntimeConfig extends ChatRuntimeConfig>(
     message: message as Message,
     runtimeConfig,
     thread: wrapDevtoolsThread(thread) as never,
+    workflow,
   })
 }
 
@@ -174,125 +187,186 @@ function wrapDevtoolsThread(thread: unknown): unknown {
   })
 }
 
-function createEventHook<TEvent, TRuntimeConfig extends ChatRuntimeConfig>(
+function createEventHook<
+  TEvent,
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
   bot: Chat,
   runtimeConfig: TRuntimeConfig,
-  hook: ChatEventHook<TEvent, TRuntimeConfig>,
+  hook: ChatEventHook<TEvent, TRuntimeConfig, TWorkflow>,
+  workflow: TWorkflow,
 ) {
   return (event: TEvent) => hook({
     bot,
     event,
     runtimeConfig,
+    workflow,
   })
 }
 
-function registerNewMessageHooks<TRuntimeConfig extends ChatRuntimeConfig>(
+function registerNewMessageHooks<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
   bot: Chat,
   runtimeConfig: TRuntimeConfig,
-  input: ChatNewMessageHook<TRuntimeConfig> | Array<ChatNewMessageHook<TRuntimeConfig>> | undefined,
+  input: ChatNewMessageHook<TRuntimeConfig, TWorkflow> | Array<ChatNewMessageHook<TRuntimeConfig, TWorkflow>> | undefined,
+  workflow: TWorkflow,
 ) {
   const hooks = input ? Array.isArray(input) ? input : [input] : []
   for (const hook of hooks) {
-    bot.onNewMessage(hook.pattern, createMessageHook(bot, runtimeConfig, hook.handler) as never)
+    bot.onNewMessage(hook.pattern, createMessageHook(bot, runtimeConfig, hook.handler, workflow) as never)
   }
 }
 
-function registerReactionHooks<TRuntimeConfig extends ChatRuntimeConfig>(
+function registerReactionHooks<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
   bot: Chat,
   runtimeConfig: TRuntimeConfig,
-  input: ChatReactionHookInput<TRuntimeConfig> | undefined,
+  input: ChatReactionHookInput<TRuntimeConfig, TWorkflow> | undefined,
+  workflow: TWorkflow,
 ) {
   if (!input) return
 
   if (typeof input === "function") {
-    bot.onReaction(createEventHook(bot, runtimeConfig, input as ChatEventHook<ReactionEvent, TRuntimeConfig>) as never)
+    bot.onReaction(createEventHook(bot, runtimeConfig, input as ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     return
   }
 
   if ("emoji" in input && "handler" in input) {
-    bot.onReaction(input.emoji as never, createEventHook(bot, runtimeConfig, input.handler) as never)
+    bot.onReaction(input.emoji as never, createEventHook(bot, runtimeConfig, input.handler, workflow) as never)
     return
   }
 
   for (const [emoji, hook] of Object.entries(input)) {
     if (emoji === "$all") {
-      bot.onReaction(createEventHook(bot, runtimeConfig, hook as ChatEventHook<ReactionEvent, TRuntimeConfig>) as never)
+      bot.onReaction(createEventHook(bot, runtimeConfig, hook as ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
     else {
-      bot.onReaction([emoji] as never, createEventHook(bot, runtimeConfig, hook as ChatEventHook<ReactionEvent, TRuntimeConfig>) as never)
+      bot.onReaction([emoji] as never, createEventHook(bot, runtimeConfig, hook as ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
   }
 }
 
-function registerActionHooks<TRuntimeConfig extends ChatRuntimeConfig>(
+function registerActionHooks<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
   bot: Chat,
   runtimeConfig: TRuntimeConfig,
-  input: ChatActionHookInput<TRuntimeConfig> | undefined,
+  input: ChatActionHookInput<TRuntimeConfig, TWorkflow> | undefined,
+  workflow: TWorkflow,
 ) {
   if (!input) return
 
   if (typeof input === "function") {
-    bot.onAction(createEventHook(bot, runtimeConfig, input as ChatEventHook<ActionEvent, TRuntimeConfig>) as never)
+    bot.onAction(createEventHook(bot, runtimeConfig, input as ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     return
   }
 
   for (const [actionId, hook] of Object.entries(input)) {
     if (actionId === "$all") {
-      bot.onAction(createEventHook(bot, runtimeConfig, hook as ChatEventHook<ActionEvent, TRuntimeConfig>) as never)
+      bot.onAction(createEventHook(bot, runtimeConfig, hook as ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
     else {
-      bot.onAction(actionId, createEventHook(bot, runtimeConfig, hook as ChatEventHook<ActionEvent, TRuntimeConfig>) as never)
+      bot.onAction(actionId, createEventHook(bot, runtimeConfig, hook as ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
   }
 }
 
-function registerModalSubmitHooks<TRuntimeConfig extends ChatRuntimeConfig>(
+function registerModalSubmitHooks<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
   bot: Chat,
   runtimeConfig: TRuntimeConfig,
-  input: ChatModalSubmitHookInput<TRuntimeConfig> | undefined,
+  input: ChatModalSubmitHookInput<TRuntimeConfig, TWorkflow> | undefined,
+  workflow: TWorkflow,
 ) {
   if (!input) return
 
   if (typeof input === "function") {
-    bot.onModalSubmit(createEventHook(bot, runtimeConfig, input as ChatEventHook<ModalSubmitEvent, TRuntimeConfig>) as never)
+    bot.onModalSubmit(createEventHook(bot, runtimeConfig, input as ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     return
   }
 
   for (const [callbackId, hook] of Object.entries(input)) {
     if (callbackId === "$all") {
-      bot.onModalSubmit(createEventHook(bot, runtimeConfig, hook as ChatEventHook<ModalSubmitEvent, TRuntimeConfig>) as never)
+      bot.onModalSubmit(createEventHook(bot, runtimeConfig, hook as ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
     else {
-      bot.onModalSubmit(callbackId, createEventHook(bot, runtimeConfig, hook as ChatEventHook<ModalSubmitEvent, TRuntimeConfig>) as never)
+      bot.onModalSubmit(callbackId, createEventHook(bot, runtimeConfig, hook as ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
   }
 }
 
-function registerChatHooks<TRuntimeConfig extends ChatRuntimeConfig>(
+function registerChatHooks<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
   bot: Chat,
   runtimeConfig: TRuntimeConfig,
-  hooks: ChatEventHooks<TRuntimeConfig> | undefined,
+  hooks: ChatEventHooks<TRuntimeConfig, TWorkflow> | undefined,
+  workflow: TWorkflow,
 ) {
   if (!hooks) return
 
   if (hooks.onNewMention) {
-    bot.onNewMention(createMessageHook(bot, runtimeConfig, hooks.onNewMention) as never)
+    bot.onNewMention(createMessageHook(bot, runtimeConfig, hooks.onNewMention, workflow) as never)
   }
   if (hooks.onSubscribedMessage) {
-    bot.onSubscribedMessage(createMessageHook(bot, runtimeConfig, hooks.onSubscribedMessage) as never)
+    bot.onSubscribedMessage(createMessageHook(bot, runtimeConfig, hooks.onSubscribedMessage, workflow) as never)
   }
   if (hooks.onDirectMessage) {
-    bot.onDirectMessage(createDirectMessageHook(bot, runtimeConfig, hooks.onDirectMessage) as never)
+    bot.onDirectMessage(createDirectMessageHook(bot, runtimeConfig, hooks.onDirectMessage, workflow) as never)
   }
 
-  registerNewMessageHooks(bot, runtimeConfig, hooks.onNewMessage)
-  registerReactionHooks(bot, runtimeConfig, hooks.onReaction)
-  registerActionHooks(bot, runtimeConfig, hooks.onAction)
-  registerModalSubmitHooks(bot, runtimeConfig, hooks.onModalSubmit)
+  registerNewMessageHooks(bot, runtimeConfig, hooks.onNewMessage, workflow)
+  registerReactionHooks(bot, runtimeConfig, hooks.onReaction, workflow)
+  registerActionHooks(bot, runtimeConfig, hooks.onAction, workflow)
+  registerModalSubmitHooks(bot, runtimeConfig, hooks.onModalSubmit, workflow)
 }
 
-async function createChat<TRuntimeConfig extends ChatRuntimeConfig>(
-  options: DefineChatOptions<TRuntimeConfig>,
+const chatHookNames = [
+  "onAction",
+  "onDirectMessage",
+  "onModalSubmit",
+  "onNewMention",
+  "onNewMessage",
+  "onReaction",
+  "onSubscribedMessage",
+] as const
+
+function resolveChatHooks<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
+  options: DefineChatOptions<TRuntimeConfig, TWorkflow>,
+): ChatEventHooks<TRuntimeConfig, TWorkflow> {
+  const resolved = { ...(options.hooks || {}) } as Record<string, unknown>
+
+  for (const name of chatHookNames) {
+    const hook = options[name]
+    if (hook === undefined) {
+      continue
+    }
+    if (resolved[name] !== undefined) {
+      throw new Error(`Duplicate chat hook "${name}". Use either defineChat({ ${name} }) or defineChat({ hooks: { ${name} } }), not both.`)
+    }
+    resolved[name] = hook
+  }
+
+  return resolved as ChatEventHooks<TRuntimeConfig, TWorkflow>
+}
+
+async function createChat<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
+  options: DefineChatOptions<TRuntimeConfig, TWorkflow>,
   context: ChatRuntimeContext<TRuntimeConfig>,
   resolveOptions: ResolveChatOptions = {},
 ) {
@@ -302,11 +376,19 @@ async function createChat<TRuntimeConfig extends ChatRuntimeConfig>(
   const state = await resolveValue(options.state, context)
   const {
     adapters: _adapters,
-    hooks,
+    hooks: _hooks,
     lifecycleHooks: _lifecycleHooks,
+    onAction: _onAction,
+    onDirectMessage: _onDirectMessage,
+    onModalSubmit: _onModalSubmit,
+    onNewMention: _onNewMention,
+    onNewMessage: _onNewMessage,
+    onReaction: _onReaction,
+    onSubscribedMessage: _onSubscribedMessage,
     setup,
     state: _state,
     userName: _userName,
+    workflow,
     ...chatOptions
   } = options
   const userName = options.userName || resolveOptions.inferredName
@@ -321,13 +403,16 @@ async function createChat<TRuntimeConfig extends ChatRuntimeConfig>(
     userName,
   })
 
-  registerChatHooks(bot, runtimeConfig, hooks)
+  registerChatHooks(bot, runtimeConfig, resolveChatHooks(options), workflow as TWorkflow)
   await setup?.(bot, resolvedContext)
   return bot
 }
 
-export function defineChat<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig>(
-  options: DefineChatOptions<TRuntimeConfig>,
+export function defineChat<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+>(
+  options: DefineChatOptions<TRuntimeConfig, TWorkflow>,
 ): ChatDefinition<TRuntimeConfig> {
   const memoKey = `vitehub:chat:${++definitionId}`
   return {

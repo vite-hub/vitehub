@@ -17,15 +17,13 @@ import { defineChat } from '@vitehub/chat'
 import { cloudflareDurableObjectState } from '@vitehub/chat/cloudflare'
 
 export default defineChat({
-  adapters: {
-    telegram: ({ runtimeConfig }) => createTelegramAdapter({
+  adapters: ({ runtimeConfig }) => ({
+    telegram: createTelegramAdapter({
       botToken: runtimeConfig.telegram.botToken,
     }),
-  },
-  hooks: {
-    async onDirectMessage({ message, thread }) {
-      await thread.post(`Received: ${message.text}`)
-    },
+  }),
+  async onDirectMessage({ message, thread }) {
+    await thread.post(`Received: ${message.text}`)
   },
   state: cloudflareDurableObjectState(),
   userName: 'Support Bot',
@@ -58,7 +56,7 @@ Chat keeps bot behavior in one definition while deployment-specific wiring stays
   icon: i-lucide-bot
   title: One bot definition
   ---
-  Configure Chat SDK adapters, state, hooks, and setup code in `defineChat()`.
+  Configure Chat SDK adapters, state, and message handlers in `defineChat()`.
   :::
 
   :::card

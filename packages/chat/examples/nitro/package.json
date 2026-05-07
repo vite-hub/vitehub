@@ -9,6 +9,7 @@
   "dependencies": {
     "@chat-adapter/telegram": "^4.27.0",
     "@vitehub/chat": "workspace:*",
+    "@vitehub/workflow": "workspace:*",
     "@vitejs/devtools": "catalog:",
     "chat": "catalog:",
     "chat-state-cloudflare-do": "catalog:",

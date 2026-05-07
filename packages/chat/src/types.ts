@@ -61,7 +61,24 @@ export type AdapterInput<TContext extends ChatRuntimeContext<any> = ChatRuntimeC
   | MaybeResolvable<Record<string, Adapter>, TContext>
   | Record<string, MaybeResolvable<Adapter, TContext>>
 
-export interface ChatHookArgs<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
+export interface ChatWorkflowHandle<TPayload = any, TResult = any> {
+  defer: (payload: TPayload, options?: { id?: string }) => MaybePromise<WorkflowRunLike<TPayload>>
+  getRun: (id: string) => MaybePromise<WorkflowRunLike<TPayload, TResult>>
+  name: string
+  run: (payload: TPayload, options?: { id?: string }) => MaybePromise<WorkflowRunLike<TPayload, TResult>>
+}
+
+export interface WorkflowRunLike<TPayload = any, TResult = any> {
+  id: string
+  result?: TResult
+  status: string
+  payload?: TPayload
+}
+
+export interface ChatHookArgs<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> {
   bot: Chat
   channel?: Channel
   context?: MessageContext
@@ -69,54 +86,80 @@ export interface ChatHookArgs<TRuntimeConfig extends ChatRuntimeConfig = ChatRun
   message?: Message
   runtimeConfig: TRuntimeConfig
   thread?: Thread
+  workflow: TWorkflow
 }
 
-export type ChatMessageHook<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> = (args: ChatHookArgs<TRuntimeConfig> & {
+export type ChatMessageHook<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> = (args: ChatHookArgs<TRuntimeConfig, TWorkflow> & {
   context?: MessageContext
   message: Message
   thread: Thread
 }) => MaybePromise<void>
 
-export type ChatDirectMessageHook<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> = (args: ChatHookArgs<TRuntimeConfig> & {
+export type ChatDirectMessageHook<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> = (args: ChatHookArgs<TRuntimeConfig, TWorkflow> & {
   channel: Channel
   context?: MessageContext
   message: Message
   thread: Thread
 }) => MaybePromise<void>
 
-export type ChatEventHook<TEvent, TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> = (args: ChatHookArgs<TRuntimeConfig> & {
+export type ChatEventHook<
+  TEvent,
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> = (args: ChatHookArgs<TRuntimeConfig, TWorkflow> & {
   event: TEvent
 }) => MaybePromise<void>
 
-export interface ChatNewMessageHook<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
-  handler: ChatMessageHook<TRuntimeConfig>
+export interface ChatNewMessageHook<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> {
+  handler: ChatMessageHook<TRuntimeConfig, TWorkflow>
   pattern: RegExp
 }
 
-export type ChatReactionHookInput<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
-  | ChatEventHook<ReactionEvent, TRuntimeConfig>
-  | Record<string, ChatEventHook<ReactionEvent, TRuntimeConfig>>
+export type ChatReactionHookInput<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> =
+  | ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>
+  | Record<string, ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>>
   | {
     emoji: Array<EmojiValue | string>
-    handler: ChatEventHook<ReactionEvent, TRuntimeConfig>
+    handler: ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>
   }
 
-export type ChatActionHookInput<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
-  | ChatEventHook<ActionEvent, TRuntimeConfig>
-  | Record<string, ChatEventHook<ActionEvent, TRuntimeConfig>>
+export type ChatActionHookInput<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> =
+  | ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>
+  | Record<string, ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>>
 
-export type ChatModalSubmitHookInput<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
-  | ChatEventHook<ModalSubmitEvent, TRuntimeConfig>
-  | Record<string, ChatEventHook<ModalSubmitEvent, TRuntimeConfig>>
+export type ChatModalSubmitHookInput<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> =
+  | ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>
+  | Record<string, ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>>
 
-export interface ChatEventHooks<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
-  onAction?: ChatActionHookInput<TRuntimeConfig>
-  onDirectMessage?: ChatDirectMessageHook<TRuntimeConfig>
-  onModalSubmit?: ChatModalSubmitHookInput<TRuntimeConfig>
-  onNewMention?: ChatMessageHook<TRuntimeConfig>
-  onNewMessage?: ChatNewMessageHook<TRuntimeConfig> | Array<ChatNewMessageHook<TRuntimeConfig>>
-  onReaction?: ChatReactionHookInput<TRuntimeConfig>
-  onSubscribedMessage?: ChatMessageHook<TRuntimeConfig>
+export interface ChatEventHooks<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> {
+  onAction?: ChatActionHookInput<TRuntimeConfig, TWorkflow>
+  onDirectMessage?: ChatDirectMessageHook<TRuntimeConfig, TWorkflow>
+  onModalSubmit?: ChatModalSubmitHookInput<TRuntimeConfig, TWorkflow>
+  onNewMention?: ChatMessageHook<TRuntimeConfig, TWorkflow>
+  onNewMessage?: ChatNewMessageHook<TRuntimeConfig, TWorkflow> | Array<ChatNewMessageHook<TRuntimeConfig, TWorkflow>>
+  onReaction?: ChatReactionHookInput<TRuntimeConfig, TWorkflow>
+  onSubscribedMessage?: ChatMessageHook<TRuntimeConfig, TWorkflow>
 }
 
 export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> {
@@ -128,11 +171,14 @@ export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext<any
 
 type ChatConfigPassthrough = Omit<ChatConfig, "adapters" | "state" | "userName">
 
-export interface DefineChatOptions<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> extends ChatConfigPassthrough {
+export interface DefineChatOptions<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> extends ChatConfigPassthrough, ChatEventHooks<TRuntimeConfig, TWorkflow> {
   adapters: AdapterInput<ResolvedChatRuntimeContext<TRuntimeConfig>>
   concurrency?: ConcurrencyStrategy | ConcurrencyConfig
   fallbackStreamingPlaceholderText?: string | null
-  hooks?: ChatEventHooks<TRuntimeConfig>
+  hooks?: ChatEventHooks<TRuntimeConfig, TWorkflow>
   lifecycleHooks?: ChatWebhookRuntimeHooks<ChatRuntimeContext<TRuntimeConfig>>
   lockScope?: LockScope | ((context: LockScopeContext) => LockScope | Promise<LockScope>)
   logger?: Logger | LogLevel
@@ -140,6 +186,7 @@ export interface DefineChatOptions<TRuntimeConfig extends ChatRuntimeConfig = Ch
   setup?: (bot: Chat, context: ResolvedChatRuntimeContext<TRuntimeConfig>) => MaybePromise<void>
   state: MaybeResolvable<StateAdapter, ChatRuntimeContext<TRuntimeConfig>>
   userName?: ChatConfig["userName"]
+  workflow?: TWorkflow
 }
 
 export interface ResolveChatOptions {
