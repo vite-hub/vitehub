@@ -124,7 +124,7 @@ describe("Nitro module", () => {
     expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
     expect(types).not.toContain("declare module \"nitro/types\"")
     expect(types).not.toContain("export {}")
-    expect(integrationTypes).toContain("import \"@vitehub/chat\"")
+    expect(integrationTypes).not.toContain("import \"@vitehub/chat\"")
     expect(integrationTypes).toContain("import \"nitro/types\"")
     expect(integrationTypes).toContain("declare module \"nitro/types\"")
     expect(integrationTypes).toContain("export interface NitroRuntimeConfig")

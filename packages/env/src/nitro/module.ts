@@ -76,7 +76,6 @@ function createNitroServerTypes(registry: EnvRuntimeRegistry): string {
 function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
   const fields = createTypeFields(registry, 4)
   return [
-    "import \"@vitehub/chat\"",
     "import \"nitro/types\"",
     "",
     "declare module \"nitro/types\" {",
