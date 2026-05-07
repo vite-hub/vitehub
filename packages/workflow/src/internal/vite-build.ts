@@ -9,7 +9,7 @@ import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
 import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
 
 import { normalizeWorkflowOptions } from "../config.ts"
-import { discoverInlineWorkflowDefinitions, discoverWorkflowDefinitions } from "../discovery.ts"
+import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
@@ -149,12 +149,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir })
-  const inlineDefinitions = discoverInlineWorkflowDefinitions({ rootDir })
-  const duplicateInlineDefinition = inlineDefinitions.find(inline => definitions.some(definition => definition.name === inline.name))
-  if (duplicateInlineDefinition) {
-    throw new Error(`Duplicate workflow name "${duplicateInlineDefinition.name}" from inline and discovered definitions.`)
-  }
-  const providerDefinitions = [...definitions, ...inlineDefinitions].sort((left, right) => left.name.localeCompare(right.name))
+  const providerDefinitions = definitions
   const userAppEntry = resolveWorkflowUserAppEntry(rootDir)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 

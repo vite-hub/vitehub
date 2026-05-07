@@ -147,7 +147,7 @@ function findMatching(source: string, index: number, open: string, close: string
     if (char === open) {
       depth += 1
     }
-    else if (char === close) {
+    else if (char === close && !(open === "<" && close === ">" && source[current - 1] === "=")) {
       depth -= 1
       if (depth === 0) {
         return current
@@ -225,8 +225,8 @@ function readObjectWorkflowName(argument: string) {
     if (key?.trim() === "name") {
       name = readStringLiteral(value)
     }
-    else if (key?.trim() === "handler") {
-      hasHandler = value.length > 0
+    else if (key?.trim() === "handler" || property.trim() === "handler") {
+      hasHandler = true
     }
   }
   return hasHandler ? name : undefined

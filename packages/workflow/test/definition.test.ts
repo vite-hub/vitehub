@@ -83,6 +83,28 @@ describe("workflow definitions", () => {
     ])
   })
 
+  it("discovers inline workflows with function type generics and shorthand handlers", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-function-generic-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server"), { recursive: true })
+    await writeFile(join(rootDir, "server", "chat.ts"), [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `const handler = async () => "ok"`,
+      `export const chatReply = createWorkflow<{ map: (value: string) => boolean }, string>({`,
+      `  name: "chat-reply",`,
+      `  handler,`,
+      `})`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({
+        handler: join(rootDir, "server", "chat.ts"),
+        name: "chat-reply",
+        source: "inline",
+      }),
+    ])
+  })
+
   it("ignores options-only createWorkflow calls", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-options-"))
     tempDirs.push(rootDir)
