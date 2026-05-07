@@ -2,6 +2,7 @@ import { resolveChat } from "./index.ts"
 import { createChatRuntimeContext } from "./runtime/context.ts"
 import { defaultChatCloudflareDurableObjectName } from "./config.ts"
 import { createMemoryChatStateAdapter } from "./runtime/memory-state.ts"
+import { flushWaitUntilTasks } from "./runtime/wait-until.ts"
 
 import type { Chat, StateAdapter, WebhookOptions } from "chat"
 import type {
@@ -176,18 +177,32 @@ export function defineCloudflareChatHandler(
       waitUntil,
     })
 
-    const bot = await resolveChat(chat, runtimeContext)
-    const handler = getWebhook(bot, platform)
-    if (!handler) {
-      return new Response(`Unknown chat platform: ${platform}`, { status: 404 })
-    }
-
+    let caughtError: unknown
     try {
-      return await handler(request, { waitUntil }) as Response
+      try {
+        const bot = await resolveChat(chat, runtimeContext)
+        const handler = getWebhook(bot, platform)
+        if (!handler) {
+          return new Response(`Unknown chat platform: ${platform}`, { status: 404 })
+        }
+
+        return await handler(request, { waitUntil }) as Response
+      }
+      catch (error) {
+        caughtError = error
+        throw error
+      }
     }
     finally {
       if (processing === "inline") {
-        await Promise.all(pendingTasks)
+        try {
+          await flushWaitUntilTasks(pendingTasks)
+        }
+        catch (error) {
+          if (!caughtError) {
+            throw error
+          }
+        }
       }
     }
   }

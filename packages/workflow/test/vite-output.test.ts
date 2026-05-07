@@ -103,6 +103,50 @@ describe("Vite workflow provider outputs", () => {
     expect(serverEntryContents).toContain('__vitehubRunNitroWorkflowDefinition("welcome"')
   }, 30_000)
 
+  it("infers Nitro Cloudflare workflow output when workflow options are omitted", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-cloudflare-inferred-")
+    const nitroConfig = join(rootDir, "nitro.config.ts")
+    await writeFile(nitroConfig, (await readFile(nitroConfig, "utf8")).replace("  workflow: workflowEnabled ? {} : false,\n", ""))
+
+    await execFileAsync("pnpm", ["exec", "nitro", "build", "--preset", "cloudflare-module"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_NITRO_MODE: "workflow" },
+    })
+
+    const wrangler = JSON.parse(await readFile(join(rootDir, ".output", "server", "wrangler.json"), "utf8"))
+    const className = getCloudflareWorkflowClassName("welcome")
+
+    expect(wrangler.workflows).toContainEqual({
+      binding: "WORKFLOW_77656C636F6D65",
+      class_name: className,
+      name: "workflow--77656c636f6d65",
+    })
+  }, 30_000)
+
+  it("applies @vitehub/env runtime config in Nitro Cloudflare workflows", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-env-")
+    const nitroConfig = join(rootDir, "nitro.config.ts")
+    const contents = await readFile(nitroConfig, "utf8")
+    await writeFile(nitroConfig, [
+      `import { env } from "@vitehub/env/nitro"`,
+      contents
+        .replace(`"@vitehub/workflow/nitro"`, `"@vitehub/env/nitro", "@vitehub/workflow/nitro"`)
+        .replace("  queue: {},", "  env: { vertex: { apiKey: env({ secret: true }) } },\n  queue: {},"),
+    ].join("\n"))
+
+    await execFileAsync("pnpm", ["exec", "nitro", "build", "--preset", "cloudflare-module"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_NITRO_MODE: "workflow" },
+    })
+
+    const serverEntryContents = await readFile(join(rootDir, ".output", "server", "index.mjs"), "utf8")
+
+    expect(serverEntryContents).toContain("applyEnvRegistryToRuntimeConfig")
+    expect(serverEntryContents).toContain("VERTEX_API_KEY")
+    expect(serverEntryContents).toContain("applyWorkflowEnvRuntimeConfig(runtimeConfig, env)")
+    expect(serverEntryContents).not.toContain("applyWorkflowEnvRuntimeConfig(runtimeConfig)\n  setWorkflowRuntimeConfig")
+  }, 30_000)
+
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
     const viteConfig = join(rootDir, "vite.config.ts")

@@ -8,7 +8,7 @@ icon: i-simple-icons-cloudflare
 frameworks: [vite, nitro]
 ---
 
-Cloudflare hosting selects the Cloudflare provider automatically. You can also set it explicitly when local builds should emit Cloudflare output.
+Cloudflare hosting selects the Cloudflare provider automatically. Register the integration and ViteHub emits Workflow bindings for Cloudflare builds. You can also set `workflow.provider` explicitly when local builds should emit Cloudflare output.
 
 ::tabs{sync="framework"}
   :::tabs-item{label="Vite" icon="i-simple-icons-vite" class="p-4"}
@@ -18,9 +18,6 @@ Cloudflare hosting selects the Cloudflare provider automatically. You can also s
 
     export default defineConfig({
       plugins: [hubWorkflow()],
-      workflow: {
-        provider: 'cloudflare',
-      },
     })
     ```
   :::
@@ -31,9 +28,6 @@ Cloudflare hosting selects the Cloudflare provider automatically. You can also s
 
     export default defineNitroConfig({
       modules: ['@vitehub/workflow/nitro'],
-      workflow: {
-        provider: 'cloudflare',
-      },
     })
     ```
   :::

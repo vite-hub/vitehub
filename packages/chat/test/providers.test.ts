@@ -156,6 +156,32 @@ describe("Cloudflare helpers", () => {
     expect(completed).toBe(true)
   })
 
+  it("awaits all raw Cloudflare inline tasks when one rejects", async () => {
+    const { defineCloudflareChatHandler } = await import("../src/cloudflare.ts")
+    const waitUntil = vi.fn()
+    let completed = false
+    const rejected = (async () => {
+      await Promise.resolve()
+      throw new Error("task failed")
+    })()
+    const completedTask = (async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      completed = true
+    })()
+    const webhook = vi.fn((_request: Request, options: { waitUntil: (promise: Promise<unknown>) => void }) => {
+      options.waitUntil(rejected)
+      options.waitUntil(completedTask)
+      return new Response("ok")
+    })
+    const handler = defineCloudflareChatHandler({ webhooks: { telegram: webhook } } as never, { processing: "inline" })
+
+    await expect(handler(new Request("https://example.com/api/webhooks/telegram"), {}, { waitUntil })).rejects.toThrow("task failed")
+
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(completed).toBe(true)
+  })
+
   it("awaits raw Cloudflare inline tasks when the webhook throws", async () => {
     const { defineCloudflareChatHandler } = await import("../src/cloudflare.ts")
     const waitUntil = vi.fn()
@@ -166,6 +192,28 @@ describe("Cloudflare helpers", () => {
     })()
     const webhook = vi.fn((_request: Request, options: { waitUntil: (promise: Promise<unknown>) => void }) => {
       options.waitUntil(task)
+      throw new Error("webhook failed")
+    })
+    const handler = defineCloudflareChatHandler({ webhooks: { telegram: webhook } } as never, { processing: "inline" })
+
+    await expect(handler(new Request("https://example.com/api/webhooks/telegram"), {}, { waitUntil })).rejects.toThrow("webhook failed")
+
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(completed).toBe(true)
+  })
+
+  it("keeps raw Cloudflare webhook errors when inline tasks also reject", async () => {
+    const { defineCloudflareChatHandler } = await import("../src/cloudflare.ts")
+    const waitUntil = vi.fn()
+    let completed = false
+    const rejected = Promise.reject(new Error("task failed"))
+    const completedTask = (async () => {
+      await Promise.resolve()
+      completed = true
+    })()
+    const webhook = vi.fn((_request: Request, options: { waitUntil: (promise: Promise<unknown>) => void }) => {
+      options.waitUntil(rejected)
+      options.waitUntil(completedTask)
       throw new Error("webhook failed")
     })
     const handler = defineCloudflareChatHandler({ webhooks: { telegram: webhook } } as never, { processing: "inline" })
