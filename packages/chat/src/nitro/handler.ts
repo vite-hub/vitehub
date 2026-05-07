@@ -229,7 +229,10 @@ export function defineChatWebhookHandler(
     }
     catch (error) {
       caughtError = error
-      await hooks.callHook("error", error, context)
+      try {
+        await hooks.callHook("error", error, context)
+      }
+      catch {}
       if (processing === "inline") {
         try {
           await flushWaitUntilTasks(pendingTasks)

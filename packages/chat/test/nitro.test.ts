@@ -268,6 +268,35 @@ describe("defineChatWebhookHandler", () => {
     expect(completed).toBe(true)
   })
 
+  it("flushes Nitro inline tasks when error hooks throw", async () => {
+    const { defineChatWebhookHandler } = await import("../src/nitro.ts")
+    const waitUntil = vi.fn()
+    let completed = false
+    const task = (async () => {
+      await Promise.resolve()
+      completed = true
+    })()
+    const webhook = vi.fn(() => {
+      throw new Error("webhook failed")
+    })
+    const handler = defineChatWebhookHandler({
+      webhooks: { telegram: webhook },
+    } as never, {
+      lifecycleHooks: {
+        error: (_error, context) => {
+          context.waitUntil(task)
+          throw new Error("error hook failed")
+        },
+      },
+      processing: "inline",
+    })
+
+    await expect(handler(createEvent("telegram", waitUntil) as never)).rejects.toThrow("webhook failed")
+
+    expect(waitUntil).not.toHaveBeenCalled()
+    expect(completed).toBe(true)
+  })
+
   it("forwards Node-style Nitro request bodies to webhooks", async () => {
     const { defineChatWebhookHandler } = await import("../src/nitro.ts")
     const webhook = vi.fn(async (request: Request) => new Response(await request.text()))
