@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { listMatchingFiles } from "@vitehub/internal/definition-catalog"
 import { resolveRuntimeEntry } from "@vitehub/internal/nitro"
+import { createJiti } from "jiti"
 
 import { syncWorkspaceDefinition } from "./lifecycle.ts"
 import { normalizeSafeWorkspacePath } from "./path.ts"
@@ -42,6 +43,12 @@ function serializeContent(content: WorkspaceContent) {
   return `new Uint8Array(${JSON.stringify([...content])})`
 }
 
+const workspaceConfigLoader = createJiti(import.meta.url, { moduleCache: false })
+
+async function importWorkspaceConfig(path: string): Promise<{ default?: WorkspaceDefinitionInput }> {
+  return await workspaceConfigLoader.import(path)
+}
+
 function runtimeAssetsModulePath() {
   return resolveRuntimeEntry("./runtime/assets", "@vitehub/workspace/runtime/assets", import.meta.url)
 }
@@ -57,7 +64,7 @@ export async function syncDiscoveredWorkspaces(
   for (const definition of definitions) {
     if (!shouldBundleWorkspaceAssets(options.assets, definition.name)) continue
 
-    const mod = await import(pathToFileURL(definition.path).href) as { default?: WorkspaceDefinitionInput }
+    const mod = await importWorkspaceConfig(definition.path)
     if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
 
     const workspace = createWorkspace({

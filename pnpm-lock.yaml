@@ -943,6 +943,9 @@ importers:
       isomorphic-git:
         specifier: ^1.37.6
         version: 1.37.6
+      jiti:
+        specifier: ^2.6.1
+        version: 2.6.1
       minimatch:
         specifier: ^10.1.1
         version: 10.2.5
