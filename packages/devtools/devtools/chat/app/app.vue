@@ -420,8 +420,8 @@ onMounted(refresh)
             <div class="flex flex-col gap-2">
               <UChatShimmer
                 v-if="message.loading"
-                text="Working through the workspace"
-                class="text-muted"
+                text="Thinking..."
+                :duration="1.4"
               />
               <p
                 v-if="content"
