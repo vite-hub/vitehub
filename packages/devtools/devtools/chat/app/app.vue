@@ -35,6 +35,8 @@ const pendingUserMessage = ref<ChatMessage | undefined>()
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 
+const simulationDelayMs = 280
+
 function selectedChat(next = state.value) {
   return next.chats.find(chat => chat.name === next.selected) || next.chats[0]
 }
@@ -92,6 +94,15 @@ function appendDummy(message: ChatDevtoolsMessage) {
   messages.value = [...messages.value, toChatMessage(message)]
 }
 
+function appendOrUpdateMessage(message: ChatMessage) {
+  const index = messages.value.findIndex(item => item.id === message.id)
+  if (index >= 0) {
+    messages.value = messages.value.map(item => item.id === message.id ? message : item)
+    return
+  }
+  messages.value = [...messages.value, message]
+}
+
 function appendPendingUserMessage(text: string, chat: string | undefined) {
   pendingUserMessage.value = {
     chat,
@@ -101,6 +112,108 @@ function appendPendingUserMessage(text: string, chat: string | undefined) {
     parts: [],
   }
   messages.value = [...messages.value, pendingUserMessage.value]
+}
+
+function wait(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function runStandaloneSimulation(text: string) {
+  const now = Date.now()
+  const assistant: ChatMessage = {
+    content: "Thinking...",
+    id: `assistant-${now}`,
+    role: "assistant",
+    parts: [],
+  }
+  appendDummy({
+    id: `user-${now}`,
+    role: "user",
+    text,
+    createdAt: new Date().toISOString(),
+  })
+  appendOrUpdateMessage(assistant)
+  status.value = "streaming"
+
+  const tools: ChatDevtoolsTool[] = [
+    {
+      id: `tool-${now}-workspace-search`,
+      input: {
+        query: text,
+        source: "data-sources",
+      },
+      name: "workspace.search",
+      status: "running",
+      text: "workspace.search",
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: `tool-${now}-read-file`,
+      input: {
+        path: "server/workspaces/data-sources/AGENTS.md",
+      },
+      name: "workspace.readFile",
+      status: "running",
+      text: "workspace.readFile",
+      updatedAt: new Date().toISOString(),
+    },
+  ]
+
+  await wait(simulationDelayMs)
+  assistant.parts = [{ type: "tool", tool: tools[0]! }]
+  appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
+
+  await wait(simulationDelayMs)
+  tools[0] = {
+    ...tools[0]!,
+    output: {
+      matches: [
+        "Repository inventory and workspace guidance",
+        "Forecasting and portal data source notes",
+      ],
+    },
+    status: "completed",
+    updatedAt: new Date().toISOString(),
+  }
+  assistant.parts = [{ type: "tool", tool: tools[0]! }]
+  appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
+
+  await wait(simulationDelayMs)
+  assistant.parts = [
+    { type: "tool", tool: tools[0]! },
+    { type: "tool", tool: tools[1]! },
+  ]
+  appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
+
+  await wait(simulationDelayMs)
+  tools[1] = {
+    ...tools[1]!,
+    output: {
+      bytes: 1482,
+      summary: "Loaded Quiver Chat workspace instructions and source boundaries.",
+    },
+    status: "completed",
+    updatedAt: new Date().toISOString(),
+  }
+  assistant.parts = [
+    { type: "tool", tool: tools[0]! },
+    { type: "tool", tool: tools[1]! },
+  ]
+  assistant.content = ""
+  appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
+
+  const chunks = [
+    "I found the relevant workspace notes and traced the request through the Quiver Chat data sources. ",
+    "The likely next step is to answer from the repository context first, then cite which workspace files or source records were used. ",
+    "In a connected Vite DevTools session this same panel will show live Chat SDK tool calls as they move from running to completed.",
+  ]
+  for (const chunk of chunks) {
+    await wait(simulationDelayMs)
+    assistant.content += chunk
+    appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
+  }
+
+  error.value = "Running without Vite DevTools RPC. Simulating Chat SDK streaming and tool calls locally."
 }
 
 async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
@@ -182,19 +295,7 @@ async function send() {
     const pendingId = pendingUserMessage.value?.id
     pendingUserMessage.value = undefined
     messages.value = pendingId ? messages.value.filter(message => message.id !== pendingId) : messages.value
-    appendDummy({
-      id: `user-${Date.now()}`,
-      role: "user",
-      text,
-      createdAt: new Date().toISOString(),
-    })
-    appendDummy({
-      id: `assistant-${Date.now()}`,
-      role: "assistant",
-      text: `Dummy reply: ${text}`,
-      createdAt: new Date().toISOString(),
-    })
-    error.value = "Running without Vite DevTools RPC. Dummy replies are local only."
+    await runStandaloneSimulation(text)
   }
   finally {
     currentReader = undefined
