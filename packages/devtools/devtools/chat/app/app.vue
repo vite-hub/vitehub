@@ -37,7 +37,7 @@ let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 let simulationRunId = 0
 
-const simulationDelayMs = 180
+const simulationDelayMs = 360
 
 function selectedChat(next = state.value) {
   return next.chats.find(chat => chat.name === next.selected) || next.chats[0]
