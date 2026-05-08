@@ -238,26 +238,48 @@ async function sendDevtoolsMessage(
   return serializeState(state, selected)
 }
 
-function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void) => Promise<void>): Response {
+function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void, signal: AbortSignal) => Promise<void>): Response {
   const encoder = new TextEncoder()
+  const abortController = new AbortController()
+  let closed = false
+
+  function emit(controller: ReadableStreamDefaultController<Uint8Array>, event: ChatDevtoolsStreamEvent): void {
+    if (closed || abortController.signal.aborted) return
+    try {
+      controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+    }
+    catch {
+      closed = true
+      abortController.abort()
+    }
+  }
+
   return new Response(new ReadableStream({
     start(controller) {
-      const emit = (event: ChatDevtoolsStreamEvent) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
-      }
-
-      run(emit)
+      run(event => emit(controller, event), abortController.signal)
         .then(() => {
-          emit({ type: "done" })
-          controller.close()
+          if (closed || abortController.signal.aborted) return
+          emit(controller, { type: "done" })
+          if (!closed) {
+            closed = true
+            controller.close()
+          }
         })
         .catch((cause) => {
-          emit({
+          if (closed || abortController.signal.aborted) return
+          emit(controller, {
             type: "error",
             message: cause instanceof Error ? cause.message : "Chat DevTools stream failed.",
           })
-          controller.close()
+          if (!closed) {
+            closed = true
+            controller.close()
+          }
         })
+    },
+    cancel() {
+      closed = true
+      abortController.abort()
     },
   }), {
     headers: { "content-type": "application/x-ndjson" },
@@ -312,11 +334,12 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
       }
 
       if (body.stream) {
-        return createChatDevtoolsStreamResponse(async (emit) => {
+        return createChatDevtoolsStreamResponse(async (emit, signal) => {
           const emitState = () => emit({ type: "state" as const, state: adapter.getDevtoolsState(body.chat) })
           const message = adapter.createDevtoolsMessage(text, body.chat)
           emitState()
           const interval = setInterval(emitState, 250)
+          signal.addEventListener("abort", () => clearInterval(interval), { once: true })
           try {
             await chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
           }
