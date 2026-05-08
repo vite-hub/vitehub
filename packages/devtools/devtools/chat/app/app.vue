@@ -79,6 +79,9 @@ function toChatMessage(message: ChatDevtoolsMessage): ChatMessage {
 
 function renderToolCommand(tool: ChatDevtoolsTool) {
   const input = tool.input && typeof tool.input === "object" ? tool.input as Record<string, unknown> : {}
+  if (typeof input.command === "string") {
+    return input.command
+  }
   if (typeof input.path === "string") {
     return `${tool.name} ${input.path}`
   }
@@ -101,6 +104,13 @@ function renderToolOutput(tool: ChatDevtoolsTool) {
   }
   if (typeof output === "object") {
     const record = output as Record<string, unknown>
+    if (typeof record.stdout === "string" || typeof record.stderr === "string") {
+      return [
+        typeof record.exitCode === "number" ? `Exit code: ${record.exitCode}` : "",
+        typeof record.stdout === "string" && record.stdout ? ["### stdout", record.stdout.trimEnd()].join("\n") : "",
+        typeof record.stderr === "string" && record.stderr ? ["### stderr", record.stderr.trimEnd()].join("\n") : "",
+      ].filter(Boolean).join("\n")
+    }
     if (Array.isArray(record.matches)) {
       return [
         "### Matches",
@@ -195,22 +205,21 @@ async function runStandaloneSimulation(text: string) {
     {
       id: `tool-${now}-workspace-search`,
       input: {
-        query: text,
-        source: "data-sources",
+        command: `rg -n ${JSON.stringify(text)} data-sources`,
       },
-      name: "workspace.search",
+      name: "shell",
       status: "running",
-      text: `workspace.search "${text}"`,
+      text: "shell",
       updatedAt: new Date().toISOString(),
     },
     {
       id: `tool-${now}-read-file`,
       input: {
-        path: "server/workspaces/data-sources/AGENTS.md",
+        command: "cat data-sources/AGENTS.md",
       },
-      name: "workspace.readFile",
+      name: "shell",
       status: "running",
-      text: "workspace.readFile server/workspaces/data-sources/AGENTS.md",
+      text: "shell",
       updatedAt: new Date().toISOString(),
     },
   ]
@@ -225,10 +234,13 @@ async function runStandaloneSimulation(text: string) {
   tools[0] = {
     ...tools[0]!,
     output: {
-      matches: [
-        "Repository inventory and workspace guidance",
-        "Forecasting and portal data source notes",
-      ],
+      exitCode: 0,
+      stderr: "",
+      stdout: [
+        "data-sources/README.md:4:Repository inventory and workspace guidance",
+        "data-sources/forecasts.md:12:Forecasting and portal data source notes",
+        "",
+      ].join("\n"),
     },
     status: "completed",
     updatedAt: new Date().toISOString(),
@@ -249,8 +261,14 @@ async function runStandaloneSimulation(text: string) {
   tools[1] = {
     ...tools[1]!,
     output: {
-      bytes: 1482,
-      summary: "Loaded Quiver Chat workspace instructions and source boundaries.",
+      exitCode: 0,
+      stderr: "",
+      stdout: [
+        "# Quiver Chat Workspace",
+        "",
+        "Use workspace sources first. Keep shell inspection read-only unless a workflow explicitly enables writes.",
+        "",
+      ].join("\n"),
     },
     status: "completed",
     updatedAt: new Date().toISOString(),
