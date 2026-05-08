@@ -37,7 +37,7 @@ let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 let simulationRunId = 0
 
-const simulationDelayMs = 280
+const simulationDelayMs = 180
 
 function selectedChat(next = state.value) {
   return next.chats.find(chat => chat.name === next.selected) || next.chats[0]
@@ -429,7 +429,7 @@ onMounted(refresh)
               <UChatShimmer
                 v-if="message.loading"
                 text="Thinking..."
-                :duration="1.4"
+                :duration="1.8"
               />
               <p
                 v-if="content"
