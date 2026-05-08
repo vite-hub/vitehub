@@ -487,15 +487,15 @@ onMounted(refresh)
         </div>
       </section>
 
-      <footer class="shrink-0 px-4 pb-4 pt-2">
+      <footer class="shrink-0 px-2 pb-2 pt-1">
         <UAlert
           color="neutral"
           variant="soft"
           icon="i-lucide-info"
           :title="standaloneStatusMessage"
-          class="mb-2"
+          class="mb-1"
           :ui="{
-            root: 'rounded-md bg-transparent p-2.5 gap-2',
+            root: 'rounded-md bg-transparent !px-1 !py-0.5 gap-2',
             icon: 'size-4 mt-0.5',
             title: 'text-xs font-normal leading-5',
           }"
@@ -507,8 +507,9 @@ onMounted(refresh)
           :rows="1"
           :maxrows="3"
           :disabled="status !== 'ready'"
+          size="xs"
           :ui="{
-            root: 'gap-1 px-2 py-1.5 rounded-md',
+            root: 'gap-1 px-1 py-0.5 rounded-md',
             body: 'text-sm',
             footer: 'gap-1',
           }"
