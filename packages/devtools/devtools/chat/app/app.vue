@@ -490,7 +490,7 @@ onMounted(refresh)
           :title="standaloneStatusMessage"
           class="mb-2"
           :ui="{
-            root: 'rounded-md p-2.5 gap-2',
+            root: 'rounded-md bg-transparent p-2.5 gap-2',
             icon: 'size-4 mt-0.5',
             title: 'text-xs font-normal leading-5',
           }"
