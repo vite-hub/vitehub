@@ -8,9 +8,11 @@ const RUNS_TTL_MS = 5 * 60 * 1000
 let runtimeConfig: false | ResolvedWorkflowOptions | undefined
 let runtimeRegistry: WorkflowDefinitionRegistry | undefined
 const inlineRegistry = new Map<string, WorkflowDefinition>()
-const loadingRegistryEntries = new Set<string>()
+const loadingRegistryEntries = new Map<string, Promise<WorkflowDefinition | undefined>>()
 let fallbackEvent: unknown
 const eventStorage = new AsyncLocalStorage<unknown>()
+const loadingRegistryStorage = new AsyncLocalStorage<Set<string>>()
+
 export interface WorkflowRunState<TResult = unknown> {
   error?: unknown
   expiresAt?: number
@@ -94,11 +96,16 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
   if (!entry) {
     return undefined
   }
-  if (loadingRegistryEntries.has(name)) {
-    return undefined
+
+  const activeLoads = loadingRegistryStorage.getStore()
+  const inFlightEntry = loadingRegistryEntries.get(name)
+  if (inFlightEntry) {
+    return activeLoads?.has(name) ? undefined : await inFlightEntry
   }
-  loadingRegistryEntries.add(name)
-  try {
+
+  const nextActiveLoads = new Set(activeLoads)
+  nextActiveLoads.add(name)
+  const loadingEntry = Promise.resolve().then(() => loadingRegistryStorage.run(nextActiveLoads, async () => {
     const loaded = await entry()
     const registeredInlineDefinition = inlineRegistry.get(name)
     if (registeredInlineDefinition) {
@@ -109,6 +116,10 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
     }
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
     return definition && typeof definition.handler === "function" ? definition : undefined
+  }))
+  loadingRegistryEntries.set(name, loadingEntry)
+  try {
+    return await loadingEntry
   }
   finally {
     loadingRegistryEntries.delete(name)
@@ -148,6 +159,7 @@ export function resetWorkflowRuntime(): void {
   runtimeConfig = undefined
   runtimeRegistry = undefined
   inlineRegistry.clear()
+  loadingRegistryEntries.clear()
   fallbackEvent = undefined
   runs.clear()
 }

@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { Chat } from "chat"
@@ -75,6 +79,37 @@ function createDevtoolsContext() {
   }
 }
 
+async function createNitroModuleStub(chat: unknown = {}, dev = true) {
+  const { existsSync } = await import("node:fs")
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-devtools-"))
+  await mkdir(join(rootDir, "server"), { recursive: true })
+  await writeFile(join(rootDir, "server", "chat.ts"), "export default {}", "utf8")
+  vi.mocked(existsSync).mockImplementation(file => String(file).endsWith("chat.ts"))
+  const hooks: Record<string, Function[]> = {}
+  return {
+    hooks: {
+      hook(name: string, handler: Function) {
+        hooks[name] ||= []
+        hooks[name]?.push(handler)
+      },
+    },
+    options: {
+      alias: {} as Record<string, string>,
+      buildDir: ".nitro",
+      chat,
+      dev,
+      externals: {} as { inline?: string[] },
+      handlers: [] as Array<{ handler: string, method?: string, route: string }>,
+      imports: {},
+      output: { serverDir: join(rootDir, ".output", "server") },
+      plugins: [] as string[],
+      preset: "nitro",
+      rootDir,
+      runtimeConfig: {} as Record<string, unknown>,
+    },
+  }
+}
+
 async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
   const result: T[] = []
   for await (const item of stream) result.push(item)
@@ -146,6 +181,7 @@ describe("Chat DevTools Vite integration", () => {
       expect.stringContaining("dist/devtools-client"),
     )
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
+      icon: "ph:chat-circle-duotone",
       id: "@vitehub/chat",
       title: "ViteHub Chat",
       type: "iframe",
@@ -226,6 +262,97 @@ describe("Chat DevTools Vite integration", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(4, expect.any(URL), expect.objectContaining({
       body: JSON.stringify({ action: "clear", chat: "default" }),
     }))
+  })
+
+  it("keeps send RPC errors JSON-safe", async () => {
+    const { hubChat } = await import("../src/vite.ts")
+    const ctx = createDevtoolsContext()
+    const fetchMock = vi.fn(async (_url: URL, init?: RequestInit) => {
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as { stream?: boolean } : {}
+      if (body.stream) {
+        return new Response("boom", { status: 500 })
+      }
+      return new Response(JSON.stringify({
+        chats: [{ name: "default", messages: [] }],
+        selected: "default",
+      }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const plugin = hubChat()
+    ;(plugin as { devtools: { setup: (ctx: unknown) => void } }).devtools.setup(ctx)
+
+    const functions = ctx.rpc.register.mock.calls.map(call => call[0])
+    const send = functions.find(fn => fn.name === "@vitehub/chat:send")!
+    const sendResult = await send.setup().handler({ chat: "default", text: "hello" })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(send).not.toHaveProperty("jsonSerializable")
+    expect(sendResult).toMatchObject({
+      chats: [{ name: "default", messages: [] }],
+      selected: "default",
+      streamId: "stream-1",
+    })
+    expect(ctx.stream.write).toHaveBeenCalledWith({
+      message: "Chat DevTools bridge failed with 500: boom",
+      type: "error",
+    })
+    expect(ctx.stream.error).not.toHaveBeenCalled()
+    expect(ctx.stream.close).toHaveBeenCalled()
+  })
+
+  it("falls back to non-streaming sends when RPC streaming is unavailable", async () => {
+    const { hubChat } = await import("../src/vite.ts")
+    const ctx = createDevtoolsContext()
+    ;(ctx.rpc as { streaming?: unknown }).streaming = undefined
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      chats: [{ name: "default", messages: [{ createdAt: "now", id: "1", role: "user", text: "hello" }] }],
+      selected: "default",
+    })))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const plugin = hubChat()
+    ;(plugin as { devtools: { setup: (ctx: unknown) => void } }).devtools.setup(ctx)
+
+    const functions = ctx.rpc.register.mock.calls.map(call => call[0])
+    const sendResult = await functions.find(fn => fn.name === "@vitehub/chat:send")!.setup().handler({ chat: "default", text: "hello" })
+
+    expect(sendResult).toEqual({
+      chats: [{ name: "default", messages: [{ createdAt: "now", id: "1", role: "user", text: "hello" }] }],
+      selected: "default",
+    })
+    expect(fetchMock).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({
+      body: JSON.stringify({ action: "send", chat: "default", text: "hello" }),
+    }))
+    expect(ctx.rpc.streaming).toBeUndefined()
+  })
+
+  it("adds the bridge route from the Nitro module in dev", async () => {
+    const chatNitroModule = (await import("../src/nitro/module.ts")).default
+    const { chatDevtoolsBridgeRoute } = await import("../src/devtools.ts")
+    const nitro = await createNitroModuleStub()
+
+    await chatNitroModule.setup!(nitro as never)
+
+    expect(nitro.options.handlers).toEqual(expect.arrayContaining([expect.objectContaining({
+      handler: expect.stringContaining("devtools-handler.mjs"),
+      method: "POST",
+      route: chatDevtoolsBridgeRoute,
+    })]))
+    expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([expect.objectContaining({
+      handler: expect.stringContaining("chat-devtools-handler"),
+    })]))
+  })
+
+  it("does not add the bridge route when Chat DevTools are disabled", async () => {
+    const chatNitroModule = (await import("../src/nitro/module.ts")).default
+    const nitro = await createNitroModuleStub({ dev: { devtools: false } })
+
+    await chatNitroModule.setup!(nitro as never)
+
+    expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([expect.objectContaining({
+      route: "/__vitehub/chat/devtools",
+    })]))
   })
 })
 
@@ -320,6 +447,128 @@ describe("Chat DevTools Nitro bridge", () => {
     expect(user.threadId).toBe("devtools:chat:thread")
   })
 
+  it("AI SDK step reporter records command labels and output-only shell results", async () => {
+    const { createChatDevtoolsStepReporter, createDevtoolsAdapter } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const reporter = createChatDevtoolsStepReporter({
+      startTyping: status => adapter.startTyping(user.threadId, status),
+    })
+
+    await reporter({
+      toolCalls: [
+        {
+          input: { command: "rg -n vite data-sources" },
+          toolCallId: "call-1",
+          toolName: "shell",
+        },
+      ],
+    })
+    await reporter({
+      toolResults: [
+        {
+          input: { command: "rg -n vite data-sources" },
+          output: {
+            exitCode: 0,
+            stderr: "",
+            stdout: "data-sources/README.md:1:vite\n",
+          },
+          toolCallId: "call-1",
+          toolName: "shell",
+        },
+      ],
+    })
+    await adapter.postMessage(user.threadId, "Done")
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({
+        role: "assistant",
+        text: "Done",
+        tools: [
+          expect.objectContaining({
+            id: "call-1",
+            input: { command: "rg -n vite data-sources" },
+            name: "shell",
+            output: "data-sources/README.md:1:vite",
+            status: "completed",
+            text: "rg -n vite data-sources",
+          }),
+        ],
+      }),
+    ])
+  })
+
+  it("AI SDK step reporter supports name/id shaped tool events", async () => {
+    const { createChatDevtoolsStepReporter, createDevtoolsAdapter } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const reporter = createChatDevtoolsStepReporter({
+      startTyping: status => adapter.startTyping(user.threadId, status),
+    })
+
+    await reporter({
+      toolResults: [
+        {
+          id: "tool-1",
+          input: { path: "README.md" },
+          name: "read_file",
+          output: { ok: true },
+        },
+      ],
+    })
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({
+        role: "assistant",
+        tools: [
+          expect.objectContaining({
+            id: "tool-1",
+            name: "read_file",
+            output: { ok: true },
+            status: "completed",
+            text: "read_file",
+          }),
+        ],
+      }),
+    ])
+  })
+
+  it("AI SDK full stream shell results are stored as output-only previews", async () => {
+    const { createDevtoolsAdapter, observeChatDevtoolsStream } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const parts = [
+      {
+        input: { command: "cat data-sources/AGENTS.md" },
+        output: { exitCode: 0, stderr: "", stdout: "# Agent notes\n" },
+        toolCallId: "call-1",
+        toolName: "shell",
+        type: "tool-result",
+      },
+    ]
+
+    const stream = observeChatDevtoolsStream({ startTyping: status => adapter.startTyping(user.threadId, status) }, (async function* () {
+      for (const part of parts) yield part
+    })())
+
+    expect(await collect(stream)).toEqual(parts)
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({
+        role: "assistant",
+        tools: [
+          expect.objectContaining({
+            input: { command: "cat data-sources/AGENTS.md" },
+            output: "# Agent notes",
+            text: "cat data-sources/AGENTS.md",
+          }),
+        ],
+      }),
+    ])
+  })
+
   it("singleton bridge dispatches through the registered devtools adapter", async () => {
     const { createDevtoolsAdapter } = await import("../src/devtools.ts")
     const { defineChatDevtoolsSingletonHandler } = await import("../src/nitro.ts")
@@ -339,6 +588,28 @@ describe("Chat DevTools Nitro bridge", () => {
     const result = await handler(createBridgeEvent({ action: "send", text: "hello" }) as never) as ChatDevtoolsStateResult
 
     expect(processMessage).toHaveBeenCalledWith(devtools, "devtools:chat:thread", expect.objectContaining({ text: "hello" }), expect.any(Object))
+    expect(result.chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({ role: "assistant", text: "echo: hello" }),
+    ])
+  })
+
+  it("registry bridge uses the DevTools adapter without resolving production adapters", async () => {
+    const { defineChat } = await import("../src/index.ts")
+    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
+    const chat = defineChat({
+      adapters: vi.fn(() => {
+        throw new Error("Production adapter should not be resolved")
+      }) as never,
+      state: createState() as never,
+      async onDirectMessage({ message, thread }) {
+        await thread.post(`echo: ${message.text}`)
+      },
+    })
+    const handler = defineChatDevtoolsHandler(chat as never)
+
+    const result = await handler(createBridgeEvent({ action: "send", text: "hello" }) as never) as ChatDevtoolsStateResult
+
     expect(result.chats[0]?.messages).toEqual([
       expect.objectContaining({ role: "user", text: "hello" }),
       expect.objectContaining({ role: "assistant", text: "echo: hello" }),

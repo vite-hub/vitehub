@@ -150,10 +150,17 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     throw new TypeError("`createWorkflow()` requires a workflow name.")
   }
 
-  const handler = typeof handlerOrOptions === "function" ? handlerOrOptions : undefined
+  const handler = typeof handlerOrOptions === "function"
+    ? handlerOrOptions
+    : typeof handlerOrOptions === "object" && handlerOrOptions !== null
+      ? handlerOrOptions.handler
+      : undefined
   const createOptions = typeof handlerOrOptions === "function" ? options : handlerOrOptions
 
   if (handler !== undefined) {
+    if (typeof handler !== "function") {
+      throw new TypeError("`createWorkflow()` requires a workflow handler.")
+    }
     registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
   }
   else if (handlerOrOptions !== undefined && (typeof handlerOrOptions !== "object" || handlerOrOptions === null)) {

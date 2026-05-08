@@ -190,6 +190,7 @@ export interface DefineChatOptions<
 }
 
 export interface ResolveChatOptions {
+  adapters?: Record<string, Adapter>
   inferredName?: string
 }
 

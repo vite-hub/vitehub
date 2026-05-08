@@ -50,7 +50,7 @@ export interface ChatDevtoolsClearInput {
 }
 
 export interface ChatDevtoolsSendResult extends ChatDevtoolsStateResult {
-  streamId: string
+  streamId?: string
 }
 
 export type ChatDevtoolsStreamEvent =

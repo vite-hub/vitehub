@@ -56,6 +56,27 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("registers object-form handlers for named workflows", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    const workflow = createWorkflow<{ message: string }, { reply: string }>("object-inline-reply", {
+      handler: async ({ payload }) => ({
+        reply: payload.message.toUpperCase(),
+      }),
+      id: ({ payload }) => payload?.message || "missing",
+    })
+    const run = await workflow.run({ message: "hello" })
+
+    expect(run).toMatchObject({ provider: "vercel", status: "queued" })
+    expect(run.id).toMatch(/^object-inline-reply-/)
+    await vi.waitFor(async () => {
+      await expect(workflow.getRun(run.id)).resolves.toMatchObject({
+        result: { reply: "HELLO" },
+        status: "completed",
+      })
+    })
+  })
+
   it("returns handles for discovered workflows without redefining them", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
@@ -206,6 +227,33 @@ describe("workflow runtime", () => {
         status: "completed",
       })
     })
+  })
+
+  it("shares in-flight discovered workflow definition loads", async () => {
+    let resolveDefinition: (() => void) | undefined
+    const entry = vi.fn(async () => {
+      await new Promise<void>(resolve => {
+        resolveDefinition = resolve
+      })
+      return {
+        default: { handler: async ({ payload }: { payload: unknown }) => ({ payload }) },
+      }
+    })
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({ welcome: entry })
+
+    const firstRun = runWorkflow("welcome", { message: "first" }, { id: "first" })
+    const secondRun = runWorkflow("welcome", { message: "second" }, { id: "second" })
+
+    await vi.waitFor(() => {
+      expect(resolveDefinition).toBeDefined()
+    })
+    resolveDefinition?.()
+
+    await expect(firstRun).resolves.toMatchObject({ id: "first", status: "queued" })
+    await expect(secondRun).resolves.toMatchObject({ id: "second", status: "queued" })
+    expect(entry).toHaveBeenCalledTimes(1)
   })
 
   it("throws for missing definitions", async () => {

@@ -6,6 +6,7 @@ packages:
   - "packages/*/playground/*"
 catalog:
   '@cloudflare/sandbox': ^0.8.11
+  '@iconify-json/lucide': ^1.2.105
   '@libsql/client': ^0.15.15
   '@nuxt/content': ^3.13.0
   '@nuxt/kit': ^4.4.2

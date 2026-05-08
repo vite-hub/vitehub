@@ -9,6 +9,33 @@ frameworks: [vite, nitro]
 
 Use this page when a Chat definition builds but webhooks do not behave as expected.
 
+## Chat DevTools panel is missing
+
+Symptom: the generated Chat DevTools bridge route exists, but the Chat dock does not appear in Vite DevTools.
+
+Cause: `@vitehub/chat/nitro` can install Nitro runtime wiring and the bridge route, but Nitro modules cannot currently register root Vite DevTools integrations.
+
+Fix: register the Vite panel explicitly with `hubChat()` or `chatDevTools()`.
+
+```ts [vite.config.ts]
+import { chatDevTools } from '@vitehub/chat/devtools'
+import { DevTools } from '@vitejs/devtools'
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    DevTools(),
+    chatDevTools(),
+    nitro({
+      modules: ['@vitehub/chat/nitro'],
+    }),
+  ],
+})
+```
+
+Track [nitrojs/nitro#4250](https://github.com/nitrojs/nitro/issues/4250) for the upstream Nitro capability that would let modules register Vite DevTools integrations directly.
+
 ## Missing chat user name
 
 Error:
