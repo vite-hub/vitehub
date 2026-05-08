@@ -37,6 +37,7 @@ let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 let simulationRunId = 0
 
+const standaloneStatusMessage = "Running without Vite DevTools RPC. Simulating Chat SDK streaming and tool calls locally."
 const simulationDelayMs = 360
 
 function selectedChat(next = state.value) {
@@ -292,7 +293,7 @@ async function runStandaloneSimulation(text: string) {
   }
 
   if (!isCurrentRun()) return
-  error.value = "Running without Vite DevTools RPC. Simulating Chat SDK streaming and tool calls locally."
+  error.value = undefined
 }
 
 async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
@@ -482,11 +483,10 @@ onMounted(refresh)
 
       <footer class="shrink-0 px-4 pb-4 pt-2">
         <UAlert
-          v-if="error && !connected"
           color="neutral"
           variant="soft"
           icon="i-lucide-info"
-          :title="error"
+          :title="standaloneStatusMessage"
           class="mb-2"
           :ui="{
             root: 'rounded-md p-2.5 gap-2',
