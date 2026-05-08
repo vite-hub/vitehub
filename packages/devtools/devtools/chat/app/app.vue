@@ -431,12 +431,6 @@ onMounted(refresh)
                 text="Thinking..."
                 :duration="1.8"
               />
-              <p
-                v-if="content"
-                class="whitespace-pre-wrap"
-              >
-                {{ content }}
-              </p>
               <UChatTool
                 v-for="part in parts"
                 :key="part.tool.id"
@@ -453,6 +447,12 @@ onMounted(refresh)
                   v-html="renderToolOutputHtml(part.tool)"
                 />
               </UChatTool>
+              <p
+                v-if="content"
+                class="whitespace-pre-wrap"
+              >
+                {{ content }}
+              </p>
             </div>
           </template>
         </UChatMessages>
