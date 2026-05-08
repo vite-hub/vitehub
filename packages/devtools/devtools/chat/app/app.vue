@@ -41,6 +41,14 @@ let simulationRunId = 0
 const standaloneStatusMessage = "Preview mode. Connect through Vite DevTools to inspect a real chat runtime."
 const simulationDelayMs = 360
 
+function clearPendingMessages() {
+  const pendingId = pendingUserMessage.value?.id
+  const pendingAssistantId = pendingAssistantMessage.value?.id
+  pendingUserMessage.value = undefined
+  pendingAssistantMessage.value = undefined
+  messages.value = messages.value.filter(message => message.id !== pendingId && message.id !== pendingAssistantId)
+}
+
 function selectedChat(next = state.value) {
   return next.chats.find(chat => chat.name === next.selected) || next.chats[0]
 }
@@ -79,6 +87,7 @@ function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
     return
   }
   if (event.type === "error") {
+    clearPendingMessages()
     error.value = event.message
   }
 }
@@ -399,20 +408,12 @@ async function send() {
   catch (cause) {
     const message = cause instanceof Error ? cause.message : "Chat DevTools send failed."
     if (connected.value) {
-      const pendingId = pendingUserMessage.value?.id
-      const pendingAssistantId = pendingAssistantMessage.value?.id
-      pendingUserMessage.value = undefined
-      pendingAssistantMessage.value = undefined
-      messages.value = messages.value.filter(message => message.id !== pendingId && message.id !== pendingAssistantId)
+      clearPendingMessages()
       error.value = message
       return
     }
 
-    const pendingId = pendingUserMessage.value?.id
-    const pendingAssistantId = pendingAssistantMessage.value?.id
-    pendingUserMessage.value = undefined
-    pendingAssistantMessage.value = undefined
-    messages.value = messages.value.filter(message => message.id !== pendingId && message.id !== pendingAssistantId)
+    clearPendingMessages()
     await runStandaloneSimulation(text)
   }
   finally {

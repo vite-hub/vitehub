@@ -13,10 +13,6 @@ let fallbackEvent: unknown
 const eventStorage = new AsyncLocalStorage<unknown>()
 const loadingRegistryStorage = new AsyncLocalStorage<Set<string>>()
 
-function isDevRuntime(): boolean {
-  return (import.meta as ImportMeta & { dev?: boolean }).dev === true
-}
-
 export interface WorkflowRunState<TResult = unknown> {
   error?: unknown
   expiresAt?: number
@@ -63,10 +59,6 @@ export function registerInlineWorkflowDefinition(name: string, definition: Workf
 
   const existing = inlineRegistry.get(name)
   if (existing && existing !== definition) {
-    if (isDevRuntime()) {
-      inlineRegistry.set(name, definition)
-      return
-    }
     throw new Error(`Duplicate workflow name "${name}" from inline definitions.`)
   }
 
