@@ -87,7 +87,7 @@ Chat keeps bot behavior in one definition while deployment-specific wiring stays
 ## One portable flow
 
 1. Install `@vitehub/chat` and the Chat SDK adapter packages your bot needs.
-2. Register `hubChat()` or `@vitehub/chat/nitro`.
+2. Register `hubChat()` for Vite apps, or register `@vitehub/chat/nitro` for Nitro-only apps.
 3. Add `server/chat.ts` or named files under `server/chats/`.
 4. Export `defineChat()` from each chat file.
 5. Point provider webhooks at the generated route.
@@ -101,7 +101,7 @@ Adapter packages, bot tokens, and webhook secrets come from the provider you are
 ::fw{id="vite:dev vite:build"}
 Vite apps use `hubChat()` and Nitro's Vite plugin together. Chat definitions are discovered from the Nitro server tree.
 
-If you register `@vitehub/chat/nitro` directly in `nitro({ modules })`, the module adds the Chat panel to Vite DevTools automatically during development. The Nitro module owns the generated bridge route and runtime behavior.
+The Chat DevTools panel must be registered from Vite with `hubChat()` or `chatDevTools()`. `@vitehub/chat/nitro` owns the generated bridge route and runtime behavior, but Nitro modules cannot currently add root Vite DevTools integrations on their own. Track [nitrojs/nitro#4250](https://github.com/nitrojs/nitro/issues/4250) for that upstream capability.
 ::
 
 ::fw{id="nitro:dev nitro:build"}

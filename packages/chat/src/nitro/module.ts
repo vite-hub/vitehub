@@ -1,12 +1,11 @@
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { createGeneratedDefinitionPath, createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { hasNamedVitePlugin, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { defaultChatCloudflareDurableObjectName, defaultChatCloudflareDurableObjectState, normalizeChatOptions } from "../config.ts"
 import { discoverChatDefinitions } from "../discovery.ts"
-import { chatDevToolsPanel, chatDevtoolsPanelPluginName } from "../devtools.ts"
 import { configureCloudflareChatState, discoverCloudflareChatStateConfig } from "../integrations/cloudflare.ts"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
@@ -24,17 +23,6 @@ interface RollupPluginLike {
   load?: (id: string) => string | undefined
   renderChunk?: (code: string, chunk: { fileName: string, isEntry?: boolean }) => { code: string, map: null } | null | undefined
   resolveId?: (id: string) => string | undefined
-}
-
-interface NitroViteOptionsLike {
-  plugins?: unknown[]
-}
-
-interface NitroOptionsWithVite {
-  _config?: {
-    vite?: NitroViteOptionsLike
-  }
-  vite?: NitroViteOptionsLike
 }
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
@@ -437,36 +425,6 @@ function installDevtoolsRoute(nitro: Nitro, options: ResolvedChatModuleOptions, 
   }
 }
 
-async function installDevtoolsVitePlugin(nitro: Nitro, options: ResolvedChatModuleOptions): Promise<void> {
-  if (!nitro.options.dev || !options.dev || options.dev.devtools === false) {
-    return
-  }
-
-  const nitroOptions = nitro.options as Nitro["options"] & NitroOptionsWithVite
-  const viteConfigs = [
-    nitroOptions._config?.vite,
-    nitroOptions.vite,
-  ].filter(config => config !== undefined)
-  nitroOptions.vite ||= {}
-  viteConfigs.push(nitroOptions.vite)
-
-  const pluginLists = [...new Set(viteConfigs.map((config) => {
-    config.plugins ||= []
-    return config.plugins
-  }))]
-  const plugin = chatDevToolsPanel({
-    devtools: typeof options.dev.devtools === "object" ? options.dev.devtools : undefined,
-  })
-  for (const plugins of pluginLists) {
-    const hasChatPlugin = await Promise.all(
-      ["@vitehub/chat/vite", "@vitehub/chat/devtools", chatDevtoolsPanelPluginName].map(name => hasNamedVitePlugin(plugins, name)),
-    ).then(results => results.some(Boolean))
-    if (!hasChatPlugin) {
-      plugins.push(plugin)
-    }
-  }
-}
-
 async function installCloudflareStateConfig(
   nitro: Nitro,
   options: ResolvedChatModuleOptions,
@@ -540,7 +498,6 @@ const chatNitroModule: NitroModule = {
     let runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
     installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
     if (resolved) {
-      await installDevtoolsVitePlugin(nitro, resolved)
       installRoute(nitro, resolved, runtimeFiles.routeFile)
       installDevtoolsRoute(nitro, resolved, runtimeFiles.devtoolsFile)
       await installCloudflareWorkerName(nitro, resolved)
@@ -551,7 +508,6 @@ const chatNitroModule: NitroModule = {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
       installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
       if (resolved) {
-        await installDevtoolsVitePlugin(nitro, resolved)
         installRoute(nitro, resolved, runtimeFiles.routeFile)
         installDevtoolsRoute(nitro, resolved, runtimeFiles.devtoolsFile)
         await installCloudflareWorkerName(nitro, resolved)
@@ -562,7 +518,6 @@ const chatNitroModule: NitroModule = {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
       installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
       if (resolved) {
-        await installDevtoolsVitePlugin(nitro, resolved)
         installRoute(nitro, resolved, runtimeFiles.routeFile)
         installDevtoolsRoute(nitro, resolved, runtimeFiles.devtoolsFile)
       }

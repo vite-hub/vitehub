@@ -35,7 +35,7 @@ export default defineNitroConfig({
 ```
 ::
 
-`hubChat()` is the Vite-first integration and contributes the Chat Nitro module automatically. Apps that register `@vitehub/chat/nitro` themselves get the Chat DevTools dock automatically during Vite dev.
+`hubChat()` is the Vite-first integration and contributes the Chat Nitro module automatically. Apps that register `@vitehub/chat/nitro` themselves should also register `chatDevTools()` from `@vitehub/chat/devtools` when they want the Chat DevTools dock in Vite. Nitro modules cannot currently add root Vite DevTools integrations by themselves; track [nitrojs/nitro#4250](https://github.com/nitrojs/nitro/issues/4250).
 
 Cloudflare helpers import from `@vitehub/chat/cloudflare`:
 
