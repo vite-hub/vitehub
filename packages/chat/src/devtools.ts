@@ -115,7 +115,9 @@ export interface ChatDevtoolsToolStatusInput {
 }
 
 export interface ChatDevtoolsToolStepItem {
+  id?: string
   input?: unknown
+  name?: string
   output?: unknown
   toolCallId?: string
   toolName?: string
@@ -164,6 +166,14 @@ function truncateText(value: string, length: number): string {
 }
 
 function previewValue(value: unknown, length = defaultOutputPreviewLength): unknown {
+  if (isRecord(value)) {
+    if (typeof value.stdout === "string" && value.stdout) {
+      return truncateText(value.stdout.trimEnd(), length)
+    }
+    if (typeof value.stderr === "string" && value.stderr) {
+      return truncateText(value.stderr.trimEnd(), length)
+    }
+  }
   if (typeof value === "string") {
     return truncateText(value, length)
   }
@@ -179,8 +189,24 @@ function commandLabel(input: unknown): string | undefined {
     : undefined
 }
 
-function defaultToolLabel(tool: { input?: unknown, toolName?: string }): string {
-  return commandLabel(tool.input) || tool.toolName || "tool"
+function toolName(tool: { name?: unknown, toolName?: unknown }): string {
+  return typeof tool.toolName === "string" && tool.toolName
+    ? tool.toolName
+    : typeof tool.name === "string" && tool.name
+      ? tool.name
+      : "tool"
+}
+
+function toolId(tool: { id?: unknown, toolCallId?: unknown }, name: string, index: number): string {
+  return typeof tool.toolCallId === "string" && tool.toolCallId
+    ? tool.toolCallId
+    : typeof tool.id === "string" && tool.id
+      ? tool.id
+      : `${name}-${index + 1}`
+}
+
+function defaultToolLabel(tool: { input?: unknown, name?: unknown, toolName?: unknown }): string {
+  return commandLabel(tool.input) || toolName(tool)
 }
 
 function createToolStatus(input: ChatDevtoolsToolStatusInput) {
@@ -230,25 +256,60 @@ export async function reportChatDevtoolsToolStep(
   if (step.text?.trim()) return
 
   const latestTool = step.toolResults?.at(-1) || step.toolCalls?.at(-1)
-  if (!latestTool?.toolName) return
+  if (!latestTool) return
 
   const status: ChatDevtoolsToolStatus = step.toolResults?.at(-1) === latestTool ? "completed" : "running"
-  const toolCalls = step.toolCalls?.filter(tool => tool.toolName).length || 0
-  const toolResults = step.toolResults?.filter(tool => tool.toolName).length || 0
+  const name = toolName(latestTool)
+  const toolCalls = step.toolCalls?.length || 0
+  const toolResults = step.toolResults?.length || 0
   const text = options.label?.(latestTool, status) || defaultToolLabel(latestTool)
   await thread.startTyping(createChatDevtoolsToolStatus({
-    id: latestTool.toolCallId || `${latestTool.toolName}-${toolResults || toolCalls}`,
+    id: toolId(latestTool, name, (toolResults || toolCalls) - 1),
     input: latestTool.input,
-    name: latestTool.toolName,
+    name,
     output: "output" in latestTool ? previewValue(latestTool.output, options.outputPreviewLength) : undefined,
     status,
     text,
   }))
 }
 
+async function reportToolStepItem(
+  thread: ChatDevtoolsTypingThread,
+  tool: ChatDevtoolsToolStepItem,
+  status: ChatDevtoolsToolStatus,
+  index: number,
+  options: ChatDevtoolsToolStepReportOptions,
+): Promise<void> {
+  const name = toolName(tool)
+  await thread.startTyping(createChatDevtoolsToolStatus({
+    id: toolId(tool, name, index),
+    input: tool.input,
+    name,
+    output: "output" in tool ? previewValue(tool.output, options.outputPreviewLength) : undefined,
+    status,
+    text: options.label?.(tool, status) || defaultToolLabel(tool),
+  }))
+}
+
+export function createChatDevtoolsStepReporter(
+  thread: ChatDevtoolsTypingThread,
+  options: ChatDevtoolsToolStepReportOptions = {},
+): (step: ChatDevtoolsToolStep) => Promise<void> {
+  return async (step) => {
+    if (step.text?.trim()) return
+
+    for (const [index, toolCall] of (step.toolCalls || []).entries()) {
+      await reportToolStepItem(thread, toolCall, "running", index, options)
+    }
+    for (const [index, toolResult] of (step.toolResults || []).entries()) {
+      await reportToolStepItem(thread, toolResult, "completed", index, options)
+    }
+  }
+}
+
 function statusFromFullStreamPart(part: ChatDevtoolsFullStreamToolPart): ChatDevtoolsToolStatusInput | undefined {
   if (part.type === "tool-input-start") {
-    const name = part.toolName || "tool"
+    const name = toolName(part)
     return {
       id: part.toolCallId || part.id,
       name,
@@ -258,7 +319,7 @@ function statusFromFullStreamPart(part: ChatDevtoolsFullStreamToolPart): ChatDev
   }
 
   if (part.type === "tool-call") {
-    const name = part.toolName || "tool"
+    const name = toolName(part)
     return {
       id: part.toolCallId || part.id,
       input: part.input,
@@ -269,7 +330,7 @@ function statusFromFullStreamPart(part: ChatDevtoolsFullStreamToolPart): ChatDev
   }
 
   if (part.type === "tool-result") {
-    const name = part.toolName || "tool"
+    const name = toolName(part)
     return {
       id: part.toolCallId || part.id,
       input: part.input,
@@ -281,7 +342,7 @@ function statusFromFullStreamPart(part: ChatDevtoolsFullStreamToolPart): ChatDev
   }
 
   if (part.type === "tool-error") {
-    const name = part.toolName || "tool"
+    const name = toolName(part)
     return {
       id: part.toolCallId || part.id,
       input: part.input,
@@ -293,7 +354,7 @@ function statusFromFullStreamPart(part: ChatDevtoolsFullStreamToolPart): ChatDev
   }
 
   if (part.type === "tool-output-denied") {
-    const name = part.toolName || "tool"
+    const name = toolName(part)
     return {
       id: part.toolCallId || part.id,
       input: part.input,

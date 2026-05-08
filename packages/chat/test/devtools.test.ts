@@ -473,6 +473,128 @@ describe("Chat DevTools Nitro bridge", () => {
     expect(user.threadId).toBe("devtools:chat:thread")
   })
 
+  it("AI SDK step reporter records command labels and output-only shell results", async () => {
+    const { createChatDevtoolsStepReporter, createDevtoolsAdapter } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const reporter = createChatDevtoolsStepReporter({
+      startTyping: status => adapter.startTyping(user.threadId, status),
+    })
+
+    await reporter({
+      toolCalls: [
+        {
+          input: { command: "rg -n vite data-sources" },
+          toolCallId: "call-1",
+          toolName: "shell",
+        },
+      ],
+    })
+    await reporter({
+      toolResults: [
+        {
+          input: { command: "rg -n vite data-sources" },
+          output: {
+            exitCode: 0,
+            stderr: "",
+            stdout: "data-sources/README.md:1:vite\n",
+          },
+          toolCallId: "call-1",
+          toolName: "shell",
+        },
+      ],
+    })
+    await adapter.postMessage(user.threadId, "Done")
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({
+        role: "assistant",
+        text: "Done",
+        tools: [
+          expect.objectContaining({
+            id: "call-1",
+            input: { command: "rg -n vite data-sources" },
+            name: "shell",
+            output: "data-sources/README.md:1:vite",
+            status: "completed",
+            text: "rg -n vite data-sources",
+          }),
+        ],
+      }),
+    ])
+  })
+
+  it("AI SDK step reporter supports name/id shaped tool events", async () => {
+    const { createChatDevtoolsStepReporter, createDevtoolsAdapter } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const reporter = createChatDevtoolsStepReporter({
+      startTyping: status => adapter.startTyping(user.threadId, status),
+    })
+
+    await reporter({
+      toolResults: [
+        {
+          id: "tool-1",
+          input: { path: "README.md" },
+          name: "read_file",
+          output: { ok: true },
+        },
+      ],
+    })
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({
+        role: "assistant",
+        tools: [
+          expect.objectContaining({
+            id: "tool-1",
+            name: "read_file",
+            output: { ok: true },
+            status: "completed",
+            text: "read_file",
+          }),
+        ],
+      }),
+    ])
+  })
+
+  it("AI SDK full stream shell results are stored as output-only previews", async () => {
+    const { createDevtoolsAdapter, observeChatDevtoolsStream } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const parts = [
+      {
+        input: { command: "cat data-sources/AGENTS.md" },
+        output: { exitCode: 0, stderr: "", stdout: "# Agent notes\n" },
+        toolCallId: "call-1",
+        toolName: "shell",
+        type: "tool-result",
+      },
+    ]
+
+    const stream = observeChatDevtoolsStream({ startTyping: status => adapter.startTyping(user.threadId, status) }, (async function* () {
+      for (const part of parts) yield part
+    })())
+
+    expect(await collect(stream)).toEqual(parts)
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({
+        role: "assistant",
+        tools: [
+          expect.objectContaining({
+            input: { command: "cat data-sources/AGENTS.md" },
+            output: "# Agent notes",
+            text: "cat data-sources/AGENTS.md",
+          }),
+        ],
+      }),
+    ])
+  })
+
   it("singleton bridge dispatches through the registered devtools adapter", async () => {
     const { createDevtoolsAdapter } = await import("../src/devtools.ts")
     const { defineChatDevtoolsSingletonHandler } = await import("../src/nitro.ts")
