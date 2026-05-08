@@ -179,6 +179,9 @@ async function send() {
       return
     }
 
+    const pendingId = pendingUserMessage.value?.id
+    pendingUserMessage.value = undefined
+    messages.value = pendingId ? messages.value.filter(message => message.id !== pendingId) : messages.value
     appendDummy({
       id: `user-${Date.now()}`,
       role: "user",
