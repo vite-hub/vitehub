@@ -454,7 +454,7 @@ onMounted(refresh)
                 :loading="part.tool.status === 'running'"
                 :streaming="part.tool.status === 'running'"
                 variant="card"
-                :default-open="part.tool.status !== 'completed'"
+                :default-open="false"
               >
                 <div
                   v-if="part.tool.output !== undefined"
