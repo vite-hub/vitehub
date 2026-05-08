@@ -75,19 +75,71 @@ function toChatMessage(message: ChatDevtoolsMessage): ChatMessage {
   }
 }
 
-function renderToolValue(value: unknown) {
-  if (value == null) {
+function renderToolCommand(tool: ChatDevtoolsTool) {
+  const input = tool.input && typeof tool.input === "object" ? tool.input as Record<string, unknown> : {}
+  if (typeof input.path === "string") {
+    return `${tool.name} ${input.path}`
+  }
+  if (typeof input.query === "string") {
+    return `${tool.name} "${input.query}"`
+  }
+  return tool.text || tool.name
+}
+
+function renderToolOutput(tool: ChatDevtoolsTool) {
+  const output = tool.output
+  if (output == null) {
     return ""
   }
-  if (typeof value === "string") {
-    return value
+  if (typeof output === "string") {
+    return output
   }
-  try {
-    return JSON.stringify(value, null, 2)
+  if (Array.isArray(output)) {
+    return output.map(item => `- ${String(item)}`).join("\n")
   }
-  catch {
-    return String(value)
+  if (typeof output === "object") {
+    const record = output as Record<string, unknown>
+    if (Array.isArray(record.matches)) {
+      return [
+        "### Matches",
+        ...record.matches.map(item => `- ${String(item)}`),
+      ].join("\n")
+    }
+    if (typeof record.summary === "string") {
+      return [
+        record.summary,
+        typeof record.bytes === "number" ? `\n_${record.bytes.toLocaleString()} bytes read._` : "",
+      ].filter(Boolean).join("\n")
+    }
   }
+  return `\`\`\`json\n${JSON.stringify(output, null, 2)}\n\`\`\``
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#039;")
+}
+
+function renderToolOutputHtml(tool: ChatDevtoolsTool) {
+  return renderToolOutput(tool)
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("### ")) {
+        return `<h4>${escapeHtml(line.slice(4))}</h4>`
+      }
+      if (line.startsWith("- ")) {
+        return `<p>&bull; ${escapeHtml(line.slice(2))}</p>`
+      }
+      if (line.startsWith("_") && line.endsWith("_")) {
+        return `<p><em>${escapeHtml(line.slice(1, -1))}</em></p>`
+      }
+      return line ? `<p>${escapeHtml(line)}</p>` : ""
+    })
+    .join("")
 }
 
 function appendDummy(message: ChatDevtoolsMessage) {
@@ -144,7 +196,7 @@ async function runStandaloneSimulation(text: string) {
       },
       name: "workspace.search",
       status: "running",
-      text: "workspace.search",
+      text: `workspace.search "${text}"`,
       updatedAt: new Date().toISOString(),
     },
     {
@@ -154,7 +206,7 @@ async function runStandaloneSimulation(text: string) {
       },
       name: "workspace.readFile",
       status: "running",
-      text: "workspace.readFile",
+      text: "workspace.readFile server/workspaces/data-sources/AGENTS.md",
       updatedAt: new Date().toISOString(),
     },
   ]
@@ -361,33 +413,18 @@ onMounted(refresh)
               <UChatTool
                 v-for="part in parts"
                 :key="part.tool.id"
-                :text="part.tool.text || part.tool.name"
+                :text="renderToolCommand(part.tool)"
                 :suffix="part.tool.status"
                 :loading="part.tool.status === 'running'"
                 :streaming="part.tool.status === 'running'"
                 variant="card"
                 :default-open="part.tool.status !== 'completed'"
               >
-                <div class="space-y-2">
-                  <div
-                    v-if="part.tool.input !== undefined"
-                    class="space-y-1"
-                  >
-                    <div class="text-xs font-medium text-muted">
-                      Input
-                    </div>
-                    <pre class="overflow-x-auto text-xs">{{ renderToolValue(part.tool.input) }}</pre>
-                  </div>
-                  <div
-                    v-if="part.tool.output !== undefined"
-                    class="space-y-1"
-                  >
-                    <div class="text-xs font-medium text-muted">
-                      Output
-                    </div>
-                    <pre class="overflow-x-auto text-xs">{{ renderToolValue(part.tool.output) }}</pre>
-                  </div>
-                </div>
+                <div
+                  v-if="part.tool.output !== undefined"
+                  class="space-y-1 text-sm text-toned [&_em]:text-muted [&_h4]:font-medium [&_h4]:text-highlighted [&_p]:my-0"
+                  v-html="renderToolOutputHtml(part.tool)"
+                />
               </UChatTool>
             </div>
           </template>
