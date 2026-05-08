@@ -496,7 +496,7 @@ onMounted(refresh)
           class="mb-1"
           :ui="{
             root: 'rounded-md bg-transparent !py-1 !pl-10 !pr-2 gap-0',
-            icon: 'absolute left-3 top-1/2 size-4 -translate-y-1/2',
+            icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-70',
             wrapper: 'min-w-0',
             title: 'text-xs font-normal leading-5',
           }"
