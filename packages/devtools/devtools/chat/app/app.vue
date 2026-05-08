@@ -208,6 +208,10 @@ function wait(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+function waitForFrame() {
+  return new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+}
+
 async function runStandaloneSimulation(text: string) {
   const runId = ++simulationRunId
   const isCurrentRun = () => runId === simulationRunId
@@ -363,6 +367,8 @@ async function send() {
     currentReader = undefined
     appendPendingUserMessage(text, chat)
     appendPendingAssistantMessage(chat)
+    await nextTick()
+    await waitForFrame()
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
