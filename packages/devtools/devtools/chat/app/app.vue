@@ -15,6 +15,7 @@ import {
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = {
+  chat?: string
   content?: string
   id: string
   role: "assistant" | "user"
@@ -40,10 +41,11 @@ function selectedChat(next = state.value) {
 
 function applyState(next: ChatDevtoolsStateResult) {
   state.value = next
-  const nextMessages = (selectedChat(next)?.messages || []).map(toChatMessage)
+  const chat = selectedChat(next)
+  const nextMessages = (chat?.messages || []).map(toChatMessage)
   const pending = pendingUserMessage.value
 
-  if (pending && !nextMessages.some(message => message.role === "user" && message.content === pending.content)) {
+  if (pending && pending.chat === chat?.name && !nextMessages.some(message => message.id === pending.id)) {
     messages.value = [...nextMessages, pending]
     return
   }
@@ -90,8 +92,9 @@ function appendDummy(message: ChatDevtoolsMessage) {
   messages.value = [...messages.value, toChatMessage(message)]
 }
 
-function appendPendingUserMessage(text: string) {
+function appendPendingUserMessage(text: string, chat: string | undefined) {
   pendingUserMessage.value = {
+    chat,
     content: text,
     id: `pending-user-${Date.now()}`,
     role: "user",
@@ -138,12 +141,13 @@ async function send() {
     const chat = selectedChat()?.name
     currentReader?.cancel()
     currentReader = undefined
-    appendPendingUserMessage(text)
+    appendPendingUserMessage(text, chat)
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
       text,
     })
+    pendingUserMessage.value = undefined
     applyState(result)
     if (!result.streamId) {
       status.value = "ready"
@@ -168,6 +172,9 @@ async function send() {
   catch (cause) {
     const message = cause instanceof Error ? cause.message : "Chat DevTools send failed."
     if (connected.value) {
+      const pendingId = pendingUserMessage.value?.id
+      pendingUserMessage.value = undefined
+      messages.value = pendingId ? messages.value.filter(message => message.id !== pendingId) : messages.value
       error.value = message
       return
     }

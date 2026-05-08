@@ -418,6 +418,9 @@ export function defineChat<
   return {
     lifecycleHooks: options.lifecycleHooks,
     resolve(context, resolveOptions) {
+      if (resolveOptions?.adapters) {
+        return createChat(options, context, resolveOptions)
+      }
       const nameKey = resolveOptions?.inferredName || options.userName || "anonymous"
       return context.memo(`${memoKey}:${nameKey}`, () => createChat(options, context, resolveOptions))
     },

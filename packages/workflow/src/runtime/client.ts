@@ -17,10 +17,6 @@ function resolveCloudflareBinding(binding: string | undefined, name: string) {
   return getCloudflareEnv(getWorkflowRuntimeEvent())?.[bindingName] as CloudflareWorkflowBinding | undefined
 }
 
-function shouldUseCloudflareBinding(): boolean {
-  return (import.meta as ImportMeta & { dev?: boolean }).dev !== true
-}
-
 function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
   const config = getWorkflowRuntimeConfig()
   if (config === false) {
@@ -154,10 +150,17 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     throw new TypeError("`createWorkflow()` requires a workflow name.")
   }
 
-  const handler = typeof handlerOrOptions === "function" ? handlerOrOptions : undefined
+  const handler = typeof handlerOrOptions === "function"
+    ? handlerOrOptions
+    : typeof handlerOrOptions === "object" && handlerOrOptions !== null
+      ? handlerOrOptions.handler
+      : undefined
   const createOptions = typeof handlerOrOptions === "function" ? options : handlerOrOptions
 
   if (handler !== undefined) {
+    if (typeof handler !== "function") {
+      throw new TypeError("`createWorkflow()` requires a workflow handler.")
+    }
     registerInlineWorkflowDefinition(name, { handler: handler as WorkflowHandler })
   }
   else if (handlerOrOptions !== undefined && (typeof handlerOrOptions !== "object" || handlerOrOptions === null)) {
@@ -195,7 +198,7 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
 
   const id = options.id || randomId("wrun")
   const definition = await loadRequiredWorkflowDefinition(name)
-  if (config.provider === "cloudflare" && shouldUseCloudflareBinding()) {
+  if (config.provider === "cloudflare") {
     const binding = resolveCloudflareBinding(config.binding, name)
     if (binding) {
       const start = binding.create({ id, params: payload })
@@ -254,7 +257,7 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
     })
   }
 
-  if (config.provider === "cloudflare" && shouldUseCloudflareBinding()) {
+  if (config.provider === "cloudflare") {
     const binding = resolveCloudflareBinding(config.binding, name)
     if (binding) {
       const instance = await binding.get(id)

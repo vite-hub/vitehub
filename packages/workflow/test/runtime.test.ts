@@ -56,6 +56,27 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("registers object-form handlers for named workflows", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    const workflow = createWorkflow<{ message: string }, { reply: string }>("object-inline-reply", {
+      handler: async ({ payload }) => ({
+        reply: payload.message.toUpperCase(),
+      }),
+      id: ({ payload }) => payload?.message || "missing",
+    })
+    const run = await workflow.run({ message: "hello" })
+
+    expect(run).toMatchObject({ provider: "vercel", status: "queued" })
+    expect(run.id).toMatch(/^object-inline-reply-/)
+    await vi.waitFor(async () => {
+      await expect(workflow.getRun(run.id)).resolves.toMatchObject({
+        result: { reply: "HELLO" },
+        status: "completed",
+      })
+    })
+  })
+
   it("returns handles for discovered workflows without redefining them", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({

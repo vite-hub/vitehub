@@ -103,6 +103,22 @@ describe("defineChat", () => {
     expect(context.memo).toHaveBeenCalledTimes(2)
   })
 
+  it("does not memoize resolves with adapter overrides", async () => {
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const context = createContext()
+    const definition = defineChat({
+      adapters: {},
+      state: createState() as never,
+      userName: "Quiver Chat",
+    })
+
+    const first = await resolveChat(definition, context as never, { adapters: { first: {} } as never })
+    const second = await resolveChat(definition, context as never, { adapters: { second: {} } as never })
+
+    expect(first).not.toBe(second)
+    expect(context.memo).not.toHaveBeenCalled()
+  })
+
   it("runs hook sugar before setup and passes object-style args", async () => {
     const { defineChat, resolveChat } = await import("../src/index.ts")
     const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
