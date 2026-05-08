@@ -510,13 +510,19 @@ onMounted(refresh)
           :disabled="status !== 'ready'"
           size="xs"
           :ui="{
-            root: 'gap-1 px-1 py-0.5 rounded-md',
-            body: 'text-sm',
+            root: 'gap-1 px-2 py-1 rounded-md',
+            body: 'min-w-0 flex-1 self-center text-sm',
+            base: '!px-0 !py-0 text-sm/5',
             footer: 'gap-1',
           }"
           @submit="send"
         >
-          <UChatPromptSubmit :status="status" />
+          <UChatPromptSubmit
+            :status="status"
+            size="xs"
+            square
+            class="shrink-0"
+          />
         </UChatPrompt>
       </footer>
     </main>
