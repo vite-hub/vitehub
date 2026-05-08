@@ -400,7 +400,6 @@ onMounted(refresh)
         <UChatMessages
           v-if="messages.length"
           :messages="messages"
-          :status="status"
           :should-auto-scroll="status === 'streaming'"
           class="min-h-full px-4 py-3"
         >
