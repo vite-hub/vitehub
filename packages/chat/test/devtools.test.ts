@@ -79,7 +79,7 @@ function createDevtoolsContext() {
   }
 }
 
-async function createNitroModuleStub(chat: unknown = {}, dev = true, vitePlugins: unknown[] = []) {
+async function createNitroModuleStub(chat: unknown = {}, dev = true, vitePlugins: unknown[] = [], rootVitePlugins: unknown[] = []) {
   const { existsSync } = await import("node:fs")
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-devtools-"))
   await mkdir(join(rootDir, "server"), { recursive: true })
@@ -100,6 +100,7 @@ async function createNitroModuleStub(chat: unknown = {}, dev = true, vitePlugins
       dev,
       externals: {} as { inline?: string[] },
       handlers: [] as Array<{ handler: string, method?: string, route: string }>,
+      _config: { vite: { plugins: rootVitePlugins } },
       imports: {},
       output: { serverDir: join(rootDir, ".output", "server") },
       plugins: [] as string[],
@@ -338,6 +339,9 @@ describe("Chat DevTools Vite integration", () => {
     expect(nitro.options.vite.plugins).toEqual([expect.objectContaining({
       name: chatDevtoolsPanelPluginName,
     })])
+    expect(nitro.options._config.vite.plugins).toEqual([expect.objectContaining({
+      name: chatDevtoolsPanelPluginName,
+    })])
     expect(nitro.options.handlers).toEqual(expect.arrayContaining([expect.objectContaining({
       handler: expect.stringContaining("devtools-handler.mjs"),
       method: "POST",
@@ -355,6 +359,7 @@ describe("Chat DevTools Vite integration", () => {
     await chatNitroModule.setup!(nitro as never)
 
     expect(nitro.options.vite.plugins).toEqual([])
+    expect(nitro.options._config.vite.plugins).toEqual([])
     expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([expect.objectContaining({
       route: "/__vitehub/chat/devtools",
     })]))
@@ -367,18 +372,33 @@ describe("Chat DevTools Vite integration", () => {
     await chatNitroModule.setup!(nitro as never)
 
     expect(nitro.options.vite.plugins).toEqual([])
+    expect(nitro.options._config.vite.plugins).toEqual([])
   })
 
   it("does not duplicate an existing Chat Vite or DevTools plugin", async () => {
     const chatNitroModule = (await import("../src/nitro/module.ts")).default
     for (const name of ["@vitehub/chat/vite", "@vitehub/chat/devtools", "@vitehub/chat/devtools-panel"]) {
       const existing = { name }
-      const nitro = await createNitroModuleStub({}, true, [existing])
+      const rootExisting = { name }
+      const nitro = await createNitroModuleStub({}, true, [existing], [rootExisting])
 
       await chatNitroModule.setup!(nitro as never)
 
       expect(nitro.options.vite.plugins).toEqual([existing])
+      expect(nitro.options._config.vite.plugins).toEqual([rootExisting])
     }
+  })
+
+  it("adds the panel to the root Vite plugin list when only the Nitro module is configured", async () => {
+    const chatNitroModule = (await import("../src/nitro/module.ts")).default
+    const { chatDevtoolsPanelPluginName } = await import("../src/devtools.ts")
+    const nitro = await createNitroModuleStub()
+
+    await chatNitroModule.setup!(nitro as never)
+
+    expect(nitro.options._config.vite.plugins).toEqual([expect.objectContaining({
+      name: chatDevtoolsPanelPluginName,
+    })])
   })
 })
 

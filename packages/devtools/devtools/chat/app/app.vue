@@ -336,14 +336,6 @@ async function send() {
     currentReader = undefined
     appendPendingUserMessage(text, chat)
 
-    if (!connected.value) {
-      const pendingId = pendingUserMessage.value?.id
-      pendingUserMessage.value = undefined
-      messages.value = pendingId ? messages.value.filter(message => message.id !== pendingId) : messages.value
-      await runStandaloneSimulation(text)
-      return
-    }
-
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
       text,
@@ -396,10 +388,10 @@ async function clear() {
   try {
     currentReader?.cancel()
     currentReader = undefined
+    pendingUserMessage.value = undefined
     applyState(await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
       chat: state.value.selected,
     }))
-    pendingUserMessage.value = undefined
     error.value = undefined
   }
   catch {

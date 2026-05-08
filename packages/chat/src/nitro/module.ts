@@ -30,6 +30,13 @@ interface NitroViteOptionsLike {
   plugins?: unknown[]
 }
 
+interface NitroOptionsWithVite {
+  _config?: {
+    vite?: NitroViteOptionsLike
+  }
+  vite?: NitroViteOptionsLike
+}
+
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
 }
@@ -435,19 +442,29 @@ async function installDevtoolsVitePlugin(nitro: Nitro, options: ResolvedChatModu
     return
   }
 
-  const nitroOptions = nitro.options as Nitro["options"] & { vite?: NitroViteOptionsLike }
+  const nitroOptions = nitro.options as Nitro["options"] & NitroOptionsWithVite
+  const viteConfigs = [
+    nitroOptions._config?.vite,
+    nitroOptions.vite,
+  ].filter(config => config !== undefined)
   nitroOptions.vite ||= {}
-  nitroOptions.vite.plugins ||= []
-  const plugins = nitroOptions.vite.plugins
-  for (const name of ["@vitehub/chat/vite", "@vitehub/chat/devtools", chatDevtoolsPanelPluginName]) {
-    if (await hasNamedVitePlugin(plugins, name)) {
-      return
+  viteConfigs.push(nitroOptions.vite)
+
+  const pluginLists = [...new Set(viteConfigs.map((config) => {
+    config.plugins ||= []
+    return config.plugins
+  }))]
+  const plugin = chatDevToolsPanel({
+    devtools: typeof options.dev.devtools === "object" ? options.dev.devtools : undefined,
+  })
+  for (const plugins of pluginLists) {
+    const hasChatPlugin = await Promise.all(
+      ["@vitehub/chat/vite", "@vitehub/chat/devtools", chatDevtoolsPanelPluginName].map(name => hasNamedVitePlugin(plugins, name)),
+    ).then(results => results.some(Boolean))
+    if (!hasChatPlugin) {
+      plugins.push(plugin)
     }
   }
-
-  plugins.push(chatDevToolsPanel({
-    devtools: typeof options.dev.devtools === "object" ? options.dev.devtools : undefined,
-  }))
 }
 
 async function installCloudflareStateConfig(
