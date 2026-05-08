@@ -34,6 +34,7 @@ const state = ref<ChatDevtoolsStateResult>({
 const messages = ref<ChatMessage[]>([])
 const pendingUserMessage = ref<ChatMessage | undefined>()
 const pendingAssistantMessage = ref<ChatMessage | undefined>()
+const pendingAssistantBaselineIds = ref<Set<string> | undefined>()
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 let simulationRunId = 0
@@ -46,6 +47,7 @@ function clearPendingMessages() {
   const pendingAssistantId = pendingAssistantMessage.value?.id
   pendingUserMessage.value = undefined
   pendingAssistantMessage.value = undefined
+  pendingAssistantBaselineIds.value = undefined
   messages.value = messages.value.filter(message => message.id !== pendingId && message.id !== pendingAssistantId)
 }
 
@@ -69,12 +71,18 @@ function applyState(next: ChatDevtoolsStateResult) {
 
   const pendingAssistant = pendingAssistantMessage.value
   if (pendingAssistant && pendingAssistant.chat === chat?.name) {
-    const hasServerAssistant = serverMessages.some(message => message.role === "assistant" && message.id !== pendingAssistant.id)
+    const baselineIds = pendingAssistantBaselineIds.value
+    const hasServerAssistant = serverMessages.some(message =>
+      message.role === "assistant"
+      && message.id !== pendingAssistant.id
+      && !baselineIds?.has(message.id),
+    )
     if (!hasServerAssistant && !nextMessages.some(message => message.id === pendingAssistant.id)) {
       nextMessages.push(pendingAssistant)
     }
     else {
       pendingAssistantMessage.value = undefined
+      pendingAssistantBaselineIds.value = undefined
     }
   }
 
@@ -203,6 +211,9 @@ function appendPendingUserMessage(text: string, chat: string | undefined) {
 }
 
 function appendPendingAssistantMessage(chat: string | undefined) {
+  pendingAssistantBaselineIds.value = new Set((selectedChat()?.messages || [])
+    .filter(message => message.role === "assistant")
+    .map(message => message.id))
   pendingAssistantMessage.value = {
     chat,
     id: `pending-assistant-${Date.now()}`,
