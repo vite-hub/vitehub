@@ -495,8 +495,9 @@ onMounted(refresh)
           :title="standaloneStatusMessage"
           class="mb-1"
           :ui="{
-            root: 'rounded-md bg-transparent !px-1 !py-0.5 gap-2',
-            icon: 'size-4 mt-0.5',
+            root: 'rounded-md bg-transparent !py-1 !pl-10 !pr-2 gap-0',
+            icon: 'absolute left-3 top-1/2 size-4 -translate-y-1/2',
+            wrapper: 'min-w-0',
             title: 'text-xs font-normal leading-5',
           }"
         />
