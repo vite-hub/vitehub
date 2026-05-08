@@ -443,7 +443,7 @@ onMounted(refresh)
           class="min-h-full px-2 py-2"
         >
           <template #content="{ content, message, parts }">
-            <div class="flex flex-col gap-2">
+            <div class="flex flex-col gap-1.5 text-sm">
               <UChatShimmer
                 v-if="message.loading"
                 text="Thinking..."
@@ -452,11 +452,16 @@ onMounted(refresh)
               <UChatTool
                 v-for="part in parts"
                 :key="part.tool.id"
+                icon="i-lucide-terminal"
                 :text="renderToolCommand(part.tool)"
                 :loading="part.tool.status === 'running'"
                 :streaming="part.tool.status === 'running'"
                 variant="card"
                 :default-open="false"
+                :ui="{
+                  trigger: 'px-2 py-0.5 text-xs',
+                  body: 'p-2 text-xs leading-5',
+                }"
               >
                 <div
                   v-if="part.tool.output !== undefined"
@@ -466,7 +471,7 @@ onMounted(refresh)
               </UChatTool>
               <p
                 v-if="content"
-                class="whitespace-pre-wrap"
+                class="whitespace-pre-wrap leading-5"
               >
                 {{ content }}
               </p>
