@@ -33,11 +33,12 @@ const state = ref<ChatDevtoolsStateResult>({
 })
 const messages = ref<ChatMessage[]>([])
 const pendingUserMessage = ref<ChatMessage | undefined>()
+const pendingAssistantMessage = ref<ChatMessage | undefined>()
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 let simulationRunId = 0
 
-const standaloneStatusMessage = "Running without Vite DevTools RPC. Simulating Chat SDK streaming and tool calls locally."
+const standaloneStatusMessage = "Preview mode. Connect through Vite DevTools to inspect a real chat runtime."
 const simulationDelayMs = 360
 
 function selectedChat(next = state.value) {
@@ -47,15 +48,28 @@ function selectedChat(next = state.value) {
 function applyState(next: ChatDevtoolsStateResult) {
   state.value = next
   const chat = selectedChat(next)
-  const nextMessages = (chat?.messages || []).map(toChatMessage)
+  const serverMessages = (chat?.messages || []).map(toChatMessage)
+  const nextMessages = [...serverMessages]
   const pending = pendingUserMessage.value
 
-  if (pending && pending.chat === chat?.name && !nextMessages.some(message => message.id === pending.id)) {
-    messages.value = [...nextMessages, pending]
-    return
+  if (pending && pending.chat === chat?.name && !serverMessages.some(message => message.id === pending.id)) {
+    nextMessages.push(pending)
+  }
+  else {
+    pendingUserMessage.value = undefined
   }
 
-  pendingUserMessage.value = undefined
+  const pendingAssistant = pendingAssistantMessage.value
+  if (pendingAssistant && pendingAssistant.chat === chat?.name) {
+    const hasServerAssistant = serverMessages.some(message => message.role === "assistant" && message.id !== pendingAssistant.id)
+    if (!hasServerAssistant && !nextMessages.some(message => message.id === pendingAssistant.id)) {
+      nextMessages.push(pendingAssistant)
+    }
+    else {
+      pendingAssistantMessage.value = undefined
+    }
+  }
+
   messages.value = nextMessages
 }
 
@@ -70,9 +84,11 @@ function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
 }
 
 function toChatMessage(message: ChatDevtoolsMessage): ChatMessage {
+  const loading = message.role === "assistant" && message.text.trim() === "Thinking..." && !(message.tools || []).length
   return {
-    content: message.text || undefined,
+    content: loading ? undefined : message.text || undefined,
     id: message.id,
+    loading,
     role: message.role === "assistant" ? "assistant" : "user",
     parts: (message.tools || []).map(tool => ({ type: "tool", tool })),
   }
@@ -175,6 +191,17 @@ function appendPendingUserMessage(text: string, chat: string | undefined) {
     parts: [],
   }
   messages.value = [...messages.value, pendingUserMessage.value]
+}
+
+function appendPendingAssistantMessage(chat: string | undefined) {
+  pendingAssistantMessage.value = {
+    chat,
+    id: `pending-assistant-${Date.now()}`,
+    loading: true,
+    role: "assistant",
+    parts: [],
+  }
+  messages.value = [...messages.value, pendingAssistantMessage.value]
 }
 
 function wait(ms: number) {
@@ -335,6 +362,7 @@ async function send() {
     currentReader?.cancel()
     currentReader = undefined
     appendPendingUserMessage(text, chat)
+    appendPendingAssistantMessage(chat)
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
@@ -366,15 +394,19 @@ async function send() {
     const message = cause instanceof Error ? cause.message : "Chat DevTools send failed."
     if (connected.value) {
       const pendingId = pendingUserMessage.value?.id
+      const pendingAssistantId = pendingAssistantMessage.value?.id
       pendingUserMessage.value = undefined
-      messages.value = pendingId ? messages.value.filter(message => message.id !== pendingId) : messages.value
+      pendingAssistantMessage.value = undefined
+      messages.value = messages.value.filter(message => message.id !== pendingId && message.id !== pendingAssistantId)
       error.value = message
       return
     }
 
     const pendingId = pendingUserMessage.value?.id
+    const pendingAssistantId = pendingAssistantMessage.value?.id
     pendingUserMessage.value = undefined
-    messages.value = pendingId ? messages.value.filter(message => message.id !== pendingId) : messages.value
+    pendingAssistantMessage.value = undefined
+    messages.value = messages.value.filter(message => message.id !== pendingId && message.id !== pendingAssistantId)
     await runStandaloneSimulation(text)
   }
   finally {
@@ -389,6 +421,7 @@ async function clear() {
     currentReader?.cancel()
     currentReader = undefined
     pendingUserMessage.value = undefined
+    pendingAssistantMessage.value = undefined
     applyState(await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
       chat: state.value.selected,
     }))
@@ -400,6 +433,7 @@ async function clear() {
       selected: state.value.selected || "dev",
     }
     pendingUserMessage.value = undefined
+    pendingAssistantMessage.value = undefined
     messages.value = []
     error.value = undefined
     status.value = "ready"
@@ -446,6 +480,7 @@ onMounted(refresh)
                 v-for="part in parts"
                 :key="part.tool.id"
                 icon="i-lucide-terminal"
+                loading-icon="i-lucide-terminal"
                 :text="renderToolCommand(part.tool)"
                 :loading="part.tool.status === 'running'"
                 :streaming="part.tool.status === 'running'"
@@ -487,6 +522,7 @@ onMounted(refresh)
 
       <footer class="shrink-0 px-2 pb-2 pt-1">
         <UAlert
+          v-if="!connected"
           color="neutral"
           variant="soft"
           icon="i-lucide-info"

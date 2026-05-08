@@ -24,6 +24,7 @@
     "pathe": "catalog:"
   },
   "devDependencies": {
+    "@iconify-json/lucide": "catalog:",
     "@nuxt/ui": "^4.6.1",
     "@types/node": "catalog:",
     "nuxt": "catalog:",
