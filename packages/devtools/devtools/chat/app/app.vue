@@ -105,11 +105,9 @@ function renderToolOutput(tool: ChatDevtoolsTool) {
   if (typeof output === "object") {
     const record = output as Record<string, unknown>
     if (typeof record.stdout === "string" || typeof record.stderr === "string") {
-      return [
-        typeof record.exitCode === "number" ? `Exit code: ${record.exitCode}` : "",
-        typeof record.stdout === "string" && record.stdout ? ["### stdout", record.stdout.trimEnd()].join("\n") : "",
-        typeof record.stderr === "string" && record.stderr ? ["### stderr", record.stderr.trimEnd()].join("\n") : "",
-      ].filter(Boolean).join("\n")
+      return typeof record.stdout === "string" && record.stdout
+        ? record.stdout.trimEnd()
+        : String(record.stderr || "").trimEnd()
     }
     if (Array.isArray(record.matches)) {
       return [
@@ -284,7 +282,7 @@ async function runStandaloneSimulation(text: string) {
   const chunks = [
     "I found the relevant workspace notes and traced the request through the Quiver Chat data sources. ",
     "The likely next step is to answer from the repository context first, then cite which workspace files or source records were used. ",
-    "In a connected Vite DevTools session this same panel will show live Chat SDK tool calls as they move from running to completed.",
+    "In a connected Vite DevTools session this same panel will show live Chat SDK tool calls alongside the answer.",
   ]
   for (const chunk of chunks) {
     await wait(simulationDelayMs)
@@ -453,7 +451,6 @@ onMounted(refresh)
                 v-for="part in parts"
                 :key="part.tool.id"
                 :text="renderToolCommand(part.tool)"
-                :suffix="part.tool.status"
                 :loading="part.tool.status === 'running'"
                 :streaming="part.tool.status === 'running'"
                 variant="card"
