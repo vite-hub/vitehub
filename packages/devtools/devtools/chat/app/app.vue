@@ -488,6 +488,11 @@ onMounted(refresh)
           icon="i-lucide-info"
           :title="error"
           class="mb-2"
+          :ui="{
+            root: 'rounded-md p-2.5 gap-2',
+            icon: 'size-4 mt-0.5',
+            title: 'text-xs font-normal leading-5',
+          }"
         />
         <UChatPrompt
           v-model="input"
