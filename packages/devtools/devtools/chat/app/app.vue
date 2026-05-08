@@ -439,7 +439,8 @@ onMounted(refresh)
           v-if="messages.length"
           :messages="messages"
           :should-auto-scroll="status === 'streaming'"
-          class="min-h-full px-4 py-3"
+          compact
+          class="min-h-full px-2 py-2"
         >
           <template #content="{ content, message, parts }">
             <div class="flex flex-col gap-2">
@@ -459,7 +460,7 @@ onMounted(refresh)
               >
                 <div
                   v-if="part.tool.output !== undefined"
-                  class="space-y-1 text-sm text-toned [&_em]:text-muted [&_h4]:font-medium [&_h4]:text-highlighted [&_p]:my-0"
+                  class="space-y-1 text-toned [&_em]:text-muted [&_h4]:font-medium [&_h4]:text-highlighted [&_p]:my-0"
                   v-html="renderToolOutputHtml(part.tool)"
                 />
               </UChatTool>
@@ -499,8 +500,13 @@ onMounted(refresh)
           placeholder="Type a message..."
           variant="subtle"
           :rows="1"
-          :maxrows="4"
+          :maxrows="3"
           :disabled="status !== 'ready'"
+          :ui="{
+            root: 'gap-1 px-2 py-1.5 rounded-md',
+            body: 'text-sm',
+            footer: 'gap-1',
+          }"
           @submit="send"
         >
           <UChatPromptSubmit :status="status" />
