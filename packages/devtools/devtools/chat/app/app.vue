@@ -419,7 +419,7 @@ onMounted(refresh)
 
 <template>
   <UApp>
-    <main class="flex h-screen flex-col bg-default text-default">
+    <main class="isolate flex h-dvh flex-col bg-default text-default antialiased">
       <UIcon name="i-lucide-terminal" class="hidden" />
       <header class="flex h-[45px] shrink-0 items-center justify-between border-b border-default px-4">
         <h1 class="text-base font-semibold">
@@ -441,10 +441,10 @@ onMounted(refresh)
           :messages="messages"
           :should-auto-scroll="status === 'streaming'"
           compact
-          class="min-h-full px-2 py-2"
+          class="min-h-full px-3 py-2"
         >
           <template #content="{ content, message, parts }">
-            <div class="flex flex-col gap-1.5 text-sm">
+            <div class="flex min-w-0 flex-col gap-2 text-sm/5">
               <UChatShimmer
                 v-if="message.loading"
                 text="Thinking..."
@@ -460,8 +460,13 @@ onMounted(refresh)
                 variant="card"
                 :default-open="false"
                 :ui="{
-                  trigger: 'px-2 py-0.5 text-xs',
-                  body: 'p-2 text-xs leading-5',
+                  root: 'min-w-0 rounded-md',
+                  trigger: 'min-h-7 px-2 py-1 text-xs',
+                  leading: 'size-3.5',
+                  leadingIcon: 'size-3.5 opacity-70',
+                  label: 'min-w-0 truncate',
+                  trailingIcon: 'size-3.5 opacity-70',
+                  body: 'p-2 text-xs/5',
                 }"
               >
                 <div
@@ -472,7 +477,7 @@ onMounted(refresh)
               </UChatTool>
               <p
                 v-if="content"
-                class="whitespace-pre-wrap leading-5"
+                class="whitespace-pre-wrap text-sm/5"
               >
                 {{ content }}
               </p>
