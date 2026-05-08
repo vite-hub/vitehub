@@ -35,6 +35,7 @@ const messages = ref<ChatMessage[]>([])
 const pendingUserMessage = ref<ChatMessage | undefined>()
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
+let simulationRunId = 0
 
 const simulationDelayMs = 280
 
@@ -172,6 +173,8 @@ function wait(ms: number) {
 }
 
 async function runStandaloneSimulation(text: string) {
+  const runId = ++simulationRunId
+  const isCurrentRun = () => runId === simulationRunId
   const now = Date.now()
   const assistant: ChatMessage = {
     id: `assistant-${now}`,
@@ -213,10 +216,12 @@ async function runStandaloneSimulation(text: string) {
   ]
 
   await wait(simulationDelayMs)
+  if (!isCurrentRun()) return
   assistant.parts = [{ type: "tool", tool: tools[0]! }]
   appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
 
   await wait(simulationDelayMs)
+  if (!isCurrentRun()) return
   tools[0] = {
     ...tools[0]!,
     output: {
@@ -232,6 +237,7 @@ async function runStandaloneSimulation(text: string) {
   appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
 
   await wait(simulationDelayMs)
+  if (!isCurrentRun()) return
   assistant.parts = [
     { type: "tool", tool: tools[0]! },
     { type: "tool", tool: tools[1]! },
@@ -239,6 +245,7 @@ async function runStandaloneSimulation(text: string) {
   appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
 
   await wait(simulationDelayMs)
+  if (!isCurrentRun()) return
   tools[1] = {
     ...tools[1]!,
     output: {
@@ -263,10 +270,12 @@ async function runStandaloneSimulation(text: string) {
   ]
   for (const chunk of chunks) {
     await wait(simulationDelayMs)
+    if (!isCurrentRun()) return
     assistant.content += chunk
     appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
   }
 
+  if (!isCurrentRun()) return
   error.value = "Running without Vite DevTools RPC. Simulating Chat SDK streaming and tool calls locally."
 }
 
@@ -358,6 +367,7 @@ async function send() {
 }
 
 async function clear() {
+  simulationRunId++
   try {
     currentReader?.cancel()
     currentReader = undefined
@@ -372,7 +382,10 @@ async function clear() {
       chats: [{ name: state.value.selected || "dev", messages: [] }],
       selected: state.value.selected || "dev",
     }
+    pendingUserMessage.value = undefined
     messages.value = []
+    error.value = undefined
+    status.value = "ready"
   }
 }
 
