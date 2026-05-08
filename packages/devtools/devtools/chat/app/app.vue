@@ -18,6 +18,7 @@ type ChatMessage = {
   chat?: string
   content?: string
   id: string
+  loading?: boolean
   role: "assistant" | "user"
   parts: Array<{ type: "tool", tool: ChatDevtoolsTool }>
 }
@@ -173,8 +174,8 @@ function wait(ms: number) {
 async function runStandaloneSimulation(text: string) {
   const now = Date.now()
   const assistant: ChatMessage = {
-    content: "Thinking...",
     id: `assistant-${now}`,
+    loading: true,
     role: "assistant",
     parts: [],
   }
@@ -252,6 +253,7 @@ async function runStandaloneSimulation(text: string) {
     { type: "tool", tool: tools[1]! },
   ]
   assistant.content = ""
+  assistant.loading = false
   appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
 
   const chunks = [
@@ -402,8 +404,13 @@ onMounted(refresh)
           :should-auto-scroll="status === 'streaming'"
           class="min-h-full px-4 py-3"
         >
-          <template #content="{ content, parts }">
+          <template #content="{ content, message, parts }">
             <div class="flex flex-col gap-2">
+              <UChatShimmer
+                v-if="message.loading"
+                text="Working through the workspace"
+                class="text-muted"
+              />
               <p
                 v-if="content"
                 class="whitespace-pre-wrap"
