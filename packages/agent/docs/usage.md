@@ -35,27 +35,18 @@ export const triager = defineAgent({
 })
 ```
 
-## Configure runtime choices
+## Expose an agent route
 
-Keep the agent definition portable and choose runtime placement from config.
+Keep agents internal by default. Chat can still resolve discovered agents through the generated registry.
 
 ::fw{id="nitro:dev nitro:build"}
-```ts
-agent: {
-  route: false,
-  runtime: 'auto',
-  execution: 'inline',
-  integrations: {
-    workflow: 'auto',
-    sandbox: 'auto',
+```ts [nitro.config.ts]
+export default defineNitroConfig({
+  modules: ['@vitehub/agent/nitro'],
+  agent: {
+    route: '/agents/[agent]',
   },
-  providers: {
-    model: { provider: 'vercel-ai-sdk' },
-    state: { provider: 'auto' },
-    scheduler: { provider: 'auto' },
-    sandbox: { provider: 'auto' },
-  },
-}
+})
 ```
 ::
 
@@ -66,26 +57,14 @@ import { hubAgent } from '@vitehub/agent/vite'
 export default defineConfig({
   plugins: [
     hubAgent({
-      route: false,
-      runtime: 'auto',
-      execution: 'inline',
-      integrations: {
-        workflow: 'auto',
-        sandbox: 'auto',
-      },
-      providers: {
-        model: { provider: 'vercel-ai-sdk' },
-        state: { provider: 'auto' },
-        scheduler: { provider: 'auto' },
-        sandbox: { provider: 'auto' },
-      },
+      route: '/agents/[agent]',
     }),
   ],
 })
 ```
 ::
 
-Generated Nitro routes are disabled by default. Set `agent.route` to a path such as `/agents/[agent]` only when agents should be externally callable.
+Only set `route` when agents should be externally callable.
 
 ## Custom run behavior
 
@@ -149,10 +128,7 @@ Pair it with the Chat agent binding:
 ```ts [server/chat.ts]
 export default defineChat({
   adapters,
-  agent: {
-    name: 'context',
-    history: { source: 'thread', maxMessages: 20 },
-  },
+  agent: 'context',
   state,
 })
 ```

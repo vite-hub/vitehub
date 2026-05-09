@@ -110,7 +110,6 @@ export default defineChat({
   adapters,
   agent: {
     name: 'triager',
-    history: { source: 'thread', maxMessages: 20 },
     hooks: {
       prepareInput({ history, message, thread }) {
         return {
