@@ -43,15 +43,24 @@ function resolveNitroQueueScanDirs(rootDir: string, scanDirs: string[] | undefin
   return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
 }
 
-function createNitroQueuePluginContents(file: string, registryFile: string) {
-  return [
+function createNitroQueuePluginContents(file: string, registryFile: string, options: { preloadVercelQueue?: boolean } = {}) {
+  const imports = [
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
     "import { useRuntimeConfig } from \"nitro/runtime-config\"",
     "",
     "import { createCloudflareQueueBatchHandler, getCloudflareQueueDefinitionName, type CloudflareQueueMessageBatch, type ResolvedQueueOptions } from \"@vitehub/queue\"",
     "import { enterQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from \"@vitehub/queue/runtime/state\"",
+  ]
+  if (options.preloadVercelQueue) {
+    imports.push("import * as __vitehubVercelQueue from \"@vercel/queue\"")
+  }
+
+  return [
+    ...imports,
     "",
     `import queueRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    "",
+    options.preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
     "",
     "function setActiveCloudflareEnv(env: Record<string, unknown>): void {",
     "  ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = env",
@@ -119,10 +128,10 @@ function createNitroQueuePluginContents(file: string, registryFile: string) {
     "",
     "export default queueNitroPlugin",
     "",
-  ].join("\n")
+  ].filter(Boolean).join("\n")
 }
 
-async function writeNitroQueueRuntimeFiles(nitro: { options: { buildDir: string, rootDir: string, scanDirs: string[] } }) {
+async function writeNitroQueueRuntimeFiles(nitro: { options: { buildDir: string, rootDir: string, scanDirs: string[] } }, options: { preloadVercelQueue?: boolean } = {}) {
   const registryFile = createNitroQueueRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
   const pluginFile = createNitroQueuePluginPath(nitro.options.rootDir, nitro.options.buildDir)
   const definitions = discoverQueueDefinitions({
@@ -131,7 +140,7 @@ async function writeNitroQueueRuntimeFiles(nitro: { options: { buildDir: string,
   })
 
   return await writeRuntimeRegistryFiles({
-    createPluginContents: createNitroQueuePluginContents,
+    createPluginContents: (file, registryFile) => createNitroQueuePluginContents(file, registryFile, options),
     definitions,
     pluginFile,
     registryFile,
@@ -154,7 +163,8 @@ const queueNitroModule: NitroModule = {
     nitro.options.alias["@vitehub/queue"] = resolveRuntimeEntry("../index", "@vitehub/queue")
     nitro.options.alias["@vitehub/queue/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/queue/runtime/state")
 
-    let runtimeFiles = await writeNitroQueueRuntimeFiles(nitro)
+    const shouldPreloadVercelQueue = nitro.options.preset?.includes("vercel") && resolved?.provider === "vercel"
+    let runtimeFiles = await writeNitroQueueRuntimeFiles(nitro, { preloadVercelQueue: shouldPreloadVercelQueue })
     applyNitroRuntimeAliases(nitro, { "#vitehub/queue/registry": runtimeFiles.registryFile })
     const { definitions } = runtimeFiles
 
@@ -196,7 +206,7 @@ const queueNitroModule: NitroModule = {
       }
     }
 
-    hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroQueueRuntimeFiles(nitro), (nextRuntimeFiles) => {
+    hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroQueueRuntimeFiles(nitro, { preloadVercelQueue: shouldPreloadVercelQueue }), (nextRuntimeFiles) => {
       runtimeFiles = nextRuntimeFiles
       applyNitroRuntimeAliases(nitro, { "#vitehub/queue/registry": runtimeFiles.registryFile })
     })
