@@ -1,7 +1,8 @@
 import { generateText, stepCountIs, ToolLoopAgent } from "ai"
 import { useWorkspace } from "@vitehub/workspace"
+import { getMessageText } from "@vitehub/messages"
 
-import { defineAgent } from "./index.ts"
+import { defineAgent, toModelMessages } from "./index.ts"
 
 import type { ToolLoopAgentSettings, ToolSet } from "ai"
 import type {
@@ -61,19 +62,12 @@ function getPromptText(input: AgentRunInput) {
   const latestUserMessage = [...messages].reverse().find(message => message.role === "user")
 
   if (!latestUserMessage) return ""
-  if (typeof latestUserMessage.content === "string") return latestUserMessage.content
-
-  return latestUserMessage.content
-    .map((part) => {
-      if (part.type === "text") return part.text
-      return ""
-    })
-    .filter(Boolean)
-    .join("\n")
+  return getMessageText(latestUserMessage)
 }
 
 function getAgentCall(input: AgentRunInput) {
-  if (input.messages) return { messages: input.messages }
+  if (input.messages) return { messages: toModelMessages(input.messages) }
+  if (Array.isArray(input.prompt)) return { messages: toModelMessages(input.prompt) }
   if (input.prompt) return { prompt: input.prompt }
   return { messages: [] }
 }

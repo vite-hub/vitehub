@@ -250,8 +250,8 @@ describe("defineChat", () => {
       expect.objectContaining({
         context: { chat: expect.objectContaining({ channelId: "channel-1", messageId: "m2", source: "chat", threadId: "thread-1" }) },
         messages: [
-          { content: "hello", role: "user" },
-          { content: "help me", role: "user" },
+          expect.objectContaining({ id: "m1", parts: [{ id: "text-0", text: "hello", type: "text" }], role: "user" }),
+          expect.objectContaining({ id: "m2", parts: [{ id: "text-0", text: "help me", type: "text" }], role: "user" }),
         ],
       }),
     )
@@ -287,7 +287,7 @@ describe("defineChat", () => {
     await handler?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
 
     expect(prepareInput).toHaveBeenCalledWith(expect.objectContaining({
-      history: [{ content: "help me", role: "user" }],
+      history: [expect.objectContaining({ parts: [{ id: "text-0", text: "help me", type: "text" }], role: "user" })],
     }))
     expect(streamAgent).toHaveBeenCalledWith(expect.anything(), expect.anything(), { prompt: "custom prompt", timeout: 1000 })
     expect(afterRun).toHaveBeenCalledWith(expect.objectContaining({ result: "agent response" }))

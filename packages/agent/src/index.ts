@@ -1,5 +1,6 @@
 import { ToolLoopAgent } from "ai"
 import agentRegistry from "#vitehub/agent/registry"
+import { getMessageText } from "@vitehub/messages"
 
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
@@ -20,12 +21,15 @@ import type {
   AgentRequestBody,
   AgentRunContext,
   AgentRunInput,
+  AgentRunResult,
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentSettings,
+  AgentToolDefinition,
   MaybeResolvable,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
+import type { Message, MessagePart, StreamEvent } from "@vitehub/messages"
 
 export type {
   Agent,
@@ -46,6 +50,7 @@ export type {
   AgentRunContext,
   AgentRunHandler,
   AgentRunInput,
+  AgentRunResult,
   AgentRuntime,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -54,6 +59,9 @@ export type {
   AgentSandboxProviderOptions,
   AgentSchedulerProviderOptions,
   AgentSettings,
+  AgentToolDefinition,
+  AgentToolPolicyContext,
+  AgentToolPolicyDecision,
   AgentStateProviderOptions,
   AgentToolResolver,
   AgentWaitUntil,
@@ -65,6 +73,17 @@ export type {
   ResolvedAgentModuleOptions,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
+
+export type {
+  Message,
+  MessageMetadata,
+  MessagePart,
+  MessageRole,
+  RunEvent,
+  StreamEvent,
+  ToolInvocation,
+  ToolInvocationState,
+} from "@vitehub/messages"
 
 function isResolvable<T, TContext extends AgentRuntimeContext>(
   value: MaybeResolvable<T, TContext>,
@@ -205,11 +224,18 @@ function createCallParameters<CALL_OPTIONS, TOOLS extends ToolSet>(
   if (input.messages) {
     return {
       ...base,
-      messages: input.messages,
+      messages: toModelMessages(input.messages),
     } as AgentCallParameters<CALL_OPTIONS, TOOLS>
   }
 
   if (input.prompt) {
+    if (Array.isArray(input.prompt)) {
+      return {
+        ...base,
+        messages: toModelMessages(input.prompt),
+      } as AgentCallParameters<CALL_OPTIONS, TOOLS>
+    }
+
     return {
       ...base,
       prompt: input.prompt,
@@ -220,6 +246,104 @@ function createCallParameters<CALL_OPTIONS, TOOLS extends ToolSet>(
     ...base,
     messages: [],
   } as AgentCallParameters<CALL_OPTIONS, TOOLS>
+}
+
+function toModelMessageContent(parts: MessagePart[]): string {
+  return parts.map((part) => {
+    if (part.type === "text") return part.text
+    if (part.type === "error") return part.error
+    if (part.type === "data") return JSON.stringify(part.data)
+    if (part.type === "tool-call") return JSON.stringify({ input: part.input, toolCallId: part.id, toolName: part.name, type: "tool-call" })
+    if (part.type === "tool-result") return JSON.stringify({ error: part.error, output: part.output, toolCallId: part.id, toolName: part.name, type: "tool-result" })
+    if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.id, toolName: part.name, type: "approval-request" })
+    if (part.type === "source") return part.url || part.title || ""
+    return ""
+  }).filter(Boolean).join("\n")
+}
+
+export function toModelMessages(messages: Message[]): ModelMessage[] {
+  return messages.map(message => ({
+    content: getMessageText(message) || toModelMessageContent(message.parts),
+    role: message.role,
+  })) as ModelMessage[]
+}
+
+export function defineTool<TInput = unknown, TOutput = unknown>(
+  tool: AgentToolDefinition<TInput, TOutput>,
+): AgentToolDefinition<TInput, TOutput> {
+  if (!tool || typeof tool !== "object") {
+    throw new TypeError("[vitehub] defineTool() requires a tool definition.")
+  }
+  if (!tool.name || typeof tool.name !== "string") {
+    throw new TypeError("[vitehub] defineTool() requires a tool name.")
+  }
+  return tool
+}
+
+function toAgentRunResult(value: unknown): AgentRunResult {
+  if (typeof value !== "object" || value === null) {
+    return { raw: value, text: typeof value === "string" ? value : undefined }
+  }
+
+  const result = value as Record<string, unknown>
+  return {
+    finishReason: result.finishReason,
+    raw: value,
+    text: typeof result.text === "string" ? result.text : undefined,
+    usage: result.usage,
+    warnings: result.warnings,
+  }
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return !!value && typeof value === "object" && Symbol.asyncIterator in value
+}
+
+function toStreamEvent(chunk: unknown): StreamEvent | undefined {
+  if (typeof chunk === "string") {
+    return { text: chunk, type: "text-delta" }
+  }
+  if (!chunk || typeof chunk !== "object") {
+    return undefined
+  }
+
+  const value = chunk as Record<string, unknown>
+  const type = String(value.type || "")
+  if (type === "text-delta" || type === "text") {
+    return { id: value.id as string | undefined, text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
+  }
+  if (type === "tool-input-start") {
+    return { id: String(value.id || value.toolCallId), input: value.input, name: String(value.toolName || value.name), type: "tool-input-start" }
+  }
+  if (type === "tool-call") {
+    return { id: String(value.toolCallId || value.id), input: value.input || value.args, name: String(value.toolName || value.name), type: "tool-call" }
+  }
+  if (type === "tool-result") {
+    return { error: typeof value.error === "string" ? value.error : undefined, id: String(value.toolCallId || value.id), name: String(value.toolName || value.name), output: value.output || value.result, type: "tool-result" }
+  }
+  if (type === "error") {
+    return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), type: "error" }
+  }
+  if (type === "finish") {
+    return { reason: typeof value.finishReason === "string" ? value.finishReason : undefined, type: "finish" }
+  }
+  return undefined
+}
+
+async function* streamTextResultToEvents(value: unknown): AsyncIterable<StreamEvent> {
+  const result = value as { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
+  if (result.fullStream) {
+    for await (const chunk of result.fullStream) {
+      const event = toStreamEvent(chunk)
+      if (event) yield event
+    }
+    return
+  }
+  if (result.textStream) {
+    for await (const text of result.textStream) {
+      yield { text, type: "text-delta" }
+    }
+  }
 }
 
 function createRunContext<
@@ -250,14 +374,14 @@ export async function runAgent<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, TOOLS>,
-): Promise<Response | unknown> {
+): Promise<Response | AgentRunResult | unknown> {
   if (hasAgentDefinition(agent) && agent.run) {
     const definition = agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS>
     return await definition.run!(createRunContext(definition, context, input))
   }
 
   const resolved = await resolveAgent(agent, context)
-  return await resolved.generate(createCallParameters(input) as never)
+  return toAgentRunResult(await resolved.generate(createCallParameters(input) as never))
 }
 
 export async function streamAgent<
@@ -268,14 +392,15 @@ export async function streamAgent<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, TOOLS>,
-): Promise<Response | unknown> {
+): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   if (hasAgentDefinition(agent) && agent.run) {
     const definition = agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS>
     return await definition.run!(createRunContext(definition, context, input))
   }
 
   const resolved = await resolveAgent(agent, context)
-  return await resolved.stream(createCallParameters(input) as never)
+  const result = await resolved.stream(createCallParameters(input) as never)
+  return streamTextResultToEvents(result)
 }
 
 export async function getAgent<TContext extends AgentRuntimeContext>(

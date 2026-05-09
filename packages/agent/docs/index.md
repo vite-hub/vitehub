@@ -7,9 +7,9 @@ icon: i-lucide-bot
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/agent` provides ViteHub conventions for Vercel AI SDK agents. Define portable agents with `defineAgent()`, discover them from Vite or Nitro files, and pick runtime capabilities through config.
+`@vitehub/agent` provides ViteHub conventions for model and tool-loop agents. Define portable agents with `defineAgent()`, discover them from Vite or Nitro files, and pick runtime capabilities through config.
 
-Use Agent when you want model/tool loop authoring that can run through request handlers now and grow into workflow, sandbox, or Cloudflare Agents runtime primitives later.
+Agent accepts and emits the shared `@vitehub/messages` protocol. The first model adapter is Vercel AI SDK, but ViteHub-owned message and stream types are the public handoff Interface between Chat, Agent, DevTools, persistence, and future AI packages.
 
 ::code-group
 ```ts [server/agents/triager.ts]
@@ -48,9 +48,9 @@ export default defineChat({
   :::card
   ---
   icon: i-lucide-message-circle
-  title: Native chat handoff
+  title: Message protocol handoff
   ---
-  Let `@vitehub/chat` call agents with thread history and stream replies back to the conversation.
+  Let `@vitehub/chat` call agents with `@vitehub/messages` history and stream replies back to the conversation.
   :::
 
   :::card

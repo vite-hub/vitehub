@@ -86,7 +86,7 @@ Supported top-level handler keys are `onDirectMessage`, `onNewMention`, `onSubsc
 
 ## Bind a chat to an agent
 
-When `@vitehub/agent` is enabled, a chat can route direct messages to a discovered agent without manually converting history or posting streams.
+When `@vitehub/agent` is enabled, a chat can route direct messages to a discovered agent without manually converting history or posting streams. The handoff uses `@vitehub/messages`, so Chat SDK provider messages do not leak into the Agent Interface.
 
 ```ts [server/chat.ts]
 export default defineChat({
@@ -97,7 +97,7 @@ export default defineChat({
 })
 ```
 
-The default binding gives the agent the latest thread context and streams the answer back into the same conversation.
+The default binding converts recent thread history into ViteHub messages, gives the agent the latest thread context, and streams the answer back into the same conversation.
 
 ```txt [flow]
 direct message -> thread history -> triager agent -> thread.post(stream)

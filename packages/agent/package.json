@@ -51,6 +51,7 @@
     "test": "pnpm --filter @vitehub/agent build && vitest run"
   },
   "dependencies": {
+    "@vitehub/messages": "workspace:*",
     "@vercel/functions": "catalog:",
     "h3": "catalog:"
   },

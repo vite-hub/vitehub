@@ -4,11 +4,11 @@ import type {
   AgentStreamParameters,
   GenerateTextResult,
   LanguageModel,
-  ModelMessage,
   StreamTextResult,
   ToolLoopAgentSettings,
   ToolSet,
 } from "ai"
+import type { Message, StreamEvent } from "@vitehub/messages"
 
 export type { Agent } from "ai"
 
@@ -54,10 +54,18 @@ export type MaybeResolvable<T, TContext extends AgentRuntimeContext<any> = Agent
 export interface AgentRunInput<CALL_OPTIONS = never, TOOLS extends ToolSet = ToolSet> {
   abortSignal?: AbortSignal
   context?: Record<string, unknown>
-  messages?: ModelMessage[]
+  messages?: Message[]
   options?: CALL_OPTIONS
-  prompt?: string | ModelMessage[]
+  prompt?: string | Message[]
   timeout?: AgentCallParameters<CALL_OPTIONS, TOOLS>["timeout"]
+}
+
+export interface AgentRunResult {
+  finishReason?: unknown
+  raw?: unknown
+  text?: string
+  usage?: unknown
+  warnings?: unknown
 }
 
 export interface AgentRunContext<
@@ -75,7 +83,7 @@ export type AgentRunHandler<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = never,
   TOOLS extends ToolSet = ToolSet,
-> = (context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<Response | GenerateTextResult<TOOLS, never> | StreamTextResult<TOOLS, never> | unknown>
+> = (context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | GenerateTextResult<TOOLS, never> | StreamTextResult<TOOLS, never> | unknown>
 
 export type AgentToolResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -115,7 +123,7 @@ export interface AgentDefinition<
 > {
   description?: string
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<Agent<CALL_OPTIONS, TOOLS>>
-  run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>): MaybePromise<Response | GenerateTextResult<TOOLS, never> | StreamTextResult<TOOLS, never> | unknown>
+  run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | GenerateTextResult<TOOLS, never> | StreamTextResult<TOOLS, never> | unknown>
 }
 
 export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
@@ -204,10 +212,27 @@ export interface DiscoveredAgentDefinition {
 }
 
 export type AgentRequestBody<CALL_OPTIONS = never> = {
-  messages?: ModelMessage[]
+  messages?: Message[]
   options?: CALL_OPTIONS
-  prompt?: string | ModelMessage[]
+  prompt?: string | Message[]
   stream?: boolean
+}
+
+export type AgentToolPolicyDecision = "allow" | "deny" | "require-approval" | "retryable-failure"
+
+export interface AgentToolPolicyContext {
+  input?: unknown
+  name: string
+}
+
+export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
+  description?: string
+  execute?: (input: TInput) => MaybePromise<TOutput>
+  inputSchema?: unknown
+  metadata?: Record<string, unknown>
+  name: string
+  outputSchema?: unknown
+  policy?: AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 }
 
 export interface CloudflareExportedHandlerFetchHandler<TEnv = unknown> {

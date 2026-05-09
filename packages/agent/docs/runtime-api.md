@@ -12,8 +12,23 @@ frameworks: [vite, nitro]
 Runtime definitions import from `@vitehub/agent`:
 
 ```ts
-import { defineAgent, getAgent, runAgent, streamAgent } from '@vitehub/agent'
+import { defineAgent, defineTool, getAgent, runAgent, streamAgent } from '@vitehub/agent'
 ```
+
+Agent run input uses `Message[]` from `@vitehub/messages`:
+
+```ts
+import type { Message, StreamEvent } from '@vitehub/agent'
+
+interface AgentRunInput {
+  messages?: Message[]
+  prompt?: string | Message[]
+}
+
+type AgentStream = AsyncIterable<StreamEvent>
+```
+
+Vercel AI SDK remains the default model adapter, but AI SDK message objects are converted inside `@vitehub/agent` instead of being the public Chat-to-Agent contract.
 
 Vite config imports from `@vitehub/agent/vite`:
 

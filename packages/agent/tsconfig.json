@@ -10,6 +10,7 @@
       "#vitehub-sandbox-registry": ["../sandbox/src/runtime/empty-registry.ts"],
       "#vitehub-workspace-assets-registry": ["../workspace/src/runtime/empty-assets-registry.ts"],
       "#vitehub-workspace-registry": ["../workspace/src/runtime/empty-registry.ts"],
+      "@vitehub/messages": ["../messages/src/index.ts"],
       "@vitehub/sandbox": ["../sandbox/src/index.ts"],
       "@vitehub/sandbox/runtime/state": ["../sandbox/src/runtime/state.ts"],
       "@vitehub/unsource": ["../unsource/src/index.ts"],

@@ -129,6 +129,31 @@ function isStreamResult(value: unknown): value is { toUIMessageStreamResponse?: 
       || typeof (value as { toTextStreamResponse?: unknown }).toTextStreamResponse === "function")
 }
 
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return !!value && typeof value === "object" && Symbol.asyncIterator in value
+}
+
+function toEventStreamResponse(stream: AsyncIterable<unknown>): Response {
+  const encoder = new TextEncoder()
+  return new Response(new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const event of stream) {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+        }
+        controller.close()
+      }
+      catch (error) {
+        controller.error(error)
+      }
+    },
+  }), {
+    headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
+    },
+  })
+}
+
 function toJsonSafeResult(value: unknown) {
   if (typeof value !== "object" || value === null) {
     return value
@@ -153,6 +178,9 @@ function toResponse(value: unknown, stream: boolean): unknown {
       return value.toUIMessageStreamResponse()
     }
     return value.toTextStreamResponse?.()
+  }
+  if (stream && isAsyncIterable(value)) {
+    return toEventStreamResponse(value)
   }
 
   return toJsonSafeResult(value)
