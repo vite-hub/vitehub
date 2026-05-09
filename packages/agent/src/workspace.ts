@@ -8,7 +8,7 @@ import type { ToolLoopAgentSettings, ToolSet } from "ai"
 import type {
   AgentRunInput,
   AgentDefinition,
-  AgentRuntimeConfig,
+  AgentRuntimeConfig as BaseAgentRuntimeConfig,
   AgentRunContext,
   MaybePromise,
   ResolvedAgentRuntimeContext,
@@ -19,6 +19,8 @@ import type {
   WorkspaceFacadeToolOptions,
   WorkspaceName,
 } from "@vitehub/workspace"
+
+export interface AgentRuntimeConfig extends BaseAgentRuntimeConfig {}
 
 type WorkspaceRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig> =
   ResolvedAgentRuntimeContext<TRuntimeConfig>

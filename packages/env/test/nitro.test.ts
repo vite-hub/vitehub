@@ -133,6 +133,7 @@ describe("Nitro module", () => {
     expect(integrationTypes).toContain("export interface ChatRuntimeConfig")
     expect(integrationTypes).toContain("declare module \"@vitehub/agent\"")
     expect(integrationTypes).toContain("export interface AgentRuntimeConfig")
+    expect(integrationTypes).toContain("declare module \"@vitehub/agent/workspace\"")
     expect(types).toContain("\"botToken\": string")
     expect(integrationTypes).toContain("\"botToken\": string")
     expect(integrationTypes).not.toContain("NitroChatRuntimeConfig")
