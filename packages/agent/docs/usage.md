@@ -64,7 +64,7 @@ export default defineConfig({
 ```
 ::
 
-Only set `route` when agents should be externally callable. Use a custom route string when `/agents/[agent]` does not fit your app.
+Only set `route` when agents should be externally callable. Use this for trusted server-to-server calls or put your own auth in front of the route. Use a custom route string when `/agents/[agent]` does not fit your app.
 
 ## Custom run behavior
 
@@ -113,7 +113,7 @@ export default defineWorkspaceAgent<RuntimeConfig>({
   description: 'Answer with workspace context.',
   workspace: 'data-sources',
   instructions: 'Use the workspace sources. Say what is missing when the sources do not answer.',
-  instructionsFile: 'AGENTS.md',
+  instructionsFile: true,
   model: ({ runtimeConfig }) => {
     const vertex = createVertex({ apiKey: runtimeConfig.vertex.apiKey })
     return vertex(runtimeConfig.vertex.model)

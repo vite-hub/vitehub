@@ -1,6 +1,7 @@
 import { createError, defineEventHandler, getRouterParam, readBody } from "h3"
 
 import { resolveAgent, runAgent, streamAgent } from "../index.ts"
+import { formatUnknownAgentMessage } from "../registry-error.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { getAgentRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 
@@ -220,7 +221,7 @@ export function defineAgentRegistryHandler(
     if (!loader) {
       throw createError({
         statusCode: 404,
-        statusMessage: `Unknown agent: ${agentName}`,
+        statusMessage: formatUnknownAgentMessage(agentName, Object.keys(agents).sort()),
       })
     }
 

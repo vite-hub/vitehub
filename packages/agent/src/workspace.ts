@@ -34,7 +34,7 @@ export interface WorkspaceAgentOptions<TRuntimeConfig extends AgentRuntimeConfig
   description?: string
   fallback?: boolean | WorkspaceAgentFallbackOptions
   instructions?: string
-  instructionsFile?: string | false
+  instructionsFile?: boolean | string
   model: WorkspaceModel<TRuntimeConfig>
   stepLimit?: number
   toolOptions?: WorkspaceFacadeToolOptions
@@ -80,12 +80,13 @@ function getAgentCall(input: AgentRunInput) {
 
 async function readInstructionsFile(
   workspace: ReadonlyWorkspaceFacade,
-  path: string | false | undefined,
+  path: boolean | string | undefined,
 ) {
   if (!path) return undefined
+  const filePath = path === true ? "AGENTS.md" : path
 
   try {
-    return await workspace.fs.readFile(path, { encoding: "utf8" })
+    return await workspace.fs.readFile(filePath, { encoding: "utf8" })
   }
   catch {
     return undefined

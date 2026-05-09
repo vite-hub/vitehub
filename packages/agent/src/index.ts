@@ -1,6 +1,8 @@
 import { ToolLoopAgent } from "ai"
 import agentRegistry from "#vitehub/agent/registry"
 
+import { formatUnknownAgentMessage } from "./registry-error.ts"
+
 import type {
   Agent,
   AgentCallParameters,
@@ -176,7 +178,7 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
 ): Promise<AgentInput<TContext>> {
   const loader = registry[name]
   if (!loader) {
-    throw new Error(`[vitehub] Unknown agent: ${name}. Make sure @vitehub/agent is configured and the agent is discovered.`)
+    throw new Error(formatUnknownAgentMessage(name, Object.keys(registry).sort(), { prefix: true }))
   }
 
   const agent = resolveRegistryModule(await loader())

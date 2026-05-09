@@ -70,6 +70,9 @@ describe("agent registry helpers", () => {
   it("throws clearly for unknown named agents", async () => {
     const { getAgentFromRegistry } = await import("../src/index.ts")
 
-    await expect(getAgentFromRegistry("missing", {} as never, {})).rejects.toThrow("Unknown agent: missing")
+    await expect(getAgentFromRegistry("triage", {} as never, {
+      reviewer: async () => ({} as never),
+      triager: async () => ({} as never),
+    })).rejects.toThrow("Unknown agent: triage. Did you mean \"triager\"? Discovered agents: reviewer, triager.")
   })
 })
