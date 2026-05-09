@@ -84,6 +84,58 @@ export default defineChat({
 
 Supported top-level handler keys are `onDirectMessage`, `onNewMention`, `onSubscribedMessage`, `onNewMessage`, `onReaction`, `onAction`, and `onModalSubmit`. The older `hooks` object still works, but do not define the same handler in both places.
 
+## Bind a chat to an agent
+
+When `@vitehub/agent` is enabled, a chat can route direct messages to a discovered agent without manually converting history or posting streams.
+
+```ts [server/chat.ts]
+export default defineChat({
+  adapters,
+  agent: 'triager',
+  state,
+  userName: 'Support Bot',
+})
+```
+
+The default binding gives the agent the latest thread context and streams the answer back into the same conversation.
+
+```txt [flow]
+direct message -> thread history -> triager agent -> thread.post(stream)
+```
+
+Use the object form when you need to customize the boundary:
+
+```ts
+export default defineChat({
+  adapters,
+  agent: {
+    name: 'triager',
+    history: { source: 'thread', maxMessages: 20 },
+    hooks: {
+      prepareInput({ history, message, thread }) {
+        return {
+          messages: history,
+          context: {
+            chat: {
+              messageId: message.id,
+              source: 'chat',
+              threadId: thread.id,
+            },
+          },
+        }
+      },
+      async sendResponse({ result, thread }) {
+        await thread.post(result)
+      },
+    },
+  },
+  state,
+  userName: 'Support Bot',
+})
+```
+
+The v1 binding handles direct messages and inline agent execution. Use explicit event hooks when you need custom event routing.
+
 ## Run setup code
 
 Use `setup` when the Chat SDK adapter needs direct bot access.

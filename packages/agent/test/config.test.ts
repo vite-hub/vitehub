@@ -1,0 +1,38 @@
+import { describe, expect, it } from "vitest"
+
+import { normalizeAgentOptions } from "../src/config.ts"
+
+describe("agent config", () => {
+  it("normalizes defaults", () => {
+    expect(normalizeAgentOptions(undefined)).toEqual({
+      execution: "inline",
+      imports: true,
+      integrations: {
+        sandbox: "auto",
+        workflow: "auto",
+      },
+      providers: {
+        model: { provider: "vercel-ai-sdk" },
+        sandbox: { provider: "auto" },
+        scheduler: { provider: "auto" },
+        state: { provider: "auto" },
+      },
+      route: "/agents/[agent]",
+      runtime: "auto",
+    })
+  })
+
+  it("preserves route opt out and provider options", () => {
+    expect(normalizeAgentOptions({
+      integrations: { sandbox: false },
+      providers: { state: { provider: "cloudflare-agents" } },
+      route: false,
+      runtime: "cloudflare-agents",
+    })).toMatchObject({
+      integrations: { sandbox: false, workflow: "auto" },
+      providers: { state: { provider: "cloudflare-agents" } },
+      route: false,
+      runtime: "cloudflare-agents",
+    })
+  })
+})

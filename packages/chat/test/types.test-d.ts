@@ -35,6 +35,31 @@ describe("Nitro runtime config types", () => {
     })
   })
 
+  it("types chat agent bindings and hooks", () => {
+    defineChat({
+      adapters: {},
+      agent: "triager",
+      state: {} as never,
+    })
+
+    defineChat({
+      adapters: {},
+      agent: {
+        hooks: {
+          prepareInput({ history, message, runtimeConfig, thread }) {
+            expectTypeOf(history).toMatchTypeOf<Array<{ role: string }>>()
+            expectTypeOf(message.text).toEqualTypeOf<string>()
+            expectTypeOf(runtimeConfig.telegram.botToken).toEqualTypeOf<string>()
+            expectTypeOf(thread.id).toEqualTypeOf<string>()
+            return { messages: history }
+          },
+        },
+        name: "triager",
+      },
+      state: {} as never,
+    })
+  })
+
   it("accepts dev initialization options", () => {
     expectTypeOf<ChatModuleOptions["dev"]>().toEqualTypeOf<false | { devtools?: boolean | { url?: string }, initialize?: boolean, localStateFallback?: boolean } | undefined>()
   })

@@ -10,6 +10,7 @@ export default defineNitroConfig({
   },
   modules: [
     "@vitehub/env/nitro",
+    "@vitehub/agent/nitro",
     "@vitehub/chat/nitro",
     "@vitehub/queue/nitro",
     "@vitehub/kv/nitro",
@@ -18,6 +19,9 @@ export default defineNitroConfig({
     "@vitehub/workspace/nitro",
     "@vitehub/workflow/nitro",
   ],
+  agent: {
+    route: "/api/agents/[agent]",
+  },
   blob: {},
   chat: {
     cloudflare: { durableObjectState: false },

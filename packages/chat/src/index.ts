@@ -1,10 +1,15 @@
-import { Chat } from "chat"
+import { getAgentFromRegistry, streamAgent } from "@vitehub/agent"
+import { Chat, toAiMessages } from "chat"
 
 import { chatDevtoolsAdapterName, observeChatDevtoolsStream } from "./devtools.ts"
 import { isChatDefinition } from "./runtime/definition.ts"
 
 import type {
   ChatActionHookInput,
+  ChatAgentBinding,
+  ChatAgentBindingOptions,
+  ChatAgentHookArgs,
+  ChatAgentRuntimeContext,
   ChatDefinition,
   ChatDirectMessageHook,
   ChatEventHook,
@@ -22,6 +27,7 @@ import type {
   ResolvedChatRuntimeContext,
   ResolveChatOptions,
 } from "./types.ts"
+import type { AgentRunInput } from "@vitehub/agent"
 import type { ActionEvent, Adapter, ChatConfig, Message, ModalSubmitEvent, ReactionEvent, StateAdapter } from "chat"
 
 export type {
@@ -30,6 +36,17 @@ export type {
   AdapterInput,
   Channel,
   ChatActionHookInput,
+  ChatAgentAfterRunArgs,
+  ChatAgentBeforeRunArgs,
+  ChatAgentBinding,
+  ChatAgentBindingOptions,
+  ChatAgentErrorArgs,
+  ChatAgentEvent,
+  ChatAgentHistory,
+  ChatAgentHookArgs,
+  ChatAgentHooks,
+  ChatAgentMetadata,
+  ChatAgentRuntimeContext,
   ChatCloudflareDurableObjectModuleOptions,
   ChatDefinition,
   ChatDevModuleOptions,
@@ -150,6 +167,158 @@ function createDirectMessageHook<
     thread: wrapDevtoolsThread(thread) as never,
     workflow,
   })
+}
+
+function normalizeAgentBinding<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
+  binding: ChatAgentBinding<TRuntimeConfig, TWorkflow>,
+): ChatAgentBindingOptions<TRuntimeConfig, TWorkflow> {
+  return typeof binding === "string" ? { name: binding } : binding
+}
+
+function normalizeAgentHistory(history: ChatAgentBindingOptions["history"]): { enabled: boolean, maxMessages: number } {
+  if (history === false || history === "none") {
+    return { enabled: false, maxMessages: 0 }
+  }
+  if (typeof history === "object" && history) {
+    return { enabled: true, maxMessages: history.maxMessages || 20 }
+  }
+  return { enabled: true, maxMessages: 20 }
+}
+
+function getEntityId(value: unknown): string | undefined {
+  return typeof value === "object" && value !== null && "id" in value && typeof (value as { id?: unknown }).id === "string"
+    ? (value as { id: string }).id
+    : undefined
+}
+
+function sameMessage(left: Message | undefined, right: Message): boolean {
+  const leftId = getEntityId(left)
+  const rightId = getEntityId(right)
+  return !!leftId && !!rightId && leftId === rightId
+}
+
+async function collectThreadMessages(thread: unknown, message: Message, maxMessages: number): Promise<Message[]> {
+  if (maxMessages <= 0) {
+    return [message]
+  }
+
+  const maybeThread = thread as {
+    allMessages?: AsyncIterable<Message>
+    recentMessages?: Message[]
+    refresh?: () => Promise<void>
+  }
+
+  if (typeof maybeThread.refresh === "function") {
+    await Promise.resolve(maybeThread.refresh()).catch(() => undefined)
+  }
+
+  const messages = Array.isArray(maybeThread.recentMessages)
+    ? [...maybeThread.recentMessages]
+    : []
+
+  if (!messages.length && maybeThread.allMessages) {
+    for await (const item of maybeThread.allMessages) {
+      messages.push(item)
+      if (messages.length > maxMessages) {
+        messages.shift()
+      }
+    }
+  }
+
+  if (!messages.length || !sameMessage(messages.at(-1), message)) {
+    messages.push(message)
+  }
+
+  return messages.slice(-maxMessages)
+}
+
+function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
+  context: ResolvedChatRuntimeContext<TRuntimeConfig>,
+): ChatAgentRuntimeContext<TRuntimeConfig> {
+  const runtime = context.runtime === "cloudflare"
+    ? "cloudflare-agents"
+    : context.runtime === "nitro" || context.runtime === "vercel"
+      ? context.runtime
+      : "unknown"
+
+  return {
+    cloudflare: context.cloudflare,
+    event: context.event,
+    memo: context.memo,
+    request: context.request,
+    runtime,
+    runtimeConfig: context.runtimeConfig,
+    vercel: context.vercel,
+    waitUntil: context.waitUntil,
+  }
+}
+
+function createDefaultAgentInput(args: ChatAgentHookArgs, platform?: string): AgentRunInput {
+  return {
+    context: {
+      chat: {
+        channelId: getEntityId(args.channel),
+        messageId: getEntityId(args.message),
+        platform,
+        source: "chat",
+        threadId: getEntityId(args.thread),
+      },
+    },
+    messages: args.history,
+  }
+}
+
+function createAgentDirectMessageHook<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
+  bot: Chat,
+  runtimeContext: ResolvedChatRuntimeContext<TRuntimeConfig>,
+  binding: ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>,
+  workflow: TWorkflow,
+): ChatDirectMessageHook<TRuntimeConfig, TWorkflow> {
+  return async ({ channel, context, message, runtimeConfig, thread }) => {
+    const historyOptions = normalizeAgentHistory(binding.history)
+    const sourceMessages = historyOptions.enabled
+      ? await collectThreadMessages(thread, message, historyOptions.maxMessages)
+      : [message]
+    const history = await toAiMessages(sourceMessages) as NonNullable<AgentRunInput["messages"]>
+    const baseArgs = {
+      bot,
+      channel,
+      context,
+      history,
+      message,
+      runtimeConfig,
+      thread,
+      workflow,
+    } satisfies ChatAgentHookArgs<TRuntimeConfig, TWorkflow>
+
+    let input = binding.hooks?.prepareInput
+      ? await binding.hooks.prepareInput(baseArgs)
+      : createDefaultAgentInput(baseArgs, runtimeContext.platform)
+
+    try {
+      input = await binding.hooks?.beforeRun?.({ ...baseArgs, input }) || input
+      const agentContext = createAgentRuntimeContext(runtimeContext)
+      const agent = await getAgentFromRegistry(binding.name, agentContext)
+      let result = await streamAgent(agent, agentContext, input)
+      result = await binding.hooks?.afterRun?.({ ...baseArgs, input, result }) ?? result
+      await (binding.hooks?.sendResponse
+        ? binding.hooks.sendResponse({ ...baseArgs, input, result })
+        : thread.post(result as never))
+    }
+    catch (error) {
+      if (binding.hooks?.error) {
+        await binding.hooks.error({ ...baseArgs, error, input })
+        return
+      }
+      throw error
+    }
+  }
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
@@ -330,6 +499,38 @@ function registerChatHooks<
   registerModalSubmitHooks(bot, runtimeConfig, hooks.onModalSubmit, workflow)
 }
 
+function registerAgentBinding<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
+  bot: Chat,
+  runtimeContext: ResolvedChatRuntimeContext<TRuntimeConfig>,
+  hooks: ChatEventHooks<TRuntimeConfig, TWorkflow>,
+  binding: ChatAgentBinding<TRuntimeConfig, TWorkflow> | undefined,
+  workflow: TWorkflow,
+) {
+  if (!binding) return
+
+  const resolved = normalizeAgentBinding(binding)
+  const event = resolved.event || "directMessage"
+  if (event !== "directMessage") {
+    throw new Error(`Unsupported chat agent event "${event}". The v1 agent binding only supports "directMessage".`)
+  }
+  if (resolved.execution && resolved.execution !== "inline") {
+    throw new Error(`Unsupported chat agent execution "${resolved.execution}". The v1 agent binding only supports "inline".`)
+  }
+  if (hooks.onDirectMessage) {
+    throw new Error("Duplicate chat hook \"onDirectMessage\". Use either defineChat({ agent }) or defineChat({ onDirectMessage }), not both.")
+  }
+
+  bot.onDirectMessage(createDirectMessageHook(
+    bot,
+    runtimeContext.runtimeConfig,
+    createAgentDirectMessageHook(bot, runtimeContext, resolved, workflow),
+    workflow,
+  ) as never)
+}
+
 const chatHookNames = [
   "onAction",
   "onDirectMessage",
@@ -376,6 +577,7 @@ async function createChat<
   const state = await resolveValue(options.state, context)
   const {
     adapters: _adapters,
+    agent: _agent,
     hooks: _hooks,
     lifecycleHooks: _lifecycleHooks,
     onAction: _onAction,
@@ -403,7 +605,9 @@ async function createChat<
     userName,
   })
 
-  registerChatHooks(bot, runtimeConfig, resolveChatHooks(options), workflow as TWorkflow)
+  const hooks = resolveChatHooks(options)
+  registerChatHooks(bot, runtimeConfig, hooks, workflow as TWorkflow)
+  registerAgentBinding(bot, resolvedContext, hooks, options.agent, workflow as TWorkflow)
   await setup?.(bot, resolvedContext)
   return bot
 }

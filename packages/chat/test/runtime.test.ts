@@ -40,8 +40,32 @@ function createContext(overrides: Record<string, unknown> = {}) {
 }
 
 afterEach(() => {
+  vi.doUnmock("@vitehub/agent")
+  vi.resetModules()
   vi.restoreAllMocks()
 })
+
+function mockAgentPackage(overrides: {
+  getAgentFromRegistry?: ReturnType<typeof vi.fn>
+  streamAgent?: ReturnType<typeof vi.fn>
+} = {}) {
+  const getAgentFromRegistry = overrides.getAgentFromRegistry || vi.fn(async () => ({ name: "agent" }))
+  const streamAgent = overrides.streamAgent || vi.fn(async () => "agent response")
+  vi.doMock("@vitehub/agent", () => ({
+    getAgentFromRegistry,
+    streamAgent,
+  }))
+  return { getAgentFromRegistry, streamAgent }
+}
+
+function createMessage(id: string, text: string) {
+  return {
+    author: { isMe: false },
+    id,
+    metadata: { dateSent: new Date(`2026-01-01T00:00:0${id.at(-1) || "0"}Z`) },
+    text,
+  }
+}
 
 describe("defineChat", () => {
   it("resolves static and request-scoped adapters and state", async () => {
@@ -184,6 +208,120 @@ describe("defineChat", () => {
     const definition = defineChat({
       adapters: {},
       hooks: { onDirectMessage: vi.fn() },
+      onDirectMessage: vi.fn(),
+      state: createState() as never,
+      userName: "Quiver Chat",
+    })
+
+    await expect(resolveChat(definition, createContext() as never)).rejects.toThrow("Duplicate chat hook \"onDirectMessage\"")
+  })
+
+  it("registers an agent binding as a direct message hook and posts streamed output", async () => {
+    const { getAgentFromRegistry, streamAgent } = mockAgentPackage()
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const post = vi.fn()
+    const context = createContext({ runtime: "nitro", platform: "slack" })
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: "triager",
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), context as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({
+      id: "thread-1",
+      post,
+      recentMessages: [
+        createMessage("m1", "hello"),
+      ],
+      refresh: vi.fn(),
+    } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
+
+    expect(getAgentFromRegistry).toHaveBeenCalledWith("triager", expect.objectContaining({
+      runtime: "nitro",
+      runtimeConfig: context.runtimeConfig,
+    }))
+    expect(streamAgent).toHaveBeenCalledWith(
+      { name: "agent" },
+      expect.objectContaining({ runtime: "nitro" }),
+      expect.objectContaining({
+        context: { chat: expect.objectContaining({ channelId: "channel-1", messageId: "m2", source: "chat", threadId: "thread-1" }) },
+        messages: [
+          { content: "hello", role: "user" },
+          { content: "help me", role: "user" },
+        ],
+      }),
+    )
+    expect(post).toHaveBeenCalledWith("agent response")
+  })
+
+  it("lets advanced agent hooks prepare input and replace response sending", async () => {
+    const sendResponse = vi.fn()
+    const prepareInput = vi.fn(() => ({ prompt: "custom prompt" }))
+    const beforeRun = vi.fn(({ input }) => ({ ...input, timeout: 1000 }))
+    const afterRun = vi.fn(() => "after")
+    const { streamAgent } = mockAgentPackage()
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: {
+        history: false,
+        hooks: {
+          afterRun,
+          beforeRun,
+          prepareInput,
+          sendResponse,
+        },
+        name: "triager",
+      },
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext() as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
+
+    expect(prepareInput).toHaveBeenCalledWith(expect.objectContaining({
+      history: [{ content: "help me", role: "user" }],
+    }))
+    expect(streamAgent).toHaveBeenCalledWith(expect.anything(), expect.anything(), { prompt: "custom prompt", timeout: 1000 })
+    expect(afterRun).toHaveBeenCalledWith(expect.objectContaining({ result: "agent response" }))
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ result: "after" }))
+  })
+
+  it("lets agent error hooks handle failures", async () => {
+    const error = new Error("agent failed")
+    const errorHook = vi.fn()
+    mockAgentPackage({ streamAgent: vi.fn(async () => { throw error }) })
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: {
+        hooks: { error: errorHook },
+        name: "triager",
+      },
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext() as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await expect(handler?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)).resolves.toBeUndefined()
+    expect(errorHook).toHaveBeenCalledWith(expect.objectContaining({ error }))
+  })
+
+  it("rejects duplicate direct message and agent bindings", async () => {
+    mockAgentPackage()
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const definition = defineChat({
+      adapters: {},
+      agent: "triager",
       onDirectMessage: vi.fn(),
       state: createState() as never,
       userName: "Quiver Chat",

@@ -148,8 +148,49 @@ export default defineChat({
 
 Store provider credentials in runtime config or environment variables. Do not inline bot tokens in the chat definition.
 
+## Add an agent reply
+
+Install Agent when direct messages should be handled by an AI agent instead of a hand-written hook:
+
+```bash
+pnpm add @vitehub/agent ai
+```
+
+Register both modules:
+
+```ts [nitro.config.ts]
+export default defineNitroConfig({
+  modules: ['@vitehub/agent/nitro', '@vitehub/chat/nitro'],
+})
+```
+
+Create the agent:
+
+```ts [server/agents/triager.ts]
+import { defineAgent } from '@vitehub/agent'
+
+export default defineAgent({
+  description: 'Triage incoming chat messages',
+  model,
+  instructions: 'Classify the message and suggest the next action.',
+})
+```
+
+Bind the chat to it:
+
+```ts [server/chat.ts]
+export default defineChat({
+  adapters,
+  agent: 'triager',
+  state,
+  userName: 'Support Bot',
+})
+```
+
+The binding loads recent thread history, converts it to AI SDK messages, streams the agent, and posts the response back to the same thread.
+
 ## Next steps
 
-- Use [Usage](./usage) for multiple chats, hook inputs, lifecycle hooks, and custom webhook routes.
+- Use [Usage](./usage) for agent hooks, multiple chats, hook inputs, lifecycle hooks, and custom webhook routes.
 - Use [Cloudflare](./providers/cloudflare) for Durable Object state.
 - Use [Runtime API](./runtime-api) for exact option shapes and handler exports.

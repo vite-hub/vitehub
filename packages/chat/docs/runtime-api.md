@@ -65,6 +65,7 @@ function defineChat<TRuntimeConfig extends ChatRuntimeConfig>(
 interface DefineChatOptions<TRuntimeConfig> {
   adapters: AdapterInput<ResolvedChatRuntimeContext<TRuntimeConfig>>
   state: MaybeResolvable<StateAdapter, ChatRuntimeContext<TRuntimeConfig>>
+  agent?: string | ChatAgentBindingOptions<TRuntimeConfig>
   onDirectMessage?: ChatDirectMessageHook<TRuntimeConfig>
   onNewMention?: ChatMessageHook<TRuntimeConfig>
   onNewMessage?: ChatNewMessageHook<TRuntimeConfig> | ChatNewMessageHook<TRuntimeConfig>[]
@@ -83,6 +84,30 @@ interface DefineChatOptions<TRuntimeConfig> {
 The type also accepts Chat SDK config fields except `adapters`, `state`, and `userName`, which ViteHub wraps so they can use runtime context.
 
 Top-level event handlers are the preferred API. `hooks` remains supported for older definitions, but a handler cannot be defined in both places.
+
+### `agent`
+
+```ts
+type ChatAgentBinding =
+  | string
+  | {
+      name: string
+      event?: 'directMessage'
+      execution?: 'inline'
+      history?: boolean | 'none' | { source: 'thread', maxMessages?: number }
+      hooks?: {
+        prepareInput?: (args) => AgentRunInput | Promise<AgentRunInput>
+        beforeRun?: (args) => AgentRunInput | void | Promise<AgentRunInput | void>
+        afterRun?: (args) => unknown | Promise<unknown>
+        sendResponse?: (args) => Promise<void> | void
+        error?: (args) => Promise<void> | void
+      }
+    }
+```
+
+`agent: 'triager'` registers a direct-message handler that resolves `triager` from `@vitehub/agent`, converts recent thread messages to AI SDK messages, streams the agent, and posts the result to the same thread.
+
+The v1 binding supports direct messages and inline execution. Defining both `agent` and `onDirectMessage` is rejected because both would own the same Chat SDK event.
 
 ## `resolveChat()`
 

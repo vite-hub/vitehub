@@ -1,4 +1,10 @@
 import type {
+  AgentExecution,
+  AgentRunInput,
+  AgentRuntimeContext,
+  AgentRuntimeName,
+} from "@vitehub/agent"
+import type {
   ActionEvent,
   Adapter,
   Chat,
@@ -162,6 +168,87 @@ export interface ChatEventHooks<
   onSubscribedMessage?: ChatMessageHook<TRuntimeConfig, TWorkflow>
 }
 
+export type ChatAgentEvent = "directMessage"
+
+export type ChatAgentHistory =
+  | boolean
+  | "none"
+  | {
+    maxMessages?: number
+    source: "thread"
+  }
+
+export interface ChatAgentMetadata {
+  channelId?: string
+  messageId?: string
+  platform?: string
+  source: "chat"
+  threadId?: string
+}
+
+export interface ChatAgentHookArgs<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> extends ChatHookArgs<TRuntimeConfig, TWorkflow> {
+  channel: Channel
+  history: NonNullable<AgentRunInput["messages"]>
+  message: Message
+  thread: Thread
+}
+
+export interface ChatAgentBeforeRunArgs<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> extends ChatAgentHookArgs<TRuntimeConfig, TWorkflow> {
+  input: AgentRunInput
+}
+
+export interface ChatAgentAfterRunArgs<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> extends ChatAgentBeforeRunArgs<TRuntimeConfig, TWorkflow> {
+  result: unknown
+}
+
+export interface ChatAgentErrorArgs<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> extends ChatAgentBeforeRunArgs<TRuntimeConfig, TWorkflow> {
+  error: unknown
+}
+
+export interface ChatAgentHooks<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> {
+  afterRun?: (args: ChatAgentAfterRunArgs<TRuntimeConfig, TWorkflow>) => MaybePromise<unknown>
+  beforeRun?: (args: ChatAgentBeforeRunArgs<TRuntimeConfig, TWorkflow>) => MaybePromise<AgentRunInput | void>
+  error?: (args: ChatAgentErrorArgs<TRuntimeConfig, TWorkflow>) => MaybePromise<void>
+  prepareInput?: (args: ChatAgentHookArgs<TRuntimeConfig, TWorkflow>) => MaybePromise<AgentRunInput>
+  sendResponse?: (args: ChatAgentAfterRunArgs<TRuntimeConfig, TWorkflow>) => MaybePromise<void>
+}
+
+export interface ChatAgentBindingOptions<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> {
+  event?: ChatAgentEvent
+  execution?: Extract<AgentExecution, "inline">
+  history?: ChatAgentHistory
+  hooks?: ChatAgentHooks<TRuntimeConfig, TWorkflow>
+  name: string
+}
+
+export type ChatAgentBinding<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> = string | ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>
+
+export interface ChatAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig>
+  extends AgentRuntimeContext<TRuntimeConfig> {
+  runtime: AgentRuntimeName
+}
+
 export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> {
   error?: (error: unknown, context: TContext) => MaybePromise<void>
   request?: (context: TContext) => MaybePromise<void>
@@ -176,6 +263,7 @@ export interface DefineChatOptions<
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
 > extends ChatConfigPassthrough, ChatEventHooks<TRuntimeConfig, TWorkflow> {
   adapters: AdapterInput<ResolvedChatRuntimeContext<TRuntimeConfig>>
+  agent?: ChatAgentBinding<TRuntimeConfig, TWorkflow>
   concurrency?: ConcurrencyStrategy | ConcurrencyConfig
   fallbackStreamingPlaceholderText?: string | null
   hooks?: ChatEventHooks<TRuntimeConfig, TWorkflow>

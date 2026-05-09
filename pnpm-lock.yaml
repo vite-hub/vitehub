@@ -169,22 +169,22 @@ importers:
     dependencies:
       '@nuxt/content':
         specifier: 'catalog:'
-        version: 3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.3.1(typescript@6.0.2))
+        version: 3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.3.1(typescript@6.0.2))
       '@vitehub/chat':
         specifier: workspace:*
         version: link:../packages/chat
       '@vitejs/devtools-kit':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
+        version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
       docus:
         specifier: 'catalog:'
-        version: 5.9.0(4cd23c10992c839ec4948a48950753cc)
+        version: 5.9.0(4ccd657ea3d5de36a8aea1888b3dc57a)
       h3:
         specifier: catalog:h3v1
         version: 1.15.11
       nuxt:
         specifier: 'catalog:'
-        version: 4.4.2(5ad1b1f5a672b20bdededb258034d6f9)
+        version: 4.4.2(6e9dd46b486b3c6484d7463693e31348)
       shiki:
         specifier: 'catalog:'
         version: 4.0.2
@@ -195,6 +195,43 @@ importers:
       vue-tsc:
         specifier: 'catalog:'
         version: 3.2.6(typescript@6.0.2)
+
+  packages/agent:
+    dependencies:
+      '@vercel/functions':
+        specifier: 'catalog:'
+        version: 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13)
+      h3:
+        specifier: 'catalog:'
+        version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.0
+      '@vitehub/internal':
+        specifier: workspace:*
+        version: link:../internal
+      ai:
+        specifier: ^6.0.172
+        version: 6.0.174(zod@4.4.1)
+      nitro:
+        specifier: 'catalog:'
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+      publint:
+        specifier: ^0.3.15
+        version: 0.3.18
+      tsdown:
+        specifier: ^0.21.8
+        version: 0.21.9(@vitejs/devtools@0.1.19)(publint@0.3.18)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.2
+      vite:
+        specifier: 'catalog:'
+        version: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
 
   packages/blob:
     dependencies:
@@ -225,7 +262,7 @@ importers:
         version: link:../internal
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       ofetch:
         specifier: 'catalog:'
         version: 1.5.1
@@ -255,7 +292,7 @@ importers:
         version: link:../..
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
 
   packages/blob/examples/vite:
     dependencies:
@@ -274,9 +311,12 @@ importers:
       '@vercel/functions':
         specifier: ^3.4.3
         version: 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13)
+      '@vitehub/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@vitejs/devtools-kit':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
+        version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
       h3:
         specifier: 2.0.1-rc.20
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
@@ -301,7 +341,7 @@ importers:
         version: 0.2.0(chat@4.27.0)
       nitro:
         specifier: 3.0.260311-beta
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       publint:
         specifier: ^0.3.15
         version: 0.3.18
@@ -331,7 +371,7 @@ importers:
         version: link:../../../workflow
       '@vitejs/devtools':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools@307(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
+        version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools@307(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
       chat:
         specifier: 'catalog:'
         version: 4.27.0
@@ -340,7 +380,7 @@ importers:
         version: 0.2.0(chat@4.27.0)
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       vite:
         specifier: 'catalog:'
         version: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
@@ -369,7 +409,7 @@ importers:
         version: link:../internal
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)
+        version: 0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)
       publint:
         specifier: ^0.3.15
         version: 0.3.18
@@ -396,7 +436,7 @@ importers:
         version: link:../..
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)
+        version: 0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)
       h3:
         specifier: 'catalog:'
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
@@ -408,7 +448,7 @@ importers:
     dependencies:
       '@vitejs/devtools-kit':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
+        version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
       pathe:
         specifier: 'catalog:'
         version: 2.0.3
@@ -418,13 +458,13 @@ importers:
         version: 1.2.105
       '@nuxt/ui':
         specifier: ^4.6.1
-        version: 4.6.1(f4c36ba86a67847d03e58c65ba63fadb)
+        version: 4.6.1(f2301d40367c1f219cc5b16f8233124f)
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
       nuxt:
         specifier: 'catalog:'
-        version: 4.4.2(32aab04b720da05e4a0a650a7dca5f7c)
+        version: 4.4.2(fd8cc5324f7a1bc19fed1d6ffa8bd165)
       tailwindcss:
         specifier: ^4.1.18
         version: 4.2.2
@@ -455,7 +495,7 @@ importers:
         version: link:../internal
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       publint:
         specifier: ^0.3.15
         version: 0.3.18
@@ -482,7 +522,7 @@ importers:
         version: link:../..
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
     devDependencies:
       typescript:
         specifier: 'catalog:'
@@ -542,7 +582,7 @@ importers:
         version: 1.0.8
       unstorage:
         specifier: 'catalog:'
-        version: 2.0.0-alpha.7(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@1.5.1)
+        version: 2.0.0-alpha.7(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@1.5.1)
     devDependencies:
       '@nuxt/schema':
         specifier: 'catalog:'
@@ -552,7 +592,7 @@ importers:
         version: link:../internal
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       ofetch:
         specifier: 'catalog:'
         version: 1.5.1
@@ -582,7 +622,7 @@ importers:
         version: link:../..
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
 
   packages/kv/examples/nuxt:
     dependencies:
@@ -591,7 +631,7 @@ importers:
         version: link:../..
       nuxt:
         specifier: 'catalog:'
-        version: 4.4.2(243bc5b918de3c48a1f63eb2bdcf78da)
+        version: 4.4.2(59e89dcd813639bec6a058689d7307d9)
 
   packages/kv/examples/vite:
     dependencies:
@@ -637,7 +677,7 @@ importers:
         version: link:../internal
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       publint:
         specifier: ^0.3.15
         version: 0.3.18
@@ -661,7 +701,7 @@ importers:
         version: link:../..
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
 
   packages/queue/examples/vite:
     dependencies:
@@ -728,7 +768,7 @@ importers:
         version: link:../internal
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       ofetch:
         specifier: 'catalog:'
         version: 1.5.1
@@ -761,7 +801,7 @@ importers:
         version: link:../..
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
 
   packages/sandbox/examples/vite:
     dependencies:
@@ -894,7 +934,7 @@ importers:
         version: link:../internal
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       ofetch:
         specifier: 'catalog:'
         version: 1.5.1
@@ -924,7 +964,7 @@ importers:
         version: link:../..
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
 
   packages/workflow/examples/vite:
     dependencies:
@@ -979,7 +1019,7 @@ importers:
         version: 6.0.174(zod@4.4.1)
       nitro:
         specifier: 3.0.260311-beta
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       ocache:
         specifier: ^0.1.4
         version: 0.1.4
@@ -1015,7 +1055,7 @@ importers:
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
 
   packages/workspace/examples/vite:
     dependencies:
@@ -1040,6 +1080,9 @@ importers:
       '@vercel/sandbox':
         specifier: 'catalog:'
         version: 1.10.0
+      '@vitehub/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@vitehub/blob':
         specifier: workspace:*
         version: link:../../packages/blob
@@ -1064,6 +1107,9 @@ importers:
       '@vitehub/workspace':
         specifier: workspace:*
         version: link:../../packages/workspace
+      ai:
+        specifier: ^6.0.0
+        version: 6.0.174(zod@4.4.1)
       async-retry:
         specifier: 'catalog:'
         version: 1.3.3
@@ -1078,7 +1124,7 @@ importers:
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       valibot:
         specifier: 'catalog:'
         version: 1.3.1(typescript@6.0.2)
@@ -1129,13 +1175,13 @@ importers:
         version: 0.2.0(chat@4.27.0)
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)
+        version: 0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)
       h3:
         specifier: 'catalog:'
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
       nitro:
         specifier: 'catalog:'
-        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
+        version: 3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8)
       valibot:
         specifier: 'catalog:'
         version: 1.3.1(typescript@6.0.2)
@@ -1487,6 +1533,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@cfworker/json-schema@4.1.1':
+    resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
+
   '@chat-adapter/shared@4.27.0':
     resolution: {integrity: sha512-Wz+YZ8Mp2/qcxxJ+rU0ofZQSEtOF/4toEh7wbA+q+uLlPrLue+7hImWluJpQUZqGjSwsUoXhjSNwgFv3hz20aQ==}
 
@@ -1549,6 +1598,9 @@ packages:
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
+
+  '@cloudflare/workers-types@4.20260509.1':
+    resolution: {integrity: sha512-jFlTTD+0MK/01TdL5sHIsQ8RqzfmvBsGl4hSp87INv2+JIs/JF6EL9J8enuCz6z3fNdfOKISNbGCIrzZRXVrcw==}
 
   '@colordx/core@5.0.3':
     resolution: {integrity: sha512-xBQ0MYRTNNxW3mS2sJtlQTT7C3Sasqgh1/PsHva7fyDb5uqYY+gv9V0utDdX8X80mqzbGz3u/IDJdn2d/uW09g==}
@@ -9269,6 +9321,10 @@ packages:
   re2js@1.3.3:
     resolution: {integrity: sha512-s/I5zEAo79SUK0Qw4dpZKpiMwbQ6Gz0KU2NRr7eaO4x/p2g7Vvmn3hdeXDg8VsaUjfj/ora+e9oi27LX/C9+mw==}
 
+  react@19.2.6:
+    resolution: {integrity: sha512-sfWGGfavi0xr8Pg0sVsyHMAOziVYKgPLNrS7ig+ivMNb3wbCBw3KxtflsGBAwD3gYQlE/AEZsTLgToRrSCjb0Q==}
+    engines: {node: '>=0.10.0'}
+
   read-yaml-file@2.1.0:
     resolution: {integrity: sha512-UkRNRIwnhG+y7hpqnycCL/xbTk7+ia9VuVTC0S+zVbwd65DI9eUpRMfsWIGrCWxTU/mi+JW8cHQCrv+zfCbEPQ==}
     engines: {node: '>=10.13'}
@@ -11427,6 +11483,9 @@ snapshots:
   '@cbor-extract/cbor-extract-win32-x64@2.2.2':
     optional: true
 
+  '@cfworker/json-schema@4.1.1':
+    optional: true
+
   '@chat-adapter/shared@4.27.0':
     dependencies:
       chat: 4.27.0
@@ -11475,6 +11534,9 @@ snapshots:
     optional: true
 
   '@cloudflare/workerd-windows-64@1.20260415.1':
+    optional: true
+
+  '@cloudflare/workers-types@4.20260509.1':
     optional: true
 
   '@colordx/core@5.0.3': {}
@@ -12215,7 +12277,7 @@ snapshots:
       json5: 2.2.3
       rollup: 4.60.1
 
-  '@modelcontextprotocol/sdk@1.29.0(zod@4.4.1)':
+  '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.12)
       ajv: 8.18.0
@@ -12234,6 +12296,8 @@ snapshots:
       raw-body: 3.0.2
       zod: 4.4.1
       zod-to-json-schema: 3.25.2(zod@4.4.1)
+    optionalDependencies:
+      '@cfworker/json-schema': 4.1.1
     transitivePeerDependencies:
       - supports-color
 
@@ -12400,7 +12464,7 @@ snapshots:
       - magicast
       - supports-color
 
-  '@nuxt/content@3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.3.1(typescript@6.0.2))':
+  '@nuxt/content@3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.3.1(typescript@6.0.2))':
     dependencies:
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       '@nuxtjs/mdc': 0.21.1(magicast@0.5.2)
@@ -12411,7 +12475,7 @@ snapshots:
       c12: 3.3.4(magicast@0.5.2)
       chokidar: 5.0.0
       consola: 3.4.2
-      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
+      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
       defu: 6.1.7
       destr: 2.0.5
       git-url-parse: 16.1.0
@@ -12527,20 +12591,20 @@ snapshots:
       which: 6.0.1
       ws: 8.20.0
     optionalDependencies:
-      '@vitejs/devtools': 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
+      '@vitejs/devtools': 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
     transitivePeerDependencies:
       - bufferutil
       - supports-color
       - utf-8-validate
       - vue
 
-  '@nuxt/fonts@0.14.0(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(magicast@0.5.2)(vite@8.0.8)':
+  '@nuxt/fonts@0.14.0(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(magicast@0.5.2)(vite@8.0.8)':
     dependencies:
       '@nuxt/devtools-kit': 3.2.4(magicast@0.5.2)(vite@8.0.8)
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       consola: 3.4.2
       defu: 6.1.7
-      fontless: 0.2.1(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(vite@8.0.8)
+      fontless: 0.2.1(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(vite@8.0.8)
       h3: 1.15.11
       magic-regexp: 0.10.0
       ofetch: 1.5.1
@@ -12550,7 +12614,7 @@ snapshots:
       ufo: 1.6.3
       unifont: 0.7.4
       unplugin: 3.0.0
-      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -12595,7 +12659,7 @@ snapshots:
       - vite
       - vue
 
-  '@nuxt/image@2.0.0(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(magicast@0.5.2)':
+  '@nuxt/image@2.0.0(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(magicast@0.5.2)(srvx@0.11.15)':
     dependencies:
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       consola: 3.4.2
@@ -12608,7 +12672,7 @@ snapshots:
       std-env: 3.10.0
       ufo: 1.6.3
     optionalDependencies:
-      ipx: 3.1.1(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      ipx: 3.1.1(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(srvx@0.11.15)
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -12683,7 +12747,7 @@ snapshots:
     transitivePeerDependencies:
       - magicast
 
-  '@nuxt/nitro-server@4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(243bc5b918de3c48a1f63eb2bdcf78da))(rolldown@1.0.0-rc.16)(typescript@6.0.2)':
+  '@nuxt/nitro-server@4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(59e89dcd813639bec6a058689d7307d9))(rolldown@1.0.0-rc.16)(typescript@6.0.2)':
     dependencies:
       '@babel/plugin-syntax-typescript': 7.28.6(@babel/core@7.29.0)
       '@nuxt/devalue': 2.0.2
@@ -12701,8 +12765,8 @@ snapshots:
       impound: 1.1.5
       klona: 2.0.6
       mocked-exports: 0.1.1
-      nitropack: 2.13.3(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(rolldown@1.0.0-rc.16)(srvx@0.11.15)
-      nuxt: 4.4.2(243bc5b918de3c48a1f63eb2bdcf78da)
+      nitropack: 2.13.3(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(rolldown@1.0.0-rc.16)(srvx@0.11.15)
+      nuxt: 4.4.2(59e89dcd813639bec6a058689d7307d9)
       nypm: 0.6.5
       ohash: 2.0.11
       pathe: 2.0.3
@@ -12711,7 +12775,7 @@ snapshots:
       std-env: 4.0.0
       ufo: 1.6.3
       unctx: 2.5.0
-      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
       vue: 3.5.34(typescript@6.0.2)
       vue-bundle-renderer: 2.2.0
       vue-devtools-stub: 0.1.0
@@ -12753,7 +12817,7 @@ snapshots:
       - uploadthing
       - xml2js
 
-  '@nuxt/nitro-server@4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(32aab04b720da05e4a0a650a7dca5f7c))(rolldown@1.0.0-rc.16)(srvx@0.11.15)(typescript@6.0.2)':
+  '@nuxt/nitro-server@4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(rolldown@1.0.0-rc.16)(srvx@0.11.15)(typescript@6.0.2)':
     dependencies:
       '@babel/plugin-syntax-typescript': 7.28.6(@babel/core@7.29.0)
       '@nuxt/devalue': 2.0.2
@@ -12771,8 +12835,8 @@ snapshots:
       impound: 1.1.5
       klona: 2.0.6
       mocked-exports: 0.1.1
-      nitropack: 2.13.3(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(rolldown@1.0.0-rc.16)(srvx@0.11.15)
-      nuxt: 4.4.2(32aab04b720da05e4a0a650a7dca5f7c)
+      nitropack: 2.13.3(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(rolldown@1.0.0-rc.16)(srvx@0.11.15)
+      nuxt: 4.4.2(6e9dd46b486b3c6484d7463693e31348)
       nypm: 0.6.5
       ohash: 2.0.11
       pathe: 2.0.3
@@ -12781,7 +12845,7 @@ snapshots:
       std-env: 4.0.0
       ufo: 1.6.3
       unctx: 2.5.0
-      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
       vue: 3.5.34(typescript@6.0.2)
       vue-bundle-renderer: 2.2.0
       vue-devtools-stub: 0.1.0
@@ -12823,7 +12887,7 @@ snapshots:
       - uploadthing
       - xml2js
 
-  '@nuxt/nitro-server@4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(rolldown@1.0.0-rc.16)(typescript@6.0.2)':
+  '@nuxt/nitro-server@4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(fd8cc5324f7a1bc19fed1d6ffa8bd165))(rolldown@1.0.0-rc.16)(typescript@6.0.2)':
     dependencies:
       '@babel/plugin-syntax-typescript': 7.28.6(@babel/core@7.29.0)
       '@nuxt/devalue': 2.0.2
@@ -12841,8 +12905,8 @@ snapshots:
       impound: 1.1.5
       klona: 2.0.6
       mocked-exports: 0.1.1
-      nitropack: 2.13.3(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(rolldown@1.0.0-rc.16)(srvx@0.11.15)
-      nuxt: 4.4.2(5ad1b1f5a672b20bdededb258034d6f9)
+      nitropack: 2.13.3(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(rolldown@1.0.0-rc.16)(srvx@0.11.15)
+      nuxt: 4.4.2(fd8cc5324f7a1bc19fed1d6ffa8bd165)
       nypm: 0.6.5
       ohash: 2.0.11
       pathe: 2.0.3
@@ -12851,7 +12915,7 @@ snapshots:
       std-env: 4.0.0
       ufo: 1.6.3
       unctx: 2.5.0
-      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
       vue: 3.5.34(typescript@6.0.2)
       vue-bundle-renderer: 2.2.0
       vue-devtools-stub: 0.1.0
@@ -12914,13 +12978,13 @@ snapshots:
       rc9: 3.0.1
       std-env: 4.0.0
 
-  '@nuxt/ui@4.6.1(f4c36ba86a67847d03e58c65ba63fadb)':
+  '@nuxt/ui@4.6.1(f2301d40367c1f219cc5b16f8233124f)':
     dependencies:
       '@floating-ui/dom': 1.7.6
       '@iconify/vue': 5.0.0(vue@3.5.34(typescript@6.0.2))
       '@internationalized/date': 3.12.0
       '@internationalized/number': 3.6.5
-      '@nuxt/fonts': 0.14.0(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(magicast@0.5.2)(vite@8.0.8)
+      '@nuxt/fonts': 0.14.0(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(magicast@0.5.2)(vite@8.0.8)
       '@nuxt/icon': 2.2.1(magicast@0.5.2)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       '@nuxt/schema': 4.4.2
@@ -12935,7 +12999,7 @@ snapshots:
       '@tiptap/extension-code': 3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))
       '@tiptap/extension-collaboration': 3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/y-tiptap@3.0.3(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30))(yjs@13.6.30)
       '@tiptap/extension-drag-handle': 3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/extension-collaboration@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/y-tiptap@3.0.3(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30))(yjs@13.6.30))(@tiptap/extension-node-range@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/y-tiptap@3.0.3(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30))
-      '@tiptap/extension-drag-handle-vue-3': 3.22.3(@tiptap/extension-drag-handle@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/extension-collaboration@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3))(@tiptap/extension-node-range@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/vue-3@3.22.3(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(vue@3.5.34(typescript@6.0.2)))(vue@3.5.34(typescript@6.0.2))
+      '@tiptap/extension-drag-handle-vue-3': 3.22.3(@tiptap/extension-drag-handle@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/extension-collaboration@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/y-tiptap@3.0.3(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30))(yjs@13.6.30))(@tiptap/extension-node-range@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/y-tiptap@3.0.3(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30)))(@tiptap/pm@3.22.3)(@tiptap/vue-3@3.22.3(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(vue@3.5.34(typescript@6.0.2)))(vue@3.5.34(typescript@6.0.2))
       '@tiptap/extension-floating-menu': 3.22.3(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)
       '@tiptap/extension-horizontal-rule': 3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)
       '@tiptap/extension-image': 3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))
@@ -12966,7 +13030,7 @@ snapshots:
       knitwork: 1.3.0
       magic-string: 0.30.21
       mlly: 1.8.2
-      motion-v: 2.2.1(@vueuse/core@14.2.1(vue@3.5.34(typescript@6.0.2)))(vue@3.5.34(typescript@6.0.2))
+      motion-v: 2.2.1(@vueuse/core@14.2.1(vue@3.5.34(typescript@6.0.2)))(react@19.2.6)(vue@3.5.34(typescript@6.0.2))
       ohash: 2.0.11
       pathe: 2.0.3
       reka-ui: 2.9.3(vue@3.5.34(typescript@6.0.2))
@@ -12983,7 +13047,7 @@ snapshots:
       vaul-vue: 0.4.1(reka-ui@2.9.3(vue@3.5.34(typescript@6.0.2)))(vue@3.5.34(typescript@6.0.2))
       vue-component-type-helpers: 3.2.6
     optionalDependencies:
-      '@nuxt/content': 3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.3.1(typescript@6.0.2))
+      '@nuxt/content': 3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.3.1(typescript@6.0.2))
       valibot: 1.3.1(typescript@6.0.2)
       vue-router: 5.0.4(@vue/compiler-sfc@3.5.34)(vue@3.5.34(typescript@6.0.2))
       zod: 4.4.1
@@ -13029,7 +13093,7 @@ snapshots:
       - vue
       - yjs
 
-  '@nuxt/vite-builder@4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(243bc5b918de3c48a1f63eb2bdcf78da))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)':
+  '@nuxt/vite-builder@4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(59e89dcd813639bec6a058689d7307d9))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)':
     dependencies:
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       '@rollup/plugin-replace': 6.0.3(rollup@4.60.1)
@@ -13047,7 +13111,7 @@ snapshots:
       magic-string: 0.30.21
       mlly: 1.8.2
       mocked-exports: 0.1.1
-      nuxt: 4.4.2(243bc5b918de3c48a1f63eb2bdcf78da)
+      nuxt: 4.4.2(59e89dcd813639bec6a058689d7307d9)
       nypm: 0.6.5
       pathe: 2.0.3
       pkg-types: 2.3.0
@@ -13090,7 +13154,7 @@ snapshots:
       - vue-tsc
       - yaml
 
-  '@nuxt/vite-builder@4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(32aab04b720da05e4a0a650a7dca5f7c))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)':
+  '@nuxt/vite-builder@4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)':
     dependencies:
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       '@rollup/plugin-replace': 6.0.3(rollup@4.60.1)
@@ -13108,7 +13172,7 @@ snapshots:
       magic-string: 0.30.21
       mlly: 1.8.2
       mocked-exports: 0.1.1
-      nuxt: 4.4.2(32aab04b720da05e4a0a650a7dca5f7c)
+      nuxt: 4.4.2(6e9dd46b486b3c6484d7463693e31348)
       nypm: 0.6.5
       pathe: 2.0.3
       pkg-types: 2.3.0
@@ -13151,7 +13215,7 @@ snapshots:
       - vue-tsc
       - yaml
 
-  '@nuxt/vite-builder@4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)':
+  '@nuxt/vite-builder@4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(fd8cc5324f7a1bc19fed1d6ffa8bd165))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)':
     dependencies:
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       '@rollup/plugin-replace': 6.0.3(rollup@4.60.1)
@@ -13169,7 +13233,7 @@ snapshots:
       magic-string: 0.30.21
       mlly: 1.8.2
       mocked-exports: 0.1.1
-      nuxt: 4.4.2(5ad1b1f5a672b20bdededb258034d6f9)
+      nuxt: 4.4.2(fd8cc5324f7a1bc19fed1d6ffa8bd165)
       nypm: 0.6.5
       pathe: 2.0.3
       pkg-types: 2.3.0
@@ -13221,7 +13285,7 @@ snapshots:
     transitivePeerDependencies:
       - magicast
 
-  '@nuxtjs/i18n@10.2.4(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(@vue/compiler-dom@3.5.34)(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(eslint@10.2.0(jiti@2.6.1))(ioredis@5.10.1)(magicast@0.5.2)(rollup@4.60.1)(typescript@6.0.2)(vue@3.5.34(typescript@6.0.2))':
+  '@nuxtjs/i18n@10.2.4(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(@vue/compiler-dom@3.5.34)(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(eslint@10.2.0(jiti@2.6.1))(ioredis@5.10.1)(magicast@0.5.2)(rollup@4.60.1)(typescript@6.0.2)(vue@3.5.34(typescript@6.0.2))':
     dependencies:
       '@intlify/core': 11.3.2
       '@intlify/h3': 0.7.4
@@ -13247,7 +13311,7 @@ snapshots:
       ufo: 1.6.3
       unplugin: 2.3.11
       unrouting: 0.1.7
-      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
       vue-i18n: 11.3.2(vue@3.5.34(typescript@6.0.2))
       vue-router: 5.0.4(@vue/compiler-sfc@3.5.34)(vue@3.5.34(typescript@6.0.2))
     transitivePeerDependencies:
@@ -13283,9 +13347,9 @@ snapshots:
       - uploadthing
       - vue
 
-  '@nuxtjs/mcp-toolkit@0.13.4(h3@1.15.11)(magicast@0.5.2)(zod@4.4.1)':
+  '@nuxtjs/mcp-toolkit@0.13.4(@cfworker/json-schema@4.1.1)(h3@1.15.11)(magicast@0.5.2)(zod@4.4.1)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.1)
+      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1)
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       h3: 1.15.11
       tinyglobby: 0.2.16
@@ -13345,15 +13409,15 @@ snapshots:
       - magicast
       - supports-color
 
-  '@nuxtjs/robots@6.0.7(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)':
+  '@nuxtjs/robots@6.0.7(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)':
     dependencies:
       '@fingerprintjs/botd': 2.0.0
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       consola: 3.4.2
       defu: 6.1.7
       h3: 1.15.11
-      nuxt-site-config: 4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
-      nuxtseo-shared: 5.1.3(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt-site-config@4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1))(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
+      nuxt-site-config: 4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
+      nuxtseo-shared: 5.1.3(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt-site-config@4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1))(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
       pathe: 2.0.3
       pkg-types: 2.3.0
       ufo: 1.6.3
@@ -14942,7 +15006,7 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.22.3(@tiptap/pm@3.22.3)
 
-  '@tiptap/extension-drag-handle-vue-3@3.22.3(@tiptap/extension-drag-handle@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/extension-collaboration@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3))(@tiptap/extension-node-range@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/vue-3@3.22.3(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(vue@3.5.34(typescript@6.0.2)))(vue@3.5.34(typescript@6.0.2))':
+  '@tiptap/extension-drag-handle-vue-3@3.22.3(@tiptap/extension-drag-handle@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/extension-collaboration@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/y-tiptap@3.0.3(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30))(yjs@13.6.30))(@tiptap/extension-node-range@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/y-tiptap@3.0.3(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30)))(@tiptap/pm@3.22.3)(@tiptap/vue-3@3.22.3(@floating-ui/dom@1.7.6)(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(vue@3.5.34(typescript@6.0.2)))(vue@3.5.34(typescript@6.0.2))':
     dependencies:
       '@tiptap/extension-drag-handle': 3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/extension-collaboration@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/y-tiptap@3.0.3(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30))(yjs@13.6.30))(@tiptap/extension-node-range@3.22.3(@tiptap/core@3.22.3(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3))(@tiptap/pm@3.22.3)(@tiptap/y-tiptap@3.0.3(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.8)(y-protocols@1.0.7(yjs@13.6.30))(yjs@13.6.30))
       '@tiptap/pm': 3.22.3
@@ -15336,10 +15400,10 @@ snapshots:
       - bare-abort-controller
       - react-native-b4a
 
-  '@vitejs/devtools-kit@0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)':
+  '@vitejs/devtools-kit@0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)':
     dependencies:
       birpc: 4.0.0
-      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
+      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
       ohash: 2.0.11
       sirv: 3.0.2
       vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
@@ -15352,10 +15416,10 @@ snapshots:
       - utf-8-validate
     optional: true
 
-  '@vitejs/devtools-kit@https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@0348334(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)':
+  '@vitejs/devtools-kit@https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@0348334(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)':
     dependencies:
       birpc: 4.0.0
-      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
+      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
       ohash: 2.0.11
       sirv: 3.0.2
       vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
@@ -15367,10 +15431,10 @@ snapshots:
       - typescript
       - utf-8-validate
 
-  '@vitejs/devtools-kit@https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)':
+  '@vitejs/devtools-kit@https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)':
     dependencies:
       birpc: 4.0.0
-      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
+      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
       ohash: 2.0.11
       sirv: 3.0.2
       vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
@@ -15382,17 +15446,17 @@ snapshots:
       - typescript
       - utf-8-validate
 
-  '@vitejs/devtools-rolldown@0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))':
+  '@vitejs/devtools-rolldown@0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))':
     dependencies:
       '@floating-ui/dom': 1.7.6
       '@pnpm/read-project-manifest': 1001.2.6(@pnpm/logger@1001.0.1)
       '@rolldown/debug': 1.0.0-rc.18
-      '@vitejs/devtools-kit': 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
+      '@vitejs/devtools-kit': 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
       ansis: 4.2.0
       birpc: 4.0.0
       cac: 7.0.0
       d3-shape: 3.2.0
-      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
+      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
       diff: 9.0.0
       get-port-please: 3.2.0
       h3: 1.15.11
@@ -15408,7 +15472,7 @@ snapshots:
       structured-clone-es: 2.0.0
       tinyglobby: 0.2.16
       unconfig: 7.5.0
-      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
       vue-virtual-scroller: 3.0.2(vue@3.5.34(typescript@6.0.2))
       ws: 8.20.0
     transitivePeerDependencies:
@@ -15442,17 +15506,17 @@ snapshots:
       - vue
     optional: true
 
-  '@vitejs/devtools-rolldown@https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-rolldown@0348334(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))':
+  '@vitejs/devtools-rolldown@https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-rolldown@0348334(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))':
     dependencies:
       '@floating-ui/dom': 1.7.6
       '@pnpm/read-project-manifest': 1001.2.6(@pnpm/logger@1001.0.1)
       '@rolldown/debug': 1.0.0-rc.18
-      '@vitejs/devtools-kit': https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@0348334(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
+      '@vitejs/devtools-kit': https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@0348334(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
       ansis: 4.2.0
       birpc: 4.0.0
       cac: 7.0.0
       d3-shape: 3.2.0
-      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
+      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
       diff: 9.0.0
       get-port-please: 3.2.0
       h3: 1.15.11
@@ -15468,7 +15532,7 @@ snapshots:
       structured-clone-es: 2.0.0
       tinyglobby: 0.2.16
       unconfig: 7.5.0
-      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
       vue-virtual-scroller: 3.0.2(vue@3.5.34(typescript@6.0.2))
       ws: 8.20.0
     transitivePeerDependencies:
@@ -15501,13 +15565,13 @@ snapshots:
       - vite
       - vue
 
-  '@vitejs/devtools@0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)':
+  '@vitejs/devtools@0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)':
     dependencies:
-      '@vitejs/devtools-kit': 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
-      '@vitejs/devtools-rolldown': 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))
+      '@vitejs/devtools-kit': 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
+      '@vitejs/devtools-rolldown': 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))
       birpc: 4.0.0
       cac: 7.0.0
-      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
+      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
       h3: 1.15.11
       immer: 11.1.6
       launch-editor: 2.13.2
@@ -15550,13 +15614,13 @@ snapshots:
       - utf-8-validate
     optional: true
 
-  '@vitejs/devtools@https://pkg.pr.new/vitejs/devtools/@vitejs/devtools@307(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)':
+  '@vitejs/devtools@https://pkg.pr.new/vitejs/devtools/@vitejs/devtools@307(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)':
     dependencies:
-      '@vitejs/devtools-kit': https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@0348334(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
-      '@vitejs/devtools-rolldown': https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-rolldown@0348334(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))
+      '@vitejs/devtools-kit': https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@0348334(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
+      '@vitejs/devtools-rolldown': https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-rolldown@0348334(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))
       birpc: 4.0.0
       cac: 7.0.0
-      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
+      devframe: 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)
       h3: 1.15.11
       immer: 11.1.6
       launch-editor: 2.13.2
@@ -16871,11 +16935,11 @@ snapshots:
 
   date-fns@4.1.0: {}
 
-  db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)):
+  db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)):
     optionalDependencies:
       '@libsql/client': 0.15.15
       better-sqlite3: 12.9.0
-      drizzle-orm: 0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)
+      drizzle-orm: 0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)
 
   debug@2.6.9:
     dependencies:
@@ -16949,7 +17013,7 @@ snapshots:
 
   devalue@5.7.1: {}
 
-  devframe@0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2):
+  devframe@0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2):
     dependencies:
       '@valibot/to-json-schema': 1.6.0(valibot@1.3.1(typescript@6.0.2))
       ansis: 4.2.0
@@ -16964,7 +17028,7 @@ snapshots:
       valibot: 1.3.1(typescript@6.0.2)
       ws: 8.20.0
     optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.1)
+      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1)
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       launch-editor: 2.13.2
     transitivePeerDependencies:
@@ -16982,7 +17046,7 @@ snapshots:
 
   diff@9.0.0: {}
 
-  docus@5.9.0(4cd23c10992c839ec4948a48950753cc):
+  docus@5.9.0(4ccd657ea3d5de36a8aea1888b3dc57a):
     dependencies:
       '@ai-sdk/gateway': 3.0.109(zod@4.4.1)
       '@ai-sdk/mcp': 1.0.36(zod@4.4.1)
@@ -16990,14 +17054,14 @@ snapshots:
       '@iconify-json/lucide': 1.2.102
       '@iconify-json/simple-icons': 1.2.78
       '@iconify-json/vscode-icons': 1.2.45
-      '@nuxt/content': 3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.3.1(typescript@6.0.2))
-      '@nuxt/image': 2.0.0(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(magicast@0.5.2)
+      '@nuxt/content': 3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.3.1(typescript@6.0.2))
+      '@nuxt/image': 2.0.0(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(magicast@0.5.2)(srvx@0.11.15)
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
-      '@nuxt/ui': 4.6.1(f4c36ba86a67847d03e58c65ba63fadb)
-      '@nuxtjs/i18n': 10.2.4(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(@vue/compiler-dom@3.5.34)(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(eslint@10.2.0(jiti@2.6.1))(ioredis@5.10.1)(magicast@0.5.2)(rollup@4.60.1)(typescript@6.0.2)(vue@3.5.34(typescript@6.0.2))
-      '@nuxtjs/mcp-toolkit': 0.13.4(h3@1.15.11)(magicast@0.5.2)(zod@4.4.1)
+      '@nuxt/ui': 4.6.1(f2301d40367c1f219cc5b16f8233124f)
+      '@nuxtjs/i18n': 10.2.4(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(@vue/compiler-dom@3.5.34)(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(eslint@10.2.0(jiti@2.6.1))(ioredis@5.10.1)(magicast@0.5.2)(rollup@4.60.1)(typescript@6.0.2)(vue@3.5.34(typescript@6.0.2))
+      '@nuxtjs/mcp-toolkit': 0.13.4(@cfworker/json-schema@4.1.1)(h3@1.15.11)(magicast@0.5.2)(zod@4.4.1)
       '@nuxtjs/mdc': 0.21.1(magicast@0.5.2)
-      '@nuxtjs/robots': 6.0.7(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
+      '@nuxtjs/robots': 6.0.7(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
       '@shikijs/core': 4.0.2
       '@shikijs/engine-javascript': 4.0.2
       '@shikijs/langs': 4.0.2
@@ -17009,13 +17073,13 @@ snapshots:
       defu: 6.1.7
       exsolve: 1.0.8
       git-url-parse: 16.1.0
-      motion-v: 2.2.1(@vueuse/core@14.2.1(vue@3.5.34(typescript@6.0.2)))(vue@3.5.34(typescript@6.0.2))
-      nuxt: 4.4.2(5ad1b1f5a672b20bdededb258034d6f9)
+      motion-v: 2.2.1(@vueuse/core@14.2.1(vue@3.5.34(typescript@6.0.2)))(react@19.2.6)(vue@3.5.34(typescript@6.0.2))
+      nuxt: 4.4.2(6e9dd46b486b3c6484d7463693e31348)
       nuxt-llms: 0.2.0(magicast@0.5.2)
-      nuxt-og-image: 6.4.1(a7d7a3d1825c7ccfe93b0addec5cc5c2)
+      nuxt-og-image: 6.4.1(b0624bb0ba51083b854cd41e65a12d5d)
       pkg-types: 2.3.0
       scule: 1.3.0
-      shiki-stream: 0.1.4(vue@3.5.34(typescript@6.0.2))
+      shiki-stream: 0.1.4(react@19.2.6)(vue@3.5.34(typescript@6.0.2))
       tailwindcss: 4.2.2
       ufo: 1.6.3
       yaml: 2.8.3
@@ -17128,8 +17192,9 @@ snapshots:
 
   dotenv@17.4.2: {}
 
-  drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1):
+  drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1):
     optionalDependencies:
+      '@cloudflare/workers-types': 4.20260509.1
       '@libsql/client': 0.15.15
       '@opentelemetry/api': 1.9.0
       '@upstash/redis': 1.37.0
@@ -17764,7 +17829,7 @@ snapshots:
     dependencies:
       tiny-inflate: 1.0.3
 
-  fontless@0.2.1(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(vite@8.0.8):
+  fontless@0.2.1(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(vite@8.0.8):
     dependencies:
       consola: 3.4.2
       css-tree: 3.2.1
@@ -17778,7 +17843,7 @@ snapshots:
       pathe: 2.0.3
       ufo: 1.6.3
       unifont: 0.7.4
-      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
     optionalDependencies:
       vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
     transitivePeerDependencies:
@@ -17821,11 +17886,13 @@ snapshots:
 
   fraction.js@5.3.4: {}
 
-  framer-motion@12.38.0:
+  framer-motion@12.38.0(react@19.2.6):
     dependencies:
       motion-dom: 12.38.0
       motion-utils: 12.36.0
       tslib: 2.8.1
+    optionalDependencies:
+      react: 19.2.6
 
   fresh@0.5.2: {}
 
@@ -18250,7 +18317,7 @@ snapshots:
 
   ipaddr.js@1.9.1: {}
 
-  ipx@3.1.1(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1):
+  ipx@3.1.1(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(srvx@0.11.15):
     dependencies:
       '@fastify/accept-negotiator': 2.0.1
       citty: 0.1.6
@@ -18266,7 +18333,7 @@ snapshots:
       sharp: 0.34.5
       svgo: 4.0.1
       ufo: 1.6.3
-      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
       xss: 1.0.15
     transitivePeerDependencies:
       - '@azure/app-configuration'
@@ -19152,10 +19219,10 @@ snapshots:
 
   motion-utils@12.36.0: {}
 
-  motion-v@2.2.1(@vueuse/core@14.2.1(vue@3.5.34(typescript@6.0.2)))(vue@3.5.34(typescript@6.0.2)):
+  motion-v@2.2.1(@vueuse/core@14.2.1(vue@3.5.34(typescript@6.0.2)))(react@19.2.6)(vue@3.5.34(typescript@6.0.2)):
     dependencies:
       '@vueuse/core': 14.2.1(vue@3.5.34(typescript@6.0.2))
-      framer-motion: 12.38.0
+      framer-motion: 12.38.0(react@19.2.6)
       hey-listen: 1.0.8
       motion-dom: 12.38.0
       motion-utils: 12.36.0
@@ -19191,11 +19258,11 @@ snapshots:
 
   nf3@0.3.16: {}
 
-  nitro@3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8):
+  nitro@3.0.260311-beta(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(vite@8.0.8):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.5(srvx@0.11.15)
-      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
+      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
       env-runner: 0.1.7(miniflare@4.20260415.0)
       h3: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
       hookable: 6.1.1
@@ -19206,13 +19273,13 @@ snapshots:
       rolldown: 1.0.0-rc.16
       srvx: 0.11.15
       unenv: 2.0.0-rc.24
-      unstorage: 2.0.0-alpha.7(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@2.0.0-alpha.3)
+      unstorage: 2.0.0-alpha.7(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       dotenv: 17.4.2
       giget: 3.2.0
       jiti: 2.6.1
       rollup: 4.60.1
-      vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+      vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -19244,7 +19311,7 @@ snapshots:
       - sqlite3
       - uploadthing
 
-  nitropack@2.13.3(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(rolldown@1.0.0-rc.16)(srvx@0.11.15):
+  nitropack@2.13.3(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(rolldown@1.0.0-rc.16)(srvx@0.11.15):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.4.2
       '@rollup/plugin-alias': 6.0.0(rollup@4.60.1)
@@ -19265,7 +19332,7 @@ snapshots:
       cookie-es: 2.0.1
       croner: 10.0.1
       crossws: 0.3.5
-      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
+      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
       defu: 6.1.7
       destr: 2.0.5
       dot-prop: 10.1.0
@@ -19311,7 +19378,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       unimport: 6.1.0
       unplugin-utils: 0.3.1
-      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
+      unstorage: 1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)
       untyped: 2.0.0
       unwasm: 0.5.3
       youch: 4.1.1
@@ -19439,7 +19506,7 @@ snapshots:
     transitivePeerDependencies:
       - magicast
 
-  nuxt-og-image@6.4.1(a7d7a3d1825c7ccfe93b0addec5cc5c2):
+  nuxt-og-image@6.4.1(b0624bb0ba51083b854cd41e65a12d5d):
     dependencies:
       '@clack/prompts': 1.2.0
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
@@ -19455,8 +19522,8 @@ snapshots:
       magic-string: 0.30.21
       magicast: 0.5.2
       mocked-exports: 0.1.1
-      nuxt-site-config: 4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
-      nuxtseo-shared: 5.1.3(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt-site-config@4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1))(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
+      nuxt-site-config: 4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
+      nuxtseo-shared: 5.1.3(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt-site-config@4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1))(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
       nypm: 0.6.5
       ofetch: 1.5.1
       ohash: 2.0.11
@@ -19472,10 +19539,10 @@ snapshots:
       ufo: 1.6.3
       ultrahtml: 1.6.0
       unplugin: 3.0.0
-      unstorage: 2.0.0-alpha.7(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@1.5.1)
+      unstorage: 2.0.0-alpha.7(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@1.5.1)
     optionalDependencies:
       '@takumi-rs/core': 0.73.1
-      fontless: 0.2.1(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(vite@8.0.8)
+      fontless: 0.2.1(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(vite@8.0.8)
       sharp: 0.34.5
       tailwindcss: 4.2.2
       unifont: 0.7.4
@@ -19497,12 +19564,12 @@ snapshots:
       - magicast
       - vue
 
-  nuxt-site-config@4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1):
+  nuxt-site-config@4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1):
     dependencies:
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       h3: 1.15.11
       nuxt-site-config-kit: 4.0.8(magicast@0.5.2)(vue@3.5.34(typescript@6.0.2))
-      nuxtseo-shared: 5.1.3(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt-site-config@4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1))(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
+      nuxtseo-shared: 5.1.3(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt-site-config@4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1))(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
       pathe: 2.0.3
       pkg-types: 2.3.0
       site-config-stack: 4.0.8(vue@3.5.34(typescript@6.0.2))
@@ -19515,16 +19582,16 @@ snapshots:
       - vue
       - zod
 
-  nuxt@4.4.2(243bc5b918de3c48a1f63eb2bdcf78da):
+  nuxt@4.4.2(59e89dcd813639bec6a058689d7307d9):
     dependencies:
       '@dxup/nuxt': 0.4.0(magicast@0.5.2)(typescript@6.0.2)
       '@nuxt/cli': 3.34.0(@nuxt/schema@4.4.2)(cac@6.7.14)(magicast@0.5.2)
       '@nuxt/devtools': 3.2.4(@vitejs/devtools@0.1.19)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
-      '@nuxt/nitro-server': 4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(243bc5b918de3c48a1f63eb2bdcf78da))(rolldown@1.0.0-rc.16)(typescript@6.0.2)
+      '@nuxt/nitro-server': 4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(59e89dcd813639bec6a058689d7307d9))(rolldown@1.0.0-rc.16)(typescript@6.0.2)
       '@nuxt/schema': 4.4.2
       '@nuxt/telemetry': 2.8.0(@nuxt/kit@4.4.2(magicast@0.5.2))
-      '@nuxt/vite-builder': 4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(243bc5b918de3c48a1f63eb2bdcf78da))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)
+      '@nuxt/vite-builder': 4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(59e89dcd813639bec6a058689d7307d9))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)
       '@unhead/vue': 2.1.13(vue@3.5.34(typescript@6.0.2))
       '@vue/shared': 3.5.34
       c12: 3.3.4(magicast@0.5.2)
@@ -19648,16 +19715,16 @@ snapshots:
       - xml2js
       - yaml
 
-  nuxt@4.4.2(32aab04b720da05e4a0a650a7dca5f7c):
+  nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348):
     dependencies:
       '@dxup/nuxt': 0.4.0(magicast@0.5.2)(typescript@6.0.2)
       '@nuxt/cli': 3.34.0(@nuxt/schema@4.4.2)(cac@6.7.14)(magicast@0.5.2)
       '@nuxt/devtools': 3.2.4(@vitejs/devtools@0.1.19)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
-      '@nuxt/nitro-server': 4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(32aab04b720da05e4a0a650a7dca5f7c))(rolldown@1.0.0-rc.16)(srvx@0.11.15)(typescript@6.0.2)
+      '@nuxt/nitro-server': 4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(rolldown@1.0.0-rc.16)(srvx@0.11.15)(typescript@6.0.2)
       '@nuxt/schema': 4.4.2
       '@nuxt/telemetry': 2.8.0(@nuxt/kit@4.4.2(magicast@0.5.2))
-      '@nuxt/vite-builder': 4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(32aab04b720da05e4a0a650a7dca5f7c))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)
+      '@nuxt/vite-builder': 4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)
       '@unhead/vue': 2.1.13(vue@3.5.34(typescript@6.0.2))
       '@vue/shared': 3.5.34
       c12: 3.3.4(magicast@0.5.2)
@@ -19781,16 +19848,16 @@ snapshots:
       - xml2js
       - yaml
 
-  nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9):
+  nuxt@4.4.2(fd8cc5324f7a1bc19fed1d6ffa8bd165):
     dependencies:
       '@dxup/nuxt': 0.4.0(magicast@0.5.2)(typescript@6.0.2)
       '@nuxt/cli': 3.34.0(@nuxt/schema@4.4.2)(cac@6.7.14)(magicast@0.5.2)
       '@nuxt/devtools': 3.2.4(@vitejs/devtools@0.1.19)(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
-      '@nuxt/nitro-server': 4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(rolldown@1.0.0-rc.16)(typescript@6.0.2)
+      '@nuxt/nitro-server': 4.4.2(@babel/core@7.29.0)(@libsql/client@0.15.15)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))(ioredis@5.10.1)(magicast@0.5.2)(nuxt@4.4.2(fd8cc5324f7a1bc19fed1d6ffa8bd165))(rolldown@1.0.0-rc.16)(typescript@6.0.2)
       '@nuxt/schema': 4.4.2
       '@nuxt/telemetry': 2.8.0(@nuxt/kit@4.4.2(magicast@0.5.2))
-      '@nuxt/vite-builder': 4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)
+      '@nuxt/vite-builder': 4.4.2(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@types/node@25.6.0)(eslint@10.2.0(jiti@2.6.1))(lightningcss@1.32.0)(magicast@0.5.2)(nuxt@4.4.2(fd8cc5324f7a1bc19fed1d6ffa8bd165))(optionator@0.9.4)(oxlint@1.60.0(oxlint-tsgolint@0.20.0))(rolldown@1.0.0-rc.16)(rollup-plugin-visualizer@7.0.1(rolldown@1.0.0-rc.16)(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))(vue@3.5.34(typescript@6.0.2))(yaml@2.8.3)
       '@unhead/vue': 2.1.13(vue@3.5.34(typescript@6.0.2))
       '@vue/shared': 3.5.34
       c12: 3.3.4(magicast@0.5.2)
@@ -19914,7 +19981,7 @@ snapshots:
       - xml2js
       - yaml
 
-  nuxtseo-shared@5.1.3(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt-site-config@4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1))(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1):
+  nuxtseo-shared@5.1.3(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt-site-config@4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1))(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1):
     dependencies:
       '@clack/prompts': 1.2.0
       '@nuxt/devtools-kit': 4.0.0-alpha.3(magicast@0.5.2)(vite@8.0.8)
@@ -19923,7 +19990,7 @@ snapshots:
       birpc: 4.0.0
       consola: 3.4.2
       defu: 6.1.7
-      nuxt: 4.4.2(5ad1b1f5a672b20bdededb258034d6f9)
+      nuxt: 4.4.2(6e9dd46b486b3c6484d7463693e31348)
       ofetch: 1.5.1
       pathe: 2.0.3
       pkg-types: 2.3.0
@@ -19933,7 +20000,7 @@ snapshots:
       ufo: 1.6.3
       vue: 3.5.34(typescript@6.0.2)
     optionalDependencies:
-      nuxt-site-config: 4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(5ad1b1f5a672b20bdededb258034d6f9))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
+      nuxt-site-config: 4.0.8(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(6e9dd46b486b3c6484d7463693e31348))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
       zod: 4.4.1
     transitivePeerDependencies:
       - magicast
@@ -20789,6 +20856,9 @@ snapshots:
 
   re2js@1.3.3: {}
 
+  react@19.2.6:
+    optional: true
+
   read-yaml-file@2.1.0:
     dependencies:
       js-yaml: 4.1.1
@@ -21277,10 +21347,11 @@ snapshots:
 
   shell-quote@1.8.3: {}
 
-  shiki-stream@0.1.4(vue@3.5.34(typescript@6.0.2)):
+  shiki-stream@0.1.4(react@19.2.6)(vue@3.5.34(typescript@6.0.2)):
     dependencies:
       '@shikijs/core': 3.23.0
     optionalDependencies:
+      react: 19.2.6
       vue: 3.5.34(typescript@6.0.2)
 
   shiki@4.0.2:
@@ -21711,7 +21782,7 @@ snapshots:
       unconfig-core: 7.5.0
       unrun: 0.2.36
     optionalDependencies:
-      '@vitejs/devtools': 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
+      '@vitejs/devtools': 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
       publint: 0.3.18
       typescript: 6.0.2
     transitivePeerDependencies:
@@ -21978,7 +22049,7 @@ snapshots:
     dependencies:
       rolldown: 1.0.0-rc.16
 
-  unstorage@1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1):
+  unstorage@1.17.5(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1):
     dependencies:
       anymatch: 3.1.3
       chokidar: 5.0.0
@@ -21993,29 +22064,29 @@ snapshots:
       '@vercel/blob': 2.3.3
       '@vercel/functions': 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13)
       aws4fetch: 1.0.20
-      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
+      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
       ioredis: 5.10.1
 
-  unstorage@2.0.0-alpha.7(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@1.5.1):
+  unstorage@2.0.0-alpha.7(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@1.5.1):
     optionalDependencies:
       '@upstash/redis': 1.37.0
       '@vercel/blob': 2.3.3
       '@vercel/functions': 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13)
       aws4fetch: 1.0.20
       chokidar: 5.0.0
-      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
+      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
       ioredis: 5.10.1
       lru-cache: 11.3.5
       ofetch: 1.5.1
 
-  unstorage@2.0.0-alpha.7(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@2.0.0-alpha.3):
+  unstorage@2.0.0-alpha.7(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@2.0.0-alpha.3):
     optionalDependencies:
       '@upstash/redis': 1.37.0
       '@vercel/blob': 2.3.3
       '@vercel/functions': 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13)
       aws4fetch: 1.0.20
       chokidar: 5.0.0
-      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
+      db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1))
       ioredis: 5.10.1
       lru-cache: 11.3.5
       ofetch: 2.0.0-alpha.3
@@ -22189,7 +22260,7 @@ snapshots:
       tinyglobby: 0.2.16
     optionalDependencies:
       '@types/node': 25.6.0
-      '@vitejs/devtools': 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
+      '@vitejs/devtools': 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
       esbuild: 0.27.7
       fsevents: 2.3.3
       jiti: 2.6.1
@@ -22206,7 +22277,7 @@ snapshots:
       tinyglobby: 0.2.16
     optionalDependencies:
       '@types/node': 25.6.0
-      '@vitejs/devtools': 0.1.19(@modelcontextprotocol/sdk@1.29.0(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
+      '@vitejs/devtools': 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(vite@8.0.8)
       esbuild: 0.28.0
       fsevents: 2.3.3
       jiti: 2.6.1

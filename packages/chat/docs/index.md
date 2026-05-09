@@ -30,6 +30,17 @@ export default defineChat({
 })
 ```
 
+```ts [server/chat.ts + agent]
+import { defineChat } from '@vitehub/chat'
+
+export default defineChat({
+  adapters,
+  agent: 'triager',
+  state,
+  userName: 'Support Bot',
+})
+```
+
 ```ts [vite.config.ts]
 import { hubChat } from '@vitehub/chat/vite'
 import { DevTools } from '@vitejs/devtools'
@@ -73,6 +84,14 @@ Chat keeps bot behavior in one definition while deployment-specific wiring stays
   title: Runtime context
   ---
   Resolve adapters and state from Nitro runtime config, Cloudflare bindings, or Vercel `waitUntil`.
+  :::
+
+  :::card
+  ---
+  icon: i-lucide-sparkles
+  title: Agent handoff
+  ---
+  Route direct messages to a discovered `@vitehub/agent` with thread history and streaming replies.
   :::
 
   :::card
