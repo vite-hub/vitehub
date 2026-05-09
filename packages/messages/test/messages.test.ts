@@ -60,6 +60,29 @@ describe("@vitehub/messages", () => {
     expect(deserializeMessages(serialized)).toEqual(messages)
   })
 
+  it("rejects non-serializable message state", () => {
+    expect(() => validateMessage({
+      id: "m1",
+      metadata: { skipped: undefined },
+      parts: [],
+      role: "user",
+    })).toThrow("must not be undefined")
+  })
+
+  it("does not persist explicit undefined fields from stream events", () => {
+    const messages = applyStreamEvent(
+      [createMessage({ id: "m1", parts: [], role: "assistant" })],
+      { id: "call-1", messageId: "m1", name: "weather", type: "tool-call" },
+    )
+
+    expect(messages[0]?.parts[0]).toEqual({
+      id: "call-1",
+      name: "weather",
+      state: "proposed",
+      type: "tool-call",
+    })
+  })
+
   it("rejects tool results without a matching call", () => {
     expect(() => validateMessage({
       id: "m1",

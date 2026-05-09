@@ -258,6 +258,30 @@ describe("defineChat", () => {
     expect(post).toHaveBeenCalledWith("agent response")
   })
 
+  it("passes shared capability handles through chat-to-agent handoff", async () => {
+    const { getAgentFromRegistry } = mockAgentPackage()
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const capabilities = {
+      sandbox: { kind: "sandbox-session", value: { name: "runner" } },
+    }
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: "triager",
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext({ capabilities, runtime: "nitro" }) as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m1", "hello") as never, { id: "channel-1" } as never)
+
+    expect(getAgentFromRegistry).toHaveBeenCalledWith("triager", expect.objectContaining({
+      capabilities,
+      runtime: "nitro",
+    }))
+  })
+
   it("lets advanced agent hooks prepare input and replace response sending", async () => {
     const sendResponse = vi.fn()
     const prepareInput = vi.fn(() => ({ prompt: "custom prompt" }))

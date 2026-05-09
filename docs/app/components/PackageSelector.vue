@@ -76,8 +76,9 @@ const items = computed(() => [
       :icon="activePackage?.icon || 'i-lucide-box'"
       trailing-icon="i-lucide-chevron-down"
       color="neutral"
-      variant="soft"
-      class="hidden lg:inline-flex"
+      variant="ghost"
+      size="sm"
+      class="hidden bg-transparent px-2.5 text-muted hover:bg-transparent hover:text-highlighted active:bg-transparent focus-visible:bg-transparent data-[state=open]:bg-transparent data-[state=open]:text-highlighted lg:inline-flex"
     />
   </UDropdownMenu>
 </template>

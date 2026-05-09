@@ -1,59 +1,87 @@
 ---
 title: Agent runtime API
-description: Reference for Agent exports and module options.
+description: Reference for Agent exports, inputs, context, and module options.
 navigation.title: Runtime API
-navigation.order: 4
+navigation.order: 3
 icon: i-lucide-braces
 frameworks: [vite, nitro]
 ---
 
-## Exports
+Use this page for exact names and shapes. For setup, start with [Quickstart](./quickstart).
 
-Runtime definitions import from `@vitehub/agent`:
-
-```ts
-import { defineAgent, defineTool, getAgent, runAgent, streamAgent } from '@vitehub/agent'
-```
-
-Agent run input uses `Message[]` from `@vitehub/messages`:
+## Imports
 
 ```ts
-import type { Message, StreamEvent } from '@vitehub/agent'
-
-interface AgentRunInput {
-  messages?: Message[]
-  prompt?: string | Message[]
-}
-
-type AgentStream = AsyncIterable<StreamEvent>
+import {
+  defineAgent,
+  defineTool,
+  getAgent,
+  runAgent,
+  streamAgent,
+} from '@vitehub/agent'
 ```
 
-Vercel AI SDK remains the default model adapter, but AI SDK message objects are converted inside `@vitehub/agent` instead of being the public Chat-to-Agent contract.
-
-Vite config imports from `@vitehub/agent/vite`:
-
+::fw{id="vite:dev vite:build"}
 ```ts
 import { hubAgent } from '@vitehub/agent/vite'
 ```
+::
 
-Nitro config uses the module:
-
+::fw{id="nitro:dev nitro:build"}
 ```ts
 export default defineNitroConfig({
   modules: ['@vitehub/agent/nitro'],
 })
 ```
+::
+
+## Define an agent
+
+```ts
+defineAgent({
+  description?: string
+  model?: AgentModelInput
+  instructions?: string
+  tools?: MaybeResolvable<ToolSet, ResolvedAgentRuntimeContext>
+  run?: AgentRunHandler
+})
+```
+
+You can also pass an AI SDK `Agent` instance to `defineAgent()`.
+
+## Run input
+
+```ts
+interface AgentRunInput {
+  messages?: Message[]
+  prompt?: string | Message[]
+}
+```
+
+`Message` comes from `@vitehub/messages` and is re-exported by `@vitehub/agent`.
+
+## Runtime context
+
+```ts
+interface AgentRuntimeContext {
+  request?: Request
+  runtime: 'nitro' | 'vercel' | 'cloudflare-agents' | 'unknown'
+  runtimeConfig?: AgentRuntimeConfig
+  waitUntil?: (promise: Promise<unknown>) => void
+  capabilities?: AgentCapabilities
+  memo: <T>(key: string, factory: () => T | Promise<T>) => T | Promise<T>
+}
+```
+
+`run` receives a resolved context with `runtimeConfig` present.
 
 ## Module options
 
 ```ts
-type AgentRuntime = 'auto' | 'nitro' | 'vercel' | 'cloudflare-agents'
-type AgentExecution = 'inline' | 'workflow' | 'sandbox'
-
 interface AgentModuleOptions {
   route?: boolean | string
-  runtime?: AgentRuntime
-  execution?: AgentExecution
+  runtime?: 'auto' | 'nitro' | 'vercel' | 'cloudflare-agents'
+  execution?: 'inline' | 'workflow' | 'sandbox'
   imports?: boolean
   integrations?: {
     workflow?: 'auto' | boolean
@@ -68,4 +96,14 @@ interface AgentModuleOptions {
 }
 ```
 
-Generated HTTP routes are disabled by default. Set `route: true` to expose discovered agents at `/agents/[agent]`, or pass a custom route string.
+## Tool policy
+
+```ts
+defineTool({
+  name: 'refund',
+  description: 'Refund an order',
+  policy: 'require-approval',
+})
+```
+
+Tool policy metadata travels with the tool definition. Runtime enforcement belongs to the executor that receives the tool handle.

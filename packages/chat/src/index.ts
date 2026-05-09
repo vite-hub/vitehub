@@ -1,4 +1,5 @@
 import { Chat } from "chat"
+import { isResolvable, resolveRuntimeContext, resolveRuntimeValue } from "@vitehub/internal/runtime/context"
 
 import { createAgentDirectMessageHook } from "./agent-handoff.ts"
 import { chatDevtoolsAdapterName, observeChatDevtoolsStream } from "./devtools.ts"
@@ -33,6 +34,8 @@ export type {
   AdapterInput,
   Channel,
   ChatActionHookInput,
+  ChatCapabilities,
+  ChatCapabilityHandle,
   ChatAgentAfterRunArgs,
   ChatAgentBeforeRunArgs,
   ChatAgentBinding,
@@ -88,28 +91,11 @@ export * from "./devtools.ts"
 
 let definitionId = 0
 
-function isResolvable<T, TContext extends ChatRuntimeContext>(
-  value: MaybeResolvable<T, TContext>,
-): value is { resolve: (context: TContext) => T | Promise<T> } {
-  return typeof value === "object"
-    && value !== null
-    && "resolve" in value
-    && typeof value.resolve === "function"
-}
-
 async function resolveValue<T, TContext extends ChatRuntimeContext>(
   value: MaybeResolvable<T, TContext>,
   context: TContext,
 ): Promise<T> {
-  if (isResolvable(value)) {
-    return await value.resolve(context)
-  }
-
-  if (typeof value === "function") {
-    return await (value as (context: TContext) => T | Promise<T>)(context)
-  }
-
-  return value
+  return await resolveRuntimeValue(value, context)
 }
 
 async function resolveAdapters<TRuntimeConfig extends ChatRuntimeConfig>(
@@ -425,8 +411,8 @@ async function createChat<
   context: ChatRuntimeContext<TRuntimeConfig>,
   resolveOptions: ResolveChatOptions = {},
 ) {
-  const runtimeConfig = context.runtimeConfig as TRuntimeConfig
-  const resolvedContext = { ...context, runtimeConfig } as ResolvedChatRuntimeContext<TRuntimeConfig>
+  const resolvedContext = resolveRuntimeContext(context) as ResolvedChatRuntimeContext<TRuntimeConfig>
+  const runtimeConfig = resolvedContext.runtimeConfig
   const adapters = resolveOptions.adapters || await resolveAdapters(options.adapters, resolvedContext)
   const state = await resolveValue(options.state, context)
   const {

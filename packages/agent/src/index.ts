@@ -1,6 +1,7 @@
 import { ToolLoopAgent } from "ai"
 import agentRegistry from "#vitehub/agent/registry"
 import { getMessageText } from "@vitehub/messages"
+import { isResolvable, resolveRuntimeContext, resolveRuntimeValue } from "@vitehub/internal/runtime/context"
 
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
@@ -33,6 +34,8 @@ import type { Message, MessagePart, StreamEvent } from "@vitehub/messages"
 
 export type {
   Agent,
+  AgentCapabilities,
+  AgentCapabilityHandle,
   AgentRequestBody,
   AgentDefinition,
   AgentExecution,
@@ -85,28 +88,11 @@ export type {
   ToolInvocationState,
 } from "@vitehub/messages"
 
-function isResolvable<T, TContext extends AgentRuntimeContext>(
-  value: MaybeResolvable<T, TContext>,
-): value is { resolve: (context: TContext) => T | Promise<T> } {
-  return typeof value === "object"
-    && value !== null
-    && "resolve" in value
-    && typeof value.resolve === "function"
-}
-
 async function resolveValue<T, TContext extends AgentRuntimeContext>(
   value: MaybeResolvable<T, TContext>,
   context: TContext,
 ): Promise<T> {
-  if (isResolvable(value)) {
-    return await value.resolve(context)
-  }
-
-  if (typeof value === "function") {
-    return await (value as (context: TContext) => T | Promise<T>)(context)
-  }
-
-  return value
+  return await resolveRuntimeValue(value, context)
 }
 
 function hasAgentMethods(value: unknown): value is Agent {
@@ -136,10 +122,7 @@ function resolveRegistryModule<TContext extends AgentRuntimeContext>(
 function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): ResolvedAgentRuntimeContext<TRuntimeConfig> {
-  return {
-    ...context,
-    runtimeConfig: (context.runtimeConfig || {}) as TRuntimeConfig,
-  }
+  return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
 export function defineAgent<

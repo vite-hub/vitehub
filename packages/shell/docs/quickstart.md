@@ -1,13 +1,13 @@
 ---
 title: Shell quickstart
-description: Create a read-only workspace shell runtime and run safe inspection commands.
+description: Create a read-only workspace shell runtime and run one command.
 navigation.title: Quickstart
 navigation.order: 1
 icon: i-lucide-zap
 frameworks: [vite, nitro]
 ---
 
-This guide creates a shell runtime that can inspect workspace files but cannot mutate them.
+This guide creates a shell runtime that can inspect workspace files.
 
 ::steps
 
@@ -17,7 +17,7 @@ This guide creates a shell runtime that can inspect workspace files but cannot m
 pnpm add @vitehub/shell
 ```
 
-### Provide a workspace API
+### Provide a workspace
 
 Shell expects a workspace object with read methods.
 
@@ -30,23 +30,17 @@ const workspace = {
     return path in files
   },
   async stat(path: string) {
-    return {
-      path,
-      size: files[path]?.length,
-      type: 'file' as const,
-    }
+    return { path, type: 'file' as const, size: files[path]?.length || 0 }
   },
   async list() {
-    return Object.keys(files).map((path) => ({
+    return Object.entries(files).map(([path, contents]) => ({
       path,
-      size: files[path].length,
       type: 'file' as const,
+      size: contents.length,
     }))
   },
 }
 ```
-
-Real apps usually pass a ViteHub workspace facade instead of this minimal object.
 
 ### Create the runtime
 
@@ -58,8 +52,8 @@ import {
 } from '@vitehub/shell'
 
 const runtime = createShellRuntime({
-  allowedCommands: ['pwd', 'ls', 'find', 'cat', 'head', 'tail', 'wc', 'rg'],
-  commands: ['pwd', 'ls', 'find', 'cat', 'head', 'tail', 'wc', 'rg'],
+  allowedCommands: ['pwd', 'ls', 'cat', 'rg'],
+  commands: ['pwd', 'ls', 'cat', 'rg'],
   cwd: workspaceMountPoint,
   fs: createReadonlyWorkspaceFs(workspace),
   provider: 'just-bash',
@@ -67,7 +61,7 @@ const runtime = createShellRuntime({
 })
 ```
 
-### Run an inspection command
+### Run a command
 
 ```ts
 const result = await runtime.exec('cat README.md')
@@ -77,20 +71,8 @@ console.log(result.stdout)
 console.error(result.stderr)
 ```
 
-Expected result shape:
-
-```json
-{
-  "exitCode": 0,
-  "stderr": "",
-  "stdout": "# Docs\n"
-}
-```
-
 ::
 
-## Next steps
+## Verify
 
-- Use [Usage](./usage) to add search helpers or writable filesystem access.
-- Use [Runtime API](./runtime-api) for exact provider option shapes.
-- Use [Troubleshooting](./troubleshooting) if a command is rejected by policy.
+A successful command returns `exitCode: 0` and writes command output to `stdout`.

@@ -1,52 +1,92 @@
 ---
 title: Messages
-description: Canonical AI conversation state and stream protocol primitives for ViteHub.
+description: Store and replay portable conversation state for ViteHub Chat and Agent.
 navigation.title: Overview
 navigation.order: 0
 icon: i-lucide-messages-square
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/messages` is the shared message protocol for ViteHub AI packages. It gives Chat, Agent, DevTools, persistence, and future AI primitives one durable shape for conversation state instead of sharing provider-specific message objects.
+`@vitehub/messages` defines the conversation state shared by `@vitehub/chat` and `@vitehub/agent`.
 
-Use Messages when you need to store, replay, stream, or adapt AI conversation state across packages.
+Use Messages when you need to create, validate, serialize, deserialize, or replay assistant message state.
 
 ```ts
-import { applyStreamEvent, createMessage, serializeMessages } from '@vitehub/messages'
+import { createMessage, serializeMessages } from '@vitehub/messages'
 
-let messages = [
+const messages = [
   createMessage({
     role: 'user',
     text: 'Summarize this thread',
   }),
 ]
 
-messages = applyStreamEvent(messages, {
-  text: 'Here is the summary.',
-  type: 'text-delta',
-})
-
 const stored = serializeMessages(messages)
 ```
 
 ## What Messages owns
 
-Messages defines the canonical Interface for:
+::card-group
+  :::card
+  ---
+  icon: i-lucide-file-json
+  title: Serializable state
+  ---
+  Keep message parts as structured data that can survive reloads and retries.
+  :::
 
-- message roles and parts
-- text, data, source, and error parts
-- tool calls and tool results
-- approval requests
-- stream events
-- serialization and rehydration
-- validation of required fields and tool result ordering
+  :::card
+  ---
+  icon: i-lucide-list-tree
+  title: Stream events
+  ---
+  Apply text, data, tool, approval, error, and finish events to message history.
+  :::
 
-It does not depend on Chat SDK, Vercel AI SDK, Nitro, Vite, Cloudflare, or Vercel. Provider and framework details stay in adapters at the edges.
+  :::card
+  ---
+  icon: i-lucide-badge-check
+  title: Validation
+  ---
+  Validate roles, part IDs, JSON-safe values, and tool call/result ordering.
+  :::
+::
 
-## Package roles
+## Package boundary
 
-`@vitehub/chat` owns provider chat ingress, webhooks, thread handling, and Chat SDK adapters.
+Messages has no framework or provider dependency. It does not import Chat SDK, AI SDK, Vite, Nitro, Cloudflare, or Vercel.
 
-`@vitehub/agent` owns model execution, tool loops, policies, retries, approvals, and run lifecycle.
+Chat converts provider conversation events into ViteHub messages. Agent converts ViteHub messages into model calls.
 
-`@vitehub/messages` is the handoff Interface between those packages.
+## Start here
+
+::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Quickstart
+  description: Create messages, apply stream events, and serialize the result.
+  to: ./quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Usage
+  description: Work with text, data, tools, approvals, errors, and persisted state.
+  to: ./usage
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Runtime API
+  description: Review exported types and helper functions.
+  to: ./runtime-api
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Troubleshooting
+  description: Fix invalid roles, non-serializable state, and tool result mismatches.
+  to: ./troubleshooting
+  ---
+  :::
+::

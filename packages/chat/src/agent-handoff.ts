@@ -107,6 +107,7 @@ function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
       : "unknown"
 
   return {
+    capabilities: context.capabilities,
     cloudflare: context.cloudflare,
     event: context.event,
     memo: context.memo,

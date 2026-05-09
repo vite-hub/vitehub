@@ -9,47 +9,41 @@ import type {
   ToolSet,
 } from "ai"
 import type { Message, StreamEvent } from "@vitehub/messages"
+import type {
+  MaybePromise,
+  MaybeResolvable,
+  Resolvable,
+  RuntimeCapabilities,
+  RuntimeCapabilityHandle,
+  RuntimeHostContext,
+  RuntimeWaitUntil,
+} from "@vitehub/internal/runtime/context"
 
 export type { Agent } from "ai"
+export type {
+  MaybePromise,
+  MaybeResolvable,
+  Resolvable,
+}
 
-export type MaybePromise<T> = T | Promise<T>
 export type AgentRuntimeName = "cloudflare-agents" | "nitro" | "unknown" | "vercel"
 export type AgentRuntime = "auto" | AgentRuntimeName
 export type AgentExecution = "inline" | "sandbox" | "workflow"
-export type AgentWaitUntil = (task: Promise<unknown>) => void
+export type AgentWaitUntil = RuntimeWaitUntil
 export type AgentIntegrationOption = "auto" | boolean
+export type AgentCapabilityHandle<TKind extends string = string, TValue = unknown> = RuntimeCapabilityHandle<TKind, TValue>
+export type AgentCapabilities = RuntimeCapabilities
 
 export interface AgentRuntimeConfig {}
 
-export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  cloudflare?: {
-    context?: unknown
-    env?: Record<string, unknown>
-  }
-  event?: unknown
-  memo<T>(key: string, create: () => T): T
-  request?: Request
+export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends Omit<RuntimeHostContext<TRuntimeConfig>, "cloudflare" | "platform" | "runtime"> {
+  cloudflare?: RuntimeHostContext<TRuntimeConfig>["cloudflare"]
   runtime: AgentRuntimeName
-  runtimeConfig?: TRuntimeConfig
-  sandbox?: unknown
-  vercel?: {
-    waitUntil?: AgentWaitUntil
-  }
-  waitUntil: AgentWaitUntil
-  workflow?: unknown
 }
 
 export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
-
-export interface Resolvable<T, TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> {
-  resolve(context: TContext): MaybePromise<T>
-}
-
-export type MaybeResolvable<T, TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
-  | T
-  | Resolvable<T, TContext>
-  | ((context: TContext) => MaybePromise<T>)
 
 export interface AgentRunInput<CALL_OPTIONS = never, TOOLS extends ToolSet = ToolSet> {
   abortSignal?: AbortSignal

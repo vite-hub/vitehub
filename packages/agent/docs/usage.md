@@ -1,55 +1,49 @@
 ---
 title: Agent usage
-description: Define agents, customize runtime placement, and compose with workflow or sandbox.
+description: Discover agents, expose routes, customize runs, and compose with Chat.
 navigation.title: Usage
-navigation.order: 3
+navigation.order: 2
 icon: i-lucide-file-code-2
 frameworks: [vite, nitro]
 ---
 
-## Discovery
+Use this page after the [Quickstart](./quickstart).
+
+## Discover agents
 
 Agents are discovered from Nitro server files.
 
-::fw{id="vite:dev vite:build"}
 ```txt
 server/agents.ts
 server/agents/triager.ts
 server/agents/support/reviewer.ts
 ```
-::
 
-::fw{id="nitro:dev nitro:build"}
-```txt
-server/agents.ts
-server/agents/triager.ts
-server/agents/support/reviewer.ts
+Use a default export for one agent per file:
+
+```ts [server/agents/triager.ts]
+import { defineAgent } from '@vitehub/agent'
+
+export default defineAgent({
+  model,
+  instructions: 'Triage support requests.',
+})
 ```
-::
 
-Use `server/agents.ts` when you prefer named exports:
+Use named exports when one file owns several agents:
 
 ```ts [server/agents.ts]
+import { defineAgent } from '@vitehub/agent'
+
 export const triager = defineAgent({
   model,
   instructions: 'Triage support requests.',
 })
 ```
 
-## Expose an agent route
+## Expose an HTTP route
 
-Keep agents internal by default. Chat can still resolve discovered agents through the generated registry.
-
-::fw{id="nitro:dev nitro:build"}
-```ts [nitro.config.ts]
-export default defineNitroConfig({
-  modules: ['@vitehub/agent/nitro'],
-  agent: {
-    route: true,
-  },
-})
-```
-::
+Routes are disabled by default. Enable them when another server needs to call an agent over HTTP.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
@@ -68,27 +62,67 @@ export default defineConfig({
 ```
 ::
 
-Only set `route` when agents should be externally callable. Use this for trusted server-to-server calls or put your own auth in front of the route. Use a custom route string when `/agents/[agent]` does not fit your app.
+::fw{id="nitro:dev nitro:build"}
+```ts [nitro.config.ts]
+export default defineNitroConfig({
+  modules: ['@vitehub/agent/nitro'],
+  agent: {
+    route: true,
+  },
+})
+```
+::
 
-## Custom run behavior
+Pass a route string when `/agents/[agent]` does not fit your app.
 
-Use `run` when the default AI SDK `generate()` / `stream()` behavior is not enough.
+## Customize a run
 
-```ts
+Use `run` when the default model call is not the right shape.
+
+```ts [server/agents/support.ts]
+import { defineAgent, defineTool } from '@vitehub/agent'
+import { getMessageText } from '@vitehub/messages'
+
+const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+  name: 'classifyTicket',
+  description: 'Classify a support request before queue handoff.',
+  policy: ({ input }) => {
+    const message = typeof input === 'object' && input && 'message' in input
+      ? String(input.message)
+      : ''
+
+    return /refund|invoice|payment/i.test(message) ? 'require-approval' : 'allow'
+  },
+  execute: ({ message }) => ({
+    queue: /down|broken|500|urgent/i.test(message) ? 'incident' : 'product',
+    priority: /down|broken|500|urgent/i.test(message) ? 'urgent' : 'normal',
+  }),
+})
+
 export default defineAgent({
-  model,
-  instructions: 'Answer with short operational guidance.',
-  async run({ input, streamText }) {
-    return streamText({
-      messages: input.messages || [],
-    })
+  description: 'Triage support requests',
+  async run({ input, waitUntil }) {
+    const latest = input.messages?.at(-1)
+    const message = latest ? getMessageText(latest) : ''
+    const ticket = await classifyTicket.execute?.({ message })
+
+    waitUntil?.(Promise.resolve({ event: 'support.triaged', ticket }))
+
+    return {
+      raw: { ticket },
+      text: ticket
+        ? `Queued for ${ticket.queue} with ${ticket.priority} priority.`
+        : 'Unable to classify the support request.',
+    }
   },
 })
 ```
 
-## Use agents from Chat
+`run` receives resolved runtime context, the agent input, and helpers for creating or streaming the underlying model agent.
 
-`@vitehub/chat` can resolve discovered agents by name when both packages are enabled.
+## Bind Chat to Agent
+
+Chat owns the webhook and thread. Agent owns the model work.
 
 ```ts [server/chat.ts]
 export default defineChat({
@@ -99,44 +133,38 @@ export default defineChat({
 })
 ```
 
-Chat owns the chat-specific work: gathering thread history, converting messages, and posting the streamed response. Agent definitions stay portable and do not import Chat.
-
-## Answer from a Workspace
-
-Use `@vitehub/agent/workspace` when an agent should read a ViteHub Workspace and answer from those sources. The helper wires the Workspace tools into an AI SDK `ToolLoopAgent`, reads an optional instructions file, and returns a final answer that Chat can post.
-
-::fw{id="nitro:dev nitro:build"}
-```ts [server/agents/context.ts]
-import { createVertex } from '@ai-sdk/google-vertex/edge'
-import { defineWorkspaceAgent } from '@vitehub/agent/workspace'
-import { useSafeRuntimeConfig } from '#vitehub/env/server'
-
-type RuntimeConfig = ReturnType<typeof useSafeRuntimeConfig>
-
-export default defineWorkspaceAgent<RuntimeConfig>({
-  description: 'Answer with workspace context.',
-  workspace: 'data-sources',
-  instructions: 'Use the workspace sources. Say what is missing when the sources do not answer.',
-  instructionsFile: true,
-  model: ({ runtimeConfig }) => {
-    const vertex = createVertex({ apiKey: runtimeConfig.vertex.apiKey })
-    return vertex(runtimeConfig.vertex.model)
-  },
-  stepLimit: 60,
-})
-```
-::
-
-Pair it with the Chat agent binding:
+Use the object form to customize history, input, or response posting.
 
 ```ts [server/chat.ts]
 export default defineChat({
   adapters,
-  agent: 'context',
+  agent: {
+    name: 'triager',
+    history: {
+      source: 'thread',
+      maxMessages: 20,
+    },
+    hooks: {
+      beforeRun({ input }) {
+        return input
+      },
+    },
+  },
   state,
+  userName: 'Support Bot',
 })
 ```
 
-## Cloudflare Agents
+## Use Workspace tools
 
-Cloudflare Agents are runtime primitives for state, scheduling, Durable Objects, and native agent routing. Use `@vitehub/agent/cloudflare` when you want to delegate to Cloudflare's native `routeAgentRequest()` path.
+Use `@vitehub/agent/workspace` when an agent answers from a ViteHub Workspace.
+
+```ts [server/agents/context.ts]
+import { defineWorkspaceAgent } from '@vitehub/agent/workspace'
+
+export default defineWorkspaceAgent({
+  workspace: 'data-sources',
+  instructions: 'Answer from the workspace sources.',
+  model,
+})
+```

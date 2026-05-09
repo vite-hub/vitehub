@@ -1,0 +1,57 @@
+{
+  "label": "Agent",
+  "docsPath": "agent",
+  "icon": "i-lucide-bot",
+  "order": 5,
+  "defaultPhase": "define",
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/support.agent.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/support.agent.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nitro": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/agents/support.ts",
+            "run": "server/api/support.post.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/agents/support.ts",
+            "run": "server/api/support.post.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}

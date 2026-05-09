@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@vitehub/agent": "workspace:*",
+    "@vitehub/messages": "workspace:*",
+    "h3": "catalog:",
+    "vite": "catalog:"
+  }
+}

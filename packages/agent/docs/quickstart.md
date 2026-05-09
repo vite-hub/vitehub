@@ -1,53 +1,23 @@
 ---
 title: Agent quickstart
-description: Create your first ViteHub agent.
+description: Register Agent and define a first server agent.
 navigation.title: Quickstart
-navigation.order: 2
-icon: i-lucide-rocket
+navigation.order: 1
+icon: i-lucide-zap
 frameworks: [vite, nitro]
 ---
 
-## Install
+This guide creates one discovered agent.
 
-```sh
+::steps
+
+### Install Agent
+
+```bash
 pnpm add @vitehub/agent ai
 ```
 
-## Define an agent
-
-::fw{id="nitro:dev nitro:build"}
-```ts [server/agents/triager.ts]
-import { defineAgent } from '@vitehub/agent'
-
-export default defineAgent({
-  description: 'Triage support requests',
-  model,
-  instructions: 'Classify the request and suggest the next action.',
-})
-```
-::
-
-::fw{id="vite:dev vite:build"}
-```ts [server/agents/triager.ts]
-import { defineAgent } from '@vitehub/agent'
-
-export default defineAgent({
-  description: 'Triage support requests',
-  model,
-  instructions: 'Classify the request and suggest the next action.',
-})
-```
-::
-
-## Register the integration
-
-::fw{id="nitro:dev nitro:build"}
-```ts [nitro.config.ts]
-export default defineNitroConfig({
-  modules: ['@vitehub/agent/nitro'],
-})
-```
-::
+### Register the integration
 
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
@@ -64,43 +34,83 @@ export default defineConfig({
 ```
 ::
 
-Chat resolves discovered agents through the generated internal registry.
-
 ::fw{id="nitro:dev nitro:build"}
-If you also want HTTP endpoints for discovered agents, opt in with `agent.route`:
-
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
   modules: ['@vitehub/agent/nitro'],
-  agent: {
-    route: true,
+})
+```
+::
+
+### Define the agent
+
+::fw{id="vite:dev vite:build"}
+```ts [server/agents/triager.ts]
+import { defineAgent, defineTool } from '@vitehub/agent'
+import { getMessageText } from '@vitehub/messages'
+
+const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+  name: 'classifyTicket',
+  description: 'Classify a support request before queue handoff.',
+  execute: ({ message }) => ({
+    queue: /refund|invoice|payment/i.test(message) ? 'billing' : 'product',
+    priority: /urgent|down|broken/i.test(message) ? 'urgent' : 'normal',
+  }),
+})
+
+export default defineAgent({
+  description: 'Triage support requests and prepare a queue handoff.',
+  async run({ input }) {
+    const latest = input.messages?.at(-1)
+    const message = latest ? getMessageText(latest) : ''
+    const ticket = await classifyTicket.execute?.({ message })
+
+    return {
+      raw: { ticket },
+      text: ticket
+        ? `Queued for ${ticket.queue} with ${ticket.priority} priority.`
+        : 'Unable to classify the support request.',
+    }
   },
 })
 ```
 ::
 
-::fw{id="vite:dev vite:build"}
-If you also want HTTP endpoints for discovered agents, pass `route` to `hubAgent()`:
+::fw{id="nitro:dev nitro:build"}
+```ts [server/agents/triager.ts]
+import { defineAgent, defineTool } from '@vitehub/agent'
+import { getMessageText } from '@vitehub/messages'
 
-```ts [vite.config.ts]
-import { hubAgent } from '@vitehub/agent/vite'
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
+const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+  name: 'classifyTicket',
+  description: 'Classify a support request before queue handoff.',
+  execute: ({ message }) => ({
+    queue: /refund|invoice|payment/i.test(message) ? 'billing' : 'product',
+    priority: /urgent|down|broken/i.test(message) ? 'urgent' : 'normal',
+  }),
+})
 
-export default defineConfig({
-  plugins: [
-    hubAgent({
-      route: true,
-    }),
-    nitro(),
-  ],
+export default defineAgent({
+  description: 'Triage support requests and prepare a queue handoff.',
+  async run({ input }) {
+    const latest = input.messages?.at(-1)
+    const message = latest ? getMessageText(latest) : ''
+    const ticket = await classifyTicket.execute?.({ message })
+
+    return {
+      raw: { ticket },
+      text: ticket
+        ? `Queued for ${ticket.queue} with ${ticket.priority} priority.`
+        : 'Unable to classify the support request.',
+    }
+  },
 })
 ```
 ::
 
-## Call it from Chat
+### Call it from Chat
 
-Pair Agent with `@vitehub/chat` when the bot should hand direct messages to an agent.
+`@vitehub/chat` can route direct messages to a discovered agent by name.
 
 ```ts [server/chat.ts]
 import { defineChat } from '@vitehub/chat'
@@ -113,4 +123,13 @@ export default defineChat({
 })
 ```
 
-Chat handles the message boundary: thread history in, streamed response out. The agent stays focused on model instructions and tools.
+::
+
+## Verify
+
+The agent is available to other ViteHub packages through the generated registry. If you also enable routes, the generated route can call the same discovered agent.
+
+## Next steps
+
+- Use [Usage](./usage) to expose an HTTP route or customize `run`.
+- Use [Runtime API](./runtime-api) for exact option shapes.

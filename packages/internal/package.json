@@ -18,6 +18,7 @@
     "./nitro": "./src/nitro.ts",
     "./object": "./src/object.ts",
     "./runtime/app": "./src/runtime/app.ts",
+    "./runtime/context": "./src/runtime/context.ts",
     "./runtime/cloudflare-hosted": "./src/runtime/cloudflare-hosted.ts",
     "./runtime/hosted": "./src/runtime/hosted.ts",
     "./runtime/vercel-hosted": "./src/runtime/vercel-hosted.ts",

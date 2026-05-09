@@ -1,13 +1,13 @@
 ---
 title: Shell troubleshooting
-description: Fix unsupported commands, path escapes, read-only writes, search flags, and Cloudflare client mismatches.
+description: Fix rejected commands, path escapes, read-only writes, and unsupported search flags.
 navigation.title: Troubleshooting
-navigation.order: 100
+navigation.order: 4
 icon: i-lucide-circle-alert
 frameworks: [vite, nitro]
 ---
 
-Use this page when a Shell runtime returns a non-zero exit code or rejects a command.
+Use this page when `exec()` returns a non-zero exit code or rejects input.
 
 ## Unsupported command
 
@@ -19,7 +19,7 @@ Unsupported workspace shell command: rm
 
 Cause: the command is not included in `allowedCommands` or `commands`.
 
-Fix: add only the command you intend to expose, or choose a safer API for the operation.
+Fix: add only the command you intend to expose.
 
 ```ts
 createShellRuntime({
@@ -38,11 +38,11 @@ Error:
 Unsupported shell syntax: only a single workspace command is supported.
 ```
 
-Cause: `singleCommand: true` rejects separators, pipes, redirects, substitutions, and multiline commands.
+Cause: `singleCommand: true` rejected multiple commands, pipes, redirects, or command substitution.
 
-Fix: run one command at a time. Keep `singleCommand: true` for agent-facing command input.
+Fix: run one command at a time.
 
-## Workspace path escapes the root
+## Path escapes the workspace
 
 Error:
 
@@ -50,21 +50,19 @@ Error:
 [vitehub] Workspace path escapes the workspace root: "../README.md".
 ```
 
-Cause: the command references a path outside `/workspace`.
-
-Fix: pass workspace-relative paths or `/workspace/...` paths only.
+Fix: use workspace-relative paths or `/workspace/...` paths.
 
 ```ts
 await runtime.exec('cat docs/README.md')
 ```
 
-## Workspace filesystem is read-only
+## Filesystem is read-only
 
-Cause: a mutation was attempted through `createReadonlyWorkspaceFs()`.
+Cause: a mutation reached `createReadonlyWorkspaceFs()`.
 
-Fix: use `createWritableWorkspaceFs()` only for workflows that should write files, and keep command allowlists narrow.
+Fix: use `createWritableWorkspaceFs()` only for flows that should write files, and keep command policy explicit.
 
-## Search flag is unsupported
+## Unsupported search flag
 
 Error:
 
@@ -72,18 +70,6 @@ Error:
 [vitehub] Unsupported workspace search flag: --files.
 ```
 
-Cause: `runWorkspaceInspectionCommand()` supports a small `rg` and `grep` subset backed by workspace search.
+Fix: use supported `rg` and `grep` flags, or call the workspace API directly.
 
-Fix: use supported flags such as `-i`, `--ignore-case`, `-n`, `--line-number`, `-e`, or `--regexp`, or call the workspace API directly.
-
-## Cloudflare runtime ignores `cwd` or `env`
-
-Cause: the sandbox client reports whether it supports cwd and env through `supports.execCwd` and `supports.execEnv`.
-
-Fix: inspect `runtime.supports` before relying on those options.
-
-```ts
-if (runtime.supports.cwd) {
-  await runtime.exec('pwd', { cwd: '/workspace' })
-}
-```
+Supported search flags include `-i`, `--ignore-case`, `-n`, `--line-number`, `-e`, and `--regexp`.

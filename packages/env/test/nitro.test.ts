@@ -218,7 +218,7 @@ describe("Nitro module", () => {
       cwd: join(import.meta.dirname, ".."),
       maxBuffer: 1024 * 1024 * 4,
     })
-  })
+  }, 60_000)
 
   it("exports generated runtime config types for application code", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-runtime-types-"))

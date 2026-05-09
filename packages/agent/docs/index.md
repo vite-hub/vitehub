@@ -1,63 +1,114 @@
 ---
 title: Agent
-description: Define Vercel AI SDK agents and choose where they run with ViteHub.
-navigation.title: Agent
-navigation.order: 1
+description: Define model and tool-loop agents for Vite and Nitro apps.
+navigation.title: Overview
+navigation.order: 0
 icon: i-lucide-bot
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/agent` provides ViteHub conventions for model and tool-loop agents. Define portable agents with `defineAgent()`, discover them from Vite or Nitro files, and pick runtime capabilities through config.
+`@vitehub/agent` defines server-side agents. An agent owns model instructions, tools, and the run or stream call that produces a response.
 
-Agent accepts and emits the shared `@vitehub/messages` protocol. The first model adapter is Vercel AI SDK, but ViteHub-owned message and stream types are the public handoff Interface between Chat, Agent, DevTools, persistence, and future AI packages.
+Use Agent when a server feature needs a model loop with ViteHub message input.
 
-::code-group
 ```ts [server/agents/triager.ts]
-import { defineAgent } from '@vitehub/agent'
+import { defineAgent, defineTool } from '@vitehub/agent'
+import { getMessageText } from '@vitehub/messages'
+
+const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+  name: 'classifyTicket',
+  description: 'Classify a support request before queue handoff.',
+  policy: ({ input }) => {
+    const message = typeof input === 'object' && input && 'message' in input
+      ? String(input.message)
+      : ''
+
+    return /refund|invoice|payment/i.test(message) ? 'require-approval' : 'allow'
+  },
+})
 
 export default defineAgent({
-  description: 'Triage incoming chat messages',
-  model,
-  instructions: 'Classify the message and suggest the next action.',
+  description: 'Triage support requests and prepare a queue handoff.',
+  async run({ input }) {
+    const latest = input.messages?.at(-1)
+    const message = latest ? getMessageText(latest) : ''
+
+    return {
+      raw: { tool: classifyTicket.name },
+      text: `Classify and route: ${message}`,
+    }
+  },
 })
 ```
 
-```ts [server/chat.ts]
-import { defineChat } from '@vitehub/chat'
-
-export default defineChat({
-  adapters,
-  agent: 'triager',
-  state,
-  userName: 'Support Bot',
-})
-```
-::
-
-## What Agent Adds
+## What Agent owns
 
 ::card-group
   :::card
   ---
   icon: i-lucide-bot
-  title: Portable agent definitions
+  title: Agent definitions
   ---
-  Keep model instructions and tools in discovered `defineAgent()` files.
+  Keep model instructions, tools, and custom run behavior in `defineAgent()`.
   :::
 
   :::card
   ---
-  icon: i-lucide-message-circle
-  title: Message protocol handoff
+  icon: i-lucide-messages-square
+  title: Message input
   ---
-  Let `@vitehub/chat` call agents with `@vitehub/messages` history and stream replies back to the conversation.
+  Accept `@vitehub/messages` input and convert it to model calls inside Agent.
   :::
 
   :::card
   ---
   icon: i-lucide-route
-  title: Generated routes
+  title: Optional routes
   ---
-  Nitro can expose discovered agents for direct server calls when you opt in with `agent.route`.
+  Expose discovered agents over HTTP only when you enable generated routes.
+  :::
+::
+
+## What Agent does not own
+
+Agent does not own chat webhooks, Chat SDK adapters, workflow runs, or sandbox lifecycle. Use the package that owns each boundary:
+
+| Need | Use |
+| --- | --- |
+| Receive Slack, Discord, Telegram, or Teams events | `@vitehub/chat` |
+| Store or replay conversation state | `@vitehub/messages` |
+| Coordinate durable work | `@vitehub/workflow` |
+| Execute isolated code | `@vitehub/sandbox` |
+
+## Start here
+
+::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Quickstart
+  description: Register Agent and define a first discovered agent.
+  to: ./quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Usage
+  description: Discover agents, expose routes, customize runs, and bind Chat to Agent.
+  to: ./usage
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Runtime API
+  description: Review exports, runtime context, module options, and handler input.
+  to: ./runtime-api
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Troubleshooting
+  description: Fix missing routes, unknown agents, model errors, and duplicate ownership.
+  to: ./troubleshooting
+  ---
   :::
 ::

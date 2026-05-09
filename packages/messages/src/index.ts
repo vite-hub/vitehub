@@ -125,6 +125,10 @@ function normalizePart(part: MessagePart | string, index: number): MessagePart {
   return part
 }
 
+function omitUndefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T
+}
+
 export function createMessage(options: CreateMessageOptions): Message {
   const parts = [
     ...(options.text ? [{ id: "text-0", text: options.text, type: "text" } satisfies TextPart] : []),
@@ -190,8 +194,36 @@ function assertString(value: unknown, field: string): void {
   }
 }
 
+function assertSerializable(value: unknown, field: string): void {
+  if (value === undefined) {
+    throw new TypeError(`[vitehub:messages] ${field} must not be undefined.`)
+  }
+  if (typeof value === "function" || typeof value === "symbol" || typeof value === "bigint") {
+    throw new TypeError(`[vitehub:messages] ${field} must be JSON serializable.`)
+  }
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new TypeError(`[vitehub:messages] ${field} must be a finite number.`)
+  }
+  if (!value || typeof value !== "object") {
+    return
+  }
+  if (value instanceof Date) {
+    throw new TypeError(`[vitehub:messages] ${field} must be serialized before storing.`)
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertSerializable(item, `${field}[${index}]`))
+    return
+  }
+  for (const [key, item] of Object.entries(value)) {
+    assertSerializable(item, `${field}.${key}`)
+  }
+}
+
 export function validateMessage(message: Message): void {
   assertString(message.id, "message.id")
+  assertSerializable(message.id, "message.id")
+  if (message.createdAt !== undefined) assertSerializable(message.createdAt, "message.createdAt")
+  if (message.metadata !== undefined) assertSerializable(message.metadata, "message.metadata")
   if (!["assistant", "system", "tool", "user"].includes(message.role)) {
     throw new TypeError(`[vitehub:messages] Unsupported message role: ${String(message.role)}.`)
   }
@@ -200,7 +232,8 @@ export function validateMessage(message: Message): void {
   }
 
   const openToolCalls = new Map<string, ToolCallPart | ApprovalRequestPart>()
-  for (const part of message.parts) {
+  for (const [index, part] of message.parts.entries()) {
+    assertSerializable(part, `message.parts[${index}]`)
     switch (part.type) {
       case "text":
         if (typeof part.text !== "string") throw new TypeError("[vitehub:messages] text part requires text.")
@@ -224,6 +257,8 @@ export function validateMessage(message: Message): void {
         openToolCalls.delete(part.id)
         break
       case "data":
+        if (!("data" in part)) throw new TypeError("[vitehub:messages] data part requires data.")
+        break
       case "source":
       case "error":
         break
@@ -258,28 +293,28 @@ export function applyStreamEvent(messages: Message[], event: StreamEvent): Messa
       last.text += event.text
     }
     else {
-      message.parts.push({ id: event.id, text: event.text, type: "text" })
+      message.parts.push(omitUndefined({ id: event.id, text: event.text, type: "text" }) as TextPart)
     }
   }
   else if (event.type === "data") {
-    message.parts.push({ data: event.data, id: event.id, type: "data" })
+    message.parts.push({ ...omitUndefined({ id: event.id, type: "data" }), data: event.data } as DataPart)
   }
   else if (event.type === "tool-input-start") {
-    message.parts.push({ id: event.id, input: event.input, name: event.name, state: "running", type: "tool-call" })
+    message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, state: "running", type: "tool-call" }) as ToolCallPart)
   }
   else if (event.type === "tool-call") {
     const existing = message.parts.find((part): part is ToolCallPart => part.type === "tool-call" && part.id === event.id)
-    if (existing) existing.input = event.input
-    else message.parts.push({ id: event.id, input: event.input, name: event.name, state: "proposed", type: "tool-call" })
+    if (existing && event.input !== undefined) existing.input = event.input
+    else if (!existing) message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, state: "proposed", type: "tool-call" }) as ToolCallPart)
   }
   else if (event.type === "tool-result") {
-    message.parts.push({ error: event.error, id: event.id, name: event.name, output: event.output, state: event.error ? "failed" : "completed", type: "tool-result" })
+    message.parts.push(omitUndefined({ error: event.error, id: event.id, name: event.name, output: event.output, state: event.error ? "failed" : "completed", type: "tool-result" }) as ToolResultPart)
   }
   else if (event.type === "approval-request") {
-    message.parts.push({ id: event.id, input: event.input, name: event.name, reason: event.reason, type: "approval-request" })
+    message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, reason: event.reason, type: "approval-request" }) as ApprovalRequestPart)
   }
   else if (event.type === "error") {
-    message.parts.push({ error: event.error, id: event.id, recoverable: event.recoverable, type: "error" })
+    message.parts.push(omitUndefined({ error: event.error, id: event.id, recoverable: event.recoverable, type: "error" }) as ErrorPart)
   }
 
   validateMessage(message)

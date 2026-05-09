@@ -5,6 +5,15 @@ import type {
   AgentRuntimeName,
 } from "@vitehub/agent"
 import type {
+  MaybePromise,
+  MaybeResolvable,
+  Resolvable,
+  RuntimeCapabilities,
+  RuntimeCapabilityHandle,
+  RuntimeHostContext,
+  RuntimeWaitUntil,
+} from "@vitehub/internal/runtime/context"
+import type {
   ActionEvent,
   Adapter,
   Chat,
@@ -25,43 +34,27 @@ import type {
   Thread,
 } from "chat"
 
-export type MaybePromise<T> = T | Promise<T>
+export type {
+  MaybePromise,
+  MaybeResolvable,
+  Resolvable,
+}
 export type ChatRuntimeName = "nitro" | "cloudflare" | "vercel" | "unknown"
-export type ChatWaitUntil = (task: Promise<unknown>) => void
+export type ChatWaitUntil = RuntimeWaitUntil
 export type ChatWebhookProcessingMode = "defer" | "inline"
+export type ChatCapabilityHandle<TKind extends string = string, TValue = unknown> = RuntimeCapabilityHandle<TKind, TValue>
+export type ChatCapabilities = RuntimeCapabilities
 
 export interface ChatRuntimeConfig {}
 
-export interface ChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
-  cloudflare?: {
-    context?: unknown
-    durableObjectStateName?: string
-    env?: Record<string, unknown>
-  }
+export interface ChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig>
+  extends Omit<RuntimeHostContext<TRuntimeConfig>, "runtime"> {
   dev?: boolean
-  event?: unknown
-  memo<T>(key: string, create: () => T): T
-  platform?: string
-  request?: Request
   runtime: ChatRuntimeName
-  runtimeConfig?: TRuntimeConfig
-  vercel?: {
-    waitUntil?: ChatWaitUntil
-  }
-  waitUntil: ChatWaitUntil
 }
 
 export type ResolvedChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
   ChatRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
-
-export interface Resolvable<T, TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> {
-  resolve(context: TContext): MaybePromise<T>
-}
-
-export type MaybeResolvable<T, TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> =
-  | T
-  | Resolvable<T, TContext>
-  | ((context: TContext) => MaybePromise<T>)
 
 export type AdapterInput<TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> =
   | MaybeResolvable<Record<string, Adapter>, TContext>
