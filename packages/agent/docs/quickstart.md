@@ -62,20 +62,20 @@ export default defineConfig({
 Chat resolves discovered agents through the generated internal registry.
 
 ::fw{id="nitro:dev nitro:build"}
-If you also want an HTTP endpoint, opt in with `agent.route`:
+If you also want HTTP endpoints for discovered agents, opt in with `agent.route`:
 
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
   modules: ['@vitehub/agent/nitro'],
   agent: {
-    route: '/agents/[agent]',
+    route: true,
   },
 })
 ```
 ::
 
 ::fw{id="vite:dev vite:build"}
-If you also want an HTTP endpoint, pass `route` to `hubAgent()`:
+If you also want HTTP endpoints for discovered agents, pass `route` to `hubAgent()`:
 
 ```ts [vite.config.ts]
 import { hubAgent } from '@vitehub/agent/vite'
@@ -83,7 +83,7 @@ import { hubAgent } from '@vitehub/agent/vite'
 export default defineConfig({
   plugins: [
     hubAgent({
-      route: '/agents/[agent]',
+      route: true,
     }),
   ],
 })

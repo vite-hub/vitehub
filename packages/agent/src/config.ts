@@ -1,5 +1,7 @@
 import type { AgentModuleOptions, ResolvedAgentModuleOptions } from "./types.ts"
 
+const defaultAgentRoute = "/agents/[agent]"
+
 export function normalizeAgentOptions(options: AgentModuleOptions | false | undefined): false | ResolvedAgentModuleOptions {
   if (options === false) {
     return false
@@ -26,7 +28,7 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
         provider: options?.providers?.state?.provider || "auto",
       },
     },
-    route: options?.route ?? false,
+    route: options?.route === true ? defaultAgentRoute : options?.route ?? false,
     runtime: options?.runtime || "auto",
   }
 }

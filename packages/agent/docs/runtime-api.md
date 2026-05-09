@@ -36,7 +36,7 @@ type AgentRuntime = 'auto' | 'nitro' | 'vercel' | 'cloudflare-agents'
 type AgentExecution = 'inline' | 'workflow' | 'sandbox'
 
 interface AgentModuleOptions {
-  route?: string | false
+  route?: boolean | string
   runtime?: AgentRuntime
   execution?: AgentExecution
   imports?: boolean
@@ -53,4 +53,4 @@ interface AgentModuleOptions {
 }
 ```
 
-Generated HTTP routes are disabled by default. Set `route` to a path such as `/agents/[agent]` to expose discovered agents over HTTP.
+Generated HTTP routes are disabled by default. Set `route: true` to expose discovered agents at `/agents/[agent]`, or pass a custom route string.

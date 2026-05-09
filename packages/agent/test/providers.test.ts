@@ -21,12 +21,12 @@ describe("agent Vite plugin", () => {
 
   it("exposes hubAgent options through Vite config", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ route: "/agents/[agent]" })
+    const plugin = hubAgent({ route: true })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
-    expect(result).toEqual({ agent: { route: "/agents/[agent]" } })
+    expect(result).toEqual({ agent: { route: true } })
   })
 })
 

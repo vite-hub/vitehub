@@ -155,7 +155,7 @@ export interface AgentModuleOptions {
   imports?: boolean
   integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
-  route?: false | string
+  route?: boolean | string
   runtime?: AgentRuntime
 }
 

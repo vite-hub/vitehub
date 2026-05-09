@@ -35,4 +35,10 @@ describe("agent config", () => {
       runtime: "cloudflare-agents",
     })
   })
+
+  it("uses the default route when route is true", () => {
+    expect(normalizeAgentOptions({ route: true })).toMatchObject({
+      route: "/agents/[agent]",
+    })
+  })
 })

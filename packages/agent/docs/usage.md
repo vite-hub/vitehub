@@ -44,7 +44,7 @@ Keep agents internal by default. Chat can still resolve discovered agents throug
 export default defineNitroConfig({
   modules: ['@vitehub/agent/nitro'],
   agent: {
-    route: '/agents/[agent]',
+    route: true,
   },
 })
 ```
@@ -57,14 +57,14 @@ import { hubAgent } from '@vitehub/agent/vite'
 export default defineConfig({
   plugins: [
     hubAgent({
-      route: '/agents/[agent]',
+      route: true,
     }),
   ],
 })
 ```
 ::
 
-Only set `route` when agents should be externally callable.
+Only set `route` when agents should be externally callable. Use a custom route string when `/agents/[agent]` does not fit your app.
 
 ## Custom run behavior
 
