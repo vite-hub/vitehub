@@ -80,6 +80,7 @@ ignoreDependencies = [
   "docus",
   "@cloudflare/sandbox",
   "@vercel/blob",
+  "@vercel/queue",
   "@vercel/sandbox",
   "async-retry",
   "esbuild",
