@@ -90,6 +90,43 @@ export default defineChat({
 
 Chat owns the chat-specific work: gathering thread history, converting messages, and posting the streamed response. Agent definitions stay portable and do not import Chat.
 
+## Answer from a Workspace
+
+Use `@vitehub/agent/workspace` when an agent should read a ViteHub Workspace and answer from those sources. The helper wires the Workspace tools into an AI SDK `ToolLoopAgent`, reads an optional instructions file, and returns a final answer that Chat can post.
+
+```ts [server/agents/context.ts]
+import { createVertex } from '@ai-sdk/google-vertex/edge'
+import { defineWorkspaceAgent } from '@vitehub/agent/workspace'
+import { useSafeRuntimeConfig } from '#vitehub/env/server'
+
+type RuntimeConfig = ReturnType<typeof useSafeRuntimeConfig>
+
+export default defineWorkspaceAgent<RuntimeConfig>({
+  description: 'Answer with workspace context.',
+  workspace: 'data-sources',
+  instructions: 'Use the workspace sources. Say what is missing when the sources do not answer.',
+  instructionsFile: 'AGENTS.md',
+  model: ({ runtimeConfig }) => {
+    const vertex = createVertex({ apiKey: runtimeConfig.vertex.apiKey })
+    return vertex(runtimeConfig.vertex.model)
+  },
+  stepLimit: 60,
+})
+```
+
+Pair it with the Chat agent binding:
+
+```ts [server/chat.ts]
+export default defineChat({
+  adapters,
+  agent: {
+    name: 'context',
+    history: { source: 'thread', maxMessages: 20 },
+  },
+  state,
+})
+```
+
 ## Cloudflare Agents
 
 Cloudflare Agents are runtime primitives for state, scheduling, Durable Objects, and native agent routing. Use `@vitehub/agent/cloudflare` when you want to delegate to Cloudflare's native `routeAgentRequest()` path.

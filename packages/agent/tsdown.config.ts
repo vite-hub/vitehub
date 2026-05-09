@@ -16,6 +16,7 @@ export default defineConfig({
     "src/runtime/nitro-runtime-config.ts",
     "src/vercel.ts",
     "src/vite.ts",
+    "src/workspace.ts",
   ],
   exports: {
     inlinedDependencies: false,
