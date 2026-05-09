@@ -33,6 +33,9 @@ catalogs:
     '@vercel/functions':
       specifier: ^3.4.3
       version: 3.4.3
+    '@vercel/queue':
+      specifier: ^0.0.0-alpha.23
+      version: 0.0.0-alpha.40
     '@vercel/sandbox':
       specifier: ^1.10.0
       version: 1.10.0
@@ -1131,6 +1134,9 @@ importers:
       '@vercel/blob':
         specifier: 'catalog:'
         version: 2.3.3
+      '@vercel/queue':
+        specifier: 'catalog:'
+        version: 0.0.0-alpha.40
       '@vercel/sandbox':
         specifier: 'catalog:'
         version: 1.10.0
@@ -1185,6 +1191,9 @@ importers:
       '@cloudflare/sandbox':
         specifier: 'catalog:'
         version: 0.8.11
+      '@vercel/queue':
+        specifier: 'catalog:'
+        version: 0.0.0-alpha.40
       '@vercel/sandbox':
         specifier: 'catalog:'
         version: 1.10.0

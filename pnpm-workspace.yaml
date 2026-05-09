@@ -17,6 +17,7 @@ catalog:
   '@valibot/to-json-schema': ^1.6.0
   '@vercel/blob': ^2.3.3
   '@vercel/functions': ^3.4.3
+  '@vercel/queue': ^0.0.0-alpha.23
   '@vercel/sandbox': ^1.10.0
   '@vitejs/devtools': https://pkg.pr.new/vitejs/devtools/@vitejs/devtools@307
   '@vitejs/devtools-kit': https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307
