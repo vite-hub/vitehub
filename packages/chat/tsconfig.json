@@ -3,11 +3,13 @@
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
     "paths": {
+      "#vitehub/agent/registry": ["../agent/src/runtime/empty-registry.ts"],
+      "@vitehub/agent": ["../agent/src/index.ts"],
       "@vitehub/chat": ["./src/index.ts"],
       "@vitehub/chat/cloudflare": ["./src/cloudflare.ts"],
       "@vitehub/chat/runtime/nitro-dev-initialize": ["./src/runtime/nitro-dev-initialize.ts"]
     },
-    "rootDir": "."
+    "rootDir": ".."
   },
   "include": [
     "src/**/*.ts",
