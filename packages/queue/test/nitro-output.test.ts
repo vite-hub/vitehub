@@ -102,6 +102,7 @@ describe("Nitro provider outputs", () => {
     expect(existsSync(vercelConsumer)).toBe(true)
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).not.toContain("runWithQueueRuntimeEvent({ req, res },")
+    expect(vercelConsumerContents).toContain("__vitehubVercelQueue")
     await assertNoNitroInternalVirtualImports(vercelBuild.outputDir)
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Swelcome_Dfunc",

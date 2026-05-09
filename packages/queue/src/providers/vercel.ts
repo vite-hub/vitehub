@@ -53,14 +53,19 @@ function resolveVercelRegion(explicitRegion: string | undefined) {
 async function loadVercelQueueClient(region: string | undefined): Promise<VercelQueueSDK> {
   let module: Record<string, unknown>
   try {
-    const importVercelQueue = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<Record<string, unknown>>
-    const specifier = "@vercel/queue"
-    try {
-      module = await importVercelQueue(specifier)
-    }
-    catch (error) {
-      if (!(error instanceof TypeError) || !/dynamic import callback/i.test(error.message)) throw error
-      module = await import(specifier) as Record<string, unknown>
+    const loaded = (globalThis as Record<string, unknown>).__vitehubVercelQueue
+    if (loaded && typeof loaded === "object") {
+      module = loaded as Record<string, unknown>
+    } else {
+      const importVercelQueue = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<Record<string, unknown>>
+      const specifier = "@vercel/queue"
+      try {
+        module = await importVercelQueue(specifier)
+      }
+      catch (error) {
+        if (!(error instanceof TypeError) || !/dynamic import callback/i.test(error.message)) throw error
+        module = await import(specifier) as Record<string, unknown>
+      }
     }
   }
   catch (error) {

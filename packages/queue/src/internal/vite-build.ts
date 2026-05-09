@@ -75,6 +75,9 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
     `import queueRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
   ]
+  if (spec.name === "vercel") {
+    imports.unshift("import * as __vitehubVercelQueue from '@vercel/queue'")
+  }
   if (userAppEntry) {
     imports.push(`import queueApp from ${JSON.stringify(createImportPath(entryFile, userAppEntry))}`)
   }
@@ -82,6 +85,7 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
   return [
     ...imports,
     "",
+    spec.name === "vercel" ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
     "",
     `export default ${spec.factory}({`,
@@ -191,11 +195,14 @@ function sanitizeVercelConsumerName(functionPath: string) {
 
 function createVercelQueueWrapperContents(file: string, registryFile: string, name: string, queueConfig: false | ReturnType<typeof normalizeQueueOptions>) {
   return [
+    "import * as __vitehubVercelQueue from '@vercel/queue'",
     "import { H3 } from 'h3'",
     "import { toNodeHandler } from 'h3/node'",
     `import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    "",
+    "globalThis.__vitehubVercelQueue = __vitehubVercelQueue",
     "",
     `setQueueRuntimeConfig(${JSON.stringify(queueConfig, null, 2)})`,
     "setQueueRuntimeRegistry(queueRegistry)",
