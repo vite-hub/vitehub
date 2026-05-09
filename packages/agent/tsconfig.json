@@ -2,9 +2,21 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "paths": {
       "#vitehub/agent/registry": ["./src/runtime/empty-registry.ts"],
-      "@vitehub/workspace": ["../workspace/src/index.ts"]
+      "#vitehub-sandbox-provider-loader": ["../sandbox/src/runtime/provider-loader.ts"],
+      "#vitehub-sandbox-registry": ["../sandbox/src/runtime/empty-registry.ts"],
+      "#vitehub-workspace-assets-registry": ["../workspace/src/runtime/empty-assets-registry.ts"],
+      "#vitehub-workspace-registry": ["../workspace/src/runtime/empty-registry.ts"],
+      "@vitehub/sandbox": ["../sandbox/src/index.ts"],
+      "@vitehub/sandbox/runtime/state": ["../sandbox/src/runtime/state.ts"],
+      "@vitehub/unsource": ["../unsource/src/index.ts"],
+      "@vitehub/unshell": ["../unshell/src/index.ts"],
+      "@vitehub/workspace": ["../workspace/src/index.ts"],
+      "virtual:vitehub-sandbox-provider-loader": ["../sandbox/src/runtime/provider-loader.ts"],
+      "virtual:vitehub-sandbox-registry": ["../sandbox/src/runtime/empty-registry.ts"]
     },
     "rootDir": ".."
   },
