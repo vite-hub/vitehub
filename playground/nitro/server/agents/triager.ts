@@ -3,7 +3,6 @@ import { defineAgent } from "@vitehub/agent"
 export default defineAgent({
   description: "Triage playground chat messages",
   instructions: "Summarize the incoming chat context and suggest the next action.",
-  model: "playground/echo",
   async run({ input }) {
     const latest = input.messages?.at(-1)
     const content = typeof latest?.content === "string"

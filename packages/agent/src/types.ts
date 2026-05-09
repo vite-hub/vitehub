@@ -60,21 +60,15 @@ export interface AgentRunInput<CALL_OPTIONS = never, TOOLS extends ToolSet = Too
   timeout?: AgentCallParameters<CALL_OPTIONS, TOOLS>["timeout"]
 }
 
-export type AgentRunParameters<CALL_OPTIONS = never, TOOLS extends ToolSet = ToolSet> =
-  AgentCallParameters<CALL_OPTIONS, TOOLS>
-
-export type AgentStreamParametersInput<CALL_OPTIONS = never, TOOLS extends ToolSet = ToolSet> =
-  AgentStreamParameters<CALL_OPTIONS, TOOLS>
-
 export interface AgentRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = never,
   TOOLS extends ToolSet = ToolSet,
 > extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
   createAgent: () => Promise<Agent<CALL_OPTIONS, TOOLS>>
-  generateText: (options: AgentRunParameters<CALL_OPTIONS, TOOLS>) => PromiseLike<GenerateTextResult<TOOLS, never>>
+  generateText: (options: AgentCallParameters<CALL_OPTIONS, TOOLS>) => PromiseLike<GenerateTextResult<TOOLS, never>>
   input: AgentRunInput<CALL_OPTIONS, TOOLS>
-  streamText: (options: AgentStreamParametersInput<CALL_OPTIONS, TOOLS>) => PromiseLike<StreamTextResult<TOOLS, never>>
+  streamText: (options: AgentStreamParameters<CALL_OPTIONS, TOOLS>) => PromiseLike<StreamTextResult<TOOLS, never>>
 }
 
 export type AgentRunHandler<
@@ -88,18 +82,31 @@ export type AgentToolResolver<
   TOOLS extends ToolSet = ToolSet,
 > = MaybeResolvable<TOOLS, ResolvedAgentRuntimeContext<TRuntimeConfig>>
 
-export type AgentModelInput = LanguageModel | (string & {})
+export type AgentModelInput = LanguageModel
 
-export type AgentSettings<
+type AgentSettingsBase<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = never,
   TOOLS extends ToolSet = ToolSet,
 > = Omit<ToolLoopAgentSettings<CALL_OPTIONS, TOOLS>, "model" | "tools"> & {
   description?: string
-  model: AgentModelInput
-  run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TOOLS>
   tools?: AgentToolResolver<TRuntimeConfig, TOOLS>
 }
+
+export type AgentSettings<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = never,
+  TOOLS extends ToolSet = ToolSet,
+> = AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS, TOOLS> & (
+  | {
+    model: AgentModelInput
+    run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TOOLS>
+  }
+  | {
+    model?: AgentModelInput
+    run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TOOLS>
+  }
+)
 
 export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

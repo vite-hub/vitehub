@@ -9,12 +9,13 @@ frameworks: [vite, nitro]
 
 ## Discovery
 
-Vite and Nitro use separate discovery rules.
+Agents are discovered from Nitro server files.
 
 ::fw{id="vite:dev vite:build"}
 ```txt
-src/triager.agent.ts
-src/support/reviewer.agent.ts
+server/agents.ts
+server/agents/triager.ts
+server/agents/support/reviewer.ts
 ```
 ::
 
@@ -53,12 +54,15 @@ export default defineNitroConfig({
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
 import { hubAgent } from '@vitehub/agent/vite'
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
     hubAgent({
       route: true,
     }),
+    nitro(),
   ],
 })
 ```

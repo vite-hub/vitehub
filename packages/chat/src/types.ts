@@ -213,8 +213,9 @@ export interface ChatAgentAfterRunArgs<
 export interface ChatAgentErrorArgs<
   TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
-> extends ChatAgentBeforeRunArgs<TRuntimeConfig, TWorkflow> {
+> extends ChatAgentHookArgs<TRuntimeConfig, TWorkflow> {
   error: unknown
+  input?: AgentRunInput
 }
 
 export interface ChatAgentHooks<

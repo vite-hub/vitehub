@@ -143,6 +143,10 @@ export function defineAgent<
     description,
     run,
     async resolve(context) {
+      if (!("model" in settings) || !settings.model) {
+        throw new Error("[vitehub] Agent model is required unless the agent defines a custom run() handler.")
+      }
+
       const resolvedContext = createResolvedRuntimeContext(context)
       const resolvedTools = tools
         ? await resolveValue(tools, resolvedContext)

@@ -200,7 +200,7 @@ export default defineAgent({
 ::
 
 ::fw{id="vite:dev vite:build"}
-```ts [src/triager.agent.ts]
+```ts [server/agents/triager.ts]
 import { defineAgent } from '@vitehub/agent'
 
 export default defineAgent({

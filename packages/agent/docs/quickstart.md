@@ -28,7 +28,7 @@ export default defineAgent({
 ::
 
 ::fw{id="vite:dev vite:build"}
-```ts [src/triager.agent.ts]
+```ts [server/agents/triager.ts]
 import { defineAgent } from '@vitehub/agent'
 
 export default defineAgent({
@@ -52,9 +52,14 @@ export default defineNitroConfig({
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
 import { hubAgent } from '@vitehub/agent/vite'
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubAgent()],
+  plugins: [
+    hubAgent(),
+    nitro(),
+  ],
 })
 ```
 ::
@@ -79,12 +84,15 @@ If you also want HTTP endpoints for discovered agents, pass `route` to `hubAgent
 
 ```ts [vite.config.ts]
 import { hubAgent } from '@vitehub/agent/vite'
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
     hubAgent({
       route: true,
     }),
+    nitro(),
   ],
 })
 ```

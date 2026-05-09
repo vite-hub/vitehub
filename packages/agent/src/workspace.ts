@@ -155,7 +155,6 @@ export function defineWorkspaceAgent<TRuntimeConfig extends AgentRuntimeConfig =
 ): AgentDefinition<TRuntimeConfig, never, ToolSet> {
   return defineAgent<TRuntimeConfig, never, ToolSet>({
     description: options.description,
-    model: "vitehub/workspace",
     async run(context) {
       const workspace = useWorkspace(options.workspace)
       const model = await resolveModel(options.model, context)

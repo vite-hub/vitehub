@@ -9,7 +9,7 @@ frameworks: [vite, nitro]
 
 ## No generated Nitro route
 
-Confirm that a Nitro agent exists under `server/agents.ts` or `server/agents/**`. The `*.agent.ts` suffix is Vite-only.
+Confirm that an agent exists under `server/agents.ts` or `server/agents/**` and that the Agent Nitro module is registered. Vite apps should register `hubAgent()` next to `nitro()` so the same server discovery runs.
 
 ## Unknown agent
 

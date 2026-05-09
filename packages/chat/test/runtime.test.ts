@@ -316,6 +316,31 @@ describe("defineChat", () => {
     expect(errorHook).toHaveBeenCalledWith(expect.objectContaining({ error }))
   })
 
+  it("lets agent error hooks handle input preparation failures", async () => {
+    const error = new Error("prepare failed")
+    const errorHook = vi.fn()
+    const prepareInput = vi.fn(() => {
+      throw error
+    })
+    mockAgentPackage()
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: {
+        hooks: { error: errorHook, prepareInput },
+        name: "triager",
+      },
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext() as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await expect(handler?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)).resolves.toBeUndefined()
+    expect(errorHook).toHaveBeenCalledWith(expect.objectContaining({ error, input: undefined }))
+  })
+
   it("rejects duplicate direct message and agent bindings", async () => {
     mockAgentPackage()
     const { defineChat, resolveChat } = await import("../src/index.ts")

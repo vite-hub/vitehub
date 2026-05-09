@@ -297,11 +297,11 @@ function createAgentDirectMessageHook<
       workflow,
     } satisfies ChatAgentHookArgs<TRuntimeConfig, TWorkflow>
 
-    let input = binding.hooks?.prepareInput
-      ? await binding.hooks.prepareInput(baseArgs)
-      : createDefaultAgentInput(baseArgs, runtimeContext.platform)
-
+    let input: AgentRunInput | undefined
     try {
+      input = binding.hooks?.prepareInput
+        ? await binding.hooks.prepareInput(baseArgs)
+        : createDefaultAgentInput(baseArgs, runtimeContext.platform)
       input = await binding.hooks?.beforeRun?.({ ...baseArgs, input }) || input
       const agentContext = createAgentRuntimeContext(runtimeContext)
       const agent = await getAgentFromRegistry(binding.name, agentContext)
