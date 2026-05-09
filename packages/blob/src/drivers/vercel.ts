@@ -46,10 +46,13 @@ function getAccessFromUrl(url: string | undefined): "private" | "public" | undef
 }
 
 function shouldRetryPrivate(error: unknown): boolean {
-  return error instanceof Error && /private store|public access/i.test(error.message)
+  return error instanceof Error && (error.name === "HTTPError" || /private store|public access/i.test(error.message))
 }
 
 async function loadVercelBlob() {
+  const preloaded = (globalThis as typeof globalThis & { __vitehubVercelBlob?: typeof import("@vercel/blob") }).__vitehubVercelBlob
+  if (preloaded) return preloaded
+
   const importVercelBlob = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<typeof import("@vercel/blob")>
   const specifier = "@vercel/blob"
   try {

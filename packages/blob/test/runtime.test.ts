@@ -193,6 +193,39 @@ describe("blob runtime", () => {
     }))
   })
 
+  it("retries Vercel Blob writes as private when public access is rejected", async () => {
+    const error = new Error("HTTPError")
+    error.name = "HTTPError"
+    vercelBlobMock.put
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce({
+        contentType: "text/plain",
+        pathname: "notes/private.txt",
+        size: 5,
+        uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+        url: "https://blob.example/notes/private.txt",
+      })
+
+    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    setBlobRuntimeConfig({
+      store: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "********",
+      },
+    })
+
+    await expect(blob.put("notes/private.txt", "hello")).resolves.toMatchObject({
+      pathname: "notes/private.txt",
+    })
+    expect(vercelBlobMock.put).toHaveBeenNthCalledWith(1, "notes/private.txt", "hello", expect.objectContaining({
+      access: "public",
+    }))
+    expect(vercelBlobMock.put).toHaveBeenNthCalledWith(2, "notes/private.txt", "hello", expect.objectContaining({
+      access: "private",
+    }))
+  })
+
   it("uses the active Cloudflare binding", async () => {
     setBlobRuntimeConfig({
       store: {
