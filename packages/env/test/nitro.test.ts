@@ -131,6 +131,8 @@ describe("Nitro module", () => {
     expect(integrationTypes).toContain("export interface NitroRuntimeConfig")
     expect(integrationTypes).toContain("declare module \"@vitehub/chat\"")
     expect(integrationTypes).toContain("export interface ChatRuntimeConfig")
+    expect(integrationTypes).toContain("declare module \"@vitehub/agent\"")
+    expect(integrationTypes).toContain("export interface AgentRuntimeConfig")
     expect(types).toContain("\"botToken\": string")
     expect(integrationTypes).toContain("\"botToken\": string")
     expect(integrationTypes).not.toContain("NitroChatRuntimeConfig")
@@ -150,7 +152,7 @@ describe("Nitro module", () => {
     expect(registry).not.toContain("telegram-secret")
   })
 
-  it("types defineChat runtime config from generated env declarations", async () => {
+  it("types defineChat and defineWorkspaceAgent runtime config from generated env declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-chat-types-"))
     const nitro: NitroStub = {
       hooks: { hook: vi.fn() },
@@ -176,6 +178,7 @@ describe("Nitro module", () => {
 
     await writeFile(join(root, "typecheck.ts"), [
       "import { defineChat } from '@vitehub/chat'",
+      "import { defineWorkspaceAgent } from '@vitehub/agent/workspace'",
       "",
       "defineChat({",
       "  adapters({ runtimeConfig }) {",
@@ -190,6 +193,17 @@ describe("Nitro module", () => {
       "  state: {} as never,",
       "})",
       "",
+      "defineWorkspaceAgent({",
+      "  workspace: 'docs',",
+      "  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),",
+      "  model({ runtimeConfig }) {",
+      "    const model: string = runtimeConfig.vertex.model",
+      "    const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",
+      "    void apiUrl",
+      "    return model as never",
+      "  },",
+      "})",
+      "",
     ].join("\n"), "utf8")
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({
       compilerOptions: {
@@ -198,7 +212,10 @@ describe("Nitro module", () => {
         baseUrl: root,
         ignoreDeprecations: "6.0",
         paths: {
+          "@vitehub/agent": [join(import.meta.dirname, "../../agent/src/index.ts")],
+          "@vitehub/agent/workspace": [join(import.meta.dirname, "../../agent/src/workspace.ts")],
           "@vitehub/chat": [join(import.meta.dirname, "../../chat/src/index.ts")],
+          "@vitehub/workspace": [join(import.meta.dirname, "../../workspace/src/index.ts")],
         },
         module: "NodeNext",
         moduleResolution: "NodeNext",

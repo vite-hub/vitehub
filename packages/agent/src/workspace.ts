@@ -15,6 +15,7 @@ import type {
 } from "./types.ts"
 import type {
   ReadonlyWorkspaceFacade,
+  ReadonlyWorkspaceFs,
   WorkspaceFacadeToolOptions,
   WorkspaceName,
 } from "@vitehub/workspace"
@@ -26,20 +27,41 @@ type WorkspaceModel<TRuntimeConfig extends AgentRuntimeConfig> =
   | ToolLoopAgentSettings["model"]
   | ((context: WorkspaceRuntimeContext<TRuntimeConfig>) => MaybePromise<ToolLoopAgentSettings["model"]>)
 
+export type WorkspaceAgentInstructionsInput = string | string[]
+
+export interface WorkspaceAgentInstructionsContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends WorkspaceRuntimeContext<TRuntimeConfig> {
+  fs: ReadonlyWorkspaceFs<Name>
+  workspace: ReadonlyWorkspaceFacade<Name>
+}
+
+export type WorkspaceAgentInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | WorkspaceAgentInstructionsInput
+  | ((context: WorkspaceAgentInstructionsContext<TRuntimeConfig, Name>) => MaybePromise<WorkspaceAgentInstructionsInput>)
+
 export interface WorkspaceAgentFallbackOptions {
   enabled?: boolean
   maxToolResults?: number
 }
 
-export interface WorkspaceAgentOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+export interface WorkspaceAgentOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> {
   description?: string
   fallback?: boolean | WorkspaceAgentFallbackOptions
-  instructions?: string
+  instructions?: WorkspaceAgentInstructions<TRuntimeConfig, Name>
+  /** @deprecated Use instructions: ({ fs }) => fs.readFile("AGENTS.md") instead. */
   instructionsFile?: boolean | string
   model: WorkspaceModel<TRuntimeConfig>
   stepLimit?: number
   toolOptions?: WorkspaceFacadeToolOptions
-  workspace: WorkspaceName
+  workspace: Name
 }
 
 function isModelResolver<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -87,11 +109,31 @@ async function readInstructionsFile(
   }
 }
 
-function joinInstructions(...parts: Array<string | undefined>) {
+function joinInstructions(...parts: Array<WorkspaceAgentInstructionsInput | undefined>) {
   return parts
+    .flatMap(part => Array.isArray(part) ? part : [part])
     .map(part => part?.trim())
     .filter(Boolean)
     .join("\n\n")
+}
+
+async function resolveInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  workspace: ReadonlyWorkspaceFacade<Name>,
+  context: WorkspaceRuntimeContext<TRuntimeConfig>,
+) {
+  const instructions = typeof options.instructions === "function"
+    ? await options.instructions({
+        ...context,
+        fs: workspace.fs,
+        workspace,
+      })
+    : options.instructions
+  const instructionsFromFile = await readInstructionsFile(workspace, options.instructionsFile)
+  return joinInstructions(instructions, instructionsFromFile)
 }
 
 function getFallbackOptions(fallback: WorkspaceAgentOptions["fallback"]): Required<WorkspaceAgentFallbackOptions> {
@@ -144,16 +186,18 @@ async function synthesizeFallback<TRuntimeConfig extends AgentRuntimeConfig>(
   return summary.text.trim() || undefined
 }
 
-export function defineWorkspaceAgent<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: WorkspaceAgentOptions<TRuntimeConfig>,
+export function defineWorkspaceAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): AgentDefinition<TRuntimeConfig, never, ToolSet> {
   return defineAgent<TRuntimeConfig, never, ToolSet>({
     description: options.description,
     async run(context) {
       const workspace = useWorkspace(options.workspace)
       const model = await resolveModel(options.model, context)
-      const instructionsFromFile = await readInstructionsFile(workspace, options.instructionsFile)
-      const instructions = joinInstructions(options.instructions, instructionsFromFile)
+      const instructions = await resolveInstructions(options, workspace, context)
       const agent = new ToolLoopAgent({
         instructions,
         model,

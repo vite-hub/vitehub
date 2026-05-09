@@ -1,4 +1,5 @@
 import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import { useRuntimeConfig } from "nitro/runtime-config"
 
 import type { EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvRuntimeSchema, SafeRuntimeConfig } from "../types.ts"
 
@@ -9,13 +10,22 @@ export function setEnvRegistry(nextRegistry: EnvRuntimeRegistry): void {
 }
 
 export function useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig {
-  return resolveRuntimeValues(registry, resolveRuntimeEnv(event))
+  return applyEnvRegistryToRuntimeConfig(resolveNitroRuntimeConfig(event), event)
 }
 
 export function applyEnvRegistryToRuntimeConfig(runtimeConfig: Record<string, unknown>, event?: unknown): SafeRuntimeConfig {
-  const values = useSafeRuntimeConfig(event)
+  const values = resolveRuntimeValues(registry, resolveRuntimeEnv(event))
   assignRuntimeValues(runtimeConfig, values)
   return runtimeConfig
+}
+
+function resolveNitroRuntimeConfig(event?: unknown): Record<string, unknown> {
+  try {
+    return (useRuntimeConfig as unknown as (event?: unknown) => Record<string, unknown>)(event)
+  }
+  catch {
+    return {}
+  }
 }
 
 function resolveRuntimeEnv(event?: unknown): Record<string, string | undefined> {

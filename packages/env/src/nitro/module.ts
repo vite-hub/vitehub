@@ -91,6 +91,12 @@ function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
     "  }",
     "}",
     "",
+    "declare module \"@vitehub/agent\" {",
+    "  export interface AgentRuntimeConfig {",
+    ...fields,
+    "  }",
+    "}",
+    "",
     "export {}",
     "",
   ].join("\n")
