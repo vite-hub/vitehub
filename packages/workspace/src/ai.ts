@@ -1,9 +1,25 @@
-import { jsonSchema, tool, type Tool, type ToolSet } from "ai"
-
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 import { normalizeSafeWorkspacePath } from "./path.ts"
 
+import type { Tool, ToolSet } from "ai"
 import type { Workspace, WorkspaceAssets, WriteFileOptions } from "./types.ts"
+
+const aiSchemaSymbol = Symbol.for("vercel.ai.schema")
+
+function jsonSchema<T>(schema: unknown): Tool<T, unknown>["inputSchema"] {
+  return {
+    _type: undefined as T | undefined,
+    get jsonSchema() {
+      return schema
+    },
+    validate: undefined,
+    [aiSchemaSymbol]: true,
+  } as unknown as Tool<T, unknown>["inputSchema"]
+}
+
+function tool<INPUT, OUTPUT>(definition: Tool<INPUT, OUTPUT>): Tool<INPUT, OUTPUT> {
+  return definition
+}
 
 export interface WorkspaceShellResult {
   exitCode: number

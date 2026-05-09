@@ -42,6 +42,18 @@ function contentType(path: string, fallback?: string) {
   if (path.endsWith(".md") || path.endsWith(".txt")) return "text/plain; charset=utf-8"
 }
 
+async function loadVercelBlob() {
+  const importVercelBlob = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<typeof import("@vercel/blob")>
+  const specifier = "@vercel/blob"
+  try {
+    return await importVercelBlob(specifier)
+  }
+  catch (error) {
+    if (!(error instanceof TypeError) || !/dynamic import callback/i.test(error.message)) throw error
+    return await import(specifier)
+  }
+}
+
 class VercelBlobWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
   #options: VercelBlobWorkspaceStoreOptions
@@ -72,7 +84,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeSafeWorkspacePath(path)
-    const { get, head } = await import("@vercel/blob")
+    const { get, head } = await loadVercelBlob()
     const pathname = this.#fileKey(normalized)
     const current = await head(pathname, { token: this.#options.token }).catch(() => null) as BlobListItem | null
     if (!current?.url) return undefined
@@ -87,7 +99,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
-    const { put } = await import("@vercel/blob")
+    const { put } = await loadVercelBlob()
     await put(this.#fileKey(normalized), new Blob([contentToBytes(file.content) as any]), {
       access: this.#access(),
       addRandomSuffix: false,
@@ -162,7 +174,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
-    const { del, head } = await import("@vercel/blob")
+    const { del, head } = await loadVercelBlob()
     const targets: string[] = []
     const current = await head(this.#fileKey(normalized), { token: this.#options.token }).catch(() => null) as BlobListItem | null
     if (current?.url) targets.push(current.url)
@@ -182,7 +194,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {
-    const { put } = await import("@vercel/blob")
+    const { put } = await loadVercelBlob()
     const snapshot = await createSnapshotFromEntries(await this.list("", { recursive: true }), options.name)
     await put(this.#snapshotKey(snapshot.id), JSON.stringify(snapshot), {
       access: this.#access(),
@@ -207,7 +219,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
-    const { put } = await import("@vercel/blob")
+    const { put } = await loadVercelBlob()
     await put(this.#metaKey(key), JSON.stringify(value), {
       access: this.#access(),
       addRandomSuffix: false,
@@ -218,7 +230,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async #listBlobs(prefix: string): Promise<BlobListItem[]> {
-    const { list } = await import("@vercel/blob")
+    const { list } = await loadVercelBlob()
     const blobs: BlobListItem[] = []
     let cursor: string | undefined
     do {
@@ -241,7 +253,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async #readJson(pathname: string): Promise<unknown> {
-    const { get, head } = await import("@vercel/blob")
+    const { get, head } = await loadVercelBlob()
     const current = await head(pathname, { token: this.#options.token }).catch(() => null) as BlobListItem | null
     if (!current?.url) return undefined
     const result = await get(current.url, { access: this.#access(), token: this.#options.token })

@@ -49,6 +49,18 @@ function shouldRetryPrivate(error: unknown): boolean {
   return error instanceof Error && /private store|public access/i.test(error.message)
 }
 
+async function loadVercelBlob() {
+  const importVercelBlob = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<typeof import("@vercel/blob")>
+  const specifier = "@vercel/blob"
+  try {
+    return await importVercelBlob(specifier)
+  }
+  catch (error) {
+    if (!(error instanceof TypeError) || !/dynamic import callback/i.test(error.message)) throw error
+    return await import(specifier)
+  }
+}
+
 function mapVercelBlobToBlob(blob: VercelPutBlobResult): BlobObject {
   return {
     contentType: blob.contentType || getContentType(blob.pathname),
@@ -67,7 +79,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
     name: "vercel-blob",
     options,
     async delete(pathnames) {
-      const { del, head } = await import("@vercel/blob")
+      const { del, head } = await loadVercelBlob()
       for (const pathname of toArray(pathnames)) {
         try {
           const current = await head(pathname, { token: options.token })
@@ -86,7 +98,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
         return null
       }
 
-      const { get } = await import("@vercel/blob")
+      const { get } = await loadVercelBlob()
       const result = await get(current.url, {
         access: getAccessFromUrl(current.url) || options.access,
         token: options.token,
@@ -100,7 +112,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
         return null
       }
 
-      const { get } = await import("@vercel/blob")
+      const { get } = await loadVercelBlob()
       const result = await get(current.url, {
         access: getAccessFromUrl(current.url) || options.access,
         token: options.token,
@@ -109,7 +121,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
       return result?.statusCode === 200 ? await new Response(result.stream).arrayBuffer() : null
     },
     async head(pathname) {
-      const { head } = await import("@vercel/blob")
+      const { head } = await loadVercelBlob()
       try {
         const result = await head(pathname, { token: options.token })
         return result ? mapVercelBlobToBlob(result as VercelPutBlobResult) : null
@@ -119,7 +131,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
       }
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
-      const { list } = await import("@vercel/blob")
+      const { list } = await loadVercelBlob()
       const result = await list({
         cursor: listOptions.cursor,
         limit: listOptions.limit ?? 1000,
@@ -136,7 +148,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const { put } = await import("@vercel/blob")
+      const { put } = await loadVercelBlob()
       const access = putOptions.access || options.access
       const putInput = {
         access,

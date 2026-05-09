@@ -53,8 +53,17 @@ function resolveVercelRegion(explicitRegion: string | undefined) {
 async function loadVercelQueueClient(region: string | undefined): Promise<VercelQueueSDK> {
   let module: Record<string, unknown>
   try {
-    module = await import("@vercel/queue")
-  } catch (error) {
+    const importVercelQueue = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<Record<string, unknown>>
+    const specifier = "@vercel/queue"
+    try {
+      module = await importVercelQueue(specifier)
+    }
+    catch (error) {
+      if (!(error instanceof TypeError) || !/dynamic import callback/i.test(error.message)) throw error
+      module = await import(specifier) as Record<string, unknown>
+    }
+  }
+  catch (error) {
     throw new QueueError(`@vercel/queue load failed. Install it to use the Vercel provider. Original error: ${error instanceof Error ? error.message : error}`, {
       cause: error,
       code: "VERCEL_QUEUE_SDK_LOAD_FAILED",

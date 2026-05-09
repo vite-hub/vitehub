@@ -1,17 +1,13 @@
-import { ToolLoopAgent } from "ai"
 import agentRegistry from "#vitehub/agent/registry"
 import { getMessageText } from "@vitehub/messages"
-import { isResolvable, resolveRuntimeContext, resolveRuntimeValue } from "@vitehub/internal/runtime/context"
+import { resolveRuntimeContext, resolveRuntimeValue } from "@vitehub/internal/runtime/context"
 
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
 import type {
   Agent,
   AgentCallParameters,
-  AgentStreamParameters,
-  GenerateTextResult,
   ModelMessage,
-  StreamTextResult,
   ToolSet,
 } from "ai"
 import type {
@@ -125,6 +121,27 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
   return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
+async function createToolLoopAgent<CALL_OPTIONS, TOOLS extends ToolSet>(
+  settings: Omit<AgentSettings<AgentRuntimeConfig, CALL_OPTIONS, TOOLS>, "description" | "run" | "tools">,
+  tools: TOOLS | undefined,
+): Promise<Agent<CALL_OPTIONS, TOOLS>> {
+  const importAI = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<typeof import("ai")>
+  const specifier = "ai"
+  let ai: typeof import("ai")
+  try {
+    ai = await importAI(specifier)
+  }
+  catch (error) {
+    if (!(error instanceof TypeError) || !/dynamic import callback/i.test(error.message)) throw error
+    ai = await import(specifier)
+  }
+  const { ToolLoopAgent } = ai
+  return new ToolLoopAgent<CALL_OPTIONS, TOOLS>({
+    ...(settings as unknown as ConstructorParameters<typeof ToolLoopAgent<CALL_OPTIONS, TOOLS>>[0]),
+    tools,
+  })
+}
+
 export function defineAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = never,
@@ -154,10 +171,7 @@ export function defineAgent<
         ? await resolveValue(tools, resolvedContext)
         : undefined
 
-      return new ToolLoopAgent<CALL_OPTIONS, TOOLS>({
-        ...(settings as unknown as ConstructorParameters<typeof ToolLoopAgent<CALL_OPTIONS, TOOLS>>[0]),
-        tools: resolvedTools,
-      })
+      return await createToolLoopAgent(settings, resolvedTools)
     },
   }
 }
@@ -276,10 +290,6 @@ function toAgentRunResult(value: unknown): AgentRunResult {
     usage: result.usage,
     warnings: result.warnings,
   }
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return !!value && typeof value === "object" && Symbol.asyncIterator in value
 }
 
 function toStreamEvent(chunk: unknown): StreamEvent | undefined {
