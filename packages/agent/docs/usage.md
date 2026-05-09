@@ -39,6 +39,7 @@ export const triager = defineAgent({
 
 Keep the agent definition portable and choose runtime placement from config.
 
+::fw{id="nitro:dev nitro:build"}
 ```ts
 agent: {
   route: false,
@@ -56,6 +57,33 @@ agent: {
   },
 }
 ```
+::
+
+::fw{id="vite:dev vite:build"}
+```ts [vite.config.ts]
+import { hubAgent } from '@vitehub/agent/vite'
+
+export default defineConfig({
+  plugins: [
+    hubAgent({
+      route: false,
+      runtime: 'auto',
+      execution: 'inline',
+      integrations: {
+        workflow: 'auto',
+        sandbox: 'auto',
+      },
+      providers: {
+        model: { provider: 'vercel-ai-sdk' },
+        state: { provider: 'auto' },
+        scheduler: { provider: 'auto' },
+        sandbox: { provider: 'auto' },
+      },
+    }),
+  ],
+})
+```
+::
 
 Generated Nitro routes are disabled by default. Set `agent.route` to a path such as `/agents/[agent]` only when agents should be externally callable.
 
@@ -94,6 +122,7 @@ Chat owns the chat-specific work: gathering thread history, converting messages,
 
 Use `@vitehub/agent/workspace` when an agent should read a ViteHub Workspace and answer from those sources. The helper wires the Workspace tools into an AI SDK `ToolLoopAgent`, reads an optional instructions file, and returns a final answer that Chat can post.
 
+::fw{id="nitro:dev nitro:build"}
 ```ts [server/agents/context.ts]
 import { createVertex } from '@ai-sdk/google-vertex/edge'
 import { defineWorkspaceAgent } from '@vitehub/agent/workspace'
@@ -113,6 +142,7 @@ export default defineWorkspaceAgent<RuntimeConfig>({
   stepLimit: 60,
 })
 ```
+::
 
 Pair it with the Chat agent binding:
 

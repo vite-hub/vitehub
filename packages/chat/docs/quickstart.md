@@ -158,14 +158,36 @@ pnpm add @vitehub/agent ai
 
 Register both modules:
 
+::fw{id="vite:dev vite:build"}
+```ts [vite.config.ts]
+import { hubAgent } from '@vitehub/agent/vite'
+import { hubChat } from '@vitehub/chat/vite'
+import { DevTools } from '@vitejs/devtools'
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    DevTools(),
+    hubAgent(),
+    hubChat(),
+    nitro(),
+  ],
+})
+```
+::
+
+::fw{id="nitro:dev nitro:build"}
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
   modules: ['@vitehub/agent/nitro', '@vitehub/chat/nitro'],
 })
 ```
+::
 
 Create the agent:
 
+::fw{id="nitro:dev nitro:build"}
 ```ts [server/agents/triager.ts]
 import { defineAgent } from '@vitehub/agent'
 
@@ -175,6 +197,19 @@ export default defineAgent({
   instructions: 'Classify the message and suggest the next action.',
 })
 ```
+::
+
+::fw{id="vite:dev vite:build"}
+```ts [src/triager.agent.ts]
+import { defineAgent } from '@vitehub/agent'
+
+export default defineAgent({
+  description: 'Triage incoming chat messages',
+  model,
+  instructions: 'Classify the message and suggest the next action.',
+})
+```
+::
 
 Bind the chat to it:
 
