@@ -41,7 +41,7 @@ Keep the agent definition portable and choose runtime placement from config.
 
 ```ts
 agent: {
-  route: '/agents/[agent]',
+  route: false,
   runtime: 'auto',
   execution: 'inline',
   integrations: {
@@ -57,7 +57,7 @@ agent: {
 }
 ```
 
-Set `agent.route` to `false` to disable generated Nitro routes.
+Generated Nitro routes are disabled by default. Set `agent.route` to a path such as `/agents/[agent]` only when agents should be externally callable.
 
 ## Custom run behavior
 

@@ -58,6 +58,6 @@ export default defineChat({
   icon: i-lucide-route
   title: Generated routes
   ---
-  Nitro can expose discovered agents at `/agents/[agent]` for direct server calls.
+  Nitro can expose discovered agents for direct server calls when you opt in with `agent.route`.
   :::
 ::

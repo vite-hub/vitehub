@@ -53,4 +53,4 @@ interface AgentModuleOptions {
 }
 ```
 
-The default route is `/agents/[agent]`.
+Generated HTTP routes are disabled by default. Set `route` to a path such as `/agents/[agent]` to expose discovered agents over HTTP.

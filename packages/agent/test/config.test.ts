@@ -17,7 +17,7 @@ describe("agent config", () => {
         scheduler: { provider: "auto" },
         state: { provider: "auto" },
       },
-      route: "/agents/[agent]",
+      route: false,
       runtime: "auto",
     })
   })

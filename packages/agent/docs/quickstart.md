@@ -59,7 +59,16 @@ export default defineConfig({
 ```
 ::
 
-Nitro installs a generated `POST /agents/[agent]` route when it discovers server agents.
+Chat resolves discovered agents through the generated internal registry. If you also want an HTTP endpoint, opt in with `agent.route`:
+
+```ts [nitro.config.ts]
+export default defineNitroConfig({
+  modules: ['@vitehub/agent/nitro'],
+  agent: {
+    route: '/agents/[agent]',
+  },
+})
+```
 
 ## Call it from Chat
 
