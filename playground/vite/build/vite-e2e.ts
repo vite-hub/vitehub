@@ -640,6 +640,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   }
 
   if (workspaceProvider === "vercel-blob") {
+    imports.push(`import * as __vitehubVercelBlob from ${JSON.stringify(createImportPath(file, resolvePackageDependency(blobPackageDir, "@vercel/blob")))}`)
     imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/vercel-blob.ts")))}`)
   }
 
@@ -660,6 +661,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     ...imports,
     "",
     preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
+    workspaceProvider === "vercel-blob" ? "globalThis.__vitehubVercelBlob = __vitehubVercelBlob" : "",
     `const queueConfig = ${JSON.stringify(options.queue || false, null, 2)}`,
     `const workflowConfig = ${JSON.stringify(options.workflow || false, null, 2)}`,
     `const blobConfig = ${JSON.stringify(options.blob || false, null, 2)}`,

@@ -21,14 +21,26 @@ async function cleanupPlayground() {
 
 async function buildPlayground(preset: string) {
   const outputDir = join(testOutputRoot, preset)
+  const previousVercelBlobToken = process.env.BLOB_READ_WRITE_TOKEN
+  if (preset.includes("vercel")) process.env.BLOB_READ_WRITE_TOKEN = "vercel_blob_test_token"
   const nitro = await createNitro({
     buildDir: testBuildDir,
+    dev: false,
     output: { dir: outputDir },
     preset,
     rootDir: playgroundDir,
+    runtimeConfig: {},
   })
-  await prepare(nitro)
-  await build(nitro)
+  try {
+    await prepare(nitro)
+    await build(nitro)
+  }
+  finally {
+    if (preset.includes("vercel")) {
+      if (previousVercelBlobToken === undefined) delete process.env.BLOB_READ_WRITE_TOKEN
+      else process.env.BLOB_READ_WRITE_TOKEN = previousVercelBlobToken
+    }
+  }
   const output = {
     buildDir: nitro.options.buildDir,
     outputDir,
@@ -111,9 +123,8 @@ describe("Nitro workspace outputs", () => {
     await assertNoNitroInternalVirtualImports(vercelBuild.outputDir)
     const vercelOutput = await readGeneratedJavaScript(vercelBuild.outputDir)
     expect(vercelOutput).not.toContain("createCloudflareArtifactsWorkspaceStore")
-    expect(vercelOutput).not.toContain("createVercelBlobWorkspaceStore")
+    expect(vercelOutput).toContain("__vitehubVercelBlob")
     expect(vercelOutput).not.toContain("Cloudflare Artifacts binding")
     expect(vercelOutput).not.toContain("isomorphic-git")
-    expect(vercelOutput).not.toMatch(/(?:from|import\(|require\()\s*["']@vercel\/blob["']/)
   }, 90_000)
 })

@@ -43,6 +43,9 @@ function contentType(path: string, fallback?: string) {
 }
 
 async function loadVercelBlob() {
+  const preloaded = (globalThis as typeof globalThis & { __vitehubVercelBlob?: typeof import("@vercel/blob") }).__vitehubVercelBlob
+  if (preloaded) return preloaded
+
   const importVercelBlob = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<typeof import("@vercel/blob")>
   const specifier = "@vercel/blob"
   try {
