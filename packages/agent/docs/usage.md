@@ -164,7 +164,11 @@ import { defineWorkspaceAgent } from '@vitehub/agent/workspace'
 
 export default defineWorkspaceAgent({
   workspace: 'data-sources',
-  instructions: 'Answer from the workspace sources.',
+  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
   model,
 })
 ```
+
+`fs.readFile()` returns UTF-8 text by default. Pass `{ encoding: 'binary' }` only when an agent needs bytes.
+
+The older `instructionsFile` option is deprecated. Use the `instructions` callback when instructions live in a workspace file.

@@ -78,6 +78,7 @@ function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
   const fields = createTypeFields(registry, 4)
   return [
     "import \"nitro/types\"",
+    "import type { AgentRuntimeConfig as ViteHubAgentRuntimeConfig } from \"@vitehub/agent\"",
     "",
     "declare module \"nitro/types\" {",
     "  export interface NitroRuntimeConfig {",
@@ -98,9 +99,7 @@ function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
     "}",
     "",
     "declare module \"@vitehub/agent/workspace\" {",
-    "  export interface AgentRuntimeConfig {",
-    ...fields,
-    "  }",
+    "  export interface AgentRuntimeConfig extends ViteHubAgentRuntimeConfig {}",
     "}",
     "",
     "export {}",
