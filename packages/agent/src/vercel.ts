@@ -86,7 +86,7 @@ export function defineVercelAgentHandler(
       vercel: { waitUntil },
       waitUntil,
     })
-    const body = await readJsonBody(request)
+    const body = await readJsonBody(request.clone())
     const stream = body.stream !== false
     const result = stream
       ? await streamAgent(agent, context, body)

@@ -49,6 +49,40 @@ describe("Vercel helpers", () => {
       input: expect.objectContaining({ prompt: "hello" }),
     }))
   })
+
+  it("keeps context.request readable for custom run agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineVercelAgentHandler } = await import("../src/vercel.ts")
+    const run = vi.fn(async ({ request }) => ({
+      text: (await request!.json()).prompt,
+    }))
+    const handler = defineVercelAgentHandler(defineAgent({ run }) as never, { waitUntil: vi.fn() })
+
+    const response = await handler(new Request("https://example.com/agents/triager", {
+      body: JSON.stringify({ prompt: "still readable", stream: false }),
+      method: "POST",
+    }))
+
+    await expect(response.json()).resolves.toMatchObject({ text: "still readable" })
+  })
+})
+
+describe("Cloudflare helpers", () => {
+  it("keeps context.request readable for custom run agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineCloudflareAgentHandler } = await import("../src/cloudflare.ts")
+    const run = vi.fn(async ({ request }) => ({
+      text: (await request!.json()).prompt,
+    }))
+    const handler = defineCloudflareAgentHandler(defineAgent({ run }) as never)
+
+    const response = await handler(new Request("https://example.com/agents/triager", {
+      body: JSON.stringify({ prompt: "still readable", stream: false }),
+      method: "POST",
+    }), {}, { waitUntil: vi.fn() })
+
+    await expect(response.json()).resolves.toMatchObject({ text: "still readable" })
+  })
 })
 
 describe("Nitro helpers", () => {
@@ -71,6 +105,28 @@ describe("Nitro helpers", () => {
 
     expect(result).toMatchObject({ raw: { routed: true }, text: "ok" })
     expect(run).toHaveBeenCalled()
+  })
+
+  it("keeps context.request readable for custom run agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentHandler } = await import("../src/nitro.ts")
+    const run = vi.fn(async ({ request }) => ({
+      text: (await request!.json()).prompt,
+    }))
+    const handler = defineAgentHandler(defineAgent({ run }) as never)
+    const request = new Request("https://example.com/agents/triager", {
+      body: JSON.stringify({ prompt: "still readable", stream: false }),
+      method: "POST",
+    })
+    const event = {
+      req: request,
+      url: "https://example.com/agents/triager",
+      waitUntil: vi.fn(),
+    }
+
+    const result = await handler(event as never)
+
+    expect(result).toMatchObject({ text: "still readable" })
   })
 })
 

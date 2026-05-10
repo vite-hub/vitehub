@@ -1,4 +1,4 @@
-import { createError, defineEventHandler, getRouterParam, readBody } from "h3"
+import { createError, defineEventHandler, getRouterParam } from "h3"
 
 import { resolveAgent, runAgent, streamAgent } from "../index.ts"
 import { formatUnknownAgentMessage } from "../registry-error.ts"
@@ -198,8 +198,8 @@ function createRuntimeContext(event: H3Event): NitroAgentRuntimeContext {
   }) as NitroAgentRuntimeContext
 }
 
-async function readAgentBody(event: H3Event): Promise<AgentRequestBody> {
-  const body = await readBody(event).catch(() => undefined)
+async function readAgentBody(request: Request): Promise<AgentRequestBody> {
+  const body = await request.clone().json().catch(() => undefined)
   return typeof body === "object" && body !== null ? body as AgentRequestBody : {}
 }
 
@@ -214,7 +214,7 @@ export function defineAgentHandler(
     try {
       await hooks.request(context)
 
-      const body = await readAgentBody(event)
+      const body = await readAgentBody(context.request!)
       const stream = body.stream !== false
       if (options.lifecycleHooks?.resolved) {
         const resolved = await resolveAgent(agent, context)

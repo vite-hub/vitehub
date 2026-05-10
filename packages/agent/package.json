@@ -47,25 +47,22 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/agent build && vitest run"
+    "test": "pnpm --filter @vitehub/agent... build && vitest run"
   },
   "dependencies": {
     "@vitehub/messages": "workspace:*",
     "@vitehub/runtime": "workspace:*",
+    "@vitehub/workspace": "workspace:*",
     "@vercel/functions": "catalog:",
     "h3": "catalog:"
   },
   "peerDependencies": {
-    "@vitehub/workspace": "0.0.0",
     "agents": "^0.12.3",
     "ai": "^6.0.0",
     "nitro": "^3.0.0-0",
     "vite": ">=8.0.0"
   },
   "peerDependenciesMeta": {
-    "@vitehub/workspace": {
-      "optional": true
-    },
     "agents": {
       "optional": true
     },
@@ -79,7 +76,6 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@vitehub/internal": "workspace:*",
-    "@vitehub/workspace": "workspace:*",
     "ai": "^6.0.172",
     "nitro": "catalog:",
     "publint": "^0.3.15",

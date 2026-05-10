@@ -92,7 +92,7 @@ export function defineCloudflareAgentHandler(
       runtime: "cloudflare-agents" as const,
       waitUntil: task => executionContext.waitUntil?.(task),
     })
-    const body = await readJsonBody(request)
+    const body = await readJsonBody(request.clone())
     const stream = body.stream !== false
     const result = stream
       ? await streamAgent(agent, context, body)
