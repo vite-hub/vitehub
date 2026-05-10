@@ -470,6 +470,7 @@ function createWorkspaceAgentDefinition<
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name> {
   const workspaceName = defaults.workspace
   const definition = defineBaseAgent<TRuntimeConfig, never, ToolSet>({
+    chat: options.chat,
     description: options.description,
     async run(context) {
       if (!workspaceName) {
