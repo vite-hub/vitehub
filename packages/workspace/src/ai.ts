@@ -1,5 +1,6 @@
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 import { normalizeSafeWorkspacePath } from "./path.ts"
+import { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } from "@vitehub/shell"
 
 import type { Tool, ToolSet } from "ai"
 import type { SearchableShellWorkspace } from "@vitehub/shell"
@@ -167,7 +168,6 @@ async function runShellCommand(
   options: { commands: string[], cwd: string, maxOutputLength: number },
 ): Promise<WorkspaceShellResult> {
   const shellWorkspace = input as unknown as SearchableShellWorkspace
-  const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await import(/* @vite-ignore */ "@vitehub/shell")
   return await runWorkspaceInspectionCommand(shellWorkspace, command, {
     commands: options.commands,
     cwd: options.cwd,
