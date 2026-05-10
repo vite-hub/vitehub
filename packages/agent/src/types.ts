@@ -222,6 +222,7 @@ export interface AgentToolStepItem {
 export interface AgentToolStep {
   text?: string
   toolCalls?: AgentToolStepItem[]
+  toolErrors?: AgentToolStepItem[]
   toolResults?: AgentToolStepItem[]
 }
 

@@ -31,7 +31,7 @@ import type {
   AgentRuntimeContext,
   AgentSettings,
   AgentToolDefinition,
-  AgentToolStep,
+  AgentToolStepItem,
   MaybePromise,
   MaybeResolvable,
   ResolvedAgentRuntimeContext,
@@ -215,6 +215,51 @@ function applyToolPolicies<TTools extends Record<string, unknown>>(tools: TTools
       return [name, tool]
     }
     return [name, withToolPolicy(tool)]
+  })) as TTools
+}
+
+type AgentToolStepReporter = NonNullable<AgentRuntimeContext["devtools"]>["reportToolStep"]
+
+function createToolCallId(name: string): string {
+  return `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function getErrorOutput(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function withToolStepReporting<TTools extends ToolSet>(tools: TTools, reportToolStep?: AgentToolStepReporter): TTools {
+  if (!reportToolStep || !tools || typeof tools !== "object") {
+    return tools
+  }
+
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
+      return [name, tool]
+    }
+
+    const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
+    return [name, {
+      ...tool,
+      async execute(input: unknown, ...args: unknown[]) {
+        const toolCall: AgentToolStepItem = {
+          input,
+          toolCallId: createToolCallId(name),
+          toolName: name,
+        }
+
+        await reportToolStep({ toolCalls: [toolCall] })
+        try {
+          const output = await execute.call(tool, input, ...args)
+          await reportToolStep({ toolResults: [{ ...toolCall, output }] })
+          return output
+        }
+        catch (error) {
+          await reportToolStep({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
+          throw error
+        }
+      },
+    }]
   })) as TTools
 }
 
@@ -481,16 +526,16 @@ function createWorkspaceAgentDefinition<
       const workspace = useWorkspace(workspaceName)
       const model = await resolveModel(options.model, context)
       const instructions = await resolveWorkspaceInstructions(options, workspace, context, defaults)
+      const reportToolStep = context.devtools?.reportToolStep
       const agent = new ToolLoopAgent({
         instructions,
         model,
         stopWhen: stepCountIs(options.stepLimit ?? 20),
-        tools: workspace.tools(options.toolOptions),
+        tools: withToolStepReporting(workspace.tools(options.toolOptions), reportToolStep),
       })
       const result = await agent.generate({
         ...getAgentCall(context.input),
         abortSignal: context.input.abortSignal,
-        onStepFinish: async step => await context.devtools?.reportToolStep?.(step as AgentToolStep),
         timeout: context.input.timeout,
       })
       const text = result.text.trim()

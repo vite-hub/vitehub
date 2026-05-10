@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const readFile = vi.fn()
 const tools = vi.fn(() => ({}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
+const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
 
 vi.mock("ai", () => ({
   generateText: vi.fn(),
@@ -12,8 +13,8 @@ vi.mock("ai", () => ({
       agentSettings.push(settings)
     }
 
-    async generate() {
-      return { finishReason: "stop", text: "ok" }
+    async generate(...args: unknown[]) {
+      return await agentGenerate.apply(this, args)
     }
   },
 }))
@@ -38,6 +39,8 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
 describe("defineAgent workspace option", () => {
   beforeEach(() => {
     agentSettings.length = 0
+    agentGenerate.mockReset()
+    agentGenerate.mockResolvedValue({ finishReason: "stop", text: "ok" })
     readFile.mockReset()
     tools.mockClear()
   })
@@ -161,5 +164,40 @@ describe("defineAgent workspace option", () => {
     }), { instructionsFile: "AGENTS.md", workspace: "docs" })
 
     await expect(agent.run!(context())).rejects.toThrow("missing")
+  })
+
+  it("reports workspace tool usage when execution starts and finishes", async () => {
+    const execute = vi.fn(async () => "workspace result")
+    const reportToolStep = vi.fn()
+    tools.mockReturnValueOnce({
+      shell: {
+        execute,
+      },
+    })
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      await this.settings.tools.shell.execute({ command: "rg defineAgent" })
+      return { finishReason: "stop", text: "ok" }
+    })
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!({
+      ...(context() as Record<string, unknown>),
+      devtools: { reportToolStep },
+    } as never)
+
+    expect(execute).toHaveBeenCalledWith({ command: "rg defineAgent" })
+    expect(reportToolStep).toHaveBeenCalledTimes(2)
+    expect(reportToolStep.mock.calls[0]?.[0]).toMatchObject({
+      toolCalls: [{ input: { command: "rg defineAgent" }, toolName: "shell" }],
+    })
+    expect(reportToolStep.mock.calls[1]?.[0]).toMatchObject({
+      toolResults: [{ output: "workspace result", toolName: "shell" }],
+    })
+    expect(reportToolStep.mock.calls[0]?.[0].toolCalls[0].toolCallId).toBe(reportToolStep.mock.calls[1]?.[0].toolResults[0].toolCallId)
   })
 })

@@ -126,6 +126,7 @@ export interface ChatDevtoolsToolStepItem {
 export interface ChatDevtoolsToolStep {
   text?: string
   toolCalls?: ChatDevtoolsToolStepItem[]
+  toolErrors?: ChatDevtoolsToolStepItem[]
   toolResults?: ChatDevtoolsToolStepItem[]
 }
 
@@ -255,16 +256,19 @@ export async function reportChatDevtoolsToolStep(
 ): Promise<void> {
   if (step.text?.trim()) return
 
-  const latestTool = step.toolResults?.at(-1) || step.toolCalls?.at(-1)
+  const latestError = step.toolErrors?.at(-1)
+  const latestResult = step.toolResults?.at(-1)
+  const latestTool = latestError || latestResult || step.toolCalls?.at(-1)
   if (!latestTool) return
 
-  const status: ChatDevtoolsToolStatus = step.toolResults?.at(-1) === latestTool ? "completed" : "running"
+  const status: ChatDevtoolsToolStatus = latestError === latestTool ? "error" : latestResult === latestTool ? "completed" : "running"
   const name = toolName(latestTool)
   const toolCalls = step.toolCalls?.length || 0
+  const toolErrors = step.toolErrors?.length || 0
   const toolResults = step.toolResults?.length || 0
   const text = options.label?.(latestTool, status) || defaultToolLabel(latestTool)
   await thread.startTyping(createChatDevtoolsToolStatus({
-    id: toolId(latestTool, name, (toolResults || toolCalls) - 1),
+    id: toolId(latestTool, name, (toolErrors || toolResults || toolCalls) - 1),
     input: latestTool.input,
     name,
     output: "output" in latestTool ? previewValue(latestTool.output, options.outputPreviewLength) : undefined,
@@ -303,6 +307,9 @@ export function createChatDevtoolsStepReporter(
     }
     for (const [index, toolResult] of (step.toolResults || []).entries()) {
       await reportToolStepItem(thread, toolResult, "completed", index, options)
+    }
+    for (const [index, toolError] of (step.toolErrors || []).entries()) {
+      await reportToolStepItem(thread, toolError, "error", index, options)
     }
   }
 }
