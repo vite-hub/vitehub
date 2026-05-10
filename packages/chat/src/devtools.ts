@@ -746,9 +746,9 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
               }
               const stream = chatStream.start()
               void writeChatDevtoolsStream(ctx, route, { action: "send", ...input }, stream)
-              const state = await postChatDevtoolsBridge(ctx, route, { action: "get-state" })
               return {
-                ...state,
+                chats: [],
+                selected: input.chat || "",
                 streamId: stream.id,
               }
             },

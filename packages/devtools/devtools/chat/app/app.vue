@@ -368,9 +368,9 @@ async function send() {
       ...(chat ? { chat } : {}),
       text,
     })
-    pendingUserMessage.value = undefined
-    applyState(result)
     if (!result.streamId) {
+      pendingUserMessage.value = undefined
+      applyState(result)
       status.value = "ready"
       return
     }

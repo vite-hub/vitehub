@@ -225,7 +225,19 @@ describe("Chat DevTools Vite integration", () => {
         return new Response(`${JSON.stringify({
           type: "state",
           state: {
-            chats: [{ name: "default", messages: [] }],
+            chats: [{ name: "default", messages: [{
+              createdAt: "now",
+              id: "assistant-1",
+              role: "assistant",
+              text: "",
+              tools: [{
+                id: "tool-1",
+                name: "shell",
+                status: "running",
+                text: "ls",
+                updatedAt: "now",
+              }],
+            }] }],
             selected: "default",
           },
         })}\n${JSON.stringify({ type: "done" })}\n`)
@@ -247,11 +259,20 @@ describe("Chat DevTools Vite integration", () => {
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(sendResult).toMatchObject({
-      chats: [{ name: "default", messages: [] }],
+      chats: [],
       selected: "default",
       streamId: "stream-1",
     })
-    expect(ctx.stream.write).toHaveBeenCalledWith(expect.objectContaining({ type: "state" }))
+    expect(ctx.stream.write).toHaveBeenCalledWith(expect.objectContaining({
+      state: expect.objectContaining({
+        chats: [expect.objectContaining({
+          messages: [expect.objectContaining({
+            tools: [expect.objectContaining({ id: "tool-1", status: "running" })],
+          })],
+        })],
+      }),
+      type: "state",
+    }))
     expect(ctx.stream.close).toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledWith(new URL("http://127.0.0.1:3000/__vitehub/chat/devtools"), expect.objectContaining({
       method: "POST",
@@ -259,7 +280,7 @@ describe("Chat DevTools Vite integration", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, expect.any(URL), expect.objectContaining({
       body: JSON.stringify({ action: "send", chat: "default", text: "hello", stream: true }),
     }))
-    expect(fetchMock).toHaveBeenNthCalledWith(4, expect.any(URL), expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(3, expect.any(URL), expect.objectContaining({
       body: JSON.stringify({ action: "clear", chat: "default" }),
     }))
   })
@@ -289,7 +310,7 @@ describe("Chat DevTools Vite integration", () => {
 
     expect(send).not.toHaveProperty("jsonSerializable")
     expect(sendResult).toMatchObject({
-      chats: [{ name: "default", messages: [] }],
+      chats: [],
       selected: "default",
       streamId: "stream-1",
     })
