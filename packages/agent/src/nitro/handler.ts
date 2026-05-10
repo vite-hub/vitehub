@@ -108,6 +108,10 @@ function resolveRegistryModule(module: AgentRegistryModule): AgentInput<NitroAge
     : module as AgentInput<NitroAgentRuntimeContext>
 }
 
+function hasCustomRun(agent: AgentInput<NitroAgentRuntimeContext>): boolean {
+  return typeof agent === "object" && agent !== null && "run" in agent && typeof agent.run === "function"
+}
+
 function createHookRunner<TContext extends AgentRuntimeContext>(hooks: AgentRuntimeHooks<TContext> | undefined) {
   return {
     async error(error: unknown, context: TContext) {
@@ -216,7 +220,7 @@ export function defineAgentHandler(
 
       const body = await readAgentBody(context.request!)
       const stream = body.stream !== false
-      if (options.lifecycleHooks?.resolved) {
+      if (options.lifecycleHooks?.resolved && !hasCustomRun(agent)) {
         const resolved = await resolveAgent(agent, context)
         await hooks.resolved({ ...context, agent: resolved })
       }

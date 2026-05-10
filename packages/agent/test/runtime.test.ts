@@ -13,6 +13,26 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("preserves structured tool history for model messages", async () => {
+    const { toModelMessages } = await import("../src/index.ts")
+
+    expect(toModelMessages([
+      createMessage({
+        id: "m1",
+        parts: [
+          { id: "call-1", input: { query: "ok" }, name: "lookup", state: "running", type: "tool-call" },
+          { id: "call-1", name: "lookup", output: { ok: true }, state: "completed", type: "tool-result" },
+        ],
+        role: "tool",
+      }),
+    ])).toEqual([
+      {
+        content: [{ output: { ok: true }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
+        role: "tool",
+      },
+    ])
+  })
+
   it("normalizes generated output into an agent run result", async () => {
     const { runAgent } = await import("../src/index.ts")
     const agent = {

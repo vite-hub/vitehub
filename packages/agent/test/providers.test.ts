@@ -107,6 +107,31 @@ describe("Nitro helpers", () => {
     expect(run).toHaveBeenCalled()
   })
 
+  it("does not resolve custom run agents for resolved lifecycle hooks", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentHandler } = await import("../src/nitro.ts")
+    const run = vi.fn(() => ({ raw: { routed: true }, text: "ok" }))
+    const resolved = vi.fn()
+    const handler = defineAgentHandler(defineAgent({ run }) as never, {
+      lifecycleHooks: { resolved },
+    })
+    const event = {
+      req: {
+        headers: { host: "example.com" },
+        method: "POST",
+        url: "/agents/triager",
+      },
+      url: "https://example.com/agents/triager",
+      waitUntil: vi.fn(),
+    }
+
+    const result = await handler(event as never)
+
+    expect(result).toMatchObject({ raw: { routed: true }, text: "ok" })
+    expect(run).toHaveBeenCalled()
+    expect(resolved).not.toHaveBeenCalled()
+  })
+
   it("keeps context.request readable for custom run agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineAgentHandler } = await import("../src/nitro.ts")

@@ -13,8 +13,11 @@ import { formatUnknownAgentMessage } from "./registry-error.ts"
 import type {
   Agent,
   AgentCallParameters,
+  AssistantContent,
   ModelMessage,
+  ToolContent,
   ToolLoopAgentSettings,
+  ToolResultPart,
   ToolSet,
 } from "ai"
 import type {
@@ -667,7 +670,7 @@ function createCallParameters<CALL_OPTIONS, TOOLS extends ToolSet>(
   } as AgentCallParameters<CALL_OPTIONS, TOOLS>
 }
 
-function toModelMessageContent(parts: MessagePart[]): string {
+function toTextModelMessageContent(parts: MessagePart[]): string {
   return parts.map((part) => {
     if (part.type === "text") return part.text
     if (part.type === "error") return part.error
@@ -681,11 +684,89 @@ function toModelMessageContent(parts: MessagePart[]): string {
   }).filter(Boolean).join("\n")
 }
 
+function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart["output"] {
+  return (part.error ? { error: part.error } : part.output ?? null) as ToolResultPart["output"]
+}
+
+function toAssistantModelMessageContent(parts: MessagePart[]): AssistantContent {
+  const content: Exclude<AssistantContent, string> = []
+
+  for (const part of parts) {
+    if (part.type === "text") {
+      content.push({ text: part.text, type: "text" as const })
+    }
+    if (part.type === "tool-call") {
+      content.push({
+        input: part.input,
+        toolCallId: part.id,
+        toolName: part.name,
+        type: "tool-call" as const,
+      })
+    }
+    if (part.type === "tool-result") {
+      content.push({
+        output: toToolResultOutput(part),
+        toolCallId: part.id,
+        toolName: part.name,
+        type: "tool-result" as const,
+      })
+    }
+    if (part.type === "approval-request") {
+      content.push({
+        approvalId: part.id,
+        toolCallId: part.id,
+        type: "tool-approval-request" as const,
+      })
+    }
+  }
+
+  return content.length ? content : toTextModelMessageContent(parts)
+}
+
+function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
+  const content: ToolContent = []
+
+  for (const part of parts) {
+    if (part.type === "tool-result") {
+      content.push({
+        output: toToolResultOutput(part),
+        toolCallId: part.id,
+        toolName: part.name,
+        type: "tool-result" as const,
+      })
+    }
+    if (part.type === "approval-decision") {
+      content.push({
+        approvalId: part.id,
+        approved: part.approved,
+        reason: part.reason,
+        type: "tool-approval-response" as const,
+      })
+    }
+  }
+
+  return content
+}
+
 export function toModelMessages(messages: Message[]): ModelMessage[] {
-  return messages.map(message => ({
-    content: getMessageText(message) || toModelMessageContent(message.parts),
-    role: message.role,
-  })) as ModelMessage[]
+  return messages.map((message) => {
+    if (message.role === "assistant") {
+      return {
+        content: toAssistantModelMessageContent(message.parts),
+        role: message.role,
+      }
+    }
+    if (message.role === "tool") {
+      return {
+        content: toToolModelMessageContent(message.parts),
+        role: message.role,
+      }
+    }
+    return {
+      content: getMessageText(message) || toTextModelMessageContent(message.parts),
+      role: message.role,
+    }
+  }) as ModelMessage[]
 }
 
 export function defineTool<TInput = unknown, TOutput = unknown>(
