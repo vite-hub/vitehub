@@ -35,7 +35,6 @@
     "test": "pnpm --filter @vitehub/shell build && vitest run"
   },
   "dependencies": {
-    "@vitehub/sandbox": "workspace:*",
     "just-bash": "^2.14.4"
   },
   "devDependencies": {
