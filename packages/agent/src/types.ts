@@ -229,7 +229,15 @@ export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
   execution?: Extract<AgentExecution, "inline">
   history?: boolean | "none" | { maxMessages?: number, source: "thread" }
-  hooks?: Record<string, unknown>
+  hooks?: AgentChatAgentHooks
+}
+
+export interface AgentChatAgentHooks {
+  afterRun?: (args: Record<string, unknown>) => MaybePromise<unknown>
+  beforeRun?: (args: Record<string, unknown>) => MaybePromise<unknown>
+  error?: (args: { error: unknown, thread: { post: (message: unknown) => MaybePromise<unknown> } } & Record<string, unknown>) => MaybePromise<void>
+  prepareInput?: (args: Record<string, unknown>) => MaybePromise<unknown>
+  sendResponse?: (args: Record<string, unknown>) => MaybePromise<void>
 }
 
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
