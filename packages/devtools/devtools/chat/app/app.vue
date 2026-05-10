@@ -4,6 +4,7 @@ import { connectRemoteDevTools, getDevToolsRpcClient } from "@vitejs/devtools-ki
 
 import {
   chatDevtoolsClearRpc,
+  chatDevtoolsBridgeRoute,
   chatDevtoolsGetStateRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
@@ -63,7 +64,10 @@ function applyState(next: ChatDevtoolsStateResult) {
   const nextMessages = [...serverMessages]
   const pending = pendingUserMessage.value
 
-  if (pending && pending.chat === chat?.name && !serverMessages.some(message => message.id === pending.id)) {
+  if (pending && pending.chat === chat?.name && serverMessages.some(message => message.role === "user" && message.content === pending.content)) {
+    pendingUserMessage.value = undefined
+  }
+  else if (pending && pending.chat === chat?.name && !serverMessages.some(message => message.id === pending.id)) {
     nextMessages.push(pending)
   }
   else {
@@ -334,6 +338,60 @@ async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
   return await rpcClient.call(method, ...args) as T
 }
 
+async function readDirectBridgeStream(input: { chat?: string, text: string }): Promise<boolean> {
+  const abortController = new AbortController()
+  currentReader = { cancel: () => abortController.abort() }
+
+  let response: Response
+  try {
+    response = await fetch(chatDevtoolsBridgeRoute, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "send", ...input, stream: true }),
+      signal: abortController.signal,
+    })
+  }
+  catch {
+    currentReader = undefined
+    return false
+  }
+
+  if (!response.ok || !response.body) {
+    currentReader = undefined
+    return false
+  }
+
+  connected.value = true
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let pending = ""
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      pending += decoder.decode(value, { stream: true })
+      const lines = pending.split("\n")
+      pending = lines.pop() || ""
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const event = JSON.parse(line) as ChatDevtoolsStreamEvent
+        applyStreamEvent(event)
+        if (event.type === "error" || event.type === "done") return true
+      }
+    }
+
+    const tail = pending.trim()
+    if (tail) {
+      applyStreamEvent(JSON.parse(tail) as ChatDevtoolsStreamEvent)
+    }
+    return true
+  }
+  finally {
+    currentReader = undefined
+  }
+}
+
 async function refresh() {
   try {
     applyState(await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc))
@@ -363,6 +421,11 @@ async function send() {
     appendPendingAssistantMessage(chat)
     await nextTick()
     await waitForFrame()
+    status.value = "streaming"
+
+    if (await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
+      return
+    }
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
@@ -374,8 +437,6 @@ async function send() {
       status.value = "ready"
       return
     }
-
-    status.value = "streaming"
 
     const reader = rpcClient?.streaming.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, result.streamId, {
       highWaterMark: 1024,
