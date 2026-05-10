@@ -145,8 +145,8 @@ export class ApprovalRequiredError<TInput = unknown> extends Error {
 }
 
 export function createExecutionContext<
-  TRuntimeConfig,
-  TContext extends RuntimeHostContext<TRuntimeConfig>,
+  TRuntimeConfig = Record<string, unknown>,
+  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
 >(
   context: TContext,
 ): TContext & ExecutionContext<TRuntimeConfig> {
@@ -154,8 +154,8 @@ export function createExecutionContext<
 }
 
 export function resolveExecutionContext<
-  TRuntimeConfig,
-  TContext extends RuntimeHostContext<TRuntimeConfig>,
+  TRuntimeConfig = Record<string, unknown>,
+  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
 >(
   context: TContext,
 ): TContext & ExecutionContext<TRuntimeConfig> {
@@ -167,8 +167,8 @@ export function resolveExecutionContext<
 }
 
 export function resolveRuntimeContext<
-  TRuntimeConfig,
-  TContext extends RuntimeHostContext<TRuntimeConfig>,
+  TRuntimeConfig = Record<string, unknown>,
+  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
 >(
   context: TContext,
 ): TContext & ExecutionContext<TRuntimeConfig> {
