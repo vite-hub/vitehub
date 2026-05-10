@@ -59,6 +59,7 @@
     "test": "pnpm --filter @vitehub/workspace... build && vitest run"
   },
   "dependencies": {
+    "@vitehub/shell": "workspace:*",
     "@vitehub/unsource": "workspace:*",
     "defu": "^6.1.4",
     "exsolve": "^1.0.8",

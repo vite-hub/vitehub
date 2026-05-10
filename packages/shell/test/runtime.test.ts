@@ -230,12 +230,31 @@ describe("@vitehub/shell just-bash runtime", () => {
   it("runs workspace inspection policy and search through shell", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
+      "models/customers.sql": "select * from customers\n",
       "models/orders.sql": "select * from orders\n",
     })
     const fs = createReadonlyWorkspaceFs(workspace)
 
     await expect(runWorkspaceInspectionCommand(workspace, "cat README.md && pwd", {
       commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | head -n 1", {
+      commands: ["cat", "head"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | wc -l", {
+      commands: ["cat", "wc"],
       cwd: workspaceMountPoint,
       fs,
     })).resolves.toMatchObject({
@@ -250,6 +269,15 @@ describe("@vitehub/shell just-bash runtime", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: "models/orders.sql:1:select * from orders\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "grep -ri customer models | head -n 1", {
+      commands: ["grep"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/customers.sql:1:select * from customers\n",
     })
   })
 })
