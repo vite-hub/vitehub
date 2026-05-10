@@ -652,8 +652,9 @@ describe("Nitro module", () => {
     expect(routeContents).toContain("defineChatWebhookHandler(chat")
     expect(routeContents).toContain("inferredName: \"chat\"")
     expect(routeContents).not.toContain("processing:")
+    expect(routeFile).toContain("/.nitro/.vitehub/nitro-runtime/chat/webhook-handler.ts")
     const devInitializerFile = nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"]
-    expect(devInitializerFile).toContain("/.nitro/.vitehub/nitro-runtime/chat/dev-initialize.mjs")
+    expect(devInitializerFile).toContain("/.nitro/.vitehub/nitro-runtime/chat/dev-initialize.ts")
     const devInitializerContents = await readFile(devInitializerFile, "utf8")
     expect(devInitializerContents).toContain("defineChatDevInitializer(chat")
     expect(devInitializerContents).toContain("inferredName: \"chat\"")
@@ -674,6 +675,7 @@ describe("Nitro module", () => {
     expect(routeContents).toContain("defineChatFromAgent")
     expect(routeContents).toContain("defineChatFromAgent(agent, \"docs\")")
     expect(routeContents).toContain("defineChatWebhookHandler(chat")
+    expect(nitro.options.handlers[0]!.handler).toContain("/.nitro/.vitehub/nitro-runtime/chat/webhook-handler.ts")
     const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
     expect(devtoolsContents).toContain("defineChatFromAgent(agent, \"docs\")")
   })

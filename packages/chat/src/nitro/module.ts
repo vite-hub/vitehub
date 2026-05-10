@@ -91,7 +91,7 @@ function installCloudflareChatEntrypoint(nitro: Nitro, className: string): void 
 function createNitroChatRoutePath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: "webhook-handler.mjs",
+    fileName: "webhook-handler.ts",
     segments: [".vitehub", "nitro-runtime", "chat"],
   })
 }
@@ -99,7 +99,7 @@ function createNitroChatRoutePath(rootDir: string, buildDir: string): string {
 function createNitroChatRegistryPath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: "nitro-registry.mjs",
+    fileName: "nitro-registry.ts",
     segments: [".vitehub", "nitro-runtime", "chat"],
   })
 }
@@ -107,7 +107,7 @@ function createNitroChatRegistryPath(rootDir: string, buildDir: string): string 
 function createNitroChatDevInitializerPath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: "dev-initialize.mjs",
+    fileName: "dev-initialize.ts",
     segments: [".vitehub", "nitro-runtime", "chat"],
   })
 }
@@ -115,7 +115,7 @@ function createNitroChatDevInitializerPath(rootDir: string, buildDir: string): s
 function createNitroChatDevtoolsPath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: "devtools-handler.mjs",
+    fileName: "devtools-handler.ts",
     segments: [".vitehub", "nitro-runtime", "chat"],
   })
 }

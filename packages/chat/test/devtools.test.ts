@@ -356,7 +356,7 @@ describe("Chat DevTools Vite integration", () => {
     await chatNitroModule.setup!(nitro as never)
 
     expect(nitro.options.handlers).toEqual(expect.arrayContaining([expect.objectContaining({
-      handler: expect.stringContaining("devtools-handler.mjs"),
+      handler: expect.stringContaining("devtools-handler.ts"),
       method: "POST",
       route: chatDevtoolsBridgeRoute,
     })]))
