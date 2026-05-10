@@ -21,7 +21,7 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
 function createNitroAgentRegistryPath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: "nitro-registry.mjs",
+    fileName: "nitro-registry.ts",
     segments: [".vitehub", "nitro-runtime", "agent"],
   })
 }
@@ -29,7 +29,7 @@ function createNitroAgentRegistryPath(rootDir: string, buildDir: string): string
 function createNitroAgentRoutePath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: "route-handler.mjs",
+    fileName: "route-handler.ts",
     segments: [".vitehub", "nitro-runtime", "agent"],
   })
 }

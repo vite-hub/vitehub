@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -83,5 +83,40 @@ describe("agent discovery", () => {
       mode: "nitro-server-agents",
       scanDirs: [join(root, "server")],
     })).toThrow("Duplicate agent name")
+  })
+})
+
+describe("agent Nitro runtime files", () => {
+  it("generates TypeScript runtime files so discovered TypeScript agents stay in the TS build graph", async () => {
+    const root = await createTempRoot("vitehub-agent-nitro-runtime-")
+    const buildDir = ".nitro"
+    await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+
+    const module = (await import("../src/nitro/module.ts")).default
+    const hooks: Array<() => Promise<void> | void> = []
+    await module.setup({
+      hooks: {
+        hook(_name: string, handler: () => Promise<void> | void) {
+          hooks.push(handler)
+        },
+      },
+      options: {
+        agent: { route: true },
+        buildDir,
+        handlers: [],
+        imports: {},
+        rootDir: root,
+        runtimeConfig: {},
+        scanDirs: [join(root, "server")],
+      },
+    } as never)
+
+    const registryFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "nitro-registry.ts")
+    const routeFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "route-handler.ts")
+
+    await expect(readFile(registryFile, "utf8")).resolves.toContain("server/agents/docs/config.ts")
+    await expect(readFile(routeFile, "utf8")).resolves.toContain("./nitro-registry.ts")
+    expect(hooks).toHaveLength(2)
   })
 })
