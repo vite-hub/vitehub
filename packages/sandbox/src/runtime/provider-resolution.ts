@@ -1,8 +1,7 @@
-import { loadSandboxRuntimeProvider } from 'virtual:vitehub-sandbox-provider-loader'
-
 import { getCloudflareEnv } from '../internal/shared/provider-detection'
 import { SandboxError } from '../sandbox/errors'
 import { detectSandbox } from '../sandbox/providers/shared'
+import { loadSandboxProviderRuntime } from './provider-loader-resolver'
 
 import type {
   SandboxDefinitionOptions,
@@ -60,7 +59,7 @@ export async function resolveSandboxProvider(
   local: SandboxDefinitionOptions,
   context: { event?: SandboxEvent },
 ) {
-  const runtimeProvider = await loadSandboxRuntimeProvider(provider)
+  const runtimeProvider = await loadSandboxProviderRuntime(provider)
   const resolvedProvider = await runtimeProvider.resolveSandboxProvider({
     local,
     provider: providerOptions,

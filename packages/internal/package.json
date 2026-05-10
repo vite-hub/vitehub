@@ -38,7 +38,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "pnpm --filter @vitehub/runtime build && vitest run",
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {

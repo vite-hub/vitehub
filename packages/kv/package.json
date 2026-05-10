@@ -40,7 +40,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "vitest run",
+    "test": "pnpm --dir ../runtime build && pnpm --dir ../messages build && pnpm --dir ../shell build && pnpm --dir ../unsource build && pnpm --dir ../sandbox build && pnpm --dir ../unshell build && pnpm --dir ../workspace build && pnpm --dir ../agent build && pnpm --dir ../blob build && pnpm --dir ../chat build && pnpm --dir ../db build && pnpm --dir ../env build && pnpm --dir . build && pnpm --dir ../queue build && pnpm --dir ../workflow build && vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {

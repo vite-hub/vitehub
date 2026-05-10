@@ -5,20 +5,45 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
-      "#vitehub-workspace-assets-registry": ["packages/workspace/src/runtime/empty-assets-registry.ts"],
-      "#vitehub-workspace-registry": ["packages/workspace/src/runtime/empty-registry.ts"],
-      "#vitehub-sandbox-provider-loader": ["packages/sandbox/src/runtime/provider-loader.ts"],
-      "#vitehub-sandbox-registry": ["packages/sandbox/src/runtime/empty-registry.ts"],
-      "virtual:vitehub-sandbox-provider-loader": ["packages/sandbox/src/runtime/provider-loader.ts"],
-      "virtual:vitehub-sandbox-registry": ["packages/sandbox/src/runtime/empty-registry.ts"],
-      "@vitehub/internal/*": ["packages/internal/src/*"],
-      "@vitehub/sandbox": ["packages/sandbox/src/index.ts"],
-      "@vitehub/sandbox/runtime/state": ["packages/sandbox/src/runtime/state.ts"],
-      "@vitehub/shell": ["packages/shell/src/index.ts"],
-      "@vitehub/unsource": ["packages/unsource/src/index.ts"],
-      "@vitehub/unshell": ["packages/unshell/src/index.ts"]
+      "#vitehub-workspace-assets-registry": [
+        "packages/workspace/src/runtime/empty-assets-registry.ts"
+      ],
+      "#vitehub-workspace-registry": [
+        "packages/workspace/src/runtime/empty-registry.ts"
+      ],
+      "#vitehub-sandbox-provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
+      "#vitehub-sandbox-registry": [
+        "packages/sandbox/src/runtime/empty-registry.ts"
+      ],
+      "virtual:vitehub-sandbox-provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
+      "virtual:vitehub-sandbox-registry": [
+        "packages/sandbox/src/runtime/empty-registry.ts"
+      ],
+      "@vitehub/internal/*": [
+        "packages/internal/src/*"
+      ],
+      "@vitehub/sandbox": [
+        "packages/sandbox/src/index.ts"
+      ],
+      "@vitehub/sandbox/runtime/state": [
+        "packages/sandbox/src/runtime/state.ts"
+      ],
+      "@vitehub/shell": [
+        "packages/shell/src/index.ts"
+      ],
+      "@vitehub/unsource": [
+        "packages/unsource/src/index.ts"
+      ],
+      "@vitehub/unshell": [
+        "packages/unshell/src/index.ts"
+      ]
     },
-    "rootDir": ".."
+    "rootDir": "..",
+    "baseUrl": "../.."
   },
   "include": [
     "src/**/*.ts",

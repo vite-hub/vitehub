@@ -50,7 +50,7 @@
     "build:devtools": "pnpm --filter @vitehub/devtools build:chat",
     "dev": "tsdown --watch",
     "dev:devtools": "pnpm --filter @vitehub/devtools dev:chat",
-    "typecheck": "pnpm --filter @vitehub/agent... build && tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "pnpm --filter @vitehub/agent... build && tsc --noEmit -p ./tsconfig.json && find ../ -maxdepth 2 -type d -name dist -prune -exec rm -rf {} +",
     "test": "pnpm --filter @vitehub/chat build && vitest run"
   },
   "dependencies": {
