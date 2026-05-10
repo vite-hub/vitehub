@@ -32,14 +32,11 @@ describe("agent Vite plugin", () => {
 
 describe("Vercel helpers", () => {
   it("returns JSON responses for non-streaming agent calls", async () => {
+    const { defineAgent } = await import("../src/index.ts")
     const { defineVercelAgentHandler } = await import("../src/vercel.ts")
     const waitUntil = vi.fn()
-    const agent = {
-      generate: vi.fn(async () => ({ finishReason: "stop", text: "ok", usage: { inputTokens: 1 } })),
-      stream: vi.fn(),
-      tools: {},
-      version: "agent-v1",
-    }
+    const run = vi.fn(() => ({ raw: { answer: 42 }, text: "ok" }))
+    const agent = defineAgent({ run })
     const handler = defineVercelAgentHandler(agent as never, { waitUntil })
 
     const response = await handler(new Request("https://example.com/agents/triager", {
@@ -47,8 +44,33 @@ describe("Vercel helpers", () => {
       method: "POST",
     }))
 
-    await expect(response.json()).resolves.toMatchObject({ text: "ok" })
-    expect(agent.generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "hello" }))
+    await expect(response.json()).resolves.toMatchObject({ raw: { answer: 42 }, text: "ok" })
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ prompt: "hello" }),
+    }))
+  })
+})
+
+describe("Nitro helpers", () => {
+  it("runs custom run agents without resolving a model first", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentHandler } = await import("../src/nitro.ts")
+    const run = vi.fn(() => ({ raw: { routed: true }, text: "ok" }))
+    const handler = defineAgentHandler(defineAgent({ run }) as never)
+    const event = {
+      req: {
+        headers: { host: "example.com" },
+        method: "POST",
+        url: "/agents/triager",
+      },
+      url: "https://example.com/agents/triager",
+      waitUntil: vi.fn(),
+    }
+
+    const result = await handler(event as never)
+
+    expect(result).toMatchObject({ raw: { routed: true }, text: "ok" })
+    expect(run).toHaveBeenCalled()
   })
 })
 

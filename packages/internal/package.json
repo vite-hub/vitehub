@@ -42,6 +42,7 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
+    "@vitehub/runtime": "workspace:*",
     "esbuild": "^0.27.7",
     "exsolve": "catalog:",
     "h3": "catalog:",

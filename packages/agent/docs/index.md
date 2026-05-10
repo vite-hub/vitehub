@@ -7,7 +7,7 @@ icon: i-lucide-bot
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/agent` defines server-side agents. An agent owns model instructions, tools, and the run or stream call that produces a response.
+`@vitehub/agent` defines server-side agents. An agent owns model instructions, tools, and the run or stream call that produces a response. It consumes `@vitehub/runtime` capabilities when it needs host resources.
 
 Use Agent when a server feature needs a model loop with ViteHub message input.
 
@@ -71,12 +71,13 @@ export default defineAgent({
 
 ## What Agent does not own
 
-Agent does not own chat webhooks, Chat SDK adapters, workflow runs, or sandbox lifecycle. Use the package that owns each boundary:
+Agent does not own chat webhooks, Chat SDK adapters, workflow runs, runtime capability registration, or sandbox lifecycle. Use the package that owns each boundary:
 
 | Need | Use |
 | --- | --- |
 | Receive Slack, Discord, Telegram, or Teams events | `@vitehub/chat` |
 | Store or replay conversation state | `@vitehub/messages` |
+| Resolve shared capabilities, approvals, and trace context | `@vitehub/runtime` |
 | Coordinate durable work | `@vitehub/workflow` |
 | Execute isolated code | `@vitehub/sandbox` |
 

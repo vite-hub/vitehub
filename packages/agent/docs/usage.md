@@ -157,18 +157,18 @@ export default defineChat({
 
 ## Use Workspace tools
 
-Use `@vitehub/agent/workspace` when an agent answers from a ViteHub Workspace.
+Use `defineAgent.workspace()` from a colocated workspace config when an agent answers from a ViteHub Workspace.
 
-```ts [server/agents/context.ts]
-import { defineWorkspaceAgent } from '@vitehub/agent/workspace'
+```ts [server/workspaces/data-sources/config.ts]
+import { defineAgent } from '@vitehub/agent'
+import * as source from '@vitehub/workspace/source'
 
-export default defineWorkspaceAgent({
-  workspace: 'data-sources',
-  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+export default defineAgent.workspace({
+  sources: {
+    docs: source.github({ repo: 'acme/docs', ref: 'main', mount: 'docs' }),
+  },
   model,
 })
 ```
 
-`fs.readFile()` returns UTF-8 text by default. Pass `{ encoding: 'binary' }` only when an agent needs bytes.
-
-The older `instructionsFile` option is deprecated. Use the `instructions` callback when instructions live in a workspace file.
+`server/workspaces/<name>/config.ts` becomes both the workspace definition and the default agent named after the workspace directory. `AGENTS.md` is loaded as instructions by convention when it exists. Use `instructions: async ({ fs }) => await fs.readFile('custom.md')` when instructions live somewhere else.

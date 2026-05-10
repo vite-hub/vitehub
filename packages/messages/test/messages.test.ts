@@ -53,6 +53,18 @@ describe("@vitehub/messages", () => {
     ])
   })
 
+  it("tracks approval decisions", () => {
+    let messages = [createMessage({ id: "m1", parts: [], role: "assistant" })]
+
+    messages = applyStreamEvent(messages, { id: "call-1", input: { amount: 100 }, messageId: "m1", name: "refund", type: "approval-request" })
+    messages = applyStreamEvent(messages, { approved: true, decidedAt: new Date("2026-05-09T10:00:00.000Z"), id: "call-1", messageId: "m1", type: "approval-decision" })
+
+    expect(messages[0]?.parts).toEqual([
+      { id: "call-1", input: { amount: 100 }, name: "refund", type: "approval-request" },
+      { approved: true, decidedAt: "2026-05-09T10:00:00.000Z", id: "call-1", type: "approval-decision" },
+    ])
+  })
+
   it("serializes and deserializes validated messages", () => {
     const messages = [createMessage({ id: "m1", role: "user", text: "hello" })]
     const serialized = serializeMessages(messages)
@@ -89,5 +101,13 @@ describe("@vitehub/messages", () => {
       parts: [{ id: "call-1", name: "weather", state: "completed", type: "tool-result" }],
       role: "assistant",
     })).toThrow("must follow a matching tool-call")
+  })
+
+  it("rejects approval decisions without a matching request", () => {
+    expect(() => validateMessage({
+      id: "m1",
+      parts: [{ approved: true, id: "call-1", type: "approval-decision" }],
+      role: "assistant",
+    })).toThrow("must follow a matching approval-request")
   })
 })

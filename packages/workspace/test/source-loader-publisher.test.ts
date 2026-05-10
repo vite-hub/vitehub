@@ -442,15 +442,15 @@ describe("sources, loaders, and publishers", () => {
     const root = await createRoot()
     const directory = join(root, "server", "workspaces", "docs")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, ".config.ts"), "export default {}\n")
+    await writeFile(join(directory, "config.ts"), "export default {}\n")
     await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
     await writeFile(join(directory, "README.md"), "# Docs\n")
     const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
 
     await initializeWorkspaceAssetRegistry(registryFile, [{
-      handler: join(directory, ".config.ts"),
+      handler: join(directory, "config.ts"),
       name: "docs",
-      path: join(directory, ".config.ts"),
+      path: join(directory, "config.ts"),
       source: "test",
     }], root)
 
@@ -463,14 +463,14 @@ describe("sources, loaders, and publishers", () => {
     const root = await createRoot()
     const directory = join(root, "server", "workspaces", "docs")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, ".config.mjs"), "export default {}\n")
+    await writeFile(join(directory, "config.mjs"), "export default {}\n")
     await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
     const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
 
     await syncWorkspaceBuildAssets([{
-      handler: join(directory, ".config.mjs"),
+      handler: join(directory, "config.mjs"),
       name: "docs",
-      path: join(directory, ".config.mjs"),
+      path: join(directory, "config.mjs"),
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
@@ -489,21 +489,21 @@ describe("sources, loaders, and publishers", () => {
     const skippedDirectory = join(root, "server", "workspaces", "skipped")
     await mkdir(selectedDirectory, { recursive: true })
     await mkdir(skippedDirectory, { recursive: true })
-    await writeFile(join(selectedDirectory, ".config.mjs"), "export default {}\n")
+    await writeFile(join(selectedDirectory, "config.mjs"), "export default {}\n")
     await writeFile(join(selectedDirectory, "AGENTS.md"), "# Selected\n")
-    await writeFile(join(skippedDirectory, ".config.mjs"), "export default {}\n")
+    await writeFile(join(skippedDirectory, "config.mjs"), "export default {}\n")
     await writeFile(join(skippedDirectory, "AGENTS.md"), "# Skipped\n")
     const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
 
     await syncWorkspaceBuildAssets([{
-      handler: join(selectedDirectory, ".config.mjs"),
+      handler: join(selectedDirectory, "config.mjs"),
       name: "selected",
-      path: join(selectedDirectory, ".config.mjs"),
+      path: join(selectedDirectory, "config.mjs"),
       source: "test",
     }, {
-      handler: join(skippedDirectory, ".config.mjs"),
+      handler: join(skippedDirectory, "config.mjs"),
       name: "skipped",
-      path: join(skippedDirectory, ".config.mjs"),
+      path: join(skippedDirectory, "config.mjs"),
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
@@ -520,7 +520,7 @@ describe("sources, loaders, and publishers", () => {
     const root = await createRoot()
     const directory = join(root, "server", "workspaces", "docs")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, ".config.mjs"), [
+    await writeFile(join(directory, "config.mjs"), [
       "export default {",
       "  sources: {",
       "    docs: {",
@@ -540,9 +540,9 @@ describe("sources, loaders, and publishers", () => {
     }))
 
     await syncWorkspaceBuildAssets([{
-      handler: join(directory, ".config.mjs"),
+      handler: join(directory, "config.mjs"),
       name: "docs",
-      path: join(directory, ".config.mjs"),
+      path: join(directory, "config.mjs"),
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),

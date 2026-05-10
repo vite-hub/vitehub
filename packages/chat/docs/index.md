@@ -7,7 +7,7 @@ icon: i-lucide-message-circle
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/chat` connects Chat SDK adapters to ViteHub apps. A chat definition owns adapters, state, event hooks, and webhook handling.
+`@vitehub/chat` connects Chat SDK adapters to ViteHub apps. A chat definition owns adapters, state, event hooks, and webhook handling. When Chat hands off to Agent, it passes canonical `@vitehub/messages` history and a runtime-compatible context.
 
 Use Chat when an app receives provider chat events and posts responses back to a thread.
 
@@ -54,12 +54,13 @@ export default defineChat({
 
 ## What Chat does not own
 
-Chat does not own model execution or canonical message storage. Use:
+Chat does not own model execution, canonical message storage, or shared runtime capability contracts. Use:
 
 | Need | Use |
 | --- | --- |
 | Model and tool-loop execution | `@vitehub/agent` |
 | Portable conversation and stream state | `@vitehub/messages` |
+| Shared capability, approval, and trace contracts | `@vitehub/runtime` |
 | Durable orchestration | `@vitehub/workflow` |
 
 ## Start here

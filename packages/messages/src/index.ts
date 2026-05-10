@@ -52,6 +52,14 @@ export interface ApprovalRequestPart {
   type: "approval-request"
 }
 
+export interface ApprovalDecisionPart {
+  approved: boolean
+  decidedAt?: string
+  id: string
+  reason?: string
+  type: "approval-decision"
+}
+
 export interface SourcePart {
   id?: string
   sourceType?: string
@@ -68,6 +76,7 @@ export interface ErrorPart {
 }
 
 export type MessagePart =
+  | ApprovalDecisionPart
   | ApprovalRequestPart
   | DataPart
   | ErrorPart
@@ -90,6 +99,7 @@ export type StreamEvent =
   | { id: string, input?: unknown, messageId?: string, name: string, type: "tool-call" | "tool-input-start" }
   | { error?: string, id: string, messageId?: string, name: string, output?: unknown, type: "tool-result" }
   | { id: string, input?: unknown, messageId?: string, name: string, reason?: string, type: "approval-request" }
+  | { approved: boolean, decidedAt?: Date | string, id: string, messageId?: string, reason?: string, type: "approval-decision" }
   | { error: string, id?: string, messageId?: string, recoverable?: boolean, type: "error" }
   | { messageId?: string, reason?: string, type: "finish" }
 
@@ -248,6 +258,13 @@ export function validateMessage(message: Message): void {
         assertString(part.name, "approval-request.name")
         openToolCalls.set(part.id, part)
         break
+      case "approval-decision":
+        assertString(part.id, "approval-decision.id")
+        if (typeof part.approved !== "boolean") throw new TypeError("[vitehub:messages] approval-decision.approved must be a boolean.")
+        if (!openToolCalls.has(part.id)) {
+          throw new TypeError(`[vitehub:messages] approval-decision "${part.id}" must follow a matching approval-request.`)
+        }
+        break
       case "tool-result":
         assertString(part.id, "tool-result.id")
         assertString(part.name, "tool-result.name")
@@ -312,6 +329,10 @@ export function applyStreamEvent(messages: Message[], event: StreamEvent): Messa
   }
   else if (event.type === "approval-request") {
     message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, reason: event.reason, type: "approval-request" }) as ApprovalRequestPart)
+  }
+  else if (event.type === "approval-decision") {
+    const decidedAt = normalizeCreatedAt(event.decidedAt)
+    message.parts.push(omitUndefined({ approved: event.approved, decidedAt, id: event.id, reason: event.reason, type: "approval-decision" }) as ApprovalDecisionPart)
   }
   else if (event.type === "error") {
     message.parts.push(omitUndefined({ error: event.error, id: event.id, recoverable: event.recoverable, type: "error" }) as ErrorPart)

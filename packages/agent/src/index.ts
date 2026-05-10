@@ -1,6 +1,12 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { getMessageText } from "@vitehub/messages"
-import { resolveRuntimeContext, resolveRuntimeValue } from "@vitehub/internal/runtime/context"
+import {
+  ApprovalRequiredError,
+  CapabilityDeniedError,
+  resolveCapabilityPolicy,
+  resolveRuntimeContext,
+  resolveRuntimeValue,
+} from "@vitehub/runtime"
 
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
@@ -8,6 +14,7 @@ import type {
   Agent,
   AgentCallParameters,
   ModelMessage,
+  ToolLoopAgentSettings,
   ToolSet,
 } from "ai"
 import type {
@@ -23,10 +30,18 @@ import type {
   AgentRuntimeContext,
   AgentSettings,
   AgentToolDefinition,
+  MaybePromise,
   MaybeResolvable,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
 import type { Message, MessagePart, StreamEvent } from "@vitehub/messages"
+import type {
+  ReadonlyWorkspaceFacade,
+  ReadonlyWorkspaceFs,
+  WorkspaceDefinitionInput,
+  WorkspaceFacadeToolOptions,
+  WorkspaceName,
+} from "@vitehub/workspace"
 
 export type {
   Agent,
@@ -125,16 +140,7 @@ async function createToolLoopAgent<CALL_OPTIONS, TOOLS extends ToolSet>(
   settings: Omit<AgentSettings<AgentRuntimeConfig, CALL_OPTIONS, TOOLS>, "description" | "run" | "tools">,
   tools: TOOLS | undefined,
 ): Promise<Agent<CALL_OPTIONS, TOOLS>> {
-  const importAI = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<typeof import("ai")>
-  const specifier = "ai"
-  let ai: typeof import("ai")
-  try {
-    ai = await importAI(specifier)
-  }
-  catch (error) {
-    if (!(error instanceof TypeError) || !/dynamic import callback/i.test(error.message)) throw error
-    ai = await import(specifier)
-  }
+  const ai = await import("ai")
   const { ToolLoopAgent } = ai
   return new ToolLoopAgent<CALL_OPTIONS, TOOLS>({
     ...(settings as unknown as ConstructorParameters<typeof ToolLoopAgent<CALL_OPTIONS, TOOLS>>[0]),
@@ -142,7 +148,73 @@ async function createToolLoopAgent<CALL_OPTIONS, TOOLS extends ToolSet>(
   })
 }
 
-export function defineAgent<
+function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
+  return typeof value === "object" && value !== null && "name" in value && typeof (value as { name?: unknown }).name === "string"
+}
+
+function createApprovalRequest(name: string, input: unknown, reason?: string) {
+  return {
+    capability: name,
+    id: `approval_${name}_${Math.random().toString(36).slice(2, 10)}`,
+    input,
+    reason,
+    state: "awaiting-approval" as const,
+  }
+}
+
+function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
+  if (!tool.policy || typeof tool.execute !== "function") {
+    return tool
+  }
+
+  const execute = tool.execute
+  const policy = tool.policy
+
+  return {
+    ...tool,
+    async execute(input) {
+      const decision = typeof policy === "function"
+        ? await policy({
+            name: tool.name,
+            input,
+          })
+        : await resolveCapabilityPolicy(policy, {
+            capability: tool.name,
+            input,
+            operation: "tool.execute",
+          })
+
+      const approvalRequest = createApprovalRequest(tool.name, input)
+
+      if (decision === "deny") {
+        throw new CapabilityDeniedError(tool.name)
+      }
+      if (decision === "require-approval") {
+        throw new ApprovalRequiredError(approvalRequest)
+      }
+      if (decision === "retryable-failure") {
+        throw new Error(`[vitehub:agent] Tool "${tool.name}" failed with a retryable policy decision.`)
+      }
+
+      return await execute(input)
+    },
+  }
+}
+
+function applyToolPolicies<TTools extends Record<string, unknown>>(tools: TTools | undefined): TTools | undefined {
+  if (!tools || typeof tools !== "object") {
+    return tools
+  }
+
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!isAgentToolDefinition(tool)) {
+      return [name, tool]
+    }
+    return [name, withToolPolicy(tool)]
+  })) as TTools
+}
+
+function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = never,
   TOOLS extends ToolSet = ToolSet,
@@ -168,13 +240,271 @@ export function defineAgent<
 
       const resolvedContext = createResolvedRuntimeContext(context)
       const resolvedTools = tools
-        ? await resolveValue(tools, resolvedContext)
+        ? applyToolPolicies(await resolveValue(tools, resolvedContext))
         : undefined
 
-      return await createToolLoopAgent(settings, resolvedTools)
+      return await createToolLoopAgent(settings, resolvedTools as TOOLS | undefined)
     },
   }
 }
+
+type WorkspaceRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig> =
+  ResolvedAgentRuntimeContext<TRuntimeConfig>
+
+type WorkspaceModel<TRuntimeConfig extends AgentRuntimeConfig> =
+  | ToolLoopAgentSettings["model"]
+  | ((context: WorkspaceRuntimeContext<TRuntimeConfig>) => MaybePromise<ToolLoopAgentSettings["model"]>)
+
+type WorkspaceAgentInstructionsInput = string | string[]
+
+interface WorkspaceAgentInstructionsContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends WorkspaceRuntimeContext<TRuntimeConfig> {
+  fs: ReadonlyWorkspaceFs<Name>
+  workspace: ReadonlyWorkspaceFacade<Name>
+}
+
+type WorkspaceAgentInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | WorkspaceAgentInstructionsInput
+  | ((context: WorkspaceAgentInstructionsContext<TRuntimeConfig, Name>) => MaybePromise<WorkspaceAgentInstructionsInput>)
+
+export interface WorkspaceAgentFallbackOptions {
+  enabled?: boolean
+  maxToolResults?: number
+}
+
+export interface WorkspaceAgentOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends Omit<WorkspaceDefinitionInput, "name"> {
+  description?: string
+  fallback?: boolean | WorkspaceAgentFallbackOptions
+  instructions?: WorkspaceAgentInstructions<TRuntimeConfig, Name>
+  model: WorkspaceModel<TRuntimeConfig>
+  name?: string
+  stepLimit?: number
+  toolOptions?: WorkspaceFacadeToolOptions
+  workspace?: Name
+}
+
+export type WorkspaceAgentDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = AgentDefinition<TRuntimeConfig, never, ToolSet> & WorkspaceDefinitionInput & {
+  __vitehubWorkspaceAgent: true
+  __vitehubWorkspaceAgentOptions: WorkspaceAgentOptions<TRuntimeConfig, Name>
+}
+
+export interface WorkspaceAgentDefaults<Name extends WorkspaceName = WorkspaceName> {
+  instructionsFile?: string
+  name?: string
+  workspace?: Name
+}
+
+export interface DefineAgent {
+  <
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    CALL_OPTIONS = never,
+    TOOLS extends ToolSet = ToolSet,
+  >(
+    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> | Agent<CALL_OPTIONS, TOOLS>,
+  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS>
+  workspace: typeof createWorkspaceAgentDefinition
+}
+
+function isModelResolver<TRuntimeConfig extends AgentRuntimeConfig>(
+  model: WorkspaceModel<TRuntimeConfig>,
+): model is (context: WorkspaceRuntimeContext<TRuntimeConfig>) => MaybePromise<ToolLoopAgentSettings["model"]> {
+  return typeof model === "function"
+}
+
+async function resolveModel<TRuntimeConfig extends AgentRuntimeConfig>(
+  model: WorkspaceModel<TRuntimeConfig>,
+  context: WorkspaceRuntimeContext<TRuntimeConfig>,
+) {
+  return isModelResolver(model) ? await model(context) : model
+}
+
+function getPromptText(input: AgentRunInput) {
+  if (typeof input.prompt === "string") return input.prompt
+
+  const messages = input.messages || (Array.isArray(input.prompt) ? input.prompt : [])
+  const latestUserMessage = [...messages].reverse().find(message => message.role === "user")
+
+  if (!latestUserMessage) return ""
+  return getMessageText(latestUserMessage)
+}
+
+function getAgentCall(input: AgentRunInput) {
+  if (input.messages) return { messages: toModelMessages(input.messages) }
+  if (Array.isArray(input.prompt)) return { messages: toModelMessages(input.prompt) }
+  if (input.prompt) return { prompt: input.prompt }
+  return { messages: [] }
+}
+
+async function readDefaultInstructions(
+  workspace: ReadonlyWorkspaceFacade,
+  path: string | undefined,
+) {
+  if (!path) return undefined
+  try {
+    return await workspace.fs.readFile(path)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function joinInstructions(...parts: Array<WorkspaceAgentInstructionsInput | undefined>) {
+  return parts
+    .flatMap(part => Array.isArray(part) ? part : [part])
+    .map(part => part?.trim())
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+async function resolveWorkspaceInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  workspace: ReadonlyWorkspaceFacade<Name>,
+  context: WorkspaceRuntimeContext<TRuntimeConfig>,
+  defaults: WorkspaceAgentDefaults<Name>,
+) {
+  const instructions = typeof options.instructions === "function"
+    ? await options.instructions({
+        ...context,
+        fs: workspace.fs,
+        workspace,
+      })
+    : options.instructions
+  const defaultInstructions = options.instructions === undefined
+    ? await readDefaultInstructions(workspace, defaults.instructionsFile)
+    : undefined
+  return joinInstructions(instructions, defaultInstructions)
+}
+
+function getFallbackOptions(fallback: WorkspaceAgentOptions["fallback"]): Required<WorkspaceAgentFallbackOptions> {
+  if (fallback === false) return { enabled: false, maxToolResults: 0 }
+  if (fallback === true || fallback === undefined) return { enabled: true, maxToolResults: 8 }
+  return {
+    enabled: fallback.enabled ?? true,
+    maxToolResults: fallback.maxToolResults ?? 8,
+  }
+}
+
+function collectToolResults(
+  result: { steps?: Array<{ content?: Array<{ type: string, output?: unknown }> }> },
+  maxToolResults: number,
+) {
+  const parts: string[] = []
+
+  for (const step of result.steps || []) {
+    for (const content of step.content || []) {
+      if (content.type !== "tool-result") continue
+      parts.push(JSON.stringify(content.output).slice(0, 4000))
+      if (parts.length >= maxToolResults) return parts
+    }
+  }
+
+  return parts
+}
+
+async function synthesizeWorkspaceFallback<TRuntimeConfig extends AgentRuntimeConfig>(
+  model: ToolLoopAgentSettings["model"],
+  context: AgentRunContext<TRuntimeConfig>,
+  result: { steps?: Array<{ content?: Array<{ type: string, output?: unknown }> }> },
+  maxToolResults: number,
+) {
+  const evidence = collectToolResults(result, maxToolResults)
+  if (evidence.length === 0) return undefined
+
+  const { generateText } = await import("ai")
+  const summary = await generateText({
+    model,
+    system: [
+      "Answer the user's last message using only the workspace tool results.",
+      "If the tool results are insufficient, say what is missing.",
+    ].join("\n"),
+    prompt: [
+      `User message:\n${getPromptText(context.input)}`,
+      `Workspace tool results:\n${evidence.join("\n\n---\n\n")}`,
+    ].join("\n\n"),
+  })
+
+  return summary.text.trim() || undefined
+}
+
+function createWorkspaceAgentDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  defaults: WorkspaceAgentDefaults<Name> = {},
+): WorkspaceAgentDefinition<TRuntimeConfig, Name> {
+  const workspaceName = options.workspace ?? defaults.workspace
+  const definition = defineBaseAgent<TRuntimeConfig, never, ToolSet>({
+    description: options.description,
+    async run(context) {
+      if (!workspaceName) {
+        throw new Error("[vitehub] defineAgent.workspace() requires an inferred workspace name or an explicit workspace option.")
+      }
+      const { useWorkspace } = await import("@vitehub/workspace")
+      const { stepCountIs, ToolLoopAgent } = await import("ai")
+      const workspace = useWorkspace(workspaceName)
+      const model = await resolveModel(options.model, context)
+      const instructions = await resolveWorkspaceInstructions(options, workspace, context, defaults)
+      const agent = new ToolLoopAgent({
+        instructions,
+        model,
+        stopWhen: stepCountIs(options.stepLimit ?? 20),
+        tools: workspace.tools(options.toolOptions),
+      })
+      const result = await agent.generate({
+        ...getAgentCall(context.input),
+        abortSignal: context.input.abortSignal,
+        timeout: context.input.timeout,
+      })
+      const text = result.text.trim()
+
+      if (text) return text
+
+      const fallback = getFallbackOptions(options.fallback)
+      if (fallback.enabled && result.finishReason === "tool-calls") {
+        const synthesized = await synthesizeWorkspaceFallback(model, context, result, fallback.maxToolResults)
+        if (synthesized) return synthesized
+      }
+
+      return result
+    },
+  }) as WorkspaceAgentDefinition<TRuntimeConfig, Name>
+
+  Object.assign(definition, options, {
+    __vitehubWorkspaceAgent: true,
+    __vitehubWorkspaceAgentOptions: options,
+  })
+  return definition
+}
+
+export function withWorkspaceAgentDefaults<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+>(
+  definition: WorkspaceAgentDefinition<TRuntimeConfig, Name>,
+  defaults: WorkspaceAgentDefaults<Name>,
+): WorkspaceAgentDefinition<TRuntimeConfig, Name> {
+  if (!definition?.__vitehubWorkspaceAgent) return definition
+  return createWorkspaceAgentDefinition(definition.__vitehubWorkspaceAgentOptions, defaults)
+}
+
+export const defineAgent: DefineAgent = Object.assign(defineBaseAgent, {
+  workspace: createWorkspaceAgentDefinition,
+})
 
 export async function resolveAgent<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,
@@ -253,6 +583,7 @@ function toModelMessageContent(parts: MessagePart[]): string {
     if (part.type === "tool-call") return JSON.stringify({ input: part.input, toolCallId: part.id, toolName: part.name, type: "tool-call" })
     if (part.type === "tool-result") return JSON.stringify({ error: part.error, output: part.output, toolCallId: part.id, toolName: part.name, type: "tool-result" })
     if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.id, toolName: part.name, type: "approval-request" })
+    if (part.type === "approval-decision") return JSON.stringify({ approved: part.approved, reason: part.reason, toolCallId: part.id, type: "approval-decision" })
     if (part.type === "source") return part.url || part.title || ""
     return ""
   }).filter(Boolean).join("\n")
@@ -309,10 +640,10 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
     return { id: String(value.id || value.toolCallId), input: value.input, name: String(value.toolName || value.name), type: "tool-input-start" }
   }
   if (type === "tool-call") {
-    return { id: String(value.toolCallId || value.id), input: value.input || value.args, name: String(value.toolName || value.name), type: "tool-call" }
+    return { id: String(value.toolCallId ?? value.id), input: value.input ?? value.args, name: String(value.toolName ?? value.name), type: "tool-call" }
   }
   if (type === "tool-result") {
-    return { error: typeof value.error === "string" ? value.error : undefined, id: String(value.toolCallId || value.id), name: String(value.toolName || value.name), output: value.output || value.result, type: "tool-result" }
+    return { error: typeof value.error === "string" ? value.error : undefined, id: String(value.toolCallId ?? value.id), name: String(value.toolName ?? value.name), output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "error") {
     return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), type: "error" }

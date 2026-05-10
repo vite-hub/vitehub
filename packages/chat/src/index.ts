@@ -1,5 +1,5 @@
 import { Chat } from "chat"
-import { isResolvable, resolveRuntimeContext, resolveRuntimeValue } from "@vitehub/internal/runtime/context"
+import { isResolvable, resolveRuntimeContext, resolveRuntimeValue } from "@vitehub/runtime"
 
 import { createAgentDirectMessageHook } from "./agent-handoff.ts"
 import { chatDevtoolsAdapterName, observeChatDevtoolsStream } from "./devtools.ts"

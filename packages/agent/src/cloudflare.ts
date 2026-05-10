@@ -6,8 +6,7 @@ import { createAgentRuntimeContext } from "./runtime/context.ts"
 type RouteAgentRequest = (request: Request, env: Record<string, unknown>, options?: Record<string, unknown>) => Promise<Response | undefined> | Response | undefined
 
 async function loadRouteAgentRequest(): Promise<RouteAgentRequest> {
-  const importAgents = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<typeof import("agents")>
-  const mod = await importAgents("agents")
+  const mod = await import("agents")
   return mod.routeAgentRequest as RouteAgentRequest
 }
 
@@ -56,6 +55,7 @@ function toJsonSafeResult(value: unknown) {
   const result = value as Record<string, unknown>
   return {
     finishReason: result.finishReason,
+    raw: result.raw,
     text: result.text,
     usage: result.usage,
     warnings: result.warnings,

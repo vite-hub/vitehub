@@ -185,7 +185,7 @@ The agent never receives a real filesystem mount. It only sees workspace tools s
 
 Source-backed paths are read-only in this release. Write generated or editable files to normal workspace paths such as `artifacts/**` or `generated/**`.
 
-Nitro supports both flat workspace files like `server/workspaces/docs.ts` and directory workspaces like `server/workspaces/docs/.config.ts`. Duplicate workspace names across those shapes are invalid.
+Nitro supports both flat workspace files like `server/workspaces/docs.ts` and directory workspaces like `server/workspaces/docs/config.ts`. Duplicate workspace names across those shapes are invalid.
 
 ## Hosted Providers
 

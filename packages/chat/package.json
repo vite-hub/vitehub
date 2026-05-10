@@ -56,6 +56,7 @@
   "dependencies": {
     "@vitehub/agent": "workspace:*",
     "@vitehub/messages": "workspace:*",
+    "@vitehub/runtime": "workspace:*",
     "@vitejs/devtools-kit": "catalog:",
     "@vercel/functions": "^3.4.3",
     "h3": "2.0.1-rc.20",

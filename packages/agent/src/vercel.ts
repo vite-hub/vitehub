@@ -50,6 +50,7 @@ function toJsonSafeResult(value: unknown) {
   const result = value as Record<string, unknown>
   return {
     finishReason: result.finishReason,
+    raw: result.raw,
     text: result.text,
     usage: result.usage,
     warnings: result.warnings,

@@ -17,7 +17,7 @@ import type {
   RuntimeCapabilityHandle,
   RuntimeHostContext,
   RuntimeWaitUntil,
-} from "@vitehub/internal/runtime/context"
+} from "@vitehub/runtime"
 
 export type { Agent } from "ai"
 export type {
@@ -82,7 +82,7 @@ export type AgentRunHandler<
 export type AgentToolResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   TOOLS extends ToolSet = ToolSet,
-> = MaybeResolvable<TOOLS, ResolvedAgentRuntimeContext<TRuntimeConfig>>
+> = MaybeResolvable<TOOLS | AgentToolSet, ResolvedAgentRuntimeContext<TRuntimeConfig>>
 
 export type AgentModelInput = LanguageModel
 
@@ -202,7 +202,8 @@ export interface DiscoveredAgentDefinition {
   exportName?: string
   handler: string
   name: string
-  source?: "nitro-server-agent" | "nitro-server-agents" | "vite-suffix"
+  source?: "nitro-server-agent" | "nitro-server-agents" | "nitro-server-workspace-agent" | "vite-suffix"
+  workspace?: string
 }
 
 export type AgentRequestBody<CALL_OPTIONS = never> = {
@@ -228,6 +229,8 @@ export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
   outputSchema?: unknown
   policy?: AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 }
+
+export type AgentToolSet = Record<string, AgentToolDefinition>
 
 export interface CloudflareExportedHandlerFetchHandler<TEnv = unknown> {
   (request: Request, env: TEnv, ctx: { waitUntil?: (promise: Promise<unknown>) => void }): Response | Promise<Response>

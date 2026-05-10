@@ -162,6 +162,7 @@ function toJsonSafeResult(value: unknown) {
   const result = value as Record<string, unknown>
   return {
     finishReason: result.finishReason,
+    raw: result.raw,
     text: result.text,
     usage: result.usage,
     warnings: result.warnings,
@@ -212,11 +213,13 @@ export function defineAgentHandler(
     const context = createRuntimeContext(event)
     try {
       await hooks.request(context)
-      const resolved = await resolveAgent(agent, context)
-      await hooks.resolved({ ...context, agent: resolved })
 
       const body = await readAgentBody(event)
       const stream = body.stream !== false
+      if (options.lifecycleHooks?.resolved) {
+        const resolved = await resolveAgent(agent, context)
+        await hooks.resolved({ ...context, agent: resolved })
+      }
       const result = stream
         ? await streamAgent(agent, context, body)
         : await runAgent(agent, context, body)

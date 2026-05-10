@@ -48,9 +48,14 @@ function resolveNitroAgentScanDirs(rootDir: string, scanDirs: string[] | undefin
 
 function createNitroAgentRegistryContents(file: string, definitions: DiscoveredAgentDefinition[]): string {
   return [
+    `import { withWorkspaceAgentDefaults } from "@vitehub/agent"`,
+    "",
     "const registry = {",
     ...definitions.map((definition) => {
       const importPath = createImportPath(file, definition.handler)
+      if (definition.source === "nitro-server-workspace-agent") {
+        return `  ${JSON.stringify(definition.name)}: async () => ({ default: withWorkspaceAgentDefaults((await import(${JSON.stringify(importPath)})).default, { instructionsFile: "AGENTS.md", name: ${JSON.stringify(definition.name)}, workspace: ${JSON.stringify(definition.workspace)} }) }),`
+      }
       if (definition.exportName) {
         return `  ${JSON.stringify(definition.name)}: async () => ({ default: (await import(${JSON.stringify(importPath)}))[${JSON.stringify(definition.exportName)}] }),`
       }
@@ -113,7 +118,6 @@ function installAliases(nitro: Nitro, registryFile: string | undefined): void {
   nitro.options.alias["@vitehub/agent/nitro"] = resolveRuntimeEntry("../nitro", "@vitehub/agent/nitro")
   nitro.options.alias["@vitehub/agent/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vitehub/agent/runtime/nitro-runtime-config")
   nitro.options.alias["@vitehub/agent/vercel"] = resolveRuntimeEntry("../vercel", "@vitehub/agent/vercel")
-  nitro.options.alias["@vitehub/agent/workspace"] = resolveRuntimeEntry("../workspace", "@vitehub/agent/workspace")
   nitro.options.alias["#vitehub/agent/registry"] = registryFile || resolveRuntimeEntry("../runtime/empty-registry", "@vitehub/agent/runtime/empty-registry")
 }
 

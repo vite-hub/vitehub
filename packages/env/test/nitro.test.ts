@@ -127,15 +127,13 @@ describe("Nitro module", () => {
     expect(types).not.toContain("export {}")
     expect(integrationTypes).not.toContain("import \"@vitehub/chat\"")
     expect(integrationTypes).toContain("import \"nitro/types\"")
-    expect(integrationTypes).toContain("import type { AgentRuntimeConfig as ViteHubAgentRuntimeConfig } from \"@vitehub/agent\"")
     expect(integrationTypes).toContain("declare module \"nitro/types\"")
     expect(integrationTypes).toContain("export interface NitroRuntimeConfig")
     expect(integrationTypes).toContain("declare module \"@vitehub/chat\"")
     expect(integrationTypes).toContain("export interface ChatRuntimeConfig")
     expect(integrationTypes).toContain("declare module \"@vitehub/agent\"")
     expect(integrationTypes).toContain("export interface AgentRuntimeConfig")
-    expect(integrationTypes).toContain("declare module \"@vitehub/agent/workspace\"")
-    expect(integrationTypes).toContain("export interface AgentRuntimeConfig extends ViteHubAgentRuntimeConfig {}")
+    expect(integrationTypes).not.toContain("declare module \"@vitehub/agent/workspace\"")
     expect(types).toContain("\"botToken\": string")
     expect(integrationTypes).toContain("\"botToken\": string")
     expect(integrationTypes).not.toContain("NitroChatRuntimeConfig")
@@ -155,7 +153,7 @@ describe("Nitro module", () => {
     expect(registry).not.toContain("telegram-secret")
   })
 
-  it("types defineChat and defineWorkspaceAgent runtime config from generated env declarations", async () => {
+  it("types defineChat and defineAgent.workspace runtime config from generated env declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-chat-types-"))
     const nitro: NitroStub = {
       hooks: { hook: vi.fn() },
@@ -181,7 +179,7 @@ describe("Nitro module", () => {
 
     await writeFile(join(root, "typecheck.ts"), [
       "import { defineChat } from '@vitehub/chat'",
-      "import { defineWorkspaceAgent } from '@vitehub/agent/workspace'",
+      "import { defineAgent } from '@vitehub/agent'",
       "",
       "defineChat({",
       "  adapters({ runtimeConfig }) {",
@@ -196,9 +194,7 @@ describe("Nitro module", () => {
       "  state: {} as never,",
       "})",
       "",
-      "defineWorkspaceAgent({",
-      "  workspace: 'docs',",
-      "  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),",
+      "defineAgent.workspace({",
       "  model({ runtimeConfig }) {",
       "    const model: string = runtimeConfig.vertex.model",
       "    const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",
@@ -216,7 +212,6 @@ describe("Nitro module", () => {
         ignoreDeprecations: "6.0",
         paths: {
           "@vitehub/agent": [join(import.meta.dirname, "../../agent/src/index.ts")],
-          "@vitehub/agent/workspace": [join(import.meta.dirname, "../../agent/src/workspace.ts")],
           "@vitehub/chat": [join(import.meta.dirname, "../../chat/src/index.ts")],
           "@vitehub/workspace": [join(import.meta.dirname, "../../workspace/src/index.ts")],
         },

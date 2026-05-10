@@ -20,16 +20,16 @@ afterEach(async () => {
 })
 
 describe("discoverNitroWorkspaceDefinitions", () => {
-  it("discovers directory workspaces from .config files and ignores nested source files inside them", async () => {
+  it("discovers directory workspaces from config files and ignores nested source files inside them", async () => {
     const root = await createRoot()
     await mkdir(join(root, "server", "workspaces", "data-sources"), { recursive: true })
-    await writeFile(join(root, "server", "workspaces", "data-sources", ".config.ts"), "export default {}\n", "utf8")
+    await writeFile(join(root, "server", "workspaces", "data-sources", "config.ts"), "export default {}\n", "utf8")
     await writeFile(join(root, "server", "workspaces", "data-sources", "helper.ts"), "export default {}\n", "utf8")
     await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default {}\n", "utf8")
 
     expect(discoverNitroWorkspaceDefinitions(root)).toEqual([
       expect.objectContaining({
-        handler: join(root, "server", "workspaces", "data-sources", ".config.ts"),
+        handler: join(root, "server", "workspaces", "data-sources", "config.ts"),
         name: "data-sources",
       }),
       expect.objectContaining({
@@ -43,9 +43,17 @@ describe("discoverNitroWorkspaceDefinitions", () => {
     const root = await createRoot()
     await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default {}\n", "utf8")
-    await writeFile(join(root, "server", "workspaces", "docs", ".config.ts"), "export default {}\n", "utf8")
+    await writeFile(join(root, "server", "workspaces", "docs", "config.ts"), "export default {}\n", "utf8")
 
     expect(() => discoverNitroWorkspaceDefinitions(root)).toThrow('Duplicate workspace name "docs"')
+  })
+
+  it("does not discover deprecated dot config files", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", "docs", ".config.ts"), "export default {}\n", "utf8")
+
+    expect(discoverNitroWorkspaceDefinitions(root)).toEqual([])
   })
 
   it("creates registry entries from discovered workspace definitions", async () => {

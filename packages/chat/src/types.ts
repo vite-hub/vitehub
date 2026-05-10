@@ -12,7 +12,7 @@ import type {
   RuntimeCapabilityHandle,
   RuntimeHostContext,
   RuntimeWaitUntil,
-} from "@vitehub/internal/runtime/context"
+} from "@vitehub/runtime"
 import type {
   ActionEvent,
   Adapter,
