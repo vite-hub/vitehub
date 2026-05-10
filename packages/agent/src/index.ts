@@ -19,6 +19,7 @@ import type {
 } from "ai"
 import type {
   AgentDefinition,
+  AgentChatOptions,
   AgentInput,
   AgentRegistry,
   AgentRegistryModule,
@@ -30,6 +31,7 @@ import type {
   AgentRuntimeContext,
   AgentSettings,
   AgentToolDefinition,
+  AgentToolStep,
   MaybePromise,
   MaybeResolvable,
   ResolvedAgentRuntimeContext,
@@ -47,6 +49,7 @@ export type {
   Agent,
   AgentCapabilities,
   AgentCapabilityHandle,
+  AgentChatOptions,
   AgentRequestBody,
   AgentDefinition,
   AgentExecution,
@@ -78,6 +81,7 @@ export type {
   AgentToolPolicyDecision,
   AgentStateProviderOptions,
   AgentToolResolver,
+  AgentToolStep,
   AgentWaitUntil,
   CloudflareExportedHandlerFetchHandler,
   DiscoveredAgentDefinition,
@@ -219,7 +223,7 @@ function defineBaseAgent<
   CALL_OPTIONS = never,
   TOOLS extends ToolSet = ToolSet,
 >(
-  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> | Agent<CALL_OPTIONS, TOOLS>,
+  options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig> }) | Agent<CALL_OPTIONS, TOOLS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS> {
   if (hasAgentMethods(options)) {
     const agent = options as Agent<CALL_OPTIONS, TOOLS>
@@ -228,9 +232,10 @@ function defineBaseAgent<
     }
   }
 
-  const { description, run, tools, ...settings } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS>
+  const { chat, description, run, tools, ...settings } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig> }
 
   return {
+    chat,
     description,
     run,
     async resolve(context) {
@@ -283,6 +288,7 @@ export interface WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   fallback?: boolean | WorkspaceAgentFallbackOptions
   instructions?: WorkspaceAgentInstructions<TRuntimeConfig, Name>
@@ -319,7 +325,7 @@ export interface DefineAgent {
     CALL_OPTIONS = never,
     TOOLS extends ToolSet = ToolSet,
   >(
-    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> | Agent<CALL_OPTIONS, TOOLS>,
+    options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig> }) | Agent<CALL_OPTIONS, TOOLS>,
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS>
 }
 
@@ -483,6 +489,7 @@ function createWorkspaceAgentDefinition<
       const result = await agent.generate({
         ...getAgentCall(context.input),
         abortSignal: context.input.abortSignal,
+        onStepFinish: async step => await context.devtools?.reportToolStep?.(step as AgentToolStep),
         timeout: context.input.timeout,
       })
       const text = result.text.trim()

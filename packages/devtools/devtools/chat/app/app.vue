@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Comark } from "@comark/vue"
 import { connectRemoteDevTools, getDevToolsRpcClient } from "@vitejs/devtools-kit/client"
 
 import {
@@ -157,33 +158,6 @@ function renderToolOutput(tool: ChatDevtoolsTool) {
     }
   }
   return `\`\`\`json\n${JSON.stringify(output, null, 2)}\n\`\`\``
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#039;")
-}
-
-function renderToolOutputHtml(tool: ChatDevtoolsTool) {
-  return renderToolOutput(tool)
-    .split("\n")
-    .map((line) => {
-      if (line.startsWith("### ")) {
-        return `<h4>${escapeHtml(line.slice(4))}</h4>`
-      }
-      if (line.startsWith("- ")) {
-        return `<p>&bull; ${escapeHtml(line.slice(2))}</p>`
-      }
-      if (line.startsWith("_") && line.endsWith("_")) {
-        return `<p><em>${escapeHtml(line.slice(1, -1))}</em></p>`
-      }
-      return line ? `<p>${escapeHtml(line)}</p>` : ""
-    })
-    .join("")
 }
 
 function appendDummy(message: ChatDevtoolsMessage) {
@@ -514,18 +488,21 @@ onMounted(refresh)
                   body: 'p-2 text-xs/5',
                 }"
               >
-                <div
+                <Suspense
                   v-if="part.tool.output !== undefined"
-                  class="space-y-1 text-toned [&_em]:text-muted [&_h4]:font-medium [&_h4]:text-highlighted [&_p]:my-0"
-                  v-html="renderToolOutputHtml(part.tool)"
-                />
+                >
+                  <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
+                    {{ renderToolOutput(part.tool) }}
+                  </Comark>
+                </Suspense>
               </UChatTool>
-              <p
+              <Suspense
                 v-if="content"
-                class="whitespace-pre-wrap text-sm/5"
               >
-                {{ content }}
-              </p>
+                <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
+                  {{ content }}
+                </Comark>
+              </Suspense>
             </div>
           </template>
         </UChatMessages>

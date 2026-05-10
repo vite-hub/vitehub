@@ -97,6 +97,14 @@ async function writeSingleChat(rootDir: string, contents = "export default {}") 
   return file
 }
 
+async function writeAgentChat(rootDir: string, name: string, contents = "export default defineAgent({ chat: { adapters: {}, state: {} }, run: () => 'ok' })") {
+  const directory = join(rootDir, "server", "agents", name)
+  const file = join(directory, "config.ts")
+  await mkdir(directory, { recursive: true })
+  await writeFile(file, contents, "utf8")
+  return file
+}
+
 describe("defineChatWebhookHandler", () => {
   it("uses the route platform and forwards Nitro waitUntil", async () => {
     const { defineChatWebhookHandler } = await import("../src/nitro.ts")
@@ -652,6 +660,22 @@ describe("Nitro module", () => {
     const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
     expect(devtoolsContents).toContain("defineChatDevtoolsHandler(chat")
     expect(devtoolsContents).toContain("inferredName: \"chat\"")
+  })
+
+  it("discovers agent chat config and injects the agent name", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-agent-"))
+    await writeAgentChat(rootDir, "docs")
+    const nitro = createNitroStub(rootDir)
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    const routeContents = await readFile(nitro.options.handlers[0]!.handler, "utf8")
+    expect(routeContents).toContain("defineChatFromAgent")
+    expect(routeContents).toContain("defineChatFromAgent(agent, \"docs\")")
+    expect(routeContents).toContain("defineChatWebhookHandler(chat")
+    const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
+    expect(devtoolsContents).toContain("defineChatFromAgent(agent, \"docs\")")
   })
 
   it("writes inline webhook processing to generated Nitro routes", async () => {

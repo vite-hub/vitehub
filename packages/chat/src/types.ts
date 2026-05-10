@@ -1,4 +1,5 @@
 import type {
+  AgentChatOptions,
   AgentExecution,
   AgentRunInput,
   AgentRuntimeContext,
@@ -370,10 +371,21 @@ export interface ChatWebhookRegistryHandlerOptions<TContext extends ChatRuntimeC
 }
 
 export interface DiscoveredChatDefinition {
+  exportName?: string
   handler: string
   name: string
   source?: string
 }
+
+export type AgentChatConfig<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> = Omit<DefineChatOptions<TRuntimeConfig, TWorkflow>, "agent"> & {
+  agent?: Omit<ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>, "name">
+}
+
+export type AgentChatMetadata<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
+  AgentChatOptions<TRuntimeConfig> & AgentChatConfig<TRuntimeConfig>
 
 export type ChatDurableObjectStateResolver = Resolvable<StateAdapter, ChatRuntimeContext>
 

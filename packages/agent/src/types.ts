@@ -39,6 +39,9 @@ export interface AgentRuntimeConfig {}
 export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends Omit<RuntimeHostContext<TRuntimeConfig>, "cloudflare" | "platform" | "runtime"> {
   cloudflare?: RuntimeHostContext<TRuntimeConfig>["cloudflare"]
+  devtools?: {
+    reportToolStep?: (step: AgentToolStep) => MaybePromise<void>
+  }
   runtime: AgentRuntimeName
 }
 
@@ -115,6 +118,7 @@ export interface AgentDefinition<
   CALL_OPTIONS = never,
   TOOLS extends ToolSet = ToolSet,
 > {
+  chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<Agent<CALL_OPTIONS, TOOLS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | GenerateTextResult<TOOLS, never> | StreamTextResult<TOOLS, never> | unknown>
@@ -204,6 +208,36 @@ export interface DiscoveredAgentDefinition {
   name: string
   source?: "nitro-server-agent" | "nitro-server-agent-workspace" | "nitro-server-agents" | "vite-suffix"
   workspace?: string
+}
+
+export interface AgentToolStepItem {
+  id?: string
+  input?: unknown
+  name?: string
+  output?: unknown
+  toolCallId?: string
+  toolName?: string
+}
+
+export interface AgentToolStep {
+  text?: string
+  toolCalls?: AgentToolStepItem[]
+  toolResults?: AgentToolStepItem[]
+}
+
+export interface AgentChatAgentBindingOptions {
+  event?: "directMessage"
+  execution?: Extract<AgentExecution, "inline">
+  history?: boolean | "none" | { maxMessages?: number, source: "thread" }
+  hooks?: Record<string, unknown>
+}
+
+export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  adapters?: MaybeResolvable<Record<string, unknown>, ResolvedAgentRuntimeContext<TRuntimeConfig>>
+  agent?: AgentChatAgentBindingOptions
+  lifecycleHooks?: Record<string, unknown>
+  state?: MaybeResolvable<unknown, AgentRuntimeContext<TRuntimeConfig>>
+  [key: string]: unknown
 }
 
 export type AgentRequestBody<CALL_OPTIONS = never> = {

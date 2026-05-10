@@ -24,9 +24,11 @@
     "pathe": "catalog:"
   },
   "devDependencies": {
+    "@comark/vue": "catalog:",
     "@iconify-json/lucide": "catalog:",
     "@nuxt/ui": "^4.6.1",
     "@types/node": "catalog:",
+    "comark": "catalog:",
     "nuxt": "catalog:",
     "tailwindcss": "^4.1.18",
     "tsdown": "^0.21.8",

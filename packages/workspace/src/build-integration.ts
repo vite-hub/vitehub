@@ -8,6 +8,7 @@ import {
   collectDirectoryWorkspaceAssetBundles,
   shouldBundleWorkspaceAssets,
   syncDiscoveredWorkspaceAssetBundles,
+  type WorkspaceAssetBundle,
   writeWorkspaceAssetsRegistry,
 } from "./build-assets.ts"
 import {
@@ -69,9 +70,25 @@ export async function syncWorkspaceBuildAssets(
   assetsRegistryFile: string,
 ): Promise<void> {
   const syncedBundles = await syncDiscoveredWorkspaceAssetBundles(definitions, rootDir, options)
-  const syncedNames = new Set(syncedBundles.map(bundle => bundle.name))
   const selectedDefinitions = options ? definitions.filter(definition => shouldBundleWorkspaceAssets(options.assets, definition.name)) : []
-  const directoryBundles = (await collectDirectoryWorkspaceAssetBundles(selectedDefinitions, rootDir))
-    .filter(bundle => !syncedNames.has(bundle.name))
-  await writeWorkspaceAssetsRegistry(assetsRegistryFile, [...directoryBundles, ...syncedBundles])
+  const directoryBundles = await collectDirectoryWorkspaceAssetBundles(selectedDefinitions, rootDir)
+  await writeWorkspaceAssetsRegistry(assetsRegistryFile, mergeWorkspaceAssetBundles([...directoryBundles, ...syncedBundles]))
+}
+
+function mergeWorkspaceAssetBundles(bundles: WorkspaceAssetBundle[]): WorkspaceAssetBundle[] {
+  const merged = new Map<string, WorkspaceAssetBundle>()
+  for (const bundle of bundles) {
+    const existing = merged.get(bundle.name)
+    if (!existing) {
+      merged.set(bundle.name, { files: [...bundle.files], name: bundle.name })
+      continue
+    }
+
+    const files = new Map(existing.files.map(file => [file.path, file]))
+    for (const file of bundle.files) {
+      files.set(file.path, file)
+    }
+    existing.files = [...files.values()].sort((a, b) => a.path.localeCompare(b.path))
+  }
+  return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name))
 }

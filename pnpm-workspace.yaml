@@ -6,6 +6,7 @@ packages:
   - "packages/*/playground/*"
 catalog:
   '@cloudflare/sandbox': ^0.8.11
+  '@comark/vue': ^0.3.1
   '@iconify-json/lucide': ^1.2.105
   '@libsql/client': ^0.15.15
   '@nuxt/content': ^3.13.0
@@ -26,6 +27,7 @@ catalog:
   better-sqlite3: ^12.9.0
   chat: ^4.27.0
   chat-state-cloudflare-do: ^0.2.0
+  comark: ^0.3.2
   consola: ^3.4.2
   defu: ^6.1.4
   docus: ^5.9.0

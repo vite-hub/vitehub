@@ -423,6 +423,48 @@ describe("defineChat", () => {
     ])
   })
 
+  it("passes a devtools tool reporter to managed agent bindings", async () => {
+    const streamAgent = vi.fn(async (_agent, context) => {
+      await context.devtools.reportToolStep({
+        toolCalls: [{ input: { path: "AGENTS.md" }, toolCallId: "call-1", toolName: "read_file" }],
+      })
+      await context.devtools.reportToolStep({
+        toolResults: [{ input: { path: "AGENTS.md" }, output: "instructions", toolCallId: "call-1", toolName: "read_file" }],
+      })
+      return "done"
+    })
+    mockAgentPackage({ streamAgent })
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const statuses: string[] = []
+    const posted: unknown[] = []
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: "triager",
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext() as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({
+      adapter: { name: "devtools" },
+      id: "thread",
+      post: async (message: unknown) => {
+        posted.push(message)
+      },
+      startTyping: async (status: string) => {
+        statuses.push(status)
+      },
+    } as never, createMessage("m1", "hello") as never, { id: "channel" } as never)
+
+    expect(posted).toEqual(["done"])
+    expect(statuses.map(status => JSON.parse(status))).toEqual([
+      expect.objectContaining({ id: "call-1", input: { path: "AGENTS.md" }, name: "read_file", status: "running" }),
+      expect.objectContaining({ id: "call-1", input: { path: "AGENTS.md" }, name: "read_file", output: "instructions", status: "completed" }),
+    ])
+  })
+
   it("does not report tool status for plain async text streams", async () => {
     const { defineChat, resolveChat } = await import("../src/index.ts")
     const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")

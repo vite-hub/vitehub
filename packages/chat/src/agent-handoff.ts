@@ -1,6 +1,8 @@
 import { getAgentFromRegistry, streamAgent } from "@vitehub/agent"
 import { createMessage } from "@vitehub/messages"
 
+import { chatDevtoolsAdapterName, createChatDevtoolsStepReporter } from "./devtools.ts"
+
 import type {
   ChatAgentBindingOptions,
   ChatAgentHookArgs,
@@ -99,6 +101,7 @@ export function toViteHubMessages(messages: ChatSdkMessage[]): Message[] {
 
 function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
   context: ResolvedChatRuntimeContext<TRuntimeConfig>,
+  thread?: Thread,
 ): ChatAgentRuntimeContext<TRuntimeConfig> {
   const runtime = context.runtime === "cloudflare"
     ? "cloudflare-agents"
@@ -106,7 +109,7 @@ function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
       ? context.runtime
       : "unknown"
 
-  return {
+  const agentContext: ChatAgentRuntimeContext<TRuntimeConfig> = {
     capabilities: context.capabilities,
     cloudflare: context.cloudflare,
     event: context.event,
@@ -117,6 +120,22 @@ function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
     vercel: context.vercel,
     waitUntil: context.waitUntil,
   }
+
+  if (isDevtoolsThread(thread)) {
+    agentContext.devtools = {
+      reportToolStep: createChatDevtoolsStepReporter(thread),
+    }
+  }
+
+  return agentContext
+}
+
+function isDevtoolsThread(thread: unknown): thread is Thread & { adapter?: { name?: string }, startTyping: (text?: string) => Promise<unknown> } {
+  return !!thread
+    && typeof thread === "object"
+    && "startTyping" in thread
+    && typeof (thread as { startTyping?: unknown }).startTyping === "function"
+    && (thread as { adapter?: { name?: string } }).adapter?.name === chatDevtoolsAdapterName
 }
 
 function createDefaultAgentInput(args: ChatAgentHookArgs, platform?: string): AgentRunInput {
@@ -167,7 +186,7 @@ export function createAgentDirectMessageHook<
         ? await binding.hooks.prepareInput(baseArgs)
         : createDefaultAgentInput(baseArgs, runtimeContext.platform)
       input = await binding.hooks?.beforeRun?.({ ...baseArgs, input }) || input
-      const agentContext = createAgentRuntimeContext(runtimeContext)
+      const agentContext = createAgentRuntimeContext(runtimeContext, thread)
       const agent = await getAgentFromRegistry(binding.name, agentContext)
       let result = await streamAgent(agent, agentContext, input)
       result = await binding.hooks?.afterRun?.({ ...baseArgs, input, result }) ?? result
