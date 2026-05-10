@@ -106,6 +106,32 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("Workspace instructions")
   })
 
+  it("passes AI SDK tool loop settings through workspace agents", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const stopWhen = { custom: true }
+    const onStepFinish = vi.fn()
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      maxOutputTokens: 100,
+      model: {} as never,
+      onStepFinish,
+      stopWhen: stopWhen as never,
+      temperature: 0.2,
+      toolChoice: "auto",
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)).toMatchObject({
+      maxOutputTokens: 100,
+      onStepFinish,
+      stopWhen,
+      temperature: 0.2,
+      toolChoice: "auto",
+    })
+  })
+
   it("passes runtime context and workspace to callback instructions", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 

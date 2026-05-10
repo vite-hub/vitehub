@@ -338,7 +338,7 @@ export type WorkspaceAgentWorkspaceOptions = Omit<WorkspaceDefinitionInput, "nam
 export interface WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> {
+> extends Omit<ToolLoopAgentSettings<never, ToolSet>, "instructions" | "model" | "tools"> {
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   fallback?: boolean | WorkspaceAgentFallbackOptions
@@ -535,10 +535,24 @@ function createWorkspaceAgentDefinition<
       const model = await resolveModel(options.model, context)
       const instructions = await resolveWorkspaceInstructions(options, workspace, context, defaults)
       const reportToolStep = context.devtools?.reportToolStep
+      const {
+        chat: _chat,
+        description: _description,
+        fallback: _fallback,
+        hooks: _hooks,
+        instructions: _instructions,
+        model: _model,
+        name: _name,
+        stepLimit: _stepLimit,
+        toolOptions: _toolOptions,
+        workspace: _workspace,
+        ...settings
+      } = options
       const agent = new ToolLoopAgent({
+        ...settings,
         instructions,
         model,
-        stopWhen: stepCountIs(options.stepLimit ?? 20),
+        stopWhen: settings.stopWhen ?? stepCountIs(options.stepLimit ?? 20),
         tools: withToolStepReporting(workspace.tools(options.toolOptions), reportToolStep),
       })
       const result = await agent.generate({
