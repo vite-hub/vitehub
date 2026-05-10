@@ -39,7 +39,7 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "pnpm --filter @vitehub/runtime build && tsc --noEmit -p ./tsconfig.json"
+    "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
     "@vitehub/runtime": "workspace:*",

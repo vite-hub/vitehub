@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
-    "rootDir": "."
+    "rootDir": ".."
   },
   "include": [
     "src/**/*.ts",
