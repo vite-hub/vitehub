@@ -35,7 +35,7 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
   } as never
 }
 
-describe("defineAgent.workspace", () => {
+describe("defineAgent workspace option", () => {
   beforeEach(() => {
     agentSettings.length = 0
     readFile.mockReset()
@@ -46,10 +46,12 @@ describe("defineAgent.workspace", () => {
     const { useWorkspace } = await import("@vitehub/workspace")
     const { defineAgent } = await import("../src/index.ts")
 
-    const agent = defineAgent.workspace({
+    const agent = defineAgent({
+      workspace: {
+        sources: {},
+      },
       description: "Answer from workspace context",
       model: {} as never,
-      sources: {},
     })
 
     expect(agent.description).toBe("Answer from workspace context")
@@ -60,7 +62,8 @@ describe("defineAgent.workspace", () => {
   it("uses string instructions", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent.workspace({
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
       instructions: "Use workspace sources.",
       model: {} as never,
     }), { workspace: "docs" })
@@ -73,7 +76,8 @@ describe("defineAgent.workspace", () => {
   it("joins array instructions", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent.workspace({
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
       instructions: [" First ", "", "Second"],
       model: {} as never,
     }), { workspace: "docs" })
@@ -87,7 +91,8 @@ describe("defineAgent.workspace", () => {
     readFile.mockResolvedValueOnce("Workspace instructions")
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent.workspace({
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
       instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
       model: {} as never,
     }), { workspace: "docs" })
@@ -101,7 +106,8 @@ describe("defineAgent.workspace", () => {
   it("passes runtime context and workspace to callback instructions", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent.workspace<{ vertex: { model: string } }>({
+    const agent = withWorkspaceAgentDefaults(defineAgent<{ vertex: { model: string } }>({
+      workspace: {},
       instructions: ({ fs, runtimeConfig, workspace }) => {
         expect(fs).toBe(workspace.fs)
         expect(runtimeConfig).toEqual({ vertex: { model: "gemini" } })
@@ -119,7 +125,8 @@ describe("defineAgent.workspace", () => {
     readFile.mockResolvedValueOnce("Workspace instructions")
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent.workspace({
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
       model: {} as never,
     }), { instructionsFile: "AGENTS.md", workspace: "docs" })
 
@@ -133,7 +140,8 @@ describe("defineAgent.workspace", () => {
     readFile.mockRejectedValueOnce(new Error("missing"))
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent.workspace({
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
       model: {} as never,
     }), { instructionsFile: "AGENTS.md", workspace: "docs" })
 
@@ -146,7 +154,8 @@ describe("defineAgent.workspace", () => {
     readFile.mockRejectedValueOnce(new Error("missing"))
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent.workspace({
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
       instructions: ({ fs }) => fs.readFile("MISSING.md"),
       model: {} as never,
     }), { instructionsFile: "AGENTS.md", workspace: "docs" })

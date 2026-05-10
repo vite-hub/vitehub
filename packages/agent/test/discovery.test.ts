@@ -36,7 +36,7 @@ describe("agent discovery", () => {
       "export { helper as reviewer }",
     ].join("\n"), "utf8")
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-    await writeFile(join(root, "server", "workspaces", "docs", "config.ts"), "export default defineAgent.workspace({ model })", "utf8")
+    await writeFile(join(root, "server", "workspaces", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
 
     expect(discoverAgentDefinitions({
       mode: "nitro-server-agents",
@@ -52,7 +52,7 @@ describe("agent discovery", () => {
   it("uses literal name overrides for colocated workspace agents", async () => {
     const root = await createTempRoot("vitehub-agent-workspace-name-")
     await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })
-    await writeFile(join(root, "server", "workspaces", "docs", "config.ts"), "export default defineAgent.workspace({ name: 'context', model })", "utf8")
+    await writeFile(join(root, "server", "workspaces", "docs", "config.ts"), "export default defineAgent({ workspace: {}, name: 'context', model })", "utf8")
 
     expect(discoverAgentDefinitions({
       mode: "nitro-server-agents",

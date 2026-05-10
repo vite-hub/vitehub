@@ -71,7 +71,7 @@ function parseWorkspaceAgentName(source: string): string | undefined {
 }
 
 function isWorkspaceAgentConfig(source: string): boolean {
-  return /\bdefineAgent\s*\.\s*workspace\s*\(/.test(stripComments(source))
+  return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(source))
 }
 
 function discoverWorkspaceAgentConfigs(scanDirs: string[]): DiscoveredAgentDefinition[] {

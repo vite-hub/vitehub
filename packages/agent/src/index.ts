@@ -277,10 +277,12 @@ export interface WorkspaceAgentFallbackOptions {
   maxToolResults?: number
 }
 
+export type WorkspaceAgentWorkspaceOptions = Omit<WorkspaceDefinitionInput, "name">
+
 export interface WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> extends Omit<WorkspaceDefinitionInput, "name"> {
+> {
   description?: string
   fallback?: boolean | WorkspaceAgentFallbackOptions
   instructions?: WorkspaceAgentInstructions<TRuntimeConfig, Name>
@@ -288,7 +290,7 @@ export interface WorkspaceAgentOptions<
   name?: string
   stepLimit?: number
   toolOptions?: WorkspaceFacadeToolOptions
-  workspace?: Name
+  workspace: WorkspaceAgentWorkspaceOptions
 }
 
 export type WorkspaceAgentDefinition<
@@ -308,12 +310,25 @@ export interface WorkspaceAgentDefaults<Name extends WorkspaceName = WorkspaceNa
 export interface DefineAgent {
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    Name extends WorkspaceName = WorkspaceName,
+  >(
+    options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  ): WorkspaceAgentDefinition<TRuntimeConfig, Name>
+  <
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = never,
     TOOLS extends ToolSet = ToolSet,
   >(
     options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> | Agent<CALL_OPTIONS, TOOLS>,
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS>
-  workspace: typeof createWorkspaceAgentDefinition
+}
+
+function isWorkspaceAgentOptions(value: unknown): value is WorkspaceAgentOptions {
+  return typeof value === "object"
+    && value !== null
+    && "workspace" in value
+    && typeof (value as { workspace?: unknown }).workspace === "object"
+    && (value as { workspace?: unknown }).workspace !== null
 }
 
 function isModelResolver<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -447,12 +462,12 @@ function createWorkspaceAgentDefinition<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name> = {},
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name> {
-  const workspaceName = options.workspace ?? defaults.workspace
+  const workspaceName = defaults.workspace
   const definition = defineBaseAgent<TRuntimeConfig, never, ToolSet>({
     description: options.description,
     async run(context) {
       if (!workspaceName) {
-        throw new Error("[vitehub] defineAgent.workspace() requires an inferred workspace name or an explicit workspace option.")
+        throw new Error("[vitehub] Workspace agents require an inferred workspace name from server/workspaces/<name>/config.ts.")
       }
       const { useWorkspace } = await import("@vitehub/workspace")
       const { stepCountIs, ToolLoopAgent } = await import("ai")
@@ -484,7 +499,7 @@ function createWorkspaceAgentDefinition<
     },
   }) as WorkspaceAgentDefinition<TRuntimeConfig, Name>
 
-  Object.assign(definition, options, {
+  Object.assign(definition, options.workspace, {
     __vitehubWorkspaceAgent: true,
     __vitehubWorkspaceAgentOptions: options,
   })
@@ -502,9 +517,11 @@ export function withWorkspaceAgentDefaults<
   return createWorkspaceAgentDefinition(definition.__vitehubWorkspaceAgentOptions, defaults)
 }
 
-export const defineAgent: DefineAgent = Object.assign(defineBaseAgent, {
-  workspace: createWorkspaceAgentDefinition,
-})
+export const defineAgent: DefineAgent = ((options: unknown) => {
+  return isWorkspaceAgentOptions(options)
+    ? createWorkspaceAgentDefinition(options)
+    : defineBaseAgent(options as never)
+}) as DefineAgent
 
 export async function resolveAgent<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,

@@ -15,7 +15,11 @@ let loaders: WorkspaceRegistry = runtimeRegistry
 
 function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
   if (!definition) throw new WorkspaceNotFoundError(name)
-  if ("name" in definition && !(definition as { __vitehubWorkspaceAgent?: unknown }).__vitehubWorkspaceAgent) {
+  const workspaceAgentOptions = (definition as { __vitehubWorkspaceAgentOptions?: { workspace?: WorkspaceDefinitionInput } }).__vitehubWorkspaceAgentOptions
+  if (workspaceAgentOptions?.workspace) {
+    return { ...workspaceAgentOptions.workspace, name }
+  }
+  if ("name" in definition) {
     throw new TypeError(`[vitehub] Workspace definition "${name}" must not declare a name. Workspace names are inferred from filenames.`)
   }
   const {

@@ -153,7 +153,7 @@ describe("Nitro module", () => {
     expect(registry).not.toContain("telegram-secret")
   })
 
-  it("types defineChat and defineAgent.workspace runtime config from generated env declarations", async () => {
+  it("types defineChat and workspace defineAgent runtime config from generated env declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-chat-types-"))
     const nitro: NitroStub = {
       hooks: { hook: vi.fn() },
@@ -194,7 +194,8 @@ describe("Nitro module", () => {
       "  state: {} as never,",
       "})",
       "",
-      "defineAgent.workspace({",
+      "defineAgent({",
+      "  workspace: {},",
       "  model({ runtimeConfig }) {",
       "    const model: string = runtimeConfig.vertex.model",
       "    const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",

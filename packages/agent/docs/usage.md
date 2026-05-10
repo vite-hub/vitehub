@@ -157,15 +157,17 @@ export default defineChat({
 
 ## Use Workspace tools
 
-Use `defineAgent.workspace()` from a colocated workspace config when an agent answers from a ViteHub Workspace.
+Use `defineAgent()` with a `workspace` option from a colocated workspace config when an agent answers from a ViteHub Workspace.
 
 ```ts [server/workspaces/data-sources/config.ts]
 import { defineAgent } from '@vitehub/agent'
 import * as source from '@vitehub/workspace/source'
 
-export default defineAgent.workspace({
-  sources: {
-    docs: source.github({ repo: 'acme/docs', ref: 'main', mount: 'docs' }),
+export default defineAgent({
+  workspace: {
+    sources: {
+      docs: source.github({ repo: 'acme/docs', ref: 'main', mount: 'docs' }),
+    },
   },
   model,
 })
