@@ -32,6 +32,7 @@ import type {
   AgentSettings,
   AgentToolDefinition,
   AgentToolStepItem,
+  AgentChatAgentHooks,
   MaybePromise,
   MaybeResolvable,
   ResolvedAgentRuntimeContext,
@@ -49,6 +50,10 @@ export type {
   Agent,
   AgentCapabilities,
   AgentCapabilityHandle,
+  AgentChatAgentHookArgs,
+  AgentChatAgentHooks,
+  AgentChatEventHookArgs,
+  AgentChatEventHooks,
   AgentChatOptions,
   AgentRequestBody,
   AgentDefinition,
@@ -268,7 +273,7 @@ function defineBaseAgent<
   CALL_OPTIONS = never,
   TOOLS extends ToolSet = ToolSet,
 >(
-  options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig> }) | Agent<CALL_OPTIONS, TOOLS>,
+  options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }) | Agent<CALL_OPTIONS, TOOLS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS> {
   if (hasAgentMethods(options)) {
     const agent = options as Agent<CALL_OPTIONS, TOOLS>
@@ -277,11 +282,12 @@ function defineBaseAgent<
     }
   }
 
-  const { chat, description, run, tools, ...settings } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig> }
+  const { chat, description, hooks, run, tools, ...settings } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
 
   return {
     chat,
     description,
+    hooks,
     run,
     async resolve(context) {
       if (!("model" in settings) || !settings.model) {
@@ -336,6 +342,7 @@ export interface WorkspaceAgentOptions<
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   fallback?: boolean | WorkspaceAgentFallbackOptions
+  hooks?: AgentChatAgentHooks<TRuntimeConfig>
   instructions?: WorkspaceAgentInstructions<TRuntimeConfig, Name>
   model: WorkspaceModel<TRuntimeConfig>
   name?: string
@@ -370,7 +377,7 @@ export interface DefineAgent {
     CALL_OPTIONS = never,
     TOOLS extends ToolSet = ToolSet,
   >(
-    options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig> }) | Agent<CALL_OPTIONS, TOOLS>,
+    options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }) | Agent<CALL_OPTIONS, TOOLS>,
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS>
 }
 
@@ -517,6 +524,7 @@ function createWorkspaceAgentDefinition<
   const definition = defineBaseAgent<TRuntimeConfig, never, ToolSet>({
     chat: options.chat,
     description: options.description,
+    hooks: options.hooks,
     async run(context) {
       if (!workspaceName) {
         throw new Error("[vitehub] Workspace agents require an inferred workspace name from server/agents/<name>/config.ts.")

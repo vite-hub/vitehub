@@ -486,10 +486,22 @@ export function defineChatFromAgent<
     throw new Error(`[vitehub:chat] Agent "${name}" does not define chat config.`)
   }
 
+  const {
+    event,
+    execution,
+    history,
+    hooks,
+    ...chat
+  } = agent.chat
+
   return defineChat({
-    ...(agent.chat as Omit<DefineChatOptions<TRuntimeConfig, TWorkflow>, "agent">),
+    ...(chat as Omit<DefineChatOptions<TRuntimeConfig, TWorkflow>, "agent">),
+    hooks: hooks as DefineChatOptions<TRuntimeConfig, TWorkflow>["hooks"],
     agent: {
-      ...(agent.chat.agent || {}),
+      event,
+      execution,
+      history,
+      hooks: agent.hooks as ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>["hooks"],
       name,
     } as ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>,
   })

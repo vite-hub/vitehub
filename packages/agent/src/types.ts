@@ -120,6 +120,7 @@ export interface AgentDefinition<
 > {
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
+  hooks?: AgentChatAgentHooks<TRuntimeConfig>
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<Agent<CALL_OPTIONS, TOOLS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | GenerateTextResult<TOOLS, never> | StreamTextResult<TOOLS, never> | unknown>
 }
@@ -233,17 +234,34 @@ export interface AgentChatAgentBindingOptions {
   hooks?: AgentChatAgentHooks
 }
 
-export interface AgentChatAgentHooks {
-  afterRun?: (args: Record<string, unknown>) => MaybePromise<unknown>
-  beforeRun?: (args: Record<string, unknown>) => MaybePromise<unknown>
-  error?: (args: { error: unknown, thread: { post: (message: unknown) => MaybePromise<unknown> } } & Record<string, unknown>) => MaybePromise<void>
-  prepareInput?: (args: Record<string, unknown>) => MaybePromise<unknown>
-  sendResponse?: (args: Record<string, unknown>) => MaybePromise<void>
+export interface AgentChatAgentHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
+  runtimeConfig: TRuntimeConfig
+  thread: { post: (message: unknown) => MaybePromise<unknown> }
+}
+
+export interface AgentChatAgentHooks<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  afterRun?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<unknown>
+  beforeRun?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<unknown>
+  error?: (args: { error: unknown } & AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<void>
+  prepareInput?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<unknown>
+  sendResponse?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<void>
+}
+
+export interface AgentChatEventHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
+  runtimeConfig: TRuntimeConfig
+}
+
+export interface AgentChatEventHooks<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
+  onDirectMessage?: (args: { message: { text: string } } & AgentChatEventHookArgs<TRuntimeConfig>) => MaybePromise<void>
 }
 
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapters?: MaybeResolvable<Record<string, unknown>, ResolvedAgentRuntimeContext<TRuntimeConfig>>
-  agent?: AgentChatAgentBindingOptions
+  agent?: never
+  event?: AgentChatAgentBindingOptions["event"]
+  execution?: AgentChatAgentBindingOptions["execution"]
+  history?: AgentChatAgentBindingOptions["history"]
+  hooks?: AgentChatEventHooks<TRuntimeConfig>
   lifecycleHooks?: Record<string, unknown>
   state?: MaybeResolvable<unknown, AgentRuntimeContext<TRuntimeConfig>>
   [key: string]: unknown

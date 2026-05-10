@@ -2,6 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { NitroRuntimeConfig } from "nitro/types"
 
 import "../src/nitro.ts"
+import { defineAgent } from "@vitehub/agent"
 import { defineChat, type ChatModuleOptions } from "@vitehub/chat"
 import {
   defineCloudflareChatHandler,
@@ -10,6 +11,15 @@ import {
 
 declare module "nitro/types" {
   interface NitroRuntimeConfig {
+    telegram: {
+      apiBaseUrl: string | undefined
+      botToken: string
+    }
+  }
+}
+
+declare module "@vitehub/agent" {
+  interface AgentRuntimeConfig {
     telegram: {
       apiBaseUrl: string | undefined
       botToken: string
@@ -57,6 +67,40 @@ describe("Nitro runtime config types", () => {
         name: "triager",
       },
       state: {} as never,
+    })
+  })
+
+  it("types agent-centered chat hooks", () => {
+    defineAgent({
+      chat: {
+        adapters({ runtimeConfig }) {
+          expectTypeOf(runtimeConfig.telegram.botToken).toEqualTypeOf<string>()
+          return {}
+        },
+        history: { source: "thread", maxMessages: 20 },
+        hooks: {
+          onDirectMessage({ message }) {
+            expectTypeOf(message.text).toEqualTypeOf<string>()
+          },
+        },
+        state: {} as never,
+      },
+      hooks: {
+        prepareInput({ runtimeConfig }) {
+          expectTypeOf(runtimeConfig.telegram.botToken).toEqualTypeOf<string>()
+        },
+      },
+      run: () => "ok",
+    })
+
+    defineAgent({
+      chat: {
+        // @ts-expect-error chat.agent is not part of defineAgent({ chat }) metadata
+        agent: { name: "triager" },
+        adapters: {},
+        state: {} as never,
+      },
+      run: () => "ok",
     })
   })
 

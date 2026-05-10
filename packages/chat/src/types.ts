@@ -380,9 +380,7 @@ export interface DiscoveredChatDefinition {
 export type AgentChatConfig<
   TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
-> = Omit<DefineChatOptions<TRuntimeConfig, TWorkflow>, "agent"> & {
-  agent?: Omit<ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>, "name">
-}
+> = Omit<DefineChatOptions<TRuntimeConfig, TWorkflow>, "agent">
 
 export type AgentChatMetadata<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
   AgentChatOptions<TRuntimeConfig> & AgentChatConfig<TRuntimeConfig>
