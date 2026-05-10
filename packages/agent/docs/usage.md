@@ -14,8 +14,9 @@ Use this page after the [Quickstart](./quickstart).
 Agents are discovered from Nitro server files.
 
 ```txt
-server/agents.ts
+server/agent.ts
 server/agents/triager.ts
+server/agents/context/config.ts
 server/agents/support/reviewer.ts
 ```
 
@@ -32,7 +33,7 @@ export default defineAgent({
 
 Use named exports when one file owns several agents:
 
-```ts [server/agents.ts]
+```ts [server/agent.ts]
 import { defineAgent } from '@vitehub/agent'
 
 export const triager = defineAgent({
@@ -157,20 +158,20 @@ export default defineChat({
 
 ## Use Workspace tools
 
-Use `defineAgent()` with a `workspace` option from a colocated workspace config when an agent answers from a ViteHub Workspace.
+Use `defineAgent()` with a `workspace` option from a colocated agent config when an agent answers from a ViteHub Workspace.
 
-```ts [server/workspaces/data-sources/config.ts]
+```ts [server/agents/data-sources/config.ts]
 import { defineAgent } from '@vitehub/agent'
 import * as source from '@vitehub/workspace/source'
 
 export default defineAgent({
   workspace: {
     sources: {
-      docs: source.github({ repo: 'acme/docs', ref: 'main', mount: 'docs' }),
+      docs: source.github({ repo: 'acme/docs', cache: { maxAge: 3600, swr: true } }),
     },
   },
   model,
 })
 ```
 
-`server/workspaces/<name>/config.ts` becomes both the workspace definition and the default agent named after the workspace directory. `AGENTS.md` is loaded as instructions by convention when it exists. Use `instructions: async ({ fs }) => await fs.readFile('custom.md')` when instructions live somewhere else.
+`server/agents/<name>/config.ts` becomes both the agent definition and an implicit workspace definition. `AGENTS.md` is loaded as instructions by convention when it exists. Use `instructions: async ({ fs }) => await fs.readFile('custom.md')` when instructions live somewhere else.

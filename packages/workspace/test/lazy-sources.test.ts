@@ -10,6 +10,7 @@ import { defineWorkspace, registerWorkspace, source } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/registry.ts"
 import { useRegisteredWorkspace } from "../src/registry.ts"
 import { glob as globSource } from "../src/source.ts"
+import { github as githubSource } from "../src/source.ts"
 import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
 
 const tempDirs: string[] = []
@@ -90,6 +91,42 @@ describe("lazy sources", () => {
         mountPath: "docs",
         materialize: "lazy",
         cache: { swr: true, maxAge: 3600 },
+      }),
+    ])
+  })
+
+  it("defaults cached GitHub sources to lazy main branch repo basename mounts", () => {
+    const resolved = normalizeWorkspaceSources({
+      forecastingEngine: githubSource({
+        cache: { maxAge: 3600, swr: true },
+        repo: "onmax/forecasting-engine",
+      }),
+    })
+
+    expect(resolved).toEqual([
+      expect.objectContaining({
+        key: "forecastingEngine",
+        mountPath: "forecasting-engine",
+        materialize: "lazy",
+        cache: { maxAge: 3600, swr: true },
+      }),
+    ])
+  })
+
+  it("keeps explicit GitHub source mount and materialization options", () => {
+    const resolved = normalizeWorkspaceSources({
+      forecastingEngine: githubSource({
+        cache: { maxAge: 3600, swr: true },
+        materialize: "build",
+        mount: "forecasting",
+        repo: "onmax/forecasting-engine",
+      }),
+    })
+
+    expect(resolved).toEqual([
+      expect.objectContaining({
+        mountPath: "forecasting",
+        materialize: "build",
       }),
     ])
   })

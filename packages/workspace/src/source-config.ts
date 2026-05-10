@@ -42,7 +42,7 @@ export function normalizeWorkspaceSource(key: string, source: WorkspaceSource): 
     key,
     source,
     mountPath: normalizeSafeWorkspacePath(mount.path || key),
-    materialize: mount.materialize || source.materialize || "build",
+    materialize: mount.materialize || source.materialize || (mount.cache ?? normalizeSourceCache(source) ? "lazy" : "build"),
     cache: mount.cache ?? normalizeSourceCache(source) ?? false,
     validate: mount.validate ?? source.validate ?? false,
     readonly: true,

@@ -467,7 +467,7 @@ function createWorkspaceAgentDefinition<
     description: options.description,
     async run(context) {
       if (!workspaceName) {
-        throw new Error("[vitehub] Workspace agents require an inferred workspace name from server/workspaces/<name>/config.ts.")
+        throw new Error("[vitehub] Workspace agents require an inferred workspace name from server/agents/<name>/config.ts.")
       }
       const { useWorkspace } = await import("@vitehub/workspace")
       const { stepCountIs, ToolLoopAgent } = await import("ai")

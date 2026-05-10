@@ -29,20 +29,20 @@ describe("agent discovery", () => {
   it("discovers Nitro aggregate named exports and server agent files", async () => {
     const root = await createTempRoot("vitehub-agent-nitro-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
-    await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })
-    await writeFile(join(root, "server", "agents.ts"), [
+    await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "agent.ts"), [
       "export const triager = {}",
       "const helper = {}",
       "export { helper as reviewer }",
     ].join("\n"), "utf8")
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-    await writeFile(join(root, "server", "workspaces", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
 
     expect(discoverAgentDefinitions({
       mode: "nitro-server-agents",
       scanDirs: [join(root, "server")],
     })).toEqual([
-      expect.objectContaining({ name: "docs", source: "nitro-server-workspace-agent", workspace: "docs" }),
+      expect.objectContaining({ name: "docs", source: "nitro-server-agent-workspace", workspace: "docs" }),
       expect.objectContaining({ exportName: "reviewer", name: "reviewer" }),
       expect.objectContaining({ name: "support", source: "nitro-server-agents" }),
       expect.objectContaining({ exportName: "triager", name: "triager" }),
@@ -51,21 +51,32 @@ describe("agent discovery", () => {
 
   it("uses literal name overrides for colocated workspace agents", async () => {
     const root = await createTempRoot("vitehub-agent-workspace-name-")
-    await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })
-    await writeFile(join(root, "server", "workspaces", "docs", "config.ts"), "export default defineAgent({ workspace: {}, name: 'context', model })", "utf8")
+    await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, name: 'context', model })", "utf8")
 
     expect(discoverAgentDefinitions({
       mode: "nitro-server-agents",
       scanDirs: [join(root, "server")],
     })).toEqual([
-      expect.objectContaining({ name: "context", source: "nitro-server-workspace-agent", workspace: "docs" }),
+      expect.objectContaining({ name: "context", source: "nitro-server-agent-workspace", workspace: "docs" }),
     ])
+  })
+
+  it("ignores deprecated server agents aggregate files", async () => {
+    const root = await createTempRoot("vitehub-agent-deprecated-")
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server", "agents.ts"), "export const support = {}", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "nitro-server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([])
   })
 
   it("throws on duplicate Nitro agent names", async () => {
     const root = await createTempRoot("vitehub-agent-duplicate-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents.ts"), "export const support = {}", "utf8")
+    await writeFile(join(root, "server", "agent.ts"), "export const support = {}", "utf8")
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
     expect(() => discoverAgentDefinitions({

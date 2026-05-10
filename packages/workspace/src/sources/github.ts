@@ -12,9 +12,14 @@ export interface GitHubSourceOptions extends Omit<UnsourceGitHubSourceOptions, "
 }
 
 export function github(options: GitHubSourceOptions): WorkspaceSource {
-  const baseSource = createGitHubSource({
+  const resolvedOptions = {
     ...options,
-    auth: createGitHubAuthResolver(options.auth),
+    mount: options.mount ?? inferRepositoryMount(options.repo),
+    ref: options.ref ?? "main",
+  }
+  const baseSource = createGitHubSource({
+    ...resolvedOptions,
+    auth: createGitHubAuthResolver(resolvedOptions.auth),
   })
   const sourceByRootAndToken = new Map<string, typeof baseSource>()
 
@@ -24,8 +29,8 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
     const cachedSource = sourceByRootAndToken.get(cacheKey)
     if (cachedSource) return cachedSource
     const source = createGitHubSource({
-      ...options,
-      auth: createGitHubAuthResolver(options.auth, envFileToken),
+      ...resolvedOptions,
+      auth: createGitHubAuthResolver(resolvedOptions.auth, envFileToken),
     })
     sourceByRootAndToken.set(cacheKey, source)
     return source
@@ -33,11 +38,11 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
 
   return {
     ...baseSource,
-    cache: options.cache,
-    materialize: options.materialize,
-    mount: options.mount,
-    swr: options.swr,
-    validate: options.validate,
+    cache: resolvedOptions.cache,
+    materialize: resolvedOptions.materialize,
+    mount: resolvedOptions.mount,
+    swr: resolvedOptions.swr,
+    validate: resolvedOptions.validate,
     async prepare(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
       await source.prepare?.(ctx)
@@ -59,6 +64,10 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       return await source.search?.(query, ctx) ?? []
     },
   }
+}
+
+function inferRepositoryMount(repo: string | undefined) {
+  return repo?.split("/").filter(Boolean).at(-1)
 }
 
 function createGitHubAuthResolver(auth: GitHubAuth | undefined, envFileToken?: string) {

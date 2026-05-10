@@ -68,7 +68,7 @@ Fix: choose one owner for the direct-message flow.
 Check these conditions:
 
 - `@vitehub/agent` is registered.
-- The agent file is under `server/agents/**` or exported from `server/agents.ts`.
+- The agent file is under `server/agents/**` or exported from `server/agent.ts`.
 - The chat definition uses `agent: 'agentName'`.
 - The chat does not also define `onDirectMessage`.
 

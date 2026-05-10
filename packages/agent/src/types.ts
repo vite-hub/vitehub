@@ -202,7 +202,7 @@ export interface DiscoveredAgentDefinition {
   exportName?: string
   handler: string
   name: string
-  source?: "nitro-server-agent" | "nitro-server-agents" | "nitro-server-workspace-agent" | "vite-suffix"
+  source?: "nitro-server-agent" | "nitro-server-agent-workspace" | "nitro-server-agents" | "vite-suffix"
   workspace?: string
 }
 

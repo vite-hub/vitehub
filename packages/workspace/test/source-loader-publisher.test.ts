@@ -140,6 +140,17 @@ describe("sources, loaders, and publishers", () => {
     ])
   })
 
+  it("defaults GitHub refs to main", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    const githubSource = source.github({ repo: "acme/app" })
+
+    await expect(githubSource.getKeys({ rootDir: "", workspace: "github-default-ref" })).resolves.toEqual(["docs/README.md"])
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/git/trees/main"))).toBe(true)
+  })
+
   it("applies GitHub include and exclude filters to root-relative keys", async () => {
     stubGitHubSource({
       "dbt/models/marts/orders.sql": "select 1\n",
@@ -361,6 +372,7 @@ describe("sources, loaders, and publishers", () => {
         docs: source.github({
           cache: { maxAge: 3600, swr: true },
           materialize: "lazy",
+          mount: "docs",
           repo: "acme/app",
           root: "docs",
         }),
@@ -393,6 +405,7 @@ describe("sources, loaders, and publishers", () => {
         docs: source.github({
           cache: { maxAge: 3600, swr: true },
           materialize: "lazy",
+          mount: "docs",
           repo: "acme/app",
           root: "docs",
           validate: "request",
@@ -426,6 +439,7 @@ describe("sources, loaders, and publishers", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.github({
+          mount: "docs",
           repo: "acme/app",
           root: "dbt",
         }),

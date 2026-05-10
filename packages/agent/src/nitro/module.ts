@@ -53,7 +53,7 @@ function createNitroAgentRegistryContents(file: string, definitions: DiscoveredA
     "const registry = {",
     ...definitions.map((definition) => {
       const importPath = createImportPath(file, definition.handler)
-      if (definition.source === "nitro-server-workspace-agent") {
+      if (definition.source === "nitro-server-agent-workspace") {
         return `  ${JSON.stringify(definition.name)}: async () => ({ default: withWorkspaceAgentDefaults((await import(${JSON.stringify(importPath)})).default, { instructionsFile: "AGENTS.md", name: ${JSON.stringify(definition.name)}, workspace: ${JSON.stringify(definition.workspace)} }) }),`
       }
       if (definition.exportName) {

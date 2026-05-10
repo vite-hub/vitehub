@@ -11,7 +11,7 @@ import {
 import type { DiscoveredAgentDefinition } from "./types.ts"
 
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
-const workspaceConfigPattern = /^config\.(?:c|m)?[jt]s$/i
+const configPattern = /^config\.(?:c|m)?[jt]s$/i
 const sourceFileExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 
 function normalizeSuffixAgentName(rootDir: string, file: string) {
@@ -53,7 +53,7 @@ function discoverNamedExports(file: string): string[] {
 function discoverServerAgentsFiles(scanDirs: string[]): DiscoveredAgentDefinition[] {
   return scanDirs.flatMap((scanDir) => {
     const files = sourceFileExtensions
-      .map(extension => resolve(scanDir, `agents${extension}`))
+      .map(extension => resolve(scanDir, `agent${extension}`))
       .filter(file => existsSync(file))
 
     return files.flatMap(file => discoverNamedExports(file).map(exportName => ({
@@ -65,7 +65,7 @@ function discoverServerAgentsFiles(scanDirs: string[]): DiscoveredAgentDefinitio
   })
 }
 
-function parseWorkspaceAgentName(source: string): string | undefined {
+function parseAgentName(source: string): string | undefined {
   const match = stripComments(source).match(/\bname\s*:\s*["'`]([^"'`]+)["'`]/)
   return match?.[1]
 }
@@ -74,10 +74,10 @@ function isWorkspaceAgentConfig(source: string): boolean {
   return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(source))
 }
 
-function discoverWorkspaceAgentConfigs(scanDirs: string[]): DiscoveredAgentDefinition[] {
+function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefinition[] {
   const definitions: DiscoveredAgentDefinition[] = []
 
-  const walk = (workspacesRoot: string, current: string) => {
+  const walk = (agentsRoot: string, current: string) => {
     let entries
     try {
       entries = readdirSync(current, { withFileTypes: true })
@@ -90,26 +90,25 @@ function discoverWorkspaceAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
     for (const entry of entries) {
       const file = resolve(current, entry.name)
       if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
-        walk(workspacesRoot, file)
+        walk(agentsRoot, file)
         continue
       }
 
-      if (!entry.isFile() || !workspaceConfigPattern.test(basename(file))) continue
+      if (!entry.isFile() || !configPattern.test(basename(file))) continue
       const source = readFileSync(file, "utf8")
-      if (!isWorkspaceAgentConfig(source)) continue
-      const workspace = relative(workspacesRoot, dirname(file)).replace(/\\/g, "/")
-      if (!workspace || workspace === ".") continue
+      const agent = relative(agentsRoot, dirname(file)).replace(/\\/g, "/")
+      if (!agent || agent === ".") continue
       definitions.push({
         handler: file,
-        name: parseWorkspaceAgentName(source) || workspace,
-        source: "nitro-server-workspace-agent",
-        workspace,
+        name: parseAgentName(source) || agent,
+        source: isWorkspaceAgentConfig(source) ? "nitro-server-agent-workspace" : "nitro-server-agents",
+        workspace: isWorkspaceAgentConfig(source) ? agent : undefined,
       })
     }
   }
 
   for (const scanDir of scanDirs) {
-    walk(resolve(scanDir, "workspaces"), resolve(scanDir, "workspaces"))
+    walk(resolve(scanDir, "agents"), resolve(scanDir, "agents"))
   }
 
   return definitions
@@ -123,6 +122,10 @@ export function discoverAgentDefinitions(options:
     const aggregateDefinitions = discoverServerAgentsFiles(options.scanDirs)
     const directoryDefinitions = discoverDefinitions("agent", [
       createDirectoryDefinitionSource<DiscoveredAgentDefinition>("nitro-server-agents", options.scanDirs, "agents", {
+        normalizeName(directory, file) {
+          if (configPattern.test(basename(file))) return
+          return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "")
+        },
         createDefinition({ file, name }) {
           return {
             handler: file,
@@ -132,7 +135,7 @@ export function discoverAgentDefinitions(options:
         },
       }),
     ])
-    const workspaceDefinitions = discoverWorkspaceAgentConfigs(options.scanDirs)
+    const workspaceDefinitions = discoverDirectoryAgentConfigs(options.scanDirs)
 
     return mergeDefinitions("agent", aggregateDefinitions, directoryDefinitions, workspaceDefinitions)
   }

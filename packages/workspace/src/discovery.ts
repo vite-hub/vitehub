@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs"
+import { readFileSync, readdirSync } from "node:fs"
 import { basename, dirname, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -25,6 +25,20 @@ export interface DiscoveredWorkspaceDefinition {
 type WorkspaceDefinitionCatalogSource = DefinitionCatalogSource<DiscoveredWorkspaceDefinition>
 
 const configFileNameSet = new Set<string>(workspaceConfigFileNames)
+
+function stripComments(source: string) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1")
+}
+
+function isAgentConfig(file: string) {
+  return /\bdefineAgent\s*\(/.test(stripComments(readFileSync(file, "utf8")))
+}
+
+function isWorkspaceAgentConfig(file: string) {
+  return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(readFileSync(file, "utf8")))
+}
 
 function collectDirectoriesWithConfig(root: string): Set<string> {
   const directories = new Set<string>()
@@ -53,6 +67,7 @@ function collectDirectoriesWithConfig(root: string): Set<string> {
 
 function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
   const workspacesDir = resolve(rootDir, "server", "workspaces")
+  const agentsDir = resolve(rootDir, "server", "agents")
   const directoryWorkspaceDirs = collectDirectoriesWithConfig(workspacesDir)
 
   const normalizeDirectoryName = (workspacesRoot: string, file: string) => {
@@ -81,7 +96,22 @@ function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource
     createDirectoryDefinitionSource("nitro-server-workspaces-directory-config", [resolve(rootDir, "server")], "workspaces", {
       includeHidden: true,
       normalizeName: normalizeDirectoryName,
-      createDefinition: ({ file, name }) => ({ handler: file, name, path: file, source: "nitro-server-workspaces-directory-config" }),
+      createDefinition: ({ file, name }) => {
+        if (isAgentConfig(file)) {
+          throw new Error(`[vitehub] Workspace config "${file}" must use defineWorkspace(); defineAgent() belongs in server/agents/<name>/config.ts.`)
+        }
+        return { handler: file, name, path: file, source: "nitro-server-workspaces-directory-config" }
+      },
+    }),
+    createDirectoryDefinitionSource("nitro-server-agent-workspaces", [resolve(rootDir, "server")], "agents", {
+      includeHidden: true,
+      normalizeName(_agentsRoot, file) {
+        if (!workspaceConfigPattern.test(basename(file))) return
+        if (!isWorkspaceAgentConfig(file)) return
+        const name = relative(agentsDir, dirname(file)).replace(/\\/g, "/")
+        return name && name !== "." ? name : undefined
+      },
+      createDefinition: ({ file, name }) => ({ handler: file, name, path: file, source: "nitro-server-agent-workspaces" }),
     }),
     createDirectoryDefinitionSource("nitro-server-workspaces", [resolve(rootDir, "server")], "workspaces", {
       normalizeName: normalizeFlatName,
