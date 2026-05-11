@@ -294,8 +294,17 @@ describe("@vitehub/shell just-bash runtime", () => {
       cwd: workspaceMountPoint,
       fs,
     })).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported shell syntax: only supported workspace command forms are allowed.\n",
+      exitCode: 0,
+      stdout: "models\nREADME.md\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find . -maxdepth 2 -name '*customer*'", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/customers.sql\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "wc -l", {
@@ -317,6 +326,15 @@ describe("@vitehub/shell just-bash runtime", () => {
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "grep -ri customer models | head -n 1", {
+      commands: ["grep"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/customers.sql:1:select * from customers\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "grep -ri customer . | grep -v orders | head -n 1", {
       commands: ["grep"],
       cwd: workspaceMountPoint,
       fs,

@@ -122,9 +122,9 @@ async function runNativeWorkspaceInspectionCommand(
       stdout = `${workspaceMountPoint}${cwd ? `/${cwd}` : ""}\n`
     }
     else if (name === "ls") {
-      const { long, path } = parseLsArgs(args)
+      const { long, path, recursive } = parseLsArgs(args)
       const resolvedPath = resolveShellPath(path, cwd)
-      stdout = formatList(await input.list(resolvedPath, { recursive: false }), resolvedPath, { long })
+      stdout = formatList(await input.list(resolvedPath, { recursive }), resolvedPath, { long })
     }
     else if (name === "find") {
       stdout = await runFindCommand(input, args, cwd)
@@ -179,7 +179,7 @@ async function runNativeWorkspaceInspectionCommand(
 
 interface WorkspacePipeline {
   command: string
-  postprocess?: string[]
+  postprocess?: string[][]
 }
 
 interface WorkspaceCommand {
@@ -310,29 +310,59 @@ function splitWorkspacePipeline(command: string): WorkspacePipeline {
   parts.push(current.trim())
 
   if (parts.length === 1) return { command: parts[0]!, postprocess: undefined }
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+  if (!parts[0] || parts.slice(1).some(part => !part)) {
     throw new Error("Unsupported shell syntax: only a single workspace command is supported.")
   }
 
-  const postprocess = parseShellCommand(parts[1])
-  const [name, ...args] = postprocess
-  if ((name !== "head" && name !== "tail") || args.some(arg => /[|;&<>`$()]/.test(arg))) {
+  const postprocess = parts.slice(1).map(part => parseShellCommand(part))
+  for (const [index, stage] of postprocess.entries()) {
+    const [name, ...args] = stage
+    if (args.some(arg => /[|;&<>`$()]/.test(arg))) {
+      throw new Error("Unsupported shell syntax: only a single workspace command is supported.")
+    }
+
+    if (name === "grep" && args[0] === "-v" && args.length === 2 && index < postprocess.length - 1) {
+      continue
+    }
+
+    if ((name === "head" || name === "tail") && index === postprocess.length - 1) {
+      const { rest } = parseCountOption(args)
+      if (!rest.length) continue
+    }
+
     throw new Error("Unsupported shell syntax: only a single workspace command is supported.")
   }
-  const { rest } = parseCountOption(args)
-  if (rest.length) throw new Error("Unsupported shell syntax: only a single workspace command is supported.")
 
   return { command: parts[0], postprocess }
 }
 
-function applyPipelinePostprocess(stdout: string, postprocess?: string[]) {
+function applyPipelinePostprocess(stdout: string, postprocess?: string[][]) {
   if (!postprocess) return stdout
-  const [name, ...args] = postprocess
-  const { count, rest } = parseCountOption(args)
-  if (rest.length) throw new Error("Unsupported shell syntax: only a single workspace command is supported.")
-  if (name === "head") return firstLines(stdout, count)
-  if (name === "tail") return lastLines(stdout, count)
-  throw new Error("Unsupported shell syntax: only a single workspace command is supported.")
+  let result = stdout
+  for (const stage of postprocess) {
+    const [name, ...args] = stage
+    if (name === "grep" && args[0] === "-v" && args.length === 2) {
+      const pattern = args[1]!
+      result = result
+        .split("\n")
+        .filter(line => line && !line.includes(pattern))
+        .join("\n")
+      result += result ? "\n" : ""
+      continue
+    }
+
+    const { count, rest } = parseCountOption(args)
+    if (rest.length) throw new Error("Unsupported shell syntax: only a single workspace command is supported.")
+    if (name === "head") {
+      result = firstLines(result, count)
+      continue
+    }
+    if (name === "tail") {
+      result = lastLines(result, count)
+      continue
+    }
+  }
+  return result
 }
 
 function parseCountOption(args: string[]) {
@@ -429,11 +459,16 @@ function unsupportedSyntax(maxOutputLength: number): ShellRuntimeExecResult {
 
 function parseLsArgs(args: string[]) {
   let long = false
+  let recursive = false
   let path: string | undefined
 
   for (const arg of args) {
     if (arg === "-l") {
       long = true
+      continue
+    }
+    if (arg === "-R") {
+      recursive = true
       continue
     }
     if (arg === "-1" || arg === "-F") continue
@@ -442,7 +477,7 @@ function parseLsArgs(args: string[]) {
     path = arg
   }
 
-  return { long, path }
+  return { long, path, recursive }
 }
 
 function formatList(entries: Awaited<ReturnType<SearchableShellWorkspace["list"]>>, prefix: string, options: { long?: boolean } = {}) {
@@ -467,20 +502,30 @@ function globPatternToRegExp(pattern: string) {
 }
 
 async function runFindCommand(input: SearchableShellWorkspace, args: string[], cwd: string) {
-  const { name, root, type } = parseFindArgs(args, cwd)
+  const { excludePath, maxDepth, name, root, type } = parseFindArgs(args, cwd)
   const matcher = name ? globPatternToRegExp(name) : undefined
   const entries = await input.list(root, { recursive: true })
   const lines = entries
     .filter(entry => !type || (type === "f" ? entry.type === "file" : entry.type === "directory"))
     .filter(entry => !matcher || matcher.test(entry.path.split("/").at(-1) || entry.path))
+    .filter(entry => maxDepth === undefined || relativeDepth(entry.path, root) <= maxDepth)
+    .filter(entry => !excludePath || !globPatternToRegExp(excludePath).test(displayPath(entry.path, cwd)))
     .map(entry => displayPath(entry.path, cwd))
     .sort((left, right) => left.localeCompare(right))
   return `${lines.join("\n")}${lines.length ? "\n" : ""}`
 }
 
+function relativeDepth(path: string, root: string) {
+  const relative = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path
+  if (!relative) return 0
+  return relative.split("/").filter(Boolean).length
+}
+
 function parseFindArgs(args: string[], cwd: string) {
   let rootArg = "."
   let index = 0
+  let excludePath: string | undefined
+  let maxDepth: number | undefined
   let name: string | undefined
   let type: "d" | "f" | undefined
 
@@ -504,10 +549,22 @@ function parseFindArgs(args: string[], cwd: string) {
       index += 2
       continue
     }
+    if (arg === "-maxdepth") {
+      const parsed = Number.parseInt(args[index + 1] || "", 10)
+      if (!Number.isFinite(parsed) || parsed < 0) throw new Error("Unsupported shell syntax: only supported workspace command forms are allowed.")
+      maxDepth = parsed
+      index += 2
+      continue
+    }
+    if (arg === "-not" && args[index + 1] === "-path" && args[index + 2]) {
+      excludePath = args[index + 2]
+      index += 3
+      continue
+    }
     throw new Error("Unsupported shell syntax: only supported workspace command forms are allowed.")
   }
 
-  return { name, root: resolveShellPath(rootArg, cwd), type }
+  return { excludePath, maxDepth, name, root: resolveShellPath(rootArg, cwd), type }
 }
 
 function tryParseCommand(command: string): string[] {
