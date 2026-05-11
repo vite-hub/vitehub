@@ -301,6 +301,7 @@ function renderWorkspaceUnshellRuntimeModule() {
   return [
     "export const workspaceMountPoint = '/workspace'",
     "export function cleanWorkspaceMutationPath(path) { return path }",
+    "export function cleanWorkspaceShellPath(path = '.') { return path }",
     "export function createReadonlyWorkspaceFs(fs) { return fs }",
     "export function createWritableWorkspaceFs(fs) { return fs }",
     "export async function runWorkspaceInspectionCommand() {",
