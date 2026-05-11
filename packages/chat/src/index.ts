@@ -21,6 +21,7 @@ import type {
   ChatReactionHookInput,
   ChatRuntimeConfig,
   ChatRuntimeContext,
+  ChatStreamingPlaceholder,
   ChatWorkflowHandle,
   DefineChatOptions,
   MaybeResolvable,
@@ -352,6 +353,7 @@ function registerAgentBinding<
   hooks: ChatEventHooks<TRuntimeConfig, TWorkflow>,
   binding: ChatAgentBinding<TRuntimeConfig, TWorkflow> | undefined,
   workflow: TWorkflow,
+  options: { fallbackStreamingPlaceholderText?: ChatStreamingPlaceholder<TRuntimeConfig> } = {},
 ) {
   if (!binding) return
 
@@ -370,7 +372,7 @@ function registerAgentBinding<
   bot.onDirectMessage(createDirectMessageHook(
     bot,
     runtimeContext.runtimeConfig,
-    createAgentDirectMessageHook(bot, runtimeContext, resolved, workflow),
+    createAgentDirectMessageHook(bot, runtimeContext, resolved, workflow, options),
     workflow,
   ) as never)
 }
@@ -431,6 +433,7 @@ async function createChat<
     onNewMessage: _onNewMessage,
     onReaction: _onReaction,
     onSubscribedMessage: _onSubscribedMessage,
+    fallbackStreamingPlaceholderText,
     setup,
     state: _state,
     userName: _userName,
@@ -445,13 +448,18 @@ async function createChat<
   const bot = new Chat({
     ...(chatOptions as Omit<ChatConfig, "adapters" | "state">),
     adapters,
+    ...(typeof fallbackStreamingPlaceholderText === "string" || fallbackStreamingPlaceholderText === null
+      ? { fallbackStreamingPlaceholderText }
+      : {}),
     state: state as StateAdapter,
     userName,
   })
 
   const hooks = resolveChatHooks(options)
   registerChatHooks(bot, runtimeConfig, hooks, workflow as TWorkflow)
-  registerAgentBinding(bot, resolvedContext, hooks, options.agent, workflow as TWorkflow)
+  registerAgentBinding(bot, resolvedContext, hooks, options.agent, workflow as TWorkflow, {
+    fallbackStreamingPlaceholderText,
+  })
   await setup?.(bot, resolvedContext)
   return bot
 }

@@ -254,7 +254,13 @@ export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext<any
   webhook?: (context: TContext & { bot: Chat }) => MaybePromise<void>
 }
 
-type ChatConfigPassthrough = Omit<ChatConfig, "adapters" | "state" | "userName">
+export type ChatStreamingPlaceholder<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
+  | string
+  | readonly string[]
+  | null
+  | ((context: ChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+
+type ChatConfigPassthrough = Omit<ChatConfig, "adapters" | "fallbackStreamingPlaceholderText" | "state" | "userName">
 
 export interface DefineChatOptions<
   TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
@@ -263,7 +269,7 @@ export interface DefineChatOptions<
   adapters: AdapterInput<ResolvedChatRuntimeContext<TRuntimeConfig>>
   agent?: ChatAgentBinding<TRuntimeConfig, TWorkflow>
   concurrency?: ConcurrencyStrategy | ConcurrencyConfig
-  fallbackStreamingPlaceholderText?: string | null
+  fallbackStreamingPlaceholderText?: ChatStreamingPlaceholder<TRuntimeConfig>
   hooks?: ChatEventHooks<TRuntimeConfig, TWorkflow>
   lifecycleHooks?: ChatWebhookRuntimeHooks<ChatRuntimeContext<TRuntimeConfig>>
   lockScope?: LockScope | ((context: LockScopeContext) => LockScope | Promise<LockScope>)

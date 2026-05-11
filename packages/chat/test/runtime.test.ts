@@ -258,6 +258,34 @@ describe("defineChat", () => {
     expect(post).toHaveBeenCalledWith("agent response")
   })
 
+  it("posts and edits an agent placeholder while the agent runs", async () => {
+    mockAgentPackage()
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const edit = vi.fn()
+    const post = vi.fn(async (message: string) => ({
+      edit,
+      id: message === "Forecasting demand curves..." ? "placeholder-1" : "message-1",
+      text: message,
+      threadId: "thread-1",
+    }))
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: "triager",
+      fallbackStreamingPlaceholderText: ["Forecasting demand curves..."],
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext({ runtime: "nitro", platform: "telegram" }) as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({ id: "thread-1", post } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
+
+    expect(post).toHaveBeenCalledOnce()
+    expect(post).toHaveBeenCalledWith("Forecasting demand curves...")
+    expect(edit).toHaveBeenCalledWith("agent response")
+  })
+
   it("passes a stable run id through chat agent hooks and agent runtime context", async () => {
     const prepareInput = vi.fn((args: any) => ({
       context: {

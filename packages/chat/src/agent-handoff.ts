@@ -9,11 +9,12 @@ import type {
   ChatAgentRuntimeContext,
   ChatDirectMessageHook,
   ChatRuntimeConfig,
+  ChatStreamingPlaceholder,
   ChatWorkflowHandle,
   ResolvedChatRuntimeContext,
 } from "./types.ts"
 import type { AgentRunInput, AgentRunMetadata } from "@vitehub/agent"
-import type { Chat, Channel, Message as ChatSdkMessage, MessageContext, Thread } from "chat"
+import type { Chat, Channel, Message as ChatSdkMessage, MessageContext, SentMessage, Thread } from "chat"
 import type { Message } from "@vitehub/messages"
 
 function normalizeAgentHistory(history: ChatAgentBindingOptions["history"]): { enabled: boolean, maxMessages: number } {
@@ -136,6 +137,30 @@ function createRunId() {
   return globalThis.crypto?.randomUUID?.() || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
 }
 
+function pickPlaceholder(values: readonly string[]): string | null {
+  const candidates = values.map(value => value.trim()).filter(Boolean)
+  if (!candidates.length) {
+    return null
+  }
+  return candidates[Math.floor(Math.random() * candidates.length)] ?? candidates[0] ?? null
+}
+
+async function resolvePlaceholder<TRuntimeConfig extends ChatRuntimeConfig>(
+  placeholder: ChatStreamingPlaceholder<TRuntimeConfig> | undefined,
+  args: ChatAgentHookArgs<TRuntimeConfig>,
+): Promise<string | null> {
+  if (placeholder === undefined) {
+    return null
+  }
+  if (placeholder === null || typeof placeholder === "string") {
+    return placeholder
+  }
+  if (typeof placeholder === "function") {
+    return await placeholder(args) || null
+  }
+  return pickPlaceholder(placeholder)
+}
+
 function isDevtoolsThread(thread: unknown): thread is Thread & { adapter?: { name?: string }, startTyping: (text?: string) => Promise<unknown> } {
   return !!thread
     && typeof thread === "object"
@@ -168,6 +193,7 @@ export function createAgentDirectMessageHook<
   runtimeContext: ResolvedChatRuntimeContext<TRuntimeConfig>,
   binding: ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>,
   workflow: TWorkflow,
+  options: { fallbackStreamingPlaceholderText?: ChatStreamingPlaceholder<TRuntimeConfig> } = {},
 ): ChatDirectMessageHook<TRuntimeConfig, TWorkflow> {
   return async (args) => {
     const { channel, context, message, runtimeConfig, thread } = args
@@ -196,18 +222,29 @@ export function createAgentDirectMessageHook<
     } satisfies ChatAgentHookArgs<TRuntimeConfig, TWorkflow>
 
     let input: AgentRunInput | undefined
+    let placeholder: SentMessage | undefined
     try {
       input = binding.hooks?.prepareInput
         ? await binding.hooks.prepareInput(baseArgs)
         : createDefaultAgentInput(baseArgs, runtimeContext.platform)
       input = await binding.hooks?.beforeRun?.({ ...baseArgs, input }) || input
+      const placeholderText = await resolvePlaceholder(options.fallbackStreamingPlaceholderText, baseArgs)
+      if (placeholderText) {
+        placeholder = await thread.post(placeholderText).catch(() => undefined) as SentMessage | undefined
+      }
       const agentContext = createAgentRuntimeContext(runtimeContext, thread, run)
       const agent = await getAgentFromRegistry(binding.name, agentContext)
       let result = await streamAgent(agent, agentContext, input)
       result = await binding.hooks?.afterRun?.({ ...baseArgs, input, result }) ?? result
-      await (binding.hooks?.sendResponse
-        ? binding.hooks.sendResponse({ ...baseArgs, input, result })
-        : thread.post(result as never))
+      if (binding.hooks?.sendResponse) {
+        await binding.hooks.sendResponse({ ...baseArgs, input, result })
+        return
+      }
+      if (placeholder) {
+        await placeholder.edit(result as never)
+        return
+      }
+      await thread.post(result as never)
     }
     catch (error) {
       if (binding.hooks?.error) {
