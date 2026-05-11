@@ -110,9 +110,11 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const stopWhen = { custom: true }
     const onStepFinish = vi.fn()
+    const experimental_telemetry = { integrations: [], isEnabled: true }
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
+      experimental_telemetry: experimental_telemetry as never,
       maxOutputTokens: 100,
       model: {} as never,
       onStepFinish,
@@ -124,12 +126,46 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(agentSettings.at(-1)).toMatchObject({
+      experimental_telemetry,
       maxOutputTokens: 100,
       onStepFinish,
       stopWhen,
       temperature: 0.2,
       toolChoice: "auto",
     })
+  })
+
+  it("wraps workspace agent models with runtime instrumentation", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const baseModel = { id: "base" }
+    const wrappedModel = { id: "wrapped" }
+    const instrumentModel = vi.fn(() => wrappedModel as never)
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      instrumentModel,
+      model: baseModel as never,
+      onStepFinish: vi.fn(),
+    }), { workspace: "docs" })
+
+    await agent.run!({
+      ...(context() as Record<string, unknown>),
+      run: {
+        platform: "telegram",
+        runId: "run_123",
+        threadId: "thread_1",
+      },
+    } as never)
+
+    expect(instrumentModel).toHaveBeenCalledWith(expect.objectContaining({
+      model: baseModel,
+      run: expect.objectContaining({ runId: "run_123" }),
+    }))
+    expect(agentSettings.at(-1)).toMatchObject({
+      model: wrappedModel,
+      onStepFinish: expect.any(Function),
+    })
+    expect(agentSettings.at(-1)).not.toHaveProperty("instrumentModel")
   })
 
   it("passes runtime context and workspace to callback instructions", async () => {

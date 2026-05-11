@@ -258,6 +258,104 @@ describe("defineChat", () => {
     expect(post).toHaveBeenCalledWith("agent response")
   })
 
+  it("passes a stable run id through chat agent hooks and agent runtime context", async () => {
+    const prepareInput = vi.fn((args: any) => ({
+      context: {
+        chat: {
+          runId: args.run.runId,
+          source: "chat",
+        },
+      },
+      messages: args.history,
+    }))
+    const beforeRun = vi.fn()
+    const afterRun = vi.fn()
+    const error = vi.fn()
+    const { getAgentFromRegistry, streamAgent } = mockAgentPackage()
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const post = vi.fn()
+    const context = createContext({ runtime: "nitro", platform: "telegram" })
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: {
+        hooks: {
+          afterRun,
+          beforeRun,
+          error,
+          prepareInput,
+        },
+        name: "triager",
+      },
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), context as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({
+      id: "thread-1",
+      post,
+      recentMessages: [createMessage("m1", "hello")],
+      refresh: vi.fn(),
+    } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
+
+    const runId = prepareInput.mock.calls[0]?.[0].run.runId
+    expect(runId).toEqual(expect.any(String))
+    expect(beforeRun.mock.calls[0]?.[0].run.runId).toBe(runId)
+    expect(afterRun.mock.calls[0]?.[0].run.runId).toBe(runId)
+    expect(error).not.toHaveBeenCalled()
+    expect(getAgentFromRegistry).toHaveBeenCalledWith("triager", expect.objectContaining({
+      run: expect.objectContaining({
+        channelId: "channel-1",
+        messageId: "m2",
+        platform: "telegram",
+        runId,
+        threadId: "thread-1",
+      }),
+    }))
+    expect(streamAgent).toHaveBeenCalledWith(
+      { name: "agent" },
+      expect.objectContaining({
+        run: expect.objectContaining({ runId }),
+      }),
+      expect.objectContaining({
+        context: { chat: { runId, source: "chat" } },
+      }),
+    )
+  })
+
+  it("passes the same run id to agent error hooks", async () => {
+    const streamError = new Error("agent failed")
+    const { streamAgent } = mockAgentPackage({ streamAgent: vi.fn(async () => {
+      throw streamError
+    }) })
+    const error = vi.fn()
+    const beforeRun = vi.fn()
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: {
+        hooks: { beforeRun, error },
+        name: "triager",
+      },
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext({ runtime: "nitro", platform: "telegram" }) as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
+
+    const runId = beforeRun.mock.calls[0]?.[0].run.runId
+    expect(streamAgent).toHaveBeenCalled()
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({
+      error: streamError,
+      run: expect.objectContaining({ runId }),
+    }))
+  })
+
   it("passes shared capability handles through chat-to-agent handoff", async () => {
     const { getAgentFromRegistry } = mockAgentPackage()
     const { defineChat, resolveChat } = await import("../src/index.ts")

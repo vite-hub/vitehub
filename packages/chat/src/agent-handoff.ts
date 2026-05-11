@@ -12,7 +12,7 @@ import type {
   ChatWorkflowHandle,
   ResolvedChatRuntimeContext,
 } from "./types.ts"
-import type { AgentRunInput } from "@vitehub/agent"
+import type { AgentRunInput, AgentRunMetadata } from "@vitehub/agent"
 import type { Chat, Channel, Message as ChatSdkMessage, MessageContext, Thread } from "chat"
 import type { Message } from "@vitehub/messages"
 
@@ -102,6 +102,7 @@ export function toViteHubMessages(messages: ChatSdkMessage[]): Message[] {
 function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
   context: ResolvedChatRuntimeContext<TRuntimeConfig>,
   thread?: Thread,
+  run?: AgentRunMetadata,
 ): ChatAgentRuntimeContext<TRuntimeConfig> {
   const runtime = context.runtime === "cloudflare"
     ? "cloudflare-agents"
@@ -115,6 +116,7 @@ function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
     event: context.event,
     memo: context.memo,
     request: context.request,
+    run,
     runtime,
     runtimeConfig: context.runtimeConfig,
     vercel: context.vercel,
@@ -128,6 +130,10 @@ function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
   }
 
   return agentContext
+}
+
+function createRunId() {
+  return globalThis.crypto?.randomUUID?.() || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
 }
 
 function isDevtoolsThread(thread: unknown): thread is Thread & { adapter?: { name?: string }, startTyping: (text?: string) => Promise<unknown> } {
@@ -145,6 +151,7 @@ function createDefaultAgentInput(args: ChatAgentHookArgs, platform?: string): Ag
         channelId: getEntityId(args.channel),
         messageId: getEntityId(args.message),
         platform,
+        runId: "run" in args && typeof args.run === "object" && args.run ? args.run.runId : undefined,
         source: "chat",
         threadId: getEntityId(args.thread),
       },
@@ -169,12 +176,20 @@ export function createAgentDirectMessageHook<
       ? await collectThreadMessages(thread, message, historyOptions.maxMessages)
       : [message]
     const history = toViteHubMessages(sourceMessages)
+    const run = {
+      channelId: getEntityId(channel),
+      messageId: getEntityId(message),
+      platform: runtimeContext.platform,
+      runId: createRunId(),
+      threadId: getEntityId(thread),
+    } satisfies AgentRunMetadata
     const baseArgs = {
       bot,
       channel,
       context,
       history,
       message,
+      run,
       runtimeConfig,
       thread,
       workflow,
@@ -186,7 +201,7 @@ export function createAgentDirectMessageHook<
         ? await binding.hooks.prepareInput(baseArgs)
         : createDefaultAgentInput(baseArgs, runtimeContext.platform)
       input = await binding.hooks?.beforeRun?.({ ...baseArgs, input }) || input
-      const agentContext = createAgentRuntimeContext(runtimeContext, thread)
+      const agentContext = createAgentRuntimeContext(runtimeContext, thread, run)
       const agent = await getAgentFromRegistry(binding.name, agentContext)
       let result = await streamAgent(agent, agentContext, input)
       result = await binding.hooks?.afterRun?.({ ...baseArgs, input, result }) ?? result

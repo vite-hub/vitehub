@@ -42,6 +42,7 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
   devtools?: {
     reportToolStep?: (step: AgentToolStep) => MaybePromise<void>
   }
+  run?: AgentRunMetadata
   runtime: AgentRuntimeName
 }
 
@@ -55,6 +56,14 @@ export interface AgentRunInput<CALL_OPTIONS = never, TOOLS extends ToolSet = Too
   options?: CALL_OPTIONS
   prompt?: string | Message[]
   timeout?: AgentCallParameters<CALL_OPTIONS, TOOLS>["timeout"]
+}
+
+export interface AgentRunMetadata {
+  channelId?: string
+  messageId?: string
+  platform?: string
+  runId: string
+  threadId?: string
 }
 
 export interface AgentRunResult {
@@ -89,12 +98,22 @@ export type AgentToolResolver<
 
 export type AgentModelInput = LanguageModel
 
+export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
+  model: AgentModelInput
+  run?: AgentRunMetadata
+}
+
+export type AgentModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  (context: AgentModelInstrumentationContext<TRuntimeConfig>) => MaybePromise<AgentModelInput>
+
 type AgentSettingsBase<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = never,
   TOOLS extends ToolSet = ToolSet,
 > = Omit<ToolLoopAgentSettings<CALL_OPTIONS, TOOLS>, "model" | "tools"> & {
   description?: string
+  instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   tools?: AgentToolResolver<TRuntimeConfig, TOOLS>
 }
 

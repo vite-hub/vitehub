@@ -36,6 +36,8 @@ import type {
   AgentToolDefinition,
   AgentToolStepItem,
   AgentChatAgentHooks,
+  AgentModelInput,
+  AgentModelInstrumentation,
   MaybePromise,
   MaybeResolvable,
   ResolvedAgentRuntimeContext,
@@ -66,6 +68,8 @@ export type {
   AgentIntegrationOption,
   AgentIntegrationsOptions,
   AgentModelInput,
+  AgentModelInstrumentation,
+  AgentModelInstrumentationContext,
   AgentModelProviderOptions,
   AgentModuleOptions,
   AgentProvidersOptions,
@@ -75,6 +79,7 @@ export type {
   AgentRunContext,
   AgentRunHandler,
   AgentRunInput,
+  AgentRunMetadata,
   AgentRunResult,
   AgentRuntime,
   AgentRuntimeConfig,
@@ -158,6 +163,16 @@ async function createToolLoopAgent<CALL_OPTIONS, TOOLS extends ToolSet>(
     ...(settings as unknown as ConstructorParameters<typeof ToolLoopAgent<CALL_OPTIONS, TOOLS>>[0]),
     tools,
   })
+}
+
+async function instrumentModel<TRuntimeConfig extends AgentRuntimeConfig>(
+  model: AgentModelInput,
+  instrumentation: AgentModelInstrumentation<TRuntimeConfig> | undefined,
+  context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+) {
+  return instrumentation
+    ? await instrumentation({ ...context, model, run: context.run })
+    : model
 }
 
 function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
@@ -285,7 +300,7 @@ function defineBaseAgent<
     }
   }
 
-  const { chat, description, hooks, run, tools, ...settings } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
+  const { chat, description, hooks, instrumentModel: modelInstrumentation, run, tools, ...settings } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
 
   return {
     chat,
@@ -301,8 +316,9 @@ function defineBaseAgent<
       const resolvedTools = tools
         ? applyToolPolicies(await resolveValue(tools, resolvedContext))
         : undefined
+      const model = await instrumentModel(settings.model, modelInstrumentation, resolvedContext)
 
-      return await createToolLoopAgent(settings, resolvedTools as TOOLS | undefined)
+      return await createToolLoopAgent({ ...settings, model }, resolvedTools as TOOLS | undefined)
     },
   }
 }
@@ -347,6 +363,7 @@ export interface WorkspaceAgentOptions<
   fallback?: boolean | WorkspaceAgentFallbackOptions
   hooks?: AgentChatAgentHooks<TRuntimeConfig>
   instructions?: WorkspaceAgentInstructions<TRuntimeConfig, Name>
+  instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   model: WorkspaceModel<TRuntimeConfig>
   name?: string
   stepLimit?: number
@@ -535,7 +552,8 @@ function createWorkspaceAgentDefinition<
       const { useWorkspace } = await import("@vitehub/workspace")
       const { stepCountIs, ToolLoopAgent } = await import("ai")
       const workspace = useWorkspace(workspaceName)
-      const model = await resolveModel(options.model, context)
+      const resolvedModel = await resolveModel(options.model, context)
+      const model = await instrumentModel(resolvedModel, options.instrumentModel, context)
       const instructions = await resolveWorkspaceInstructions(options, workspace, context, defaults)
       const reportToolStep = context.devtools?.reportToolStep
       const {
@@ -544,6 +562,7 @@ function createWorkspaceAgentDefinition<
         fallback: _fallback,
         hooks: _hooks,
         instructions: _instructions,
+        instrumentModel: _instrumentModel,
         model: _model,
         name: _name,
         stepLimit: _stepLimit,

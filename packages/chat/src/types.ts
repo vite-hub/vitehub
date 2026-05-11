@@ -2,6 +2,7 @@ import type {
   AgentChatOptions,
   AgentExecution,
   AgentRunInput,
+  AgentRunMetadata,
   AgentRuntimeContext,
   AgentRuntimeName,
 } from "@vitehub/agent"
@@ -176,6 +177,7 @@ export interface ChatAgentMetadata {
   channelId?: string
   messageId?: string
   platform?: string
+  runId: string
   source: "chat"
   threadId?: string
 }
@@ -187,6 +189,7 @@ export interface ChatAgentHookArgs<
   channel: Channel
   history: NonNullable<AgentRunInput["messages"]>
   message: Message
+  run: AgentRunMetadata
   thread: Thread
 }
 
