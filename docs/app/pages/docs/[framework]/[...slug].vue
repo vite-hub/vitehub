@@ -31,6 +31,8 @@ const { page } = useDocsPage(
   rawDoc,
   getDocsPageFallback(routeState.page),
 );
+
+const isTutorialPage = routeState.meta.section === "tutorials" && routeState.meta.page !== "index";
 </script>
 
 <template>
@@ -46,7 +48,11 @@ const { page } = useDocsPage(
     </UPageBody>
 
     <template #right>
-      <DocsAsideRight :page="page" />
+      <DocsTutorialAside
+        v-if="isTutorialPage"
+        :links="page.body?.toc?.links"
+      />
+      <DocsAsideRight v-else :page="page" />
     </template>
   </UPage>
 </template>

@@ -44,7 +44,7 @@ export default defineChat<ChatRuntimeConfig>({
     }
   },
   state: cloudflareDurableObjectState({
-    name: "quiver-chat",
+    name: "support-chat",
   }),
   streamingUpdateIntervalMs: 1_000,
   workflow: createWorkflow<ChatReplyPayload, { fullStream: AsyncIterable<string> }>({
