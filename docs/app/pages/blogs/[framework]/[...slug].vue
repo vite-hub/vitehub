@@ -61,7 +61,7 @@ provide("codeTreeActive", activePath);
 
 const treeItems = computed(() => Object.entries(tree.value).map(([label, component]) => ({ label, component })));
 const { current: framework, switchTo } = useFrameworkPreference();
-const blogMeta = computed(() => page.value as unknown as BlogPageMeta | null);
+const blogMeta = computed(() => rawDoc.value as unknown as BlogPageMeta | null);
 const publishedDate = computed(() => blogMeta.value?.date || "");
 const heroImage = computed(() => blogMeta.value?.image || "");
 
