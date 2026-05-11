@@ -42,9 +42,13 @@ const messages = ref<ChatMessage[]>([])
 const pendingUserMessage = ref<ChatMessage | undefined>()
 const pendingAssistantMessage = ref<ChatMessage | undefined>()
 const pendingAssistantBaselineIds = ref<Set<string> | undefined>()
+const expandedFilePaths = ref(new Set<string>())
+const selectedFilePath = ref<string | undefined>()
+const sidebarWidth = ref(340)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 let simulationRunId = 0
+let stopSidebarResize: (() => void) | undefined
 
 const standaloneStatusMessage = "Preview mode. Connect through Vite DevTools to inspect a real chat runtime."
 const simulationDelayMs = 360
@@ -54,9 +58,18 @@ const integrationTabs = [
   { icon: "i-lucide-scroll-text", label: "Instructions", slot: "instructions" as const },
 ]
 
-type FileRow = ChatDevtoolsFileTreeItem & { depth: number }
+type FileRow = ChatDevtoolsFileTreeItem & { depth: number, expanded?: boolean }
+type FileMaterialization = {
+  materialize?: string
+  materialized?: boolean
+  materializedAt?: string
+  source?: string
+}
 
-const fileRows = computed<FileRow[]>(() => flattenFiles(state.value.files || []))
+const fileRows = computed<FileRow[]>(() => flattenFiles(state.value.files || [], expandedFilePaths.value))
+const splitterStyle = computed(() => ({
+  "--chat-devtools-sidebar-width": `${sidebarWidth.value}px`,
+}))
 const recentTools = computed(() => {
   const tools = new Map<string, ChatDevtoolsTool>()
   for (const message of messages.value) {
@@ -131,6 +144,7 @@ function applyState(next: ChatDevtoolsStateResult) {
   }
 
   messages.value = nextMessages
+  syncExpandedFiles(state.value.files || [])
 }
 
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
@@ -229,15 +243,80 @@ function renderToolOutput(tool: ChatDevtoolsTool) {
   return `\`\`\`json\n${JSON.stringify(output, null, 2)}\n\`\`\``
 }
 
-function flattenFiles(files: ChatDevtoolsFileTreeItem[], depth = 0): FileRow[] {
-  return files.flatMap((file) => [
-    { ...file, depth },
-    ...flattenFiles(file.children || [], depth + 1),
-  ])
+function syncExpandedFiles(files: ChatDevtoolsFileTreeItem[]) {
+  const expanded = new Set(expandedFilePaths.value)
+  const isInitialExpansion = expanded.size === 0
+  for (const file of files) {
+    if (file.kind === "directory" && (file.path === "" || file.path === "/" || isInitialExpansion)) {
+      expanded.add(file.path)
+    }
+  }
+  expandedFilePaths.value = expanded
+}
+
+function flattenFiles(files: ChatDevtoolsFileTreeItem[], expanded: Set<string>, depth = 0): FileRow[] {
+  return files.flatMap((file) => {
+    const isExpanded = file.kind === "directory" && expanded.has(file.path)
+    return [
+      { ...file, depth, expanded: isExpanded },
+      ...(isExpanded ? flattenFiles(file.children || [], expanded, depth + 1) : []),
+    ]
+  })
 }
 
 function fileLabel(file: ChatDevtoolsFileTreeItem) {
   return file.label || file.path.split("/").filter(Boolean).at(-1) || file.path || "workspace"
+}
+
+function toggleFile(file: ChatDevtoolsFileTreeItem) {
+  if (file.kind === "file") {
+    selectedFilePath.value = file.path
+    return
+  }
+  const expanded = new Set(expandedFilePaths.value)
+  if (expanded.has(file.path)) {
+    expanded.delete(file.path)
+  }
+  else {
+    expanded.add(file.path)
+  }
+  expandedFilePaths.value = expanded
+}
+
+function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "materialized" | undefined {
+  const meta = file as ChatDevtoolsFileTreeItem & FileMaterialization
+  if (meta.materialized || meta.materializedAt) return "materialized"
+  if (meta.materialized === false || meta.materialize === "lazy" || meta.source) return "lazy"
+  return undefined
+}
+
+function fileMaterializationLabel(file: ChatDevtoolsFileTreeItem) {
+  return fileMaterialization(file) === "lazy" ? "Lazy" : "Ready"
+}
+
+function fileTrailing(file: ChatDevtoolsFileTreeItem) {
+  return file.updatedAt
+}
+
+function startSidebarResize(event: PointerEvent) {
+  if (event.pointerType === "mouse" && event.button !== 0) return
+  event.preventDefault()
+  const onMove = (moveEvent: PointerEvent) => {
+    sidebarWidth.value = Math.min(560, Math.max(280, window.innerWidth - moveEvent.clientX))
+  }
+  const onUp = () => {
+    document.body.style.cursor = ""
+    document.body.style.userSelect = ""
+    window.removeEventListener("pointermove", onMove)
+    window.removeEventListener("pointerup", onUp)
+    stopSidebarResize = undefined
+  }
+  stopSidebarResize?.()
+  document.body.style.cursor = "col-resize"
+  document.body.style.userSelect = "none"
+  window.addEventListener("pointermove", onMove)
+  window.addEventListener("pointerup", onUp, { once: true })
+  stopSidebarResize = onUp
 }
 
 function toolStatus(tool: ChatDevtoolsToolDefinition) {
@@ -625,6 +704,7 @@ async function clear() {
 }
 
 onMounted(refresh)
+onBeforeUnmount(() => stopSidebarResize?.())
 </script>
 
 <template>
@@ -645,7 +725,7 @@ onMounted(refresh)
         />
       </header>
 
-      <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))]" :style="splitterStyle">
         <section class="min-h-0 overflow-y-auto overflow-x-hidden">
           <UChatMessages
             v-if="messages.length"
@@ -708,6 +788,15 @@ onMounted(refresh)
           </div>
         </section>
 
+        <button
+          type="button"
+          class="group hidden min-h-0 cursor-col-resize bg-border outline-none transition-colors hover:bg-primary focus-visible:bg-primary lg:block"
+          aria-label="Resize integration panel"
+          @pointerdown="startSidebarResize"
+        >
+          <span class="block h-full w-px bg-transparent group-hover:bg-primary" />
+        </button>
+
         <aside class="hidden min-h-0 border-l border-default p-2 lg:block">
           <UCard
             variant="subtle"
@@ -745,10 +834,10 @@ onMounted(refresh)
                     :text="file.path"
                   >
                     <UButton
-                      :icon="file.kind === 'directory' ? 'i-lucide-folder' : 'i-lucide-file'"
+                      :icon="file.kind === 'directory' ? (file.expanded ? 'i-lucide-folder-open' : 'i-lucide-folder') : 'i-lucide-file'"
                       :label="fileLabel(file)"
                       color="neutral"
-                      variant="ghost"
+                      :variant="selectedFilePath === file.path ? 'soft' : 'ghost'"
                       size="sm"
                       block
                       class="justify-start"
@@ -757,11 +846,23 @@ onMounted(refresh)
                         leadingIcon: file.kind === 'directory' ? 'text-warning' : 'text-muted',
                         label: 'min-w-0 truncate text-left',
                       }"
+                      @click="toggleFile(file)"
                     >
                       <template #trailing>
-                        <span v-if="file.updatedAt" class="ml-auto truncate text-xs text-muted">
-                          {{ file.updatedAt }}
-                        </span>
+                        <div class="ml-auto flex min-w-0 items-center gap-1">
+                          <UBadge
+                            v-if="file.kind === 'directory' && fileMaterialization(file)"
+                            :color="fileMaterialization(file) === 'lazy' ? 'warning' : 'success'"
+                            variant="soft"
+                            size="sm"
+                            class="shrink-0"
+                          >
+                            {{ fileMaterializationLabel(file) }}
+                          </UBadge>
+                          <span v-if="fileTrailing(file)" class="truncate text-xs text-muted">
+                            {{ fileTrailing(file) }}
+                          </span>
+                        </div>
                       </template>
                     </UButton>
                   </UTooltip>
@@ -820,10 +921,6 @@ onMounted(refresh)
                       </div>
                     </div>
                   </div>
-                  <USeparator />
-                  <p class="px-1 text-xs/5 text-muted">
-                    Tool executions still appear inline in the chat transcript.
-                  </p>
                 </div>
                 <UEmpty
                   v-else
@@ -849,7 +946,7 @@ onMounted(refresh)
                       </UBadge>
                     </div>
                     <Suspense>
-                      <Comark class="text-xs/5 text-muted [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-4">
+                      <Comark class="text-xs/5 text-toned [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
                         {{ instruction }}
                       </Comark>
                     </Suspense>
