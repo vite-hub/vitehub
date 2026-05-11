@@ -232,6 +232,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       "README.md": "# Docs\n",
       "models/customers.sql": "select * from customers\n",
       "models/orders.sql": "select * from orders\n",
+      "models/search-notes.md": "siff|PLC\n",
     })
     const fs = createReadonlyWorkspaceFs(workspace)
 
@@ -280,6 +281,15 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "models/customers.sql:1:select * from customers\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "rg siff|PLC models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/search-notes.md:1:siff|PLC\n",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "cd /workspace && rg orders models", {
       commands: ["cd", "rg"],
       cwd: workspaceMountPoint,
@@ -295,7 +305,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "/workspace\ncustomers.sql\norders.sql\n",
+      stdout: "/workspace\ncustomers.sql\norders.sql\nsearch-notes.md\n",
     })
   })
 })
