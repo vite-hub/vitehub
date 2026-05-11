@@ -1,33 +1,38 @@
 ---
 title: Build a Source-Aware AI Chatbot with ViteHub
 description: Ship a chatbot that answers from your own docs, GitHub repos, and source files. One codebase runs on Telegram, Slack, Vite, Nitro, Cloudflare, and Vercel.
+date: 2026-05-11
+image: /images/tutorials/source-aware-chatbot.png
+authors:
+  - name: onmax
+    avatar: https://github.com/onmax.png
 navigation.title: Source-Aware AI Chatbot
 navigation.order: 1
 icon: i-lucide-message-circle-code
 frameworks: [vite, nitro]
 ---
 
-Stop building one-off chatbots for every platform. ViteHub gives you three composable primitives—Chat, Workspace, and Agent—so you start with a dummy reply in the DevTools panel and finish with a model that grounds answers in your own docs, repos, and source files. Same codebase, any runtime.
+Building source-aware assistants should not mean wiring a different bot for every platform. This guide walks through creating a ViteHub chatbot that starts with a dummy DevTools reply, then grows into an agent that can answer from your docs, GitHub repos, and source files.
 
-## What you'll build
+## What we're building
 
-You'll grow a `~/support/chat` bot in five small steps:
+By the end of this tutorial, you'll have a working support chatbot with:
 
-- A Chat definition at `server/chat.ts` that echoes a dummy reply
-- A live DevTools panel that lets you send messages without a real provider
-- An Agent that takes over the reply with a real model
+- A Chat definition at `server/chat.ts` that handles messages through ViteHub
+- A live DevTools panel for testing without Telegram, Slack, or webhook setup
+- An Agent that replaces the dummy reply with a real model response
 - A Workspace that gives the agent file inspection tools for grounded answers
-- A deploy story that's identical on Cloudflare, Vercel, Vite, and Nitro
+- One code path that can run in Vite, Nitro, Cloudflare, and Vercel
 
-Each step adds the smallest possible thing. By the end, swapping Telegram for Slack is a one-line change.
+Each step adds one small piece, so you can see how Chat, Agent, Workspace, and Messages fit together before adding platform adapters.
 
 ## Prerequisites
 
 Before we start, make sure you have:
 
-- A Vite or Nitro app
-- An AI SDK model you can import once we add the agent
 - Node 20+ for local DevTools
+- A Vite or Nitro app
+- An AI SDK model provider key for the agent step
 
 ## Project setup
 

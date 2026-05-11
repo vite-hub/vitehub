@@ -42,12 +42,23 @@ defineAgent({
   description?: string
   model?: AgentModelInput
   instructions?: string | string[] | ((context: WorkspaceAgentInstructionsContext) => MaybePromise<string | string[] | undefined>) | Array<string | string[] | ((context: WorkspaceAgentInstructionsContext) => MaybePromise<string | string[] | undefined>)>
-  tools?: MaybeResolvable<ToolSet, ResolvedAgentRuntimeContext>
+  tools?: MaybeResolvable<ToolSet, ResolvedAgentRuntimeContext> | ((context: WorkspaceAgentInstructionsContext & { workspace }) => MaybePromise<ToolSet | undefined>)
   run?: AgentRunHandler
 })
 ```
 
 You can also pass an AI SDK `Agent` instance to `defineAgent()`.
+
+Workspace agents do not attach workspace tools automatically. Opt in explicitly:
+
+```ts
+defineAgent({
+  workspace: { sources },
+  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+  tools: ({ workspace }) => workspace.tools.inspect(),
+  model,
+})
+```
 
 ## Run input
 

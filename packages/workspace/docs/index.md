@@ -100,16 +100,19 @@ For AI SDK agents, expose read-only workspace inspection tools:
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const tools = useWorkspace('docs').tools()
+const tools = useWorkspace('docs').tools.inspect()
 ```
 
 The `shell` tool emulates safe file-inspection commands against workspace assets. It does not execute a real shell.
-Read, list, and search commands are enabled by default. Write tools are exposed automatically when the facade is writable:
+Read, list, and search commands are enabled by default. Use explicit presets when choosing what a model can access:
 
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const tools = useWorkspace('docs', { allowWrite: true }).tools()
+const readOnlyTools = useWorkspace('docs').tools.inspect()
+const sameReadOnlyTools = useWorkspace('docs').tools.readonly()
+const noTools = useWorkspace('docs').tools.none()
+const writeTools = useWorkspace('docs', { allowWrite: true }).tools.write()
 ```
 
 Applications that use `AGENTS.md` as the model instruction source should preload it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')`.

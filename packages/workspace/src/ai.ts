@@ -138,7 +138,26 @@ function shellCommandsFor(operations: ReturnType<typeof resolveReadOperations>) 
 }
 
 function describeShellCommands(commands: string[]) {
-  return `Run a workspace inspection command in the shell runtime. Supported commands: ${[...commands].sort().join(", ")}.`
+  const supported = new Set(commands)
+  const forms = [
+    supported.has("pwd") && "`pwd`",
+    supported.has("ls") && "`ls [path]`, `ls -l [path]`, `ls -1 [path]`, `ls -F [path]`",
+    supported.has("find") && "`find [path] [-type f|d] [-name pattern]`",
+    (supported.has("rg") || supported.has("grep")) && "`rg [-i] pattern [path...]`, `grep -ri pattern [path...]`",
+    supported.has("cat") && "`cat file...`",
+    supported.has("head") && "`head [-n count] file`",
+    supported.has("tail") && "`tail [-n count] file`",
+    supported.has("wc") && "`wc -l file`",
+  ].filter(Boolean)
+
+  return [
+    "Run a restricted Linux-like read-only workspace inspection command over files mounted at `/workspace`.",
+    `Supported command forms: ${forms.join("; ")}.`,
+    "Unsupported: redirects, command substitution, backticks, arbitrary pipes, package managers, interpreters, mutation commands, unsupported flags, and commands outside this list.",
+    "Only `| head [-n count]` and `| tail [-n count]` are supported as post-processing pipes.",
+    "Quote shell metacharacters in search patterns.",
+    "Examples: `rg 'siff|PLC' ingestion forecasting-engine`; `find ingestion -type f -name '*.sql'`; `cat forecasting-engine/README.md | head -n 40`.",
+  ].join(" ")
 }
 
 async function runShellCommand(
@@ -305,7 +324,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   }
 
   if (writeEnabled && !isWorkspace(input)) {
-    throw new TypeError("[vitehub] Write operations require a mutable Workspace. Use useWorkspace(name, { allowWrite: true }).tools().")
+    throw new TypeError("[vitehub] Write operations require a mutable Workspace. Use useWorkspace(name, { allowWrite: true }).tools.write().")
   }
 
   const result: Record<string, Tool<any, any>> = {}
@@ -317,7 +336,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         additionalProperties: false,
         properties: {
           command: {
-            description: "A single workspace inspection command to run.",
+            description: "A restricted Linux-like workspace inspection command. Quote shell metacharacters in search patterns, e.g. rg 'a|b' path.",
             type: "string",
           },
         },

@@ -33,7 +33,7 @@ function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinit
     resolve: _resolve,
     run: _run,
     stepLimit: _stepLimit,
-    toolOptions: _toolOptions,
+    tools: _tools,
     workspace: _workspace,
     ...workspace
   } = definition as WorkspaceDefinitionInput & Record<string, unknown>

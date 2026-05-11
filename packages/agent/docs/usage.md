@@ -170,6 +170,7 @@ export default defineAgent({
       docs: source.github({ repo: 'acme/docs', cache: { maxAge: 3600, swr: true } }),
     },
   },
+  tools: ({ workspace }) => workspace.tools.inspect(),
   model,
 })
 ```
@@ -184,6 +185,7 @@ export default defineAgent({
     },
   },
   instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+  tools: ({ workspace }) => workspace.tools.inspect(),
   model,
 })
 ```
@@ -197,6 +199,9 @@ export default defineAgent({
     'Answer only from inspected workspace evidence.',
     async ({ fs }) => await fs.readFile('AGENTS.md'),
   ],
+  tools: ({ workspace }) => workspace.tools.inspect(),
   model,
 })
 ```
+
+Workspace sources no longer imply model tools. This keeps workspace mounting separate from model capabilities and makes read/write access explicit at the agent boundary.

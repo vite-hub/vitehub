@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const readFile = vi.fn()
 const tools = vi.fn(() => ({}))
+const inspectTools = vi.fn(() => ({}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
 
@@ -22,7 +23,11 @@ vi.mock("ai", () => ({
 vi.mock("@vitehub/workspace", () => ({
   useWorkspace: vi.fn(() => ({
     fs: { readFile },
-    tools,
+    tools: Object.assign(tools, {
+      inspect: inspectTools,
+      none: vi.fn(() => ({})),
+      readonly: inspectTools,
+    }),
   })),
 }))
 
@@ -43,6 +48,8 @@ describe("defineAgent workspace option", () => {
     agentGenerate.mockResolvedValue({ finishReason: "stop", text: "ok" })
     readFile.mockReset()
     tools.mockClear()
+    inspectTools.mockReset()
+    inspectTools.mockReturnValue({})
   })
 
   it("creates a workspace and agent definition without resolving workspace until run", async () => {
@@ -277,10 +284,46 @@ describe("defineAgent workspace option", () => {
     await expect(agent.run!(context())).rejects.toThrow("missing")
   })
 
-  it("reports workspace tool usage when execution starts and finishes", async () => {
+  it("does not attach workspace tools unless explicitly requested", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(tools).not.toHaveBeenCalled()
+    expect(inspectTools).not.toHaveBeenCalled()
+    expect(agentSettings.at(-1)).not.toHaveProperty("tools")
+  })
+
+  it("passes workspace facade and runtime context to workspace tool resolvers", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const shell = { execute: vi.fn(), inputSchema: {} }
+    const toolResolver = vi.fn(({ runtimeConfig, workspace }) => {
+      expect(workspace.fs).toEqual({ readFile })
+      expect(runtimeConfig).toEqual({ vertex: { model: "gemini" } })
+      return { shell }
+    })
+
+    const agent = withWorkspaceAgentDefaults(defineAgent<{ vertex: { model: string } }>({
+      workspace: {},
+      model: {} as never,
+      tools: toolResolver as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context({ vertex: { model: "gemini" } }))
+
+    expect(toolResolver).toHaveBeenCalledTimes(1)
+    expect(agentSettings.at(-1)?.tools).toEqual({ shell })
+  })
+
+  it("reports explicitly attached workspace tool usage when execution starts and finishes", async () => {
     const execute = vi.fn(async () => "workspace result")
     const reportToolStep = vi.fn()
-    tools.mockReturnValueOnce({
+    inspectTools.mockReturnValueOnce({
       shell: {
         execute,
       },
@@ -294,6 +337,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
+      tools: ({ workspace }) => workspace.tools.inspect(),
     }), { workspace: "docs" })
 
     await agent.run!({

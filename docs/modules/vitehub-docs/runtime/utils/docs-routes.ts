@@ -20,5 +20,9 @@ export function resolveFrameworkSwitchPath(path: string, framework: Framework) {
     return nextPath;
   }
 
+  if (new RegExp(`^/blogs/(?:${frameworkPattern})(?:/|$)`).test(path)) {
+    return path.replace(new RegExp(`^/blogs/(?:${frameworkPattern})`), `/blogs/${framework}`);
+  }
+
   return path;
 }

@@ -61,10 +61,17 @@ export type WorkspaceWriteTools<Options = undefined> = WorkspaceReadTools<Option
 
 export type WorkspaceReadToolSet = WorkspaceReadTools & {
   <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options): WorkspaceReadTools<Options>
+  inspect: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
+  none: () => ToolSet
+  readonly: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
 }
 
 export type WorkspaceWriteToolSet = WorkspaceWriteTools & {
   <Options extends WritableWorkspaceFacadeToolOptions | undefined = undefined>(options?: Options): WorkspaceWriteTools<Options>
+  inspect: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
+  none: () => ToolSet
+  readonly: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
+  write: <Options extends WritableWorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceWriteTools<Options>
 }
 
 export type ReadonlyWorkspaceFs<Name extends WorkspaceName = WorkspaceName> = WorkspaceAssets<WorkspaceAssetPath<Name>>
@@ -356,6 +363,10 @@ function createDefaultToolSetFactory<TOptions, TDefaultTools extends ToolSet>(
   return Object.assign(factory, createTools())
 }
 
+function emptyTools(): ToolSet {
+  return {}
+}
+
 export function useWorkspace<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFacade<Name>
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { allowWrite: true }): WritableWorkspaceFacade<Name>
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
@@ -366,13 +377,23 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       maxOutputLength: opts?.maxOutputLength,
       operations: toWriteOperations(opts),
     })
+    const createReadTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(createReadonlyFs(name, workspace), {
+      cwd: opts?.cwd,
+      maxOutputLength: opts?.maxOutputLength,
+      operations: toReadOperations(opts),
+    })
+    const tools = createDefaultToolSetFactory<
+      WritableWorkspaceFacadeToolOptions,
+      WorkspaceWriteTools
+    >(createTools) as WritableWorkspaceFacade<Name>["tools"]
+    tools.inspect = createReadTools as WritableWorkspaceFacade<Name>["tools"]["inspect"]
+    tools.readonly = createReadTools as WritableWorkspaceFacade<Name>["tools"]["readonly"]
+    tools.write = createTools as WritableWorkspaceFacade<Name>["tools"]["write"]
+    tools.none = emptyTools
     return {
       fs: createWritableFs<Name>(workspace),
       open: async options => await workspace.open(options),
-      tools: createDefaultToolSetFactory<
-        WritableWorkspaceFacadeToolOptions,
-        WorkspaceWriteTools
-      >(createTools) as WritableWorkspaceFacade<Name>["tools"],
+      tools,
     }
   }
 
@@ -382,11 +403,15 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     maxOutputLength: opts?.maxOutputLength,
     operations: toReadOperations(opts),
   })
+  const tools = createDefaultToolSetFactory<
+    WorkspaceFacadeToolOptions,
+    WorkspaceReadTools
+  >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"]
+  tools.inspect = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["inspect"]
+  tools.readonly = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["readonly"]
+  tools.none = emptyTools
   return {
     fs,
-    tools: createDefaultToolSetFactory<
-      WorkspaceFacadeToolOptions,
-      WorkspaceReadTools
-    >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"],
+    tools,
   }
 }

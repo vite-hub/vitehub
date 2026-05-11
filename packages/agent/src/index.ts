@@ -48,7 +48,6 @@ import type {
   ReadonlyWorkspaceFacade,
   ReadonlyWorkspaceFs,
   WorkspaceDefinitionInput,
-  WorkspaceFacadeToolOptions,
   WorkspaceName,
 } from "@vitehub/workspace"
 
@@ -409,6 +408,11 @@ type WorkspaceAgentInstructions<
   | WorkspaceAgentInstructionsPart<TRuntimeConfig, Name>
   | Array<WorkspaceAgentInstructionsPart<TRuntimeConfig, Name>>
 
+export type WorkspaceAgentToolsResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = (context: WorkspaceAgentInstructionsContext<TRuntimeConfig, Name>) => MaybePromise<ToolSet | undefined>
+
 type WorkspaceAgentInstructionsPart<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -441,7 +445,7 @@ export interface WorkspaceAgentOptions<
   onRunToolCallStart?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig>) => MaybePromise<void>
   name?: string
   stepLimit?: number
-  toolOptions?: WorkspaceFacadeToolOptions
+  tools?: WorkspaceAgentToolsResolver<TRuntimeConfig, Name>
   workspace: WorkspaceAgentWorkspaceOptions
 }
 
@@ -615,6 +619,11 @@ function createWorkspaceAgentDefinition<
       const resolvedModel = await resolveModel(options.model, context)
       const model = await instrumentModel(resolvedModel, options.instrumentModel, context)
       const instructions = await resolveWorkspaceInstructions(options, workspace, context, defaults)
+      const workspaceContext = {
+        ...context,
+        fs: workspace.fs,
+        workspace,
+      }
       const reportToolStep = context.devtools?.reportToolStep
       const {
         chat: _chat,
@@ -629,23 +638,27 @@ function createWorkspaceAgentDefinition<
         onRunToolCallFinish: _onRunToolCallFinish,
         onRunToolCallStart: _onRunToolCallStart,
         stepLimit: _stepLimit,
-        toolOptions: _toolOptions,
+        tools: _tools,
         workspace: _workspace,
         ...settings
       } = options
+      const resolvedTools = options.tools
+        ? await options.tools(workspaceContext)
+        : undefined
       const runSettings = withRunCallbacks({
         ...settings,
         onRunStepFinish: _onRunStepFinish,
         onRunToolCallFinish: _onRunToolCallFinish,
         onRunToolCallStart: _onRunToolCallStart,
       } as Record<string, unknown>, context)
-      const agent = new ToolLoopAgent({
+      const agentSettings = {
         ...runSettings,
         instructions,
         model,
         stopWhen: ((runSettings as Record<string, unknown>).stopWhen ?? stepCountIs(options.stepLimit ?? 20)) as never,
-        tools: withToolStepReporting(workspace.tools(options.toolOptions), reportToolStep),
-      })
+        ...(resolvedTools ? { tools: withToolStepReporting(resolvedTools, reportToolStep) } : {}),
+      }
+      const agent = new ToolLoopAgent(agentSettings)
       const result = await agent.generate({
         ...getAgentCall(context.input),
         abortSignal: context.input.abortSignal,

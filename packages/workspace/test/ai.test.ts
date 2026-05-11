@@ -64,6 +64,20 @@ describe("createWorkspaceTools", () => {
     })
   })
 
+  it("describes shell syntax in tool metadata", () => {
+    const tools = createWorkspaceTools(createAssets({
+      "README.md": "# Docs\n",
+    }))
+    const description = tools.shell.description || ""
+    const commandDescription = (tools.shell.inputSchema as any).jsonSchema.properties.command.description
+
+    expect(description).toContain("restricted Linux-like")
+    expect(description).toContain("/workspace")
+    expect(description).toContain("Supported command forms")
+    expect(description).toContain("rg 'siff|PLC' ingestion forecasting-engine")
+    expect(commandDescription).toContain("Quote shell metacharacters")
+  })
+
   it("limits shell commands to the enabled read capabilities", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
@@ -172,12 +186,27 @@ describe("useWorkspace facade tools", () => {
       }),
     })
 
-    const tools = useWorkspace("docs").tools()
+    const tools = useWorkspace("docs").tools.inspect()
 
     expect("shell" in tools).toBe(true)
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
       exitCode: 0,
       stdout: "# Docs\n",
     })
+  })
+
+  it("exposes explicit read-only tool presets", () => {
+    setWorkspaceRuntimeAssetsRegistry({
+      docs: createAssets({
+        "README.md": new TextEncoder().encode("# Docs\n"),
+      }),
+    })
+
+    const workspace = useWorkspace("docs")
+
+    expect("shell" in workspace.tools.inspect()).toBe(true)
+    expect("shell" in workspace.tools.readonly()).toBe(true)
+    expect(workspace.tools.none()).toEqual({})
+    expect("shell" in workspace.tools()).toBe(true)
   })
 })
