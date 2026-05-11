@@ -392,7 +392,7 @@ type WorkspaceModel<TRuntimeConfig extends AgentRuntimeConfig> =
   | ToolLoopAgentSettings["model"]
   | ((context: WorkspaceRuntimeContext<TRuntimeConfig>) => MaybePromise<ToolLoopAgentSettings["model"]>)
 
-type WorkspaceAgentInstructionsInput = string | string[]
+type WorkspaceAgentInstructionsValue = string | string[]
 
 interface WorkspaceAgentInstructionsContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -406,8 +406,15 @@ type WorkspaceAgentInstructions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > =
-  | WorkspaceAgentInstructionsInput
-  | ((context: WorkspaceAgentInstructionsContext<TRuntimeConfig, Name>) => MaybePromise<WorkspaceAgentInstructionsInput>)
+  | WorkspaceAgentInstructionsPart<TRuntimeConfig, Name>
+  | Array<WorkspaceAgentInstructionsPart<TRuntimeConfig, Name>>
+
+type WorkspaceAgentInstructionsPart<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | WorkspaceAgentInstructionsValue
+  | ((context: WorkspaceAgentInstructionsContext<TRuntimeConfig, Name>) => MaybePromise<WorkspaceAgentInstructionsValue | undefined>)
 
 export interface WorkspaceAgentFallbackOptions {
   enabled?: boolean
@@ -447,7 +454,6 @@ export type WorkspaceAgentDefinition<
 }
 
 export interface WorkspaceAgentDefaults<Name extends WorkspaceName = WorkspaceName> {
-  instructionsFile?: string
   name?: string
   workspace?: Name
 }
@@ -506,20 +512,7 @@ function getAgentCall(input: AgentRunInput) {
   return { messages: [] }
 }
 
-async function readDefaultInstructions(
-  workspace: ReadonlyWorkspaceFacade,
-  path: string | undefined,
-) {
-  if (!path) return undefined
-  try {
-    return await workspace.fs.readFile(path)
-  }
-  catch {
-    return undefined
-  }
-}
-
-function joinInstructions(...parts: Array<WorkspaceAgentInstructionsInput | undefined>) {
+function joinInstructions(...parts: Array<WorkspaceAgentInstructionsValue | undefined>) {
   return parts
     .flatMap(part => Array.isArray(part) ? part : [part])
     .map(part => part?.trim())
@@ -534,19 +527,19 @@ async function resolveWorkspaceInstructions<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
   context: WorkspaceRuntimeContext<TRuntimeConfig>,
-  defaults: WorkspaceAgentDefaults<Name>,
+  _defaults: WorkspaceAgentDefaults<Name>,
 ) {
-  const instructions = typeof options.instructions === "function"
-    ? await options.instructions({
-        ...context,
-        fs: workspace.fs,
-        workspace,
-      })
-    : options.instructions
-  const defaultInstructions = options.instructions === undefined
-    ? await readDefaultInstructions(workspace, defaults.instructionsFile)
-    : undefined
-  return joinInstructions(instructions, defaultInstructions)
+  const instructionContext = {
+    ...context,
+    fs: workspace.fs,
+    workspace,
+  }
+  const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
+  const instructions = await Promise.all(parts.map(part => typeof part === "function"
+    ? part(instructionContext)
+    : part))
+
+  return joinInstructions(...instructions)
 }
 
 function getFallbackOptions(fallback: WorkspaceAgentOptions["fallback"]): Required<WorkspaceAgentFallbackOptions> {

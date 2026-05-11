@@ -174,4 +174,29 @@ export default defineAgent({
 })
 ```
 
-`server/agents/<name>/config.ts` becomes both the agent definition and an implicit workspace definition. `AGENTS.md` is loaded as instructions by convention when it exists. Use `instructions: async ({ fs }) => await fs.readFile('custom.md')` when instructions live somewhere else.
+`server/agents/<name>/config.ts` becomes both the agent definition and an implicit workspace definition. Workspace files are not loaded as model instructions by convention. If you want to use `AGENTS.md`, opt in explicitly:
+
+```ts [server/agents/data-sources/config.ts]
+export default defineAgent({
+  workspace: {
+    sources: {
+      docs: source.github({ repo: 'acme/docs' }),
+    },
+  },
+  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+  model,
+})
+```
+
+Instruction parts can also be composed with an array:
+
+```ts
+export default defineAgent({
+  workspace: {},
+  instructions: [
+    'Answer only from inspected workspace evidence.',
+    async ({ fs }) => await fs.readFile('AGENTS.md'),
+  ],
+  model,
+})
+```

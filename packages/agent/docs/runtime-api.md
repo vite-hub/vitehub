@@ -41,7 +41,7 @@ export default defineNitroConfig({
 defineAgent({
   description?: string
   model?: AgentModelInput
-  instructions?: string
+  instructions?: string | string[] | ((context: WorkspaceAgentInstructionsContext) => MaybePromise<string | string[] | undefined>) | Array<string | string[] | ((context: WorkspaceAgentInstructionsContext) => MaybePromise<string | string[] | undefined>)>
   tools?: MaybeResolvable<ToolSet, ResolvedAgentRuntimeContext>
   run?: AgentRunHandler
 })

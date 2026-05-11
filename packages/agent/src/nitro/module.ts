@@ -54,7 +54,7 @@ function createNitroAgentRegistryContents(file: string, definitions: DiscoveredA
     ...definitions.map((definition) => {
       const importPath = createImportPath(file, definition.handler)
       if (definition.source === "nitro-server-agent-workspace") {
-        return `  ${JSON.stringify(definition.name)}: async () => ({ default: withWorkspaceAgentDefaults((await import(${JSON.stringify(importPath)})).default, { instructionsFile: "AGENTS.md", name: ${JSON.stringify(definition.name)}, workspace: ${JSON.stringify(definition.workspace)} }) }),`
+        return `  ${JSON.stringify(definition.name)}: async () => ({ default: withWorkspaceAgentDefaults((await import(${JSON.stringify(importPath)})).default, { name: ${JSON.stringify(definition.name)}, workspace: ${JSON.stringify(definition.workspace)} }) }),`
       }
       if (definition.exportName) {
         return `  ${JSON.stringify(definition.name)}: async () => ({ default: (await import(${JSON.stringify(importPath)}))[${JSON.stringify(definition.exportName)}] }),`

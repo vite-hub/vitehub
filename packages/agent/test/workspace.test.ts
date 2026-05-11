@@ -90,6 +90,25 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("First\n\nSecond")
   })
 
+  it("joins mixed static and callback instructions", async () => {
+    readFile.mockResolvedValueOnce("Workspace instructions")
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      instructions: [
+        "Use workspace sources.",
+        async ({ fs }) => await fs.readFile("AGENTS.md"),
+      ],
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(readFile).toHaveBeenCalledWith("AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe("Use workspace sources.\n\nWorkspace instructions")
+  })
+
   it("uses callback instructions with workspace fs", async () => {
     readFile.mockResolvedValueOnce("Workspace instructions")
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
@@ -230,32 +249,18 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("gemini")
   })
 
-  it("defaults instructions to AGENTS.md when inferred by discovery", async () => {
+  it("does not load AGENTS.md as implicit instructions", async () => {
     readFile.mockResolvedValueOnce("Workspace instructions")
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
-    }), { instructionsFile: "AGENTS.md", workspace: "docs" })
+    }), { workspace: "docs" })
 
     await agent.run!(context())
 
-    expect(readFile).toHaveBeenCalledWith("AGENTS.md")
-    expect(agentSettings.at(-1)?.instructions).toBe("Workspace instructions")
-  })
-
-  it("ignores missing implicit AGENTS.md", async () => {
-    readFile.mockRejectedValueOnce(new Error("missing"))
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
-
-    const agent = withWorkspaceAgentDefaults(defineAgent({
-      workspace: {},
-      model: {} as never,
-    }), { instructionsFile: "AGENTS.md", workspace: "docs" })
-
-    await agent.run!(context())
-
+    expect(readFile).not.toHaveBeenCalled()
     expect(agentSettings.at(-1)?.instructions).toBe("")
   })
 
@@ -267,7 +272,7 @@ describe("defineAgent workspace option", () => {
       workspace: {},
       instructions: ({ fs }) => fs.readFile("MISSING.md"),
       model: {} as never,
-    }), { instructionsFile: "AGENTS.md", workspace: "docs" })
+    }), { workspace: "docs" })
 
     await expect(agent.run!(context())).rejects.toThrow("missing")
   })
