@@ -1,7 +1,6 @@
 import { parseShellCommand } from "./parse.ts"
 import { workspaceMountPoint } from "./workspace-fs.ts"
 
-import type { IFileSystem } from "just-bash"
 import type {
   SearchableShellWorkspace,
   ShellRuntimeExecResult,
@@ -10,17 +9,14 @@ import type {
   WorkspaceShellFileSystem,
 } from "./types.ts"
 
+const unsupportedWorkspaceShellSyntaxPattern = /(?:&&|\|\||[;`<>\r\n]|\$\()/
+
 interface WorkspaceInspectionCommandOptions {
   commands: string[]
   cwd?: string
   fs: WorkspaceShellFileSystem
   maxOutputLength?: number
   provider?: "cloudflare-shell" | "just-bash"
-}
-
-async function loadJustBashRuntime() {
-  const runtimeModule = "./runtime.js"
-  return await import(/* @vite-ignore */ runtimeModule) as typeof import("./runtime.ts")
 }
 
 export function cleanWorkspaceShellPath(path = "."): string {
@@ -46,6 +42,14 @@ export async function runWorkspaceInspectionCommand(
     maxOutputLength: options.maxOutputLength || 30_000,
     provider: options.provider || "just-bash",
   }
+  if (unsupportedWorkspaceShellSyntaxPattern.test(command)) {
+    return {
+      exitCode: 126,
+      stderr: applyOutputLimit("Unsupported shell syntax: only a single workspace command is supported.\n", resolved.maxOutputLength),
+      stdout: "",
+    }
+  }
+
   let pipeline: WorkspacePipeline
   try {
     pipeline = splitWorkspacePipeline(command)
@@ -69,36 +73,10 @@ export async function runWorkspaceInspectionCommand(
     }
   }
 
-  if (resolved.provider === "cloudflare-shell") {
-    return await runCloudflareWorkspaceInspectionCommand(input, pipeline, resolved)
-  }
-
-  const { createJustBashRuntime, withShellRuntimePolicy } = await loadJustBashRuntime()
-  const runtime = withShellRuntimePolicy(createJustBashRuntime({
-    commands: resolved.commands,
-    cwd: resolved.cwd,
-    fs: resolved.fs as IFileSystem & { writeFs: boolean },
-  }), {
-    allowedCommands: resolved.commands,
-    singleCommand: true,
-  })
-  const result = await runtime.exec(pipeline.command, { cwd: resolved.cwd })
-  const traversalArg = findTraversalArg(pipeline.command)
-  const stderr = traversalArg && result.exitCode && /No such file or directory/.test(result.stderr)
-    ? `[vitehub] Workspace path escapes the workspace root: "${traversalArg}".\n`
-    : result.stderr
-  const stdout = result.exitCode
-    ? result.stdout
-    : applyPipelinePostprocess(await normalizeShellStdout(input, pipeline.command, result.stdout), pipeline.postprocess)
-
-  return {
-    exitCode: result.exitCode ?? 0,
-    stderr: applyOutputLimit(stderr, resolved.maxOutputLength),
-    stdout: applyOutputLimit(stdout, resolved.maxOutputLength),
-  }
+  return await runNativeWorkspaceInspectionCommand(input, pipeline, resolved)
 }
 
-async function runCloudflareWorkspaceInspectionCommand(
+async function runNativeWorkspaceInspectionCommand(
   input: SearchableShellWorkspace,
   pipeline: WorkspacePipeline,
   options: Required<WorkspaceInspectionCommandOptions>,
