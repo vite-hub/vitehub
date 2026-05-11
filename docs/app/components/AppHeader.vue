@@ -3,9 +3,12 @@ const route = useRoute();
 const primaryLinks = [
   { label: "Home", to: "/" },
   { label: "Docs", to: "/docs" },
+  { label: "Tutorials", to: "/docs/vite/tutorials", match: "/tutorials" },
 ];
 
-function isActiveLink(to: string) {
+function isActiveLink(link: typeof primaryLinks[number]) {
+  if (link.match) return route.path.includes(link.match);
+  const { to } = link;
   if (to === "/") return route.path === "/";
   return route.path === to || route.path.startsWith(`${to}/`);
 }
@@ -29,7 +32,7 @@ function isActiveLink(to: string) {
           :key="link.to"
           :to="link.to"
           :label="link.label"
-          :color="isActiveLink(link.to) ? 'primary' : 'neutral'"
+          :color="isActiveLink(link) ? 'primary' : 'neutral'"
           variant="ghost"
           size="sm"
         />
@@ -61,7 +64,7 @@ function isActiveLink(to: string) {
             :key="link.to"
             :to="link.to"
             :label="link.label"
-            :color="isActiveLink(link.to) ? 'primary' : 'neutral'"
+            :color="isActiveLink(link) ? 'primary' : 'neutral'"
             variant="ghost"
             block
             class="justify-start"
