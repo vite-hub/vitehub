@@ -122,7 +122,7 @@ export async function syncDiscoveredWorkspaceAssetBundles(
   for (const definition of definitions) {
     if (!shouldBundleWorkspaceAssets(options.assets, definition.name)) continue
 
-    const mod = await import(pathToFileURL(definition.path).href) as { default?: WorkspaceDefinitionInput }
+    const mod = await importWorkspaceConfig(definition.path)
     if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
 
     const store = createMemoryWorkspaceStore()

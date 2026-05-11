@@ -371,7 +371,7 @@ export default {
   it("auto-mounts AGENTS.md for colocated agent workspaces", async () => {
     const root = await createRoot()
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "const defineAgent = (value) => value\nexport default defineAgent({ workspace: {}, model: {} })\n", "utf8")
+    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "const defineAgent = <T>(value: T): T => value\nexport default defineAgent({ workspace: {}, model: {} })\n", "utf8")
     await writeFile(join(root, "server", "agents", "docs", "AGENTS.md"), "# Agent Instructions\n", "utf8")
 
     const hooks: Record<string, Array<() => Promise<void>>> = {}
