@@ -54,6 +54,14 @@ describe("createWorkspaceTools", () => {
       exitCode: 0,
       stdout: "docs/customers.md:1:Customer docs\n",
     })
+    await expect(runShell(tools, "cd /workspace && rg orders models")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/orders.sql:1:select * from orders\n",
+    })
+    await expect(runShell(tools, "pwd && ls models")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "/workspace\ncustomers.sql\norders.sql\n",
+    })
   })
 
   it("limits shell commands to the enabled read capabilities", async () => {

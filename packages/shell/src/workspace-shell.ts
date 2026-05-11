@@ -9,7 +9,7 @@ import type {
   WorkspaceShellFileSystem,
 } from "./types.ts"
 
-const unsupportedWorkspaceShellSyntaxPattern = /(?:&&|\|\||[;`<>\r\n]|\$\()/
+const unsupportedWorkspaceShellSyntaxPattern = /(?:\|\||[`<>]|\$\()/
 
 interface WorkspaceInspectionCommandOptions {
   commands: string[]
@@ -50,9 +50,9 @@ export async function runWorkspaceInspectionCommand(
     }
   }
 
-  let pipeline: WorkspacePipeline
+  let commands: Array<WorkspaceCommand | WorkspaceCdCommand>
   try {
-    pipeline = splitWorkspacePipeline(command)
+    commands = splitWorkspaceCommands(command, resolved.cwd)
   }
   catch (error) {
     return {
@@ -62,18 +62,38 @@ export async function runWorkspaceInspectionCommand(
     }
   }
 
-  const words = tryParseCommand(pipeline.command)
-  const name = words[0]
+  let stdout = ""
+  let stderr = ""
+  let exitCode = 0
+  let cwd = cleanWorkspaceShellPath(resolved.cwd)
 
-  if (name && isSearchCommand(name)) {
-    const result = await runSearchCommand(input, pipeline.command, name, resolved)
-    return {
-      ...result,
-      stdout: applyOutputLimit(applyPipelinePostprocess(result.stdout, pipeline.postprocess), resolved.maxOutputLength),
+  for (const item of commands) {
+    if (item.operator === "&&" && exitCode !== 0) {
+      break
     }
+
+    if (item.kind === "cd") {
+      cwd = item.cwd
+      continue
+    }
+
+    const options = { ...resolved, cwd }
+    const words = tryParseCommand(item.pipeline.command)
+    const name = words[0]
+    const result = name && isSearchCommand(name)
+      ? await runSearchCommand(input, item.pipeline.command, name, options)
+      : await runNativeWorkspaceInspectionCommand(input, item.pipeline, options)
+
+    stdout += applyPipelinePostprocess(result.stdout, item.pipeline.postprocess)
+    stderr += result.stderr
+    exitCode = result.exitCode ?? 0
   }
 
-  return await runNativeWorkspaceInspectionCommand(input, pipeline, resolved)
+  return {
+    exitCode,
+    stderr: applyOutputLimit(stderr, resolved.maxOutputLength),
+    stdout: applyOutputLimit(stdout, resolved.maxOutputLength),
+  }
 }
 
 async function runNativeWorkspaceInspectionCommand(
@@ -154,6 +174,95 @@ async function runNativeWorkspaceInspectionCommand(
 interface WorkspacePipeline {
   command: string
   postprocess?: string[]
+}
+
+interface WorkspaceCommand {
+  kind: "command"
+  operator?: "&&" | ";"
+  pipeline: WorkspacePipeline
+}
+
+interface WorkspaceCdCommand {
+  cwd: string
+  kind: "cd"
+  operator?: "&&" | ";"
+}
+
+function splitWorkspaceCommands(command: string, initialCwd: string): Array<WorkspaceCommand | WorkspaceCdCommand> {
+  const parts = splitWorkspaceCommandSequence(command)
+  let cwd = cleanWorkspaceShellPath(initialCwd)
+
+  return parts.map(({ command, operator }) => {
+    const words = parseShellCommand(command)
+    const [name, ...args] = words
+
+    if (name === "cd") {
+      if (args.length !== 1) {
+        throw new Error("Unsupported shell syntax: only a single workspace command is supported.")
+      }
+      cwd = resolveShellPath(args[0], cwd)
+      return { cwd, kind: "cd", operator }
+    }
+
+    return { kind: "command", operator, pipeline: splitWorkspacePipeline(command) }
+  })
+}
+
+function splitWorkspaceCommandSequence(command: string): Array<{ command: string, operator?: "&&" | ";" }> {
+  const parts: Array<{ command: string, operator?: "&&" | ";" }> = []
+  let current = ""
+  let quote: "'" | "\"" | undefined
+  let escaped = false
+  let operator: "&&" | ";" | undefined
+
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index]!
+
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+    if (char === "\\") {
+      current += char
+      escaped = true
+      continue
+    }
+    if (quote) {
+      if (char === quote) quote = undefined
+      current += char
+      continue
+    }
+    if (char === "'" || char === "\"") {
+      quote = char
+      current += char
+      continue
+    }
+    if (char === "&" && command[index + 1] === "&") {
+      parts.push({ command: current.trim(), operator })
+      current = ""
+      operator = "&&"
+      index += 1
+      continue
+    }
+    if (char === ";" || char === "\n" || char === "\r") {
+      parts.push({ command: current.trim(), operator })
+      current = ""
+      operator = ";"
+      if (char === "\r" && command[index + 1] === "\n") index += 1
+      continue
+    }
+    current += char
+  }
+
+  if (quote) throw new Error("Unsupported shell syntax: unterminated quote.")
+  parts.push({ command: current.trim(), operator })
+
+  if (parts.some(part => !part.command)) {
+    throw new Error("Unsupported shell syntax: only a single workspace command is supported.")
+  }
+
+  return parts
 }
 
 function splitWorkspacePipeline(command: string): WorkspacePipeline {
@@ -295,7 +404,7 @@ function normalizeSafeShellPath(path = ""): string {
 function resolveShellPath(path: string | undefined, cwd: string) {
   const input = path || "."
   if (input === "." || input === "./") return cwd
-  if (input.startsWith("/workspace/")) return cleanWorkspaceShellPath(input)
+  if (input === workspaceMountPoint || input.startsWith("/workspace/")) return cleanWorkspaceShellPath(input)
   if (input.startsWith("/")) throw new Error(`[vitehub] Workspace path escapes the workspace root: "${input}".`)
   return normalizeSafeShellPath(cwd ? `${cwd}/${input}` : input)
 }

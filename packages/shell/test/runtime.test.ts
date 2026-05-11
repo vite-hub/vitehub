@@ -241,7 +241,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 126,
-      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
+      stderr: "Unsupported workspace shell command: pwd\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | head -n 1", {
@@ -278,6 +278,24 @@ describe("@vitehub/shell just-bash runtime", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: "models/customers.sql:1:select * from customers\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cd /workspace && rg orders models", {
+      commands: ["cd", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/orders.sql:1:select * from orders\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "pwd && ls models", {
+      commands: ["pwd", "ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "/workspace\ncustomers.sql\norders.sql\n",
     })
   })
 })
