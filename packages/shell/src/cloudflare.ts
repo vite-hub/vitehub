@@ -1,4 +1,4 @@
-import { parseShellCommand } from "./runtime.ts"
+import { parseShellCommand } from "./parse.ts"
 
 import type { ShellRuntime } from "./types.ts"
 import type { CloudflareShellRuntimeOptions, ShellRuntimeExecOptions } from "./types.ts"

@@ -2,6 +2,7 @@ import { createCloudflareShellRuntime } from "./cloudflare.ts"
 import { createJustBashRuntime, withShellRuntimePolicy } from "./runtime.ts"
 import { cleanWorkspaceMutationPath, cleanWorkspaceShellPath, runWorkspaceInspectionCommand } from "./workspace-shell.ts"
 import { createReadonlyWorkspaceFs, createWritableWorkspaceFs, workspaceMountPoint } from "./workspace-fs.ts"
+import { parseShellCommand } from "./parse.ts"
 
 import type { CreateShellRuntimeOptions, ShellRuntime } from "./types.ts"
 
@@ -13,6 +14,7 @@ export {
   createWritableWorkspaceFs,
   cleanWorkspaceMutationPath,
   cleanWorkspaceShellPath,
+  parseShellCommand,
   runWorkspaceInspectionCommand,
   workspaceMountPoint,
 }

@@ -1,5 +1,5 @@
 import { jsonSchema, tool, type Tool, type ToolSet } from "ai"
-import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } from "@vitehub/shell"
+import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } from "@vitehub/shell/workspace"
 
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 

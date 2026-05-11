@@ -421,6 +421,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     const workspaceUnshellRuntimeFile = resolve(generatedDir, "workspace-unshell-runtime.mjs")
     alias["@vitehub/workspace/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
     alias["@vitehub/workspace"] = workspaceRuntimeFile
+    alias["@vitehub/shell/workspace"] = workspaceUnshellRuntimeFile
     alias["@vitehub/shell"] = workspaceUnshellRuntimeFile
     alias["@vitehub/unshell"] = workspaceUnshellRuntimeFile
     alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()

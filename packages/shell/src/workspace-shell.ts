@@ -1,6 +1,7 @@
-import { createJustBashRuntime, parseShellCommand, withShellRuntimePolicy } from "./runtime.ts"
+import { parseShellCommand } from "./parse.ts"
 import { workspaceMountPoint } from "./workspace-fs.ts"
 
+import type { IFileSystem } from "just-bash"
 import type {
   SearchableShellWorkspace,
   ShellRuntimeExecResult,
@@ -15,6 +16,11 @@ interface WorkspaceInspectionCommandOptions {
   fs: WorkspaceShellFileSystem
   maxOutputLength?: number
   provider?: "cloudflare-shell" | "just-bash"
+}
+
+async function loadJustBashRuntime() {
+  const runtimeModule = "./runtime.js"
+  return await import(/* @vite-ignore */ runtimeModule) as typeof import("./runtime.ts")
 }
 
 export function cleanWorkspaceShellPath(path = "."): string {
@@ -67,10 +73,11 @@ export async function runWorkspaceInspectionCommand(
     return await runCloudflareWorkspaceInspectionCommand(input, pipeline, resolved)
   }
 
+  const { createJustBashRuntime, withShellRuntimePolicy } = await loadJustBashRuntime()
   const runtime = withShellRuntimePolicy(createJustBashRuntime({
     commands: resolved.commands,
     cwd: resolved.cwd,
-    fs: resolved.fs,
+    fs: resolved.fs as IFileSystem & { writeFs: boolean },
   }), {
     allowedCommands: resolved.commands,
     singleCommand: true,

@@ -22,6 +22,8 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./runtime": "./dist/runtime.js",
+    "./workspace": "./dist/workspace.js",
     "./package.json": "./package.json"
   },
   "files": [
