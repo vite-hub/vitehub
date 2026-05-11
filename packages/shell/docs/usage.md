@@ -1,6 +1,6 @@
 ---
 title: Shell usage
-description: Configure command policy, workspace filesystems, search, and sandbox clients.
+description: Configure real shell execution, workspace filesystems, analysis, and sandbox clients.
 navigation.title: Usage
 navigation.order: 2
 icon: i-lucide-file-code-2
@@ -9,21 +9,19 @@ frameworks: [vite, nitro]
 
 Use this page after the [Quickstart](./quickstart).
 
-## Restrict commands
+## Choose workspace commands
 
-Pass both the supported command list and the policy allowlist.
+Pass the commands that `just-bash` should expose in the workspace-backed runtime.
 
 ```ts
 const runtime = createShellRuntime({
-  allowedCommands: ['pwd', 'ls', 'cat', 'rg'],
-  commands: ['pwd', 'ls', 'cat', 'rg'],
+  commands: ['pwd', 'ls', 'cat', 'head', 'rg'],
   fs,
   provider: 'just-bash',
-  singleCommand: true,
 })
 ```
 
-`singleCommand: true` rejects separators, pipes, redirects, command substitution, and multiline commands.
+The runtime accepts real shell syntax. Pipes, redirects, chaining, command substitution, and multiline commands are passed through to the provider.
 
 ## Use read-only files
 
@@ -43,11 +41,21 @@ import { createWritableWorkspaceFs } from '@vitehub/shell'
 const fs = createWritableWorkspaceFs(workspace)
 ```
 
-Writable filesystems require the workspace to implement `writeFile`, `mkdir`, and `rm`. Keep the command allowlist narrow.
+Writable filesystems require the workspace to implement `writeFile`, `mkdir`, and `rm`. Keep the exposed command list narrow.
 
-## Run search commands
+## Analyze commands
 
-Use `runWorkspaceInspectionCommand()` when `rg` or `grep` should run through the workspace search API.
+Use `analyzeShellCommand()` when you need advisory metadata before execution.
+
+```ts
+import { analyzeShellCommand } from '@vitehub/shell'
+
+const analysis = await analyzeShellCommand('rg TODO docs | head -n 20')
+```
+
+## Run workspace shell commands
+
+Use `runWorkspaceInspectionCommand()` when AI tools should execute against a ViteHub workspace filesystem.
 
 ```ts
 import {
@@ -56,8 +64,8 @@ import {
   workspaceMountPoint,
 } from '@vitehub/shell'
 
-const result = await runWorkspaceInspectionCommand(workspace, 'rg TODO docs', {
-  commands: ['rg'],
+const result = await runWorkspaceInspectionCommand(workspace, 'rg TODO docs | head -n 20', {
+  commands: ['rg', 'head'],
   cwd: workspaceMountPoint,
   fs: createReadonlyWorkspaceFs(workspace),
   maxOutputLength: 30_000,
@@ -95,4 +103,4 @@ const result = await runtime.exec('node --version', {
 })
 ```
 
-The client must expose `exec(command, args, options)` and support metadata.
+The client must expose `exec(command, options)` and support metadata.

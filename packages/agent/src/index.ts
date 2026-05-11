@@ -582,7 +582,7 @@ function createShellMetadataTool(): AgentDevtoolsToolDefinition {
   return {
     category: "workspace",
     commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
-    description: "Run a restricted read-only workspace inspection command.",
+    description: "Run a workspace shell command.",
     icon: "i-lucide-terminal",
     name: "shell",
     status: "available",

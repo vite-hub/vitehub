@@ -28,7 +28,7 @@ afterEach(() => {
 })
 
 describe("createWorkspaceTools", () => {
-  it("emulates read-only shell inspection commands", async () => {
+  it("runs real read-only shell inspection commands", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
       "models/orders.sql": "select * from orders\nwhere id is not null\n",
@@ -38,7 +38,7 @@ describe("createWorkspaceTools", () => {
 
     await expect(runShell(tools, "pwd")).resolves.toMatchObject({ exitCode: 0, stdout: "/workspace\n" })
     await expect(runShell(tools, "ls models")).resolves.toMatchObject({ exitCode: 0, stdout: "customers.sql\norders.sql\n" })
-    await expect(runShell(tools, "find . -name '*.sql'")).resolves.toMatchObject({ exitCode: 0, stdout: "models/customers.sql\nmodels/orders.sql\n" })
+    await expect(runShell(tools, "find . -name '*.sql'")).resolves.toMatchObject({ exitCode: 0, stdout: "./models/customers.sql\n./models/orders.sql\n" })
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
     await expect(runShell(tools, "cat models/orders.sql | head -n 1")).resolves.toMatchObject({ exitCode: 0, stdout: "select * from orders\n" })
     await expect(runShell(tools, "cat models/orders.sql | tail -n 1")).resolves.toMatchObject({ exitCode: 0, stdout: "where id is not null\n" })
@@ -52,7 +52,7 @@ describe("createWorkspaceTools", () => {
     })
     await expect(runShell(tools, "grep -ri \"customer\" . | head -n 1")).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "docs/customers.md:1:Customer docs\n",
+      stdout: "docs/customers.md:Customer docs\n",
     })
     await expect(runShell(tools, "cd /workspace && rg orders models")).resolves.toMatchObject({
       exitCode: 0,
@@ -71,11 +71,11 @@ describe("createWorkspaceTools", () => {
     const description = tools.shell.description || ""
     const commandDescription = (tools.shell.inputSchema as any).jsonSchema.properties.command.description
 
-    expect(description).toContain("restricted Linux-like")
+    expect(description).toContain("real Bash-compatible")
     expect(description).toContain("/workspace")
-    expect(description).toContain("Supported command forms")
-    expect(description).toContain("rg 'siff|PLC' ingestion forecasting-engine")
-    expect(commandDescription).toContain("Quote shell metacharacters")
+    expect(description).toContain("Pipes, redirects, chaining")
+    expect(description).toContain("rg 'siff|PLC' ingestion forecasting-engine | head -n 20")
+    expect(commandDescription).toContain("Bash-compatible")
   })
 
   it("limits shell commands to the enabled read capabilities", async () => {
@@ -89,37 +89,37 @@ describe("createWorkspaceTools", () => {
       },
     })
 
-    await expect(runShell(tools, "ls .")).resolves.toMatchObject({ exitCode: 0, stdout: "README.md\nmodels/\n" })
+    await expect(runShell(tools, "ls .")).resolves.toMatchObject({ exitCode: 0, stdout: "README.md\nmodels\n" })
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported workspace shell command: cat\n",
+      exitCode: 127,
+      stderr: "bash: cat: command not found\n",
     })
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported workspace shell command: rg\n",
+      exitCode: 127,
+      stderr: "bash: rg: command not found\n",
     })
   })
 
-  it("rejects traversal and unsupported shell syntax deterministically", async () => {
+  it("surfaces shell failures and read-only filesystem errors deterministically", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
     }))
 
     await expect(runShell(tools, "rm README.md")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported workspace shell command: rm\n",
+      exitCode: 127,
+      stderr: "bash: rm: command not found\n",
     })
     await expect(runShell(tools, "cat README.md | wc -l")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
+      exitCode: 0,
+      stdout: "1\n",
     })
     await expect(runShell(tools, "cat README.md | head -n 1 | tail -n 1")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
+      exitCode: 0,
+      stdout: "# Docs\n",
     })
     await expect(runShell(tools, "cat ../README.md")).resolves.toMatchObject({
       exitCode: 1,
-      stderr: "[vitehub] Workspace path escapes the workspace root: \"../README.md\".\n",
+      stderr: "cat: ../README.md: No such file or directory\n",
     })
   })
 

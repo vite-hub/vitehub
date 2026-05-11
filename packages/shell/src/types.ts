@@ -65,6 +65,7 @@ export interface ShellRuntimeExecOptions {
   env?: Record<string, string>
   onStderr?: (data: string) => void
   onStdout?: (data: string) => void
+  stdin?: string
   timeout?: number
 }
 
@@ -74,7 +75,24 @@ export interface ShellRuntimeExecResult {
   stdout: string
 }
 
+export interface ShellAnalyzeOptions {
+  maxInputBytes?: number
+  timeoutMs?: number
+}
+
+export interface ShellAnalyzeResult {
+  commands?: string[]
+  error?: string
+  hasCommandSubstitution?: boolean
+  hasHeredocs?: boolean
+  hasPipelines?: boolean
+  hasRedirects?: boolean
+  ok: boolean
+  parser: "sh-syntax"
+}
+
 export interface ShellRuntime {
+  analyze?: (command: string, options?: ShellAnalyzeOptions) => Promise<ShellAnalyzeResult>
   exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellRuntimeExecResult>
   supports: {
     cwd: boolean
@@ -87,16 +105,17 @@ export interface ShellRuntime {
 export interface CloudflareShellClient {
   exec: (
     command: string,
-    args?: string[],
     options?: {
       cwd?: string
       env?: Record<string, string>
       onStderr?: (data: string) => void
       onStdout?: (data: string) => void
+      stdin?: string
       timeout?: number
     },
   ) => Promise<{
-    code: number | null
+    code?: number | null
+    exitCode?: number | null
     stderr: string
     stdout: string
   }>
@@ -120,12 +139,6 @@ export interface CloudflareShellRuntimeOptions {
   sandbox: CloudflareShellClient
 }
 
-export interface ShellRuntimePolicy {
-  allowedCommands?: string[]
-  cwd?: string
-  singleCommand?: boolean
-}
-
 export type CreateShellRuntimeOptions =
-  | ({ provider: "just-bash" } & JustBashRuntimeOptions & ShellRuntimePolicy)
-  | ({ provider: "cloudflare-shell" } & CloudflareShellRuntimeOptions & ShellRuntimePolicy)
+  | ({ provider: "just-bash" } & JustBashRuntimeOptions)
+  | ({ provider: "cloudflare-shell" } & CloudflareShellRuntimeOptions)

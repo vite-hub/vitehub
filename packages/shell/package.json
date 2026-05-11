@@ -37,7 +37,8 @@
     "test": "pnpm --filter @vitehub/shell build && vitest run"
   },
   "dependencies": {
-    "just-bash": "^2.14.4"
+    "just-bash": "^2.14.4",
+    "sh-syntax": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

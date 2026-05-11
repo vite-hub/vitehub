@@ -1,15 +1,15 @@
 ---
 title: Shell
-description: Run policy-controlled shell commands against workspace files or sandbox clients.
+description: Run provider-backed shell commands against workspace files or sandbox clients.
 navigation.title: Overview
 navigation.order: 0
 icon: i-lucide-terminal
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/shell` turns controlled file and sandbox APIs into a shell-shaped runtime.
+`@vitehub/shell` turns controlled file and sandbox APIs into a shell runtime.
 
-Use Shell when an agent, workflow, or server route needs command-style inspection without exposing an unrestricted host shell.
+Use Shell when an agent, workflow, or server route needs real shell syntax without exposing an unrestricted host shell.
 
 ```ts
 import {
@@ -19,12 +19,10 @@ import {
 } from '@vitehub/shell'
 
 const runtime = createShellRuntime({
-  allowedCommands: ['pwd', 'ls', 'cat', 'rg'],
   commands: ['pwd', 'ls', 'cat', 'rg'],
   cwd: workspaceMountPoint,
   fs: createReadonlyWorkspaceFs(workspace),
   provider: 'just-bash',
-  singleCommand: true,
 })
 ```
 
@@ -34,9 +32,9 @@ const runtime = createShellRuntime({
   :::card
   ---
   icon: i-lucide-shield-check
-  title: Command policy
+  title: Shell analysis
   ---
-  Restrict commands and reject multi-command shell syntax.
+  Parse commands with `sh-syntax` for advisory metadata and guardrails.
   :::
 
   :::card
@@ -61,7 +59,7 @@ const runtime = createShellRuntime({
 | Provider | Use |
 | --- | --- |
 | `just-bash` | Emulate shell commands against a ViteHub workspace filesystem. |
-| `cloudflare-shell` | Delegate command execution to a Cloudflare sandbox-compatible client. |
+| `cloudflare-shell` | Delegate raw shell command strings to a Cloudflare sandbox-compatible client. |
 
 ## Start here
 

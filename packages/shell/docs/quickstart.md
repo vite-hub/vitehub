@@ -52,19 +52,17 @@ import {
 } from '@vitehub/shell'
 
 const runtime = createShellRuntime({
-  allowedCommands: ['pwd', 'ls', 'cat', 'rg'],
   commands: ['pwd', 'ls', 'cat', 'rg'],
   cwd: workspaceMountPoint,
   fs: createReadonlyWorkspaceFs(workspace),
   provider: 'just-bash',
-  singleCommand: true,
 })
 ```
 
 ### Run a command
 
 ```ts
-const result = await runtime.exec('cat README.md')
+const result = await runtime.exec('cat README.md | head -n 20')
 
 console.log(result.exitCode)
 console.log(result.stdout)

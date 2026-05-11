@@ -590,7 +590,7 @@ describe("Chat DevTools Nitro bridge", () => {
     ])
   })
 
-  it("hides unsupported conversational echo shell calls", async () => {
+  it("hides legacy unsupported conversational echo shell calls", async () => {
     const { createDevtoolsAdapter, observeChatDevtoolsStream } = await import("../src/devtools.ts")
     const adapter = createDevtoolsAdapter()
     const user = adapter.createDevtoolsMessage("hello")

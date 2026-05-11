@@ -139,25 +139,24 @@ function shellCommandsFor(operations: ReturnType<typeof resolveReadOperations>) 
 
 function describeShellCommands(commands: string[]) {
   const supported = new Set(commands)
-  const forms = [
+  const available = [
     supported.has("pwd") && "`pwd`",
-    supported.has("ls") && "`ls [path]`, `ls -l [path]`, `ls -1 [path]`, `ls -F [path]`",
-    supported.has("find") && "`find [path] [-type f|d] [-name pattern]`",
+    supported.has("ls") && "`ls`",
+    supported.has("find") && "`find`",
     (supported.has("rg") || supported.has("grep")) && "`rg [-i] pattern [path...]`, `grep -ri pattern [path...]`",
-    supported.has("cat") && "`cat file...`",
-    supported.has("head") && "`head [-n count] file`",
-    supported.has("tail") && "`tail [-n count] file`",
-    supported.has("wc") && "`wc -l file`",
+    supported.has("cat") && "`cat`",
+    supported.has("head") && "`head`",
+    supported.has("tail") && "`tail`",
+    supported.has("wc") && "`wc`",
   ].filter(Boolean)
 
   return [
-    "Run a restricted Linux-like read-only workspace inspection command over files mounted at `/workspace`.",
-    `Supported command forms: ${forms.join("; ")}.`,
-    "Unsupported: redirects, command substitution, backticks, arbitrary pipes, package managers, interpreters, mutation commands, unsupported flags, and commands outside this list.",
+    "Run a real Bash-compatible workspace shell command over files mounted at `/workspace`.",
+    `Available workspace commands include: ${available.join(", ")}.`,
+    "Pipes, redirects, chaining, quoted patterns, and multiline shell scripts are supported by the shell runtime.",
+    "The workspace filesystem controls whether writes are allowed; read-only tools reject mutation commands at execution time.",
     "Do not use shell commands such as `echo` to compose assistant replies; answer conversational messages directly.",
-    "Only `| head [-n count]` and `| tail [-n count]` are supported as post-processing pipes.",
-    "Quote shell metacharacters in search patterns.",
-    "Examples: `rg 'siff|PLC' ingestion forecasting-engine`; `find ingestion -type f -name '*.sql'`; `cat forecasting-engine/README.md | head -n 40`.",
+    "Examples: `rg 'siff|PLC' ingestion forecasting-engine | head -n 20`; `find ingestion -type f -name '*.sql'`; `cat forecasting-engine/README.md | head -n 40`.",
   ].join(" ")
 }
 
@@ -337,7 +336,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         additionalProperties: false,
         properties: {
           command: {
-            description: "A restricted Linux-like workspace inspection command. Quote shell metacharacters in search patterns, e.g. rg 'a|b' path.",
+            description: "A Bash-compatible workspace shell command. Use pipes, redirects, chaining, and quoted patterns as needed.",
             type: "string",
           },
         },

@@ -1,6 +1,6 @@
 ---
 title: Shell runtime API
-description: Reference for Shell exports, providers, filesystems, policy, and result shapes.
+description: Reference for Shell exports, providers, filesystems, analysis, and result shapes.
 navigation.title: Runtime API
 navigation.order: 3
 icon: i-lucide-braces
@@ -15,6 +15,7 @@ Use this page for exact exported names.
 import {
   cleanWorkspaceMutationPath,
   cleanWorkspaceShellPath,
+  analyzeShellCommand,
   createCloudflareShellRuntime,
   createReadonlyWorkspaceFs,
   createShellRuntime,
@@ -32,14 +33,15 @@ function createShellRuntime(options: CreateShellRuntimeOptions): ShellRuntime
 
 ```ts
 type CreateShellRuntimeOptions =
-  | ({ provider: 'just-bash' } & JustBashRuntimeOptions & ShellRuntimePolicy)
-  | ({ provider: 'cloudflare-shell' } & CloudflareShellRuntimeOptions & ShellRuntimePolicy)
+  | ({ provider: 'just-bash' } & JustBashRuntimeOptions)
+  | ({ provider: 'cloudflare-shell' } & CloudflareShellRuntimeOptions)
 ```
 
 ## Runtime
 
 ```ts
 interface ShellRuntime {
+  analyze?: (command: string, options?: ShellAnalyzeOptions) => Promise<ShellAnalyzeResult>
   exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellRuntimeExecResult>
   supports: {
     cwd: boolean
@@ -58,12 +60,18 @@ interface ShellRuntimeExecResult {
 }
 ```
 
-## Policy
+## Analysis
 
 ```ts
-interface ShellRuntimePolicy {
-  allowedCommands?: string[]
-  singleCommand?: boolean
+interface ShellAnalyzeResult {
+  ok: boolean
+  parser: 'sh-syntax'
+  commands?: string[]
+  hasPipelines?: boolean
+  hasRedirects?: boolean
+  hasHeredocs?: boolean
+  hasCommandSubstitution?: boolean
+  error?: string
 }
 ```
 
@@ -108,7 +116,7 @@ function runWorkspaceInspectionCommand(
   input: SearchableShellWorkspace,
   command: string,
   options: {
-    commands: string[]
+    commands?: string[]
     cwd?: string
     fs: WorkspaceShellFileSystem
     maxOutputLength?: number

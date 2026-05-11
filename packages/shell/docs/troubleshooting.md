@@ -1,6 +1,6 @@
 ---
 title: Shell troubleshooting
-description: Fix rejected commands, path escapes, read-only writes, and unsupported search flags.
+description: Fix command failures, path escapes, read-only writes, and parser errors.
 navigation.title: Troubleshooting
 navigation.order: 4
 icon: i-lucide-circle-alert
@@ -14,33 +14,31 @@ Use this page when `exec()` returns a non-zero exit code or rejects input.
 Error:
 
 ```txt
-Unsupported workspace shell command: rm
+bash: rm: command not found
 ```
 
-Cause: the command is not included in `allowedCommands` or `commands`.
+Cause: the command is not included in the `commands` exposed by the `just-bash` runtime.
 
 Fix: add only the command you intend to expose.
 
 ```ts
 createShellRuntime({
-  allowedCommands: ['pwd', 'ls', 'cat'],
   commands: ['pwd', 'ls', 'cat'],
   fs,
   provider: 'just-bash',
 })
 ```
 
-## Unsupported shell syntax
+## Parser failure
 
-Error:
+`analyzeShellCommand()` returns a structured failure instead of throwing.
 
-```txt
-Unsupported shell syntax: only a single workspace command is supported.
+```ts
+const result = await analyzeShellCommand('if then')
+// { ok: false, parser: 'sh-syntax', error: '...' }
 ```
 
-Cause: `singleCommand: true` rejected multiple commands, pipes, redirects, or command substitution.
-
-Fix: run one command at a time.
+Execution still belongs to the selected provider. Do not rewrite shell commands based on parser output.
 
 ## Path escapes the workspace
 
@@ -62,14 +60,11 @@ Cause: a mutation reached `createReadonlyWorkspaceFs()`.
 
 Fix: use `createWritableWorkspaceFs()` only for flows that should write files, and keep command policy explicit.
 
-## Unsupported search flag
+## Command failure
 
-Error:
+Real shell execution returns the provider's stdout, stderr, and exit code.
 
-```txt
-[vitehub] Unsupported workspace search flag: --files.
+```ts
+const result = await runtime.exec('cat missing.md')
+console.log(result.exitCode, result.stderr)
 ```
-
-Fix: use supported `rg` and `grep` flags, or call the workspace API directly.
-
-Supported search flags include `-i`, `--ignore-case`, `-n`, `--line-number`, `-e`, and `--regexp`.
