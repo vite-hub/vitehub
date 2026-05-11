@@ -28,6 +28,7 @@ import type {
   AgentRegistryModule,
   AgentRequestBody,
   AgentRunContext,
+  AgentRunCallbackContext,
   AgentRunInput,
   AgentRunResult,
   AgentRuntimeConfig,
@@ -77,6 +78,7 @@ export type {
   AgentRegistry,
   AgentRegistryModule,
   AgentRunContext,
+  AgentRunCallbackContext,
   AgentRunHandler,
   AgentRunInput,
   AgentRunMetadata,
@@ -173,6 +175,66 @@ async function instrumentModel<TRuntimeConfig extends AgentRuntimeConfig>(
   return instrumentation
     ? await instrumentation({ ...context, model, run: context.run })
     : model
+}
+
+function withRunCallbacks<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+  TOOLS extends ToolSet,
+>(
+  settings: Record<string, unknown>,
+  context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>,
+) {
+  const {
+    onRunStepFinish,
+    onRunToolCallFinish,
+    onRunToolCallStart,
+    onStepFinish,
+    experimental_onToolCallFinish,
+    experimental_onToolCallStart,
+    ...rest
+  } = settings as {
+    experimental_onToolCallFinish?: (event: unknown) => MaybePromise<void>
+    experimental_onToolCallStart?: (event: unknown) => MaybePromise<void>
+    onRunStepFinish?: (step: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
+    onRunToolCallFinish?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
+    onRunToolCallStart?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
+    onStepFinish?: (step: unknown) => MaybePromise<void>
+  } & Record<string, unknown>
+
+  return {
+    ...rest,
+    ...(onRunStepFinish
+      ? {
+          async onStepFinish(step: unknown) {
+            await onStepFinish?.(step)
+            await onRunStepFinish?.(step, context)
+          },
+        }
+      : onStepFinish
+        ? { onStepFinish }
+        : {}),
+    ...(onRunToolCallStart
+      ? {
+          async experimental_onToolCallStart(event: unknown) {
+            await experimental_onToolCallStart?.(event)
+            await onRunToolCallStart?.(event, context)
+          },
+        }
+      : experimental_onToolCallStart
+        ? { experimental_onToolCallStart }
+        : {}),
+    ...(onRunToolCallFinish
+      ? {
+          async experimental_onToolCallFinish(event: unknown) {
+            await experimental_onToolCallFinish?.(event)
+            await onRunToolCallFinish?.(event, context)
+          },
+        }
+      : experimental_onToolCallFinish
+        ? { experimental_onToolCallFinish }
+        : {}),
+  }
 }
 
 function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
@@ -318,7 +380,7 @@ function defineBaseAgent<
         : undefined
       const model = await instrumentModel(settings.model, modelInstrumentation, resolvedContext)
 
-      return await createToolLoopAgent({ ...settings, model }, resolvedTools as TOOLS | undefined)
+      return await createToolLoopAgent({ ...settings, model } as never, resolvedTools as TOOLS | undefined)
     },
   }
 }
@@ -361,10 +423,15 @@ export interface WorkspaceAgentOptions<
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   fallback?: boolean | WorkspaceAgentFallbackOptions
+  experimental_onToolCallFinish?: (event: unknown) => MaybePromise<void>
+  experimental_onToolCallStart?: (event: unknown) => MaybePromise<void>
   hooks?: AgentChatAgentHooks<TRuntimeConfig>
   instructions?: WorkspaceAgentInstructions<TRuntimeConfig, Name>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   model: WorkspaceModel<TRuntimeConfig>
+  onRunStepFinish?: (step: unknown, context: AgentRunCallbackContext<TRuntimeConfig>) => MaybePromise<void>
+  onRunToolCallFinish?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig>) => MaybePromise<void>
+  onRunToolCallStart?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig>) => MaybePromise<void>
   name?: string
   stepLimit?: number
   toolOptions?: WorkspaceFacadeToolOptions
@@ -565,16 +632,25 @@ function createWorkspaceAgentDefinition<
         instrumentModel: _instrumentModel,
         model: _model,
         name: _name,
+        onRunStepFinish: _onRunStepFinish,
+        onRunToolCallFinish: _onRunToolCallFinish,
+        onRunToolCallStart: _onRunToolCallStart,
         stepLimit: _stepLimit,
         toolOptions: _toolOptions,
         workspace: _workspace,
         ...settings
       } = options
-      const agent = new ToolLoopAgent({
+      const runSettings = withRunCallbacks({
         ...settings,
+        onRunStepFinish: _onRunStepFinish,
+        onRunToolCallFinish: _onRunToolCallFinish,
+        onRunToolCallStart: _onRunToolCallStart,
+      } as Record<string, unknown>, context)
+      const agent = new ToolLoopAgent({
+        ...runSettings,
         instructions,
         model,
-        stopWhen: settings.stopWhen ?? stepCountIs(options.stepLimit ?? 20),
+        stopWhen: ((runSettings as Record<string, unknown>).stopWhen ?? stepCountIs(options.stepLimit ?? 20)) as never,
         tools: withToolStepReporting(workspace.tools(options.toolOptions), reportToolStep),
       })
       const result = await agent.generate({

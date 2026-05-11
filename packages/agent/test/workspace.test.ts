@@ -168,6 +168,50 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)).not.toHaveProperty("instrumentModel")
   })
 
+  it("passes runtime context to run-aware step and tool callbacks", async () => {
+    const onStepFinish = vi.fn()
+    const onRunStepFinish = vi.fn()
+    const experimental_onToolCallStart = vi.fn()
+    const experimental_onToolCallFinish = vi.fn()
+    const onRunToolCallStart = vi.fn()
+    const onRunToolCallFinish = vi.fn()
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      experimental_onToolCallFinish: experimental_onToolCallFinish as never,
+      experimental_onToolCallStart: experimental_onToolCallStart as never,
+      model: {} as never,
+      onRunStepFinish,
+      onRunToolCallFinish,
+      onRunToolCallStart,
+      onStepFinish,
+    }), { workspace: "docs" })
+
+    await agent.run!({
+      ...(context() as Record<string, unknown>),
+      input: { messages: [] },
+      run: { runId: "run_123" },
+    } as never)
+
+    await (agentSettings.at(-1)?.onStepFinish as (step: unknown) => Promise<void>)({ stepNumber: 1 })
+    await (agentSettings.at(-1)?.experimental_onToolCallStart as (event: unknown) => Promise<void>)({ toolName: "shell" })
+    await (agentSettings.at(-1)?.experimental_onToolCallFinish as (event: unknown) => Promise<void>)({ durationMs: 12, toolName: "shell" })
+
+    expect(onStepFinish).toHaveBeenCalledWith({ stepNumber: 1 })
+    expect(onRunStepFinish).toHaveBeenCalledWith({ stepNumber: 1 }, expect.objectContaining({
+      run: { runId: "run_123" },
+    }))
+    expect(experimental_onToolCallStart).toHaveBeenCalledWith({ toolName: "shell" })
+    expect(onRunToolCallStart).toHaveBeenCalledWith({ toolName: "shell" }, expect.objectContaining({
+      run: { runId: "run_123" },
+    }))
+    expect(experimental_onToolCallFinish).toHaveBeenCalledWith({ durationMs: 12, toolName: "shell" })
+    expect(onRunToolCallFinish).toHaveBeenCalledWith({ durationMs: 12, toolName: "shell" }, expect.objectContaining({
+      run: { runId: "run_123" },
+    }))
+  })
+
   it("passes runtime context and workspace to callback instructions", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 

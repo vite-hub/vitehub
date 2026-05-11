@@ -66,6 +66,15 @@ export interface AgentRunMetadata {
   threadId?: string
 }
 
+export interface AgentRunCallbackContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = never,
+  TOOLS extends ToolSet = ToolSet,
+> extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
+  input: AgentRunInput<CALL_OPTIONS, TOOLS>
+  run?: AgentRunMetadata
+}
+
 export interface AgentRunResult {
   finishReason?: unknown
   raw?: unknown
@@ -114,6 +123,9 @@ type AgentSettingsBase<
 > = Omit<ToolLoopAgentSettings<CALL_OPTIONS, TOOLS>, "model" | "tools"> & {
   description?: string
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
+  onRunStepFinish?: (step: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
+  onRunToolCallFinish?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
+  onRunToolCallStart?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
   tools?: AgentToolResolver<TRuntimeConfig, TOOLS>
 }
 
