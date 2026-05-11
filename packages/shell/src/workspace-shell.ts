@@ -118,27 +118,33 @@ async function runNativeWorkspaceInspectionCommand(
     let exitCode = 0
 
     if (name === "pwd") {
+      if (args.length) return unsupportedSyntax(options.maxOutputLength)
       stdout = `${workspaceMountPoint}${cwd ? `/${cwd}` : ""}\n`
     }
     else if (name === "ls") {
-      const path = resolveShellPath(args.find(arg => !arg.startsWith("-")), cwd)
-      stdout = formatList(await input.list(path, { recursive: false }), path)
+      const { long, path } = parseLsArgs(args)
+      const resolvedPath = resolveShellPath(path, cwd)
+      stdout = formatList(await input.list(resolvedPath, { recursive: false }), resolvedPath, { long })
     }
     else if (name === "find") {
       stdout = await runFindCommand(input, args, cwd)
     }
     else if (name === "cat") {
+      if (!args.length) return unsupportedSyntax(options.maxOutputLength)
       stdout = (await Promise.all(args.map(path => input.readFile(resolveShellPath(path, cwd))))).join("")
     }
     else if (name === "head") {
       const { count, rest } = parseCountOption(args)
+      if (rest.length !== 1) return unsupportedSyntax(options.maxOutputLength)
       stdout = firstLines(String(await input.readFile(resolveShellPath(rest[0], cwd))), count)
     }
     else if (name === "tail") {
       const { count, rest } = parseCountOption(args)
+      if (rest.length !== 1) return unsupportedSyntax(options.maxOutputLength)
       stdout = lastLines(String(await input.readFile(resolveShellPath(rest[0], cwd))), count)
     }
     else if (name === "wc" && args[0] === "-l") {
+      if (args.length !== 2) return unsupportedSyntax(options.maxOutputLength)
       const path = resolveShellPath(args[1], cwd)
       stdout = `${lineCount(String(await input.readFile(path)))} ${args[1]}\n`
     }
@@ -413,11 +419,41 @@ function displayPath(path: string, cwd: string) {
   return cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path
 }
 
-function formatList(entries: Awaited<ReturnType<SearchableShellWorkspace["list"]>>, prefix: string) {
+function unsupportedSyntax(maxOutputLength: number): ShellRuntimeExecResult {
+  return {
+    exitCode: 126,
+    stderr: applyOutputLimit("Unsupported shell syntax: only supported workspace command forms are allowed.\n", maxOutputLength),
+    stdout: "",
+  }
+}
+
+function parseLsArgs(args: string[]) {
+  let long = false
+  let path: string | undefined
+
+  for (const arg of args) {
+    if (arg === "-l") {
+      long = true
+      continue
+    }
+    if (arg === "-1" || arg === "-F") continue
+    if (arg.startsWith("-")) throw new Error("Unsupported shell syntax: only supported workspace command forms are allowed.")
+    if (path) throw new Error("Unsupported shell syntax: only supported workspace command forms are allowed.")
+    path = arg
+  }
+
+  return { long, path }
+}
+
+function formatList(entries: Awaited<ReturnType<SearchableShellWorkspace["list"]>>, prefix: string, options: { long?: boolean } = {}) {
   return entries
     .map((entry) => {
       const name = prefix ? entry.path.slice(prefix.length + 1) : entry.path
-      return `${name}${entry.type === "directory" ? "/" : ""}`
+      const displayName = `${name}${entry.type === "directory" ? "/" : ""}`
+      if (!options.long) return displayName
+      const type = entry.type === "directory" ? "d" : "-"
+      const size = String(entry.size ?? 0).padStart(8, " ")
+      return `${type}rw-r--r-- 1 workspace workspace ${size} ${displayName}`
     })
     .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
     .join("\n") + (entries.length ? "\n" : "")
@@ -431,16 +467,47 @@ function globPatternToRegExp(pattern: string) {
 }
 
 async function runFindCommand(input: SearchableShellWorkspace, args: string[], cwd: string) {
-  const root = resolveShellPath(args[0] && !args[0].startsWith("-") ? args[0] : ".", cwd)
-  const nameIndex = args.indexOf("-name")
-  const pattern = nameIndex >= 0 ? args[nameIndex + 1] : undefined
-  const matcher = pattern ? globPatternToRegExp(pattern) : undefined
+  const { name, root, type } = parseFindArgs(args, cwd)
+  const matcher = name ? globPatternToRegExp(name) : undefined
   const entries = await input.list(root, { recursive: true })
   const lines = entries
+    .filter(entry => !type || (type === "f" ? entry.type === "file" : entry.type === "directory"))
     .filter(entry => !matcher || matcher.test(entry.path.split("/").at(-1) || entry.path))
     .map(entry => displayPath(entry.path, cwd))
     .sort((left, right) => left.localeCompare(right))
   return `${lines.join("\n")}${lines.length ? "\n" : ""}`
+}
+
+function parseFindArgs(args: string[], cwd: string) {
+  let rootArg = "."
+  let index = 0
+  let name: string | undefined
+  let type: "d" | "f" | undefined
+
+  if (args[0] && !args[0].startsWith("-")) {
+    rootArg = args[0]
+    index = 1
+  }
+
+  while (index < args.length) {
+    const arg = args[index]
+    if (arg === "-name") {
+      if (!args[index + 1]) throw new Error("Unsupported shell syntax: only supported workspace command forms are allowed.")
+      name = args[index + 1]
+      index += 2
+      continue
+    }
+    if (arg === "-type") {
+      const value = args[index + 1]
+      if (value !== "f" && value !== "d") throw new Error("Unsupported shell syntax: only supported workspace command forms are allowed.")
+      type = value
+      index += 2
+      continue
+    }
+    throw new Error("Unsupported shell syntax: only supported workspace command forms are allowed.")
+  }
+
+  return { name, root: resolveShellPath(rootArg, cwd), type }
 }
 
 function tryParseCommand(command: string): string[] {

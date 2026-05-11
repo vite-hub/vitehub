@@ -262,6 +262,51 @@ describe("@vitehub/shell just-bash runtime", () => {
       stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "ls -la models", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "Unsupported shell syntax: only supported workspace command forms are allowed.\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "Unsupported shell syntax: only supported workspace command forms are allowed.\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find . -type f -name '*.sql'", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/customers.sql\nmodels/orders.sql\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find . -maxdepth 1", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "Unsupported shell syntax: only supported workspace command forms are allowed.\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "wc -l", {
+      commands: ["wc"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "Unsupported shell syntax: only supported workspace command forms are allowed.\n",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg orders models", {
       commands: ["rg"],
       cwd: workspaceMountPoint,
