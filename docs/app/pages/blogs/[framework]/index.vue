@@ -39,8 +39,8 @@ const { page } = useDocsPage(
 
 const posts = computed(() => [
   {
-    title: "Build a Source-Aware Chatbot",
-    description: "Connect chat providers, workspace sources, and a colocated Agent that can run across ViteHub runtimes.",
+    title: "Build a Source-Aware AI Chatbot",
+    description: "Ground answers in your own docs, GitHub repos, and source files. One codebase ships to Telegram, Slack, Vite, Nitro, Cloudflare, and Vercel.",
     image: "/images/tutorials/source-aware-chatbot.png",
     badge: {
       label: "Blog",
@@ -48,7 +48,7 @@ const posts = computed(() => [
       variant: "soft" as const,
     },
     variant: "subtle" as const,
-    to: `/blogs/${routeState.meta.framework}/source-aware-chatbot`,
+    to: `/blogs/${routeState.meta.framework}/build-ai-chatbot`,
     ui: {
       root: "overflow-hidden",
       header: "aspect-[16/9]",
