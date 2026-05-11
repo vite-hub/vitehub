@@ -726,66 +726,108 @@ onBeforeUnmount(() => stopSidebarResize?.())
       </header>
 
       <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))]" :style="splitterStyle">
-        <section class="min-h-0 overflow-y-auto overflow-x-hidden">
-          <UChatMessages
-            v-if="messages.length"
-            :messages="messages"
-            :should-auto-scroll="status === 'streaming'"
-            compact
-            class="min-h-full px-3 py-2"
-          >
-            <template #content="{ content, message, parts }">
-              <div class="flex min-w-0 flex-col gap-2 text-sm/5">
-                <UChatShimmer
-                  v-if="message.loading"
-                  text="Thinking..."
-                  :duration="1.8"
-                />
-                <UChatTool
-                  v-for="part in parts"
-                  :key="part.tool.id"
-                  icon="i-lucide-terminal"
-                  loading-icon="i-lucide-terminal"
-                  :text="renderToolCommand(part.tool)"
-                  :loading="part.tool.status === 'running'"
-                  :streaming="part.tool.status === 'running'"
-                  variant="card"
-                  :default-open="false"
-                  :ui="{
-                    root: 'min-w-0 rounded-md',
-                    trigger: 'min-h-7 px-2 py-1 text-xs',
-                    leading: 'size-3.5',
-                    leadingIcon: 'size-3.5 opacity-70',
-                    label: 'min-w-0 truncate',
-                    trailingIcon: 'size-3.5 opacity-70',
-                    body: 'p-2 text-xs/5',
-                  }"
-                >
-                  <Suspense
-                    v-if="part.tool.output !== undefined"
+        <section class="flex min-h-0 flex-col">
+          <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+            <UChatMessages
+              v-if="messages.length"
+              :messages="messages"
+              :should-auto-scroll="status === 'streaming'"
+              compact
+              class="min-h-full px-3 py-2"
+            >
+              <template #content="{ content, message, parts }">
+                <div class="flex min-w-0 flex-col gap-2 text-sm/5">
+                  <UChatShimmer
+                    v-if="message.loading"
+                    text="Thinking..."
+                    :duration="1.8"
+                  />
+                  <UChatTool
+                    v-for="part in parts"
+                    :key="part.tool.id"
+                    icon="i-lucide-terminal"
+                    loading-icon="i-lucide-terminal"
+                    :text="renderToolCommand(part.tool)"
+                    :loading="part.tool.status === 'running'"
+                    :streaming="part.tool.status === 'running'"
+                    variant="card"
+                    :default-open="false"
+                    :ui="{
+                      root: 'min-w-0 rounded-md',
+                      trigger: 'min-h-7 px-2 py-1 text-xs',
+                      leading: 'size-3.5',
+                      leadingIcon: 'size-3.5 opacity-70',
+                      label: 'min-w-0 truncate',
+                      trailingIcon: 'size-3.5 opacity-70',
+                      body: 'p-2 text-xs/5',
+                    }"
                   >
-                    <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
-                      {{ renderToolOutput(part.tool) }}
+                    <Suspense
+                      v-if="part.tool.output !== undefined"
+                    >
+                      <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
+                        {{ renderToolOutput(part.tool) }}
+                      </Comark>
+                    </Suspense>
+                  </UChatTool>
+                  <Suspense
+                    v-if="content"
+                  >
+                    <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
+                      {{ content }}
                     </Comark>
                   </Suspense>
-                </UChatTool>
-                <Suspense
-                  v-if="content"
-                >
-                  <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
-                    {{ content }}
-                  </Comark>
-                </Suspense>
-              </div>
-            </template>
-          </UChatMessages>
-          <div v-else class="flex h-full items-center justify-center px-4">
-            <UEmpty
-              icon="i-lucide-message-square"
-              title="No messages yet."
-              :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent' }"
-            />
+                </div>
+              </template>
+            </UChatMessages>
+            <div v-else class="flex h-full items-center justify-center px-4">
+              <UEmpty
+                icon="i-lucide-message-square"
+                title="No messages yet."
+                :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent' }"
+              />
+            </div>
           </div>
+
+          <footer class="shrink-0 px-2 pb-2 pt-1">
+            <UAlert
+              v-if="!connected"
+              color="neutral"
+              variant="soft"
+              icon="i-lucide-info"
+              :title="standaloneStatusMessage"
+              class="mb-1"
+              :ui="{
+                root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0',
+                icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-70',
+                wrapper: 'min-w-0',
+                title: 'text-xs font-normal leading-5',
+              }"
+            />
+            <UChatPrompt
+              v-model="input"
+              placeholder="Type a message..."
+              variant="subtle"
+              :rows="1"
+              :maxrows="3"
+              :disabled="status !== 'ready'"
+              size="xs"
+              :ui="{
+                root: 'gap-1 px-2 py-1 rounded-md',
+                body: 'min-w-0 flex-1 text-sm',
+                base: '!px-0 !py-0 text-sm/5',
+                footer: 'gap-1',
+              }"
+              @submit="send"
+            >
+              <UChatPromptSubmit
+                :status="status"
+                size="xs"
+                square
+                class="shrink-0"
+              />
+            </UChatPrompt>
+          </footer>
         </section>
 
         <button
@@ -965,45 +1007,6 @@ onBeforeUnmount(() => stopSidebarResize?.())
         </aside>
       </div>
 
-      <footer class="shrink-0 px-2 pb-2 pt-1">
-        <UAlert
-          v-if="!connected"
-          color="neutral"
-          variant="soft"
-          icon="i-lucide-info"
-          :title="standaloneStatusMessage"
-          class="mb-1"
-          :ui="{
-            root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0',
-            icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-70',
-            wrapper: 'min-w-0',
-            title: 'text-xs font-normal leading-5',
-          }"
-        />
-        <UChatPrompt
-          v-model="input"
-          placeholder="Type a message..."
-          variant="subtle"
-          :rows="1"
-          :maxrows="3"
-          :disabled="status !== 'ready'"
-          size="xs"
-          :ui="{
-            root: 'gap-1 px-2 py-1 rounded-md',
-            body: 'min-w-0 flex-1 text-sm',
-            base: '!px-0 !py-0 text-sm/5',
-            footer: 'gap-1',
-          }"
-          @submit="send"
-        >
-          <UChatPromptSubmit
-            :status="status"
-            size="xs"
-            square
-            class="shrink-0"
-          />
-        </UChatPrompt>
-      </footer>
     </main>
   </UApp>
 </template>
