@@ -121,6 +121,14 @@ describe("@vitehub/unsource GitHub source", () => {
       const requestUrl = String(url)
       const authorization = (init?.headers as Record<string, string> | undefined)?.authorization
 
+      if (requestUrl === "https://api.github.com/repos/acme/private") {
+        return jsonResponse({ default_branch: "main" })
+      }
+
+      if (requestUrl.endsWith("/commits/main")) {
+        return jsonResponse({ sha: authorization === "Bearer first-token" ? "first-commit" : "second-commit" })
+      }
+
       if (requestUrl.includes("/git/trees/")) {
         return jsonResponse({
           sha: "tree-sha",
@@ -157,6 +165,14 @@ describe("@vitehub/unsource GitHub source", () => {
       const requestUrl = String(url)
       const authorization = (init?.headers as Record<string, string> | undefined)?.authorization
 
+      if (requestUrl === "https://api.github.com/repos/acme/private") {
+        return jsonResponse({ default_branch: "main" })
+      }
+
+      if (requestUrl.endsWith("/commits/main")) {
+        return jsonResponse({ sha: "first-commit" })
+      }
+
       if (requestUrl.includes("/git/trees/")) {
         return jsonResponse({
           sha: "tree-sha",
@@ -192,6 +208,12 @@ describe("@vitehub/unsource GitHub source", () => {
     stubGitHubSource({ "metadata.xml": "<metadata />\n" })
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
       const requestUrl = String(url)
+      if (requestUrl === "https://api.github.com/repos/acme/app") {
+        return jsonResponse({ default_branch: "main" })
+      }
+      if (requestUrl.endsWith("/commits/main")) {
+        return jsonResponse({ sha: "latest-commit-sha" })
+      }
       if (requestUrl.includes("/git/trees/")) {
         return jsonResponse({
           sha: "tree-sha",

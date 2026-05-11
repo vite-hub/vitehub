@@ -28,6 +28,14 @@ export interface GitHubContentResponse {
   encoding?: string
 }
 
+export interface GitHubRepositoryResponse {
+  default_branch: string
+}
+
+export interface GitHubCommitResponse {
+  sha: string
+}
+
 export interface GitHubFile<TKey extends string = string> {
   content?: Uint8Array
   key: TKey

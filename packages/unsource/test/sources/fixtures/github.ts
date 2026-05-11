@@ -84,6 +84,14 @@ export function stubGitHubSource(files: Record<string, string>, options: StubGit
       return jsonResponse({ message: "not found" }, apiStatus)
     }
 
+    if (requestUrl === "https://api.github.com/repos/acme/app" || requestUrl === "https://api.github.com/repos/acme/private") {
+      return jsonResponse({ default_branch: "main" })
+    }
+
+    if (requestUrl.endsWith("/commits/main")) {
+      return jsonResponse({ sha: "latest-commit-sha" })
+    }
+
     if (requestUrl.includes("/git/trees/")) {
       return jsonResponse({
         sha: "tree-sha",

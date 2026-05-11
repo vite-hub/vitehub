@@ -9,14 +9,14 @@ import { createGitHubCacheKey, normalizeGitHubCache } from "./cache.ts"
 import { fetchGitHubArchive, fetchGitHubRawContent, requestGitHubJson } from "./client.ts"
 
 import type { Source } from "../../core/types.ts"
-import type { GitHubContentResponse, GitHubFile, GitHubSourceOptions, GitHubTreeResponse } from "./types.ts"
+import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions, GitHubTreeResponse } from "./types.ts"
 
 function normalizeGitHubRoot(path = "") {
   return normalizeSourcePath(path).split("/").filter(part => part && part !== ".").join("/")
 }
 
 export function github<const TKey extends string = string>(options: GitHubSourceOptions): Source<TKey> {
-  const ref = options.ref || "main"
+  const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
   let auth: string | undefined
   const providerCache = normalizeGitHubCache(options)
@@ -47,7 +47,46 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return true
   }
 
+  async function resolveRef(token = auth) {
+    if (configuredRef) return configuredRef
+
+    try {
+      const repo = await requestGitHubJson<GitHubRepositoryResponse>({
+        ref: "default",
+        repo: options.repo,
+        token,
+        url: `https://api.github.com/repos/${options.repo}`,
+      })
+      const defaultBranch = repo.default_branch || "main"
+      const commit = await requestGitHubJson<GitHubCommitResponse>({
+        ref: defaultBranch,
+        repo: options.repo,
+        token,
+        url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(defaultBranch)}`,
+      })
+      return commit.sha || defaultBranch
+    }
+    catch (error) {
+      if (shouldLoadArchive(error)) return "main"
+      throw error
+    }
+  }
+
+  const cachedResolveRef = defineCachedFunction(
+    async (token: string | undefined) => await resolveRef(token),
+    {
+      ...providerCache,
+      getKey: token => cacheKey("ref", token || ""),
+      name: "github-source-ref",
+    },
+  )
+
+  async function getRef(token = refreshAuth()) {
+    return await cachedResolveRef(token)
+  }
+
   async function loadTreeFiles(token = auth) {
+    const ref = await getRef(token)
     const tree = await requestGitHubJson<GitHubTreeResponse>({
       ref,
       repo: options.repo,
@@ -74,6 +113,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
   }
 
   async function loadArchiveFiles(token = auth) {
+    const ref = await getRef(token)
     const archive = await fetchGitHubArchive({ ref, repo: options.repo, token })
     return parseGitHubArchive(archive)
       .map((entry): GitHubFile<TKey> | undefined => {
@@ -131,14 +171,14 @@ export function github<const TKey extends string = string>(options: GitHubSource
     if (!token) {
       return fetchRawContent(repoPath, encodedPath)
     }
-    return requestGitHubJson<GitHubContentResponse>(
+    return getRef(token).then(ref => requestGitHubJson<GitHubContentResponse>(
       {
         ref,
         repo: options.repo,
         token,
         url: `https://api.github.com/repos/${options.repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
       },
-    ).then((file) => {
+    )).then((file) => {
       if (file.encoding !== "base64" || typeof file.content !== "string") {
         return fetchRawContent(repoPath, encodedPath, token)
       }
@@ -167,7 +207,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
       include: options.include,
       key,
       kind,
-      ref,
+      ref: configuredRef || "default",
       repo: options.repo,
       root,
       token,
@@ -175,6 +215,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
   }
 
   async function fetchRawContent(repoPath: string, encodedPath: string, token = auth) {
+    const ref = await getRef(token)
     return await fetchGitHubRawContent({ encodedPath, ref, repo: options.repo, repoPath, token })
   }
 
@@ -190,7 +231,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
       const file = (await getFiles(token)).find(file => file.key === key)
       if (!file) return
       return {
-        ref,
+        ref: await getRef(token),
         sha: file.sha,
       }
     },
