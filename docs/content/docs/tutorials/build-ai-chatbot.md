@@ -5,7 +5,9 @@ date: 2026-05-11
 image: /images/tutorials/source-aware-chatbot.png
 authors:
   - name: onmax
-    avatar: https://github.com/onmax.png
+    avatar:
+      src: https://github.com/onmax.png
+    to: https://github.com/onmax
 navigation.title: Source-Aware AI Chatbot
 navigation.order: 1
 icon: i-lucide-message-circle-code

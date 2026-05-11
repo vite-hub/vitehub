@@ -10,8 +10,11 @@ import { getDocsPageFallback, resolveDocsRoute } from "~~/modules/vitehub-docs/r
 import { frameworkColorIcons, frameworkLabels, type Framework, visibleFrameworks } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
 
 type BlogAuthor = {
-  avatar?: string;
+  avatar?: {
+    src: string;
+  };
   name: string;
+  to?: string;
 };
 
 type BlogPageMeta = {
@@ -63,7 +66,6 @@ const treeItems = computed(() => Object.entries(tree.value).map(([label, compone
 const { current: framework, switchTo } = useFrameworkPreference();
 const blogMeta = computed(() => rawDoc.value as unknown as BlogPageMeta | null);
 const publishedDate = computed(() => blogMeta.value?.date || "");
-const heroImage = computed(() => blogMeta.value?.image || "");
 
 const formattedDate = computed(() => {
   if (!publishedDate.value) {
@@ -96,10 +98,10 @@ function selectFramework(fw: Framework) {
 </script>
 
 <template>
-  <div v-if="page">
-    <div class="px-4 sm:px-6 lg:px-8 max-w-(--ui-container) mx-auto">
-      <header class="py-8 sm:py-10">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+  <UPage v-if="page" :ui="{ center: 'lg:col-span-5 px-4 sm:px-6 lg:pl-8 lg:pr-0', right: 'lg:col-span-5' }" class="lg:gap-8">
+    <UPageHeader :title="page.title" :description="page.description" :ui="{ title: 'relative flex items-center' }">
+      <template #headline>
+        <div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div class="flex flex-wrap items-center gap-2 text-sm text-muted">
             <UButton
               :to="backToBlogPath"
@@ -133,60 +135,48 @@ function selectFramework(fw: Framework) {
             </button>
           </div>
         </div>
-
-        <div class="mt-6 max-w-4xl">
-          <h1 class="text-4xl font-bold tracking-tight text-highlighted text-pretty sm:text-5xl">
-            {{ page.title }}
-          </h1>
-          <p class="mt-5 text-lg leading-8 text-muted text-pretty">
-            {{ page.description }}
-          </p>
-        </div>
-
-        <div v-if="authors.length" class="mt-6 flex flex-wrap items-center gap-4">
-          <div
-            v-for="author in authors"
-            :key="author.name"
-            class="flex items-center gap-3"
-          >
-            <UAvatar :src="author.avatar" :alt="author.name" size="md" />
-            <span class="font-medium text-highlighted">{{ author.name }}</span>
-          </div>
-        </div>
-
-        <img
-          v-if="heroImage"
-          :src="heroImage"
-          :alt="page.title"
-          class="mt-8 aspect-[16/9] w-full rounded-lg border border-default object-cover shadow-sm"
-        />
-      </header>
-    </div>
-    <UPage :ui="{ center: 'lg:col-span-5 px-4 sm:px-6 lg:pl-8 lg:pr-0', right: 'lg:col-span-5' }" class="lg:gap-8">
-      <UPageBody prose class="docs-content blogs-content pb-24">
-        <ContentRenderer :value="page" />
-      </UPageBody>
-
-      <template #right>
-        <div>
-          <UContentToc :links="page.body?.toc?.links || []" class="z-2 lg:hidden mx-0!" />
-          <nav class="hidden lg:block h-full sticky top-(--ui-header-height) max-h-[calc(100vh-var(--ui-header-height))]">
-            <ProseCodeTree
-              v-if="activePath"
-              :model-value="activePath"
-              :items="treeItems"
-              expand-all
-              class="lg:h-full my-0 rounded-none border-y-0 border-r-0 border-default"
-              :ui="{ list: 'border-default', content: '[&>div>pre]:bg-muted/50 [&>div>pre]:border-default [&>div>pre]:rounded-none' }"
-            />
-            <div v-else class="size-full border-l border-default flex items-center justify-center">
-              <UIcon name="i-lucide-arrow-down" class="size-12 text-dimmed animate-bounce" />
-            </div>
-          </nav>
-        </div>
       </template>
-    </UPage>
-  </div>
+
+      <div v-if="authors.length" class="flex items-center gap-6 mt-6">
+        <template v-for="author in authors" :key="author.name">
+          <ULink v-if="author.to" :to="author.to" target="_blank" class="flex items-center gap-3 group">
+            <UAvatar :src="author.avatar?.src" :alt="author.name" size="lg" />
+            <div class="flex flex-col">
+              <span class="text-sm font-medium text-highlighted">{{ author.name }}</span>
+              <span class="text-xs text-muted group-hover:text-primary transition-colors">@{{ author.to.split("/").pop() }}</span>
+            </div>
+          </ULink>
+          <div v-else class="flex items-center gap-3">
+            <UAvatar :src="author.avatar?.src" :alt="author.name" size="lg" />
+            <span class="text-sm font-medium text-highlighted">{{ author.name }}</span>
+          </div>
+        </template>
+      </div>
+    </UPageHeader>
+
+    <UPageBody prose class="docs-content blogs-content pb-24">
+      <ContentRenderer :value="page" />
+    </UPageBody>
+
+    <template #right>
+      <div>
+        <UContentToc :links="page.body?.toc?.links || []" class="z-2 lg:hidden mx-0!" />
+        <nav class="hidden lg:block h-full sticky top-(--ui-header-height) max-h-[calc(100vh-var(--ui-header-height))]">
+          <ProseCodeTree
+            v-if="activePath"
+            :model-value="activePath"
+            :items="treeItems"
+            expand-all
+            class="lg:h-full my-0 rounded-none border-y-0 border-r-0 border-default"
+            :ui="{ list: 'border-default', content: '[&>div>pre]:bg-muted/50 [&>div>pre]:border-default [&>div>pre]:rounded-none' }"
+          />
+          <div v-else class="size-full border-l border-default flex items-center justify-center">
+            <UIcon name="i-lucide-arrow-down" class="size-12 text-dimmed animate-bounce" />
+          </div>
+        </nav>
+      </div>
+    </template>
+  </UPage>
 </template>
 
 <style scoped>
