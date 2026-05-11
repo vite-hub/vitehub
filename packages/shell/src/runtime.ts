@@ -1,4 +1,4 @@
-import { Bash, type CommandName, type IFileSystem } from "just-bash"
+import type { CommandName, IFileSystem } from "just-bash"
 
 import type { ShellRuntime, ShellRuntimeExecOptions, ShellRuntimeExecResult } from "./types.ts"
 
@@ -100,6 +100,7 @@ export function createJustBashRuntime(options: {
       writeFs: options.fs.writeFs,
     },
     async exec(command, execOptions: ShellRuntimeExecOptions = {}) {
+      const { Bash } = await import("just-bash")
       const bash = new Bash({
         commands: options.commands as CommandName[] | undefined,
         cwd: options.cwd,

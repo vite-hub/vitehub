@@ -283,6 +283,33 @@ describe("@vitehub/shell just-bash runtime", () => {
 })
 
 describe("@vitehub/shell cloudflare runtime", () => {
+  it("runs workspace inspection without just-bash", async () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+      "models/orders.sql": "select * from orders\nwhere id is not null\n",
+    })
+    const fs = createReadonlyWorkspaceFs(workspace)
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls .", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+      provider: "cloudflare-shell",
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "README.md\nmodels/\n",
+    })
+    await expect(runWorkspaceInspectionCommand(workspace, "cat models/orders.sql | head -n 1", {
+      commands: ["cat", "head"],
+      cwd: workspaceMountPoint,
+      fs,
+      provider: "cloudflare-shell",
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "select * from orders\n",
+    })
+  })
+
   it("delegates to the cloudflare sandbox client", async () => {
     const sandbox = {
       exec: vi.fn(async (_command: string, _args: string[], options?: Record<string, unknown>) => {
