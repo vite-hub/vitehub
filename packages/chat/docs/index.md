@@ -7,20 +7,27 @@ icon: i-lucide-message-circle
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/chat` connects Chat SDK adapters to ViteHub apps. A chat definition owns adapters, state, event hooks, and webhook handling. When Chat hands off to Agent, it passes canonical `@vitehub/messages` history and a runtime-compatible context.
+`@vitehub/chat` connects Chat SDK adapters to ViteHub apps. A chat-enabled Agent owns the bot configuration and message handling in one discovered file. When Chat hands off to Agent, it passes canonical `@vitehub/messages` history and a runtime-compatible context.
 
 Use Chat when an app receives provider chat events and posts responses back to a thread.
 
-```ts [server/chat.ts]
-import { defineChat } from '@vitehub/chat'
+```ts [server/agents/triage.ts]
+import { defineAgent } from '@vitehub/agent'
+import { getMessageText } from '@vitehub/messages'
 
-export default defineChat({
-  adapters,
-  async onDirectMessage({ message, thread }) {
-    await thread.post(`Received: ${message.text}`)
+export default defineAgent({
+  chat: {
+    adapters,
+    state,
   },
-  state,
-  userName: 'Support Bot',
+  async run({ input }) {
+    const latest = input.messages?.at(-1)
+    const message = latest ? getMessageText(latest) : ''
+
+    return {
+      text: `Received: ${message}`,
+    }
+  },
 })
 ```
 

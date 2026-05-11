@@ -25,21 +25,19 @@
         "dev": {
           "phases": {
             "configure": "vite.config.ts",
-            "define": "server/chat.ts"
+            "define": "server/agents/triage.ts"
           },
           "supplementalFiles": [
-            "package.json",
-            "server/utils/agent.ts"
+            "package.json"
           ]
         },
         "build": {
           "phases": {
             "configure": "vite.config.ts",
-            "define": "server/chat.ts"
+            "define": "server/agents/triage.ts"
           },
           "supplementalFiles": [
-            "package.json",
-            "server/utils/agent.ts"
+            "package.json"
           ]
         }
       }
