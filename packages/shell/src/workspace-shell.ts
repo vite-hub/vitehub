@@ -310,9 +310,6 @@ function splitWorkspacePipeline(command: string): WorkspacePipeline {
 
   const postprocess = parseShellCommand(parts[1])
   const [name, ...args] = postprocess
-  if (isSearchCommand(tryParseCommand(parts[0] || "")[0] || "") && name !== "head" && name !== "tail") {
-    return { command, postprocess: undefined }
-  }
   if ((name !== "head" && name !== "tail") || args.some(arg => /[|;&<>`$()]/.test(arg))) {
     throw new Error("Unsupported shell syntax: only a single workspace command is supported.")
   }

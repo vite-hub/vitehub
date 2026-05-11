@@ -232,7 +232,6 @@ describe("@vitehub/shell just-bash runtime", () => {
       "README.md": "# Docs\n",
       "models/customers.sql": "select * from customers\n",
       "models/orders.sql": "select * from orders\n",
-      "models/search-notes.md": "siff|PLC\n",
     })
     const fs = createReadonlyWorkspaceFs(workspace)
 
@@ -281,13 +280,13 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "models/customers.sql:1:select * from customers\n",
     })
 
-    await expect(runWorkspaceInspectionCommand(workspace, "rg siff|PLC models", {
+    await expect(runWorkspaceInspectionCommand(workspace, "rg customer|orders models", {
       commands: ["rg"],
       cwd: workspaceMountPoint,
       fs,
     })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "models/search-notes.md:1:siff|PLC\n",
+      exitCode: 126,
+      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cd /workspace && rg orders models", {
@@ -305,7 +304,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "/workspace\ncustomers.sql\norders.sql\nsearch-notes.md\n",
+      stdout: "/workspace\ncustomers.sql\norders.sql\n",
     })
   })
 })
