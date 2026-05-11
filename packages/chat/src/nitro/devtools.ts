@@ -8,7 +8,7 @@ import { getChatRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 
 import type { Adapter, AdapterPostableMessage, Chat as ChatInstance, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
 import type { EventHandler, H3Event } from "h3"
-import type { ChatDevtoolsAdapter, ChatDevtoolsBridgeRequest, ChatDevtoolsConversation, ChatDevtoolsMessage, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
+import type { ChatDevtoolsAdapter, ChatDevtoolsBridgeRequest, ChatDevtoolsConversation, ChatDevtoolsMessage, ChatDevtoolsMetadata, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
 import type { ChatInput } from "../types.ts"
 import type { NitroChatRuntimeConfig, NitroChatRuntimeContext } from "./handler.ts"
 
@@ -24,11 +24,21 @@ interface ChatDevtoolsSession {
 }
 
 interface ChatDevtoolsHandlerState {
+  metadata: Required<ChatDevtoolsMetadata>
   registry: ChatDevtoolsRegistry
   sessions: Map<string, ChatDevtoolsSession>
 }
 
 type ChatDevtoolsBridgeBody = ChatDevtoolsBridgeRequest & { stream?: boolean }
+
+export interface ChatDevtoolsHandlerOptions {
+  inferredName?: string
+  metadata?: ChatDevtoolsMetadata
+}
+
+export interface ChatDevtoolsRegistryHandlerOptions {
+  metadata?: ChatDevtoolsMetadata
+}
 
 function createChatDevtoolsMessage(role: ChatDevtoolsMessage["role"], text: string): ChatDevtoolsMessage {
   return {
@@ -165,6 +175,13 @@ function getSession(state: ChatDevtoolsHandlerState, name: string): ChatDevtools
   return session
 }
 
+function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): Required<ChatDevtoolsMetadata> {
+  return {
+    files: metadata?.files ? [...metadata.files] : [],
+    tools: metadata?.tools ? [...metadata.tools] : [],
+  }
+}
+
 async function resolveDevtoolsChat(event: H3Event, state: ChatDevtoolsHandlerState, session: ChatDevtoolsSession): Promise<ChatInstance> {
   session.bot ||= (async () => {
     const loader = state.registry[session.name]
@@ -198,7 +215,9 @@ function serializeState(state: ChatDevtoolsHandlerState, selected?: string): Cha
 
   return {
     chats,
+    files: state.metadata.files,
     selected: selected && names.includes(selected) ? selected : names[0] || "",
+    tools: state.metadata.tools,
   }
 }
 
@@ -369,8 +388,9 @@ function clearDevtoolsMessages(state: ChatDevtoolsHandlerState, input: { chat?: 
   return serializeState(state, selected)
 }
 
-export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry): EventHandler {
+export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry, options: ChatDevtoolsRegistryHandlerOptions = {}): EventHandler {
   const state: ChatDevtoolsHandlerState = {
+    metadata: normalizeDevtoolsMetadata(options.metadata),
     registry,
     sessions: new Map(),
   }
@@ -406,9 +426,9 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
   })
 }
 
-export function defineChatDevtoolsHandler(chat: ChatInput<NitroChatRuntimeContext>, options: { inferredName?: string } = {}): EventHandler {
+export function defineChatDevtoolsHandler(chat: ChatInput<NitroChatRuntimeContext>, options: ChatDevtoolsHandlerOptions = {}): EventHandler {
   const name = options.inferredName || "default"
   return defineChatDevtoolsRegistryHandler({
     [name]: async () => chat,
-  })
+  }, { metadata: options.metadata })
 }

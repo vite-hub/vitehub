@@ -22,6 +22,8 @@ import type { DevToolsRpcServerFunctions, ViteDevToolsNodeContext } from "@vitej
 import type {
   ChatDevtoolsClearInput,
   ChatDevtoolsConversation,
+  ChatDevtoolsFileTreeItem,
+  ChatDevtoolsMetadata,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
@@ -29,6 +31,7 @@ import type {
   ChatDevtoolsStateResult,
   ChatDevtoolsStreamEvent,
   ChatDevtoolsTool,
+  ChatDevtoolsToolDefinition,
   ChatDevtoolsToolStatus,
 } from "./devtools-shared.js"
 
@@ -48,6 +51,9 @@ export {
 export type {
   ChatDevtoolsClearInput,
   ChatDevtoolsConversation,
+  ChatDevtoolsFileKind,
+  ChatDevtoolsFileTreeItem,
+  ChatDevtoolsMetadata,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
@@ -55,6 +61,7 @@ export type {
   ChatDevtoolsStateResult,
   ChatDevtoolsStreamEvent,
   ChatDevtoolsTool,
+  ChatDevtoolsToolDefinition,
   ChatDevtoolsToolStatus,
 } from "./devtools-shared.js"
 
@@ -89,6 +96,7 @@ export interface ChatDevtoolsAdapter extends Adapter {
 }
 
 export interface ChatDevtoolsAdapterOptions {
+  metadata?: ChatDevtoolsMetadata
   name?: string
 }
 
@@ -430,8 +438,16 @@ function createTranscriptMessage(role: ChatDevtoolsMessageRole, text: string): C
   }
 }
 
+function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): Required<ChatDevtoolsMetadata> {
+  return {
+    files: metadata?.files ? [...metadata.files] : [],
+    tools: metadata?.tools ? [...metadata.tools] : [],
+  }
+}
+
 export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}): ChatDevtoolsAdapter {
   const adapterName = options.name || chatDevtoolsAdapterName
+  const metadata = normalizeDevtoolsMetadata(options.metadata)
   const transcripts = new Map<string, ChatDevtoolsMessage[]>()
   const typingMessageIds = new Map<string, string>()
 
@@ -562,7 +578,9 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
       }
       return {
         chats,
+        files: metadata.files,
         selected: chat && chats.some(item => item.name === chat) ? chat : chats[0]!.name,
+        tools: metadata.tools,
       }
     },
     handleWebhook: async () => new Response(null, { status: 204 }),

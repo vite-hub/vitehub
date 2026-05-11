@@ -22,6 +22,29 @@ export interface ChatDevtoolsTool {
   updatedAt: string
 }
 
+export type ChatDevtoolsFileKind = "directory" | "file"
+
+export interface ChatDevtoolsFileTreeItem {
+  children?: ChatDevtoolsFileTreeItem[]
+  kind: ChatDevtoolsFileKind
+  label?: string
+  path: string
+  updatedAt?: string
+}
+
+export interface ChatDevtoolsToolDefinition {
+  category?: string
+  description?: string
+  icon?: string
+  name: string
+  status?: "available" | "disabled"
+}
+
+export interface ChatDevtoolsMetadata {
+  files?: ChatDevtoolsFileTreeItem[]
+  tools?: ChatDevtoolsToolDefinition[]
+}
+
 export interface ChatDevtoolsMessage {
   createdAt: string
   id: string
@@ -37,7 +60,9 @@ export interface ChatDevtoolsConversation {
 
 export interface ChatDevtoolsStateResult {
   chats: ChatDevtoolsConversation[]
+  files?: ChatDevtoolsFileTreeItem[]
   selected: string
+  tools?: ChatDevtoolsToolDefinition[]
 }
 
 export interface ChatDevtoolsSendInput {

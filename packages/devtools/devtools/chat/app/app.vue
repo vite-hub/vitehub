@@ -8,11 +8,13 @@ import {
   chatDevtoolsGetStateRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
+  type ChatDevtoolsFileTreeItem,
   type ChatDevtoolsMessage,
   type ChatDevtoolsSendResult,
   type ChatDevtoolsStateResult,
   type ChatDevtoolsStreamEvent,
   type ChatDevtoolsTool,
+  type ChatDevtoolsToolDefinition,
 } from "../../../../chat/src/devtools-shared"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
@@ -31,7 +33,9 @@ const error = ref<string | undefined>()
 const connected = ref(false)
 const state = ref<ChatDevtoolsStateResult>({
   chats: [],
+  files: [],
   selected: "",
+  tools: [],
 })
 const messages = ref<ChatMessage[]>([])
 const pendingUserMessage = ref<ChatMessage | undefined>()
@@ -43,6 +47,34 @@ let simulationRunId = 0
 
 const standaloneStatusMessage = "Preview mode. Connect through Vite DevTools to inspect a real chat runtime."
 const simulationDelayMs = 360
+const integrationTabs = [
+  { icon: "i-lucide-files", label: "Files", slot: "files" as const },
+  { icon: "i-lucide-wrench", label: "Tools", slot: "tools" as const },
+]
+
+type FileRow = ChatDevtoolsFileTreeItem & { depth: number }
+
+const fileRows = computed<FileRow[]>(() => flattenFiles(state.value.files || []))
+const recentTools = computed(() => {
+  const tools = new Map<string, ChatDevtoolsTool>()
+  for (const message of messages.value) {
+    for (const part of message.parts) {
+      tools.set(part.tool.name, part.tool)
+    }
+  }
+  return tools
+})
+
+const visibleTools = computed<ChatDevtoolsToolDefinition[]>(() => {
+  if (state.value.tools?.length) {
+    return state.value.tools
+  }
+  return [...recentTools.value.values()].map(tool => ({
+    name: tool.name,
+    description: tool.text,
+    status: tool.status === "error" ? "disabled" : "available",
+  }))
+})
 
 function clearPendingMessages() {
   const pendingId = pendingUserMessage.value?.id
@@ -58,7 +90,11 @@ function selectedChat(next = state.value) {
 }
 
 function applyState(next: ChatDevtoolsStateResult) {
-  state.value = next
+  state.value = {
+    files: next.files || [],
+    tools: next.tools || [],
+    ...next,
+  }
   const chat = selectedChat(next)
   const serverMessages = (chat?.messages || []).map(toChatMessage)
   const nextMessages = [...serverMessages]
@@ -164,6 +200,28 @@ function renderToolOutput(tool: ChatDevtoolsTool) {
   return `\`\`\`json\n${JSON.stringify(output, null, 2)}\n\`\`\``
 }
 
+function flattenFiles(files: ChatDevtoolsFileTreeItem[], depth = 0): FileRow[] {
+  return files.flatMap((file) => [
+    { ...file, depth },
+    ...flattenFiles(file.children || [], depth + 1),
+  ])
+}
+
+function fileLabel(file: ChatDevtoolsFileTreeItem) {
+  return file.label || file.path.split("/").filter(Boolean).at(-1) || file.path || "workspace"
+}
+
+function toolStatus(tool: ChatDevtoolsToolDefinition) {
+  return recentTools.value.get(tool.name)?.status || tool.status || "available"
+}
+
+function toolStatusColor(tool: ChatDevtoolsToolDefinition) {
+  const status = toolStatus(tool)
+  if (status === "disabled" || status === "error") return "error"
+  if (status === "running") return "warning"
+  return "success"
+}
+
 function appendDummy(message: ChatDevtoolsMessage) {
   messages.value = [...messages.value, toChatMessage(message)]
 }
@@ -214,6 +272,36 @@ async function runStandaloneSimulation(text: string) {
   const runId = ++simulationRunId
   const isCurrentRun = () => runId === simulationRunId
   const now = Date.now()
+  state.value = {
+    chats: state.value.chats.length ? state.value.chats : [{ name: "preview", messages: [] }],
+    files: [
+      {
+        kind: "directory",
+        label: "server",
+        path: "server",
+        children: [
+          { kind: "file", path: "server/chat.ts", updatedAt: "Preview" },
+          { kind: "file", path: "server/agents/support.ts", updatedAt: "Preview" },
+        ],
+      },
+      {
+        kind: "directory",
+        label: "data-sources",
+        path: "data-sources",
+        children: [
+          { kind: "file", path: "data-sources/AGENTS.md", updatedAt: "Preview" },
+          { kind: "file", path: "data-sources/README.md", updatedAt: "Preview" },
+        ],
+      },
+    ],
+    selected: state.value.selected || "preview",
+    tools: [
+      { category: "workspace", description: "Search text across source files.", icon: "i-lucide-search", name: "search_files", status: "available" },
+      { category: "workspace", description: "Read a file from the workspace.", icon: "i-lucide-file-text", name: "read_file", status: "available" },
+      { category: "workspace", description: "List directories in the workspace.", icon: "i-lucide-folder-open", name: "list_directory", status: "available" },
+      { category: "shell", description: "Run an allowed workspace inspection command.", icon: "i-lucide-terminal", name: "shell", status: "available" },
+    ],
+  }
   const assistant: ChatMessage = {
     id: `assistant-${now}`,
     loading: true,
@@ -483,7 +571,9 @@ async function clear() {
   catch {
     state.value = {
       chats: [{ name: state.value.selected || "dev", messages: [] }],
+      files: state.value.files || [],
       selected: state.value.selected || "dev",
+      tools: state.value.tools || [],
     }
     pendingUserMessage.value = undefined
     pendingAssistantMessage.value = undefined
@@ -514,67 +604,187 @@ onMounted(refresh)
         />
       </header>
 
-      <section class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        <UChatMessages
-          v-if="messages.length"
-          :messages="messages"
-          :should-auto-scroll="status === 'streaming'"
-          compact
-          class="min-h-full px-3 py-2"
-        >
-          <template #content="{ content, message, parts }">
-            <div class="flex min-w-0 flex-col gap-2 text-sm/5">
-              <UChatShimmer
-                v-if="message.loading"
-                text="Thinking..."
-                :duration="1.8"
-              />
-              <UChatTool
-                v-for="part in parts"
-                :key="part.tool.id"
-                icon="i-lucide-terminal"
-                loading-icon="i-lucide-terminal"
-                :text="renderToolCommand(part.tool)"
-                :loading="part.tool.status === 'running'"
-                :streaming="part.tool.status === 'running'"
-                variant="card"
-                :default-open="false"
-                :ui="{
-                  root: 'min-w-0 rounded-md',
-                  trigger: 'min-h-7 px-2 py-1 text-xs',
-                  leading: 'size-3.5',
-                  leadingIcon: 'size-3.5 opacity-70',
-                  label: 'min-w-0 truncate',
-                  trailingIcon: 'size-3.5 opacity-70',
-                  body: 'p-2 text-xs/5',
-                }"
-              >
-                <Suspense
-                  v-if="part.tool.output !== undefined"
+      <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section class="min-h-0 overflow-y-auto overflow-x-hidden">
+          <UChatMessages
+            v-if="messages.length"
+            :messages="messages"
+            :should-auto-scroll="status === 'streaming'"
+            compact
+            class="min-h-full px-3 py-2"
+          >
+            <template #content="{ content, message, parts }">
+              <div class="flex min-w-0 flex-col gap-2 text-sm/5">
+                <UChatShimmer
+                  v-if="message.loading"
+                  text="Thinking..."
+                  :duration="1.8"
+                />
+                <UChatTool
+                  v-for="part in parts"
+                  :key="part.tool.id"
+                  icon="i-lucide-terminal"
+                  loading-icon="i-lucide-terminal"
+                  :text="renderToolCommand(part.tool)"
+                  :loading="part.tool.status === 'running'"
+                  :streaming="part.tool.status === 'running'"
+                  variant="card"
+                  :default-open="false"
+                  :ui="{
+                    root: 'min-w-0 rounded-md',
+                    trigger: 'min-h-7 px-2 py-1 text-xs',
+                    leading: 'size-3.5',
+                    leadingIcon: 'size-3.5 opacity-70',
+                    label: 'min-w-0 truncate',
+                    trailingIcon: 'size-3.5 opacity-70',
+                    body: 'p-2 text-xs/5',
+                  }"
                 >
-                  <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
-                    {{ renderToolOutput(part.tool) }}
+                  <Suspense
+                    v-if="part.tool.output !== undefined"
+                  >
+                    <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
+                      {{ renderToolOutput(part.tool) }}
+                    </Comark>
+                  </Suspense>
+                </UChatTool>
+                <Suspense
+                  v-if="content"
+                >
+                  <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
+                    {{ content }}
                   </Comark>
                 </Suspense>
-              </UChatTool>
-              <Suspense
-                v-if="content"
-              >
-                <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
-                  {{ content }}
-                </Comark>
-              </Suspense>
-            </div>
-          </template>
-        </UChatMessages>
-        <div v-else class="flex h-full items-center justify-center px-4">
-          <UEmpty
-            icon="i-lucide-message-square"
-            title="No messages yet."
-            :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent' }"
-          />
-        </div>
-      </section>
+              </div>
+            </template>
+          </UChatMessages>
+          <div v-else class="flex h-full items-center justify-center px-4">
+            <UEmpty
+              icon="i-lucide-message-square"
+              title="No messages yet."
+              :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent' }"
+            />
+          </div>
+        </section>
+
+        <aside class="hidden min-h-0 border-l border-default p-2 lg:block">
+          <UCard
+            variant="subtle"
+            class="flex h-full min-h-0 flex-col"
+            :ui="{
+              root: 'rounded-lg',
+              body: 'flex min-h-0 flex-1 flex-col p-2 sm:p-2',
+            }"
+          >
+            <template #header>
+              <div class="flex min-w-0 items-center justify-between gap-2">
+                <div class="flex min-w-0 items-center gap-2">
+                  <UIcon name="i-lucide-plug" class="size-4 shrink-0 text-muted" />
+                  <span class="truncate text-sm font-medium">Integration</span>
+                </div>
+                <UBadge color="neutral" variant="soft" size="sm">
+                  {{ state.selected || 'dev' }}
+                </UBadge>
+              </div>
+            </template>
+
+            <UTabs
+              :items="integrationTabs"
+              class="flex min-h-0 flex-1 flex-col"
+              :ui="{
+                list: 'shrink-0',
+                content: 'min-h-0 flex-1 overflow-y-auto pt-2',
+              }"
+            >
+              <template #files>
+                <div v-if="fileRows.length" class="space-y-1">
+                  <UTooltip
+                    v-for="file in fileRows"
+                    :key="file.path"
+                    :text="file.path"
+                  >
+                    <UButton
+                      :icon="file.kind === 'directory' ? 'i-lucide-folder' : 'i-lucide-file'"
+                      :label="fileLabel(file)"
+                      color="neutral"
+                      variant="ghost"
+                      size="sm"
+                      block
+                      class="justify-start"
+                      :style="{ paddingLeft: `${0.5 + file.depth * 1.1}rem` }"
+                      :ui="{
+                        leadingIcon: file.kind === 'directory' ? 'text-warning' : 'text-muted',
+                        label: 'min-w-0 truncate text-left',
+                      }"
+                    >
+                      <template #trailing>
+                        <span v-if="file.updatedAt" class="ml-auto truncate text-xs text-muted">
+                          {{ file.updatedAt }}
+                        </span>
+                      </template>
+                    </UButton>
+                  </UTooltip>
+                </div>
+                <UEmpty
+                  v-else
+                  icon="i-lucide-folder-search"
+                  title="No files exposed."
+                  description="This chat has not registered workspace files for DevTools."
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                />
+              </template>
+
+              <template #tools>
+                <div v-if="visibleTools.length" class="space-y-2">
+                  <div
+                    v-for="tool in visibleTools"
+                    :key="tool.name"
+                    class="rounded-md border border-default bg-default/60 p-2"
+                  >
+                    <div class="flex min-w-0 items-start gap-2">
+                      <UIcon :name="tool.icon || 'i-lucide-wrench'" class="mt-0.5 size-4 shrink-0 text-muted" />
+                      <div class="min-w-0 flex-1">
+                        <div class="flex min-w-0 items-center gap-2">
+                          <UTooltip :text="tool.name">
+                            <span class="truncate text-sm font-medium">{{ tool.name }}</span>
+                          </UTooltip>
+                          <UBadge
+                            :color="toolStatusColor(tool)"
+                            variant="soft"
+                            size="sm"
+                            class="ml-auto shrink-0 capitalize"
+                          >
+                            {{ toolStatus(tool) }}
+                          </UBadge>
+                        </div>
+                        <p v-if="tool.description" class="mt-1 line-clamp-2 text-xs/5 text-muted">
+                          {{ tool.description }}
+                        </p>
+                        <div v-if="tool.category" class="mt-2">
+                          <UBadge color="neutral" variant="outline" size="sm">
+                            {{ tool.category }}
+                          </UBadge>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <USeparator />
+                  <p class="px-1 text-xs/5 text-muted">
+                    Tool executions still appear inline in the chat transcript.
+                  </p>
+                </div>
+                <UEmpty
+                  v-else
+                  icon="i-lucide-wrench"
+                  title="No tools exposed."
+                  description="This chat has not registered tools for DevTools."
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                />
+              </template>
+            </UTabs>
+          </UCard>
+        </aside>
+      </div>
 
       <footer class="shrink-0 px-2 pb-2 pt-1">
         <UAlert

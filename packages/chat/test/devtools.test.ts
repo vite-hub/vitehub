@@ -713,7 +713,9 @@ describe("Chat DevTools Nitro bridge", () => {
 
     expect(result).toEqual({
       chats: [],
+      files: [],
       selected: "",
+      tools: [],
     })
     await expect(handler(createBridgeEvent({ action: "send", text: "hello" }) as never)).rejects.toMatchObject({
       statusCode: 404,
@@ -739,5 +741,40 @@ describe("Chat DevTools Nitro bridge", () => {
       expect.objectContaining({ role: "user", text: "second" }),
       expect.objectContaining({ role: "assistant", text: "echo: second" }),
     ])
+  })
+
+  it("includes explicitly registered metadata in adapter state and preserves it after clear", async () => {
+    const { createDevtoolsAdapter } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter({
+      metadata: {
+        files: [{ kind: "file", path: "server/chat.ts" }],
+        tools: [{ description: "Read a workspace file.", name: "read_file" }],
+      },
+    })
+
+    adapter.createDevtoolsMessage("hello")
+    adapter.clearDevtoolsTranscript()
+
+    expect(adapter.getDevtoolsState()).toMatchObject({
+      files: [{ kind: "file", path: "server/chat.ts" }],
+      tools: [{ description: "Read a workspace file.", name: "read_file" }],
+    })
+  })
+
+  it("registry bridge returns configured metadata", async () => {
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/nitro.ts")
+    const handler = defineChatDevtoolsRegistryHandler({}, {
+      metadata: {
+        files: [{ children: [{ kind: "file", path: "server/agents/support.ts" }], kind: "directory", path: "server/agents" }],
+        tools: [{ category: "workspace", name: "list_directory", status: "available" }],
+      },
+    })
+
+    const result = await handler(createBridgeEvent({ action: "get-state" }) as never) as ChatDevtoolsStateResult
+
+    expect(result).toMatchObject({
+      files: [{ children: [{ kind: "file", path: "server/agents/support.ts" }], kind: "directory", path: "server/agents" }],
+      tools: [{ category: "workspace", name: "list_directory", status: "available" }],
+    })
   })
 })
