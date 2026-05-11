@@ -204,6 +204,13 @@ function renderOptions(options: Record<string, string | undefined>): string {
   return ["{", ...entries, "}"].join("\n")
 }
 
+function renderDevtoolsOptions(options: Record<string, string | undefined>): string {
+  const entries = Object.entries(options)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .map(([key, value]) => `  ${key}: ${value},`)
+  return ["{", ...entries, "}"].join("\n")
+}
+
 function createNitroSingleChatRouteContents(file: string, definition: DiscoveredChatDefinition, options: ResolvedChatModuleOptions): string {
   const chatExpression = resolveChatImportExpression(file, definition)
   return [
@@ -258,12 +265,17 @@ function createNitroRegistryChatDevInitializerContents(file: string, registryFil
 
 function createNitroSingleChatDevtoolsContents(file: string, definition: DiscoveredChatDefinition): string {
   const chatExpression = resolveChatImportExpression(file, definition)
+  const metadataExpression = isAgentChatDefinition(definition)
+    ? "createAgentDevtoolsMetadata(agent)"
+    : undefined
   return [
     `import { defineChatDevtoolsHandler } from "@vitehub/chat/nitro"`,
+    ...(metadataExpression ? [`import { createAgentDevtoolsMetadata } from "@vitehub/agent"`] : []),
     ...createChatImportLines(file, definition),
     "",
-    `export default defineChatDevtoolsHandler(${chatExpression}, ${renderOptions({
-      inferredName: definition.name,
+    `export default defineChatDevtoolsHandler(${chatExpression}, ${renderDevtoolsOptions({
+      inferredName: JSON.stringify(definition.name),
+      metadata: metadataExpression,
     })})`,
     "",
   ].join("\n")
@@ -321,12 +333,31 @@ function createNitroChatRegistryContents(file: string, definitions: DiscoveredCh
   ].join("\n")
 }
 
-function createNitroRegistryChatDevtoolsContents(file: string, registryFile: string): string {
+function metadataImportName(index: number): string {
+  return `devtoolsMetadataAgent${index}`
+}
+
+function createNitroRegistryChatDevtoolsContents(file: string, registryFile: string, definitions: DiscoveredChatDefinition[]): string {
+  const agentDefinitions = definitions.filter(isAgentChatDefinition)
   return [
     `import chatRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    ...(agentDefinitions.length ? [`import { createAgentDevtoolsMetadata } from "@vitehub/agent"`] : []),
     `import { defineChatDevtoolsRegistryHandler } from "@vitehub/chat/nitro"`,
+    ...agentDefinitions.map((definition, index) => definition.exportName
+      ? `import { ${definition.exportName} as ${metadataImportName(index)} } from ${JSON.stringify(createImportPath(file, definition.handler))}`
+      : `import ${metadataImportName(index)} from ${JSON.stringify(createImportPath(file, definition.handler))}`),
+    ...(agentDefinitions.length
+      ? [
+          "",
+          "const metadata = {",
+          ...agentDefinitions.map((definition, index) => `  ${JSON.stringify(definition.name)}: createAgentDevtoolsMetadata(${metadataImportName(index)}),`),
+          "}",
+        ]
+      : []),
     "",
-    `export default defineChatDevtoolsRegistryHandler(chatRegistry)`,
+    `export default defineChatDevtoolsRegistryHandler(chatRegistry, ${renderDevtoolsOptions({
+      metadata: agentDefinitions.length ? "metadata" : undefined,
+    })})`,
     "",
   ].join("\n")
 }
@@ -399,7 +430,7 @@ async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | Resolve
       await writeFileIfChanged(devtoolsFile, createNitroEmptyChatDevtoolsContents())
     }
     else if (definitions.length > 1 && registryFile) {
-      await writeFileIfChanged(devtoolsFile, createNitroRegistryChatDevtoolsContents(devtoolsFile, registryFile))
+      await writeFileIfChanged(devtoolsFile, createNitroRegistryChatDevtoolsContents(devtoolsFile, registryFile, definitions))
     }
     else {
       await writeFileIfChanged(devtoolsFile, createNitroSingleChatDevtoolsContents(devtoolsFile, definitions[0]!))

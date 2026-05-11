@@ -198,6 +198,29 @@ function commandLabel(input: unknown): string | undefined {
     : undefined
 }
 
+function commandFromInput(input: unknown): string | undefined {
+  return isRecord(input) && typeof input.command === "string" ? input.command.trim() : undefined
+}
+
+function isUnsupportedShellOutput(output: unknown): boolean {
+  if (typeof output === "string") {
+    return output.includes("Unsupported shell syntax:")
+      || output.includes("Unsupported workspace shell command:")
+  }
+  if (isRecord(output)) {
+    return isUnsupportedShellOutput(output.stderr) || isUnsupportedShellOutput(output.stdout)
+  }
+  return false
+}
+
+function isConversationalEchoTool(tool: Pick<ChatDevtoolsTool, "input" | "name" | "output">): boolean {
+  const command = commandFromInput(tool.input)
+  return tool.name === "shell"
+    && !!command
+    && /^echo(?:\s|$)/.test(command)
+    && isUnsupportedShellOutput(tool.output)
+}
+
 function toolName(tool: { name?: unknown, toolName?: unknown }): string {
   return typeof tool.toolName === "string" && tool.toolName
     ? tool.toolName
@@ -485,6 +508,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
   function recordToolStatus(threadId: string, text: string): boolean {
     const tool = parseChatDevtoolsToolStatus(text)
     if (!tool) return false
+    if (isConversationalEchoTool(tool)) return true
 
     const message = ensureTypingMessage(threadId)
     const tools = message.tools ||= []

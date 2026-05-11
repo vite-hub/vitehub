@@ -154,6 +154,7 @@ function describeShellCommands(commands: string[]) {
     "Run a restricted Linux-like read-only workspace inspection command over files mounted at `/workspace`.",
     `Supported command forms: ${forms.join("; ")}.`,
     "Unsupported: redirects, command substitution, backticks, arbitrary pipes, package managers, interpreters, mutation commands, unsupported flags, and commands outside this list.",
+    "Do not use shell commands such as `echo` to compose assistant replies; answer conversational messages directly.",
     "Only `| head [-n count]` and `| tail [-n count]` are supported as post-processing pipes.",
     "Quote shell metacharacters in search patterns.",
     "Examples: `rg 'siff|PLC' ingestion forecasting-engine`; `find ingestion -type f -name '*.sql'`; `cat forecasting-engine/README.md | head -n 40`.",

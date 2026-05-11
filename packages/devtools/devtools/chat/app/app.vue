@@ -148,14 +148,40 @@ function toChatMessage(message: ChatDevtoolsMessage): ChatMessage {
     id: message.id,
     loading,
     role: message.role === "assistant" ? "assistant" : "user",
-    parts: (message.tools || []).map(tool => ({ type: "tool", tool })),
+    parts: (message.tools || []).filter(tool => !isConversationalEchoTool(tool)).map(tool => ({ type: "tool", tool })),
   }
+}
+
+function commandFromTool(tool: ChatDevtoolsTool) {
+  const input = tool.input && typeof tool.input === "object" ? tool.input as Record<string, unknown> : {}
+  return typeof input.command === "string" ? input.command.trim() : undefined
+}
+
+function hasUnsupportedShellOutput(output: unknown): boolean {
+  if (typeof output === "string") {
+    return output.includes("Unsupported shell syntax:")
+      || output.includes("Unsupported workspace shell command:")
+  }
+  if (output && typeof output === "object") {
+    const record = output as Record<string, unknown>
+    return hasUnsupportedShellOutput(record.stderr) || hasUnsupportedShellOutput(record.stdout)
+  }
+  return false
+}
+
+function isConversationalEchoTool(tool: ChatDevtoolsTool) {
+  const command = commandFromTool(tool)
+  return tool.name === "shell"
+    && !!command
+    && /^echo(?:\s|$)/.test(command)
+    && hasUnsupportedShellOutput(tool.output)
 }
 
 function renderToolCommand(tool: ChatDevtoolsTool) {
   const input = tool.input && typeof tool.input === "object" ? tool.input as Record<string, unknown> : {}
-  if (typeof input.command === "string") {
-    return input.command
+  const command = commandFromTool(tool)
+  if (command) {
+    return command
   }
   if (typeof input.path === "string") {
     return `${tool.name} ${input.path}`

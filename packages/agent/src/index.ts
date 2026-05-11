@@ -413,6 +413,26 @@ export type WorkspaceAgentToolsResolver<
   Name extends WorkspaceName = WorkspaceName,
 > = (context: WorkspaceAgentInstructionsContext<TRuntimeConfig, Name>) => MaybePromise<ToolSet | undefined>
 
+export interface AgentDevtoolsFileTreeItem {
+  children?: AgentDevtoolsFileTreeItem[]
+  kind: "directory" | "file"
+  label?: string
+  path: string
+}
+
+export interface AgentDevtoolsToolDefinition {
+  category?: string
+  description?: string
+  icon?: string
+  name: string
+  status?: "available" | "disabled"
+}
+
+export interface AgentDevtoolsMetadata {
+  files?: AgentDevtoolsFileTreeItem[]
+  tools?: AgentDevtoolsToolDefinition[]
+}
+
 type WorkspaceAgentInstructionsPart<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -454,6 +474,7 @@ export type WorkspaceAgentDefinition<
   Name extends WorkspaceName = WorkspaceName,
 > = AgentDefinition<TRuntimeConfig, never, ToolSet> & WorkspaceDefinitionInput & {
   __vitehubWorkspaceAgent: true
+  __vitehubWorkspaceAgentDefaults?: WorkspaceAgentDefaults<Name>
   __vitehubWorkspaceAgentOptions: WorkspaceAgentOptions<TRuntimeConfig, Name>
 }
 
@@ -552,6 +573,123 @@ function getFallbackOptions(fallback: WorkspaceAgentOptions["fallback"]): Requir
   return {
     enabled: fallback.enabled ?? true,
     maxToolResults: fallback.maxToolResults ?? 8,
+  }
+}
+
+function createShellMetadataTool(): AgentDevtoolsToolDefinition {
+  return {
+    category: "workspace",
+    description: "Run a restricted read-only workspace inspection command.",
+    icon: "i-lucide-terminal",
+    name: "shell",
+    status: "available",
+  }
+}
+
+function createWorkspaceMutationTool(name: string, description: string): AgentDevtoolsToolDefinition {
+  return {
+    category: "workspace",
+    description,
+    icon: "i-lucide-file-pen-line",
+    name,
+    status: "available",
+  }
+}
+
+function createMetadataToolSet() {
+  const shell = createShellMetadataTool()
+  const writeTools = {
+    appendFile: createWorkspaceMutationTool("appendFile", "Append text to a workspace file."),
+    copyPath: createWorkspaceMutationTool("copyPath", "Copy a workspace file or directory."),
+    deletePath: createWorkspaceMutationTool("deletePath", "Delete a workspace file or directory."),
+    makeDir: createWorkspaceMutationTool("makeDir", "Create a workspace directory."),
+    movePath: createWorkspaceMutationTool("movePath", "Move a workspace file or directory."),
+    writeFile: createWorkspaceMutationTool("writeFile", "Write a text file to the workspace."),
+  } satisfies Record<string, AgentDevtoolsToolDefinition>
+
+  return {
+    default: () => ({ shell }),
+    inspect: () => ({ shell }),
+    none: () => ({}),
+    readonly: () => ({ shell }),
+    write: () => ({ shell, ...writeTools }),
+  }
+}
+
+function toolDefinitionFromEntry(name: string, tool: unknown): AgentDevtoolsToolDefinition {
+  const description = typeof tool === "object" && tool !== null && "description" in tool && typeof (tool as { description?: unknown }).description === "string"
+    ? (tool as { description: string }).description
+    : undefined
+  return {
+    category: "workspace",
+    description,
+    icon: name === "shell" ? "i-lucide-terminal" : "i-lucide-wrench",
+    name,
+    status: "available",
+  }
+}
+
+function workspaceMetadataFiles<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
+  defaults: WorkspaceAgentDefaults<Name>,
+): AgentDevtoolsFileTreeItem[] {
+  const workspaceName = options.name || defaults.workspace || defaults.name || "workspace"
+  const sources = options.workspace.sources || {}
+  const children = Object.keys(sources).sort().map(sourceName => ({
+    kind: "directory" as const,
+    label: sourceName,
+    path: `${workspaceName}/${sourceName}`,
+  }))
+
+  return [{
+    children,
+    kind: "directory",
+    label: workspaceName,
+    path: workspaceName,
+  }]
+}
+
+function workspaceMetadataTools<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
+): AgentDevtoolsToolDefinition[] {
+  if (!options.tools) return []
+
+  try {
+    const metadataTools = createMetadataToolSet()
+    const workspace = {
+      fs: {},
+      tools: Object.assign(metadataTools.default, metadataTools),
+    }
+    const resolved = options.tools({
+      fs: workspace.fs,
+      workspace,
+    } as unknown as WorkspaceAgentInstructionsContext<AgentRuntimeConfig, Name>)
+    if (typeof (resolved as { then?: unknown })?.then === "function") return []
+
+    return Object.entries(resolved || {})
+      .map(([name, tool]) => toolDefinitionFromEntry(name, tool))
+      .sort((left, right) => left.name.localeCompare(right.name))
+  }
+  catch {
+    return []
+  }
+}
+
+export function createAgentDevtoolsMetadata<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+>(
+  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+): AgentDevtoolsMetadata {
+  const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
+  if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
+    return { files: [], tools: [] }
+  }
+
+  const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
+  return {
+    files: workspaceMetadataFiles(options, workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>),
+    tools: workspaceMetadataTools(options),
   }
 }
 
@@ -680,6 +818,7 @@ function createWorkspaceAgentDefinition<
 
   Object.assign(definition, options.workspace, {
     __vitehubWorkspaceAgent: true,
+    __vitehubWorkspaceAgentDefaults: defaults,
     __vitehubWorkspaceAgentOptions: options,
   })
   return definition

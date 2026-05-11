@@ -590,6 +590,72 @@ describe("Chat DevTools Nitro bridge", () => {
     ])
   })
 
+  it("hides unsupported conversational echo shell calls", async () => {
+    const { createDevtoolsAdapter, observeChatDevtoolsStream } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const parts = [
+      {
+        input: { command: `echo "Hello"` },
+        output: {
+          exitCode: 126,
+          stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
+          stdout: "",
+        },
+        toolCallId: "call-1",
+        toolName: "shell",
+        type: "tool-result",
+      },
+    ]
+
+    const stream = observeChatDevtoolsStream({ startTyping: status => adapter.startTyping(user.threadId, status) }, (async function* () {
+      for (const part of parts) yield part
+    })())
+
+    expect(await collect(stream)).toEqual(parts)
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+    ])
+  })
+
+  it("keeps real failed shell inspection calls visible", async () => {
+    const { createDevtoolsAdapter, observeChatDevtoolsStream } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+    const parts = [
+      {
+        input: { command: "rm README.md" },
+        output: {
+          exitCode: 126,
+          stderr: "Unsupported workspace shell command: rm\n",
+          stdout: "",
+        },
+        toolCallId: "call-1",
+        toolName: "shell",
+        type: "tool-result",
+      },
+    ]
+
+    const stream = observeChatDevtoolsStream({ startTyping: status => adapter.startTyping(user.threadId, status) }, (async function* () {
+      for (const part of parts) yield part
+    })())
+
+    expect(await collect(stream)).toEqual(parts)
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({
+        role: "assistant",
+        tools: [
+          expect.objectContaining({
+            input: { command: "rm README.md" },
+            output: "Unsupported workspace shell command: rm",
+            text: "rm README.md",
+          }),
+        ],
+      }),
+    ])
+  })
+
   it("singleton bridge dispatches through the registered devtools adapter", async () => {
     const { createDevtoolsAdapter } = await import("../src/devtools.ts")
     const { defineChatDevtoolsSingletonHandler } = await import("../src/nitro.ts")

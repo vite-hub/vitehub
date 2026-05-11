@@ -24,6 +24,7 @@ function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinit
   }
   const {
     __vitehubWorkspaceAgent: _agent,
+    __vitehubWorkspaceAgentDefaults: _agentDefaults,
     __vitehubWorkspaceAgentOptions: _agentOptions,
     description: _description,
     fallback: _fallback,

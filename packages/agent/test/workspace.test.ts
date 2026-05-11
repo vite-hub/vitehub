@@ -355,4 +355,33 @@ describe("defineAgent workspace option", () => {
     })
     expect(reportToolStep.mock.calls[0]?.[0].toolCalls[0].toolCallId).toBe(reportToolStep.mock.calls[1]?.[0].toolResults[0].toolCallId)
   })
+
+  it("derives DevTools metadata from workspace agents", async () => {
+    const { createAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          docs: { name: "docs" } as never,
+        },
+      },
+      model: {} as never,
+      tools: ({ workspace }) => workspace.tools.inspect(),
+    }), { workspace: "support" })
+
+    expect(createAgentDevtoolsMetadata(agent)).toEqual({
+      files: [{
+        children: [{ kind: "directory", label: "docs", path: "support/docs" }],
+        kind: "directory",
+        label: "support",
+        path: "support",
+      }],
+      tools: [
+        expect.objectContaining({
+          category: "workspace",
+          name: "shell",
+          status: "available",
+        }),
+      ],
+    })
+  })
 })

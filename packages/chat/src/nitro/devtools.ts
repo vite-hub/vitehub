@@ -14,6 +14,7 @@ import type { NitroChatRuntimeConfig, NitroChatRuntimeContext } from "./handler.
 
 type ChatLoader = () => Promise<ChatInput<NitroChatRuntimeContext>>
 type ChatDevtoolsRegistry = Record<string, ChatLoader>
+type ChatDevtoolsMetadataInput = ChatDevtoolsMetadata | Record<string, ChatDevtoolsMetadata>
 
 interface ChatDevtoolsSession {
   bot?: Promise<ChatInstance>
@@ -24,7 +25,7 @@ interface ChatDevtoolsSession {
 }
 
 interface ChatDevtoolsHandlerState {
-  metadata: Required<ChatDevtoolsMetadata>
+  metadata: ChatDevtoolsMetadataInput
   registry: ChatDevtoolsRegistry
   sessions: Map<string, ChatDevtoolsSession>
 }
@@ -37,7 +38,7 @@ export interface ChatDevtoolsHandlerOptions {
 }
 
 export interface ChatDevtoolsRegistryHandlerOptions {
-  metadata?: ChatDevtoolsMetadata
+  metadata?: ChatDevtoolsMetadataInput
 }
 
 function createChatDevtoolsMessage(role: ChatDevtoolsMessage["role"], text: string): ChatDevtoolsMessage {
@@ -182,6 +183,14 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
   }
 }
 
+function metadataForChat(metadata: ChatDevtoolsMetadataInput | undefined, selected: string | undefined): Required<ChatDevtoolsMetadata> {
+  if (!metadata) return normalizeDevtoolsMetadata(undefined)
+  if ("files" in metadata || "tools" in metadata) {
+    return normalizeDevtoolsMetadata(metadata as ChatDevtoolsMetadata)
+  }
+  return normalizeDevtoolsMetadata(selected ? (metadata as Record<string, ChatDevtoolsMetadata>)[selected] : undefined)
+}
+
 async function resolveDevtoolsChat(event: H3Event, state: ChatDevtoolsHandlerState, session: ChatDevtoolsSession): Promise<ChatInstance> {
   session.bot ||= (async () => {
     const loader = state.registry[session.name]
@@ -213,11 +222,12 @@ function serializeState(state: ChatDevtoolsHandlerState, selected?: string): Cha
     messages: [...getSession(state, name).messages],
   }))
 
+  const metadata = metadataForChat(state.metadata, selected && names.includes(selected) ? selected : names[0])
   return {
     chats,
-    files: state.metadata.files,
+    files: metadata.files,
     selected: selected && names.includes(selected) ? selected : names[0] || "",
-    tools: state.metadata.tools,
+    tools: metadata.tools,
   }
 }
 
@@ -390,7 +400,7 @@ function clearDevtoolsMessages(state: ChatDevtoolsHandlerState, input: { chat?: 
 
 export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry, options: ChatDevtoolsRegistryHandlerOptions = {}): EventHandler {
   const state: ChatDevtoolsHandlerState = {
-    metadata: normalizeDevtoolsMetadata(options.metadata),
+    metadata: options.metadata || {},
     registry,
     sessions: new Map(),
   }
