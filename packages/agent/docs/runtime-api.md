@@ -49,7 +49,7 @@ defineAgent({
 
 You can also pass an AI SDK `Agent` instance to `defineAgent()`.
 
-Workspace agents do not attach workspace tools automatically. Opt in explicitly:
+Workspace agents do not attach workspace tools automatically. The `workspace` option defines the source mounts; the `tools` resolver decides what the model can use at runtime.
 
 ```ts
 defineAgent({
@@ -59,6 +59,8 @@ defineAgent({
   model,
 })
 ```
+
+The resolver receives the same runtime context as `instructions`, plus `fs` and the workspace facade. Use `workspace.tools.inspect()` for the default read-only shell inspection tool, `workspace.tools.none()` for no tools, and `workspace.tools.write()` only with mutable workspace access.
 
 ## Run input
 

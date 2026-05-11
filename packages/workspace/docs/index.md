@@ -95,7 +95,7 @@ const readme = await workspace.fs.readFile('docs/README.md')
 const files = await workspace.fs.list('', { recursive: true })
 ```
 
-For AI SDK agents, expose read-only workspace inspection tools:
+For AI SDK agents, expose read-only workspace inspection tools explicitly:
 
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
@@ -103,8 +103,9 @@ import { useWorkspace } from '@vitehub/workspace'
 const tools = useWorkspace('docs').tools.inspect()
 ```
 
-The `shell` tool emulates safe file-inspection commands against workspace assets. It does not execute a real shell.
-Read, list, and search commands are enabled by default. Use explicit presets when choosing what a model can access:
+The `shell` tool is a restricted workspace shell for inspection. It operates over files mounted at `/workspace`, and its AI SDK description includes the supported command forms and examples.
+
+Read, list, and search commands are enabled by default in the inspection preset. Use explicit presets when choosing what a model can access:
 
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
@@ -115,7 +116,14 @@ const noTools = useWorkspace('docs').tools.none()
 const writeTools = useWorkspace('docs', { allowWrite: true }).tools.write()
 ```
 
-Applications that use `AGENTS.md` as the model instruction source should preload it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')`.
+- `inspect()` exposes the read-only `shell` tool.
+- `readonly()` is an alias for `inspect()`.
+- `none()` returns an empty tool set.
+- `write()` exposes read tools plus structured write tools, and requires `useWorkspace(name, { allowWrite: true })`.
+
+`workspace.tools()` remains as a temporary alias for `workspace.tools.inspect()` for migration, but new code should use an explicit preset.
+
+Applications that use `AGENTS.md` as the model instruction source should load it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')` or an agent `instructions` resolver. Keep detailed shell command syntax in tool metadata instead of duplicating it in app instructions.
 
 ## Sandbox runtime
 

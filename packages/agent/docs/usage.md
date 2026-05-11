@@ -158,7 +158,9 @@ export default defineChat({
 
 ## Use Workspace tools
 
-Use `defineAgent()` with a `workspace` option from a colocated agent config when an agent answers from a ViteHub Workspace.
+Use `defineAgent()` with a `workspace` option from a colocated agent config when an agent answers from ViteHub Workspace sources. `workspace` mounts the sources only; it does not expose model tools by itself.
+
+Add a `tools` resolver when the model should inspect the mounted files:
 
 ```ts [server/agents/data-sources/config.ts]
 import { defineAgent } from '@vitehub/agent'
@@ -175,7 +177,7 @@ export default defineAgent({
 })
 ```
 
-`server/agents/<name>/config.ts` becomes both the agent definition and an implicit workspace definition. Workspace files are not loaded as model instructions by convention. If you want to use `AGENTS.md`, opt in explicitly:
+`server/agents/<name>/config.ts` becomes both the agent definition and an implicit workspace definition. Workspace files are not loaded as model instructions by convention. If you want to use `AGENTS.md`, opt in explicitly and keep command syntax guidance out of the file; the workspace shell tool describes its supported syntax in its AI SDK metadata.
 
 ```ts [server/agents/data-sources/config.ts]
 export default defineAgent({
@@ -204,4 +206,16 @@ export default defineAgent({
 })
 ```
 
-Workspace sources no longer imply model tools. This keeps workspace mounting separate from model capabilities and makes read/write access explicit at the agent boundary.
+### Migration note
+
+Workspace sources no longer imply model tools. Replace older workspace agents that relied on implicit tools with an explicit resolver:
+
+```diff
+ export default defineAgent({
+   workspace: { sources },
++  tools: ({ workspace }) => workspace.tools.inspect(),
+   model,
+ })
+```
+
+Use `workspace.tools.none()` when a resolver needs to return an empty tool set, and reserve `workspace.tools.write()` for agents that intentionally receive mutable workspace access.

@@ -207,12 +207,13 @@ export default defineAgent({
     },
   },
   instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+  tools: ({ workspace }) => workspace.tools.inspect(),
   model,
 })
 ```
 ::
 
-Each entry in `workspace.sources` becomes a mount the agent can inspect with `list`, `search`, and `read` tools. Local globs travel with your repo, GitHub sources stay remote until the agent asks for them (`materialize: 'lazy'`), and inline files are perfect for instructions that should live next to the agent.
+Each entry in `workspace.sources` becomes a mount. The `tools` resolver is the explicit opt-in that lets the model inspect those mounts through the read-only workspace shell. Local globs travel with your repo, GitHub sources stay remote until the agent asks for them (`materialize: 'lazy'`), and inline files are perfect for instructions that should live next to the agent.
 
 Send a question that only your sources can answer—"What does our refund policy say?"—and watch the panel show the tool calls firing before the streamed reply.
 
