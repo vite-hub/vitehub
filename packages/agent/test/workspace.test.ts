@@ -364,6 +364,7 @@ describe("defineAgent workspace option", () => {
           docs: { name: "docs" } as never,
         },
       },
+      instructions: "Answer from the workspace.",
       model: {} as never,
       tools: ({ workspace }) => workspace.tools.inspect(),
     }), { workspace: "support" })
@@ -375,8 +376,10 @@ describe("defineAgent workspace option", () => {
         label: "support",
         path: "support",
       }],
+      instructions: ["Answer from the workspace."],
       tools: [
         expect.objectContaining({
+          commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
           category: "workspace",
           name: "shell",
           status: "available",

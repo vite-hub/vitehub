@@ -422,6 +422,7 @@ export interface AgentDevtoolsFileTreeItem {
 
 export interface AgentDevtoolsToolDefinition {
   category?: string
+  commands?: string[]
   description?: string
   icon?: string
   name: string
@@ -430,6 +431,7 @@ export interface AgentDevtoolsToolDefinition {
 
 export interface AgentDevtoolsMetadata {
   files?: AgentDevtoolsFileTreeItem[]
+  instructions?: string[]
   tools?: AgentDevtoolsToolDefinition[]
 }
 
@@ -579,6 +581,7 @@ function getFallbackOptions(fallback: WorkspaceAgentOptions["fallback"]): Requir
 function createShellMetadataTool(): AgentDevtoolsToolDefinition {
   return {
     category: "workspace",
+    commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
     description: "Run a restricted read-only workspace inspection command.",
     icon: "i-lucide-terminal",
     name: "shell",
@@ -622,6 +625,7 @@ function toolDefinitionFromEntry(name: string, tool: unknown): AgentDevtoolsTool
     : undefined
   return {
     category: "workspace",
+    ...(name === "shell" ? { commands: createShellMetadataTool().commands } : {}),
     description,
     icon: name === "shell" ? "i-lucide-terminal" : "i-lucide-wrench",
     name,
@@ -675,6 +679,13 @@ function workspaceMetadataTools<Name extends WorkspaceName>(
   }
 }
 
+function workspaceMetadataInstructions<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
+): string[] {
+  const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
+  return parts.filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+}
+
 export function createAgentDevtoolsMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -689,6 +700,7 @@ export function createAgentDevtoolsMetadata<
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
   return {
     files: workspaceMetadataFiles(options, workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>),
+    instructions: workspaceMetadataInstructions(options),
     tools: workspaceMetadataTools(options),
   }
 }

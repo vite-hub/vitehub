@@ -780,6 +780,7 @@ describe("Chat DevTools Nitro bridge", () => {
     expect(result).toEqual({
       chats: [],
       files: [],
+      instructions: [],
       selected: "",
       tools: [],
     })
@@ -814,6 +815,7 @@ describe("Chat DevTools Nitro bridge", () => {
     const adapter = createDevtoolsAdapter({
       metadata: {
         files: [{ kind: "file", path: "server/chat.ts" }],
+        instructions: ["Answer from workspace context."],
         tools: [{ description: "Read a workspace file.", name: "read_file" }],
       },
     })
@@ -823,6 +825,7 @@ describe("Chat DevTools Nitro bridge", () => {
 
     expect(adapter.getDevtoolsState()).toMatchObject({
       files: [{ kind: "file", path: "server/chat.ts" }],
+      instructions: ["Answer from workspace context."],
       tools: [{ description: "Read a workspace file.", name: "read_file" }],
     })
   })
@@ -832,6 +835,7 @@ describe("Chat DevTools Nitro bridge", () => {
     const handler = defineChatDevtoolsRegistryHandler({}, {
       metadata: {
         files: [{ children: [{ kind: "file", path: "server/agents/support.ts" }], kind: "directory", path: "server/agents" }],
+        instructions: ["Use the mounted workspace first."],
         tools: [{ category: "workspace", name: "list_directory", status: "available" }],
       },
     })
@@ -840,6 +844,7 @@ describe("Chat DevTools Nitro bridge", () => {
 
     expect(result).toMatchObject({
       files: [{ children: [{ kind: "file", path: "server/agents/support.ts" }], kind: "directory", path: "server/agents" }],
+      instructions: ["Use the mounted workspace first."],
       tools: [{ category: "workspace", name: "list_directory", status: "available" }],
     })
   })

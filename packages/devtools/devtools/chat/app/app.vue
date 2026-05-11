@@ -34,6 +34,7 @@ const connected = ref(false)
 const state = ref<ChatDevtoolsStateResult>({
   chats: [],
   files: [],
+  instructions: [],
   selected: "",
   tools: [],
 })
@@ -50,6 +51,7 @@ const simulationDelayMs = 360
 const integrationTabs = [
   { icon: "i-lucide-files", label: "Files", slot: "files" as const },
   { icon: "i-lucide-wrench", label: "Tools", slot: "tools" as const },
+  { icon: "i-lucide-scroll-text", label: "Instructions", slot: "instructions" as const },
 ]
 
 type FileRow = ChatDevtoolsFileTreeItem & { depth: number }
@@ -92,6 +94,7 @@ function selectedChat(next = state.value) {
 function applyState(next: ChatDevtoolsStateResult) {
   state.value = {
     files: next.files || [],
+    instructions: next.instructions || [],
     tools: next.tools || [],
     ...next,
   }
@@ -321,11 +324,22 @@ async function runStandaloneSimulation(text: string) {
       },
     ],
     selected: state.value.selected || "preview",
+    instructions: [
+      [
+        "Answer from the workspace files.",
+        "Inspect relevant files before answering.",
+        "If the files do not contain the answer, say what is missing and name what you checked.",
+      ].join("\n"),
+    ],
     tools: [
-      { category: "workspace", description: "Search text across source files.", icon: "i-lucide-search", name: "search_files", status: "available" },
-      { category: "workspace", description: "Read a file from the workspace.", icon: "i-lucide-file-text", name: "read_file", status: "available" },
-      { category: "workspace", description: "List directories in the workspace.", icon: "i-lucide-folder-open", name: "list_directory", status: "available" },
-      { category: "shell", description: "Run an allowed workspace inspection command.", icon: "i-lucide-terminal", name: "shell", status: "available" },
+      {
+        category: "workspace",
+        commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
+        description: "Run an allowed workspace inspection command.",
+        icon: "i-lucide-terminal",
+        name: "shell",
+        status: "available",
+      },
     ],
   }
   const assistant: ChatMessage = {
@@ -598,6 +612,7 @@ async function clear() {
     state.value = {
       chats: [{ name: state.value.selected || "dev", messages: [] }],
       files: state.value.files || [],
+      instructions: state.value.instructions || [],
       selected: state.value.selected || "dev",
       tools: state.value.tools || [],
     }
@@ -791,6 +806,17 @@ onMounted(refresh)
                             {{ tool.category }}
                           </UBadge>
                         </div>
+                        <div v-if="tool.commands?.length" class="mt-2 flex flex-wrap gap-1">
+                          <UBadge
+                            v-for="command in tool.commands"
+                            :key="command"
+                            color="neutral"
+                            variant="soft"
+                            size="sm"
+                          >
+                            {{ command }}
+                          </UBadge>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -804,6 +830,36 @@ onMounted(refresh)
                   icon="i-lucide-wrench"
                   title="No tools exposed."
                   description="This chat has not registered tools for DevTools."
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                />
+              </template>
+
+              <template #instructions>
+                <div v-if="state.instructions?.length" class="space-y-2">
+                  <div
+                    v-for="(instruction, index) in state.instructions"
+                    :key="index"
+                    class="rounded-md border border-default bg-default/60 p-3"
+                  >
+                    <div class="mb-2 flex items-center gap-2">
+                      <UIcon name="i-lucide-scroll-text" class="size-4 text-muted" />
+                      <span class="text-sm font-medium">System instructions</span>
+                      <UBadge color="neutral" variant="soft" size="sm" class="ml-auto">
+                        {{ index + 1 }}
+                      </UBadge>
+                    </div>
+                    <Suspense>
+                      <Comark class="text-xs/5 text-muted [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-4">
+                        {{ instruction }}
+                      </Comark>
+                    </Suspense>
+                  </div>
+                </div>
+                <UEmpty
+                  v-else
+                  icon="i-lucide-scroll-text"
+                  title="No instructions exposed."
+                  description="This chat has not registered static system instructions for DevTools."
                   :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
                 />
               </template>

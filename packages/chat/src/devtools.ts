@@ -464,6 +464,7 @@ function createTranscriptMessage(role: ChatDevtoolsMessageRole, text: string): C
 function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): Required<ChatDevtoolsMetadata> {
   return {
     files: metadata?.files ? [...metadata.files] : [],
+    instructions: metadata?.instructions ? [...metadata.instructions] : [],
     tools: metadata?.tools ? [...metadata.tools] : [],
   }
 }
@@ -603,6 +604,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
       return {
         chats,
         files: metadata.files,
+        instructions: metadata.instructions,
         selected: chat && chats.some(item => item.name === chat) ? chat : chats[0]!.name,
         tools: metadata.tools,
       }

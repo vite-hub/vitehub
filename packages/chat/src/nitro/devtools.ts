@@ -179,13 +179,14 @@ function getSession(state: ChatDevtoolsHandlerState, name: string): ChatDevtools
 function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): Required<ChatDevtoolsMetadata> {
   return {
     files: metadata?.files ? [...metadata.files] : [],
+    instructions: metadata?.instructions ? [...metadata.instructions] : [],
     tools: metadata?.tools ? [...metadata.tools] : [],
   }
 }
 
 function metadataForChat(metadata: ChatDevtoolsMetadataInput | undefined, selected: string | undefined): Required<ChatDevtoolsMetadata> {
   if (!metadata) return normalizeDevtoolsMetadata(undefined)
-  if ("files" in metadata || "tools" in metadata) {
+  if ("files" in metadata || "instructions" in metadata || "tools" in metadata) {
     return normalizeDevtoolsMetadata(metadata as ChatDevtoolsMetadata)
   }
   return normalizeDevtoolsMetadata(selected ? (metadata as Record<string, ChatDevtoolsMetadata>)[selected] : undefined)
@@ -226,6 +227,7 @@ function serializeState(state: ChatDevtoolsHandlerState, selected?: string): Cha
   return {
     chats,
     files: metadata.files,
+    instructions: metadata.instructions,
     selected: selected && names.includes(selected) ? selected : names[0] || "",
     tools: metadata.tools,
   }

@@ -34,6 +34,7 @@ export interface ChatDevtoolsFileTreeItem {
 
 export interface ChatDevtoolsToolDefinition {
   category?: string
+  commands?: string[]
   description?: string
   icon?: string
   name: string
@@ -42,6 +43,7 @@ export interface ChatDevtoolsToolDefinition {
 
 export interface ChatDevtoolsMetadata {
   files?: ChatDevtoolsFileTreeItem[]
+  instructions?: string[]
   tools?: ChatDevtoolsToolDefinition[]
 }
 
@@ -61,6 +63,7 @@ export interface ChatDevtoolsConversation {
 export interface ChatDevtoolsStateResult {
   chats: ChatDevtoolsConversation[]
   files?: ChatDevtoolsFileTreeItem[]
+  instructions?: string[]
   selected: string
   tools?: ChatDevtoolsToolDefinition[]
 }
