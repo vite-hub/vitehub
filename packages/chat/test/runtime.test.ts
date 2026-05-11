@@ -273,7 +273,7 @@ describe("defineChat", () => {
     await resolveChat(defineChat({
       adapters: {},
       agent: "triager",
-      fallbackStreamingPlaceholderText: ["Forecasting demand curves..."],
+      fallbackStreamingPlaceholderText: () => "Forecasting demand curves...",
       state: createState() as never,
       userName: "Quiver Chat",
     }), createContext({ runtime: "nitro", platform: "telegram" }) as never)
@@ -284,6 +284,62 @@ describe("defineChat", () => {
     expect(post).toHaveBeenCalledOnce()
     expect(post).toHaveBeenCalledWith("Forecasting demand curves...")
     expect(edit).toHaveBeenCalledWith("agent response")
+  })
+
+  it("runs chat agents through workflow execution when configured", async () => {
+    const { getAgentFromRegistry, streamAgent } = mockAgentPackage()
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const workflow = {
+      defer: vi.fn(),
+      getRun: vi.fn(),
+      name: "chat-reply",
+      run: vi.fn(async () => ({ id: "run", status: "complete" })),
+    }
+    const context = createContext({ runtime: "nitro", platform: "teams" })
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: {
+        execution: "workflow",
+        name: "triager",
+      },
+      state: createState() as never,
+      userName: "Quiver Chat",
+      workflow,
+    }), context as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({
+      id: "thread-1",
+      post: vi.fn(),
+      recentMessages: [createMessage("m1", "hello")],
+      refresh: vi.fn(),
+    } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
+
+    expect(getAgentFromRegistry).not.toHaveBeenCalled()
+    expect(streamAgent).not.toHaveBeenCalled()
+    expect(workflow.run).toHaveBeenCalledWith(expect.objectContaining({
+      agentName: "triager",
+      input: expect.objectContaining({
+        context: { chat: expect.objectContaining({ channelId: "channel-1", messageId: "m2", source: "chat", threadId: "thread-1" }) },
+        messages: [
+          expect.objectContaining({ id: "m1" }),
+          expect.objectContaining({ id: "m2" }),
+        ],
+      }),
+      message: expect.objectContaining({ id: "m2" }),
+      run: expect.objectContaining({
+        channelId: "channel-1",
+        messageId: "m2",
+        platform: "teams",
+        runId: expect.any(String),
+        threadId: "thread-1",
+      }),
+      threadId: "thread-1",
+    }), {
+      id: expect.any(String),
+    })
   })
 
   it("passes a stable run id through chat agent hooks and agent runtime context", async () => {

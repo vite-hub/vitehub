@@ -260,7 +260,7 @@ export interface AgentToolStep {
 
 export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
-  execution?: Extract<AgentExecution, "inline">
+  execution?: Extract<AgentExecution, "inline"> | "workflow"
   history?: boolean | "none" | { maxMessages?: number, source: "thread" }
   hooks?: AgentChatAgentHooks
 }
@@ -291,6 +291,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   agent?: never
   event?: AgentChatAgentBindingOptions["event"]
   execution?: AgentChatAgentBindingOptions["execution"]
+  fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
   hooks?: AgentChatEventHooks<TRuntimeConfig>
   lifecycleHooks?: Record<string, unknown>

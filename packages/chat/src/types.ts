@@ -231,7 +231,7 @@ export interface ChatAgentBindingOptions<
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
 > {
   event?: ChatAgentEvent
-  execution?: Extract<AgentExecution, "inline">
+  execution?: Extract<AgentExecution, "inline"> | "workflow"
   history?: ChatAgentHistory
   hooks?: ChatAgentHooks<TRuntimeConfig, TWorkflow>
   name: string
@@ -256,7 +256,6 @@ export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext<any
 
 export type ChatStreamingPlaceholder<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
   | string
-  | readonly string[]
   | null
   | ((context: ChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
 

@@ -153,6 +153,22 @@ describe("createWorkspaceTools", () => {
     })
   })
 
+  it("defaults source materialization to 25 files", async () => {
+    const tools = createWorkspaceTools(createAssets(Object.fromEntries(
+      Array.from({ length: 30 }, (_, index) => [`docs/${index}.md`, `${index}\n`]),
+    )), {
+      operations: {
+        materialize: true,
+      },
+    })
+
+    await expect(tools.materialize_sources.execute!({}, { toolCallId: "test", messages: [] } as never)).resolves.toMatchObject({
+      files: 25,
+      limit: 25,
+      skipped: 5,
+    })
+  })
+
   it("throws when no operations are enabled", () => {
     expect(() => createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",

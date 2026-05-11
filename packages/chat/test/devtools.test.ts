@@ -749,6 +749,30 @@ describe("Chat DevTools Nitro bridge", () => {
     })
   })
 
+  it("registry bridge streaming emits a final state after dispatch completes", async () => {
+    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
+    const chat = {
+      handleIncomingMessage: vi.fn(async (adapter, threadId, message) => {
+        await adapter.postMessage(threadId, `echo: ${message.text}`)
+      }),
+      initialize: vi.fn(),
+    }
+    const handler = defineChatDevtoolsHandler(chat as never)
+
+    const response = await handler(createBridgeEvent({ action: "send", stream: true, text: "hello" }) as never) as Response
+    const events = (await response.text())
+      .split("\n")
+      .filter(Boolean)
+      .map(line => JSON.parse(line))
+    const stateEvents = events.filter(event => event.type === "state")
+
+    expect(stateEvents).toHaveLength(3)
+    expect(stateEvents.at(-1).state.chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({ role: "assistant", text: "echo: hello" }),
+    ])
+  })
+
   it("exposes previous registry bridge turns to chat handlers", async () => {
     const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
     const seenHistory: string[][] = []

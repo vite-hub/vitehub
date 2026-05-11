@@ -15,6 +15,7 @@ interface WorkspaceInspectionCommandOptions {
   fs: WorkspaceShellFileSystem
   maxOutputLength?: number
   provider?: "cloudflare-shell" | "just-bash"
+  timeout?: number
 }
 
 export function cleanWorkspaceShellPath(path = "."): string {
@@ -35,12 +36,20 @@ export async function runWorkspaceInspectionCommand(
   options: WorkspaceInspectionCommandOptions,
 ): Promise<ShellRuntimeExecResult> {
   const maxOutputLength = options.maxOutputLength || 30_000
+  const timeout = options.timeout || 30_000
   const runtime = createJustBashRuntime({
     commands: options.commands,
     cwd: options.cwd || workspaceMountPoint,
     fs: options.fs,
   })
-  const result = await runtime.exec(command, { cwd: options.cwd || workspaceMountPoint })
+  const result = await Promise.race([
+    runtime.exec(command, { cwd: options.cwd || workspaceMountPoint, timeout }),
+    new Promise<ShellRuntimeExecResult>(resolve => setTimeout(() => resolve({
+      exitCode: null,
+      stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`,
+      stdout: "",
+    }), timeout)),
+  ])
 
   return {
     exitCode: result.exitCode,

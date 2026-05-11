@@ -351,6 +351,34 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "/workspace\ncustomers.sql\norders.sql\n",
     })
   })
+
+  it("does not refresh workspace paths when creating a shell filesystem", () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+    })
+    const list = vi.spyOn(workspace, "list")
+
+    createReadonlyWorkspaceFs(workspace)
+
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  it("returns a structured result when workspace inspection times out", async () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "sleep 1", {
+      commands: ["sleep"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+      timeout: 5,
+    })).resolves.toMatchObject({
+      exitCode: null,
+      stderr: "[vitehub] Workspace shell command timed out after 5ms.",
+      stdout: "",
+    })
+  })
 })
 
 describe("@vitehub/shell cloudflare runtime", () => {

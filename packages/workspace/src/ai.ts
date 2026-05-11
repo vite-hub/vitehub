@@ -97,7 +97,7 @@ export type WorkspaceTools<Operations = undefined> = ((ShellEnabled<Operations> 
   ) & ToolSet
 
 const defaultMaxOutputLength = 30_000
-const defaultMaterializeLimit = 1_000
+const defaultMaterializeLimit = 25
 const workspaceMountPoint = "/workspace"
 
 function isCloudflareWorkersRuntime() {
@@ -412,7 +412,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         additionalProperties: false,
         properties: {
           limit: {
-            description: "Maximum number of files to materialize. Defaults to 1000.",
+            description: "Maximum number of files to materialize. Defaults to 25.",
             minimum: 1,
             type: "number",
           },

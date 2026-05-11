@@ -137,14 +137,6 @@ function createRunId() {
   return globalThis.crypto?.randomUUID?.() || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
 }
 
-function pickPlaceholder(values: readonly string[]): string | null {
-  const candidates = values.map(value => value.trim()).filter(Boolean)
-  if (!candidates.length) {
-    return null
-  }
-  return candidates[Math.floor(Math.random() * candidates.length)] ?? candidates[0] ?? null
-}
-
 async function resolvePlaceholder<TRuntimeConfig extends ChatRuntimeConfig>(
   placeholder: ChatStreamingPlaceholder<TRuntimeConfig> | undefined,
   args: ChatAgentHookArgs<TRuntimeConfig>,
@@ -158,7 +150,7 @@ async function resolvePlaceholder<TRuntimeConfig extends ChatRuntimeConfig>(
   if (typeof placeholder === "function") {
     return await placeholder(args) || null
   }
-  return pickPlaceholder(placeholder)
+  return null
 }
 
 function isDevtoolsThread(thread: unknown): thread is Thread & { adapter?: { name?: string }, startTyping: (text?: string) => Promise<unknown> } {
@@ -231,6 +223,19 @@ export function createAgentDirectMessageHook<
       const placeholderText = await resolvePlaceholder(options.fallbackStreamingPlaceholderText, baseArgs)
       if (placeholderText) {
         placeholder = await thread.post(placeholderText).catch(() => undefined) as SentMessage | undefined
+      }
+      if (binding.execution === "workflow") {
+        if (!workflow?.run) {
+          throw new Error("Chat agent execution \"workflow\" requires defineChat({ workflow }).")
+        }
+        await workflow.run({
+          agentName: binding.name,
+          input,
+          message,
+          run,
+          threadId: getEntityId(thread),
+        }, { id: run.runId })
+        return
       }
       const agentContext = createAgentRuntimeContext(runtimeContext, thread, run)
       const agent = await getAgentFromRegistry(binding.name, agentContext)

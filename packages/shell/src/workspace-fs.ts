@@ -108,7 +108,6 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
     writeFs: boolean,
   ) {
     this.writeFs = writeFs
-    void this.#refreshPaths()
   }
 
   async readFile(path: string, options?: ReadFileOptions | BufferEncoding): Promise<string> {

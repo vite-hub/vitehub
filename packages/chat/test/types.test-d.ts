@@ -55,6 +55,7 @@ describe("Nitro runtime config types", () => {
     defineChat({
       adapters: {},
       agent: {
+        execution: "workflow",
         hooks: {
           prepareInput({ history, message, runtimeConfig, thread }) {
             expectTypeOf(history).toMatchTypeOf<Array<{ role: string }>>()
@@ -66,6 +67,7 @@ describe("Nitro runtime config types", () => {
         },
         name: "triager",
       },
+      fallbackStreamingPlaceholderText: ({ runtimeConfig }) => runtimeConfig.telegram.botToken ? "Thinking..." : null,
       state: {} as never,
     })
   })
@@ -77,6 +79,8 @@ describe("Nitro runtime config types", () => {
           expectTypeOf(runtimeConfig.telegram.botToken).toEqualTypeOf<string>()
           return {}
         },
+        execution: "workflow",
+        fallbackStreamingPlaceholderText: ({ runtimeConfig }) => runtimeConfig.telegram.botToken ? "Thinking..." : null,
         history: { source: "thread", maxMessages: 20 },
         hooks: {
           onDirectMessage({ message }) {

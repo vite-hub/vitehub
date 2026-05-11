@@ -422,7 +422,8 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
     if (body.action === "send") {
       if (body.stream) {
         return createChatDevtoolsStreamResponse(async (emit) => {
-          await sendDevtoolsMessage(event, state, body, next => emit({ type: "state", state: next }))
+          const finalState = await sendDevtoolsMessage(event, state, body, next => emit({ type: "state", state: next }))
+          emit({ type: "state", state: finalState })
         })
       }
       return await sendDevtoolsMessage(event, state, body)

@@ -362,8 +362,8 @@ function registerAgentBinding<
   if (event !== "directMessage") {
     throw new Error(`Unsupported chat agent event "${event}". The v1 agent binding only supports "directMessage".`)
   }
-  if (resolved.execution && resolved.execution !== "inline") {
-    throw new Error(`Unsupported chat agent execution "${resolved.execution}". The v1 agent binding only supports "inline".`)
+  if (resolved.execution && resolved.execution !== "inline" && resolved.execution !== "workflow") {
+    throw new Error(`Unsupported chat agent execution "${resolved.execution}". The v1 agent binding only supports "inline" and "workflow".`)
   }
   if (hooks.onDirectMessage) {
     throw new Error("Duplicate chat hook \"onDirectMessage\". Use either defineChat({ agent }) or defineChat({ onDirectMessage }), not both.")
