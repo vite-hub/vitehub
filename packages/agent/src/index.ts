@@ -726,6 +726,10 @@ function collectToolResults(
   return parts
 }
 
+function hasToolResults(result: { steps?: Array<{ content?: Array<{ type: string }> }> }) {
+  return result.steps?.some(step => step.content?.some(content => content.type === "tool-result")) || false
+}
+
 async function synthesizeWorkspaceFallback<TRuntimeConfig extends AgentRuntimeConfig>(
   model: ToolLoopAgentSettings["model"],
   context: AgentRunContext<TRuntimeConfig>,
@@ -823,7 +827,7 @@ function createWorkspaceAgentDefinition<
       if (text) return text
 
       const fallback = getFallbackOptions(options.fallback)
-      if (fallback.enabled && result.finishReason === "tool-calls") {
+      if (fallback.enabled && (result.finishReason === "tool-calls" || hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model, context, result, fallback.maxToolResults)
         if (synthesized) return synthesized
       }

@@ -4,10 +4,11 @@ const readFile = vi.fn()
 const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
-const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
+const generateText = vi.hoisted(() => vi.fn())
+const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, steps?: unknown[], text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
 
 vi.mock("ai", () => ({
-  generateText: vi.fn(),
+  generateText,
   stepCountIs: vi.fn(count => ({ count })),
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
@@ -46,6 +47,8 @@ describe("defineAgent workspace option", () => {
     agentSettings.length = 0
     agentGenerate.mockReset()
     agentGenerate.mockResolvedValue({ finishReason: "stop", text: "ok" })
+    generateText.mockReset()
+    generateText.mockResolvedValue({ text: "fallback answer" })
     readFile.mockReset()
     tools.mockClear()
     inspectTools.mockReset()
@@ -130,6 +133,31 @@ describe("defineAgent workspace option", () => {
 
     expect(readFile).toHaveBeenCalledWith("AGENTS.md")
     expect(agentSettings.at(-1)?.instructions).toBe("Workspace instructions")
+  })
+
+  it("synthesizes an answer when tool loop stops without text after tool results", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    agentGenerate.mockResolvedValueOnce({
+      finishReason: "stop",
+      steps: [
+        {
+          content: [
+            { output: { stdout: "client.py:7: posthog_client = Posthog()" }, type: "tool-result" },
+          ],
+        },
+      ],
+      text: "",
+    })
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await expect(agent.run!(context())).resolves.toBe("fallback answer")
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("client.py:7"),
+    }))
   })
 
   it("passes AI SDK tool loop settings through workspace agents", async () => {
