@@ -3,7 +3,7 @@ const route = useRoute();
 const primaryLinks = [
   { label: "Home", to: "/" },
   { label: "Docs", to: "/docs" },
-  { label: "Tutorials", to: "/docs/vite/tutorials", match: "/tutorials" },
+  { label: "Blogs", to: "/blogs/vite", match: "/blogs" },
 ];
 
 function isActiveLink(link: typeof primaryLinks[number]) {

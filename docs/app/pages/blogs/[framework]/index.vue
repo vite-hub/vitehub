@@ -32,30 +32,50 @@ if (!routeState.page || !routeState.supported || !rawDoc.value) {
 }
 
 const { page } = useDocsPage(
-  routeState.sourcePath,
+  route.path,
   rawDoc,
   getDocsPageFallback(routeState.page),
 );
+
+const posts = computed(() => [
+  {
+    title: "Build a Source-Aware Chatbot",
+    description: "Connect chat providers, workspace sources, and a colocated Agent that can run across ViteHub runtimes.",
+    image: "/images/tutorials/source-aware-chatbot.png",
+    badge: {
+      label: "Blog",
+      color: "primary" as const,
+      variant: "soft" as const,
+    },
+    variant: "subtle" as const,
+    to: `/blogs/${routeState.meta.framework}/source-aware-chatbot`,
+    ui: {
+      root: "overflow-hidden",
+      header: "aspect-[16/9]",
+      body: "p-5 sm:p-6 lg:px-0",
+      image: "object-cover object-center",
+    },
+  },
+]);
 </script>
 
 <template>
   <UPage v-if="page" :ui="{ center: 'mx-auto max-w-5xl' }">
     <UPageHeader :title="page.title" :description="page.description" />
 
-    <UPageBody prose class="docs-content blogs-content pb-24">
-      <ContentRenderer :value="page" />
+    <UPageBody class="blogs-content pb-24">
+      <p class="my-5 max-w-3xl leading-7 text-muted text-pretty">
+        Blogs show how ViteHub primitives fit together in real applications. Start here when you want an end-to-end feature instead of a single package reference.
+      </p>
+
+      <UBlogPosts orientation="vertical" class="mt-8 max-w-5xl pb-2">
+        <UBlogPost
+          v-for="post in posts"
+          :key="post.to"
+          v-bind="post"
+          orientation="horizontal"
+        />
+      </UBlogPosts>
     </UPageBody>
   </UPage>
 </template>
-
-<style scoped>
-.docs-content :deep(h1:first-of-type) {
-  display: none;
-}
-
-.blogs-content :deep(> p:first-of-type) {
-  max-width: 44rem;
-  margin-top: 0;
-  color: var(--ui-text-muted);
-}
-</style>
