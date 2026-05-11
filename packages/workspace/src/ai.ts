@@ -11,6 +11,16 @@ export interface WorkspaceShellResult {
   stdout: string
 }
 
+export interface WorkspaceMaterializeSourcesResult {
+  bytes: number
+  directories: number
+  durationMs: number
+  files: number
+  limit: number
+  path: string
+  skipped: number
+}
+
 export interface WorkspacePathResult {
   path: string
 }
@@ -22,6 +32,7 @@ export interface WorkspaceMoveResult {
 
 export interface WorkspaceReadOperations {
   list?: boolean
+  materialize?: boolean
   read?: boolean
   search?: boolean
 }
@@ -80,9 +91,13 @@ type EnabledWriteTools<Selection> = Selection extends true
 export type WorkspaceTools<Operations = undefined> = ((ShellEnabled<Operations> extends true
   ? { shell: Tool<{ command: string }, WorkspaceShellResult> }
   : {}) & EnabledWriteTools<ResolvedWriteOperations<Operations>>
+  & (Operations extends { materialize: true }
+    ? { materialize_sources: Tool<{ limit?: number, path?: string }, WorkspaceMaterializeSourcesResult> }
+    : {})
   ) & ToolSet
 
 const defaultMaxOutputLength = 30_000
+const defaultMaterializeLimit = 1_000
 const workspaceMountPoint = "/workspace"
 
 function isCloudflareWorkersRuntime() {
@@ -102,6 +117,7 @@ function cleanMutationPath(path: string) {
 function resolveReadOperations(operations: WorkspaceReadOperations | WorkspaceToolOperations | undefined) {
   return {
     list: operations?.list !== false,
+    materialize: operations?.materialize === true,
     read: operations?.read !== false,
     search: operations?.search !== false,
   }
@@ -172,6 +188,44 @@ async function runShellCommand(
     maxOutputLength: options.maxOutputLength,
     provider: isCloudflareWorkersRuntime() ? "cloudflare-shell" : "just-bash",
   }) as WorkspaceShellResult
+}
+
+function sizeOf(content: string | Uint8Array) {
+  return typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength
+}
+
+async function materializeWorkspaceSources(
+  input: Workspace | WorkspaceAssets,
+  options: { limit?: number, path?: string },
+): Promise<WorkspaceMaterializeSourcesResult> {
+  const started = Date.now()
+  const path = cleanWorkspaceShellPath(options.path || "") || ""
+  const limit = Math.max(1, Math.min(options.limit || defaultMaterializeLimit, 10_000))
+  const entries = await input.list(path, { recursive: true })
+  let bytes = 0
+  let directories = 0
+  let files = 0
+
+  for (const entry of entries) {
+    if (entry.type === "directory") {
+      directories++
+      continue
+    }
+    if (files >= limit) continue
+    const content = await input.readFile(entry.path, { encoding: "binary" })
+    bytes += sizeOf(content)
+    files++
+  }
+
+  return {
+    bytes,
+    directories,
+    durationMs: Date.now() - started,
+    files,
+    limit,
+    path,
+    skipped: Math.max(0, entries.filter(entry => entry.type === "file").length - files),
+  }
 }
 
 function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resolveWriteOperations>): Partial<WorkspaceWriteToolMap> {
@@ -314,12 +368,13 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   const resolved = {
     commands: shellCommandsFor(resolveReadOperations(options.operations)),
     cwd: options.cwd || workspaceMountPoint,
+    materialize: resolveReadOperations(options.operations).materialize,
     maxOutputLength: options.maxOutputLength || defaultMaxOutputLength,
     write: resolveWriteOperations(options.operations?.write),
   }
   const writeEnabled = Object.values(resolved.write).some(Boolean)
 
-  if (!resolved.commands.length && !writeEnabled) {
+  if (!resolved.commands.length && !resolved.materialize && !writeEnabled) {
     throw new TypeError("[vitehub] createWorkspaceTools requires at least one enabled workspace operation.")
   }
 
@@ -344,6 +399,31 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         type: "object",
       }),
       execute: async ({ command }) => await runShellCommand(input, command, resolved),
+    })
+  }
+
+  if (resolved.materialize) {
+    result.materialize_sources = tool({
+      description: [
+        "Materialize lazy workspace source files as an explicit tool step before shell inspection.",
+        "Use this when the first workspace read would otherwise hide source preparation inside another tool call.",
+      ].join(" "),
+      inputSchema: jsonSchema<{ limit?: number, path?: string }>({
+        additionalProperties: false,
+        properties: {
+          limit: {
+            description: "Maximum number of files to materialize. Defaults to 1000.",
+            minimum: 1,
+            type: "number",
+          },
+          path: {
+            description: "Workspace path prefix to materialize. Defaults to the workspace root.",
+            type: "string",
+          },
+        },
+        type: "object",
+      }),
+      execute: async ({ limit, path }) => await materializeWorkspaceSources(input, { limit, path }),
     })
   }
 

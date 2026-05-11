@@ -1,6 +1,7 @@
 import {
   createWorkspaceTools,
   type ShellEnabled,
+  type WorkspaceMaterializeSourcesResult,
   type WorkspaceReadOperations,
   type WorkspaceShellResult,
   type WorkspaceWriteOperations,
@@ -53,7 +54,9 @@ type EnabledWriteCapability<Options, Key extends keyof WorkspaceWriteOperations>
 
 export type WorkspaceReadTools<Options = undefined> = ((ShellEnabled<Options> extends true
   ? { shell: Tool<{ command: string }, WorkspaceShellResult> }
-  : {}) & ToolSet)
+  : {}) & (Options extends { materialize: true }
+    ? { materialize_sources: Tool<{ limit?: number, path?: string }, WorkspaceMaterializeSourcesResult> }
+    : {}) & ToolSet)
 
 export type WorkspaceWriteTools<Options = undefined> = WorkspaceReadTools<Options> & {
   [Key in keyof WorkspaceWriteToolMap as EnabledWriteCapability<Options, Key> extends true ? Key : never]: WorkspaceWriteToolMap[Key]
@@ -339,7 +342,7 @@ function createReadonlyFs<Name extends WorkspaceName>(
 }
 
 function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {
-  return { list: options?.list, read: options?.read, search: options?.search }
+  return { list: options?.list, materialize: options?.materialize, read: options?.read, search: options?.search }
 }
 
 function toWriteOperations(options: WritableWorkspaceFacadeToolOptions | undefined) {

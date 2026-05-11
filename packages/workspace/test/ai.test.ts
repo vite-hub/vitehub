@@ -133,6 +133,26 @@ describe("createWorkspaceTools", () => {
     })
   })
 
+  it("exposes source materialization as an opt-in tool", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "README.md": "# Docs\n",
+      "docs/a.md": "A\n",
+      "docs/b.md": "B\n",
+    }), {
+      operations: {
+        materialize: true,
+      },
+    })
+
+    expect("materialize_sources" in tools).toBe(true)
+    await expect(tools.materialize_sources.execute!({ path: "docs", limit: 1 }, { toolCallId: "test", messages: [] } as never)).resolves.toMatchObject({
+      directories: 0,
+      files: 1,
+      path: "docs",
+      skipped: 1,
+    })
+  })
+
   it("throws when no operations are enabled", () => {
     expect(() => createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
