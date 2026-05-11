@@ -387,4 +387,18 @@ describe("defineAgent workspace option", () => {
       ],
     })
   })
+
+  it("marks dynamic DevTools instruction metadata without resolving it", async () => {
+    const { createAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const readInstructions = vi.fn(async () => "Workspace instructions")
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      instructions: readInstructions,
+      model: {} as never,
+      tools: ({ workspace }) => workspace.tools.inspect(),
+    }), { workspace: "support" })
+
+    expect(createAgentDevtoolsMetadata(agent).instructions).toEqual(["Dynamic system instructions resolver configured."])
+    expect(readInstructions).not.toHaveBeenCalled()
+  })
 })

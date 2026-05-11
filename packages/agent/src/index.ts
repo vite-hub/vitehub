@@ -683,7 +683,11 @@ function workspaceMetadataInstructions<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
 ): string[] {
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  return parts.filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+  return parts.flatMap((part) => {
+    if (typeof part === "string" && part.trim().length > 0) return [part]
+    if (typeof part === "function") return ["Dynamic system instructions resolver configured."]
+    return []
+  })
 }
 
 export function createAgentDevtoolsMetadata<
