@@ -658,6 +658,7 @@ describe("Chat DevTools Nitro bridge", () => {
 
   it("singleton bridge dispatches through the registered devtools adapter", async () => {
     const { createDevtoolsAdapter } = await import("../src/devtools.ts")
+    const { chatDevtoolsSendRpc } = await import("../src/devtools-shared.ts")
     const { defineChatDevtoolsSingletonHandler } = await import("../src/nitro.ts")
     const devtools = createDevtoolsAdapter()
     const chat = new Chat({
@@ -679,6 +680,9 @@ describe("Chat DevTools Nitro bridge", () => {
       expect.objectContaining({ role: "user", text: "hello" }),
       expect.objectContaining({ role: "assistant", text: "echo: hello" }),
     ])
+
+    await handler(createBridgeEvent({ action: chatDevtoolsSendRpc, text: "namespaced" }) as never)
+    expect(processMessage).toHaveBeenCalledWith(devtools, "devtools:chat:thread", expect.objectContaining({ text: "namespaced" }), expect.any(Object))
   })
 
   it("registry bridge uses the DevTools adapter without resolving production adapters", async () => {
@@ -796,10 +800,11 @@ describe("Chat DevTools Nitro bridge", () => {
   })
 
   it("does not synthesize a selectable chat for an empty registry", async () => {
+    const { chatDevtoolsGetStateRpc } = await import("../src/devtools-shared.ts")
     const { defineChatDevtoolsRegistryHandler } = await import("../src/nitro.ts")
     const handler = defineChatDevtoolsRegistryHandler({})
 
-    const result = await handler(createBridgeEvent({ action: "get-state" }) as never) as ChatDevtoolsStateResult
+    const result = await handler(createBridgeEvent({ action: chatDevtoolsGetStateRpc }) as never) as ChatDevtoolsStateResult
 
     expect(result).toEqual({
       chats: [],

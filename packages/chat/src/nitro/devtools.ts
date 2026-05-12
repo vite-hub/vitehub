@@ -2,13 +2,14 @@ import { Chat, Message, parseMarkdown, toPlainText } from "chat"
 import { createError, defineEventHandler, readBody } from "h3"
 
 import { chatDevtoolsAdapterName, createDevtoolsAdapter as createBaseDevtoolsAdapter } from "../devtools.ts"
+import { chatDevtoolsClearRpc, chatDevtoolsGetStateRpc, chatDevtoolsSendRpc } from "../devtools-shared.ts"
 import { resolveChat } from "../index.ts"
 import { createMemo } from "../runtime/context.ts"
 import { getChatRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 
 import type { Adapter, AdapterPostableMessage, Chat as ChatInstance, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
 import type { EventHandler, H3Event } from "h3"
-import type { ChatDevtoolsAdapter, ChatDevtoolsBridgeRequest, ChatDevtoolsConversation, ChatDevtoolsMessage, ChatDevtoolsMetadata, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
+import type { ChatDevtoolsAdapter, ChatDevtoolsConversation, ChatDevtoolsMessage, ChatDevtoolsMetadata, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
 import type { ChatInput } from "../types.ts"
 import type { NitroChatRuntimeConfig, NitroChatRuntimeContext } from "./handler.ts"
 
@@ -30,7 +31,13 @@ interface ChatDevtoolsHandlerState {
   sessions: Map<string, ChatDevtoolsSession>
 }
 
-type ChatDevtoolsBridgeBody = ChatDevtoolsBridgeRequest & { stream?: boolean }
+type ChatDevtoolsBridgeBody = {
+  action?: string
+  chat?: string
+  stream?: boolean
+  text?: string
+}
+type ChatDevtoolsAction = "clear" | "get-state" | "send"
 
 export interface ChatDevtoolsHandlerOptions {
   inferredName?: string
@@ -39,6 +46,12 @@ export interface ChatDevtoolsHandlerOptions {
 
 export interface ChatDevtoolsRegistryHandlerOptions {
   metadata?: ChatDevtoolsMetadataInput
+}
+
+function normalizeChatDevtoolsAction(action: string): ChatDevtoolsAction | undefined {
+  if (action === "get-state" || action === chatDevtoolsGetStateRpc) return "get-state"
+  if (action === "send" || action === chatDevtoolsSendRpc) return "send"
+  if (action === "clear" || action === chatDevtoolsClearRpc) return "clear"
 }
 
 function createChatDevtoolsMessage(role: ChatDevtoolsMessage["role"], text: string): ChatDevtoolsMessage {
@@ -345,18 +358,20 @@ function getSingletonDevtoolsAdapter(): { adapter: ChatDevtoolsAdapter, chat: Ch
 export function defineChatDevtoolsSingletonHandler(): EventHandler {
   return defineEventHandler(async (event) => {
     const body = await readBody<ChatDevtoolsBridgeBody>(event)
+    const input = body || {}
     const { adapter, chat } = getSingletonDevtoolsAdapter()
-    if (!body || typeof body.action !== "string" || body.action === "get-state") {
+    const action = typeof input.action === "string" ? normalizeChatDevtoolsAction(input.action) : "get-state"
+    if (action === "get-state") {
       return adapter.getDevtoolsState()
     }
 
-    if (body.action === "clear") {
-      adapter.clearDevtoolsTranscript(body.chat)
-      return adapter.getDevtoolsState(body.chat)
+    if (action === "clear") {
+      adapter.clearDevtoolsTranscript(input.chat)
+      return adapter.getDevtoolsState(input.chat)
     }
 
-    if (body.action === "send") {
-      const text = body.text?.trim()
+    if (action === "send") {
+      const text = input.text?.trim()
       if (!text) {
         throw createError({
           statusCode: 400,
@@ -364,10 +379,10 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
         })
       }
 
-      if (body.stream) {
+      if (input.stream) {
         return createChatDevtoolsStreamResponse(async (emit, signal) => {
-          const emitState = () => emit({ type: "state" as const, state: adapter.getDevtoolsState(body.chat) })
-          const message = adapter.createDevtoolsMessage(text, body.chat)
+          const emitState = () => emit({ type: "state" as const, state: adapter.getDevtoolsState(input.chat) })
+          const message = adapter.createDevtoolsMessage(text, input.chat)
           emitState()
           const interval = setInterval(emitState, 250)
           signal.addEventListener("abort", () => clearInterval(interval), { once: true })
@@ -381,9 +396,9 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
         })
       }
 
-      const message = adapter.createDevtoolsMessage(text, body.chat)
+      const message = adapter.createDevtoolsMessage(text, input.chat)
       await chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
-      return adapter.getDevtoolsState(body.chat)
+      return adapter.getDevtoolsState(input.chat)
     }
 
     throw createError({
@@ -416,10 +431,11 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
       })
     }
 
-    if (body.action === "get-state") {
+    const action = normalizeChatDevtoolsAction(body.action)
+    if (action === "get-state") {
       return serializeState(state)
     }
-    if (body.action === "send") {
+    if (action === "send") {
       if (body.stream) {
         return createChatDevtoolsStreamResponse(async (emit) => {
           const finalState = await sendDevtoolsMessage(event, state, body, next => emit({ type: "state", state: next }))
@@ -428,7 +444,7 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
       }
       return await sendDevtoolsMessage(event, state, body)
     }
-    if (body.action === "clear") {
+    if (action === "clear") {
       return clearDevtoolsMessages(state, body)
     }
 
