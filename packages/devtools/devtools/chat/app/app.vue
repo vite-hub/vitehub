@@ -223,6 +223,19 @@ function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
   }
 }
 
+function hasCompletedResponse(next: ChatDevtoolsStateResult, chatName: string | undefined, text: string) {
+  const chat = (chatName ? next.chats.find(item => item.name === chatName) : undefined) || next.chats[0]
+  const messages = chat?.messages || []
+  const userIndex = messages.findLastIndex(message => message.role === "user" && message.text === text)
+  if (userIndex < 0) return false
+
+  return messages.slice(userIndex + 1).some(message =>
+    message.role === "assistant"
+    && !message.loading
+    && !!message.text,
+  )
+}
+
 function toChatMessage(message: ChatDevtoolsMessage): ChatMessage {
   const loading = Boolean(message.loading) || (message.role === "assistant" && message.text.trim() === "Thinking..." && !(message.tools || []).length)
   return {
@@ -615,60 +628,6 @@ async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
   return await rpcClient.call(method, ...args) as T
 }
 
-async function readDirectBridgeStream(input: { chat?: string, text: string }): Promise<boolean> {
-  const abortController = new AbortController()
-  currentReader = { cancel: () => abortController.abort() }
-
-  let response: Response
-  try {
-    response = await fetch(chatDevtoolsBridgeRoute, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "send", ...input, stream: true }),
-      signal: abortController.signal,
-    })
-  }
-  catch {
-    currentReader = undefined
-    return false
-  }
-
-  if (!response.ok || !response.body) {
-    currentReader = undefined
-    return false
-  }
-
-  connected.value = true
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let pending = ""
-
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      pending += decoder.decode(value, { stream: true })
-      const lines = pending.split("\n")
-      pending = lines.pop() || ""
-      for (const line of lines) {
-        if (!line.trim()) continue
-        const event = JSON.parse(line) as ChatDevtoolsStreamEvent
-        applyStreamEvent(event)
-        if (event.type === "error" || event.type === "done") return true
-      }
-    }
-
-    const tail = pending.trim()
-    if (tail) {
-      applyStreamEvent(JSON.parse(tail) as ChatDevtoolsStreamEvent)
-    }
-    return true
-  }
-  finally {
-    currentReader = undefined
-  }
-}
-
 async function refresh() {
   try {
     applyState(await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc))
@@ -700,6 +659,102 @@ async function refreshFromBridge(chat?: string) {
   await refresh()
 }
 
+async function pollFinalBridgeState(input: { chat?: string, text: string }, signal: AbortSignal) {
+  while (!signal.aborted) {
+    await new Promise(resolve => setTimeout(resolve, 700))
+    if (signal.aborted) break
+
+    try {
+      const response = await fetch(chatDevtoolsBridgeRoute, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
+        signal,
+      })
+      if (!response.ok) continue
+
+      const next = await response.json() as ChatDevtoolsStateResult
+      if (hasCompletedResponse(next, input.chat, input.text)) {
+        applyState(next)
+        error.value = undefined
+        return true
+      }
+    }
+    catch {
+      if (signal.aborted) break
+    }
+  }
+
+  return false
+}
+
+async function readDirectBridgeStream(input: { chat?: string, text: string }): Promise<boolean> {
+  const abortController = new AbortController()
+  currentReader = { cancel: () => abortController.abort() }
+
+  let response: Response
+  try {
+    response = await fetch(chatDevtoolsBridgeRoute, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "send", ...input, stream: true }),
+      signal: abortController.signal,
+    })
+  }
+  catch {
+    currentReader = undefined
+    return false
+  }
+
+  if (!response.ok || !response.body) {
+    currentReader = undefined
+    return false
+  }
+
+  connected.value = true
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let pending = ""
+
+  const readStream = async () => {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        pending += decoder.decode(value, { stream: true })
+        const lines = pending.split("\n")
+        pending = lines.pop() || ""
+        for (const line of lines) {
+          if (!line.trim()) continue
+          const event = JSON.parse(line) as ChatDevtoolsStreamEvent
+          applyStreamEvent(event)
+          if (event.type === "error" || event.type === "done") return true
+        }
+      }
+
+      const tail = pending.trim()
+      if (tail) {
+        applyStreamEvent(JSON.parse(tail) as ChatDevtoolsStreamEvent)
+      }
+      return true
+    }
+    catch {
+      return abortController.signal.aborted
+    }
+  }
+
+  try {
+    return await Promise.race([
+      readStream(),
+      pollFinalBridgeState(input, abortController.signal),
+    ])
+  }
+  finally {
+    abortController.abort()
+    currentReader = undefined
+  }
+}
+
 async function send() {
   const text = input.value.trim()
   if (!text || status.value !== "ready") {
@@ -722,21 +777,15 @@ async function send() {
     await waitForFrame()
     status.value = "streaming"
 
-    let result: ChatDevtoolsSendResult
-    try {
-      result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
-        ...(chat ? { chat } : {}),
-        text,
-      })
-    }
-    catch (rpcCause) {
-      if (await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
-        shouldRefreshFinalState = true
-        return
-      }
-      throw rpcCause
+    if (await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
+      shouldRefreshFinalState = true
+      return
     }
 
+    const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
+      ...(chat ? { chat } : {}),
+      text,
+    })
     if (!result.streamId) {
       pendingUserMessage.value = undefined
       applyState(result)
