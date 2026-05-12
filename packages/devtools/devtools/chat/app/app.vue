@@ -31,12 +31,76 @@ const input = ref("")
 const status = ref<ChatStatus>("ready")
 const error = ref<string | undefined>()
 const connected = ref(false)
+const previewFiles: ChatDevtoolsFileTreeItem[] = [
+  {
+    kind: "directory",
+    label: "server",
+    path: "server",
+    children: [
+      { kind: "file", path: "server/chat.ts", updatedAt: "Preview" },
+      { kind: "file", path: "server/agents/support.ts", updatedAt: "Preview" },
+    ],
+  },
+  {
+    kind: "directory",
+    label: "workspace",
+    path: "workspace",
+    children: [
+      {
+        kind: "directory",
+        label: "forecastingEngine",
+        materialize: "lazy",
+        materialized: false,
+        path: "workspace/forecasting-engine",
+        source: "forecastingEngine",
+        children: [
+          {
+            kind: "directory",
+            label: "services",
+            materialize: "lazy",
+            materialized: false,
+            path: "workspace/forecasting-engine/services",
+            source: "forecastingEngine",
+            children: [
+              {
+                kind: "file",
+                label: "planning.md",
+                materialize: "lazy",
+                materialized: false,
+                path: "workspace/forecasting-engine/services/planning.md",
+                source: "forecastingEngine",
+              },
+            ],
+          },
+        ],
+      },
+      { kind: "file", path: "workspace/AGENTS.md", updatedAt: "Preview" },
+    ],
+  },
+]
+const previewInstructions = [
+  {
+    content: "# System instructions\n\n- Use the workspace forecast files before answering.\n- Explain the planning assumptions clearly.",
+    label: "System instructions",
+    source: "system",
+  },
+]
+const previewTools: ChatDevtoolsToolDefinition[] = [
+  {
+    category: "workspace",
+    command: "readonly()",
+    description: "Inspect workspace files from the ViteHub preset without mutating project state.",
+    name: "shell",
+    preset: "vitehub-workspace",
+    status: "available",
+  },
+]
 const state = ref<ChatDevtoolsStateResult>({
   chats: [],
-  files: [],
-  instructions: [],
+  files: previewFiles,
+  instructions: previewInstructions,
   selected: "",
-  tools: [],
+  tools: previewTools,
 })
 const messages = ref<ChatMessage[]>([])
 const pendingUserMessage = ref<ChatMessage | undefined>()
@@ -246,11 +310,18 @@ function renderToolOutput(tool: ChatDevtoolsTool) {
 function syncExpandedFiles(files: ChatDevtoolsFileTreeItem[]) {
   const expanded = new Set(expandedFilePaths.value)
   const isInitialExpansion = expanded.size === 0
-  for (const file of files) {
-    if (file.kind === "directory" && (file.path === "" || file.path === "/" || isInitialExpansion)) {
-      expanded.add(file.path)
+  const visit = (items: ChatDevtoolsFileTreeItem[]) => {
+    for (const file of items) {
+      if (file.kind !== "directory") continue
+      if (file.path === "" || file.path === "/" || isInitialExpansion) {
+        expanded.add(file.path)
+      }
+      if (isInitialExpansion) {
+        visit(file.children || [])
+      }
     }
   }
+  visit(files)
   expandedFilePaths.value = expanded
 }
 
@@ -330,6 +401,10 @@ function toolStatusColor(tool: ChatDevtoolsToolDefinition) {
   return "success"
 }
 
+function toolPresetLabel(tool: ChatDevtoolsToolDefinition) {
+  return tool.preset === "vitehub-workspace" ? "ViteHub preset" : undefined
+}
+
 function appendDummy(message: ChatDevtoolsMessage) {
   messages.value = [...messages.value, toChatMessage(message)]
 }
@@ -382,44 +457,10 @@ async function runStandaloneSimulation(text: string) {
   const now = Date.now()
   state.value = {
     chats: state.value.chats.length ? state.value.chats : [{ name: "preview", messages: [] }],
-    files: [
-      {
-        kind: "directory",
-        label: "server",
-        path: "server",
-        children: [
-          { kind: "file", path: "server/chat.ts", updatedAt: "Preview" },
-          { kind: "file", path: "server/agents/support.ts", updatedAt: "Preview" },
-        ],
-      },
-      {
-        kind: "directory",
-        label: "data-sources",
-        path: "data-sources",
-        children: [
-          { kind: "file", path: "data-sources/AGENTS.md", updatedAt: "Preview" },
-          { kind: "file", path: "data-sources/README.md", updatedAt: "Preview" },
-        ],
-      },
-    ],
+    files: previewFiles,
     selected: state.value.selected || "preview",
-    instructions: [
-      [
-        "Answer from the workspace files.",
-        "Inspect relevant files before answering.",
-        "If the files do not contain the answer, say what is missing and name what you checked.",
-      ].join("\n"),
-    ],
-    tools: [
-      {
-        category: "workspace",
-        commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
-        description: "Run an allowed workspace inspection command.",
-        icon: "i-lucide-terminal",
-        name: "shell",
-        status: "available",
-      },
-    ],
+    instructions: previewInstructions,
+    tools: previewTools,
   }
   const assistant: ChatMessage = {
     id: `assistant-${now}`,
@@ -703,7 +744,10 @@ async function clear() {
   }
 }
 
-onMounted(refresh)
+onMounted(() => {
+  syncExpandedFiles(state.value.files || [])
+  refresh()
+})
 onBeforeUnmount(() => stopSidebarResize?.())
 </script>
 
@@ -891,7 +935,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
                       <template #trailing>
                         <div class="ml-auto flex min-w-0 items-center gap-1">
                           <UBadge
-                            v-if="file.kind === 'directory' && fileMaterialization(file)"
+                            v-if="fileMaterialization(file)"
                             :color="fileMaterialization(file) === 'lazy' ? 'warning' : 'success'"
                             variant="soft"
                             size="sm"
@@ -939,12 +983,20 @@ onBeforeUnmount(() => stopSidebarResize?.())
                             {{ toolStatus(tool) }}
                           </UBadge>
                         </div>
-                        <p v-if="tool.description" class="mt-1 line-clamp-2 text-xs/5 text-muted">
+                        <p v-if="tool.description" class="mt-1 text-xs/5 text-muted">
                           {{ tool.description }}
                         </p>
-                        <div v-if="tool.category" class="mt-2">
-                          <UBadge color="neutral" variant="outline" size="sm">
+                        <div v-if="tool.category || toolPresetLabel(tool)" class="mt-2 flex flex-wrap gap-1">
+                          <UBadge v-if="tool.category" color="neutral" variant="outline" size="sm">
                             {{ tool.category }}
+                          </UBadge>
+                          <UBadge
+                            v-if="toolPresetLabel(tool)"
+                            color="primary"
+                            variant="soft"
+                            size="sm"
+                          >
+                            {{ toolPresetLabel(tool) }}
                           </UBadge>
                         </div>
                         <div v-if="tool.commands?.length" class="mt-2 flex flex-wrap gap-1">
@@ -972,22 +1024,21 @@ onBeforeUnmount(() => stopSidebarResize?.())
               </template>
 
               <template #instructions>
-                <div v-if="state.instructions?.length" class="space-y-2">
+                <div v-if="state.instructions?.length" class="space-y-4 px-1">
                   <div
                     v-for="(instruction, index) in state.instructions"
                     :key="index"
-                    class="rounded-md border border-default bg-default/60 p-3"
                   >
                     <div class="mb-2 flex items-center gap-2">
                       <UIcon name="i-lucide-scroll-text" class="size-4 text-muted" />
-                      <span class="text-sm font-medium">System instructions</span>
+                      <span class="text-sm font-medium">{{ instruction.label || "System instructions" }}</span>
                       <UBadge color="neutral" variant="soft" size="sm" class="ml-auto">
                         {{ index + 1 }}
                       </UBadge>
                     </div>
                     <Suspense>
-                      <Comark class="text-xs/5 text-toned [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
-                        {{ instruction }}
+                      <Comark class="text-xs/5 text-toned [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:mb-2 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
+                        {{ instruction.content }}
                       </Comark>
                     </Suspense>
                   </div>

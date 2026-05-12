@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const readFile = vi.fn()
+const list = vi.fn()
 const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
@@ -23,7 +24,7 @@ vi.mock("ai", () => ({
 
 vi.mock("@vitehub/workspace", () => ({
   useWorkspace: vi.fn(() => ({
-    fs: { readFile },
+    fs: { list, readFile },
     tools: Object.assign(tools, {
       inspect: inspectTools,
       none: vi.fn(() => ({})),
@@ -49,6 +50,8 @@ describe("defineAgent workspace option", () => {
     agentGenerate.mockResolvedValue({ finishReason: "stop", text: "ok" })
     generateText.mockReset()
     generateText.mockResolvedValue({ text: "fallback answer" })
+    list.mockReset()
+    list.mockResolvedValue([])
     readFile.mockReset()
     tools.mockClear()
     inspectTools.mockReset()
@@ -331,7 +334,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const shell = { execute: vi.fn(), inputSchema: {} }
     const toolResolver = vi.fn(({ runtimeConfig, workspace }) => {
-      expect(workspace.fs).toEqual({ readFile })
+      expect(workspace.fs).toEqual(expect.objectContaining({ readFile }))
       expect(runtimeConfig).toEqual({ vertex: { model: "gemini" } })
       return { shell }
     })
@@ -399,7 +402,14 @@ describe("defineAgent workspace option", () => {
 
     expect(createAgentDevtoolsMetadata(agent)).toEqual({
       files: [{
-        children: [{ kind: "directory", label: "docs", path: "support/docs" }],
+        children: [{
+          kind: "directory",
+          label: "docs",
+          materialize: "build",
+          materialized: true,
+          path: "support/docs",
+          source: "docs",
+        }],
         kind: "directory",
         label: "support",
         path: "support",
@@ -428,5 +438,73 @@ describe("defineAgent workspace option", () => {
 
     expect(createAgentDevtoolsMetadata(agent).instructions).toEqual(["Dynamic system instructions resolver configured."])
     expect(readInstructions).not.toHaveBeenCalled()
+  })
+
+  it("resolves dynamic DevTools instruction metadata", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("AGENTS.md"))
+    readFile.mockResolvedValue("# Workspace instructions\n")
+    list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      instructions: readInstructions,
+      model: {} as never,
+      tools: ({ workspace }) => workspace.tools.inspect(),
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
+      files: [{
+        children: [{ kind: "file", label: "AGENTS.md", path: "support/AGENTS.md" }],
+        kind: "directory",
+        label: "support",
+        path: "support",
+      }],
+      instructions: ["# Workspace instructions"],
+    })
+    expect(readInstructions).toHaveBeenCalledOnce()
+  })
+
+  it("resolves recursive DevTools file metadata for lazy source entries", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    list.mockResolvedValue([
+      { path: "docs/guides", type: "directory" },
+      { path: "docs/guides/start.md", type: "file" },
+    ])
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          docs: { cache: { maxAge: 60 }, mount: "docs", name: "docs" } as never,
+        },
+      },
+      instructions: "Answer from the workspace.",
+      model: {} as never,
+      tools: ({ workspace }) => workspace.tools.inspect(),
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
+      files: [{
+        children: [{
+          children: [{
+            children: [{
+              kind: "file",
+              materialize: "lazy",
+              materialized: false,
+              path: "support/docs/guides/start.md",
+              source: "docs",
+            }],
+            kind: "directory",
+            materialize: "lazy",
+            materialized: false,
+            path: "support/docs/guides",
+            source: "docs",
+          }],
+          kind: "directory",
+          materialize: "lazy",
+          materialized: false,
+          path: "support/docs",
+          source: "docs",
+        }],
+      }],
+    })
   })
 })

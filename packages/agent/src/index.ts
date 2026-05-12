@@ -50,6 +50,7 @@ import type {
   ReadonlyWorkspaceFacade,
   ReadonlyWorkspaceFs,
   WorkspaceDefinitionInput,
+  WorkspaceEntry,
   WorkspaceName,
 } from "@vitehub/workspace"
 
@@ -429,7 +430,12 @@ export interface AgentDevtoolsFileTreeItem {
   children?: AgentDevtoolsFileTreeItem[]
   kind: "directory" | "file"
   label?: string
+  materialize?: "build" | "lazy"
+  materialized?: boolean
+  materializedAt?: string
   path: string
+  source?: string
+  updatedAt?: string
 }
 
 export interface AgentDevtoolsToolDefinition {
@@ -438,6 +444,7 @@ export interface AgentDevtoolsToolDefinition {
   description?: string
   icon?: string
   name: string
+  preset?: string
   status?: "available" | "disabled"
 }
 
@@ -598,6 +605,7 @@ function createShellMetadataTool(): AgentDevtoolsToolDefinition {
     description: "Run a workspace shell command.",
     icon: "i-lucide-terminal",
     name: "shell",
+    preset: "vitehub-workspace",
     status: "available",
   }
 }
@@ -608,6 +616,7 @@ function createWorkspaceMutationTool(name: string, description: string): AgentDe
     description,
     icon: "i-lucide-file-pen-line",
     name,
+    preset: "vitehub-workspace",
     status: "available",
   }
 }
@@ -642,8 +651,21 @@ function toolDefinitionFromEntry(name: string, tool: unknown): AgentDevtoolsTool
     description,
     icon: name === "shell" ? "i-lucide-terminal" : "i-lucide-wrench",
     name,
+    preset: "vitehub-workspace",
     status: "available",
   }
+}
+
+function sourceMountPath(key: string, source: NonNullable<WorkspaceAgentWorkspaceOptions["sources"]>[string]) {
+  if (typeof source.mount === "string") return source.mount
+  if (typeof source.mount === "object" && typeof source.mount.path === "string") return source.mount.path
+  return key
+}
+
+function sourceMaterialize(key: string, source: NonNullable<WorkspaceAgentWorkspaceOptions["sources"]>[string]) {
+  if (typeof source.mount === "object" && source.mount.materialize) return source.mount.materialize
+  if (source.materialize) return source.materialize
+  return source.cache || source.swr ? "lazy" : "build"
 }
 
 function workspaceMetadataFiles<Name extends WorkspaceName>(
@@ -652,11 +674,17 @@ function workspaceMetadataFiles<Name extends WorkspaceName>(
 ): AgentDevtoolsFileTreeItem[] {
   const workspaceName = options.name || defaults.workspace || defaults.name || "workspace"
   const sources = options.workspace.sources || {}
-  const children = Object.keys(sources).sort().map(sourceName => ({
-    kind: "directory" as const,
-    label: sourceName,
-    path: `${workspaceName}/${sourceName}`,
-  }))
+  const children = Object.entries(sources).sort(([left], [right]) => left.localeCompare(right)).map(([sourceName, source]) => {
+    const materialize = sourceMaterialize(sourceName, source)
+    return {
+      kind: "directory" as const,
+      label: sourceName,
+      materialize,
+      materialized: materialize === "build",
+      path: `${workspaceName}/${sourceMountPath(sourceName, source)}`,
+      source: sourceName,
+    }
+  })
 
   return [{
     children,
@@ -664,6 +692,80 @@ function workspaceMetadataFiles<Name extends WorkspaceName>(
     label: workspaceName,
     path: workspaceName,
   }]
+}
+
+function addFileTreePath(root: AgentDevtoolsFileTreeItem, path: string, kind: WorkspaceEntry["type"]) {
+  const parts = path.split("/").filter(Boolean)
+  let current = root
+  for (const [index, part] of parts.entries()) {
+    const childPath = [root.path, ...parts.slice(0, index + 1)].filter(Boolean).join("/")
+    const childKind = index === parts.length - 1 ? kind : "directory"
+    current.children ||= []
+    let child = current.children.find(item => item.path === childPath)
+    if (!child) {
+      child = {
+        kind: childKind,
+        label: part,
+        path: childPath,
+      }
+      current.children.push(child)
+    }
+    else if (child.kind !== childKind && childKind === "directory") {
+      child.kind = "directory"
+    }
+    current = child
+  }
+}
+
+function sortFileTree(item: AgentDevtoolsFileTreeItem) {
+  item.children?.sort((left, right) => {
+    if (left.kind !== right.kind) return left.kind === "directory" ? -1 : 1
+    return (left.label || left.path).localeCompare(right.label || right.path)
+  })
+  for (const child of item.children || []) sortFileTree(child)
+}
+
+function markSourceTreeMetadata(
+  root: AgentDevtoolsFileTreeItem,
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>,
+) {
+  const sources = options.workspace.sources || {}
+  for (const [sourceName, source] of Object.entries(sources)) {
+    const mountPath = sourceMountPath(sourceName, source)
+    const materialize = sourceMaterialize(sourceName, source)
+    const mountedRoot = `${root.path}/${mountPath}`.replace(/\/+/g, "/")
+    const pending = [...(root.children || [])]
+    while (pending.length) {
+      const item = pending.shift()!
+      if (item.path === mountedRoot || item.path.startsWith(`${mountedRoot}/`)) {
+        item.materialize = materialize
+        item.materialized = materialize === "build"
+        item.source = sourceName
+      }
+      pending.push(...(item.children || []))
+    }
+  }
+}
+
+async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
+  defaults: WorkspaceAgentDefaults<Name>,
+  workspace: ReadonlyWorkspaceFacade<Name>,
+): Promise<AgentDevtoolsFileTreeItem[]> {
+  const workspaceName = options.name || defaults.workspace || defaults.name || "workspace"
+  const root: AgentDevtoolsFileTreeItem = {
+    children: [],
+    kind: "directory",
+    label: workspaceName,
+    path: workspaceName,
+  }
+  const entries = await workspace.fs.list("", { recursive: true })
+  for (const entry of entries) {
+    addFileTreePath(root, entry.path, entry.type)
+  }
+  markSourceTreeMetadata(root, options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
+  sortFileTree(root)
+  return [root]
 }
 
 function workspaceMetadataTools<Name extends WorkspaceName>(
@@ -703,6 +805,27 @@ function workspaceMetadataInstructions<Name extends WorkspaceName>(
   })
 }
 
+async function resolveWorkspaceMetadataInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  workspace: ReadonlyWorkspaceFacade<Name>,
+) {
+  const instructionContext = {
+    fs: workspace.fs,
+    workspace,
+  } as WorkspaceAgentInstructionsContext<TRuntimeConfig, Name>
+  const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
+  const instructions = await Promise.all(parts.map(part => typeof part === "function"
+    ? part(instructionContext)
+    : part))
+  return instructions
+    .flatMap(part => Array.isArray(part) ? part : [part])
+    .map(part => part?.trim())
+    .filter((part): part is string => Boolean(part))
+}
+
 export function createAgentDevtoolsMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -718,6 +841,33 @@ export function createAgentDevtoolsMetadata<
   return {
     files: workspaceMetadataFiles(options, workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>),
     instructions: workspaceMetadataInstructions(options),
+    tools: workspaceMetadataTools(options),
+  }
+}
+
+export async function resolveAgentDevtoolsMetadata<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+>(
+  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+): Promise<AgentDevtoolsMetadata> {
+  const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
+  if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
+    return { files: [], tools: [] }
+  }
+
+  const defaults = workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>
+  const workspaceName = defaults.workspace || defaults.name
+  if (!workspaceName) {
+    return createAgentDevtoolsMetadata(definition)
+  }
+
+  const { useWorkspace } = await import("@vitehub/workspace")
+  const workspace = useWorkspace(workspaceName)
+  const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
+  return {
+    files: await resolveWorkspaceMetadataFiles(options, defaults, workspace),
+    instructions: await resolveWorkspaceMetadataInstructions(options, workspace),
     tools: workspaceMetadataTools(options),
   }
 }

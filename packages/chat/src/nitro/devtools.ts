@@ -15,7 +15,12 @@ import type { NitroChatRuntimeConfig, NitroChatRuntimeContext } from "./handler.
 
 type ChatLoader = () => Promise<ChatInput<NitroChatRuntimeContext>>
 type ChatDevtoolsRegistry = Record<string, ChatLoader>
-type ChatDevtoolsMetadataInput = ChatDevtoolsMetadata | Record<string, ChatDevtoolsMetadata>
+type MaybePromise<T> = T | Promise<T>
+type ChatDevtoolsMetadataResolver = () => MaybePromise<ChatDevtoolsMetadata | undefined>
+type ChatDevtoolsMetadataInput =
+  | ChatDevtoolsMetadata
+  | ChatDevtoolsMetadataResolver
+  | Record<string, ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined>
 
 interface ChatDevtoolsSession {
   bot?: Promise<ChatInstance>
@@ -39,13 +44,47 @@ type ChatDevtoolsBridgeBody = {
 }
 type ChatDevtoolsAction = "clear" | "get-state" | "send"
 
+interface CloudflareRuntimeCarrier {
+  context?: {
+    cloudflare?: {
+      context?: unknown
+      env?: Record<string, unknown>
+    }
+  }
+  runtime?: {
+    cloudflare?: {
+      context?: unknown
+      env?: Record<string, unknown>
+    }
+  }
+}
+
 export interface ChatDevtoolsHandlerOptions {
   inferredName?: string
-  metadata?: ChatDevtoolsMetadata
+  metadata?: ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver
 }
 
 export interface ChatDevtoolsRegistryHandlerOptions {
   metadata?: ChatDevtoolsMetadataInput
+}
+
+function getCloudflareRuntime(event: H3Event, runtimeConfig: NitroChatRuntimeConfig): NitroChatRuntimeContext["cloudflare"] | undefined {
+  const carrier = event as CloudflareRuntimeCarrier
+  const requestCarrier = event.req as unknown as CloudflareRuntimeCarrier
+  const runtime = carrier.context?.cloudflare
+    || carrier.runtime?.cloudflare
+    || requestCarrier.context?.cloudflare
+    || requestCarrier.runtime?.cloudflare
+
+  if (!runtime) {
+    return undefined
+  }
+
+  return {
+    context: runtime.context,
+    durableObjectStateName: (runtimeConfig.chat as { cloudflare?: { durableObjectState?: { name?: string } } } | undefined)?.cloudflare?.durableObjectState?.name,
+    env: runtime.env,
+  }
 }
 
 function normalizeChatDevtoolsAction(action: string): ChatDevtoolsAction | undefined {
@@ -159,6 +198,7 @@ function createSessionDevtoolsAdapter(session: ChatDevtoolsSession, onChange?: (
 function createRuntimeContext(event: H3Event, session: ChatDevtoolsSession): NitroChatRuntimeContext {
   const runtimeConfig = getChatRuntimeConfig(event) as NitroChatRuntimeConfig
   return {
+    cloudflare: getCloudflareRuntime(event, runtimeConfig),
     dev: true,
     event,
     memo: session.memo,
@@ -197,12 +237,19 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
   }
 }
 
-function metadataForChat(metadata: ChatDevtoolsMetadataInput | undefined, selected: string | undefined): Required<ChatDevtoolsMetadata> {
+async function resolveDevtoolsMetadata(metadata: ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined) {
+  return normalizeDevtoolsMetadata(typeof metadata === "function" ? await metadata() : metadata)
+}
+
+async function metadataForChat(metadata: ChatDevtoolsMetadataInput | undefined, selected: string | undefined): Promise<Required<ChatDevtoolsMetadata>> {
   if (!metadata) return normalizeDevtoolsMetadata(undefined)
   if ("files" in metadata || "instructions" in metadata || "tools" in metadata) {
     return normalizeDevtoolsMetadata(metadata as ChatDevtoolsMetadata)
   }
-  return normalizeDevtoolsMetadata(selected ? (metadata as Record<string, ChatDevtoolsMetadata>)[selected] : undefined)
+  if (typeof metadata === "function") {
+    return await resolveDevtoolsMetadata(metadata)
+  }
+  return await resolveDevtoolsMetadata(selected ? (metadata as Record<string, ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined>)[selected] : undefined)
 }
 
 async function resolveDevtoolsChat(event: H3Event, state: ChatDevtoolsHandlerState, session: ChatDevtoolsSession): Promise<ChatInstance> {
@@ -227,7 +274,7 @@ async function resolveDevtoolsChat(event: H3Event, state: ChatDevtoolsHandlerSta
   return await session.bot
 }
 
-function serializeState(state: ChatDevtoolsHandlerState, selected?: string): ChatDevtoolsStateResult {
+async function serializeState(state: ChatDevtoolsHandlerState, selected?: string): Promise<ChatDevtoolsStateResult> {
   const names = getChatNames(state)
   for (const name of names) getSession(state, name)
 
@@ -236,7 +283,7 @@ function serializeState(state: ChatDevtoolsHandlerState, selected?: string): Cha
     messages: [...getSession(state, name).messages],
   }))
 
-  const metadata = metadataForChat(state.metadata, selected && names.includes(selected) ? selected : names[0])
+  const metadata = await metadataForChat(state.metadata, selected && names.includes(selected) ? selected : names[0])
   return {
     chats,
     files: metadata.files,
@@ -270,16 +317,16 @@ async function sendDevtoolsMessage(
 
   const session = getSession(state, selected)
   const adapter = createSessionDevtoolsAdapter(session, async () => {
-    await onChange?.(serializeState(state, selected))
+    await onChange?.(await serializeState(state, selected))
   })
   const message = createSdkMessage(session, text)
   session.messages.push(createChatDevtoolsMessage("user", text))
-  await onChange?.(serializeState(state, selected))
+  await onChange?.(await serializeState(state, selected))
 
   const bot = await resolveDevtoolsChat(event, state, session)
   await bot.handleIncomingMessage(adapter, message.threadId, message)
 
-  return serializeState(state, selected)
+  return await serializeState(state, selected)
 }
 
 function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void, signal: AbortSignal) => Promise<void>): Response {
@@ -408,11 +455,11 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
   })
 }
 
-function clearDevtoolsMessages(state: ChatDevtoolsHandlerState, input: { chat?: string }): ChatDevtoolsStateResult {
+async function clearDevtoolsMessages(state: ChatDevtoolsHandlerState, input: { chat?: string }): Promise<ChatDevtoolsStateResult> {
   const selected = input.chat || getChatNames(state)[0]
-  if (!selected) return serializeState(state)
+  if (!selected) return await serializeState(state)
   getSession(state, selected).messages = []
-  return serializeState(state, selected)
+  return await serializeState(state, selected)
 }
 
 export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry, options: ChatDevtoolsRegistryHandlerOptions = {}): EventHandler {
@@ -433,7 +480,7 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
 
     const action = normalizeChatDevtoolsAction(body.action)
     if (action === "get-state") {
-      return serializeState(state)
+      return await serializeState(state)
     }
     if (action === "send") {
       if (body.stream) {
@@ -445,7 +492,7 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
       return await sendDevtoolsMessage(event, state, body)
     }
     if (action === "clear") {
-      return clearDevtoolsMessages(state, body)
+      return await clearDevtoolsMessages(state, body)
     }
 
     throw createError({

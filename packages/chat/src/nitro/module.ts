@@ -266,11 +266,11 @@ function createNitroRegistryChatDevInitializerContents(file: string, registryFil
 function createNitroSingleChatDevtoolsContents(file: string, definition: DiscoveredChatDefinition): string {
   const chatExpression = resolveChatImportExpression(file, definition)
   const metadataExpression = isAgentChatDefinition(definition)
-    ? "createAgentDevtoolsMetadata(agent)"
+    ? "() => resolveAgentDevtoolsMetadata(agent)"
     : undefined
   return [
     `import { defineChatDevtoolsHandler } from "@vitehub/chat/nitro"`,
-    ...(metadataExpression ? [`import { createAgentDevtoolsMetadata } from "@vitehub/agent"`] : []),
+    ...(metadataExpression ? [`import { resolveAgentDevtoolsMetadata } from "@vitehub/agent"`] : []),
     ...createChatImportLines(file, definition),
     "",
     `export default defineChatDevtoolsHandler(${chatExpression}, ${renderDevtoolsOptions({
@@ -341,7 +341,7 @@ function createNitroRegistryChatDevtoolsContents(file: string, registryFile: str
   const agentDefinitions = definitions.filter(isAgentChatDefinition)
   return [
     `import chatRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    ...(agentDefinitions.length ? [`import { createAgentDevtoolsMetadata } from "@vitehub/agent"`] : []),
+    ...(agentDefinitions.length ? [`import { resolveAgentDevtoolsMetadata } from "@vitehub/agent"`] : []),
     `import { defineChatDevtoolsRegistryHandler } from "@vitehub/chat/nitro"`,
     ...agentDefinitions.map((definition, index) => definition.exportName
       ? `import { ${definition.exportName} as ${metadataImportName(index)} } from ${JSON.stringify(createImportPath(file, definition.handler))}`
@@ -350,7 +350,7 @@ function createNitroRegistryChatDevtoolsContents(file: string, registryFile: str
       ? [
           "",
           "const metadata = {",
-          ...agentDefinitions.map((definition, index) => `  ${JSON.stringify(definition.name)}: createAgentDevtoolsMetadata(${metadataImportName(index)}),`),
+          ...agentDefinitions.map((definition, index) => `  ${JSON.stringify(definition.name)}: () => resolveAgentDevtoolsMetadata(${metadataImportName(index)}),`),
           "}",
         ]
       : []),

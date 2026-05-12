@@ -28,7 +28,11 @@ export interface ChatDevtoolsFileTreeItem {
   children?: ChatDevtoolsFileTreeItem[]
   kind: ChatDevtoolsFileKind
   label?: string
+  materialize?: "build" | "lazy"
+  materialized?: boolean
+  materializedAt?: string
   path: string
+  source?: string
   updatedAt?: string
 }
 
@@ -38,6 +42,7 @@ export interface ChatDevtoolsToolDefinition {
   description?: string
   icon?: string
   name: string
+  preset?: string
   status?: "available" | "disabled"
 }
 
