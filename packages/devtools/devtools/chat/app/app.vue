@@ -1040,7 +1040,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
 
 <template>
   <UApp>
-    <main class="isolate flex h-dvh min-h-0 flex-col overflow-hidden bg-default text-default antialiased">
+    <main class="fixed inset-0 isolate flex min-h-0 flex-col overflow-hidden bg-default text-default antialiased">
       <UIcon name="i-lucide-terminal" class="hidden" />
       <header class="flex h-[45px] shrink-0 items-center justify-between border-b border-default px-4">
         <h1 class="text-base font-semibold">
