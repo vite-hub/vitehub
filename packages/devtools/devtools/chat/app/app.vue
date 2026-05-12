@@ -1057,8 +1057,8 @@ onBeforeUnmount(() => stopSidebarResize?.())
       </header>
 
       <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))]" :style="splitterStyle">
-        <section class="flex min-h-0 flex-col">
-          <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-16">
+        <section class="grid min-h-0 grid-rows-[minmax(0,1fr)_auto]">
+          <div class="min-h-0 overflow-y-auto overflow-x-hidden">
             <UChatMessages
               v-if="messages.length"
               :messages="messages"
@@ -1124,7 +1124,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
             </div>
           </div>
 
-          <footer class="fixed bottom-[72px] left-0 right-0 z-20 border-t border-default bg-default px-2 pb-2 pt-1 lg:right-[calc(var(--chat-devtools-sidebar-width)+1px)]">
+          <footer class="shrink-0 border-t border-default bg-default px-2 py-2">
             <UAlert
               v-if="!connected"
               color="neutral"
@@ -1140,7 +1140,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
               }"
             />
             <form
-              class="flex items-end gap-1 rounded-md border border-default bg-default px-2 py-1 shadow-xs"
+              class="flex min-h-9 items-center gap-1 rounded-md border border-default bg-default px-2 py-1 shadow-xs"
               @submit.prevent="send"
             >
               <textarea
@@ -1149,7 +1149,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
                 placeholder="Type a message..."
                 rows="1"
                 :disabled="status !== 'ready'"
-                class="min-h-5 max-h-24 min-w-0 flex-1 resize-none bg-transparent px-0 py-0 text-sm/5 outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60"
+                class="h-6 max-h-24 min-h-6 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-0 py-0 text-sm/6 outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60"
                 @keydown.enter.exact.prevent="send"
               />
               <UButton
