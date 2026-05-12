@@ -501,6 +501,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     }
 
     const message = createTranscriptMessage("assistant", "")
+    message.loading = true
     typingMessageIds.set(threadId, message.id)
     getMessages(chatFromThreadId(adapterName, threadId)).push(message)
     return message
@@ -526,6 +527,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
       const existing = findMessage(threadId, typingMessageId)
       typingMessageIds.delete(threadId)
       if (existing) {
+        existing.loading = false
         existing.text = text
         return existing
       }

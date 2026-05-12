@@ -55,6 +55,7 @@ export interface ChatDevtoolsMetadata {
 export interface ChatDevtoolsMessage {
   createdAt: string
   id: string
+  loading?: boolean
   role: ChatDevtoolsMessageRole
   text: string
   tools?: ChatDevtoolsTool[]

@@ -342,7 +342,7 @@ function createReadonlyFs<Name extends WorkspaceName>(
 }
 
 function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {
-  return { list: options?.list, materialize: options?.materialize, read: options?.read, search: options?.search }
+  return { list: options?.list, materialize: options?.materialize ?? true, read: options?.read, search: options?.search }
 }
 
 function toWriteOperations(options: WritableWorkspaceFacadeToolOptions | undefined) {

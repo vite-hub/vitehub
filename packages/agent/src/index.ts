@@ -610,6 +610,17 @@ function createShellMetadataTool(): AgentDevtoolsToolDefinition {
   }
 }
 
+function createMaterializeMetadataTool(): AgentDevtoolsToolDefinition {
+  return {
+    category: "workspace",
+    description: "Materialize lazy workspace source files before inspection.",
+    icon: "i-lucide-database-zap",
+    name: "materialize_sources",
+    preset: "vitehub-workspace",
+    status: "available",
+  }
+}
+
 function createWorkspaceMutationTool(name: string, description: string): AgentDevtoolsToolDefinition {
   return {
     category: "workspace",
@@ -622,6 +633,7 @@ function createWorkspaceMutationTool(name: string, description: string): AgentDe
 }
 
 function createMetadataToolSet() {
+  const materialize = createMaterializeMetadataTool()
   const shell = createShellMetadataTool()
   const writeTools = {
     appendFile: createWorkspaceMutationTool("appendFile", "Append text to a workspace file."),
@@ -633,11 +645,11 @@ function createMetadataToolSet() {
   } satisfies Record<string, AgentDevtoolsToolDefinition>
 
   return {
-    default: () => ({ shell }),
-    inspect: () => ({ shell }),
+    default: () => ({ materialize_sources: materialize, shell }),
+    inspect: () => ({ materialize_sources: materialize, shell }),
     none: () => ({}),
-    readonly: () => ({ shell }),
-    write: () => ({ shell, ...writeTools }),
+    readonly: () => ({ materialize_sources: materialize, shell }),
+    write: () => ({ materialize_sources: materialize, shell, ...writeTools }),
   }
 }
 
@@ -649,7 +661,7 @@ function toolDefinitionFromEntry(name: string, tool: unknown): AgentDevtoolsTool
     category: "workspace",
     ...(name === "shell" ? { commands: createShellMetadataTool().commands } : {}),
     description,
-    icon: name === "shell" ? "i-lucide-terminal" : "i-lucide-wrench",
+    icon: name === "shell" ? "i-lucide-terminal" : name === "materialize_sources" ? "i-lucide-database-zap" : "i-lucide-wrench",
     name,
     preset: "vitehub-workspace",
     status: "available",
@@ -754,6 +766,14 @@ function markSourceTreeMetadata(
   }
 }
 
+function propagateMaterializedDirectories(item: AgentDevtoolsFileTreeItem): boolean {
+  const childMaterialized = (item.children || []).map(propagateMaterializedDirectories)
+  if (item.kind === "directory" && item.materialize === "lazy" && childMaterialized.some(Boolean)) {
+    item.materialized = true
+  }
+  return Boolean(item.materialized || item.materializedAt || childMaterialized.some(Boolean))
+}
+
 async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name>,
@@ -771,6 +791,7 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
     addFileTreePath(root, entry)
   }
   markSourceTreeMetadata(root, options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
+  propagateMaterializedDirectories(root)
   sortFileTree(root)
   return [root]
 }

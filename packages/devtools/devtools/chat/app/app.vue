@@ -23,6 +23,7 @@ type ChatMessage = {
   content?: string
   id: string
   loading?: boolean
+  loadingText?: string
   role: "assistant" | "user"
   parts: Array<{ type: "tool", tool: ChatDevtoolsTool }>
 }
@@ -223,11 +224,12 @@ function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
 }
 
 function toChatMessage(message: ChatDevtoolsMessage): ChatMessage {
-  const loading = message.role === "assistant" && message.text.trim() === "Thinking..." && !(message.tools || []).length
+  const loading = Boolean(message.loading) || (message.role === "assistant" && message.text.trim() === "Thinking..." && !(message.tools || []).length)
   return {
     content: loading ? undefined : message.text || undefined,
     id: message.id,
     loading,
+    loadingText: loading ? message.text || "Thinking..." : undefined,
     role: message.role === "assistant" ? "assistant" : "user",
     parts: (message.tools || []).filter(tool => !isConversationalEchoTool(tool)).map(tool => ({ type: "tool", tool })),
   }
@@ -263,6 +265,9 @@ function renderToolCommand(tool: ChatDevtoolsTool) {
   const command = commandFromTool(tool)
   if (command) {
     return command
+  }
+  if (tool.name === "materialize_sources") {
+    return `Materializing source ${typeof input.path === "string" && input.path ? input.path : "workspace"}`
   }
   if (typeof input.path === "string") {
     return `${tool.name} ${input.path}`
@@ -789,15 +794,15 @@ onBeforeUnmount(() => stopSidebarResize?.())
                 <div class="flex min-w-0 flex-col gap-2 text-sm/5">
                   <UChatShimmer
                     v-if="message.loading"
-                    text="Thinking..."
+                    :text="message.loadingText || 'Thinking...'"
                     :duration="1.8"
                   />
                   <Suspense
                     v-if="content"
                   >
-                    <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
-                      {{ content }}
-                    </Comark>
+                      <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
+                        {{ content }}
+                      </Comark>
                   </Suspense>
                   <UChatTool
                     v-for="part in parts"
@@ -1031,20 +1036,20 @@ onBeforeUnmount(() => stopSidebarResize?.())
               </template>
 
               <template #instructions>
-                <div v-if="state.instructions?.length" class="space-y-4 px-1">
+                <div v-if="state.instructions?.length" class="min-w-0 space-y-4 px-1">
                   <div
                     v-for="(instruction, index) in state.instructions"
                     :key="index"
                   >
                     <div class="mb-2 flex items-center gap-2">
                       <UIcon name="i-lucide-scroll-text" class="size-4 text-muted" />
-                      <span class="text-sm font-medium">{{ instruction.label || "System instructions" }}</span>
+                      <span class="min-w-0 truncate text-sm font-medium">{{ instruction.label || "System instructions" }}</span>
                       <UBadge color="neutral" variant="soft" size="sm" class="ml-auto">
                         {{ index + 1 }}
                       </UBadge>
                     </div>
                     <Suspense>
-                      <Comark class="text-xs/5 text-toned [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:mb-2 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
+                      <Comark class="max-w-full break-words text-sm/6 text-toned [&_code]:break-words [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
                         {{ instruction.content }}
                       </Comark>
                     </Suspense>

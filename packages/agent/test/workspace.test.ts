@@ -415,14 +415,20 @@ describe("defineAgent workspace option", () => {
         path: "support",
       }],
       instructions: ["Answer from the workspace."],
-      tools: [
+      tools: expect.arrayContaining([
+        expect.objectContaining({
+          category: "workspace",
+          name: "materialize_sources",
+          preset: "vitehub-workspace",
+          status: "available",
+        }),
         expect.objectContaining({
           commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
           category: "workspace",
           name: "shell",
           status: "available",
         }),
-      ],
+      ]),
     })
   })
 
