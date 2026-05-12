@@ -416,6 +416,20 @@ function toolPresetLabel(tool: ChatDevtoolsToolDefinition) {
   return tool.preset === "vitehub-workspace" ? "ViteHub preset" : undefined
 }
 
+function instructionLabel(instruction: unknown) {
+  return typeof instruction === "object" && instruction !== null && "label" in instruction && typeof (instruction as { label?: unknown }).label === "string"
+    ? (instruction as { label: string }).label
+    : "System instructions"
+}
+
+function instructionContent(instruction: unknown) {
+  return typeof instruction === "string"
+    ? instruction
+    : typeof instruction === "object" && instruction !== null && "content" in instruction && typeof (instruction as { content?: unknown }).content === "string"
+      ? (instruction as { content: string }).content
+      : ""
+}
+
 function appendDummy(message: ChatDevtoolsMessage) {
   messages.value = [...messages.value, toChatMessage(message)]
 }
@@ -1043,14 +1057,14 @@ onBeforeUnmount(() => stopSidebarResize?.())
                   >
                     <div class="mb-2 flex items-center gap-2">
                       <UIcon name="i-lucide-scroll-text" class="size-4 text-muted" />
-                      <span class="min-w-0 truncate text-sm font-medium">{{ instruction.label || "System instructions" }}</span>
+                      <span class="min-w-0 truncate text-sm font-medium">{{ instructionLabel(instruction) }}</span>
                       <UBadge color="neutral" variant="soft" size="sm" class="ml-auto">
                         {{ index + 1 }}
                       </UBadge>
                     </div>
                     <Suspense>
                       <Comark class="max-w-full break-words text-sm/6 text-toned [&_code]:break-words [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
-                        {{ instruction.content }}
+                        {{ instructionContent(instruction) }}
                       </Comark>
                     </Suspense>
                   </div>
