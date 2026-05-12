@@ -958,7 +958,8 @@ async function send() {
 
     const bridgeInput = { ...(chat ? { chat } : {}), text }
     if (await readDirectBridgeStream(bridgeInput)) {
-      await recoverBridgeState(bridgeInput)
+      await recoverBridgeState({ text })
+      chat = undefined
       shouldRefreshFinalState = true
       return
     }
