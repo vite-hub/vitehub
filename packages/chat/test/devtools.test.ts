@@ -445,6 +445,32 @@ describe("Chat DevTools Nitro bridge", () => {
     })
   })
 
+  it("keeps typing placeholders loading after tool updates", async () => {
+    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+
+    await adapter.startTyping(user.threadId, "Counting warehouse echoes...")
+    await adapter.startTyping(user.threadId, createChatDevtoolsToolStatus({
+      id: "call-1",
+      input: { command: "rg customer" },
+      name: "shell",
+      status: "running",
+      text: "rg customer",
+    }))
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages.at(-1)).toMatchObject({
+      loading: true,
+      text: "Counting warehouse echoes...",
+      tools: [
+        expect.objectContaining({
+          id: "call-1",
+          status: "running",
+        }),
+      ],
+    })
+  })
+
   it("plain string streams do not create tool entries", async () => {
     const { createDevtoolsAdapter, observeChatDevtoolsStream } = await import("../src/devtools.ts")
     const adapter = createDevtoolsAdapter()

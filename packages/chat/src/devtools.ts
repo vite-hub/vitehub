@@ -496,6 +496,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     const id = typingMessageIds.get(threadId) || latestAssistantMessage(threadId)?.id
     const existing = id ? findMessage(threadId, id) : undefined
     if (existing) {
+      existing.loading = true
       typingMessageIds.set(threadId, existing.id)
       return existing
     }
