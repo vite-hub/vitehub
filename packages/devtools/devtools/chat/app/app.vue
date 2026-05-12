@@ -937,7 +937,6 @@ async function send() {
     currentReader?.cancel()
     currentReader = undefined
     appendPendingUserMessage(text, chat)
-    appendPendingAssistantMessage(chat)
     await nextTick()
     await waitForFrame()
     status.value = "streaming"
