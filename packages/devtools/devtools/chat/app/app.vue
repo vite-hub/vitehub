@@ -236,6 +236,11 @@ function hasCompletedResponse(next: ChatDevtoolsStateResult, chatName: string | 
   )
 }
 
+function hasCurrentUserMessage(next: ChatDevtoolsStateResult, chatName: string | undefined, text: string) {
+  const chat = (chatName ? next.chats.find(item => item.name === chatName) : undefined) || next.chats[0]
+  return (chat?.messages || []).some(message => message.role === "user" && message.text === text)
+}
+
 function toChatMessage(message: ChatDevtoolsMessage): ChatMessage {
   const loading = Boolean(message.loading) || (message.role === "assistant" && message.text.trim() === "Thinking..." && !(message.tools || []).length)
   return {
@@ -674,9 +679,11 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
       if (!response.ok) continue
 
       const next = await response.json() as ChatDevtoolsStateResult
-      if (hasCompletedResponse(next, input.chat, input.text)) {
+      if (hasCurrentUserMessage(next, input.chat, input.text)) {
         applyState(next)
         error.value = undefined
+      }
+      if (hasCompletedResponse(next, input.chat, input.text)) {
         return true
       }
     }
