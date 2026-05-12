@@ -956,7 +956,9 @@ async function send() {
     status.value = "streaming"
     stopBridgeWatch = watchBridgeState({ ...(chat ? { chat } : {}), text })
 
-    if (await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
+    const bridgeInput = { ...(chat ? { chat } : {}), text }
+    if (await readDirectBridgeStream(bridgeInput)) {
+      await recoverBridgeState(bridgeInput)
       shouldRefreshFinalState = true
       return
     }
