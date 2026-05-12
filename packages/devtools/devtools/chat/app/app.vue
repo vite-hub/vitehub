@@ -118,6 +118,7 @@ let stopSidebarResize: (() => void) | undefined
 
 const standaloneStatusMessage = "Preview mode. Connect through Vite DevTools to inspect a real chat runtime."
 const simulationDelayMs = 360
+const isEmbeddedInDevtools = typeof window !== "undefined" && window.self !== window.top
 const integrationTabs = [
   { icon: "i-lucide-files", label: "Files", slot: "files" as const },
   { icon: "i-lucide-wrench", label: "Tools", slot: "tools" as const },
@@ -765,6 +766,46 @@ async function recoverBridgeState(input: { chat?: string, text: string }) {
   return false
 }
 
+function watchBridgeState(input: { chat?: string, text: string }) {
+  let stopped = false
+
+  void (async () => {
+    while (!stopped) {
+      await new Promise(resolve => setTimeout(resolve, 700))
+      if (stopped) break
+
+      try {
+        const response = await fetch(chatDevtoolsBridgeRoute, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
+        })
+        if (!response.ok) continue
+
+        const next = await response.json() as ChatDevtoolsStateResult
+        if (!hasCurrentUserMessage(next, input.chat, input.text)) continue
+
+        applyState(next)
+        error.value = undefined
+
+        if (hasCompletedResponse(next, input.chat, input.text)) {
+          stopped = true
+          currentReader?.cancel()
+          status.value = "ready"
+          break
+        }
+      }
+      catch {
+        // The active stream/RPC path still owns user-visible errors.
+      }
+    }
+  })()
+
+  return () => {
+    stopped = true
+  }
+}
+
 async function readDirectBridgeStream(input: { chat?: string, text: string }): Promise<boolean> {
   const abortController = new AbortController()
   currentReader = { cancel: () => abortController.abort() }
@@ -889,6 +930,7 @@ async function send() {
   error.value = undefined
   let chat: string | undefined
   let shouldRefreshFinalState = false
+  let stopBridgeWatch: (() => void) | undefined
 
   try {
     chat = selectedChat()?.name
@@ -899,8 +941,9 @@ async function send() {
     await nextTick()
     await waitForFrame()
     status.value = "streaming"
+    stopBridgeWatch = watchBridgeState({ ...(chat ? { chat } : {}), text })
 
-    if (await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
+    if (!isEmbeddedInDevtools && await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
       shouldRefreshFinalState = true
       return
     }
@@ -934,6 +977,7 @@ async function send() {
     await runStandaloneSimulation(text)
   }
   finally {
+    stopBridgeWatch?.()
     currentReader = undefined
     if (shouldRefreshFinalState) {
       await refreshFromBridge(chat)
