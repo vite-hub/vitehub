@@ -1057,8 +1057,8 @@ onBeforeUnmount(() => stopSidebarResize?.())
       </header>
 
       <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))]" :style="splitterStyle">
-        <section class="grid min-h-0 grid-rows-[minmax(0,1fr)_auto]">
-          <div class="min-h-0 overflow-y-auto overflow-x-hidden">
+        <section class="relative flex min-h-0 flex-col overflow-hidden">
+          <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-14">
             <UChatMessages
               v-if="messages.length"
               :messages="messages"
@@ -1124,7 +1124,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
             </div>
           </div>
 
-          <footer class="shrink-0 border-t border-default bg-default px-2 py-2">
+          <footer class="absolute inset-x-0 bottom-0 z-20 border-t border-default bg-default px-2 py-2">
             <UAlert
               v-if="!connected"
               color="neutral"
