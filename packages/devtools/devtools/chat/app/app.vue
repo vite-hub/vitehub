@@ -29,6 +29,7 @@ type ChatMessage = {
 }
 
 const input = ref("")
+const promptInput = ref<HTMLTextAreaElement>()
 const status = ref<ChatStatus>("ready")
 const error = ref<string | undefined>()
 const connected = ref(false)
@@ -822,7 +823,7 @@ async function readRpcStream(streamId: string, input: { chat?: string, text: str
 }
 
 async function send() {
-  const text = input.value.trim()
+  const text = (input.value || promptInput.value?.value || "").trim()
   if (!text || status.value !== "ready") {
     return
   }
@@ -1023,6 +1024,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
               @submit.prevent="send"
             >
               <textarea
+                ref="promptInput"
                 v-model="input"
                 placeholder="Type a message..."
                 rows="1"
