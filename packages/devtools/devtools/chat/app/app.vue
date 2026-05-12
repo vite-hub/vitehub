@@ -33,6 +33,7 @@ const promptInput = ref<HTMLTextAreaElement>()
 const status = ref<ChatStatus>("ready")
 const error = ref<string | undefined>()
 const connected = ref(false)
+const activeRequest = ref<{ chat?: string, text: string } | undefined>()
 const previewFiles: ChatDevtoolsFileTreeItem[] = [
   {
     kind: "directory",
@@ -178,7 +179,8 @@ function applyState(next: ChatDevtoolsStateResult) {
     ...next,
   }
   const chat = selectedChat(next)
-  const serverMessages = (chat?.messages || []).map(toChatMessage)
+  const forceLoadingMessageId = activeLoadingMessageId(chat?.name, chat?.messages || [])
+  const serverMessages = (chat?.messages || []).map(message => toChatMessage(message, message.id === forceLoadingMessageId))
   const nextMessages = [...serverMessages]
   const pending = pendingUserMessage.value
 
@@ -213,6 +215,17 @@ function applyState(next: ChatDevtoolsStateResult) {
   syncExpandedFiles(state.value.files || [])
 }
 
+function activeLoadingMessageId(chatName: string | undefined, rawMessages: ChatDevtoolsMessage[]) {
+  const active = activeRequest.value
+  if (!active || status.value === "ready") return undefined
+  if (active.chat && active.chat !== chatName) return undefined
+
+  const userIndex = rawMessages.findLastIndex(message => message.role === "user" && message.text === active.text)
+  if (userIndex < 0) return undefined
+
+  return rawMessages.slice(userIndex + 1).find(message => message.role === "assistant")?.id
+}
+
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
   if (event.type === "state") {
     applyState(event.state)
@@ -242,8 +255,8 @@ function hasCurrentUserMessage(next: ChatDevtoolsStateResult, chatName: string |
   return (chat?.messages || []).some(message => message.role === "user" && message.text === text)
 }
 
-function toChatMessage(message: ChatDevtoolsMessage): ChatMessage {
-  const loading = Boolean(message.loading) || (message.role === "assistant" && message.text.trim() === "Thinking..." && !(message.tools || []).length)
+function toChatMessage(message: ChatDevtoolsMessage, forceLoading = false): ChatMessage {
+  const loading = forceLoading || Boolean(message.loading) || (message.role === "assistant" && message.text.trim() === "Thinking..." && !(message.tools || []).length)
   return {
     content: loading ? undefined : message.text || undefined,
     id: message.id,
@@ -941,6 +954,7 @@ async function send() {
 
   input.value = ""
   status.value = "submitted"
+  activeRequest.value = { text }
   error.value = undefined
   let chat: string | undefined
   let shouldRefreshFinalState = false
@@ -948,6 +962,7 @@ async function send() {
 
   try {
     chat = selectedChat()?.name
+    activeRequest.value = { ...(chat ? { chat } : {}), text }
     currentReader?.cancel()
     currentReader = undefined
     appendPendingUserMessage(text, chat)
@@ -996,8 +1011,11 @@ async function send() {
     stopBridgeWatch?.()
     currentReader = undefined
     if (shouldRefreshFinalState) {
+      status.value = "ready"
+      activeRequest.value = undefined
       await refreshFromBridge(chat)
     }
+    activeRequest.value = undefined
     status.value = "ready"
   }
 }
