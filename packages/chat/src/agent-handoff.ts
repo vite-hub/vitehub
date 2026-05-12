@@ -224,12 +224,14 @@ export function createAgentDirectMessageHook<
       if (placeholderText) {
         placeholder = await thread.post(placeholderText).catch(() => undefined) as SentMessage | undefined
       }
-      if (binding.execution === "workflow") {
+      if (binding.execution === "workflow" && !runtimeContext.dev) {
         if (!workflow?.run) {
           throw new Error("Chat agent execution \"workflow\" requires defineChat({ workflow }).")
         }
         await workflow.run({
           agentName: binding.name,
+          cloudflare: runtimeContext.dev ? runtimeContext.cloudflare : undefined,
+          dev: runtimeContext.dev,
           input,
           message,
           run,

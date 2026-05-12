@@ -1,5 +1,6 @@
 import { getAgentFromRegistry, streamAgent } from "@vitehub/agent"
 import { createWorkflow } from "@vitehub/workflow"
+import { getWorkflowRuntimeEvent } from "@vitehub/workflow/runtime/state"
 import { useRuntimeConfig } from "nitro/runtime-config"
 
 import { defineChat, resolveChat } from "../index.ts"
@@ -10,6 +11,8 @@ import type { ChatDefinition, ChatRuntimeConfig, ChatRuntimeContext, ChatWorkflo
 
 interface AgentChatWorkflowPayload {
   agentName: string
+  cloudflare?: ChatRuntimeContext["cloudflare"]
+  dev?: boolean
   input: AgentRunInput
   run: AgentRunMetadata
   threadId?: string
@@ -30,8 +33,28 @@ function createMemo() {
   }
 }
 
-function runtimeContext<TRuntimeConfig extends ChatRuntimeConfig>(): ChatRuntimeContext<TRuntimeConfig> {
-  const env = (globalThis as { __env__?: Record<string, unknown> }).__env__ || {}
+function getCloudflareEnvFromEvent(event: unknown) {
+  const target = event as {
+    env?: Record<string, unknown>
+    context?: {
+      cloudflare?: { env?: Record<string, unknown> }
+      _platform?: { cloudflare?: { env?: Record<string, unknown> } }
+    }
+    req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } }
+  } | undefined
+
+  return (
+    target?.env ||
+    target?.context?.cloudflare?.env ||
+    target?.context?._platform?.cloudflare?.env ||
+    target?.req?.runtime?.cloudflare?.env ||
+    (globalThis as { __env__?: Record<string, unknown> }).__env__
+  )
+}
+
+function runtimeContext<TRuntimeConfig extends ChatRuntimeConfig>(options: Pick<AgentChatWorkflowPayload, "cloudflare" | "dev"> = {}): ChatRuntimeContext<TRuntimeConfig> {
+  const cloudflare = options.cloudflare
+  const env = cloudflare?.env || getCloudflareEnvFromEvent(getWorkflowRuntimeEvent()) || {}
   const event = { env }
   const runtimeConfig = (useRuntimeConfig as unknown as (event?: unknown) => Record<string, unknown>)(event)
   const applyEnvRuntimeConfig = (globalThis as {
@@ -39,7 +62,8 @@ function runtimeContext<TRuntimeConfig extends ChatRuntimeConfig>(): ChatRuntime
   }).__vitehubApplyEnvRuntimeConfig
 
   return {
-    cloudflare: { env },
+    cloudflare: cloudflare || { env },
+    dev: options.dev,
     memo: createMemo(),
     runtime: "nitro",
     runtimeConfig: (applyEnvRuntimeConfig?.(runtimeConfig, event) || runtimeConfig) as TRuntimeConfig,
@@ -74,7 +98,7 @@ function createChatAgentWorkflow<TRuntimeConfig extends ChatRuntimeConfig>(
       throw new Error("Missing chat thread id for workflow reply.")
     }
 
-    const context = runtimeContext<TRuntimeConfig>()
+    const context = runtimeContext<TRuntimeConfig>(payload)
     const bot = await resolveChat(createChatFromAgent(agent, name), context, { inferredName: name })
     const thread = bot.thread(payload.threadId)
     const agentContext = { ...context, run: payload.run } as never
