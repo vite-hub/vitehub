@@ -784,7 +784,6 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsGetStateRpc,
           type: "query",
-          jsonSerializable: true,
           setup: () => ({ handler: async () => await postChatDevtoolsBridge(ctx, route, { action: "get-state" }) }),
         }) as never)
         ctx.rpc.register(defineRpcFunction({
@@ -808,7 +807,6 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsClearRpc,
           type: "action",
-          jsonSerializable: true,
           setup: () => ({ handler: async input => await postChatDevtoolsBridge(ctx, route, { action: "clear", ...input }) }),
         }) as never)
       },
