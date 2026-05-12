@@ -719,6 +719,52 @@ async function pollFinalRpcState(input: { chat?: string, text: string }, signal:
   return false
 }
 
+async function recoverBridgeState(input: { chat?: string, text: string }) {
+  const abortController = new AbortController()
+  const startedAt = Date.now()
+  const timeout = setTimeout(() => abortController.abort(), 60_000)
+  let sawSubmittedMessage = false
+
+  try {
+    while (!abortController.signal.aborted) {
+      await new Promise(resolve => setTimeout(resolve, 700))
+      if (abortController.signal.aborted) break
+
+      try {
+        const response = await fetch(chatDevtoolsBridgeRoute, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
+          signal: abortController.signal,
+        })
+        if (!response.ok) continue
+
+        const next = await response.json() as ChatDevtoolsStateResult
+        if (hasCurrentUserMessage(next, input.chat, input.text)) {
+          sawSubmittedMessage = true
+          applyState(next)
+          error.value = undefined
+        }
+        if (hasCompletedResponse(next, input.chat, input.text)) {
+          return true
+        }
+      }
+      catch {
+        if (abortController.signal.aborted) break
+      }
+
+      if (!sawSubmittedMessage && Date.now() - startedAt > 3_000) {
+        return false
+      }
+    }
+  }
+  finally {
+    clearTimeout(timeout)
+  }
+
+  return false
+}
+
 async function readDirectBridgeStream(input: { chat?: string, text: string }): Promise<boolean> {
   const abortController = new AbortController()
   currentReader = { cancel: () => abortController.abort() }
@@ -872,6 +918,9 @@ async function send() {
     }
 
     clearPendingMessages()
+    if (await recoverBridgeState({ ...(chat ? { chat } : {}), text })) {
+      return
+    }
     await runStandaloneSimulation(text)
   }
   finally {
