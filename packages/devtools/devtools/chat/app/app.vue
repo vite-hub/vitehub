@@ -1003,7 +1003,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
             </div>
           </div>
 
-          <footer class="fixed bottom-0 left-0 right-0 z-20 border-t border-default bg-default px-2 pb-2 pt-1 lg:right-[calc(var(--chat-devtools-sidebar-width)+1px)]">
+          <footer class="fixed bottom-[45px] left-0 right-0 z-20 border-t border-default bg-default px-2 pb-2 pt-1 lg:right-[calc(var(--chat-devtools-sidebar-width)+1px)]">
             <UAlert
               v-if="!connected"
               color="neutral"
