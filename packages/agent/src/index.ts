@@ -694,7 +694,9 @@ function workspaceMetadataFiles<Name extends WorkspaceName>(
   }]
 }
 
-function addFileTreePath(root: AgentDevtoolsFileTreeItem, path: string, kind: WorkspaceEntry["type"]) {
+function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry) {
+  const path = entry.path
+  const kind = entry.type
   const parts = path.split("/").filter(Boolean)
   let current = root
   for (const [index, part] of parts.entries()) {
@@ -712,6 +714,11 @@ function addFileTreePath(root: AgentDevtoolsFileTreeItem, path: string, kind: Wo
     }
     else if (child.kind !== childKind && childKind === "directory") {
       child.kind = "directory"
+    }
+    if (index === parts.length - 1) {
+      child.updatedAt = entry.mtime ? new Date(entry.mtime).toISOString() : child.updatedAt
+      child.materialized = entry.mtime !== undefined || entry.size !== undefined ? true : child.materialized
+      child.materializedAt = entry.mtime ? new Date(entry.mtime).toISOString() : child.materializedAt
     }
     current = child
   }
@@ -739,7 +746,7 @@ function markSourceTreeMetadata(
       const item = pending.shift()!
       if (item.path === mountedRoot || item.path.startsWith(`${mountedRoot}/`)) {
         item.materialize = materialize
-        item.materialized = materialize === "build"
+        item.materialized = item.materialized || materialize === "build"
         item.source = sourceName
       }
       pending.push(...(item.children || []))
@@ -761,7 +768,7 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   }
   const entries = await workspace.fs.list("", { recursive: true })
   for (const entry of entries) {
-    addFileTreePath(root, entry.path, entry.type)
+    addFileTreePath(root, entry)
   }
   markSourceTreeMetadata(root, options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
   sortFileTree(root)

@@ -507,4 +507,38 @@ describe("defineAgent workspace option", () => {
       }],
     })
   })
+
+  it("marks listed lazy source files as materialized when stored metadata is present", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    list.mockResolvedValue([
+      { mtime: 1710000000000, path: "docs/guides/start.md", size: 128, type: "file" },
+    ])
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          docs: { cache: { maxAge: 60 }, mount: "docs", name: "docs" } as never,
+        },
+      },
+      instructions: "Answer from the workspace.",
+      model: {} as never,
+      tools: ({ workspace }) => workspace.tools.inspect(),
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
+      files: [{
+        children: [{
+          children: [{
+            children: [{
+              kind: "file",
+              materialize: "lazy",
+              materialized: true,
+              materializedAt: "2024-03-09T16:00:00.000Z",
+              path: "support/docs/guides/start.md",
+              source: "docs",
+            }],
+          }],
+        }],
+      }],
+    })
+  })
 })

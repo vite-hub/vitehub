@@ -369,6 +369,12 @@ function fileTrailing(file: ChatDevtoolsFileTreeItem) {
   return file.updatedAt
 }
 
+function hasToolOutput(tool: ChatDevtoolsTool) {
+  if (tool.output === undefined || tool.output === null) return false
+  if (typeof tool.output === "string") return tool.output.trim().length > 0
+  return true
+}
+
 function startSidebarResize(event: PointerEvent) {
   if (event.pointerType === "mouse" && event.button !== 0) return
   event.preventDefault()
@@ -786,6 +792,13 @@ onBeforeUnmount(() => stopSidebarResize?.())
                     text="Thinking..."
                     :duration="1.8"
                   />
+                  <Suspense
+                    v-if="content"
+                  >
+                    <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
+                      {{ content }}
+                    </Comark>
+                  </Suspense>
                   <UChatTool
                     v-for="part in parts"
                     :key="part.tool.id"
@@ -804,21 +817,15 @@ onBeforeUnmount(() => stopSidebarResize?.())
                       body: 'p-2 text-xs/5',
                     }"
                   >
-                    <Suspense
-                      v-if="part.tool.output !== undefined"
-                    >
+                    <Suspense v-if="hasToolOutput(part.tool)">
                       <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
                         {{ renderToolOutput(part.tool) }}
                       </Comark>
                     </Suspense>
+                    <p v-else class="italic text-muted">
+                      No output
+                    </p>
                   </UChatTool>
-                  <Suspense
-                    v-if="content"
-                  >
-                    <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
-                      {{ content }}
-                    </Comark>
-                  </Suspense>
                 </div>
               </template>
             </UChatMessages>
