@@ -263,11 +263,11 @@ function isConversationalEchoTool(tool: ChatDevtoolsTool) {
 function renderToolCommand(tool: ChatDevtoolsTool) {
   const input = tool.input && typeof tool.input === "object" ? tool.input as Record<string, unknown> : {}
   const command = commandFromTool(tool)
+  if (tool.name === "materialize_sources") {
+    return `Updating source metadata for ${typeof input.path === "string" && input.path ? input.path : "workspace"}`
+  }
   if (command) {
     return command
-  }
-  if (tool.name === "materialize_sources") {
-    return `Materializing source ${typeof input.path === "string" && input.path ? input.path : "workspace"}`
   }
   if (typeof input.path === "string") {
     return `${tool.name} ${input.path}`
@@ -276,6 +276,14 @@ function renderToolCommand(tool: ChatDevtoolsTool) {
     return `${tool.name} "${input.query}"`
   }
   return tool.text || tool.name
+}
+
+function toolIcon(tool: ChatDevtoolsTool) {
+  return tool.name === "materialize_sources" ? "i-lucide-database-zap" : "i-lucide-terminal"
+}
+
+function toolMetadataLabel(tool: ChatDevtoolsTool) {
+  return tool.name === "materialize_sources" ? "Metadata" : undefined
 }
 
 function renderToolOutput(tool: ChatDevtoolsTool) {
@@ -366,12 +374,8 @@ function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "material
   return undefined
 }
 
-function fileMaterializationLabel(file: ChatDevtoolsFileTreeItem) {
-  return fileMaterialization(file) === "lazy" ? "Lazy" : "Ready"
-}
-
-function fileTrailing(file: ChatDevtoolsFileTreeItem) {
-  return file.updatedAt
+function isLazyFile(file: ChatDevtoolsFileTreeItem) {
+  return fileMaterialization(file) === "lazy"
 }
 
 function hasToolOutput(tool: ChatDevtoolsTool) {
@@ -811,17 +815,10 @@ onBeforeUnmount(() => stopSidebarResize?.())
                     :text="message.loadingText || 'Thinking...'"
                     :duration="1.8"
                   />
-                  <Suspense
-                    v-if="content"
-                  >
-                      <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
-                        {{ content }}
-                      </Comark>
-                  </Suspense>
                   <UChatTool
                     v-for="part in parts"
                     :key="part.tool.id"
-                    icon="i-lucide-terminal"
+                    :icon="toolIcon(part.tool)"
                     :text="renderToolCommand(part.tool)"
                     :streaming="part.tool.status === 'running'"
                     variant="card"
@@ -836,6 +833,11 @@ onBeforeUnmount(() => stopSidebarResize?.())
                       body: 'p-2 text-xs/5',
                     }"
                   >
+                    <template v-if="toolMetadataLabel(part.tool)" #actions>
+                      <UBadge color="neutral" variant="soft" size="sm">
+                        {{ toolMetadataLabel(part.tool) }}
+                      </UBadge>
+                    </template>
                     <Suspense v-if="hasToolOutput(part.tool)">
                       <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
                         {{ renderToolOutput(part.tool) }}
@@ -845,6 +847,13 @@ onBeforeUnmount(() => stopSidebarResize?.())
                       No output
                     </p>
                   </UChatTool>
+                  <Suspense
+                    v-if="content"
+                  >
+                    <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
+                      {{ content }}
+                    </Comark>
+                  </Suspense>
                 </div>
               </template>
             </UChatMessages>
@@ -938,44 +947,35 @@ onBeforeUnmount(() => stopSidebarResize?.())
             >
               <template #files>
                 <div v-if="fileRows.length" class="space-y-1">
-                  <UTooltip
+                  <UButton
                     v-for="file in fileRows"
                     :key="file.path"
-                    :text="file.path"
+                    :icon="file.kind === 'directory' ? (file.expanded ? 'i-lucide-folder-open' : 'i-lucide-folder') : 'i-lucide-file'"
+                    :label="fileLabel(file)"
+                    color="neutral"
+                    :variant="selectedFilePath === file.path ? 'soft' : 'ghost'"
+                    size="sm"
+                    block
+                    class="justify-start"
+                    :style="{ paddingLeft: `${0.5 + file.depth * 1.1}rem` }"
+                    :ui="{
+                      leadingIcon: file.kind === 'directory' ? 'text-warning' : 'text-muted',
+                      label: 'min-w-0 truncate text-left',
+                    }"
+                    @click="toggleFile(file)"
                   >
-                    <UButton
-                      :icon="file.kind === 'directory' ? (file.expanded ? 'i-lucide-folder-open' : 'i-lucide-folder') : 'i-lucide-file'"
-                      :label="fileLabel(file)"
-                      color="neutral"
-                      :variant="selectedFilePath === file.path ? 'soft' : 'ghost'"
-                      size="sm"
-                      block
-                      class="justify-start"
-                      :style="{ paddingLeft: `${0.5 + file.depth * 1.1}rem` }"
-                      :ui="{
-                        leadingIcon: file.kind === 'directory' ? 'text-warning' : 'text-muted',
-                        label: 'min-w-0 truncate text-left',
-                      }"
-                      @click="toggleFile(file)"
-                    >
-                      <template #trailing>
-                        <div class="ml-auto flex min-w-0 items-center gap-1">
-                          <UBadge
-                            v-if="fileMaterialization(file)"
-                            :color="fileMaterialization(file) === 'lazy' ? 'warning' : 'success'"
-                            variant="soft"
-                            size="sm"
-                            class="shrink-0"
-                          >
-                            {{ fileMaterializationLabel(file) }}
-                          </UBadge>
-                          <span v-if="fileTrailing(file)" class="truncate text-xs text-muted">
-                            {{ fileTrailing(file) }}
-                          </span>
-                        </div>
-                      </template>
-                    </UButton>
-                  </UTooltip>
+                    <template #trailing>
+                      <UBadge
+                        v-if="isLazyFile(file)"
+                        color="warning"
+                        variant="soft"
+                        size="sm"
+                        class="ml-auto shrink-0"
+                      >
+                        Lazy
+                      </UBadge>
+                    </template>
+                  </UButton>
                 </div>
                 <UEmpty
                   v-else
