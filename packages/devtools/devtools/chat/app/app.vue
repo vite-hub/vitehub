@@ -680,6 +680,26 @@ async function refresh() {
   }
 }
 
+async function refreshFromBridge(chat?: string) {
+  try {
+    const response = await fetch(chatDevtoolsBridgeRoute, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "get-state", ...(chat ? { chat } : {}) }),
+    })
+    if (response.ok) {
+      applyState(await response.json() as ChatDevtoolsStateResult)
+      error.value = undefined
+      return
+    }
+  }
+  catch {
+    // Fall back to the Vite DevTools RPC connection below.
+  }
+
+  await refresh()
+}
+
 async function send() {
   const text = input.value.trim()
   if (!text || status.value !== "ready") {
@@ -689,9 +709,11 @@ async function send() {
   input.value = ""
   status.value = "submitted"
   error.value = undefined
+  let chat: string | undefined
+  let shouldRefreshFinalState = false
 
   try {
-    const chat = selectedChat()?.name
+    chat = selectedChat()?.name
     currentReader?.cancel()
     currentReader = undefined
     appendPendingUserMessage(text, chat)
@@ -701,6 +723,7 @@ async function send() {
     status.value = "streaming"
 
     if (await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
+      shouldRefreshFinalState = true
       return
     }
 
@@ -727,6 +750,7 @@ async function send() {
       applyStreamEvent(event)
       if (event.type === "error") break
     }
+    shouldRefreshFinalState = true
   }
   catch (cause) {
     const message = cause instanceof Error ? cause.message : "Chat DevTools send failed."
@@ -741,6 +765,9 @@ async function send() {
   }
   finally {
     currentReader = undefined
+    if (shouldRefreshFinalState && connected.value) {
+      await refreshFromBridge(chat)
+    }
     status.value = "ready"
   }
 }
