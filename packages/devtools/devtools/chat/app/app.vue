@@ -1018,29 +1018,34 @@ onBeforeUnmount(() => stopSidebarResize?.())
                 title: 'text-xs font-normal leading-5',
               }"
             />
-            <UChatPrompt
-              v-model="input"
-              placeholder="Type a message..."
-              variant="subtle"
-              :rows="1"
-              :maxrows="3"
-              :disabled="status !== 'ready'"
-              size="xs"
-              :ui="{
-                root: 'gap-1 px-2 py-1 rounded-md',
-                body: 'min-w-0 flex-1 text-sm',
-                base: '!px-0 !py-0 text-sm/5',
-                footer: 'gap-1',
-              }"
-              @submit="send"
+            <form
+              class="flex items-end gap-1 rounded-md border border-default bg-default px-2 py-1 shadow-xs"
+              @submit.prevent="send"
             >
-              <UChatPromptSubmit
-                :status="status"
+              <UTextarea
+                v-model="input"
+                placeholder="Type a message..."
+                :rows="1"
+                :maxrows="3"
+                autoresize
+                :disabled="status !== 'ready'"
+                variant="none"
+                size="xs"
+                class="min-w-0 flex-1"
+                :ui="{ base: '!px-0 !py-0 text-sm/5 resize-none' }"
+                @keydown.enter.exact.prevent="send"
+              />
+              <UButton
+                type="submit"
+                :icon="status === 'ready' ? 'i-lucide-arrow-up' : 'i-lucide-square'"
+                :loading="status === 'submitted'"
+                :disabled="status !== 'ready' || !input.trim()"
+                color="primary"
                 size="xs"
                 square
                 class="shrink-0"
               />
-            </UChatPrompt>
+            </form>
           </footer>
         </section>
 
