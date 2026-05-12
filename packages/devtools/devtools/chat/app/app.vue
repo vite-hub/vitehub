@@ -722,15 +722,21 @@ async function send() {
     await waitForFrame()
     status.value = "streaming"
 
-    if (await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
-      shouldRefreshFinalState = true
-      return
+    let result: ChatDevtoolsSendResult
+    try {
+      result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
+        ...(chat ? { chat } : {}),
+        text,
+      })
+    }
+    catch (rpcCause) {
+      if (await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
+        shouldRefreshFinalState = true
+        return
+      }
+      throw rpcCause
     }
 
-    const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
-      ...(chat ? { chat } : {}),
-      text,
-    })
     if (!result.streamId) {
       pendingUserMessage.value = undefined
       applyState(result)
