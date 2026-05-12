@@ -118,7 +118,6 @@ let stopSidebarResize: (() => void) | undefined
 
 const standaloneStatusMessage = "Preview mode. Connect through Vite DevTools to inspect a real chat runtime."
 const simulationDelayMs = 360
-const isEmbeddedInDevtools = typeof window !== "undefined" && window.self !== window.top
 const integrationTabs = [
   { icon: "i-lucide-files", label: "Files", slot: "files" as const },
   { icon: "i-lucide-wrench", label: "Tools", slot: "tools" as const },
@@ -942,7 +941,7 @@ async function send() {
     status.value = "streaming"
     stopBridgeWatch = watchBridgeState({ ...(chat ? { chat } : {}), text })
 
-    if (!isEmbeddedInDevtools && await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
+    if (await readDirectBridgeStream({ ...(chat ? { chat } : {}), text })) {
       shouldRefreshFinalState = true
       return
     }
