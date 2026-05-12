@@ -919,7 +919,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
 
 <template>
   <UApp>
-    <main class="fixed inset-0 isolate flex flex-col bg-default text-default antialiased">
+    <main class="isolate flex h-full min-h-0 flex-col bg-default text-default antialiased">
       <UIcon name="i-lucide-terminal" class="hidden" />
       <header class="flex h-[45px] shrink-0 items-center justify-between border-b border-default px-4">
         <h1 class="text-base font-semibold">
@@ -1222,3 +1222,13 @@ onBeforeUnmount(() => stopSidebarResize?.())
     </main>
   </UApp>
 </template>
+
+<style>
+html,
+body,
+#__nuxt {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+</style>
