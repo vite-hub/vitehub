@@ -634,7 +634,31 @@ async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
   return await rpcClient.call(method, ...args) as T
 }
 
+async function callBridgeState(body: Record<string, unknown>): Promise<ChatDevtoolsStateResult | undefined> {
+  try {
+    const response = await fetch(chatDevtoolsBridgeRoute, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) return undefined
+
+    connected.value = true
+    return await response.json() as ChatDevtoolsStateResult
+  }
+  catch {
+    return undefined
+  }
+}
+
 async function refresh() {
+  const bridgeState = await callBridgeState({ action: "get-state" })
+  if (bridgeState) {
+    applyState(bridgeState)
+    error.value = undefined
+    return
+  }
+
   try {
     applyState(await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc))
     error.value = undefined
@@ -646,20 +670,11 @@ async function refresh() {
 }
 
 async function refreshFromBridge(chat?: string) {
-  try {
-    const response = await fetch(chatDevtoolsBridgeRoute, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "get-state", ...(chat ? { chat } : {}) }),
-    })
-    if (response.ok) {
-      applyState(await response.json() as ChatDevtoolsStateResult)
-      error.value = undefined
-      return
-    }
-  }
-  catch {
-    // Fall back to the Vite DevTools RPC connection below.
+  const bridgeState = await callBridgeState({ action: "get-state", ...(chat ? { chat } : {}) })
+  if (bridgeState) {
+    applyState(bridgeState)
+    error.value = undefined
+    return
   }
 
   await refresh()
@@ -991,9 +1006,10 @@ async function clear() {
     currentReader = undefined
     pendingUserMessage.value = undefined
     pendingAssistantMessage.value = undefined
-    applyState(await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
-      chat: state.value.selected,
-    }))
+    const bridgeState = await callBridgeState({ action: "clear", chat: state.value.selected })
+    applyState(bridgeState || await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
+        chat: state.value.selected,
+      }))
     error.value = undefined
   }
   catch {
