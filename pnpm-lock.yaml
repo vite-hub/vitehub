@@ -440,6 +440,28 @@ importers:
         specifier: 'catalog:'
         version: 6.0.2
 
+  packages/ci:
+    dependencies:
+      ofetch:
+        specifier: 'catalog:'
+        version: 1.5.1
+      ufo:
+        specifier: 'catalog:'
+        version: 1.6.3
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.0
+      tsdown:
+        specifier: ^0.21.8
+        version: 0.21.9(@vitejs/devtools@0.1.19)(publint@0.3.18)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
+
   packages/db:
     dependencies:
       '@libsql/client':
