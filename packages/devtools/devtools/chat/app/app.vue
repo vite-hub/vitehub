@@ -34,6 +34,7 @@ const status = ref<ChatStatus>("ready")
 const error = ref<string | undefined>()
 const connected = ref(false)
 const activeRequest = ref<{ chat?: string, text: string } | undefined>()
+const messagesRenderKey = ref(0)
 const previewFiles: ChatDevtoolsFileTreeItem[] = [
   {
     kind: "directory",
@@ -212,6 +213,7 @@ function applyState(next: ChatDevtoolsStateResult) {
   }
 
   messages.value = nextMessages
+  messagesRenderKey.value++
   syncExpandedFiles(state.value.files || [])
 }
 
@@ -1079,6 +1081,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
           <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-14">
             <UChatMessages
               v-if="messages.length"
+              :key="messagesRenderKey"
               :messages="messages"
               :should-auto-scroll="status === 'streaming'"
               compact
