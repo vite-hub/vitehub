@@ -672,12 +672,12 @@ describe("Nitro module", () => {
     await module.setup(nitro as never)
 
     const routeContents = await readFile(nitro.options.handlers[0]!.handler, "utf8")
-    expect(routeContents).toContain("defineChatFromAgent")
-    expect(routeContents).toContain("defineChatFromAgent(agent, \"docs\")")
+    expect(routeContents).not.toContain("defineChatFromAgent")
+    expect(routeContents).toContain("createChatFromAgent(agent, \"docs\")")
     expect(routeContents).toContain("defineChatWebhookHandler(chat")
     expect(nitro.options.handlers[0]!.handler).toContain("/.nitro/.vitehub/nitro-runtime/chat/webhook-handler.ts")
     const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
-    expect(devtoolsContents).toContain("defineChatFromAgent(agent, \"docs\")")
+    expect(devtoolsContents).toContain("createChatFromAgent(agent, \"docs\")")
   })
 
   it("generates DevTools metadata for workspace agent chats", async () => {

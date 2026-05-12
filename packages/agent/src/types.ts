@@ -29,6 +29,13 @@ export type {
 export type AgentRuntimeName = "cloudflare-agents" | "nitro" | "unknown" | "vercel"
 export type AgentRuntime = "auto" | AgentRuntimeName
 export type AgentExecution = "inline" | "sandbox" | "workflow"
+export type AgentRuntimeBinding =
+  | AgentWorkflowRuntimeBinding
+
+export interface AgentWorkflowRuntimeBinding {
+  kind: "workflow"
+  name?: string
+}
 export type AgentWaitUntil = RuntimeWaitUntil
 export type AgentIntegrationOption = "auto" | boolean
 export type AgentCapabilityHandle<TKind extends string = string, TValue = unknown> = RuntimeCapabilityHandle<TKind, TValue>
@@ -126,6 +133,7 @@ type AgentSettingsBase<
   onRunStepFinish?: (step: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
   onRunToolCallFinish?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
   onRunToolCallStart?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
+  runtime?: AgentRuntimeBinding
   tools?: AgentToolResolver<TRuntimeConfig, TOOLS>
 }
 
@@ -152,6 +160,7 @@ export interface AgentDefinition<
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentChatAgentHooks<TRuntimeConfig>
+  runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<Agent<CALL_OPTIONS, TOOLS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | GenerateTextResult<TOOLS, never> | StreamTextResult<TOOLS, never> | unknown>
 }
@@ -260,7 +269,6 @@ export interface AgentToolStep {
 
 export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
-  execution?: Extract<AgentExecution, "inline"> | "workflow"
   history?: boolean | "none" | { maxMessages?: number, source: "thread" }
   hooks?: AgentChatAgentHooks
 }
@@ -290,12 +298,13 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   adapters?: MaybeResolvable<Record<string, unknown>, ResolvedAgentRuntimeContext<TRuntimeConfig>>
   agent?: never
   event?: AgentChatAgentBindingOptions["event"]
-  execution?: AgentChatAgentBindingOptions["execution"]
+  execution?: never
   fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
   hooks?: AgentChatEventHooks<TRuntimeConfig>
   lifecycleHooks?: Record<string, unknown>
   state?: MaybeResolvable<unknown, AgentRuntimeContext<TRuntimeConfig>>
+  workflow?: never
   [key: string]: unknown
 }
 

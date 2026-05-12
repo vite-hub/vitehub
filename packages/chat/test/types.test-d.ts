@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { NitroRuntimeConfig } from "nitro/types"
 
 import "../src/nitro.ts"
-import { defineAgent } from "@vitehub/agent"
+import { defineAgent, workflow } from "@vitehub/agent"
 import { defineChat, type ChatModuleOptions } from "@vitehub/chat"
 import {
   defineCloudflareChatHandler,
@@ -74,12 +74,12 @@ describe("Nitro runtime config types", () => {
 
   it("types agent-centered chat hooks", () => {
     defineAgent({
+      runtime: workflow(),
       chat: {
         adapters({ runtimeConfig }) {
           expectTypeOf(runtimeConfig.telegram.botToken).toEqualTypeOf<string>()
           return {}
         },
-        execution: "workflow",
         fallbackStreamingPlaceholderText: ({ runtimeConfig }) => runtimeConfig.telegram.botToken ? "Thinking..." : null,
         history: { source: "thread", maxMessages: 20 },
         hooks: {
@@ -103,6 +103,26 @@ describe("Nitro runtime config types", () => {
         agent: { name: "triager" },
         adapters: {},
         state: {} as never,
+      },
+      run: () => "ok",
+    })
+
+    defineAgent({
+      chat: {
+        adapters: {},
+        // @ts-expect-error chat.execution is replaced by root runtime: workflow()
+        execution: "workflow",
+        state: {} as never,
+      },
+      run: () => "ok",
+    })
+
+    defineAgent({
+      chat: {
+        adapters: {},
+        state: {} as never,
+        // @ts-expect-error chat.workflow is replaced by root runtime: workflow()
+        workflow: {},
       },
       run: () => "ok",
     })

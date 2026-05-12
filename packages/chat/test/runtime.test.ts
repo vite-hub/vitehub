@@ -52,8 +52,10 @@ function mockAgentPackage(overrides: {
   const getAgentFromRegistry = overrides.getAgentFromRegistry || vi.fn(async () => ({ name: "agent" }))
   const streamAgent = overrides.streamAgent || vi.fn(async () => "agent response")
   vi.doMock("@vitehub/agent", () => ({
+    defineAgent: (options: unknown) => options,
     getAgentFromRegistry,
     streamAgent,
+    workflow: (name?: string) => ({ kind: "workflow", name }),
   }))
   return { getAgentFromRegistry, streamAgent }
 }
@@ -547,15 +549,17 @@ describe("defineChat", () => {
     expect(errorHook).toHaveBeenCalledWith(expect.objectContaining({ error, input: undefined }))
   })
 
-  it("maps defineAgent chat metadata to chat and agent hooks", async () => {
+  it("maps agent-centered chat metadata to chat and agent hooks", async () => {
     const prepareInput = vi.fn(() => ({ prompt: "from agent hook" }))
     const onAction = vi.fn()
     const { streamAgent } = mockAgentPackage()
-    const { defineChatFromAgent, resolveChat } = await import("../src/index.ts")
+    const { defineAgent } = await import("@vitehub/agent")
+    const { createChatFromAgent } = await import("../src/runtime/agent-chat.ts")
+    const { resolveChat } = await import("../src/index.ts")
     const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
     const actionSpy = vi.spyOn(Chat.prototype, "onAction")
 
-    await resolveChat(defineChatFromAgent({
+    const agent = defineAgent({
       chat: {
         adapters: {},
         history: false,
@@ -563,8 +567,10 @@ describe("defineChat", () => {
         state: createState() as never,
       },
       hooks: { prepareInput },
-      resolve: async () => ({}) as never,
-    }, "triager"), createContext() as never, { inferredName: "triager" })
+      run: () => "ok",
+    })
+
+    await resolveChat(createChatFromAgent(agent, "triager"), createContext() as never, { inferredName: "triager" })
 
     const handler = directMessageSpy.mock.calls[0]?.[0]
     await handler?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)

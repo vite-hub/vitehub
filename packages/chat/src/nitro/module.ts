@@ -292,15 +292,15 @@ function createChatImportLines(file: string, definition: DiscoveredChatDefinitio
   }
   if (definition.exportName) {
     return [
-      `import { defineChatFromAgent } from "@vitehub/chat"`,
+      `import { createChatFromAgent } from "@vitehub/chat/runtime/agent-chat"`,
       `import { ${definition.exportName} as agent } from ${importPath}`,
-      `const chat = defineChatFromAgent(agent, ${JSON.stringify(definition.name)})`,
+      `const chat = createChatFromAgent(agent, ${JSON.stringify(definition.name)})`,
     ]
   }
   return [
-    `import { defineChatFromAgent } from "@vitehub/chat"`,
+    `import { createChatFromAgent } from "@vitehub/chat/runtime/agent-chat"`,
     `import agent from ${importPath}`,
-    `const chat = defineChatFromAgent(agent, ${JSON.stringify(definition.name)})`,
+    `const chat = createChatFromAgent(agent, ${JSON.stringify(definition.name)})`,
   ]
 }
 
@@ -318,12 +318,12 @@ function createNitroChatRegistryContents(file: string, definitions: DiscoveredCh
       return `  ${JSON.stringify(definition.name)}: async () => import(${importPath}),`
     }
     if (definition.exportName) {
-      return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: defineChatFromAgent(mod[${JSON.stringify(definition.exportName)}], ${JSON.stringify(definition.name)}) } },`
+      return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: createChatFromAgent(mod[${JSON.stringify(definition.exportName)}], ${JSON.stringify(definition.name)}) } },`
     }
-    return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: defineChatFromAgent(mod.default, ${JSON.stringify(definition.name)}) } },`
+    return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: createChatFromAgent(mod.default, ${JSON.stringify(definition.name)}) } },`
   })
   return [
-    `import { defineChatFromAgent } from "@vitehub/chat"`,
+    `import { createChatFromAgent } from "@vitehub/chat/runtime/agent-chat"`,
     "",
     "const registry = {",
     ...entries,
@@ -445,6 +445,7 @@ function installAliases(nitro: Nitro): void {
   nitro.options.alias["@vitehub/chat"] = resolveRuntimeEntry("../index", "@vitehub/chat")
   nitro.options.alias["@vitehub/chat/cloudflare"] = resolveRuntimeEntry("../cloudflare", "@vitehub/chat/cloudflare")
   nitro.options.alias["@vitehub/chat/nitro"] = resolveRuntimeEntry("../nitro", "@vitehub/chat/nitro")
+  nitro.options.alias["@vitehub/chat/runtime/agent-chat"] = resolveRuntimeEntry("../runtime/agent-chat", "@vitehub/chat/runtime/agent-chat")
   nitro.options.alias["@vitehub/chat/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vitehub/chat/runtime/nitro-runtime-config")
   nitro.options.alias["@vitehub/chat/runtime/nitro-plugin"] = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/chat/runtime/nitro-plugin")
   nitro.options.alias["@vitehub/chat/vercel"] = resolveRuntimeEntry("../vercel", "@vitehub/chat/vercel")
@@ -470,7 +471,7 @@ function installExternals(nitro: Nitro): void {
   }
   options.externals ||= {}
   options.externals.inline ||= []
-  for (const dependency of ["@vitehub/chat", "chat", "chat-state-cloudflare-do"]) {
+  for (const dependency of ["@vitehub/chat", "@vitehub/workflow", "chat", "chat-state-cloudflare-do"]) {
     if (!options.externals.inline.includes(dependency)) {
       options.externals.inline.push(dependency)
     }

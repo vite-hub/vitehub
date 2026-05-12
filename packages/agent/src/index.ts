@@ -31,9 +31,11 @@ import type {
   AgentRunCallbackContext,
   AgentRunInput,
   AgentRunResult,
+  AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentSettings,
+  AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
   AgentToolStepItem,
   AgentChatAgentHooks,
@@ -83,10 +85,12 @@ export type {
   AgentRunMetadata,
   AgentRunResult,
   AgentRuntime,
+  AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentRuntimeHooks,
   AgentRuntimeName,
+  AgentWorkflowRuntimeBinding,
   AgentSandboxProviderOptions,
   AgentSchedulerProviderOptions,
   AgentSettings,
@@ -361,12 +365,13 @@ function defineBaseAgent<
     }
   }
 
-  const { chat, description, hooks, instrumentModel: modelInstrumentation, run, tools, ...settings } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
+  const { chat, description, hooks, instrumentModel: modelInstrumentation, run, runtime, tools, ...settings } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
 
   return {
     chat,
     description,
     hooks,
+    runtime,
     run,
     async resolve(context) {
       if (!("model" in settings) || !settings.model) {
@@ -381,6 +386,13 @@ function defineBaseAgent<
 
       return await createToolLoopAgent({ ...settings, model } as never, resolvedTools as TOOLS | undefined)
     },
+  }
+}
+
+export function workflow(name?: string): AgentWorkflowRuntimeBinding {
+  return {
+    kind: "workflow",
+    ...(name ? { name } : {}),
   }
 }
 
@@ -466,6 +478,7 @@ export interface WorkspaceAgentOptions<
   onRunToolCallFinish?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig>) => MaybePromise<void>
   onRunToolCallStart?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig>) => MaybePromise<void>
   name?: string
+  runtime?: AgentRuntimeBinding
   stepLimit?: number
   tools?: WorkspaceAgentToolsResolver<TRuntimeConfig, Name>
   workspace: WorkspaceAgentWorkspaceOptions
@@ -767,6 +780,7 @@ function createWorkspaceAgentDefinition<
     chat: options.chat,
     description: options.description,
     hooks: options.hooks,
+    runtime: options.runtime,
     async run(context) {
       if (!workspaceName) {
         throw new Error("[vitehub] Workspace agents require an inferred workspace name from server/agents/<name>/config.ts.")
@@ -795,6 +809,7 @@ function createWorkspaceAgentDefinition<
         onRunStepFinish: _onRunStepFinish,
         onRunToolCallFinish: _onRunToolCallFinish,
         onRunToolCallStart: _onRunToolCallStart,
+        runtime: _runtime,
         stepLimit: _stepLimit,
         tools: _tools,
         workspace: _workspace,

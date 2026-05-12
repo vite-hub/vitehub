@@ -31,6 +31,7 @@
     "./cloudflare": "./dist/cloudflare.js",
     "./devtools": "./dist/devtools.js",
     "./nitro": "./dist/nitro.js",
+    "./runtime/agent-chat": "./dist/runtime/agent-chat.js",
     "./runtime/chat-devtools-handler": "./dist/runtime/chat-devtools-handler.js",
     "./runtime/cloudflare-workers-dev": "./dist/runtime/cloudflare-workers-dev.js",
     "./runtime/nitro-dev-initialize": "./dist/runtime/nitro-dev-initialize.js",
@@ -51,12 +52,13 @@
     "dev": "tsdown --watch",
     "dev:devtools": "pnpm --filter @vitehub/devtools dev:chat",
     "typecheck": "pnpm --filter @vitehub/agent... build && tsc --noEmit -p ./tsconfig.json && find ../ -maxdepth 2 -type d -name dist -prune -exec rm -rf {} +",
-    "test": "pnpm --filter @vitehub/chat build && vitest run"
+    "test": "pnpm --filter @vitehub/agent... build && pnpm --filter @vitehub/workflow build && pnpm --filter @vitehub/chat build && vitest run"
   },
   "dependencies": {
     "@vitehub/agent": "workspace:*",
     "@vitehub/messages": "workspace:*",
     "@vitehub/runtime": "workspace:*",
+    "@vitehub/workflow": "workspace:*",
     "@vitejs/devtools-kit": "catalog:",
     "@vercel/functions": "^3.4.3",
     "h3": "2.0.1-rc.20",

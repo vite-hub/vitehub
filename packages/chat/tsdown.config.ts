@@ -15,6 +15,7 @@ export default defineConfig({
     "src/nitro.ts",
     "src/runtime/nitro-dev-initialize.ts",
     "src/runtime/cloudflare-workers-dev.ts",
+    "src/runtime/agent-chat.ts",
     "src/runtime/chat-devtools-handler.ts",
     "src/runtime/nitro-runtime-config.ts",
     "src/runtime/nitro-plugin.ts",

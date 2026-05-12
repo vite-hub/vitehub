@@ -7,7 +7,6 @@ import { isChatDefinition } from "./runtime/definition.ts"
 
 import type {
   ChatActionHookInput,
-  AgentChatMetadata,
   ChatAgentBinding,
   ChatAgentBindingOptions,
   ChatDefinition,
@@ -28,7 +27,6 @@ import type {
   ResolvedChatRuntimeContext,
   ResolveChatOptions,
 } from "./types.ts"
-import type { AgentDefinition } from "@vitehub/agent"
 import type { ActionEvent, Adapter, ChatConfig, Message, ModalSubmitEvent, ReactionEvent, StateAdapter } from "chat"
 
 export type {
@@ -481,38 +479,6 @@ export function defineChat<
       return context.memo(`${memoKey}:${nameKey}`, () => createChat(options, context, resolveOptions))
     },
   }
-}
-
-export function defineChatFromAgent<
-  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
-  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
->(
-  agent: AgentDefinition<TRuntimeConfig> & { chat?: AgentChatMetadata<TRuntimeConfig> },
-  name: string,
-): ChatDefinition<TRuntimeConfig> {
-  if (!agent.chat) {
-    throw new Error(`[vitehub:chat] Agent "${name}" does not define chat config.`)
-  }
-
-  const {
-    event,
-    execution,
-    history,
-    hooks,
-    ...chat
-  } = agent.chat
-
-  return defineChat({
-    ...(chat as Omit<DefineChatOptions<TRuntimeConfig, TWorkflow>, "agent">),
-    hooks: hooks as DefineChatOptions<TRuntimeConfig, TWorkflow>["hooks"],
-    agent: {
-      event,
-      execution,
-      history,
-      hooks: agent.hooks as ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>["hooks"],
-      name,
-    } as ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>,
-  })
 }
 
 export async function resolveChat<TContext extends ChatRuntimeContext>(

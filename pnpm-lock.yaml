@@ -368,6 +368,9 @@ importers:
       '@vitehub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@vitehub/workflow':
+        specifier: workspace:*
+        version: link:../workflow
       '@vitejs/devtools-kit':
         specifier: 'catalog:'
         version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
