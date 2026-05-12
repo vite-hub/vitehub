@@ -185,6 +185,9 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
   else if (config?.store.driver === "fs") {
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/fs")))}`)
   }
+  else if (config) {
+    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/files")))}`)
+  }
 
   const storageExpression = !config
     ? "undefined"
@@ -643,7 +646,6 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   }
 
   if (workspaceProvider === "vercel-blob") {
-    imports.push(`import * as __vitehubVercelBlob from ${JSON.stringify(createImportPath(file, resolvePackageDependency(blobPackageDir, "@vercel/blob")))}`)
     imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/vercel-blob.ts")))}`)
   }
 
@@ -664,7 +666,6 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     ...imports,
     "",
     preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
-    workspaceProvider === "vercel-blob" ? "globalThis.__vitehubVercelBlob = __vitehubVercelBlob" : "",
     `const queueConfig = ${JSON.stringify(options.queue || false, null, 2)}`,
     `const workflowConfig = ${JSON.stringify(options.workflow || false, null, 2)}`,
     `const blobConfig = ${JSON.stringify(options.blob || false, null, 2)}`,
@@ -814,10 +815,28 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
     alias: artifacts.alias,
     conditions: ["workerd", "worker", "browser", "default"],
     external: [
-      "@vercel/blob",
       "@vercel/queue",
       "@vercel/sandbox",
       "cloudflare:workers",
+      "files-sdk",
+      "files-sdk/akamai",
+      "files-sdk/azure",
+      "files-sdk/box",
+      "files-sdk/digitalocean-spaces",
+      "files-sdk/dropbox",
+      "files-sdk/fs",
+      "files-sdk/gcs",
+      "files-sdk/google-drive",
+      "files-sdk/hetzner",
+      "files-sdk/minio",
+      "files-sdk/netlify-blobs",
+      "files-sdk/onedrive",
+      "files-sdk/r2",
+      "files-sdk/s3",
+      "files-sdk/storj",
+      "files-sdk/supabase",
+      "files-sdk/uploadthing",
+      "files-sdk/vercel-blob",
       "node:async_hooks",
       "node:child_process",
       "node:buffer",
@@ -889,6 +908,25 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
     alias: withoutCloudflareWorkspaceAliases(artifacts.alias),
     external: [
       "cloudflare:workers",
+      "files-sdk",
+      "files-sdk/akamai",
+      "files-sdk/azure",
+      "files-sdk/box",
+      "files-sdk/digitalocean-spaces",
+      "files-sdk/dropbox",
+      "files-sdk/fs",
+      "files-sdk/gcs",
+      "files-sdk/google-drive",
+      "files-sdk/hetzner",
+      "files-sdk/minio",
+      "files-sdk/netlify-blobs",
+      "files-sdk/onedrive",
+      "files-sdk/r2",
+      "files-sdk/s3",
+      "files-sdk/storj",
+      "files-sdk/supabase",
+      "files-sdk/uploadthing",
+      "files-sdk/vercel-blob",
       "isomorphic-git",
       "isomorphic-git/http/web",
       "workflow",

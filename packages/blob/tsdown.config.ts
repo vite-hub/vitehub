@@ -14,6 +14,7 @@ export default defineConfig({
     "src/ensure.ts",
     "src/storage.ts",
     "src/drivers/cloudflare.ts",
+    "src/drivers/files.ts",
     "src/drivers/fs.ts",
     "src/drivers/vercel.ts",
     "src/index.ts",

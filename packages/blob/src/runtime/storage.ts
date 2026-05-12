@@ -5,6 +5,8 @@ import { getBlobRuntimeConfig, getBlobRuntimeStorage, setBlobRuntimeStorage } fr
 
 import type { BlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
 
+const dynamicImport = new Function("modulePath", "return import(modulePath)") as <T>(modulePath: string) => Promise<T>
+
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   const isSourceRuntime = typeof import.meta !== "undefined"
     && typeof import.meta.url === "string"
@@ -27,6 +29,11 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       const module = (isSourceRuntime
         ? await import("../drivers/vercel.ts")
         : await import("../drivers/vercel.js")) as { createDriver: (options: typeof config) => any }
+      return module.createDriver(config)
+    }
+    default: {
+      const modulePath = isSourceRuntime ? "../drivers/files.ts" : "../drivers/files.js"
+      const module = await dynamicImport<{ createDriver: (options: typeof config) => any }>(modulePath)
       return module.createDriver(config)
     }
   }

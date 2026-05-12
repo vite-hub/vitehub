@@ -10,14 +10,14 @@ frameworks: [vite, nitro]
 
 Use the Vercel provider when Blob storage should resolve through Vercel Blob.
 
-Vercel needs the optional `@vercel/blob` peer dependency and a `BLOB_READ_WRITE_TOKEN` available at runtime.
+Vercel needs a `BLOB_READ_WRITE_TOKEN` available at runtime.
 
 ::steps{level="2"}
 
-## Install the Provider SDK
+## Install Blob
 
 ```bash
-pnpm add @vitehub/blob @vercel/blob
+pnpm add @vitehub/blob
 ```
 
 ## Add the Runtime Token
@@ -88,7 +88,7 @@ blob: {
 }
 ```
 
-The Vercel driver passes `access` to `@vercel/blob`. When a public write targets a private connected store, Blob retries the write with private access. Reads use the access mode inferred from the stored URL when available.
+Use `access: 'private'` when the connected store requires private writes.
 
 ::
 
@@ -118,7 +118,6 @@ A successful response includes the Vercel Blob pathname and may include a provid
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `Missing runtime environment variable \`BLOB_READ_WRITE_TOKEN\` for Vercel Blob.` | The build config resolved Vercel Blob, but the runtime token is missing. | Set `BLOB_READ_WRITE_TOKEN` and restart or redeploy. |
-| `Cannot find package '@vercel/blob'` | The optional provider SDK is not installed. | Run `pnpm add @vercel/blob`. |
 | Vercel hosting warns that `fs` is configured | Vercel hosting requires Vercel Blob-backed storage. | Remove explicit `fs` config or set `blob.driver` to `vercel-blob`. |
 
 ## Related Pages

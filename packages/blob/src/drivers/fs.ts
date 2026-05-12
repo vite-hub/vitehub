@@ -1,81 +1,11 @@
-import { createHash } from "node:crypto"
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
-import { dirname, join, relative, resolve, sep } from "pathe"
-
-import { toArray } from "@vitehub/internal/arrays"
+import { fs } from "files-sdk/fs"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
+import type { Adapter, StoredFile, UploadResult } from "files-sdk"
 
-type FsBlobMetadata = {
-  contentType?: string
-  customMetadata?: Record<string, string>
-  httpEtag?: string
-  size?: number
-  uploadedAt?: string
-}
-
-function normalizePathname(pathname: string) {
-  return pathname.replace(/^\/+/, "").replace(/\\/g, "/")
-}
-
-function resolveSafePath(base: string, pathname: string) {
-  const resolved = resolve(base, ...normalizePathname(pathname).split("/").filter(Boolean))
-  if (resolved !== base && !resolved.startsWith(`${base}${sep}`)) {
-    throw new Error(`Blob pathname escapes the configured base: ${pathname}`)
-  }
-  return resolved
-}
-
-function metaFile(file: string) {
-  return `${file}.meta.json`
-}
-
-function createObject(pathname: string, metadata: FsBlobMetadata, size: number): BlobObject {
-  return {
-    contentType: metadata.contentType,
-    customMetadata: metadata.customMetadata || {},
-    httpEtag: metadata.httpEtag,
-    httpMetadata: metadata.contentType ? { contentType: metadata.contentType } : {},
-    pathname,
-    size: metadata.size ?? size,
-    uploadedAt: metadata.uploadedAt ? new Date(metadata.uploadedAt) : new Date(),
-  }
-}
-
-async function readMetadata(file: string): Promise<FsBlobMetadata> {
-  try {
-    return JSON.parse(await readFile(metaFile(file), "utf8")) as FsBlobMetadata
-  }
-  catch {
-    return {}
-  }
-}
-
-async function writeMetadata(file: string, metadata: FsBlobMetadata) {
-  await writeFile(metaFile(file), `${JSON.stringify(metadata, null, 2)}\n`, "utf8")
-}
-
-async function toBuffer(body: BlobPutBody): Promise<Buffer> {
-  if (typeof body === "string") return Buffer.from(body)
-  if (body instanceof ArrayBuffer) return Buffer.from(body)
-  if (ArrayBuffer.isView(body)) return Buffer.from(body.buffer, body.byteOffset, body.byteLength)
-  return Buffer.from(await new Response(body as Blob | ReadableStream<Uint8Array>).arrayBuffer())
-}
-
-async function collectFiles(base: string): Promise<string[]> {
-  try {
-    const entries = await readdir(base, { recursive: true, withFileTypes: true })
-    return entries
-      .filter(entry => entry.isFile() && !entry.name.endsWith(".meta.json"))
-      .map(entry => join(entry.parentPath ?? base, entry.name))
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return []
-    }
-
-    throw error
-  }
+function isNotFound(error: unknown): boolean {
+  const value = error as { code?: unknown, message?: unknown }
+  return value?.code === "NotFound" || /not found/i.test(String(value?.message || ""))
 }
 
 function encodeCursor(value: number) {
@@ -87,116 +17,132 @@ function decodeCursor(cursor: string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function mapStoredFile(file: StoredFile): BlobObject {
+  return {
+    contentType: file.type,
+    customMetadata: file.metadata || {},
+    httpEtag: file.etag,
+    httpMetadata: file.type ? { contentType: file.type } : {},
+    pathname: file.key,
+    size: file.size,
+    uploadedAt: file.lastModified ? new Date(file.lastModified) : new Date(),
+  }
+}
+
+function mapUploadResult(result: UploadResult, options: BlobPutOptions): BlobObject {
+  const contentType = result.contentType || options.contentType
+  return {
+    contentType,
+    customMetadata: options.customMetadata || {},
+    httpEtag: result.etag,
+    httpMetadata: contentType ? { contentType } : {},
+    pathname: result.key,
+    size: result.size,
+    uploadedAt: result.lastModified ? new Date(result.lastModified) : new Date(),
+  }
+}
+
 export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdapter<ResolvedFsBlobStoreConfig> {
-  const base = resolve(options.base)
+  const adapter: Adapter = fs({
+    ...options,
+    root: options.base,
+  })
 
   return {
     name: "fs",
     options,
     async delete(pathnames) {
-      await Promise.all(toArray(pathnames).flatMap(pathname => {
-        const file = resolveSafePath(base, pathname)
-        return [
-          rm(file, { force: true }),
-          rm(metaFile(file), { force: true }),
-        ]
+      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(async pathname => {
+        try {
+          await adapter.delete(pathname)
+        }
+        catch (error) {
+          if (!isNotFound(error)) throw error
+        }
       }))
     },
     async get(pathname) {
-      const file = resolveSafePath(base, pathname)
       try {
-        const buffer = await readFile(file)
-        const metadata = await readMetadata(file)
-        return new Blob([buffer], { type: metadata.contentType || "application/octet-stream" })
+        return await adapter.download(pathname).then(file => file.blob())
       }
-      catch {
-        return null
+      catch (error) {
+        if (isNotFound(error)) return null
+        throw error
       }
     },
     async getArrayBuffer(pathname) {
-      const file = resolveSafePath(base, pathname)
       try {
-        const buffer = await readFile(file)
-        return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+        return await adapter.download(pathname).then(file => file.arrayBuffer())
       }
-      catch {
-        return null
+      catch (error) {
+        if (isNotFound(error)) return null
+        throw error
       }
     },
     async head(pathname) {
-      const file = resolveSafePath(base, pathname)
       try {
-        const info = await stat(file)
-        const metadata = await readMetadata(file)
-        return createObject(normalizePathname(pathname), metadata, info.size)
+        return mapStoredFile(await adapter.head(pathname))
       }
-      catch {
-        return null
+      catch (error) {
+        if (isNotFound(error)) return null
+        throw error
       }
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
-      const prefix = normalizePathname(listOptions.prefix || "")
-      const allFiles = (await collectFiles(base))
-        .map(file => normalizePathname(relative(base, file)))
-        .filter(pathname => !prefix || pathname.startsWith(prefix))
-        .sort((left, right) => left.localeCompare(right))
-
-      const limit = listOptions.limit ?? 1000
-      const start = decodeCursor(listOptions.cursor)
+      let result
+      try {
+        result = await adapter.list({
+          cursor: listOptions.folded ? undefined : listOptions.cursor,
+          limit: listOptions.folded ? 1000 : listOptions.limit ?? 1000,
+          prefix: listOptions.prefix,
+        })
+      }
+      catch (error) {
+        if (error instanceof Error && /ENOTDIR/.test(error.message)) {
+          throw Object.assign(error, { code: "ENOTDIR" })
+        }
+        throw error
+      }
 
       if (listOptions.folded) {
+        const prefix = listOptions.prefix || ""
+        const limit = listOptions.limit ?? 1000
+        const start = decodeCursor(listOptions.cursor)
         const folders = new Set<string>()
         const blobs: BlobObject[] = []
         let consumed = start
 
-        for (const pathname of allFiles.slice(start)) {
+        for (const item of result.items.slice(start)) {
           consumed += 1
-          const remainder = prefix ? pathname.slice(prefix.length).replace(/^\/+/, "") : pathname
+          const remainder = item.key.slice(prefix.length).replace(/^\/+/, "")
           const firstSlash = remainder.indexOf("/")
           if (firstSlash !== -1) {
-            const folder = remainder.slice(0, firstSlash + 1)
-            folders.add(prefix ? `${prefix.replace(/\/?$/, "/")}${folder}` : folder)
+            folders.add(`${prefix.replace(/\/?$/, "/")}${remainder.slice(0, firstSlash + 1)}`)
             continue
           }
-
-          const meta = await this.head(pathname)
-          if (meta) blobs.push(meta)
+          blobs.push(mapStoredFile(item))
           if (blobs.length >= limit) break
         }
 
         return {
           blobs,
-          cursor: consumed < allFiles.length ? encodeCursor(consumed) : undefined,
+          cursor: consumed < result.items.length ? encodeCursor(consumed) : undefined,
           folders: [...folders].sort((left, right) => left.localeCompare(right)),
-          hasMore: consumed < allFiles.length,
+          hasMore: consumed < result.items.length,
         }
       }
 
-      const slice = allFiles.slice(start, start + limit)
-      const blobs = (await Promise.all(slice.map(pathname => this.head(pathname)))).filter(Boolean) as BlobObject[]
-      const next = start + slice.length
-
       return {
-        blobs,
-        cursor: next < allFiles.length ? encodeCursor(next) : undefined,
-        hasMore: next < allFiles.length,
+        blobs: result.items.map(mapStoredFile),
+        cursor: result.cursor,
+        hasMore: Boolean(result.cursor),
       }
     },
-    async put(pathname, body, putOptions: BlobPutOptions = {}) {
-      const file = resolveSafePath(base, pathname)
-      await mkdir(dirname(file), { recursive: true })
-      const buffer = await toBuffer(body)
-      const httpEtag = `"${createHash("sha1").update(buffer).digest("hex")}"`
-      const metadata: FsBlobMetadata = {
-        contentType: putOptions.contentType,
-        customMetadata: putOptions.customMetadata,
-        httpEtag,
-        size: buffer.byteLength,
-        uploadedAt: new Date().toISOString(),
-      }
-      await writeFile(file, buffer)
-      await writeMetadata(file, metadata)
-      return createObject(normalizePathname(pathname), metadata, buffer.byteLength)
+    async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
+      return mapUploadResult(await adapter.upload(pathname, body as never, {
+        contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+        metadata: putOptions.customMetadata,
+      }), putOptions)
     },
   }
 }

@@ -48,12 +48,60 @@ const blobMock = vi.hoisted(() => {
   }
 })
 
-vi.mock("@vercel/blob", () => ({
-  del: blobMock.del,
-  get: blobMock.get,
-  head: blobMock.head,
-  list: blobMock.list,
-  put: blobMock.put,
+vi.mock("files-sdk/vercel-blob", () => ({
+  vercelBlob: () => ({
+    name: "vercel-blob",
+    raw: {},
+    async upload(pathname: string, body: Blob | Uint8Array | string) {
+      const result = await blobMock.put(pathname, body)
+      return {
+        contentType: "application/octet-stream",
+        key: result.pathname,
+        lastModified: Date.now(),
+        size: result.size,
+      }
+    },
+    async download(pathname: string) {
+      const result = await blobMock.get(pathname)
+      if (result.statusCode !== 200 || !result.stream) throw Object.assign(new Error("not found"), { code: "NotFound" })
+      const bytes = await new Response(result.stream).arrayBuffer()
+      return {
+        arrayBuffer: async () => bytes,
+        key: pathname,
+        lastModified: Date.now(),
+        metadata: {},
+        size: bytes.byteLength,
+        text: async () => new TextDecoder().decode(bytes),
+        type: "application/octet-stream",
+      }
+    },
+    async head(pathname: string) {
+      const result = await blobMock.head(pathname)
+      if (!result) throw Object.assign(new Error("not found"), { code: "NotFound" })
+      return {
+        key: pathname,
+        lastModified: result.uploadedAt.getTime(),
+        metadata: {},
+        size: result.size,
+        type: "application/octet-stream",
+      }
+    },
+    async list(options: { prefix?: string } = {}) {
+      const result = await blobMock.list(options)
+      return {
+        items: result.blobs.map(blob => ({
+          key: blob.pathname,
+          lastModified: blob.uploadedAt.getTime(),
+          metadata: {},
+          size: blob.size,
+          type: "application/octet-stream",
+        })),
+      }
+    },
+    async delete(pathname: string) {
+      await blobMock.del(pathname)
+    },
+  }),
 }))
 
 afterEach(() => {

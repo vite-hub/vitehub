@@ -1,126 +1,135 @@
-import { toArray } from "@vitehub/internal/arrays"
+import { r2 } from "files-sdk/r2"
+
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 
-import type {
-  BlobDriverAdapter,
-  BlobListOptions,
-  BlobListResult,
-  BlobObject,
-  BlobPutBody,
-  BlobPutOptions,
-  ResolvedCloudflareR2BlobStoreConfig,
-} from "../types.ts"
+import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { Adapter, StoredFile, UploadResult } from "files-sdk"
 
-interface R2ObjectLike {
-  customMetadata?: Record<string, string>
-  httpEtag?: string
-  httpMetadata?: { contentType?: string }
-  key: string
-  size: number
-  uploaded: Date
-}
-
-interface R2GetResultLike extends R2ObjectLike {
-  arrayBuffer(): Promise<ArrayBuffer>
-}
-
-interface R2BucketLike {
-  delete(pathname: string): Promise<void>
-  get(pathname: string): Promise<R2GetResultLike | null>
-  head(pathname: string): Promise<R2ObjectLike | null>
-  list(options: {
-    cursor?: string
-    delimiter?: string
-    include?: string[]
-    limit?: number
-    prefix?: string
-  }): Promise<{
-    cursor?: string
-    delimitedPrefixes?: string[]
-    objects: R2ObjectLike[]
-    truncated: boolean
-  }>
-  put(pathname: string, body: BlobPutBody, options: {
-    customMetadata?: Record<string, string>
-    httpMetadata?: { contentType?: string }
-  }): Promise<R2ObjectLike>
-}
-
-function mapR2ObjectToBlob(object: R2ObjectLike): BlobObject {
+function mapStoredFile(file: StoredFile): BlobObject {
   return {
-    contentType: object.httpMetadata?.contentType,
-    customMetadata: object.customMetadata || {},
-    httpEtag: object.httpEtag,
-    httpMetadata: object.httpMetadata || {},
-    pathname: object.key,
-    size: object.size,
-    uploadedAt: object.uploaded,
+    contentType: file.type,
+    customMetadata: file.metadata || {},
+    httpEtag: file.etag,
+    httpMetadata: file.type ? { contentType: file.type } : {},
+    pathname: file.key,
+    size: file.size,
+    uploadedAt: file.lastModified ? new Date(file.lastModified) : new Date(),
+  }
+}
+
+function mapUploadResult(result: UploadResult, options: BlobPutOptions): BlobObject {
+  const contentType = result.contentType || options.contentType
+  return {
+    contentType,
+    customMetadata: options.customMetadata || {},
+    httpEtag: result.etag,
+    httpMetadata: contentType ? { contentType } : {},
+    pathname: result.key,
+    size: result.size,
+    uploadedAt: result.lastModified ? new Date(result.lastModified) : new Date(),
+  }
+}
+
+function isNotFound(error: unknown): boolean {
+  const value = error as { code?: unknown, message?: unknown }
+  return value?.code === "NotFound" || /not found|object not found/i.test(String(value?.message || ""))
+}
+
+function getBucket(options: ResolvedCloudflareR2BlobStoreConfig) {
+  const binding = getActiveCloudflareBinding<any>(options.binding)
+    || (globalThis as any).__env__?.[options.binding]
+    || (globalThis as any)[options.binding]
+
+  if (!binding) {
+    throw new Error(`R2 binding "${options.binding}" not found`)
+  }
+
+  return {
+    ...binding,
+    async get(key: string) {
+      const object = await binding.get(key)
+      if (object && !("body" in object) && typeof object.arrayBuffer === "function") {
+        return {
+          ...object,
+          body: new ReadableStream({
+            async start(controller) {
+              controller.enqueue(new Uint8Array(await object.arrayBuffer()))
+              controller.close()
+            },
+          }),
+        }
+      }
+      return object
+    },
   }
 }
 
 export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
-  function getBucket(): R2BucketLike {
-    const binding = getActiveCloudflareBinding<R2BucketLike>(options.binding)
-      || (globalThis as any).__env__?.[options.binding]
-      || (globalThis as any)[options.binding]
-
-    if (!binding) {
-      throw new Error(`R2 binding "${options.binding}" not found`)
-    }
-
-    return binding
+  function client(): Adapter {
+    return r2({
+      ...options,
+      binding: getBucket(options),
+      bucket: options.bucketName,
+    } as never)
   }
 
   return {
     name: "cloudflare-r2",
     options,
     async delete(pathnames) {
-      const bucket = getBucket()
-      await Promise.all(toArray(pathnames).map(pathname => bucket.delete(pathname)))
+      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(async pathname => {
+        try {
+          await client().delete(pathname)
+        }
+        catch (error) {
+          if (!isNotFound(error)) throw error
+        }
+      }))
     },
     async get(pathname) {
-      const object = await getBucket().get(pathname)
-      if (!object) {
-        return null
+      try {
+        return await client().download(pathname).then(file => file.blob())
       }
-
-      return new Blob([await object.arrayBuffer()], {
-        type: object.httpMetadata?.contentType || "application/octet-stream",
-      })
+      catch (error) {
+        if (isNotFound(error)) return null
+        throw error
+      }
     },
     async getArrayBuffer(pathname) {
-      const object = await getBucket().get(pathname)
-      return object ? object.arrayBuffer() : null
+      try {
+        return await client().download(pathname).then(file => file.arrayBuffer())
+      }
+      catch (error) {
+        if (isNotFound(error)) return null
+        throw error
+      }
     },
     async head(pathname) {
-      const object = await getBucket().head(pathname)
-      return object ? mapR2ObjectToBlob(object) : null
+      try {
+        return mapStoredFile(await client().head(pathname))
+      }
+      catch (error) {
+        if (isNotFound(error)) return null
+        throw error
+      }
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
-      const result = await getBucket().list({
+      const result = await client().list({
         cursor: listOptions.cursor,
-        delimiter: listOptions.folded ? "/" : undefined,
-        include: ["customMetadata", "httpMetadata"],
         limit: listOptions.limit ?? 1000,
         prefix: listOptions.prefix,
       })
-
       return {
-        blobs: result.objects.map(mapR2ObjectToBlob),
-        cursor: result.truncated ? result.cursor : undefined,
-        folders: listOptions.folded ? result.delimitedPrefixes : undefined,
-        hasMore: result.truncated,
+        blobs: result.items.map(mapStoredFile),
+        cursor: result.cursor,
+        hasMore: Boolean(result.cursor),
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const object = await getBucket().put(pathname, body, {
-        customMetadata: putOptions.customMetadata,
-        httpMetadata: {
-          contentType: putOptions.contentType,
-        },
-      })
-
-      return mapR2ObjectToBlob(object)
+      return mapUploadResult(await client().upload(pathname, body as never, {
+        contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+        metadata: putOptions.customMetadata,
+      }), putOptions)
     },
   }
 }

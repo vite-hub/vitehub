@@ -84,6 +84,14 @@ Object storage APIs differ by platform. Blob keeps route code focused on pathnam
   ---
   Reject files by MIME type or size before they reach storage with `ensureBlob()`.
   :::
+  :::u-page-card
+  ---
+  title: Storage Providers
+  description: Configure S3, GCS, Azure, Supabase, Netlify Blobs, and app storage drivers.
+  icon: i-lucide-database
+  to: ./providers/storage
+  ---
+  :::
 ::
 
 ## One Portable Flow

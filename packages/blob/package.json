@@ -26,6 +26,7 @@
     ".": "./dist/index.js",
     "./config": "./dist/config.js",
     "./drivers/cloudflare": "./dist/drivers/cloudflare.js",
+    "./drivers/files": "./dist/drivers/files.js",
     "./drivers/fs": "./dist/drivers/fs.js",
     "./drivers/vercel": "./dist/drivers/vercel.js",
     "./ensure": "./dist/ensure.js",
@@ -55,18 +56,15 @@
     "defu": "catalog:",
     "esbuild": "^0.27.7",
     "exsolve": "catalog:",
+    "files-sdk": "catalog:",
     "h3": "catalog:",
     "pathe": "catalog:"
   },
   "peerDependencies": {
-    "@vercel/blob": "catalog:",
     "nitro": "^3.0.0-0",
     "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
-    "@vercel/blob": {
-      "optional": true
-    },
     "nitro": {
       "optional": true
     },
@@ -75,7 +73,6 @@
     }
   },
   "devDependencies": {
-    "@vercel/blob": "catalog:",
     "@types/node": "catalog:",
     "@vitehub/internal": "workspace:*",
     "nitro": "catalog:",

@@ -1,15 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const runtimeConfigMock = vi.hoisted(() => ({
-  blob: undefined as undefined | false | {
-    store: {
-      binding?: string
-      bucketName?: string
-      driver: "cloudflare-r2" | "fs" | "vercel-blob"
-      token?: string
-      access?: "private" | "public"
-    }
-  },
+  blob: undefined as undefined | false | import("../src/types.ts").ResolvedBlobModuleOptions,
 }))
 
 interface NitroRequestMock {
@@ -67,6 +59,7 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
   put: vi.fn(async (pathname: string) => ({
     contentType: "text/plain",
+    key: pathname,
     pathname,
     size: 5,
     uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -74,12 +67,51 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock("@vercel/blob", () => ({
-  del: vercelBlobMock.del,
-  get: vercelBlobMock.get,
-  head: vercelBlobMock.head,
-  list: vercelBlobMock.list,
-  put: vercelBlobMock.put,
+vi.mock("files-sdk/vercel-blob", () => ({
+  vercelBlob: (options: { access?: "private" | "public", token?: string } = {}) => ({
+    name: "vercel-blob",
+    raw: {},
+    async upload(pathname: string, body: Blob | Uint8Array | string, uploadOptions: { contentType?: string } = {}) {
+      return await (vercelBlobMock.put as any)(pathname, body, {
+        access: options.access,
+        contentType: uploadOptions.contentType,
+        token: options.token,
+      })
+    },
+    async download(pathname: string) {
+      const current = await (vercelBlobMock.head as any)(pathname, { token: options.token }).catch(() => null)
+      const input = current?.url?.includes(".private.blob.vercel-storage.com") ? current.url : pathname
+      const result = await (vercelBlobMock.get as any)(input, {
+        access: current?.url?.includes(".private.blob.vercel-storage.com") ? "private" : options.access,
+        token: options.token,
+      })
+      return {
+        blob: async () => await new Response(result.stream).blob(),
+        key: pathname,
+        lastModified: Date.parse("2026-01-01T00:00:00.000Z"),
+        metadata: {},
+        size: 5,
+        type: "text/plain",
+      }
+    },
+    async head(pathname: string) {
+      const result = await (vercelBlobMock.head as any)(pathname, { token: options.token })
+      return {
+        blob: async () => new Blob(),
+        key: result.pathname,
+        lastModified: new Date(result.uploadedAt).getTime(),
+        metadata: {},
+        size: result.size,
+        type: "text/plain",
+      }
+    },
+    async list() {
+      return { items: [], cursor: undefined }
+    },
+    async delete(pathname: string) {
+      await (vercelBlobMock.del as any)(pathname, { token: options.token })
+    },
+  }),
 }))
 
 afterEach(() => {
@@ -193,39 +225,6 @@ describe("blob runtime", () => {
     }))
   })
 
-  it("retries Vercel Blob writes as private when public access is rejected", async () => {
-    const error = new Error("HTTPError")
-    error.name = "HTTPError"
-    vercelBlobMock.put
-      .mockRejectedValueOnce(error)
-      .mockResolvedValueOnce({
-        contentType: "text/plain",
-        pathname: "notes/private.txt",
-        size: 5,
-        uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
-        url: "https://blob.example/notes/private.txt",
-      })
-
-    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
-    setBlobRuntimeConfig({
-      store: {
-        access: "public",
-        driver: "vercel-blob",
-        token: "********",
-      },
-    })
-
-    await expect(blob.put("notes/private.txt", "hello")).resolves.toMatchObject({
-      pathname: "notes/private.txt",
-    })
-    expect(vercelBlobMock.put).toHaveBeenNthCalledWith(1, "notes/private.txt", "hello", expect.objectContaining({
-      access: "public",
-    }))
-    expect(vercelBlobMock.put).toHaveBeenNthCalledWith(2, "notes/private.txt", "hello", expect.objectContaining({
-      access: "private",
-    }))
-  })
-
   it("uses the active Cloudflare binding", async () => {
     setBlobRuntimeConfig({
       store: {
@@ -293,46 +292,9 @@ describe("blob runtime", () => {
       "value",
       expect.anything(),
     )
-    expect(vercelBlobMock.head).toHaveBeenCalledWith(
+    expect(vercelBlobMock.del).toHaveBeenCalledWith(
       "notes/héllo.txt",
       expect.anything(),
-    )
-  })
-
-  it("uses Vercel Blob private access when the connected store requires it", async () => {
-    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
-    setBlobRuntimeConfig({
-      store: { access: "public", driver: "vercel-blob", token: "********" },
-    })
-    vercelBlobMock.put
-      .mockRejectedValueOnce(new Error("Vercel Blob: Cannot use public access on a private store."))
-      .mockResolvedValueOnce({
-        contentType: "text/plain",
-        pathname: "notes/private.txt",
-        size: 5,
-        uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
-        url: "https://store.private.blob.vercel-storage.com/notes/private.txt",
-      })
-    vercelBlobMock.head.mockResolvedValueOnce({
-      pathname: "notes/private.txt",
-      size: 5,
-      uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
-      url: "https://store.private.blob.vercel-storage.com/notes/private.txt",
-    })
-
-    await blob.put("notes/private.txt", "value")
-    expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/private.txt", "value", expect.objectContaining({
-      access: "private",
-      token: "secret-token",
-    }))
-
-    expect(await (await blob.get("notes/private.txt"))?.text()).toBe("value")
-    expect(vercelBlobMock.get).toHaveBeenCalledWith(
-      "https://store.private.blob.vercel-storage.com/notes/private.txt",
-      expect.objectContaining({
-        access: "private",
-        token: "secret-token",
-      }),
     )
   })
 

@@ -42,6 +42,7 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
   put: vi.fn(async (pathname: string) => ({
     contentType: "text/plain",
+    key: pathname,
     pathname,
     size: 5,
     uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -49,12 +50,51 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock("@vercel/blob", () => ({
-  del: vercelBlobMock.del,
-  get: vercelBlobMock.get,
-  head: vercelBlobMock.head,
-  list: vercelBlobMock.list,
-  put: vercelBlobMock.put,
+vi.mock("files-sdk/vercel-blob", () => ({
+  vercelBlob: (options: { access?: "private" | "public", token?: string } = {}) => ({
+    name: "vercel-blob",
+    raw: {},
+    async upload(pathname: string, body: Blob | Uint8Array | string, uploadOptions: { contentType?: string } = {}) {
+      return await (vercelBlobMock.put as any)(pathname, body, {
+        access: options.access,
+        contentType: uploadOptions.contentType,
+        token: options.token,
+      })
+    },
+    async download(pathname: string) {
+      const current = await (vercelBlobMock.head as any)(pathname, { token: options.token }).catch(() => null)
+      const input = current?.url?.includes(".private.blob.vercel-storage.com") ? current.url : pathname
+      const result = await (vercelBlobMock.get as any)(input, {
+        access: current?.url?.includes(".private.blob.vercel-storage.com") ? "private" : options.access,
+        token: options.token,
+      })
+      return {
+        blob: async () => await new Response(result.stream).blob(),
+        key: pathname,
+        lastModified: Date.parse("2026-01-01T00:00:00.000Z"),
+        metadata: {},
+        size: 5,
+        type: "text/plain",
+      }
+    },
+    async head(pathname: string) {
+      const result = await (vercelBlobMock.head as any)(pathname, { token: options.token })
+      return {
+        blob: async () => new Blob(),
+        key: result.pathname,
+        lastModified: new Date(result.uploadedAt).getTime(),
+        metadata: {},
+        size: result.size,
+        type: "text/plain",
+      }
+    },
+    async list() {
+      return { items: [], cursor: undefined }
+    },
+    async delete(pathname: string) {
+      await (vercelBlobMock.del as any)(pathname, { token: options.token })
+    },
+  }),
 }))
 
 async function createWorkspaceTempDir(prefix: string) {

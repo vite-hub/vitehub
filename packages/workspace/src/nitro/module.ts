@@ -123,7 +123,6 @@ function createNitroPluginContents(file: string, registryFile: string, assetsReg
     imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/cloudflare-artifacts", "@vitehub/workspace/stores/cloudflare-artifacts")))}`)
   }
   else if (provider === "vercel-blob") {
-    imports.push("import * as __vitehubVercelBlob from '@vercel/blob'")
     imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/vercel-blob", "@vitehub/workspace/stores/vercel-blob")))}`)
   }
 
@@ -147,7 +146,6 @@ function createNitroPluginContents(file: string, registryFile: string, assetsReg
     ...imports,
     "",
     "export default defineNitroPlugin(() => {",
-    provider === "vercel-blob" ? "  globalThis.__vitehubVercelBlob = __vitehubVercelBlob" : "",
     "  const runtimeConfig = useRuntimeConfig()",
     "  setWorkspaceRuntimeConfig(runtimeConfig.workspace || false)",
     ...loader,

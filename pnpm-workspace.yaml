@@ -16,7 +16,6 @@ catalog:
   '@types/node': ^25.6.0
   '@upstash/redis': ^1.37.0
   '@valibot/to-json-schema': ^1.6.0
-  '@vercel/blob': ^2.3.3
   '@vercel/functions': ^3.4.3
   '@vercel/queue': ^0.0.0-alpha.23
   '@vercel/sandbox': ^1.10.0
@@ -34,6 +33,7 @@ catalog:
   drizzle-orm: ^0.44.7
   esbuild: ^0.28.0
   exsolve: ^1.0.8
+  files-sdk: ^1.2.0
   get-port-please: ^3.2.0
   h3: 2.0.1-rc.20
   hookable: ^6.1.1

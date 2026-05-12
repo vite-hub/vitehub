@@ -92,7 +92,7 @@ function renderProviderEntry(
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/state")))}`,
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
   ]
-  const driverModule = blobConfig ? `drivers/${blobConfig.store.driver === "cloudflare-r2" ? "cloudflare" : blobConfig.store.driver === "fs" ? "fs" : "vercel"}` : undefined
+  const driverModule = blobConfig ? `drivers/${blobConfig.store.driver === "cloudflare-r2" ? "cloudflare" : blobConfig.store.driver === "fs" ? "fs" : blobConfig.store.driver === "vercel-blob" ? "vercel" : "files"}` : undefined
   if (driverModule) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("storage")))}`)
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(driverModule)))}`)
@@ -130,7 +130,7 @@ function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobM
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
-  const driverModule = blobConfig ? `drivers/${blobConfig.store.driver === "cloudflare-r2" ? "cloudflare" : blobConfig.store.driver === "fs" ? "fs" : "vercel"}` : undefined
+  const driverModule = blobConfig ? `drivers/${blobConfig.store.driver === "cloudflare-r2" ? "cloudflare" : blobConfig.store.driver === "fs" ? "fs" : blobConfig.store.driver === "vercel-blob" ? "vercel" : "files"}` : undefined
   if (driverModule) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(driverModule)))}`)
@@ -208,7 +208,29 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
         "@vitehub/blob": artifacts.runtimeModuleFiles.cloudflare,
       },
       conditions: ["workerd", "worker", "browser", "default"],
-      external: ["@vercel/blob", "node:async_hooks", "virtual:@vitehub/blob/config"],
+      external: [
+        "files-sdk",
+        "files-sdk/akamai",
+        "files-sdk/azure",
+        "files-sdk/box",
+        "files-sdk/digitalocean-spaces",
+        "files-sdk/dropbox",
+        "files-sdk/fs",
+        "files-sdk/gcs",
+        "files-sdk/google-drive",
+        "files-sdk/hetzner",
+        "files-sdk/minio",
+        "files-sdk/netlify-blobs",
+        "files-sdk/onedrive",
+        "files-sdk/r2",
+        "files-sdk/s3",
+        "files-sdk/storj",
+        "files-sdk/supabase",
+        "files-sdk/uploadthing",
+        "files-sdk/vercel-blob",
+        "node:async_hooks",
+        "virtual:@vitehub/blob/config",
+      ],
       format: "esm",
       platform: "neutral",
     },
@@ -223,7 +245,27 @@ function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDe
       alias: {
         "@vitehub/blob": artifacts.runtimeModuleFiles.vercel,
       },
-      external: ["virtual:@vitehub/blob/config"],
+      external: [
+        "files-sdk/akamai",
+        "files-sdk/azure",
+        "files-sdk/box",
+        "files-sdk/digitalocean-spaces",
+        "files-sdk/dropbox",
+        "files-sdk/fs",
+        "files-sdk/gcs",
+        "files-sdk/google-drive",
+        "files-sdk/hetzner",
+        "files-sdk/minio",
+        "files-sdk/netlify-blobs",
+        "files-sdk/onedrive",
+        "files-sdk/r2",
+        "files-sdk/s3",
+        "files-sdk/storj",
+        "files-sdk/supabase",
+        "files-sdk/uploadthing",
+        "files-sdk/vercel-blob",
+        "virtual:@vitehub/blob/config",
+      ],
       format: "esm",
       platform: "node",
     },

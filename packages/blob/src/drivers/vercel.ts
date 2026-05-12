@@ -1,181 +1,107 @@
-import { toArray } from "@vitehub/internal/arrays"
+import { vercelBlob } from "files-sdk/vercel-blob"
 
-import type {
-  BlobDriverAdapter,
-  BlobListOptions,
-  BlobListResult,
-  BlobObject,
-  BlobPutBody,
-  BlobPutOptions,
-  ResolvedVercelBlobStoreConfig,
-} from "../types.ts"
+import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
+import type { Adapter, StoredFile, UploadResult } from "files-sdk"
 
-type VercelPutBlobResult = {
-  contentType?: string
-  downloadUrl?: string
-  etag?: string
-  pathname: string
-  size?: number
-  uploadedAt?: Date
-  url: string
+function isNotFound(error: unknown): boolean {
+  const value = error as { code?: unknown, message?: unknown }
+  return value?.code === "NotFound" || /not found/i.test(String(value?.message || ""))
 }
 
-type VercelListBlobResult = {
-  blobs: Array<VercelPutBlobResult>
-  cursor?: string
-  folders?: string[]
-  hasMore: boolean
-}
-
-function getContentType(pathname: string): string | undefined {
-  return pathname.endsWith(".json") ? "application/json; charset=utf-8" : undefined
-}
-
-function getAccessFromUrl(url: string | undefined): "private" | "public" | undefined {
-  if (!url) {
-    return
-  }
-
-  if (url.includes(".private.blob.vercel-storage.com")) {
-    return "private"
-  }
-
-  if (url.includes(".public.blob.vercel-storage.com")) {
-    return "public"
-  }
-}
-
-function shouldRetryPrivate(error: unknown): boolean {
-  return error instanceof Error && (error.name === "HTTPError" || /private store|public access/i.test(error.message))
-}
-
-async function loadVercelBlob() {
-  const preloaded = (globalThis as typeof globalThis & { __vitehubVercelBlob?: typeof import("@vercel/blob") }).__vitehubVercelBlob
-  if (preloaded) return preloaded
-
-  const importVercelBlob = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<typeof import("@vercel/blob")>
-  const specifier = "@vercel/blob"
-  try {
-    return await importVercelBlob(specifier)
-  }
-  catch (error) {
-    if (!(error instanceof TypeError) || !/dynamic import callback/i.test(error.message)) throw error
-    return await import(specifier)
-  }
-}
-
-function mapVercelBlobToBlob(blob: VercelPutBlobResult): BlobObject {
+function mapStoredFile(file: StoredFile): BlobObject {
   return {
-    contentType: blob.contentType || getContentType(blob.pathname),
-    customMetadata: {},
-    httpEtag: blob.etag,
-    httpMetadata: {},
-    pathname: blob.pathname,
-    size: blob.size,
-    uploadedAt: blob.uploadedAt || new Date(),
-    url: blob.url,
+    contentType: file.type,
+    customMetadata: file.metadata || {},
+    httpEtag: file.etag,
+    httpMetadata: file.type ? { contentType: file.type } : {},
+    pathname: file.key,
+    size: file.size,
+    uploadedAt: file.lastModified ? new Date(file.lastModified) : new Date(),
   }
+}
+
+function mapUploadResult(result: UploadResult, options: BlobPutOptions): BlobObject {
+  const contentType = result.contentType || options.contentType
+  return {
+    contentType,
+    customMetadata: options.customMetadata || {},
+    httpEtag: result.etag,
+    httpMetadata: contentType ? { contentType } : {},
+    pathname: result.key,
+    size: result.size,
+    uploadedAt: result.lastModified ? new Date(result.lastModified) : new Date(),
+  }
+}
+
+function createAdapter(options: ResolvedVercelBlobStoreConfig, access = options.access): Adapter {
+  return vercelBlob({
+    ...options,
+    access,
+    addRandomSuffix: false,
+    allowOverwrite: options.allowOverwrite ?? true,
+  })
 }
 
 export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriverAdapter<ResolvedVercelBlobStoreConfig> {
+  const adapter = createAdapter(options)
   return {
     name: "vercel-blob",
     options,
     async delete(pathnames) {
-      const { del, head } = await loadVercelBlob()
-      for (const pathname of toArray(pathnames)) {
+      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(async pathname => {
         try {
-          const current = await head(pathname, { token: options.token })
-          if (current) {
-            await del(current.url, { token: options.token })
-          }
+          await adapter.delete(pathname)
         }
-        catch {
-          continue
+        catch (error) {
+          if (!isNotFound(error)) throw error
         }
-      }
+      }))
     },
     async get(pathname) {
-      const current = await this.head(pathname)
-      if (!current?.url) {
-        return null
+      try {
+        return await adapter.download(pathname).then(file => file.blob())
       }
-
-      const { get } = await loadVercelBlob()
-      const result = await get(current.url, {
-        access: getAccessFromUrl(current.url) || options.access,
-        token: options.token,
-      })
-
-      return result?.statusCode === 200 ? await new Response(result.stream).blob() : null
+      catch (error) {
+        if (isNotFound(error)) return null
+        throw error
+      }
     },
     async getArrayBuffer(pathname) {
-      const current = await this.head(pathname)
-      if (!current?.url) {
-        return null
+      try {
+        return await adapter.download(pathname).then(file => file.arrayBuffer())
       }
-
-      const { get } = await loadVercelBlob()
-      const result = await get(current.url, {
-        access: getAccessFromUrl(current.url) || options.access,
-        token: options.token,
-      })
-
-      return result?.statusCode === 200 ? await new Response(result.stream).arrayBuffer() : null
+      catch (error) {
+        if (isNotFound(error)) return null
+        throw error
+      }
     },
     async head(pathname) {
-      const { head } = await loadVercelBlob()
       try {
-        const result = await head(pathname, { token: options.token })
-        return result ? mapVercelBlobToBlob(result as VercelPutBlobResult) : null
+        return mapStoredFile(await adapter.head(pathname))
       }
-      catch {
-        return null
+      catch (error) {
+        if (isNotFound(error)) return null
+        throw error
       }
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
-      const { list } = await loadVercelBlob()
-      const result = await list({
+      const result = await adapter.list({
         cursor: listOptions.cursor,
         limit: listOptions.limit ?? 1000,
-        mode: listOptions.folded ? "folded" : "expanded",
         prefix: listOptions.prefix,
-        token: options.token,
-      }) as VercelListBlobResult
-
+      })
       return {
-        blobs: result.blobs.map(mapVercelBlobToBlob),
+        blobs: result.items.map(mapStoredFile),
         cursor: result.cursor,
-        folders: result.folders,
-        hasMore: result.hasMore,
+        hasMore: Boolean(result.cursor),
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const { put } = await loadVercelBlob()
-      const access = putOptions.access || options.access
-      const putInput = {
-        access,
-        addRandomSuffix: false,
+      const uploadOptions = {
         contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
-        token: options.token,
-      } as const
-
-      let result: unknown
-      try {
-        result = await put(pathname, body as any, putInput)
+        metadata: putOptions.customMetadata,
       }
-      catch (error) {
-        if (access !== "public" || !shouldRetryPrivate(error)) {
-          throw error
-        }
-
-        result = await put(pathname, body as any, {
-          ...putInput,
-          access: "private",
-        })
-      }
-
-      return mapVercelBlobToBlob(result as VercelPutBlobResult)
+      return mapUploadResult(await createAdapter(options, putOptions.access || options.access).upload(pathname, body as never, uploadOptions), putOptions)
     },
   }
 }
