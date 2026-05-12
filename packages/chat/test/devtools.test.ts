@@ -471,6 +471,35 @@ describe("Chat DevTools Nitro bridge", () => {
     })
   })
 
+  it("clears loading when editing a typing placeholder into the final answer", async () => {
+    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const user = adapter.createDevtoolsMessage("hello")
+
+    await adapter.startTyping(user.threadId, "Counting warehouse echoes...")
+    await adapter.startTyping(user.threadId, createChatDevtoolsToolStatus({
+      id: "call-1",
+      input: { command: "rg customer" },
+      name: "shell",
+      status: "completed",
+      text: "rg customer",
+    }))
+
+    const assistant = adapter.getDevtoolsState().chats[0]?.messages.at(-1)
+    await adapter.editMessage(user.threadId, assistant!.id, "Final answer.")
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages.at(-1)).toMatchObject({
+      loading: false,
+      text: "Final answer.",
+      tools: [
+        expect.objectContaining({
+          id: "call-1",
+          status: "completed",
+        }),
+      ],
+    })
+  })
+
   it("plain string streams do not create tool entries", async () => {
     const { createDevtoolsAdapter, observeChatDevtoolsStream } = await import("../src/devtools.ts")
     const adapter = createDevtoolsAdapter()

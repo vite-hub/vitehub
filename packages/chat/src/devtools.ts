@@ -586,7 +586,11 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     editMessage: async (threadId, messageId, message) => {
       const text = renderPostableText(message)
       const existing = findMessage(threadId, messageId)
-      if (existing) existing.text = text
+      if (existing) {
+        existing.loading = false
+        existing.text = text
+        if (typingMessageIds.get(threadId) === messageId) typingMessageIds.delete(threadId)
+      }
       return { id: messageId, threadId, raw: { text } }
     },
     fetchMessages: async threadId => ({ messages: getMessages(chatFromThreadId(adapterName, threadId)) as never }),
