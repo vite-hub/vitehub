@@ -769,18 +769,28 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
   const abortController = new AbortController()
   currentReader = { cancel: () => abortController.abort() }
 
-  let response: Response
+  let response: Response | undefined
   try {
-    response = await fetch(chatDevtoolsBridgeRoute, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "send", ...input, stream: true }),
-      signal: abortController.signal,
-    })
+    response = await Promise.race([
+      fetch(chatDevtoolsBridgeRoute, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "send", ...input, stream: true }),
+        signal: abortController.signal,
+      }),
+      new Promise<undefined>(resolve => setTimeout(resolve, 2_000)),
+    ])
   }
   catch {
     currentReader = undefined
     return false
+  }
+
+  if (!response) {
+    const recovered = await recoverBridgeState(input)
+    abortController.abort()
+    currentReader = undefined
+    return recovered
   }
 
   if (!response.ok || !response.body) {
