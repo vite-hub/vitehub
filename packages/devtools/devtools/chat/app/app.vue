@@ -1022,17 +1022,12 @@ onBeforeUnmount(() => stopSidebarResize?.())
               class="flex items-end gap-1 rounded-md border border-default bg-default px-2 py-1 shadow-xs"
               @submit.prevent="send"
             >
-              <UTextarea
+              <textarea
                 v-model="input"
                 placeholder="Type a message..."
-                :rows="1"
-                :maxrows="3"
-                autoresize
+                rows="1"
                 :disabled="status !== 'ready'"
-                variant="none"
-                size="xs"
-                class="min-w-0 flex-1"
-                :ui="{ base: '!px-0 !py-0 text-sm/5 resize-none' }"
+                class="min-h-5 max-h-24 min-w-0 flex-1 resize-none bg-transparent px-0 py-0 text-sm/5 outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60"
                 @keydown.enter.exact.prevent="send"
               />
               <UButton
