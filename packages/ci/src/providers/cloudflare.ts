@@ -39,8 +39,12 @@ interface CloudflareTriggerMetadata {
   repo_name?: string
 }
 
-interface CloudflareListResult {
+interface CloudflareLatestResult {
   builds?: CloudflareBuild[] | Record<string, CloudflareBuild>
+}
+
+interface CloudflareWorkerScript {
+  id?: string
 }
 
 interface CloudflareLogResult {
@@ -56,15 +60,17 @@ export const cloudflareCIProvider: CIProvider = {
   async listRuns(context, query) {
     assertAccountID(context)
     const client = createCloudflareClient(context)
-    const projectID = requiredProjectID(query)
-
-    const path = withQuery(
-      joinURL("/accounts", context.accountID!, "builds", "builds", "latest"),
-      { external_script_ids: projectID },
-    )
-    const envelope = await client<CloudflareEnvelope<CloudflareListResult>>(path)
-    const builds = readCloudflareBuilds(envelope, "cloudflare")
-    return builds.map(normalizeCloudflareBuild).slice(0, query?.limit)
+    const projectIDs = await resolveCloudflareProjectIDs(client, context, query)
+    const builds = await Promise.all(projectIDs.map(async (projectID) => {
+      const path = joinURL("/accounts", context.accountID!, "builds", "workers", projectID, "builds")
+      const envelope = await client<CloudflareEnvelope<CloudflareBuild[]>>(path)
+      return envelope.result ?? []
+    }))
+    return builds
+      .flat()
+      .map(normalizeCloudflareBuild)
+      .sort(compareRunsNewestFirst)
+      .slice(0, query?.limit)
   },
 
   async getRun(context, runID) {
@@ -105,18 +111,31 @@ function assertAccountID(context: CIContext) {
   }
 }
 
-function requiredProjectID(query?: CIRunQuery): string {
-  if (!query?.projectID) {
-    throw new CIMalformedResponseError("Cloudflare listRuns requires query.projectID as the Worker external_script_id.", { provider: "cloudflare" })
+async function resolveCloudflareProjectIDs(
+  client: ReturnType<typeof createCloudflareClient>,
+  context: CIContext,
+  query?: CIRunQuery,
+): Promise<string[]> {
+  if (query?.projectID) {
+    return [query.projectID]
   }
-  return query.projectID
+
+  const path = joinURL("/accounts", context.accountID!, "workers", "scripts")
+  const envelope = await client<CloudflareEnvelope<CloudflareWorkerScript[]>>(path)
+  return (envelope.result ?? [])
+    .map((worker) => worker.id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0)
 }
 
-function readCloudflareBuilds(envelope: CloudflareEnvelope<CloudflareListResult>, provider: string): CloudflareBuild[] {
+function readCloudflareBuilds(envelope: CloudflareEnvelope<CloudflareLatestResult>, provider: string): CloudflareBuild[] {
   const builds = envelope.result?.builds
   if (Array.isArray(builds)) return builds
   if (builds && typeof builds === "object") return Object.values(builds)
   throw new CIMalformedResponseError("Cloudflare builds response did not include builds.", { provider })
+}
+
+function compareRunsNewestFirst(a: CIRun, b: CIRun): number {
+  return Date.parse(b.createdAt ?? "") - Date.parse(a.createdAt ?? "")
 }
 
 function normalizeCloudflareBuild(build: CloudflareBuild): CIRun {
@@ -164,4 +183,3 @@ function normalizeCloudflareLogs(result: CloudflareLogResult, query?: CILogQuery
     raw: result,
   }
 }
-

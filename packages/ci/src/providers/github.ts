@@ -33,6 +33,13 @@ interface GithubRunsResponse {
   workflow_runs?: GithubRun[]
 }
 
+interface GithubRepository {
+  name?: string
+  full_name?: string
+  archived?: boolean
+  disabled?: boolean
+}
+
 interface GithubJob {
   id?: number
   run_id?: number
@@ -56,15 +63,22 @@ export const githubCIProvider: CIProvider = {
   name: "GitHub Actions",
 
   async listRuns(context, query) {
-    assertRepoContext(context)
     const client = createGithubClient(context)
-    const path = withQuery(joinURL("/repos", context.owner!, context.repo!, "actions", "runs"), {
-      branch: query?.branch,
-      head_sha: query?.commitSha,
-      per_page: query?.limit,
-    })
-    const response = await client<GithubRunsResponse>(path)
-    return (response.workflow_runs ?? []).map(normalizeGithubRun)
+    const repositories = await resolveGithubRepositories(client, context)
+    const pages = await Promise.all(repositories.map(async ({ owner, repo }) => {
+      const path = withQuery(joinURL("/repos", owner, repo, "actions", "runs"), {
+        branch: query?.branch,
+        head_sha: query?.commitSha,
+        per_page: query?.limit,
+      })
+      const response = await client<GithubRunsResponse>(path)
+      return response.workflow_runs ?? []
+    }))
+    return pages
+      .flat()
+      .map(normalizeGithubRun)
+      .sort(compareRunsNewestFirst)
+      .slice(0, query?.limit)
   },
 
   async getRun(context, runID) {
@@ -121,6 +135,26 @@ function assertRepoContext(context: CIContext) {
   }
 }
 
+async function resolveGithubRepositories(
+  client: ReturnType<typeof createGithubClient>,
+  context: CIContext,
+): Promise<Array<{ owner: string, repo: string }>> {
+  if (context.owner && context.repo) {
+    return [{ owner: context.owner, repo: context.repo }]
+  }
+
+  const path = context.owner
+    ? withQuery(joinURL("/users", context.owner, "repos"), { per_page: 100, sort: "pushed", type: "all" })
+    : withQuery("/user/repos", { per_page: 100, sort: "pushed", visibility: "all", affiliation: "owner,collaborator,organization_member" })
+  const repositories = await client<GithubRepository[]>(path)
+
+  return repositories
+    .filter((repository) => !repository.archived && !repository.disabled)
+    .map((repository) => repository.full_name?.split("/") ?? [])
+    .filter((parts): parts is [string, string] => parts.length === 2 && Boolean(parts[0]) && Boolean(parts[1]))
+    .map(([owner, repo]) => ({ owner, repo }))
+}
+
 function normalizeGithubRun(run: GithubRun): CIRun {
   if (typeof run.id !== "number") {
     throw new CIMalformedResponseError("GitHub workflow run is missing id.", { provider: "github" })
@@ -163,3 +197,6 @@ function parseGithubLogText(text: string) {
   return text.split(/\r?\n/).filter(Boolean).map((message) => ({ message, stream: "unknown" as const }))
 }
 
+function compareRunsNewestFirst(a: CIRun, b: CIRun): number {
+  return Date.parse(b.createdAt ?? "") - Date.parse(a.createdAt ?? "")
+}

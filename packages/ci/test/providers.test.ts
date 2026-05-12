@@ -26,35 +26,72 @@ describe("@vitehub/ci providers", () => {
     const { createCIProvider } = await import("../src/index.ts")
     const provider = createCIProvider("cloudflare")
     queue.push({
-      result: {
-        builds: {
-          "worker-tag": {
-            build_uuid: "build-1",
-            external_script_id: "worker-tag",
-            build_status: "stopped",
-            build_outcome: "fail",
-            created_on: "2026-05-12T10:00:00Z",
-            running_on: "2026-05-12T10:01:00Z",
-            stopped_on: "2026-05-12T10:02:00Z",
-            build_trigger_metadata: {
-              branch: "main",
-              commit_hash: "abc123",
-              commit_message: "Ship",
-              author: "Max",
-              build_trigger_source: "push",
-              provider_account_name: "owner",
-              repo_name: "repo",
-            },
-          },
+      result: [
+        { id: "worker-tag" },
+      ],
+    })
+    queue.push({
+      result: [{
+        build_uuid: "build-1",
+        external_script_id: "worker-tag",
+        build_status: "stopped",
+        build_outcome: "fail",
+        created_on: "2026-05-12T10:00:00Z",
+        running_on: "2026-05-12T10:01:00Z",
+        stopped_on: "2026-05-12T10:02:00Z",
+        build_trigger_metadata: {
+          branch: "main",
+          commit_hash: "abc123",
+          commit_message: "Ship",
+          author: "Max",
+          build_trigger_source: "push",
+          provider_account_name: "owner",
+          repo_name: "repo",
         },
-      },
+      }],
     })
 
-    const runs = await provider.listRuns({ token: "token", accountID: "account" }, { projectID: "worker-tag" })
+    const allRuns = await provider.listRuns({ token: "token", accountID: "account" })
     expect(requests[0]?.baseURL).toBe("https://api.cloudflare.com/client/v4")
     expect(requests[0]?.headers?.authorization).toBe("Bearer token")
-    expect(requests[0]?.path).toBe("/accounts/account/builds/builds/latest?external_script_ids=worker-tag")
-    expect(runs[0]).toMatchObject({
+    expect(requests[0]?.path).toBe("/accounts/account/workers/scripts")
+    expect(requests[1]?.path).toBe("/accounts/account/builds/workers/worker-tag/builds")
+    expect(allRuns[0]).toMatchObject({
+      id: "build-1",
+      provider: "cloudflare",
+      projectID: "worker-tag",
+      branch: "main",
+      commitSha: "abc123",
+      trigger: "push",
+      status: "completed",
+      outcome: "failed",
+      sourceUrl: "https://github.com/owner/repo/commit/abc123",
+    })
+
+    queue.push({
+      result: [{
+        build_uuid: "build-1",
+        external_script_id: "worker-tag",
+        build_status: "stopped",
+        build_outcome: "fail",
+        created_on: "2026-05-12T10:00:00Z",
+        running_on: "2026-05-12T10:01:00Z",
+        stopped_on: "2026-05-12T10:02:00Z",
+        build_trigger_metadata: {
+          branch: "main",
+          commit_hash: "abc123",
+          commit_message: "Ship",
+          author: "Max",
+          build_trigger_source: "push",
+          provider_account_name: "owner",
+          repo_name: "repo",
+        },
+      }],
+    })
+
+    const projectRuns = await provider.listRuns({ token: "token", accountID: "account" }, { projectID: "worker-tag" })
+    expect(requests[2]?.path).toBe("/accounts/account/builds/workers/worker-tag/builds")
+    expect(projectRuns[0]).toMatchObject({
       id: "build-1",
       provider: "cloudflare",
       projectID: "worker-tag",
@@ -68,7 +105,7 @@ describe("@vitehub/ci providers", () => {
 
     queue.push({ result: { lines: [[1_746_000_000, "Build failed"]], cursor: "next", truncated: true } })
     const logs = await provider.getLogs({ token: "token", accountID: "account" }, "build-1")
-    expect(requests[1]?.path).toBe("/accounts/account/builds/builds/build-1/logs")
+    expect(requests[3]?.path).toBe("/accounts/account/builds/builds/build-1/logs")
     expect(logs).toMatchObject({
       cursor: "next",
       truncated: true,
@@ -124,6 +161,9 @@ describe("@vitehub/ci providers", () => {
   it("normalizes GitHub workflow runs and job logs", async () => {
     const { createCIProvider } = await import("../src/index.ts")
     const provider = createCIProvider("github")
+    queue.push([
+      { full_name: "owner/repo" },
+    ])
     queue.push({
       workflow_runs: [{
         id: 123,
@@ -143,10 +183,11 @@ describe("@vitehub/ci providers", () => {
       }],
     })
 
-    const runs = await provider.listRuns({ token: "token", owner: "owner", repo: "repo" }, { branch: "main", limit: 5 })
+    const runs = await provider.listRuns({ token: "token", owner: "owner" }, { branch: "main", limit: 5 })
     expect(requests[0]?.baseURL).toBe("https://api.github.com")
     expect(requests[0]?.headers?.accept).toBe("application/vnd.github+json")
-    expect(requests[0]?.path).toBe("/repos/owner/repo/actions/runs?branch=main&per_page=5")
+    expect(requests[0]?.path).toBe("/users/owner/repos?per_page=100&sort=pushed&type=all")
+    expect(requests[1]?.path).toBe("/repos/owner/repo/actions/runs?branch=main&per_page=5")
     expect(runs[0]).toMatchObject({
       id: "123",
       provider: "github",
@@ -164,9 +205,9 @@ describe("@vitehub/ci providers", () => {
     queue.push("line 1\nTypeError: nope")
     queue.push("ok")
     const logs = await provider.getLogs({ token: "token", owner: "owner", repo: "repo" }, "123")
-    expect(requests[1]?.path).toBe("/repos/owner/repo/actions/runs/123/jobs")
-    expect(requests[2]?.path).toBe("/repos/owner/repo/actions/jobs/1/logs")
-    expect(requests[3]?.path).toBe("/repos/owner/repo/actions/jobs/2/logs")
+    expect(requests[2]?.path).toBe("/repos/owner/repo/actions/runs/123/jobs")
+    expect(requests[3]?.path).toBe("/repos/owner/repo/actions/jobs/1/logs")
+    expect(requests[4]?.path).toBe("/repos/owner/repo/actions/jobs/2/logs")
     expect(logs.lines.map((line) => line.message)).toEqual(["## build", "line 1", "TypeError: nope", "## lint", "ok"])
   })
 })
