@@ -685,6 +685,22 @@ function workspaceMetadataFiles<Name extends WorkspaceName>(
   defaults: WorkspaceAgentDefaults<Name>,
 ): AgentDevtoolsFileTreeItem[] {
   const workspaceName = options.name || defaults.workspace || defaults.name || "workspace"
+  const localEntries = listLocalMaterializedWorkspaceEntries(options)
+  if (localEntries.length) {
+    const root: AgentDevtoolsFileTreeItem = {
+      children: [],
+      kind: "directory",
+      label: workspaceName,
+      path: workspaceName,
+    }
+    for (const entry of localEntries) {
+      addFileTreePath(root, entry)
+    }
+    markSourceTreeMetadata(root, options)
+    propagateMaterializedDirectories(root)
+    sortFileTree(root)
+    return [root]
+  }
   const sources = options.workspace.sources || {}
   const children = Object.entries(sources).sort(([left], [right]) => left.localeCompare(right)).map(([sourceName, source]) => {
     const materialize = sourceMaterialize(sourceName, source)
@@ -704,6 +720,73 @@ function workspaceMetadataFiles<Name extends WorkspaceName>(
     label: workspaceName,
     path: workspaceName,
   }]
+}
+
+function getNodeBuiltin<T>(name: string): T | undefined {
+  const process = globalThis.process as { getBuiltinModule?: (name: string) => T } | undefined
+  try {
+    return process?.getBuiltinModule?.(name)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function localWorkspaceRoots(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string[] {
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const cwd = (globalThis.process as { cwd?: () => string } | undefined)?.cwd?.()
+  if (!fs || !path || !cwd) return []
+
+  const root = path.join(cwd, ".vitehub", "workspaces")
+  try {
+    return fs.readdirSync(root, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => path.join(root, entry.name))
+      .filter(candidate => sourceMountPaths(options).some(mount => fs.existsSync(path.join(candidate, mount))))
+  }
+  catch {
+    return []
+  }
+}
+
+function sourceMountPaths(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string[] {
+  return Object.entries(options.workspace.sources || {}).map(([sourceName, source]) => sourceMountPath(sourceName, source))
+}
+
+function listLocalMaterializedWorkspaceEntries(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>,
+): WorkspaceEntry[] {
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  if (!fs || !path) return []
+
+  const entries: WorkspaceEntry[] = []
+  const visit = (root: string, current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.name === ".git") continue
+      const absolute = path.join(current, entry.name)
+      const relative = path.relative(root, absolute).replace(/\\/g, "/")
+      const stat = fs.statSync(absolute)
+      entries.push({
+        mtime: stat.mtimeMs,
+        path: relative,
+        size: entry.isFile() ? stat.size : undefined,
+        type: entry.isDirectory() ? "directory" : "file",
+      })
+      if (entry.isDirectory()) visit(root, absolute)
+    }
+  }
+
+  for (const root of localWorkspaceRoots(options)) {
+    try {
+      visit(root, root)
+    }
+    catch {
+      return []
+    }
+  }
+  return entries
 }
 
 function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry) {
@@ -828,9 +911,27 @@ function workspaceMetadataInstructions<Name extends WorkspaceName>(
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
   return parts.flatMap((part) => {
     if (typeof part === "string" && part.trim().length > 0) return [part]
-    if (typeof part === "function") return ["Dynamic system instructions resolver configured."]
+    if (typeof part === "function") {
+      const localInstructions = readLocalWorkspaceInstructions(options as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
+      if (localInstructions) return [localInstructions]
+      return ["Dynamic system instructions resolver configured."]
+    }
     return []
   })
+}
+
+function readLocalWorkspaceInstructions(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string | undefined {
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  if (!fs || !path) return undefined
+  for (const root of localWorkspaceRoots(options)) {
+    const file = path.join(root, "AGENTS.md")
+    try {
+      const content = fs.readFileSync(file, "utf8").trim()
+      if (content) return content
+    }
+    catch {}
+  }
 }
 
 async function resolveWorkspaceMetadataInstructions<
