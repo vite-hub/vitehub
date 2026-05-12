@@ -174,6 +174,7 @@ function createDefaultAgentInput(args: ChatAgentHookArgs, platform?: string): Ag
       },
     },
     messages: args.history,
+    ...(platform === "devtools" ? { timeout: 90_000 } : {}),
   }
 }
 
