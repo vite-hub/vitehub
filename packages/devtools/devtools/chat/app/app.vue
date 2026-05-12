@@ -695,6 +695,29 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
   return false
 }
 
+async function pollFinalRpcState(input: { chat?: string, text: string }, signal: AbortSignal) {
+  while (!signal.aborted) {
+    await new Promise(resolve => setTimeout(resolve, 700))
+    if (signal.aborted) break
+
+    try {
+      const next = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc)
+      if (hasCurrentUserMessage(next, input.chat, input.text)) {
+        applyState(next)
+        error.value = undefined
+      }
+      if (hasCompletedResponse(next, input.chat, input.text)) {
+        return true
+      }
+    }
+    catch {
+      if (signal.aborted) break
+    }
+  }
+
+  return false
+}
+
 async function readDirectBridgeStream(input: { chat?: string, text: string }): Promise<boolean> {
   const abortController = new AbortController()
   currentReader = { cancel: () => abortController.abort() }
@@ -762,6 +785,42 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
   }
 }
 
+async function readRpcStream(streamId: string, input: { chat?: string, text: string }) {
+  const reader = rpcClient?.streaming.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
+    highWaterMark: 1024,
+  })
+  if (!reader) {
+    throw new Error("Chat DevTools streaming client is unavailable.")
+  }
+
+  const abortController = new AbortController()
+  currentReader = {
+    cancel: () => {
+      abortController.abort()
+      return reader.cancel()
+    },
+  }
+
+  const readStream = async () => {
+    for await (const event of reader) {
+      applyStreamEvent(event)
+      if (event.type === "error" || event.type === "done") return true
+    }
+    return true
+  }
+
+  try {
+    return await Promise.race([
+      readStream(),
+      pollFinalRpcState(input, abortController.signal),
+    ])
+  }
+  finally {
+    abortController.abort()
+    currentReader = undefined
+  }
+}
+
 async function send() {
   const text = input.value.trim()
   if (!text || status.value !== "ready") {
@@ -800,18 +859,7 @@ async function send() {
       return
     }
 
-    const reader = rpcClient?.streaming.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, result.streamId, {
-      highWaterMark: 1024,
-    })
-    if (!reader) {
-      throw new Error("Chat DevTools streaming client is unavailable.")
-    }
-    currentReader = reader
-
-    for await (const event of reader) {
-      applyStreamEvent(event)
-      if (event.type === "error") break
-    }
+    await readRpcStream(result.streamId, { ...(chat ? { chat } : {}), text })
     shouldRefreshFinalState = true
   }
   catch (cause) {
