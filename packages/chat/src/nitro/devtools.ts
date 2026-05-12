@@ -484,9 +484,20 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
     }
     if (action === "send") {
       if (body.stream) {
-        return createChatDevtoolsStreamResponse(async (emit) => {
-          const finalState = await sendDevtoolsMessage(event, state, body, next => emit({ type: "state", state: next }))
-          emit({ type: "state", state: finalState })
+        return createChatDevtoolsStreamResponse(async (emit, signal) => {
+          const selected = body.chat || getChatNames(state)[0]
+          const emitState = async () => emit({ type: "state" as const, state: await serializeState(state, selected) })
+          const interval = setInterval(() => {
+            void emitState()
+          }, 250)
+          signal.addEventListener("abort", () => clearInterval(interval), { once: true })
+          try {
+            const finalState = await sendDevtoolsMessage(event, state, body, next => emit({ type: "state", state: next }))
+            emit({ type: "state", state: finalState })
+          }
+          finally {
+            clearInterval(interval)
+          }
         })
       }
       return await sendDevtoolsMessage(event, state, body)

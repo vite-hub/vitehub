@@ -876,7 +876,7 @@ async function send() {
   }
   finally {
     currentReader = undefined
-    if (shouldRefreshFinalState && connected.value) {
+    if (shouldRefreshFinalState) {
       await refreshFromBridge(chat)
     }
     status.value = "ready"
