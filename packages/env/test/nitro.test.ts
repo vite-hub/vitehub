@@ -6,7 +6,7 @@ import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { env, envNitro } from "../src/nitro.ts"
+import { env, envNitro, openWorkflowEnv } from "../src/nitro.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
 
@@ -39,6 +39,10 @@ interface NitroStub {
 afterEach(() => {
   delete process.env.AUTH_SECRET
   delete process.env.DATABASE_URL
+  delete process.env.OPENWORKFLOW_NAMESPACE_ID
+  delete process.env.OPENWORKFLOW_POSTGRES_URL
+  delete process.env.OPENWORKFLOW_SCHEMA
+  delete process.env.OPENWORKFLOW_WORKER_CONCURRENCY
   delete process.env.PUBLIC_API_BASE
   delete process.env.TELEGRAM_BOT_TOKEN
 })
@@ -151,6 +155,41 @@ describe("Nitro module", () => {
     expect(registry).toContain("\"required\": false")
     expect(registry).not.toContain("aaaaaaaa")
     expect(registry).not.toContain("telegram-secret")
+  })
+
+  it("describes OpenWorkflow env aliases with the active source", async () => {
+    process.env.DATABASE_URL = "postgres://localhost/shared"
+    process.env.OPENWORKFLOW_SCHEMA = "workflow_state"
+
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-openworkflow-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          openWorkflow: openWorkflowEnv(),
+        },
+        preset: "node-server",
+        rootDir: root,
+      },
+    }
+
+    await envNitro({ diagnostics: "trace" }).setup(nitro as never)
+
+    const diagnostics = nitro.logger.info.mock.calls.map(([message]) => String(message)).join("\n")
+    expect(diagnostics).toContain("env.openWorkflow.postgresUrl")
+    expect(diagnostics).toContain("env:DATABASE_URL")
+    expect(diagnostics).toContain("env.openWorkflow.schema")
+    expect(diagnostics).toContain("env:OPENWORKFLOW_SCHEMA")
+    expect(diagnostics).toContain("env.openWorkflow.namespaceId")
+    expect(diagnostics).toContain("default")
+
+    const registry = JSON.parse(await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8").then(contents => contents.replace(/^export default /, "")))
+    expect(registry.openWorkflow.postgresUrl.source).toMatchObject({
+      name: "OPENWORKFLOW_POSTGRES_URL",
+      names: ["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"],
+    })
   })
 
   it("types defineChat and workspace defineAgent runtime config from generated env declarations", async () => {

@@ -52,7 +52,7 @@ function resolveRuntimeValues(declarations: EnvRuntimeRegistry, env: Record<stri
       continue
     }
     const declaration = entry
-    const rawValue = env[declaration.source.name] ?? declaration.default
+    const rawValue = resolveEnvValue(declaration.source, env) ?? declaration.default
     if (typeof rawValue === "undefined") {
       if (declaration.required) {
         throw new Error(`[vitehub] Missing runtime env value ${path}.${key} from ${declaration.source.label}.`)
@@ -73,6 +73,16 @@ function parseRuntimeValue(schema: EnvRuntimeSchema | undefined, value: unknown,
     return value
   }
   throw new Error(`[vitehub] Invalid ${label}: Expected string`)
+}
+
+function resolveEnvValue(source: EnvRegistryEntry["source"], env: Record<string, string | undefined>): string | undefined {
+  for (const name of source.names || [source.name]) {
+    const value = env[name]
+    if (typeof value !== "undefined") {
+      return value
+    }
+  }
+  return undefined
 }
 
 function assignRuntimeValues(target: Record<string, unknown>, values: Record<string, unknown>): void {

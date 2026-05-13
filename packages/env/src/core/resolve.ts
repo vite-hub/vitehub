@@ -99,9 +99,9 @@ export async function resolveEnvEntries(
 
   for (const [key, declaration] of Object.entries(declarations || {})) {
     const source = resolveEnvSource(declaration, `${input.section}.${key}`, input.prefix)
-    const raw = await resolveSourceValue(source, input.context)
-    const defaulted = typeof raw === "undefined"
-    const valueForSchema = defaulted ? declaration.default : raw
+    const resolvedSource = await resolveSourceValue(source, input.context)
+    const defaulted = typeof resolvedSource.value === "undefined"
+    const valueForSchema = defaulted ? declaration.default : resolvedSource.value
     if (typeof valueForSchema === "undefined") {
       if (declaration.required) {
         throw new EnvError(`Missing ${input.section}.${key} from ${source.label}.`)
@@ -109,7 +109,7 @@ export async function resolveEnvEntries(
       entries.push({
         key,
         masked: declaration.secret,
-        source: source.label,
+        source: resolvedSource.label,
         type: declaration.type ?? "undefined",
         value: undefined,
       })
@@ -118,7 +118,7 @@ export async function resolveEnvEntries(
         key: `${input.section}.${key}`,
         masked: declaration.secret,
         mode: declaration.mode,
-        source: source.label,
+        source: resolvedSource.label,
         status: "missing",
         timing: input.timing,
         type: declaration.type ?? "undefined",
@@ -131,7 +131,7 @@ export async function resolveEnvEntries(
     entries.push({
       key,
       masked: declaration.secret,
-      source: source.label,
+      source: resolvedSource.label,
       type,
       value,
     })
@@ -140,7 +140,7 @@ export async function resolveEnvEntries(
       key: `${input.section}.${key}`,
       masked: declaration.secret,
       mode: declaration.mode,
-      source: defaulted ? "default" : source.label,
+      source: defaulted ? "default" : resolvedSource.label,
       status: defaulted ? "defaulted" : "valid",
       timing: input.timing,
       type,
@@ -211,18 +211,24 @@ function inferTypeName(value: unknown): string {
   }
 }
 
-async function resolveSourceValue(source: EnvSource, context: EnvSourceContext): Promise<unknown> {
+async function resolveSourceValue(source: EnvSource, context: EnvSourceContext): Promise<{ label: string, value: unknown }> {
   switch (source.kind) {
     case "custom":
-      return await source.resolver(context)
+      return { label: source.label, value: await source.resolver(context) }
     case "env":
-      return context.env[source.name]
+      for (const name of source.names || [source.name]) {
+        const value = context.env[name]
+        if (typeof value !== "undefined") {
+          return { label: `env:${name}`, value }
+        }
+      }
+      return { label: source.label, value: undefined }
     case "git-branch":
-      return await context.git.branch()
+      return { label: source.label, value: await context.git.branch() }
     case "git-commit":
-      return await context.git.commit({ short: source.short })
+      return { label: source.label, value: await context.git.commit({ short: source.short }) }
     case "package-json":
-      return readPath(await context.packageJson(), source.path)
+      return { label: source.label, value: readPath(await context.packageJson(), source.path) }
   }
 }
 

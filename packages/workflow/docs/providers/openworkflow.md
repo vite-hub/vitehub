@@ -16,7 +16,7 @@ Install the runtime dependencies in the application:
 pnpm add openworkflow postgres
 ```
 
-Configure Workflow:
+Configure Workflow directly or use the Node/Docker runtime preset from `@vitehub/chat/nitro` when the app also uses ViteHub Chat:
 
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
@@ -36,6 +36,25 @@ export default defineNitroConfig({
 })
 ```
 
+```ts [vite.config.ts]
+import { hubChat } from '@vitehub/chat/vite'
+import { nodeDockerRuntimePreset } from '@vitehub/chat/nitro'
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+
+const runtime = nodeDockerRuntimePreset()
+
+export default defineConfig({
+  plugins: [
+    hubChat(runtime.chat),
+    nitro({
+      ...runtime,
+      modules: ['@vitehub/chat/nitro', '@vitehub/workflow/nitro'],
+    }),
+  ],
+})
+```
+
 `provider: 'node'` is accepted as an alias for `openworkflow`.
 
 ## Runtime model
@@ -43,6 +62,8 @@ export default defineNitroConfig({
 OpenWorkflow stores run state and step history in Postgres. The web app starts workflows by writing runs to the database. One or more worker processes poll Postgres, claim work, execute workflow handlers, and persist completed steps.
 
 The provider maps ViteHub workflow steps onto OpenWorkflow `step.run()` checkpoints, so repeated worker starts do not repeat completed steps.
+
+Nitro starts an OpenWorkflow worker in the same Node process by default for `openworkflow` configs. Set `OPENWORKFLOW_WORKER=false` on the web app when running a separate worker process.
 
 ## Worker entry
 
@@ -75,6 +96,7 @@ services:
   app:
     command: node .output/server/index.mjs
     environment:
+      OPENWORKFLOW_WORKER: "false"
       OPENWORKFLOW_POSTGRES_URL: postgres://postgres:postgres@postgres:5432/app
 
   workflow-worker:
@@ -99,3 +121,14 @@ services:
 | `OPENWORKFLOW_SCHEMA` | Postgres schema for workflow tables. Defaults to `openworkflow`. |
 
 OpenWorkflow runs migrations on connect by default. Set `postgres.runMigrations: false` when migrations are managed separately.
+
+Use `openWorkflowEnv()` from `@vitehub/env/nitro` if the app wants runtime env diagnostics for these variables:
+
+```ts
+import { env, openWorkflowEnv } from '@vitehub/env/nitro'
+
+env: {
+  databaseUrl: env({ secret: true, source: env.source('DATABASE_URL') }),
+  openWorkflow: openWorkflowEnv(),
+}
+```

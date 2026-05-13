@@ -91,6 +91,7 @@ export type {
   WorkflowRunLike,
 } from "./types.ts"
 export * from "./devtools.ts"
+export { nodeDockerRuntimePreset } from "./presets.ts"
 
 let definitionId = 0
 

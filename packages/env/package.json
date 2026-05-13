@@ -35,6 +35,10 @@
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js"
     },
+    "./presets": {
+      "types": "./dist/presets.d.ts",
+      "import": "./dist/presets.js"
+    },
     "./runtime/server": {
       "types": "./dist/runtime/server.d.ts",
       "import": "./dist/runtime/server.js"

@@ -31,6 +31,7 @@
     "./cloudflare": "./dist/cloudflare.js",
     "./devtools": "./dist/devtools.js",
     "./nitro": "./dist/nitro.js",
+    "./presets": "./dist/presets.js",
     "./runtime/agent-chat": "./dist/runtime/agent-chat.js",
     "./runtime/chat-devtools-handler": "./dist/runtime/chat-devtools-handler.js",
     "./runtime/cloudflare-workers-dev": "./dist/runtime/cloudflare-workers-dev.js",

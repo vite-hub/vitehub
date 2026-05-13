@@ -30,6 +30,7 @@ export type EnvSource =
     kind: "env"
     label: string
     name: string
+    names?: string[]
     serializable: true
   }
   | {

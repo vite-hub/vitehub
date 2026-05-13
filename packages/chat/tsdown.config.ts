@@ -13,6 +13,7 @@ export default defineConfig({
     "src/cloudflare.ts",
     "src/devtools.ts",
     "src/nitro.ts",
+    "src/presets.ts",
     "src/runtime/nitro-dev-initialize.ts",
     "src/runtime/cloudflare-workers-dev.ts",
     "src/runtime/agent-chat.ts",
