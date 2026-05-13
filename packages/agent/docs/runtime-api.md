@@ -19,6 +19,8 @@ import {
   runAgent,
   streamAgent,
 } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { tanstackAiAdapter } from '@vitehub/agent/tanstack-ai'
 ```
 
 ::fw{id="vite:dev vite:build"}
@@ -40,23 +42,41 @@ export default defineNitroConfig({
 ```ts
 defineAgent({
   description?: string
-  model?: AgentModelInput
-  instructions?: string | string[] | ((context: WorkspaceAgentInstructionsContext) => MaybePromise<string | string[] | undefined>) | Array<string | string[] | ((context: WorkspaceAgentInstructionsContext) => MaybePromise<string | string[] | undefined>)>
-  tools?: MaybeResolvable<ToolSet, ResolvedAgentRuntimeContext> | ((context: WorkspaceAgentInstructionsContext & { workspace }) => MaybePromise<ToolSet | undefined>)
+  adapter?: AgentAdapter | AgentAdapterFactory
   run?: AgentRunHandler
+  workspace?: WorkspaceAgentWorkspaceOptions
 })
 ```
 
-You can also pass an AI SDK `Agent` instance to `defineAgent()`.
+Adapters own library-specific model, instruction, tool, and generation options. ViteHub owns runtime context, message input, tool policy, workspace integration, and chat handoff.
+
+```ts
+defineAgent({
+  adapter: aiSdkAdapter({
+    model,
+    instructions: 'Use workspace sources.',
+    tools: ({ workspace }) => workspace.tools.inspect(),
+    options: {
+      providerOptions: {
+        openai: { reasoningEffort: 'medium' },
+      },
+    },
+  }),
+})
+```
+
+Use `tanstackAiAdapter()` from `@vitehub/agent/tanstack-ai` for TanStack AI. Adapter option objects forward unknown fields to the underlying library so new provider options are not blocked on ViteHub releases.
 
 Workspace agents do not attach workspace tools automatically. The `workspace` option defines the source mounts; the `tools` resolver decides what the model can use at runtime.
 
 ```ts
 defineAgent({
   workspace: { sources },
-  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
-  tools: ({ workspace }) => workspace.tools.inspect(),
-  model,
+  adapter: aiSdkAdapter({
+    instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+    tools: ({ workspace }) => workspace.tools.inspect(),
+    model,
+  }),
 })
 ```
 
@@ -101,7 +121,7 @@ interface AgentModuleOptions {
     sandbox?: 'auto' | boolean
   }
   providers?: {
-    model?: { provider?: 'auto' | 'vercel-ai-sdk' | string }
+    model?: { provider?: 'auto' | 'ai-sdk' | 'tanstack-ai' | string }
     state?: { provider?: 'auto' | 'memory' | 'cloudflare-agents' | string }
     scheduler?: { provider?: 'auto' | 'memory' | 'cloudflare-agents' | string }
     sandbox?: { provider?: 'auto' | 'cloudflare' | 'vercel' | string }

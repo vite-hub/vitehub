@@ -184,6 +184,27 @@ function isDevtoolsThread(thread: unknown): thread is Thread & { adapter?: { nam
     && (thread as { adapter?: { name?: string } }).adapter?.name === chatDevtoolsAdapterName
 }
 
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return !!value
+    && typeof value === "object"
+    && Symbol.asyncIterator in value
+    && typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === "function"
+}
+
+async function collectStreamText(stream: AsyncIterable<unknown>): Promise<string> {
+  let text = ""
+  for await (const event of stream) {
+    if (typeof event === "string") {
+      text += event
+      continue
+    }
+    if (event && typeof event === "object" && "type" in event && (event as { type?: unknown }).type === "text-delta") {
+      text += String((event as { text?: unknown }).text || "")
+    }
+  }
+  return text
+}
+
 function createDefaultAgentInput(args: ChatAgentHookArgs, platform?: string): AgentRunInput {
   return {
     context: {
@@ -221,7 +242,7 @@ export async function executeChatAgentResponse<
       return
     }
     if (placeholder) {
-      await placeholder.edit(result as never)
+      await placeholder.edit(isAsyncIterable(result) ? await collectStreamText(result) as never : result as never)
       return
     }
     await baseArgs.thread.post(result as never)

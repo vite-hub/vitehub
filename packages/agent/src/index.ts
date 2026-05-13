@@ -11,16 +11,10 @@ import {
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
 import type {
-  Agent,
-  AgentCallParameters,
-  AssistantContent,
-  ModelMessage,
-  ToolContent,
-  ToolLoopAgentSettings,
-  ToolResultPart,
-  ToolSet,
-} from "ai"
-import type {
+  AgentAdapter,
+  AgentAdapterFactory,
+  AgentAdapterMetadataContext,
+  AgentAdapterResult,
   AgentDefinition,
   AgentChatOptions,
   AgentInput,
@@ -28,7 +22,6 @@ import type {
   AgentRegistryModule,
   AgentRequestBody,
   AgentRunContext,
-  AgentRunCallbackContext,
   AgentRunInput,
   AgentRunResult,
   AgentRuntimeBinding,
@@ -37,25 +30,30 @@ import type {
   AgentSettings,
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
+  AgentToolSet,
   AgentToolStepItem,
   AgentChatAgentHooks,
-  AgentModelInput,
-  AgentModelInstrumentation,
   MaybePromise,
   MaybeResolvable,
   ResolvedAgentRuntimeContext,
+  WorkspaceAgentWorkspaceOptions,
 } from "./types.ts"
-import type { Message, MessagePart, StreamEvent } from "@vitehub/messages"
+import type { Message, StreamEvent } from "@vitehub/messages"
 import type {
   ReadonlyWorkspaceFacade,
-  ReadonlyWorkspaceFs,
-  WorkspaceDefinitionInput,
   WorkspaceEntry,
   WorkspaceName,
 } from "@vitehub/workspace"
 
 export type {
-  Agent,
+  AgentAdapter,
+  AgentAdapterFactory,
+  AgentAdapterInstructions,
+  AgentAdapterInstructionsPart,
+  AgentAdapterInstructionsValue,
+  AgentAdapterMetadataContext,
+  AgentAdapterResult,
+  AgentAdapterRunContext,
   AgentCapabilities,
   AgentCapabilityHandle,
   AgentChatAgentHookArgs,
@@ -100,6 +98,7 @@ export type {
   AgentToolPolicyDecision,
   AgentStateProviderOptions,
   AgentToolResolver,
+  AgentToolResolverWithWorkspace,
   AgentToolStep,
   AgentWaitUntil,
   CloudflareExportedHandlerFetchHandler,
@@ -109,6 +108,7 @@ export type {
   Resolvable,
   ResolvedAgentModuleOptions,
   ResolvedAgentRuntimeContext,
+  WorkspaceAgentWorkspaceOptions,
 } from "./types.ts"
 
 export type {
@@ -129,13 +129,38 @@ async function resolveValue<T, TContext extends AgentRuntimeContext>(
   return await resolveRuntimeValue(value, context)
 }
 
-function hasAgentMethods(value: unknown): value is Agent {
+function hasAgentMethods(value: unknown): value is AgentAdapter {
   return typeof value === "object"
     && value !== null
     && "generate" in value
     && typeof (value as { generate?: unknown }).generate === "function"
-    && "stream" in value
-    && typeof (value as { stream?: unknown }).stream === "function"
+}
+
+function toLegacyCallInput(context: {
+  input: AgentRunInput
+  messages: Message[]
+  prompt?: string
+}) {
+  return {
+    abortSignal: context.input.abortSignal,
+    ...(context.messages.length ? { messages: context.messages.map(message => ({ content: getMessageText(message), role: message.role })) } : {}),
+    ...(context.prompt ? { prompt: context.prompt } : {}),
+    timeout: context.input.timeout,
+  }
+}
+
+function normalizeDirectAgent<CALL_OPTIONS>(agent: AgentAdapter<CALL_OPTIONS> & { tools?: unknown }): AgentAdapter<CALL_OPTIONS> {
+  if (agent.name) return agent
+  return {
+    async generate(context) {
+      return await agent.generate(toLegacyCallInput(context) as never)
+    },
+    name: "custom",
+    async stream(context) {
+      return await agent.stream?.(toLegacyCallInput(context) as never)
+    },
+    ...(agent.tools ? { tools: agent.tools } : {}),
+  }
 }
 
 function hasAgentDefinition(value: unknown): value is AgentDefinition {
@@ -157,88 +182,6 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): ResolvedAgentRuntimeContext<TRuntimeConfig> {
   return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
-}
-
-async function createToolLoopAgent<CALL_OPTIONS, TOOLS extends ToolSet>(
-  settings: Omit<AgentSettings<AgentRuntimeConfig, CALL_OPTIONS, TOOLS>, "description" | "run" | "tools">,
-  tools: TOOLS | undefined,
-): Promise<Agent<CALL_OPTIONS, TOOLS>> {
-  const ai = await import("ai")
-  const { ToolLoopAgent } = ai
-  return new ToolLoopAgent<CALL_OPTIONS, TOOLS>({
-    ...(settings as unknown as ConstructorParameters<typeof ToolLoopAgent<CALL_OPTIONS, TOOLS>>[0]),
-    tools,
-  })
-}
-
-async function instrumentModel<TRuntimeConfig extends AgentRuntimeConfig>(
-  model: AgentModelInput,
-  instrumentation: AgentModelInstrumentation<TRuntimeConfig> | undefined,
-  context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
-) {
-  return instrumentation
-    ? await instrumentation({ ...context, model, run: context.run })
-    : model
-}
-
-function withRunCallbacks<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
-  TOOLS extends ToolSet,
->(
-  settings: Record<string, unknown>,
-  context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>,
-) {
-  const {
-    onRunStepFinish,
-    onRunToolCallFinish,
-    onRunToolCallStart,
-    onStepFinish,
-    experimental_onToolCallFinish,
-    experimental_onToolCallStart,
-    ...rest
-  } = settings as {
-    experimental_onToolCallFinish?: (event: unknown) => MaybePromise<void>
-    experimental_onToolCallStart?: (event: unknown) => MaybePromise<void>
-    onRunStepFinish?: (step: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
-    onRunToolCallFinish?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
-    onRunToolCallStart?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
-    onStepFinish?: (step: unknown) => MaybePromise<void>
-  } & Record<string, unknown>
-
-  return {
-    ...rest,
-    ...(onRunStepFinish
-      ? {
-          async onStepFinish(step: unknown) {
-            await onStepFinish?.(step)
-            await onRunStepFinish?.(step, context)
-          },
-        }
-      : onStepFinish
-        ? { onStepFinish }
-        : {}),
-    ...(onRunToolCallStart
-      ? {
-          async experimental_onToolCallStart(event: unknown) {
-            await experimental_onToolCallStart?.(event)
-            await onRunToolCallStart?.(event, context)
-          },
-        }
-      : experimental_onToolCallStart
-        ? { experimental_onToolCallStart }
-        : {}),
-    ...(onRunToolCallFinish
-      ? {
-          async experimental_onToolCallFinish(event: unknown) {
-            await experimental_onToolCallFinish?.(event)
-            await onRunToolCallFinish?.(event, context)
-          },
-        }
-      : experimental_onToolCallFinish
-        ? { experimental_onToolCallFinish }
-        : {}),
-  }
 }
 
 function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
@@ -294,7 +237,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
   }
 }
 
-function applyToolPolicies<TTools extends Record<string, unknown>>(tools: TTools | undefined): TTools | undefined {
+export function applyAgentToolPolicies<TTools extends Record<string, unknown>>(tools: TTools | undefined): TTools | undefined {
   if (!tools || typeof tools !== "object") {
     return tools
   }
@@ -339,7 +282,7 @@ function materializeSummary(output: unknown): unknown {
 }
 
 async function reportWorkspaceMaterialization(
-  tools: ToolSet | undefined,
+  tools: AgentToolSet | undefined,
   reportToolStep?: AgentToolStepReporter,
 ) {
   if (!reportToolStep || !tools || typeof tools !== "object") return
@@ -364,7 +307,7 @@ async function reportWorkspaceMaterialization(
   }
 }
 
-function withToolStepReporting<TTools extends ToolSet>(tools: TTools, reportToolStep?: AgentToolStepReporter): TTools {
+export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: TTools, reportToolStep?: AgentToolStepReporter): TTools {
   if (!reportToolStep || !tools || typeof tools !== "object") {
     return tools
   }
@@ -401,19 +344,18 @@ function withToolStepReporting<TTools extends ToolSet>(tools: TTools, reportTool
 
 function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = never,
-  TOOLS extends ToolSet = ToolSet,
+  CALL_OPTIONS = unknown,
 >(
-  options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }) | Agent<CALL_OPTIONS, TOOLS>,
-): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS> {
+  options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }) | AgentAdapter<CALL_OPTIONS>,
+): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   if (hasAgentMethods(options)) {
-    const agent = options as Agent<CALL_OPTIONS, TOOLS>
+    const agent = options as AgentAdapter<CALL_OPTIONS> & { tools?: unknown }
     return {
-      resolve: async () => agent,
+      resolve: async () => normalizeDirectAgent(agent),
     }
   }
 
-  const { chat, description, hooks, instrumentModel: modelInstrumentation, run, runtime, tools, ...settings } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
+  const { adapter, chat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
 
   return {
     chat,
@@ -421,18 +363,18 @@ function defineBaseAgent<
     hooks,
     runtime,
     run,
+    workspace,
     async resolve(context) {
-      if (!("model" in settings) || !settings.model) {
-        throw new Error("[vitehub] Agent model is required unless the agent defines a custom run() handler.")
+      const resolvedAdapter = adapter || ("model" in options
+        ? (await import("./ai-sdk.ts")).aiSdkAdapter(options as never)
+        : undefined)
+      if (!resolvedAdapter) {
+        throw new Error("[vitehub] Agent adapter is required unless the agent defines a custom run() handler.")
       }
-
       const resolvedContext = createResolvedRuntimeContext(context)
-      const resolvedTools = tools
-        ? applyToolPolicies(await resolveValue(tools, resolvedContext))
-        : undefined
-      const model = await instrumentModel(settings.model, modelInstrumentation, resolvedContext)
-
-      return await createToolLoopAgent({ ...settings, model } as never, resolvedTools as TOOLS | undefined)
+      return typeof resolvedAdapter === "function"
+        ? await (resolvedAdapter as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
+        : resolvedAdapter
     },
   }
 }
@@ -443,35 +385,6 @@ export function workflow(name?: string): AgentWorkflowRuntimeBinding {
     ...(name ? { name } : {}),
   }
 }
-
-type WorkspaceRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig> =
-  ResolvedAgentRuntimeContext<TRuntimeConfig>
-
-type WorkspaceModel<TRuntimeConfig extends AgentRuntimeConfig> =
-  | ToolLoopAgentSettings["model"]
-  | ((context: WorkspaceRuntimeContext<TRuntimeConfig>) => MaybePromise<ToolLoopAgentSettings["model"]>)
-
-type WorkspaceAgentInstructionsValue = string | string[]
-
-interface WorkspaceAgentInstructionsContext<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-> extends WorkspaceRuntimeContext<TRuntimeConfig> {
-  fs: ReadonlyWorkspaceFs<Name>
-  workspace: ReadonlyWorkspaceFacade<Name>
-}
-
-type WorkspaceAgentInstructions<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-> =
-  | WorkspaceAgentInstructionsPart<TRuntimeConfig, Name>
-  | Array<WorkspaceAgentInstructionsPart<TRuntimeConfig, Name>>
-
-export type WorkspaceAgentToolsResolver<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-> = (context: WorkspaceAgentInstructionsContext<TRuntimeConfig, Name>) => MaybePromise<ToolSet | undefined>
 
 export interface AgentDevtoolsFileTreeItem {
   children?: AgentDevtoolsFileTreeItem[]
@@ -502,47 +415,22 @@ export interface AgentDevtoolsMetadata {
   tools?: AgentDevtoolsToolDefinition[]
 }
 
-type WorkspaceAgentInstructionsPart<
+export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> =
-  | WorkspaceAgentInstructionsValue
-  | ((context: WorkspaceAgentInstructionsContext<TRuntimeConfig, Name>) => MaybePromise<WorkspaceAgentInstructionsValue | undefined>)
-
-export interface WorkspaceAgentFallbackOptions {
-  enabled?: boolean
-  maxToolResults?: number
-}
-
-export type WorkspaceAgentWorkspaceOptions = Omit<WorkspaceDefinitionInput, "name">
-
-export interface WorkspaceAgentOptions<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-> extends Omit<ToolLoopAgentSettings<never, ToolSet>, "instructions" | "model" | "tools"> {
+> = AgentSettings<TRuntimeConfig> & {
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  fallback?: boolean | WorkspaceAgentFallbackOptions
-  experimental_onToolCallFinish?: (event: unknown) => MaybePromise<void>
-  experimental_onToolCallStart?: (event: unknown) => MaybePromise<void>
   hooks?: AgentChatAgentHooks<TRuntimeConfig>
-  instructions?: WorkspaceAgentInstructions<TRuntimeConfig, Name>
-  instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
-  model: WorkspaceModel<TRuntimeConfig>
-  onRunStepFinish?: (step: unknown, context: AgentRunCallbackContext<TRuntimeConfig>) => MaybePromise<void>
-  onRunToolCallFinish?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig>) => MaybePromise<void>
-  onRunToolCallStart?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig>) => MaybePromise<void>
   name?: string
   runtime?: AgentRuntimeBinding
-  stepLimit?: number
-  tools?: WorkspaceAgentToolsResolver<TRuntimeConfig, Name>
   workspace: WorkspaceAgentWorkspaceOptions
 }
 
 export type WorkspaceAgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = AgentDefinition<TRuntimeConfig, never, ToolSet> & WorkspaceDefinitionInput & {
+> = AgentDefinition<TRuntimeConfig> & WorkspaceAgentWorkspaceOptions & {
   __vitehubWorkspaceAgent: true
   __vitehubWorkspaceAgentDefaults?: WorkspaceAgentDefaults<Name>
   __vitehubWorkspaceAgentOptions: WorkspaceAgentOptions<TRuntimeConfig, Name>
@@ -562,11 +450,10 @@ export interface DefineAgent {
   ): WorkspaceAgentDefinition<TRuntimeConfig, Name>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-    CALL_OPTIONS = never,
-    TOOLS extends ToolSet = ToolSet,
+    CALL_OPTIONS = unknown,
   >(
-    options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS, TOOLS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }) | Agent<CALL_OPTIONS, TOOLS>,
-  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS>
+    options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }) | AgentAdapter<CALL_OPTIONS>,
+  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
 function isWorkspaceAgentOptions(value: unknown): value is WorkspaceAgentOptions {
@@ -577,19 +464,6 @@ function isWorkspaceAgentOptions(value: unknown): value is WorkspaceAgentOptions
     && (value as { workspace?: unknown }).workspace !== null
 }
 
-function isModelResolver<TRuntimeConfig extends AgentRuntimeConfig>(
-  model: WorkspaceModel<TRuntimeConfig>,
-): model is (context: WorkspaceRuntimeContext<TRuntimeConfig>) => MaybePromise<ToolLoopAgentSettings["model"]> {
-  return typeof model === "function"
-}
-
-async function resolveModel<TRuntimeConfig extends AgentRuntimeConfig>(
-  model: WorkspaceModel<TRuntimeConfig>,
-  context: WorkspaceRuntimeContext<TRuntimeConfig>,
-) {
-  return isModelResolver(model) ? await model(context) : model
-}
-
 function getPromptText(input: AgentRunInput) {
   if (typeof input.prompt === "string") return input.prompt
 
@@ -598,52 +472,6 @@ function getPromptText(input: AgentRunInput) {
 
   if (!latestUserMessage) return ""
   return getMessageText(latestUserMessage)
-}
-
-function getAgentCall(input: AgentRunInput) {
-  if (input.messages) return { messages: toModelMessages(input.messages) }
-  if (Array.isArray(input.prompt)) return { messages: toModelMessages(input.prompt) }
-  if (input.prompt) return { prompt: input.prompt }
-  return { messages: [] }
-}
-
-function joinInstructions(...parts: Array<WorkspaceAgentInstructionsValue | undefined>) {
-  return parts
-    .flatMap(part => Array.isArray(part) ? part : [part])
-    .map(part => part?.trim())
-    .filter(Boolean)
-    .join("\n\n")
-}
-
-async function resolveWorkspaceInstructions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
-  workspace: ReadonlyWorkspaceFacade<Name>,
-  context: WorkspaceRuntimeContext<TRuntimeConfig>,
-  _defaults: WorkspaceAgentDefaults<Name>,
-) {
-  const instructionContext = {
-    ...context,
-    fs: workspace.fs,
-    workspace,
-  }
-  const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  const instructions = await Promise.all(parts.map(part => typeof part === "function"
-    ? part(instructionContext)
-    : part))
-
-  return joinInstructions(...instructions)
-}
-
-function getFallbackOptions(fallback: WorkspaceAgentOptions["fallback"]): Required<WorkspaceAgentFallbackOptions> {
-  if (fallback === false) return { enabled: false, maxToolResults: 0 }
-  if (fallback === true || fallback === undefined) return { enabled: true, maxToolResults: 8 }
-  return {
-    enabled: fallback.enabled ?? true,
-    maxToolResults: fallback.maxToolResults ?? 8,
-  }
 }
 
 function createShellMetadataTool(): AgentDevtoolsToolDefinition {
@@ -901,7 +729,7 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
 function workspaceMetadataTools<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
 ): AgentDevtoolsToolDefinition[] {
-  if (!options.tools) return []
+  if (!options.tools || typeof options.tools !== "function") return []
 
   try {
     const metadataTools = createMetadataToolSet()
@@ -912,10 +740,10 @@ function workspaceMetadataTools<Name extends WorkspaceName>(
     const resolved = options.tools({
       fs: workspace.fs,
       workspace,
-    } as unknown as WorkspaceAgentInstructionsContext<AgentRuntimeConfig, Name>)
+    } as never)
     if (typeof (resolved as { then?: unknown })?.then === "function") return []
 
-    return Object.entries(resolved || {})
+    return Object.entries(resolved as Record<string, unknown> || {})
       .map(([name, tool]) => toolDefinitionFromEntry(name, tool))
       .sort((left, right) => left.name.localeCompare(right.name))
   }
@@ -963,10 +791,10 @@ async function resolveWorkspaceMetadataInstructions<
   const instructionContext = {
     fs: workspace.fs,
     workspace,
-  } as WorkspaceAgentInstructionsContext<TRuntimeConfig, Name>
+  }
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
   const instructions = await Promise.all(parts.map(part => typeof part === "function"
-    ? part(instructionContext)
+    ? part(instructionContext as never)
     : part))
   return instructions
     .flatMap(part => Array.isArray(part) ? part : [part])
@@ -1024,52 +852,6 @@ export async function resolveAgentDevtoolsMetadata<
   }
 }
 
-function collectToolResults(
-  result: { steps?: Array<{ content?: Array<{ type: string, output?: unknown }> }> },
-  maxToolResults: number,
-) {
-  const parts: string[] = []
-
-  for (const step of result.steps || []) {
-    for (const content of step.content || []) {
-      if (content.type !== "tool-result") continue
-      parts.push(JSON.stringify(content.output).slice(0, 4000))
-      if (parts.length >= maxToolResults) return parts
-    }
-  }
-
-  return parts
-}
-
-function hasToolResults(result: { steps?: Array<{ content?: Array<{ type: string }> }> }) {
-  return result.steps?.some(step => step.content?.some(content => content.type === "tool-result")) || false
-}
-
-async function synthesizeWorkspaceFallback<TRuntimeConfig extends AgentRuntimeConfig>(
-  model: ToolLoopAgentSettings["model"],
-  context: AgentRunContext<TRuntimeConfig>,
-  result: { steps?: Array<{ content?: Array<{ type: string, output?: unknown }> }> },
-  maxToolResults: number,
-) {
-  const evidence = collectToolResults(result, maxToolResults)
-  if (evidence.length === 0) return undefined
-
-  const { generateText } = await import("ai")
-  const summary = await generateText({
-    model,
-    system: [
-      "Answer the user's last message using only the workspace tool results.",
-      "If the tool results are insufficient, say what is missing.",
-    ].join("\n"),
-    prompt: [
-      `User message:\n${getPromptText(context.input)}`,
-      `Workspace tool results:\n${evidence.join("\n\n---\n\n")}`,
-    ].join("\n\n"),
-  })
-
-  return summary.text.trim() || undefined
-}
-
 function createWorkspaceAgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -1077,84 +859,25 @@ function createWorkspaceAgentDefinition<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name> = {},
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name> {
-  const workspaceName = defaults.workspace
-  const definition = defineBaseAgent<TRuntimeConfig, never, ToolSet>({
+  const definition = defineBaseAgent<TRuntimeConfig>({
+    ...options,
     chat: options.chat,
     description: options.description,
     hooks: options.hooks,
+    run: options.run,
     runtime: options.runtime,
-    async run(context) {
-      if (!workspaceName) {
-        throw new Error("[vitehub] Workspace agents require an inferred workspace name from server/agents/<name>/config.ts.")
-      }
-      const { useWorkspace } = await import("@vitehub/workspace")
-      const { stepCountIs, ToolLoopAgent } = await import("ai")
-      const workspace = useWorkspace(workspaceName)
-      const resolvedModel = await resolveModel(options.model, context)
-      const model = await instrumentModel(resolvedModel, options.instrumentModel, context)
-      const instructions = await resolveWorkspaceInstructions(options, workspace, context, defaults)
-      const workspaceContext = {
-        ...context,
-        fs: workspace.fs,
-        workspace,
-      }
-      const reportToolStep = context.devtools?.reportToolStep
-      const {
-        chat: _chat,
-        description: _description,
-        fallback: _fallback,
-        hooks: _hooks,
-        instructions: _instructions,
-        instrumentModel: _instrumentModel,
-        model: _model,
-        name: _name,
-        onRunStepFinish: _onRunStepFinish,
-        onRunToolCallFinish: _onRunToolCallFinish,
-        onRunToolCallStart: _onRunToolCallStart,
-        runtime: _runtime,
-        stepLimit: _stepLimit,
-        tools: _tools,
-        workspace: _workspace,
-        ...settings
-      } = options
-      const resolvedTools = options.tools
-        ? await options.tools(workspaceContext)
-        : undefined
-      const runSettings = withRunCallbacks({
-        ...settings,
-        onRunStepFinish: _onRunStepFinish,
-        onRunToolCallFinish: _onRunToolCallFinish,
-        onRunToolCallStart: _onRunToolCallStart,
-      } as Record<string, unknown>, context)
-      const agentSettings = {
-        ...runSettings,
-        instructions,
-        model,
-        stopWhen: ((runSettings as Record<string, unknown>).stopWhen ?? stepCountIs(options.stepLimit ?? 20)) as never,
-        ...(resolvedTools ? { tools: withToolStepReporting(resolvedTools, reportToolStep) } : {}),
-      }
-      if (hasLazyWorkspaceSources(options)) {
-        await reportWorkspaceMaterialization(resolvedTools, reportToolStep)
-      }
-      const agent = new ToolLoopAgent(agentSettings)
-      const result = await agent.generate({
-        ...getAgentCall(context.input),
-        abortSignal: context.input.abortSignal,
-        timeout: context.input.timeout,
-      })
-      const text = result.text.trim()
+    workspace: options.workspace,
+  } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name>
 
-      if (text) return text
-
-      const fallback = getFallbackOptions(options.fallback)
-      if (fallback.enabled && (result.finishReason === "tool-calls" || hasToolResults(result))) {
-        const synthesized = await synthesizeWorkspaceFallback(model, context, result, fallback.maxToolResults)
-        if (synthesized) return synthesized
-      }
-
-      return result
-    },
-  }) as WorkspaceAgentDefinition<TRuntimeConfig, Name>
+  if (!definition.run) {
+    definition.run = async (context) => {
+      const adapter = await definition.resolve(context)
+      const result = await adapter.generate(await createAdapterRunContext(definition as never, adapter, context as never, context.input))
+      return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
+        ? (result as { text: string }).text
+        : result
+    }
+  }
 
   Object.assign(definition, options.workspace, {
     __vitehubWorkspaceAgent: true,
@@ -1184,9 +907,9 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
 export async function resolveAgent<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,
   context: TContext,
-): Promise<Agent> {
+): Promise<AgentAdapter> {
   if (hasAgentMethods(agent)) {
-    return agent
+    return normalizeDirectAgent(agent as never)
   }
 
   if (hasAgentDefinition(agent)) {
@@ -1214,139 +937,10 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
   return agent
 }
 
-function createCallParameters<CALL_OPTIONS, TOOLS extends ToolSet>(
-  input: AgentRunInput<CALL_OPTIONS, TOOLS>,
-): AgentCallParameters<CALL_OPTIONS, TOOLS> {
-  const base = {
-    abortSignal: input.abortSignal,
-    timeout: input.timeout,
-    ...("options" in input ? { options: input.options as CALL_OPTIONS } : {}),
-  }
-
-  if (input.messages) {
-    return {
-      ...base,
-      messages: toModelMessages(input.messages),
-    } as AgentCallParameters<CALL_OPTIONS, TOOLS>
-  }
-
-  if (input.prompt) {
-    if (Array.isArray(input.prompt)) {
-      return {
-        ...base,
-        messages: toModelMessages(input.prompt),
-      } as AgentCallParameters<CALL_OPTIONS, TOOLS>
-    }
-
-    return {
-      ...base,
-      prompt: input.prompt,
-    } as AgentCallParameters<CALL_OPTIONS, TOOLS>
-  }
-
-  return {
-    ...base,
-    messages: [],
-  } as AgentCallParameters<CALL_OPTIONS, TOOLS>
-}
-
-function toTextModelMessageContent(parts: MessagePart[]): string {
-  return parts.map((part) => {
-    if (part.type === "text") return part.text
-    if (part.type === "error") return part.error
-    if (part.type === "data") return JSON.stringify(part.data)
-    if (part.type === "tool-call") return JSON.stringify({ input: part.input, toolCallId: part.id, toolName: part.name, type: "tool-call" })
-    if (part.type === "tool-result") return JSON.stringify({ error: part.error, output: part.output, toolCallId: part.id, toolName: part.name, type: "tool-result" })
-    if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.id, toolName: part.name, type: "approval-request" })
-    if (part.type === "approval-decision") return JSON.stringify({ approved: part.approved, reason: part.reason, toolCallId: part.id, type: "approval-decision" })
-    if (part.type === "source") return part.url || part.title || ""
-    return ""
-  }).filter(Boolean).join("\n")
-}
-
-function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart["output"] {
-  return (part.error ? { error: part.error } : part.output ?? null) as ToolResultPart["output"]
-}
-
-function toAssistantModelMessageContent(parts: MessagePart[]): AssistantContent {
-  const content: Exclude<AssistantContent, string> = []
-
-  for (const part of parts) {
-    if (part.type === "text") {
-      content.push({ text: part.text, type: "text" as const })
-    }
-    if (part.type === "tool-call") {
-      content.push({
-        input: part.input,
-        toolCallId: part.id,
-        toolName: part.name,
-        type: "tool-call" as const,
-      })
-    }
-    if (part.type === "tool-result") {
-      content.push({
-        output: toToolResultOutput(part),
-        toolCallId: part.id,
-        toolName: part.name,
-        type: "tool-result" as const,
-      })
-    }
-    if (part.type === "approval-request") {
-      content.push({
-        approvalId: part.id,
-        toolCallId: part.id,
-        type: "tool-approval-request" as const,
-      })
-    }
-  }
-
-  return content.length ? content : toTextModelMessageContent(parts)
-}
-
-function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
-  const content: ToolContent = []
-
-  for (const part of parts) {
-    if (part.type === "tool-result") {
-      content.push({
-        output: toToolResultOutput(part),
-        toolCallId: part.id,
-        toolName: part.name,
-        type: "tool-result" as const,
-      })
-    }
-    if (part.type === "approval-decision") {
-      content.push({
-        approvalId: part.id,
-        approved: part.approved,
-        reason: part.reason,
-        type: "tool-approval-response" as const,
-      })
-    }
-  }
-
-  return content
-}
-
-export function toModelMessages(messages: Message[]): ModelMessage[] {
-  return messages.map((message) => {
-    if (message.role === "assistant") {
-      return {
-        content: toAssistantModelMessageContent(message.parts),
-        role: message.role,
-      }
-    }
-    if (message.role === "tool") {
-      return {
-        content: toToolModelMessageContent(message.parts),
-        role: message.role,
-      }
-    }
-    return {
-      content: getMessageText(message) || toTextModelMessageContent(message.parts),
-      role: message.role,
-    }
-  }) as ModelMessage[]
+function getRunMessages(input: AgentRunInput): Message[] {
+  if (input.messages) return input.messages
+  if (Array.isArray(input.prompt)) return input.prompt
+  return []
 }
 
 export function defineTool<TInput = unknown, TOutput = unknown>(
@@ -1399,6 +993,10 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
     return { error: typeof value.error === "string" ? value.error : undefined, id: String(value.toolCallId ?? value.id), name: String(value.toolName ?? value.name), output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "error") {
+    if (value.error instanceof ApprovalRequiredError) {
+      const { request } = value.error
+      return { id: request.id, input: request.input, name: request.capability || request.id, reason: request.reason, type: "approval-request" }
+    }
     return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), type: "error" }
   }
   if (type === "finish") {
@@ -1408,6 +1006,13 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
 }
 
 async function* streamTextResultToEvents(value: unknown): AsyncIterable<StreamEvent> {
+  if (value && typeof value === "object" && Symbol.asyncIterator in value) {
+    for await (const chunk of value as AsyncIterable<unknown>) {
+      const event = toStreamEvent(chunk)
+      if (event) yield event
+    }
+    return
+  }
   const result = value as { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
   if (result.fullStream) {
     for await (const chunk of result.fullStream) {
@@ -1426,63 +1031,88 @@ async function* streamTextResultToEvents(value: unknown): AsyncIterable<StreamEv
 function createRunContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
-  TOOLS extends ToolSet,
 >(
-  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS>,
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS>,
   context: AgentRuntimeContext<TRuntimeConfig>,
-  input: AgentRunInput<CALL_OPTIONS, TOOLS>,
-): AgentRunContext<TRuntimeConfig, CALL_OPTIONS, TOOLS> {
+  input: AgentRunInput<CALL_OPTIONS>,
+): AgentRunContext<TRuntimeConfig, CALL_OPTIONS> {
   const resolvedContext = createResolvedRuntimeContext(context)
 
   return {
     ...resolvedContext,
-    createAgent: () => definition.resolve(context),
-    generateText: async options => await (await definition.resolve(context)).generate(options),
     input,
-    streamText: async options => await (await definition.resolve(context)).stream(options),
+  }
+}
+
+async function createAdapterRunContext<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  adapter: AgentAdapter<CALL_OPTIONS>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+) {
+  const runtime = createResolvedRuntimeContext(context)
+  const workspaceName = (definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined)?.__vitehubWorkspaceAgentDefaults?.workspace
+  const workspace = workspaceName
+    ? (await import("@vitehub/workspace")).useWorkspace(workspaceName)
+    : undefined
+  return {
+    devtools: context.devtools,
+    input,
+    instructions: undefined,
+    messages: getRunMessages(input),
+    prompt: typeof input.prompt === "string" ? input.prompt : undefined,
+    runtime,
+    tools: undefined,
+    workspace,
   }
 }
 
 export async function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = never,
-  TOOLS extends ToolSet = ToolSet,
+  CALL_OPTIONS = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
-  input: AgentRunInput<CALL_OPTIONS, TOOLS>,
+  input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   if (hasAgentDefinition(agent) && agent.run) {
-    const definition = agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS>
+    const definition = agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
     return await definition.run!(createRunContext(definition, context, input))
   }
 
   const resolved = await resolveAgent(agent, context)
-  return toAgentRunResult(await resolved.generate(createCallParameters(input) as never))
+  const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
+  return toAgentRunResult(await resolved.generate(await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)))
 }
 
 export async function streamAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = never,
-  TOOLS extends ToolSet = ToolSet,
+  CALL_OPTIONS = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
-  input: AgentRunInput<CALL_OPTIONS, TOOLS>,
+  input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   if (hasAgentDefinition(agent) && agent.run) {
-    const definition = agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TOOLS>
+    const definition = agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
     return await definition.run!(createRunContext(definition, context, input))
   }
 
   const resolved = await resolveAgent(agent, context)
-  const result = await resolved.stream(createCallParameters(input) as never)
+  const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
+  const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
+  const result = resolved.stream
+    ? await resolved.stream(adapterContext)
+    : await resolved.generate(adapterContext)
   return streamTextResultToEvents(result)
 }
 
 export async function getAgent<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,
   context: TContext,
-): Promise<Agent> {
+): Promise<AgentAdapter> {
   return await resolveAgent(agent, context)
 }

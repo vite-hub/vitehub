@@ -24,10 +24,13 @@ Use a default export for one agent per file:
 
 ```ts [server/agents/triager.ts]
 import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 
 export default defineAgent({
-  model,
-  instructions: 'Triage support requests.',
+  adapter: aiSdkAdapter({
+    model,
+    instructions: 'Triage support requests.',
+  }),
 })
 ```
 
@@ -35,10 +38,13 @@ Use named exports when one file owns several agents:
 
 ```ts [server/agent.ts]
 import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 
 export const triager = defineAgent({
-  model,
-  instructions: 'Triage support requests.',
+  adapter: aiSdkAdapter({
+    model,
+    instructions: 'Triage support requests.',
+  }),
 })
 ```
 
@@ -119,7 +125,7 @@ export default defineAgent({
 })
 ```
 
-`run` receives resolved runtime context, the agent input, and helpers for creating or streaming the underlying model agent.
+`run` receives resolved runtime context and the agent input. Use it as the escape hatch when an official library API is not covered by a ViteHub adapter yet.
 
 ## Bind Chat to Agent
 
@@ -164,6 +170,7 @@ Add a `tools` resolver when the model should inspect the mounted files:
 
 ```ts [server/agents/data-sources/config.ts]
 import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 import * as source from '@vitehub/workspace/source'
 
 export default defineAgent({
@@ -172,12 +179,14 @@ export default defineAgent({
       docs: source.github({ repo: 'acme/docs', cache: { maxAge: 3600 } }),
     },
   },
-  tools: ({ workspace }) => workspace.tools.inspect(),
-  model,
+  adapter: aiSdkAdapter({
+    tools: ({ workspace }) => workspace.tools.inspect(),
+    model,
+  }),
 })
 ```
 
-`server/agents/<name>/config.ts` becomes both the agent definition and an implicit workspace definition. Workspace files are not loaded as model instructions by convention. If you want to use `AGENTS.md`, opt in explicitly and keep command syntax guidance out of the file; the workspace shell tool describes its supported syntax in its AI SDK metadata.
+`server/agents/<name>/config.ts` becomes both the agent definition and an implicit workspace definition. Workspace files are not loaded as model instructions by convention. If you want to use `AGENTS.md`, opt in explicitly and keep command syntax guidance out of the file; the workspace shell tool describes its supported syntax through adapter metadata.
 
 ```ts [server/agents/data-sources/config.ts]
 export default defineAgent({
@@ -186,9 +195,11 @@ export default defineAgent({
       docs: source.github({ repo: 'acme/docs' }),
     },
   },
-  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
-  tools: ({ workspace }) => workspace.tools.inspect(),
-  model,
+  adapter: aiSdkAdapter({
+    instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+    tools: ({ workspace }) => workspace.tools.inspect(),
+    model,
+  }),
 })
 ```
 
@@ -197,12 +208,14 @@ Instruction parts can also be composed with an array:
 ```ts
 export default defineAgent({
   workspace: {},
-  instructions: [
-    'Answer only from inspected workspace evidence.',
-    async ({ fs }) => await fs.readFile('AGENTS.md'),
-  ],
-  tools: ({ workspace }) => workspace.tools.inspect(),
-  model,
+  adapter: aiSdkAdapter({
+    instructions: [
+      'Answer only from inspected workspace evidence.',
+      async ({ fs }) => await fs.readFile('AGENTS.md'),
+    ],
+    tools: ({ workspace }) => workspace.tools.inspect(),
+    model,
+  }),
 })
 ```
 
@@ -213,8 +226,10 @@ Workspace sources no longer imply model tools. Replace older workspace agents th
 ```diff
  export default defineAgent({
    workspace: { sources },
-+  tools: ({ workspace }) => workspace.tools.inspect(),
-   model,
++  adapter: aiSdkAdapter({
++    tools: ({ workspace }) => workspace.tools.inspect(),
++    model,
++  }),
  })
 ```
 

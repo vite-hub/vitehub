@@ -298,6 +298,38 @@ describe("defineChat", () => {
     expect(edit).toHaveBeenCalledWith("agent response")
   })
 
+  it("edits an agent placeholder with collected text when the agent streams", async () => {
+    mockAgentPackage({
+      streamAgent: vi.fn(async () => (async function* () {
+        yield { text: "agent ", type: "text-delta" }
+        yield { text: "response", type: "text-delta" }
+      })()),
+    })
+    const { defineChat, resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const edit = vi.fn()
+    const post = vi.fn(async (message: string) => ({
+      edit,
+      id: "placeholder-1",
+      text: message,
+      threadId: "thread-1",
+    }))
+
+    await resolveChat(defineChat({
+      adapters: {},
+      agent: "triager",
+      fallbackStreamingPlaceholderText: "Working...",
+      state: createState() as never,
+      userName: "Quiver Chat",
+    }), createContext({ runtime: "nitro", platform: "telegram" }) as never)
+
+    const handler = directMessageSpy.mock.calls[0]?.[0]
+    await handler?.({ id: "thread-1", post } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
+
+    expect(post).toHaveBeenCalledWith("Working...")
+    expect(edit).toHaveBeenCalledWith("agent response")
+  })
+
   it("runs chat agents through workflow execution when configured", async () => {
     const { getAgentFromRegistry, streamAgent } = mockAgentPackage()
     const { defineChat, resolveChat } = await import("../src/index.ts")

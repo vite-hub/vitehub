@@ -12,7 +12,7 @@ describe("agent config", () => {
         workflow: "auto",
       },
       providers: {
-        model: { provider: "vercel-ai-sdk" },
+        model: { provider: "ai-sdk" },
         sandbox: { provider: "auto" },
         scheduler: { provider: "auto" },
         state: { provider: "auto" },

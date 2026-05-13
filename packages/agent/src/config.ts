@@ -16,7 +16,7 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
     },
     providers: {
       model: {
-        provider: options?.providers?.model?.provider || "vercel-ai-sdk",
+        provider: options?.providers?.model?.provider || "ai-sdk",
       },
       sandbox: {
         provider: options?.providers?.sandbox?.provider || "auto",

@@ -47,7 +47,8 @@ export default defineNitroConfig({
 ::fw{id="vite:dev vite:build"}
 ```ts [server/agents/triager.ts]
 import { defineAgent, defineTool } from '@vitehub/agent'
-import { getMessageText } from '@vitehub/messages'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { gateway } from '@ai-sdk/gateway'
 
 const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
   name: 'classifyTicket',
@@ -60,18 +61,11 @@ const classifyTicket = defineTool<{ message: string }, { queue: string; priority
 
 export default defineAgent({
   description: 'Triage support requests and prepare a queue handoff.',
-  async run({ input }) {
-    const latest = input.messages?.at(-1)
-    const message = latest ? getMessageText(latest) : ''
-    const ticket = await classifyTicket.execute?.({ message })
-
-    return {
-      raw: { ticket },
-      text: ticket
-        ? `Queued for ${ticket.queue} with ${ticket.priority} priority.`
-        : 'Unable to classify the support request.',
-    }
-  },
+  adapter: aiSdkAdapter({
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: 'Classify support requests and prepare queue handoff.',
+    tools: { classifyTicket },
+  }),
 })
 ```
 ::
@@ -79,7 +73,8 @@ export default defineAgent({
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/agents/triager.ts]
 import { defineAgent, defineTool } from '@vitehub/agent'
-import { getMessageText } from '@vitehub/messages'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { gateway } from '@ai-sdk/gateway'
 
 const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
   name: 'classifyTicket',
@@ -92,18 +87,11 @@ const classifyTicket = defineTool<{ message: string }, { queue: string; priority
 
 export default defineAgent({
   description: 'Triage support requests and prepare a queue handoff.',
-  async run({ input }) {
-    const latest = input.messages?.at(-1)
-    const message = latest ? getMessageText(latest) : ''
-    const ticket = await classifyTicket.execute?.({ message })
-
-    return {
-      raw: { ticket },
-      text: ticket
-        ? `Queued for ${ticket.queue} with ${ticket.priority} priority.`
-        : 'Unable to classify the support request.',
-    }
-  },
+  adapter: aiSdkAdapter({
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: 'Classify support requests and prepare queue handoff.',
+    tools: { classifyTicket },
+  }),
 })
 ```
 ::

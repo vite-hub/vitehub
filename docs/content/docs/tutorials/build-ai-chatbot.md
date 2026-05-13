@@ -34,7 +34,7 @@ Before we start, make sure you have:
 
 - Node 20+ for local DevTools
 - A Vite or Nitro app
-- An AI SDK model provider key for the agent step
+- A model provider key for the adapter you choose in the agent step
 
 ## Project setup
 
@@ -147,11 +147,14 @@ Time to swap the dummy reply for a real model. ViteHub agents live in `server/ag
 ::code-tree-intersection
 ```ts [server/agents/support/chat/config.ts]
 import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 
 export default defineAgent({
   description: 'Answer support chat messages.',
-  instructions: 'You are a friendly support bot. Keep replies short and concrete.',
-  model,
+  adapter: aiSdkAdapter({
+    instructions: 'You are a friendly support bot. Keep replies short and concrete.',
+    model,
+  }),
 })
 ```
 ::
@@ -192,6 +195,7 @@ Models guess. Tools inspect. Add a Workspace to your agent so it can search, lis
 ::code-tree-intersection
 ```ts [server/agents/support/chat/config.ts]
 import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 import * as source from '@vitehub/workspace/source'
 
 export default defineAgent({
@@ -218,9 +222,11 @@ export default defineAgent({
       }),
     },
   },
-  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
-  tools: ({ workspace }) => workspace.tools.inspect(),
-  model,
+  adapter: aiSdkAdapter({
+    instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+    tools: ({ workspace }) => workspace.tools.inspect(),
+    model,
+  }),
 })
 ```
 ::

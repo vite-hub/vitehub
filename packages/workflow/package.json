@@ -87,7 +87,6 @@
     "nitro": "catalog:",
     "ofetch": "catalog:",
     "openworkflow": "catalog:",
-    "postgres": "catalog:",
     "publint": "^0.3.15",
     "tsdown": "^0.21.8",
     "tsx": "catalog:",

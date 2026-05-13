@@ -1,13 +1,3 @@
-import type {
-  Agent,
-  AgentCallParameters,
-  AgentStreamParameters,
-  GenerateTextResult,
-  LanguageModel,
-  StreamTextResult,
-  ToolLoopAgentSettings,
-  ToolSet,
-} from "ai"
 import type { Message, StreamEvent } from "@vitehub/messages"
 import type {
   MaybePromise,
@@ -18,8 +8,12 @@ import type {
   RuntimeHostContext,
   RuntimeWaitUntil,
 } from "@vitehub/runtime"
+import type {
+  ReadonlyWorkspaceFacade,
+  WorkspaceDefinitionInput,
+  WorkspaceName,
+} from "@vitehub/workspace"
 
-export type { Agent } from "ai"
 export type {
   MaybePromise,
   MaybeResolvable,
@@ -56,13 +50,13 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
 export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
 
-export interface AgentRunInput<CALL_OPTIONS = never, TOOLS extends ToolSet = ToolSet> {
+export interface AgentRunInput<CALL_OPTIONS = unknown> {
   abortSignal?: AbortSignal
   context?: Record<string, unknown>
   messages?: Message[]
   options?: CALL_OPTIONS
   prompt?: string | Message[]
-  timeout?: AgentCallParameters<CALL_OPTIONS, TOOLS>["timeout"]
+  timeout?: number
 }
 
 export interface AgentRunMetadata {
@@ -75,10 +69,9 @@ export interface AgentRunMetadata {
 
 export interface AgentRunCallbackContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = never,
-  TOOLS extends ToolSet = ToolSet,
+  CALL_OPTIONS = unknown,
 > extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
-  input: AgentRunInput<CALL_OPTIONS, TOOLS>
+  input: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
 }
 
@@ -92,27 +85,46 @@ export interface AgentRunResult {
 
 export interface AgentRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = never,
-  TOOLS extends ToolSet = ToolSet,
+  CALL_OPTIONS = unknown,
 > extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
-  createAgent: () => Promise<Agent<CALL_OPTIONS, TOOLS>>
-  generateText: (options: AgentCallParameters<CALL_OPTIONS, TOOLS>) => PromiseLike<GenerateTextResult<TOOLS, never>>
-  input: AgentRunInput<CALL_OPTIONS, TOOLS>
-  streamText: (options: AgentStreamParameters<CALL_OPTIONS, TOOLS>) => PromiseLike<StreamTextResult<TOOLS, never>>
+  adapter?: AgentAdapter<CALL_OPTIONS>
+  input: AgentRunInput<CALL_OPTIONS>
 }
 
 export type AgentRunHandler<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = never,
-  TOOLS extends ToolSet = ToolSet,
-> = (context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | GenerateTextResult<TOOLS, never> | StreamTextResult<TOOLS, never> | unknown>
+  CALL_OPTIONS = unknown,
+> = (context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
 
 export type AgentToolResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  TOOLS extends ToolSet = ToolSet,
-> = MaybeResolvable<TOOLS | AgentToolSet, ResolvedAgentRuntimeContext<TRuntimeConfig>>
+> = MaybeResolvable<AgentToolSet | undefined, ResolvedAgentRuntimeContext<TRuntimeConfig>>
 
-export type AgentModelInput = LanguageModel
+export type AgentToolResolverWithWorkspace<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | Record<string, unknown>
+  | undefined
+  | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
+
+export type AgentAdapterInstructionsValue = string | string[]
+
+export type AgentAdapterInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | AgentAdapterInstructionsPart<TRuntimeConfig, Name>
+  | Array<AgentAdapterInstructionsPart<TRuntimeConfig, Name>>
+
+export type AgentAdapterInstructionsPart<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | AgentAdapterInstructionsValue
+  | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<AgentAdapterInstructionsValue | undefined>)
+
+export type AgentModelInput = unknown
 
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
@@ -125,48 +137,53 @@ export type AgentModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig 
 
 type AgentSettingsBase<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = never,
-  TOOLS extends ToolSet = ToolSet,
-> = Omit<ToolLoopAgentSettings<CALL_OPTIONS, TOOLS>, "model" | "tools"> & {
+  CALL_OPTIONS = unknown,
+> = {
+  adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
+  chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
+  hooks?: AgentChatAgentHooks<TRuntimeConfig>
+  instructions?: AgentAdapterInstructions<TRuntimeConfig>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
-  onRunStepFinish?: (step: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
-  onRunToolCallFinish?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
-  onRunToolCallStart?: (event: unknown, context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>) => MaybePromise<void>
+  tools?: AgentToolResolverWithWorkspace<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
-  tools?: AgentToolResolver<TRuntimeConfig, TOOLS>
+  workspace?: WorkspaceAgentWorkspaceOptions
+  [key: string]: unknown
 }
 
 export type AgentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = never,
-  TOOLS extends ToolSet = ToolSet,
-> = AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS, TOOLS> & (
+  CALL_OPTIONS = unknown,
+> = AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS> & (
   | {
-    model: AgentModelInput
-    run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TOOLS>
+    adapter: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
+    run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
-    model?: AgentModelInput
-    run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TOOLS>
+    adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
+    run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
+  }
+  | {
+    adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
+    model: unknown
+    run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )
 
 export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = never,
-  TOOLS extends ToolSet = ToolSet,
+  CALL_OPTIONS = unknown,
 > {
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentChatAgentHooks<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
-  resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<Agent<CALL_OPTIONS, TOOLS>>
-  run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, TOOLS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | GenerateTextResult<TOOLS, never> | StreamTextResult<TOOLS, never> | unknown>
+  resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
+  run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
+  workspace?: WorkspaceAgentWorkspaceOptions
 }
 
 export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
-  | Agent
   | AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
@@ -177,7 +194,7 @@ export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRunti
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
 export interface AgentModelProviderOptions {
-  provider?: "auto" | "vercel-ai-sdk" | (string & {})
+  provider?: "ai-sdk" | "auto" | "tanstack-ai" | (string & {})
 }
 
 export interface AgentStateProviderOptions {
@@ -240,7 +257,7 @@ export interface AgentRegistryHandlerOptions<TRuntimeContext extends AgentRuntim
 export interface AgentRuntimeHooks<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> {
   error?: (error: unknown, context: TContext) => MaybePromise<void>
   request?: (context: TContext) => MaybePromise<void>
-  resolved?: (context: TContext & { agent: Agent }) => MaybePromise<void>
+  resolved?: (context: TContext & { agent: AgentAdapter }) => MaybePromise<void>
 }
 
 export interface DiscoveredAgentDefinition {
@@ -333,6 +350,85 @@ export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
 }
 
 export type AgentToolSet = Record<string, AgentToolDefinition>
+
+export interface WorkspaceAgentWorkspaceOptions extends Omit<WorkspaceDefinitionInput, "name"> {}
+
+export interface AgentDevtoolsFileTreeItem {
+  children?: AgentDevtoolsFileTreeItem[]
+  kind: "directory" | "file"
+  label?: string
+  materialize?: "build" | "lazy"
+  materialized?: boolean
+  materializedAt?: string
+  path: string
+  source?: string
+  status?: "lazy" | "updating" | "ready" | "error"
+  updatedAt?: string
+}
+
+export interface AgentDevtoolsToolDefinition {
+  category?: string
+  commands?: string[]
+  description?: string
+  icon?: string
+  name: string
+  preset?: string
+  status?: "available" | "disabled"
+}
+
+export interface AgentDevtoolsMetadata {
+  files?: AgentDevtoolsFileTreeItem[]
+  instructions?: string[]
+  tools?: AgentDevtoolsToolDefinition[]
+}
+
+export interface AgentAdapterResult {
+  finishReason?: unknown
+  raw?: unknown
+  text?: string
+  usage?: unknown
+  warnings?: unknown
+}
+
+export interface AgentAdapterMetadataContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
+  fs: ReadonlyWorkspaceFacade<Name>["fs"]
+  workspace: ReadonlyWorkspaceFacade<Name>
+}
+
+export interface AgentAdapterRunContext<
+  TOptions = unknown,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> {
+  devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
+  input: AgentRunInput<TOptions>
+  instructions?: string
+  messages: Message[]
+  prompt?: string
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
+  tools?: AgentToolSet
+  workspace?: ReadonlyWorkspaceFacade<Name>
+}
+
+export interface AgentAdapter<
+  TOptions = unknown,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> {
+  generate(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<AgentAdapterResult | Response | AsyncIterable<StreamEvent> | unknown>
+  metadata?(context: AgentAdapterMetadataContext<TRuntimeConfig, Name>): MaybePromise<AgentDevtoolsMetadata | undefined>
+  name: string
+  stream?(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<Response | AsyncIterable<StreamEvent> | AgentAdapterResult | unknown>
+}
+
+export type AgentAdapterFactory<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TOptions = unknown,
+  Name extends WorkspaceName = WorkspaceName,
+> = (context: ResolvedAgentRuntimeContext<TRuntimeConfig>) => MaybePromise<AgentAdapter<TOptions, TRuntimeConfig, Name>>
 
 export interface CloudflareExportedHandlerFetchHandler<TEnv = unknown> {
   (request: Request, env: TEnv, ctx: { waitUntil?: (promise: Promise<unknown>) => void }): Response | Promise<Response>

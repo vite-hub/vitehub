@@ -111,9 +111,6 @@ catalogs:
     pkg-types:
       specifier: ^2.3.0
       version: 2.3.0
-    postgres:
-      specifier: ^3.4.9
-      version: 3.4.9
     rollup:
       specifier: ^4.53.3
       version: 4.60.1
@@ -202,7 +199,7 @@ importers:
         version: 14.2.1(vue@3.5.34(typescript@6.0.2))
       docus:
         specifier: 'catalog:'
-        version: 5.9.0(0a2674a44f7e1209966e50257dd2fab3)
+        version: 5.9.0(bca07c89e7d796993e5bf28214752776)
       h3:
         specifier: catalog:h3v1
         version: 1.15.11
@@ -236,11 +233,14 @@ importers:
         version: link:../workspace
       agents:
         specifier: ^0.12.3
-        version: 0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1)
+        version: 0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1)
       h3:
         specifier: 'catalog:'
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
     devDependencies:
+      '@tanstack/ai':
+        specifier: 0.16.0
+        version: 0.16.0(@opentelemetry/api@1.9.0)
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
@@ -1058,6 +1058,9 @@ importers:
       pathe:
         specifier: 'catalog:'
         version: 2.0.3
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
       workflow:
         specifier: ^4.2.4
         version: 4.2.4(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.0)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.21))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.21))(@swc/helpers@0.5.21)(magicast@0.5.2)(typescript@6.0.2)
@@ -1077,9 +1080,6 @@ importers:
       openworkflow:
         specifier: 'catalog:'
         version: 0.9.0(postgres@3.4.9)
-      postgres:
-        specifier: 'catalog:'
-        version: 3.4.9
       publint:
         specifier: ^0.3.15
         version: 0.3.18
@@ -1341,6 +1341,9 @@ importers:
         version: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
 packages:
+
+  '@ag-ui/core@0.0.49':
+    resolution: {integrity: sha512-9ywypwjUGtIvTxJ2eKQjhPZgLnSFAfNK7vZUcT7Bz4ur4yAIB+lAFtzvu7VDYe6jsUx/6N/71Dh4R0zX5woNVw==}
 
   '@ai-sdk/gateway@3.0.109':
     resolution: {integrity: sha512-r6dOqThjODp1vOhGRJg2OCmyB/ZOQtGx1esZ2SDvwDX5XoX8dBqYaYjLg8MPXTzMGJSgOkJyCxWgUcZtAl16pw==}
@@ -5719,6 +5722,25 @@ packages:
   '@takumi-rs/helpers@0.73.1':
     resolution: {integrity: sha512-OONKM9+XtiRp7s2e3kwbnTyF9cYqk6L8d7Q2KG449OjphdlhuCZhVwmpqHI2nHEgL1TLC2LEHzxJHvfyAIdNBw==}
 
+  '@tanstack/ai-event-client@0.3.0':
+    resolution: {integrity: sha512-rAXrgLgyxDszd1PVBWH4wpOyP89QpKLY6oAg8eBx44hVhEpkCM50AaoiDtrPCmxMjrucBz9OMkAU2Khb7EaZ6g==}
+    peerDependencies:
+      '@tanstack/ai': 0.16.0
+
+  '@tanstack/ai@0.16.0':
+    resolution: {integrity: sha512-EsMGoMp9Y/H3A4JkhZZhfqk6S8bUxVcoJZhJea2omJtyv58YjcLlqBQFKYx+64egkYOgoORDyxj6bNI6Ne7dcA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.9.0'
+    peerDependenciesMeta:
+      '@opentelemetry/api':
+        optional: true
+
+  '@tanstack/devtools-event-client@0.4.3':
+    resolution: {integrity: sha512-OZI6QyULw0FI0wjgmeYzCIfbgPsOEzwJtCpa69XrfLMtNXLGnz3d/dIabk7frg0TmHo+Ah49w5I4KC7Tufwsvw==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   '@tanstack/table-core@8.21.3':
     resolution: {integrity: sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg==}
     engines: {node: '>=12'}
@@ -9916,6 +9938,9 @@ packages:
     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
     engines: {node: '>= 0.8'}
 
+  partial-json@0.1.7:
+    resolution: {integrity: sha512-Njv/59hHaokb/hRUjce3Hdv12wd60MtM9Z5Olmn+nehe0QDAsRtRbJPvJ0Z91TusF0SuZRIvnM+S4l6EIP8leA==}
+
   partyserver@0.5.5:
     resolution: {integrity: sha512-7zub8oV8Od9dY2aXGrgzhX5GLceaWOg7xB5VWXtDcqt2BWVDIOCAgaF0AmBMSu3AXhJHsFdzPnA8SSZdybXMbQ==}
     peerDependencies:
@@ -12119,6 +12144,10 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@ag-ui/core@0.0.49':
+    dependencies:
+      zod: 3.25.76
 
   '@ai-sdk/gateway@3.0.109(zod@4.4.1)':
     dependencies:
@@ -15152,7 +15181,7 @@ snapshots:
       - uploadthing
       - vue
 
-  '@nuxtjs/mcp-toolkit@0.13.4(@cfworker/json-schema@4.1.1)(agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1))(h3@1.15.11)(magicast@0.5.2)(zod@4.4.1)':
+  '@nuxtjs/mcp-toolkit@0.13.4(@cfworker/json-schema@4.1.1)(agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1))(h3@1.15.11)(magicast@0.5.2)(zod@4.4.1)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1)
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
@@ -15160,7 +15189,7 @@ snapshots:
       tinyglobby: 0.2.16
       zod: 4.4.1
     optionalDependencies:
-      agents: 0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1)
+      agents: 0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1)
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - magicast
@@ -16903,6 +16932,21 @@ snapshots:
 
   '@takumi-rs/helpers@0.73.1': {}
 
+  '@tanstack/ai-event-client@0.3.0(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))':
+    dependencies:
+      '@tanstack/ai': 0.16.0(@opentelemetry/api@1.9.0)
+      '@tanstack/devtools-event-client': 0.4.3
+
+  '@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0)':
+    dependencies:
+      '@ag-ui/core': 0.0.49
+      '@tanstack/ai-event-client': 0.3.0(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))
+      partial-json: 0.1.7
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.0
+
+  '@tanstack/devtools-event-client@0.4.3': {}
+
   '@tanstack/table-core@8.21.3': {}
 
   '@tanstack/virtual-core@3.13.23': {}
@@ -18410,7 +18454,7 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1):
+  agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1):
     dependencies:
       '@babel/plugin-proposal-decorators': 7.29.0(@babel/core@7.29.0)
       '@cfworker/json-schema': 4.1.1
@@ -18426,6 +18470,7 @@ snapshots:
       yargs: 18.0.0
       zod: 4.4.1
     optionalDependencies:
+      '@tanstack/ai': 0.16.0(@opentelemetry/api@1.9.0)
       vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
     transitivePeerDependencies:
       - '@babel/core'
@@ -19275,7 +19320,7 @@ snapshots:
 
   diff@9.0.0: {}
 
-  docus@5.9.0(0a2674a44f7e1209966e50257dd2fab3):
+  docus@5.9.0(bca07c89e7d796993e5bf28214752776):
     dependencies:
       '@ai-sdk/gateway': 3.0.109(zod@4.4.1)
       '@ai-sdk/mcp': 1.0.36(zod@4.4.1)
@@ -19288,7 +19333,7 @@ snapshots:
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
       '@nuxt/ui': 4.6.1(59252f0524727413cf654498e9d2c9d5)
       '@nuxtjs/i18n': 10.2.4(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(@vue/compiler-dom@3.5.34)(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1)))(eslint@10.2.0(jiti@2.6.1))(ioredis@5.10.1)(magicast@0.5.2)(rollup@4.60.1)(typescript@6.0.2)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.2.2))(vue@3.5.34(typescript@6.0.2))
-      '@nuxtjs/mcp-toolkit': 0.13.4(@cfworker/json-schema@4.1.1)(agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1))(h3@1.15.11)(magicast@0.5.2)(zod@4.4.1)
+      '@nuxtjs/mcp-toolkit': 0.13.4(@cfworker/json-schema@4.1.1)(agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1))(h3@1.15.11)(magicast@0.5.2)(zod@4.4.1)
       '@nuxtjs/mdc': 0.21.1(magicast@0.5.2)
       '@nuxtjs/robots': 6.0.7(@nuxt/schema@4.4.2)(magicast@0.5.2)(nuxt@4.4.2(e2b100b1f3c8358b97c10ab298c481fd))(vite@8.0.8)(vue@3.5.34(typescript@6.0.2))(zod@4.4.1)
       '@shikijs/core': 4.0.2
@@ -23161,6 +23206,8 @@ snapshots:
       entities: 6.0.1
 
   parseurl@1.3.3: {}
+
+  partial-json@0.1.7: {}
 
   partyserver@0.5.5(@cloudflare/workers-types@4.20260509.1):
     dependencies:

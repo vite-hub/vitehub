@@ -4,9 +4,9 @@ import { createMessage } from "@vitehub/messages"
 
 describe("agent message protocol", () => {
   it("converts ViteHub messages to model messages internally", async () => {
-    const { toModelMessages } = await import("../src/index.ts")
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
-    expect(toModelMessages([
+    expect(toAiSdkModelMessages([
       createMessage({ id: "m1", role: "user", text: "hello" }),
     ])).toEqual([
       { content: "hello", role: "user" },
@@ -14,9 +14,9 @@ describe("agent message protocol", () => {
   })
 
   it("preserves structured tool history for model messages", async () => {
-    const { toModelMessages } = await import("../src/index.ts")
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
-    expect(toModelMessages([
+    expect(toAiSdkModelMessages([
       createMessage({
         id: "m1",
         parts: [
@@ -107,6 +107,48 @@ describe("agent message protocol", () => {
     expect(events).toEqual([
       { id: "call-1", input: false, name: "confirm", type: "tool-call" },
       { error: undefined, id: "call-1", name: "confirm", output: 0, type: "tool-result" },
+    ])
+  })
+
+  it("maps approval-required stream errors to approval request events", async () => {
+    const { ApprovalRequiredError } = await import("@vitehub/runtime")
+    const { streamAgent } = await import("../src/index.ts")
+    const agent = {
+      generate: vi.fn(),
+      stream: vi.fn(async () => ({
+        fullStream: (async function* () {
+          yield {
+            error: new ApprovalRequiredError({
+              capability: "refund",
+              id: "approval-1",
+              input: { orderId: "ord_123" },
+              reason: "Refunds require review",
+              state: "awaiting-approval",
+            }),
+            type: "error",
+          }
+        })(),
+      })),
+      tools: {},
+      version: "agent-v1",
+    }
+
+    const stream = await streamAgent(agent as never, {} as never, {
+      messages: [createMessage({ role: "user", text: "refund order" })],
+    })
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      {
+        id: "approval-1",
+        input: { orderId: "ord_123" },
+        name: "refund",
+        reason: "Refunds require review",
+        type: "approval-request",
+      },
     ])
   })
 
