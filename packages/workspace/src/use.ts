@@ -319,7 +319,11 @@ function createReadonlyFs<Name extends WorkspaceName>(
       const normalized = path ? normalizeListPath(path) : ""
       const workspaceEntries = await ignoreMissingWorkspace(() => workspace.list(normalized, options)) ?? []
       if (normalized && workspaceEntries.length) return workspaceEntries
-      const assetEntries = assets ? await assets.list(normalized as WorkspaceAssetPath<Name>, options) : []
+      let assetEntries = assets ? await assets.list(normalized as WorkspaceAssetPath<Name>, options) : []
+      if (!normalized && options?.recursive && workspaceEntries.length) {
+        const workspaceRoots = new Set(workspaceEntries.filter(entry => entry.type === "directory").map(entry => entry.path.split("/")[0]))
+        assetEntries = assetEntries.filter(entry => !workspaceRoots.has(entry.path.split("/")[0]))
+      }
       return mergeEntries(assetEntries, workspaceEntries)
     },
     glob: async (pattern, options) => {
