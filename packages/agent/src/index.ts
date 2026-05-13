@@ -987,13 +987,17 @@ export async function resolveAgentDevtoolsMetadata<
   Name extends WorkspaceName = WorkspaceName,
 >(
   definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  defaultsOverride: WorkspaceAgentDefaults<Name> = {},
 ): Promise<AgentDevtoolsMetadata> {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
     return { files: [], tools: [] }
   }
 
-  const defaults = workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>
+  const defaults = {
+    ...(workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>),
+    ...defaultsOverride,
+  }
   const workspaceName = defaults.workspace || defaults.name
   if (!workspaceName) {
     return createAgentDevtoolsMetadata(definition)

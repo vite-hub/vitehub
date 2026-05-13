@@ -266,7 +266,7 @@ function createNitroRegistryChatDevInitializerContents(file: string, registryFil
 function createNitroSingleChatDevtoolsContents(file: string, definition: DiscoveredChatDefinition): string {
   const chatExpression = resolveChatImportExpression(file, definition)
   const metadataExpression = isAgentChatDefinition(definition)
-    ? "() => resolveAgentDevtoolsMetadata(agent)"
+    ? `() => resolveAgentDevtoolsMetadata(agent, ${renderAgentDevtoolsDefaults(definition)})`
     : undefined
   return [
     `import { defineChatDevtoolsHandler } from "@vitehub/chat/nitro"`,
@@ -279,6 +279,10 @@ function createNitroSingleChatDevtoolsContents(file: string, definition: Discove
     })})`,
     "",
   ].join("\n")
+}
+
+function renderAgentDevtoolsDefaults(definition: DiscoveredChatDefinition): string {
+  return `{ name: ${JSON.stringify(definition.name)}, workspace: ${JSON.stringify(definition.name)} }`
 }
 
 function isAgentChatDefinition(definition: DiscoveredChatDefinition): boolean {
@@ -350,7 +354,7 @@ function createNitroRegistryChatDevtoolsContents(file: string, registryFile: str
       ? [
           "",
           "const metadata = {",
-          ...agentDefinitions.map((definition, index) => `  ${JSON.stringify(definition.name)}: () => resolveAgentDevtoolsMetadata(${metadataImportName(index)}),`),
+          ...agentDefinitions.map((definition, index) => `  ${JSON.stringify(definition.name)}: () => resolveAgentDevtoolsMetadata(${metadataImportName(index)}, ${renderAgentDevtoolsDefaults(definition)}),`),
           "}",
         ]
       : []),

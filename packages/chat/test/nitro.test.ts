@@ -699,7 +699,7 @@ describe("Nitro module", () => {
 
     const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
     expect(devtoolsContents).toContain(`import { resolveAgentDevtoolsMetadata } from "@vitehub/agent"`)
-    expect(devtoolsContents).toContain("metadata: () => resolveAgentDevtoolsMetadata(agent)")
+    expect(devtoolsContents).toContain(`metadata: () => resolveAgentDevtoolsMetadata(agent, { name: "docs", workspace: "docs" })`)
   })
 
   it("writes inline webhook processing to generated Nitro routes", async () => {
@@ -979,7 +979,7 @@ describe("Nitro module", () => {
 
     const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
     expect(devtoolsContents).toContain("const metadata = {")
-    expect(devtoolsContents).toContain(`"docs": () => resolveAgentDevtoolsMetadata(devtoolsMetadataAgent0)`)
+    expect(devtoolsContents).toContain(`"docs": () => resolveAgentDevtoolsMetadata(devtoolsMetadataAgent0, { name: "docs", workspace: "docs" })`)
     expect(devtoolsContents).toContain("metadata: metadata")
   })
 })
