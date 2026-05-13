@@ -94,6 +94,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of getLazySourcesForPath(path)) {
       await ensurePrepared(source.key)
       if (!path && options.recursive && !await hasCurrentSourceSnapshot(store, source)) {
+        if ([...result.keys()].some(key => key.startsWith(`${source.mountPath}/`))) {
+          const allowed = await currentSourceTreePaths(source, sourceContext)
+          for (const key of result.keys()) {
+            if ((key === source.mountPath || key.startsWith(`${source.mountPath}/`)) && !allowed.has(key)) result.delete(key)
+          }
+          result.set(source.mountPath, { path: source.mountPath, type: "directory" })
+          continue
+        }
         for (const key of result.keys()) {
           if (key === source.mountPath || key.startsWith(`${source.mountPath}/`)) result.delete(key)
         }
@@ -236,6 +244,19 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       await store.rm(resolution.workspacePath, options)
     },
   }
+}
+
+async function currentSourceTreePaths(source: ReturnType<typeof normalizeWorkspaceSources>[number], sourceContext: ReturnType<typeof createSourceContext>) {
+  const allowed = new Set<string>([source.mountPath])
+  const keys = await source.source.getKeys(sourceContext)
+  for (const key of keys) {
+    const path = `${source.mountPath}/${key}`.replace(/\/+/g, "/")
+    const parts = path.split("/")
+    for (let index = 1; index <= parts.length; index++) {
+      allowed.add(parts.slice(0, index).join("/"))
+    }
+  }
+  return allowed
 }
 
 function dedupeHits(hits: WorkspaceSearchHit[]) {
