@@ -180,6 +180,16 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
     async rm(path, options) {
       await (await resolveSyncedWorkspace()).rm(normalizePath(path), options)
     },
+    async materializeSources(options) {
+      return await (await resolveSyncedWorkspace()).materializeSources?.(options) ?? {
+        bytes: 0,
+        directories: 0,
+        durationMs: 0,
+        files: 0,
+        path: options?.path || "",
+        sources: [],
+      }
+    },
     async snapshot(options) {
       return await (await resolveSyncedWorkspace()).snapshot(options)
     },
