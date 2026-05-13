@@ -387,6 +387,79 @@ describe("defineAgent workspace option", () => {
     expect(reportToolStep.mock.calls[0]?.[0].toolCalls[0].toolCallId).toBe(reportToolStep.mock.calls[1]?.[0].toolResults[0].toolCallId)
   })
 
+  it("reports lazy source materialization before model tool usage", async () => {
+    const materialize = vi.fn(async () => ({ bytes: 12, directories: 1, durationMs: 3, files: 2, limit: 25, path: "", skipped: 0 }))
+    const shell = vi.fn(async () => "workspace result")
+    const reportToolStep = vi.fn()
+    inspectTools.mockReturnValueOnce({
+      materialize_sources: { execute: materialize },
+      shell: { execute: shell },
+    })
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      await this.settings.tools.shell.execute({ command: "rg PLC forecasting-engine | head -n 20" })
+      return { finishReason: "stop", text: "ok" }
+    })
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
+      model: {} as never,
+      tools: ({ workspace }) => workspace.tools.inspect(),
+    }), { workspace: "docs" })
+
+    await agent.run!({
+      ...(context() as Record<string, unknown>),
+      devtools: { reportToolStep },
+    } as never)
+
+    expect(materialize).toHaveBeenCalledWith({ limit: 25, path: "" })
+    expect(reportToolStep.mock.calls.map(call => Object.keys(call[0])[0])).toEqual([
+      "toolCalls",
+      "toolResults",
+      "toolCalls",
+      "toolResults",
+    ])
+    expect(reportToolStep.mock.calls[0]?.[0]).toMatchObject({
+      toolCalls: [{ toolName: "materialize_sources" }],
+    })
+    expect(reportToolStep.mock.calls[1]?.[0]).toMatchObject({
+      toolResults: [{ output: { files: 2, summary: "Materialized 2 source files for workspace." }, toolName: "materialize_sources" }],
+    })
+    expect(reportToolStep.mock.calls[2]?.[0]).toMatchObject({
+      toolCalls: [{ toolName: "shell" }],
+    })
+  })
+
+  it("reports materialization errors and continues the model run", async () => {
+    const materialize = vi.fn(async () => {
+      throw new Error("source unavailable")
+    })
+    const reportToolStep = vi.fn()
+    inspectTools.mockReturnValueOnce({
+      materialize_sources: { execute: materialize },
+    })
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
+      model: {} as never,
+      tools: ({ workspace }) => workspace.tools.inspect(),
+    }), { workspace: "docs" })
+
+    await expect(agent.run!({
+      ...(context() as Record<string, unknown>),
+      devtools: { reportToolStep },
+    } as never)).resolves.toBe("ok")
+
+    expect(agentGenerate).toHaveBeenCalledTimes(1)
+    expect(reportToolStep.mock.calls[0]?.[0]).toMatchObject({
+      toolCalls: [{ toolName: "materialize_sources" }],
+    })
+    expect(reportToolStep.mock.calls[1]?.[0]).toMatchObject({
+      toolErrors: [{ output: "source unavailable", toolName: "materialize_sources" }],
+    })
+  })
+
   it("derives DevTools metadata from workspace agents", async () => {
     const { createAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const agent = withWorkspaceAgentDefaults(defineAgent({

@@ -156,6 +156,31 @@ describe("@vitehub/shell just-bash runtime", () => {
     await expect(runtime.exec("rg orders models")).resolves.toMatchObject({ exitCode: 0, stdout: "models/orders.sql:1:select * from orders\n" })
   })
 
+  it("rejects broad root searches before they can time out", async () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+      "models/customers.sql": "select * from customers\n",
+    })
+    const fs = createReadonlyWorkspaceFs(workspace)
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg customers .", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "[vitehub] Workspace root search is too broad. Use a narrow mounted source or subdirectory path instead.\n",
+    })
+    await expect(runWorkspaceInspectionCommand(workspace, "rg customers models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/customers.sql:1:select * from customers\n",
+    })
+  })
+
   it("rejects traversal and mutations on the read-only filesystem", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
@@ -329,8 +354,8 @@ describe("@vitehub/shell just-bash runtime", () => {
       cwd: workspaceMountPoint,
       fs,
     })).resolves.toMatchObject({
-      exitCode: 127,
-      stderr: expect.stringContaining("orders"),
+      exitCode: 126,
+      stderr: expect.stringContaining("Workspace root search is too broad"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cd /workspace && rg orders models", {

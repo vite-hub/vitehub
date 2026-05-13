@@ -317,6 +317,51 @@ function getErrorOutput(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function materializeSummary(output: unknown): unknown {
+  if (!output || typeof output !== "object") return output
+  const result = output as {
+    bytes?: unknown
+    directories?: unknown
+    durationMs?: unknown
+    files?: unknown
+    path?: unknown
+    skipped?: unknown
+  }
+  const files = typeof result.files === "number" ? result.files : 0
+  const skipped = typeof result.skipped === "number" ? result.skipped : 0
+  const path = typeof result.path === "string" && result.path ? result.path : "workspace"
+  return {
+    ...result,
+    summary: `Materialized ${files.toLocaleString()} source file${files === 1 ? "" : "s"} for ${path}${skipped ? ` (${skipped.toLocaleString()} skipped by limit)` : ""}.`,
+  }
+}
+
+async function reportWorkspaceMaterialization(
+  tools: ToolSet | undefined,
+  reportToolStep?: AgentToolStepReporter,
+) {
+  if (!reportToolStep || !tools || typeof tools !== "object") return
+  const materializeTool = (tools as Record<string, unknown>).materialize_sources
+  const execute = materializeTool && typeof materializeTool === "object" && typeof (materializeTool as { execute?: unknown }).execute === "function"
+    ? (materializeTool as { execute: (input: unknown) => Promise<unknown> }).execute
+    : undefined
+  if (!execute) return
+
+  const toolCall: AgentToolStepItem = {
+    input: { limit: 25, path: "" },
+    toolCallId: createToolCallId("materialize_sources"),
+    toolName: "materialize_sources",
+  }
+  await reportToolStep({ toolCalls: [toolCall] })
+  try {
+    const output = await execute.call(materializeTool, toolCall.input)
+    await reportToolStep({ toolResults: [{ ...toolCall, output: materializeSummary(output) }] })
+  }
+  catch (error) {
+    await reportToolStep({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
+  }
+}
+
 function withToolStepReporting<TTools extends ToolSet>(tools: TTools, reportToolStep?: AgentToolStepReporter): TTools {
   if (!reportToolStep || !tools || typeof tools !== "object") {
     return tools
@@ -602,7 +647,7 @@ function createShellMetadataTool(): AgentDevtoolsToolDefinition {
   return {
     category: "workspace",
     commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
-    description: "Run a workspace shell command.",
+    description: "Run a workspace shell command. Use narrow paths; root-wide rg/grep searches are rejected.",
     icon: "i-lucide-terminal",
     name: "shell",
     preset: "vitehub-workspace",
@@ -678,6 +723,10 @@ function sourceMaterialize(key: string, source: NonNullable<WorkspaceAgentWorksp
   if (typeof source.mount === "object" && source.mount.materialize) return source.mount.materialize
   if (source.materialize) return source.materialize
   return source.cache || source.swr ? "lazy" : "build"
+}
+
+function hasLazyWorkspaceSources<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>) {
+  return Object.entries(options.workspace.sources || {}).some(([sourceName, source]) => sourceMaterialize(sourceName, source) === "lazy")
 }
 
 function workspaceMetadataFiles<Name extends WorkspaceName>(
@@ -1109,6 +1158,9 @@ function createWorkspaceAgentDefinition<
         model,
         stopWhen: ((runSettings as Record<string, unknown>).stopWhen ?? stepCountIs(options.stepLimit ?? 20)) as never,
         ...(resolvedTools ? { tools: withToolStepReporting(resolvedTools, reportToolStep) } : {}),
+      }
+      if (hasLazyWorkspaceSources(options)) {
+        await reportWorkspaceMaterialization(resolvedTools, reportToolStep)
       }
       const agent = new ToolLoopAgent(agentSettings)
       const result = await agent.generate({

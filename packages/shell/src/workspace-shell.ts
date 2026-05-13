@@ -37,6 +37,8 @@ export async function runWorkspaceInspectionCommand(
 ): Promise<ShellRuntimeExecResult> {
   const maxOutputLength = options.maxOutputLength || 30_000
   const timeout = options.timeout || 30_000
+  const preflight = preflightWorkspaceInspectionCommand(command)
+  if (preflight) return preflight
   const runtime = createJustBashRuntime({
     commands: options.commands,
     cwd: options.cwd || workspaceMountPoint,
@@ -56,6 +58,147 @@ export async function runWorkspaceInspectionCommand(
     stderr: applyOutputLimit(result.stderr, maxOutputLength),
     stdout: applyOutputLimit(result.stdout, maxOutputLength),
   }
+}
+
+function preflightWorkspaceInspectionCommand(command: string): ShellRuntimeExecResult | undefined {
+  try {
+    for (const segment of splitShellSegments(command)) {
+      const words = parseShellWords(segment)
+      if (isBroadWorkspaceSearch(words)) {
+        return {
+          exitCode: 126,
+          stderr: "[vitehub] Workspace root search is too broad. Use a narrow mounted source or subdirectory path instead.\n",
+          stdout: "",
+        }
+      }
+    }
+  }
+  catch {
+    return undefined
+  }
+}
+
+function isBroadWorkspaceSearch(words: string[]) {
+  const name = words[0]
+  if (name !== "rg") return false
+
+  const paths = commandPathArguments(words)
+  return paths.length === 0 || paths.some(path => path === "." || path === "./" || path === "/" || path === workspaceMountPoint)
+}
+
+function commandPathArguments(words: string[]) {
+  const args = words.slice(1)
+  const paths: string[] = []
+  let sawPattern = false
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!
+    if (arg === "--") {
+      paths.push(...args.slice(index + 1))
+      break
+    }
+    if (arg.startsWith("-")) {
+      if (takesOptionValue(arg)) index += 1
+      continue
+    }
+    if (!sawPattern) {
+      sawPattern = true
+      continue
+    }
+    paths.push(arg)
+  }
+  return paths
+}
+
+function takesOptionValue(arg: string) {
+  return [
+    "-A",
+    "-B",
+    "-C",
+    "-e",
+    "-f",
+    "-g",
+    "-m",
+    "--after-context",
+    "--before-context",
+    "--context",
+    "--glob",
+    "--max-count",
+    "--regexp",
+  ].includes(arg)
+}
+
+function splitShellSegments(command: string) {
+  const segments: string[] = []
+  let current = ""
+  let quote: "'" | "\"" | undefined
+  let escaped = false
+  for (const char of command) {
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+    if (char === "\\") {
+      current += char
+      escaped = true
+      continue
+    }
+    if (quote) {
+      if (char === quote) quote = undefined
+      current += char
+      continue
+    }
+    if (char === "'" || char === "\"") {
+      quote = char
+      current += char
+      continue
+    }
+    if (char === "|" || char === ";" || char === "\n") {
+      segments.push(current)
+      current = ""
+      continue
+    }
+    current += char
+  }
+  segments.push(current)
+  return segments
+}
+
+function parseShellWords(command: string) {
+  const words: string[] = []
+  let current = ""
+  let quote: "'" | "\"" | undefined
+  let escaped = false
+  for (const char of command) {
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+    if (char === "\\") {
+      escaped = true
+      continue
+    }
+    if (quote) {
+      if (char === quote) quote = undefined
+      else current += char
+      continue
+    }
+    if (char === "'" || char === "\"") {
+      quote = char
+      continue
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        words.push(current)
+        current = ""
+      }
+      continue
+    }
+    current += char
+  }
+  if (current) words.push(current)
+  return words
 }
 
 function normalizeSafeShellPath(path: string): string {

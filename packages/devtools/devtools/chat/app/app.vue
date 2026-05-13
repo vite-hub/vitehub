@@ -34,6 +34,7 @@ const status = ref<ChatStatus>("ready")
 const error = ref<string | undefined>()
 const connected = ref(false)
 const activeRequest = ref<{ chat?: string, text: string } | undefined>()
+const isBusy = computed(() => status.value !== "ready")
 const previewFiles: ChatDevtoolsFileTreeItem[] = [
   {
     kind: "directory",
@@ -1020,6 +1021,23 @@ async function send() {
   }
 }
 
+function stop() {
+  currentReader?.cancel()
+  currentReader = undefined
+  activeRequest.value = undefined
+  pendingAssistantMessage.value = undefined
+  pendingAssistantBaselineIds.value = undefined
+  status.value = "ready"
+}
+
+function submitComposer() {
+  if (isBusy.value) {
+    stop()
+    return
+  }
+  void send()
+}
+
 async function clear() {
   simulationRunId++
   try {
@@ -1159,7 +1177,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
             />
             <form
               class="flex min-h-9 items-center gap-1 rounded-md border border-default bg-default px-2 py-1 shadow-xs"
-              @submit.prevent="send"
+              @submit.prevent="submitComposer"
             >
               <textarea
                 ref="promptInput"
@@ -1173,8 +1191,8 @@ onBeforeUnmount(() => stopSidebarResize?.())
               <UButton
                 type="submit"
                 :icon="status === 'ready' ? 'i-lucide-arrow-up' : 'i-lucide-square'"
-                :loading="status === 'submitted'"
-                :disabled="status !== 'ready' || !input.trim()"
+                :disabled="status === 'ready' && !input.trim()"
+                :aria-label="status === 'ready' ? 'Send message' : 'Stop response'"
                 color="primary"
                 size="xs"
                 square
