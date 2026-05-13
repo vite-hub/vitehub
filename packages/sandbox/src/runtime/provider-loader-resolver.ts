@@ -5,14 +5,12 @@ type ProviderLoaderModule = {
   loadSandboxRuntimeProvider: (provider: SandboxProvider) => Promise<SandboxRuntimeProvider>
 }
 
+const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>
+
 export async function loadSandboxProviderRuntime(provider: SandboxProvider): Promise<SandboxRuntimeProvider> {
-  const module = await import(
-    /* @vite-ignore */
-    'virtual:vitehub-sandbox-provider-loader'
-  ).catch(() => import(
-    /* @vite-ignore */
-    './provider-loader'
-  )) as ProviderLoaderModule
+  const module = await import('virtual:vitehub-sandbox-provider-loader').catch(() => {
+    return dynamicImport<ProviderLoaderModule>('@vitehub/sandbox/runtime/provider-loader')
+  }) as ProviderLoaderModule
 
   return await module.loadSandboxRuntimeProvider(provider)
 }

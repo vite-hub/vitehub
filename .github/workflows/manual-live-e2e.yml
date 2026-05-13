@@ -242,6 +242,35 @@ jobs:
           if (typeof wrangler.artifacts !== "undefined") {
             throw new Error("Nitro Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
           }
+          const { existsSync, readdirSync, readFileSync, statSync } = require("node:fs")
+          const { join, posix, relative } = require("node:path")
+          const root = "playground/nitro/.output/server"
+          const files = []
+          const visit = (dir) => {
+            for (const entry of readdirSync(dir)) {
+              const path = join(dir, entry)
+              if (statSync(path).isDirectory()) visit(path)
+              else if (path.endsWith(".mjs") || path.endsWith(".js")) files.push(path)
+            }
+          }
+          visit(root)
+          for (const file of files) {
+            const source = readFileSync(file, "utf8")
+            const imports = source.matchAll(/(?:from\s+|import\(|require\()\s*["']([^"']+)["']/g)
+            for (const [, specifier] of imports) {
+              if (specifier === "sprintf-js" || specifier === "turndown" || specifier === "@mixmark-io/domino") {
+                throw new Error(`Unresolved bare dependency ${specifier} imported by ${file}`)
+              }
+              if (!specifier.includes("_libs/")) continue
+              const resolved = specifier.startsWith(".")
+                ? posix.normalize(posix.join(posix.dirname(relative(root, file).replace(/\\/g, "/")), specifier))
+                : posix.normalize(specifier)
+              const candidates = [join(root, resolved), join(root, `${resolved}.mjs`), join(root, `${resolved}.js`)]
+              if (!candidates.some(existsSync)) {
+                throw new Error(`Missing emitted module for ${specifier} imported by ${file}`)
+              }
+            }
+          }
           NODE
 
       - name: Build Nitro (vercel)
@@ -323,7 +352,18 @@ jobs:
           if (/createCloudflareArtifactsWorkspaceStore|isomorphic-git/.test(bundle)) {
             throw new Error("Vercel Vite bundle must not include the Cloudflare Artifacts store implementation.")
           }
+          if (/cloudflare:workers|@cloudflare\/sandbox/.test(bundle)) {
+            throw new Error("Vercel Vite bundle must not include Cloudflare-only sandbox runtime code.")
+          }
           NODE
+
+      - name: Smoke import Vite Vercel function
+        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_token }}
+          KV_REST_API_TOKEN: ${{ steps.prepare_vercel.outputs.kv_token }}
+          KV_REST_API_URL: ${{ steps.prepare_vercel.outputs.kv_url }}
+        run: node -e "import('./playground/vite/.vercel/output/functions/__server.func/index.mjs')"
 
       - name: Deploy Cloudflare
         id: deploy_cloudflare

@@ -3,6 +3,10 @@ import { SandboxError } from './errors'
 import { detectSandbox, isSandboxAvailable } from './providers/shared'
 import { validateSandboxConfig } from './validation'
 
+type ProviderLoaderModule = typeof import('../runtime/provider-loader')
+
+const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>
+
 export { NotSupportedError, SandboxError } from './errors'
 export { validateSandboxConfig }
 export { detectSandbox, isSandboxAvailable }
@@ -25,12 +29,8 @@ export async function createSandboxClient(provider: SandboxProviderOptions): Pro
     throw new SandboxError(firstIssue?.message || `[${provider.provider}] invalid sandbox config`)
   }
 
-  const { createSandboxClient } = await import(
-    /* @vite-ignore */
-    '#vitehub-sandbox-provider-loader'
-  ).catch(() => import(
-    /* @vite-ignore */
-    '../runtime/provider-loader'
-  )).then(module => module.loadSandboxRuntimeProvider(provider.provider))
+  const { createSandboxClient } = await import('#vitehub-sandbox-provider-loader').catch(() => {
+    return dynamicImport<ProviderLoaderModule>('@vitehub/sandbox/runtime/provider-loader')
+  }).then(module => module.loadSandboxRuntimeProvider(provider.provider))
   return await createSandboxClient(provider)
 }
