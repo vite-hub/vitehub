@@ -32,6 +32,19 @@ describe("@vitehub/messages", () => {
     expect(getMessageText(messages[0]!)).toBe("hello")
   })
 
+  it("does not append assistant stream events to a trailing user message without messageId", () => {
+    const messages = applyStreamEvent(
+      [createMessage({ id: "user-1", role: "user", text: "hello" })],
+      { text: "assistant reply", type: "text-delta" },
+    )
+
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toMatchObject({ id: "user-1", role: "user" })
+    expect(getMessageText(messages[0]!)).toBe("hello")
+    expect(messages[1]).toMatchObject({ role: "assistant" })
+    expect(getMessageText(messages[1]!)).toBe("assistant reply")
+  })
+
   it("tracks tool call lifecycle", () => {
     let messages = [createMessage({ id: "m1", parts: [], role: "assistant" })]
 

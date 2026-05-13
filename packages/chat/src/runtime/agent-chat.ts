@@ -106,6 +106,7 @@ function createChatAgentWorkflow<TRuntimeConfig extends ChatRuntimeConfig>(
       workflow: handle,
     }
     const runAgent = async () => await executeChatAgentResponse(context, {
+      definition: agent as never,
       hooks: agent.hooks as never,
       name: payload.agentName,
     }, baseArgs as never, payload.input)
@@ -168,6 +169,7 @@ export function createChatFromAgent<
     hooks: hooks as DefineChatOptions<TRuntimeConfig, TWorkflow>["hooks"],
     workflow: workflow as TWorkflow,
     agent: {
+      definition: agent as never,
       event,
       execution: workflow ? "workflow" : "inline",
       history,

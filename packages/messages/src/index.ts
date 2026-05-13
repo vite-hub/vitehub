@@ -286,7 +286,8 @@ export function validateMessage(message: Message): void {
 }
 
 function findOrCreateMessage(messages: Message[], event: StreamEvent): Message {
-  const id = event.messageId || messages.at(-1)?.id || createId("msg")
+  const fallback = messages.at(-1)
+  const id = event.messageId || (fallback?.role === "assistant" ? fallback.id : createId("msg"))
   let message = messages.find(item => item.id === id)
   if (!message) {
     message = createMessage({ id, parts: [], role: "assistant" })

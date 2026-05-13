@@ -167,11 +167,11 @@ function getSectionLink(section: DocsSection, framework: Framework, currentPath:
   };
 }
 
-function buildDocsIndexSidebarNavigation(sections: DocsSection[], currentPath: string) {
+function buildDocsIndexSidebarNavigation(sections: DocsSection[], currentPath: string, framework: Framework) {
   return sections
     .filter(section => section.source === "local")
     .map((section) => {
-      const path = section.id === "getting-started" ? "/docs" : getDocsPath(section.id, "vite");
+      const path = section.id === "getting-started" ? "/docs" : getDocsPath(section.id, framework);
       return toNavigationItem({ title: section.title, path, icon: section.icon }, currentPath);
     });
 }
@@ -213,7 +213,7 @@ export function getDocsActiveSection(path: string, sections: DocsSection[]) {
 
 export function buildDocsSidebarNavigation(path: string, framework: Framework, sections = getSupportedDocsSections(framework)) {
   if (path === "/docs") {
-    return buildDocsIndexSidebarNavigation(sections, path);
+    return buildDocsIndexSidebarNavigation(sections, path, framework);
   }
 
   const activeSection = getDocsActiveSection(path, sections);
@@ -238,7 +238,7 @@ export function buildDocsSidebarNavigation(path: string, framework: Framework, s
   }
 
   if (activeSection.source === "local") {
-    return buildDocsIndexSidebarNavigation(sections, path);
+    return buildDocsIndexSidebarNavigation(sections, path, framework);
   }
 
   return buildSectionSidebarNavigation(activeSection, framework, path);

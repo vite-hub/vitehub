@@ -5,8 +5,6 @@ import { getBlobRuntimeConfig, getBlobRuntimeStorage, setBlobRuntimeStorage } fr
 
 import type { BlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
 
-const dynamicImport = new Function("modulePath", "return import(modulePath)") as <T>(modulePath: string) => Promise<T>
-
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   const isSourceRuntime = typeof import.meta !== "undefined"
     && typeof import.meta.url === "string"
@@ -32,8 +30,8 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       return module.createDriver(config)
     }
     default: {
-      const modulePath = isSourceRuntime ? "../drivers/files.ts" : "../drivers/files.js"
-      const module = await dynamicImport<{ createDriver: (options: typeof config) => any }>(modulePath)
+      const modulePath = new URL(isSourceRuntime ? "../drivers/files.ts" : "../drivers/files.js", import.meta.url).href
+      const module = await import(modulePath) as { createDriver: (options: typeof config) => any }
       return module.createDriver(config)
     }
   }

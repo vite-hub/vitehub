@@ -15,6 +15,9 @@
       "@vitehub/chat/runtime/nitro-dev-initialize": [
         "packages/chat/src/runtime/nitro-dev-initialize.ts"
       ],
+      "@vitehub/chat/runtime/memory-state": [
+        "packages/chat/src/runtime/memory-state.ts"
+      ],
       "@vitehub/internal/*": [
         "packages/internal/src/*"
       ],

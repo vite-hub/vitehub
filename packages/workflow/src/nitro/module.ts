@@ -45,6 +45,7 @@ function createNitroWorkflowPluginContents(file: string, registryFile: string) {
     "import { useRuntimeConfig } from \"nitro/runtime-config\"",
     "",
     "import { runCloudflareWorkflow } from \"@vitehub/workflow/runtime/cloudflare-runner\"",
+    "import { startOpenWorkflowWorker } from \"@vitehub/workflow/runtime/openworkflow-worker\"",
     "import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from \"@vitehub/workflow/runtime/state\"",
     "",
     `import workflowRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
@@ -61,13 +62,37 @@ function createNitroWorkflowPluginContents(file: string, registryFile: string) {
     "",
     "globalThis.__vitehubRunNitroWorkflowDefinition = runNitroWorkflowDefinition",
     "",
-    "const workflowNitroPlugin = defineNitroPlugin((nitroApp) => {",
+    "function shouldStartOpenWorkflowWorker(workflowConfig) {",
+    "  return workflowConfig?.provider === \"openworkflow\" && globalThis.process?.env?.OPENWORKFLOW_WORKER !== \"false\"",
+    "}",
+    "",
+    "const workflowNitroPlugin = defineNitroPlugin(async (nitroApp) => {",
     "  const runtimeConfig = useRuntimeConfig()",
     "  setWorkflowRuntimeConfig(runtimeConfig.workflow)",
     "  setWorkflowRuntimeRegistry(workflowRegistry)",
     "",
     "  nitroApp.hooks.hook(\"request\", (event) => {",
     "    enterWorkflowRuntimeEvent(event)",
+    "  })",
+    "",
+    "  if (!shouldStartOpenWorkflowWorker(runtimeConfig.workflow)) {",
+    "    return",
+    "  }",
+    "",
+    "  const worker = await startOpenWorkflowWorker({",
+    "    config: runtimeConfig.workflow,",
+    "    concurrency: Number(globalThis.process?.env?.OPENWORKFLOW_WORKER_CONCURRENCY || runtimeConfig.workflow.worker?.concurrency || 10),",
+    "    registry: workflowRegistry,",
+    "    signals: false,",
+    "  })",
+    "",
+    "  let stopped = false",
+    "  nitroApp.hooks.hook(\"close\", async () => {",
+    "    if (stopped) {",
+    "      return",
+    "    }",
+    "    stopped = true",
+    "    await worker.stop()",
     "  })",
     "})",
     "",
@@ -135,6 +160,8 @@ const workflowNitroModule: NitroModule = {
     nitro.options.alias["@vitehub/workflow/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/workflow/runtime/state")
     nitro.options.alias["@vitehub/workflow/runtime/execute"] = resolveRuntimeEntry("../runtime/execute", "@vitehub/workflow/runtime/execute")
     nitro.options.alias["@vitehub/workflow/runtime/cloudflare-runner"] = resolveRuntimeEntry("../runtime/cloudflare-runner", "@vitehub/workflow/runtime/cloudflare-runner")
+    nitro.options.alias["@vitehub/workflow/runtime/openworkflow"] = resolveRuntimeEntry("../runtime/openworkflow", "@vitehub/workflow/runtime/openworkflow")
+    nitro.options.alias["@vitehub/workflow/runtime/openworkflow-worker"] = resolveRuntimeEntry("../runtime/openworkflow-worker", "@vitehub/workflow/runtime/openworkflow-worker")
 
     let runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro)
     applyNitroRuntimeAliases(nitro, { "#vitehub/workflow/registry": runtimeFiles.registryFile })

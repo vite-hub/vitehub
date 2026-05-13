@@ -1,4 +1,6 @@
 import { defineAgent, defineTool } from "@vitehub/agent"
+import { createDevtoolsAdapter } from "@vitehub/chat/devtools"
+import { createMemoryChatStateAdapter } from "@vitehub/chat/runtime/memory-state"
 import { getMessageText } from "@vitehub/messages"
 
 type Queue = "billing" | "incident" | "product"
@@ -23,8 +25,10 @@ const classifyMessage = defineTool<{ message: string }, { queue: Queue, priority
 
 export default defineAgent({
   chat: {
-    adapters: {},
-    state: {},
+    adapters: {
+      devtools: createDevtoolsAdapter(),
+    },
+    state: createMemoryChatStateAdapter(),
   },
   description: "Triage support chat messages and prepare a queue handoff.",
   async run({ input }) {

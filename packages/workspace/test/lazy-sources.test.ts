@@ -157,6 +157,12 @@ describe("lazy sources", () => {
       expect.objectContaining({ path: "docs", type: "directory" }),
     ])
 
+    await expect(workspace.glob("docs/**/*.md")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "docs/foo.md", type: "file" }),
+      expect.objectContaining({ path: "docs/nested/bar.md", type: "file" }),
+    ]))
+    expect(getItem).toHaveBeenCalledTimes(2)
+
     await expect(workspace.list("docs")).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "docs/foo.md", type: "file" }),
       expect.objectContaining({ path: "docs/nested", type: "directory" }),

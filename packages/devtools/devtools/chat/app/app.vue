@@ -92,7 +92,7 @@ const previewInstructions = [
 const previewTools: ChatDevtoolsToolDefinition[] = [
   {
     category: "workspace",
-    command: "readonly()",
+    commands: ["readonly()"],
     description: "Inspect workspace files from the ViteHub preset without mutating project state.",
     name: "shell",
     preset: "vitehub-workspace",
@@ -102,11 +102,12 @@ const previewTools: ChatDevtoolsToolDefinition[] = [
 const state = ref<ChatDevtoolsStateResult>({
   chats: [],
   files: previewFiles,
-  instructions: previewInstructions,
+  instructions: previewInstructions.map(instruction => instruction.content),
   selected: "",
   tools: previewTools,
 })
 const messages = ref<ChatMessage[]>([])
+const chatMessages = computed(() => messages.value as never)
 const pendingUserMessage = ref<ChatMessage | undefined>()
 const pendingAssistantMessage = ref<ChatMessage | undefined>()
 const pendingAssistantBaselineIds = ref<Set<string> | undefined>()
@@ -468,6 +469,20 @@ function instructionContent(instruction: unknown) {
       : ""
 }
 
+function isLoadingMessage(message: unknown) {
+  return Boolean((message as ChatMessage | undefined)?.loading)
+}
+
+function loadingMessageText(message: unknown) {
+  return (message as ChatMessage | undefined)?.loadingText || "Thinking..."
+}
+
+function chatToolParts(parts: unknown): Array<{ type: "tool", tool: ChatDevtoolsTool }> {
+  return Array.isArray(parts)
+    ? parts.filter((part): part is { type: "tool", tool: ChatDevtoolsTool } => typeof part === "object" && part !== null && (part as { type?: unknown }).type === "tool" && "tool" in part)
+    : []
+}
+
 function appendDummy(message: ChatDevtoolsMessage) {
   messages.value = [...messages.value, toChatMessage(message)]
 }
@@ -522,7 +537,7 @@ async function runStandaloneSimulation(text: string) {
     chats: state.value.chats.length ? state.value.chats : [{ name: "preview", messages: [] }],
     files: previewFiles,
     selected: state.value.selected || "preview",
-    instructions: previewInstructions,
+    instructions: previewInstructions.map(instruction => instruction.content),
     tools: previewTools,
   }
   const assistant: ChatMessage = {
@@ -646,7 +661,7 @@ async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
     }
   }
   connected.value = true
-  return await rpcClient.call(method, ...args) as T
+  return await (rpcClient as { call: (method: string, ...args: unknown[]) => Promise<unknown> }).call(method, ...args) as T
 }
 
 async function callBridgeState(body: Record<string, unknown>): Promise<ChatDevtoolsStateResult | undefined> {
@@ -913,7 +928,7 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
 }
 
 async function readRpcStream(streamId: string, input: { chat?: string, text: string }) {
-  const reader = rpcClient?.streaming.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
+  const reader = (rpcClient as { streaming?: { subscribe: <T>(channel: string, id: string, options?: Record<string, unknown>) => AsyncIterable<T> & { cancel: () => unknown } } } | undefined)?.streaming?.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
     highWaterMark: 1024,
   })
   if (!reader) {
@@ -1098,7 +1113,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
           <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-14">
             <UChatMessages
               v-if="messages.length"
-              :messages="messages"
+              :messages="chatMessages"
               :should-auto-scroll="status === 'streaming'"
               compact
               class="min-h-full px-3 py-2"
@@ -1106,12 +1121,12 @@ onBeforeUnmount(() => stopSidebarResize?.())
               <template #content="{ content, message, parts }">
                 <div class="flex min-w-0 flex-col gap-2 text-sm/5">
                   <UChatShimmer
-                    v-if="message.loading"
-                    :text="message.loadingText || 'Thinking...'"
+                    v-if="isLoadingMessage(message)"
+                    :text="loadingMessageText(message)"
                     :duration="1.8"
                   />
                   <UChatTool
-                    v-for="part in parts"
+                    v-for="part in chatToolParts(parts)"
                     :key="part.tool.id"
                     :icon="toolIcon(part.tool)"
                     :text="renderToolCommand(part.tool)"

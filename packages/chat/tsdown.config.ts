@@ -17,6 +17,7 @@ export default defineConfig({
     "src/runtime/cloudflare-workers-dev.ts",
     "src/runtime/agent-chat.ts",
     "src/runtime/chat-devtools-handler.ts",
+    "src/runtime/memory-state.ts",
     "src/runtime/nitro-runtime-config.ts",
     "src/runtime/nitro-plugin.ts",
     "src/vercel.ts",

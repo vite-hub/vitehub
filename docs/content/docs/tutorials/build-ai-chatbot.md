@@ -98,11 +98,16 @@ The fastest way to feel the loop is to skip the model entirely. Create `server/c
 ::code-tree-intersection
 ```ts [server/chat.ts]
 import { defineChat } from '@vitehub/chat'
+import { createDevtoolsAdapter } from '@vitehub/chat/devtools'
+import { createMemoryChatStateAdapter } from '@vitehub/chat/runtime/memory-state'
 import { getMessageText } from '@vitehub/messages'
 
 export default defineChat({
   userName: 'Support Bot',
-  state,
+  adapters: {
+    devtools: createDevtoolsAdapter(),
+  },
+  state: createMemoryChatStateAdapter(),
   onDirectMessage: async ({ message, thread }) => {
     const text = getMessageText(message)
     await thread.post(`You said: "${text}". I'll get smarter in step 3.`)
@@ -156,10 +161,15 @@ ViteHub discovers this file as the `support/chat` agent. Now hand the chat over 
 ::code-tree-intersection
 ```ts [server/chat.ts]
 import { defineChat } from '@vitehub/chat'
+import { createDevtoolsAdapter } from '@vitehub/chat/devtools'
+import { createMemoryChatStateAdapter } from '@vitehub/chat/runtime/memory-state'
 
 export default defineChat({
   userName: 'Support Bot',
-  state,
+  adapters: {
+    devtools: createDevtoolsAdapter(),
+  },
+  state: createMemoryChatStateAdapter(),
   agent: {
     name: 'support/chat',
     history: {

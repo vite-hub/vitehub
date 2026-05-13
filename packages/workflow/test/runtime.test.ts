@@ -2,14 +2,132 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
+import { resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
+import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from "../src/runtime/client.ts"
 import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
-beforeEach(() => {
+const openWorkflowMock = vi.hoisted(() => {
+  const runs = new Map<string, any>()
+  const definitions = new Map<string, any>()
+  const connect = vi.fn(async (_url: string, _options?: unknown) => ({
+    getWorkflowRun: vi.fn(async ({ workflowRunId }: { workflowRunId: string }) => runs.get(workflowRunId) || null),
+    stop: vi.fn(),
+  }))
+  const newWorker = vi.fn((options?: unknown) => ({
+    options,
+    start: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
+  }))
+  const runOptions: unknown[] = []
+
+  class OpenWorkflow {
+    constructor(public readonly options: unknown) {}
+
+    defineWorkflow(spec: { name: string }, fn: (context: any) => unknown) {
+      definitions.set(spec.name, fn)
+      return {
+        run: vi.fn(async (input: unknown, options?: { idempotencyKey?: string }) => {
+          runOptions.push(options)
+          const id = `ow-${runs.size + 1}`
+          const run: any = {
+            attempts: 0,
+            availableAt: null,
+            config: null,
+            context: null,
+            createdAt: new Date(),
+            deadlineAt: null,
+            error: null as unknown,
+            finishedAt: null,
+            id,
+            idempotencyKey: options?.idempotencyKey || null,
+            input,
+            namespaceId: "production",
+            output: null as unknown,
+            parentStepAttemptId: null,
+            parentStepAttemptNamespaceId: null,
+            startedAt: null,
+            status: "pending",
+            updatedAt: new Date(),
+            version: null,
+            workerId: null,
+            workflowName: spec.name,
+          }
+          runs.set(id, run)
+          setTimeout(async () => {
+            try {
+              run.status = "completed"
+              run.output = await fn({
+                input,
+                run: { createdAt: run.createdAt, id, startedAt: run.startedAt, workflowName: spec.name },
+                step: {
+                  run: async (_config: unknown, stepRun: () => unknown) => await stepRun(),
+                },
+                version: null,
+              })
+            }
+            catch (error) {
+              run.error = error
+              run.status = "failed"
+            }
+          }, 0)
+          return {
+            result: async () => run.output,
+            workflowRun: run,
+          }
+        }),
+        workflow: { fn, spec },
+      }
+    }
+
+    newWorker(options?: unknown) {
+      return newWorker(options)
+    }
+  }
+
+  return {
+    connect,
+    definitions,
+    newWorker,
+    OpenWorkflow,
+    runOptions,
+    runs,
+  }
+})
+
+vi.mock("openworkflow", () => ({
+  OpenWorkflow: openWorkflowMock.OpenWorkflow,
+}))
+
+vi.mock("openworkflow/postgres", () => ({
+  BackendPostgres: {
+    connect: openWorkflowMock.connect,
+  },
+}))
+
+beforeEach(async () => {
   resetWorkflowRuntime()
+  await resetOpenWorkflowRuntime()
+  setOpenWorkflowImporter(async (specifier) => {
+    if (specifier === "openworkflow") {
+      return { OpenWorkflow: openWorkflowMock.OpenWorkflow } as never
+    }
+    if (specifier === "openworkflow/postgres") {
+      return { BackendPostgres: { connect: openWorkflowMock.connect } } as never
+    }
+    return await import(specifier) as never
+  })
+  openWorkflowMock.connect.mockClear()
+  openWorkflowMock.definitions.clear()
+  openWorkflowMock.newWorker.mockClear()
+  openWorkflowMock.runOptions.length = 0
+  openWorkflowMock.runs.clear()
   delete process.env.KV_REST_API_URL
   delete process.env.KV_REST_API_TOKEN
+  delete process.env.OPENWORKFLOW_NAMESPACE_ID
+  delete process.env.OPENWORKFLOW_POSTGRES_URL
+  delete process.env.OPENWORKFLOW_SCHEMA
 })
 
 afterEach(() => {
@@ -227,6 +345,113 @@ describe("workflow runtime", () => {
         status: "completed",
       })
     })
+  })
+
+  it("runs registered definitions through the OpenWorkflow provider", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: {
+        namespaceId: "production",
+        runMigrations: false,
+        schema: "openworkflow",
+        url: "postgres://localhost/vitehub",
+      },
+      provider: "openworkflow",
+    })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({
+        default: { handler: async ({ payload }) => ({ payload }) },
+      }),
+    })
+
+    const run = await runWorkflow("welcome", { message: "hello" }, { id: "welcome-idempotency-key" })
+    expect(run).toMatchObject({
+      metadata: { idempotencyKey: "welcome-idempotency-key", workflow: "welcome" },
+      provider: "openworkflow",
+      status: "queued",
+    })
+    expect(openWorkflowMock.connect).toHaveBeenCalledWith("postgres://localhost/vitehub", {
+      namespaceId: "production",
+      runMigrations: false,
+      schema: "openworkflow",
+    })
+    expect(openWorkflowMock.runOptions).toEqual([{ idempotencyKey: "welcome-idempotency-key" }])
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("welcome", run.id)).resolves.toMatchObject({
+        provider: "openworkflow",
+        result: { payload: { message: "hello" } },
+        status: "completed",
+      })
+    })
+  })
+
+  it("reads OpenWorkflow Postgres connection options from runtime environment", async () => {
+    process.env.OPENWORKFLOW_NAMESPACE_ID = "staging"
+    process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/env"
+    process.env.OPENWORKFLOW_SCHEMA = "workflow_schema"
+    setWorkflowRuntimeConfig({ provider: "openworkflow" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await runWorkflow("welcome", {})
+
+    expect(openWorkflowMock.connect).toHaveBeenCalledWith("postgres://localhost/env", {
+      namespaceId: "staging",
+      schema: "workflow_schema",
+    })
+  })
+
+  it("requires a Postgres URL for the OpenWorkflow provider", async () => {
+    setWorkflowRuntimeConfig({ provider: "openworkflow" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expect(runWorkflow("welcome", {})).rejects.toThrow(/Missing OpenWorkflow Postgres URL/)
+  })
+
+  it("creates an OpenWorkflow worker from the runtime registry", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+      worker: { concurrency: 3 },
+    })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    const worker = await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("welcome")).toBe(true)
+    expect(openWorkflowMock.newWorker).toHaveBeenCalledWith({ concurrency: 3 })
+    await worker.start()
+    expect(worker.start).toHaveBeenCalled()
+  })
+
+  it("registers inline workflow definitions in OpenWorkflow workers", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    createWorkflow("inline-worker", async () => ({ ok: true }))
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("inline-worker")).toBe(true)
+  })
+
+  it("rejects duplicate inline and discovered OpenWorkflow worker definitions", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    setWorkflowRuntimeRegistry({
+      duplicate: async () => ({ default: { handler: async () => "discovered" } }),
+    })
+    createWorkflow("duplicate", async () => "inline")
+
+    await expect(createOpenWorkflowWorker()).rejects.toThrow(/Duplicate workflow name "duplicate"/)
   })
 
   it("shares in-flight discovered workflow definition loads", async () => {

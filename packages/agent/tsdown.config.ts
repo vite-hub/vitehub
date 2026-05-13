@@ -14,6 +14,7 @@ export default defineConfig({
     "src/nitro.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/nitro-runtime-config.ts",
+    "src/test.ts",
     "src/vercel.ts",
     "src/vite.ts",
   ],

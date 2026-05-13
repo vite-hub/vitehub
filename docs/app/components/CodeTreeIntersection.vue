@@ -62,7 +62,7 @@ useIntersectionObserver(
 </script>
 
 <template>
-  <div v-if="!props.default" ref="target">
+  <div ref="target">
     <slot />
   </div>
 </template>

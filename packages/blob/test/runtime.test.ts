@@ -67,6 +67,22 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
 }))
 
+const filesSdkMock = vi.hoisted(() => ({
+  list: vi.fn(async (_options?: unknown) => ({
+    items: [
+      {
+        etag: "\"etag\"",
+        key: "notes/hello.txt",
+        lastModified: "2026-01-01T00:00:00.000Z",
+        metadata: {},
+        size: 5,
+        type: "text/plain",
+      },
+    ],
+  })),
+  s3: vi.fn(() => ({ provider: "s3" })),
+}))
+
 vi.mock("@vercel/blob", () => ({
   del: async (pathname: string, options: { token?: string } = {}) => {
     await (vercelBlobMock.del as any)(pathname, { token: options.token })
@@ -98,6 +114,18 @@ vi.mock("@vercel/blob", () => ({
   },
 }))
 
+vi.mock("files-sdk", () => ({
+  Files: class {
+    async list(options?: unknown) {
+      return await filesSdkMock.list(options)
+    }
+  },
+}))
+
+vi.mock("files-sdk/s3", () => ({
+  s3: filesSdkMock.s3,
+}))
+
 afterEach(() => {
   runtimeConfigMock.blob = undefined
   setActiveCloudflareEnv(undefined)
@@ -108,6 +136,8 @@ afterEach(() => {
   vercelBlobMock.head.mockClear()
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()
+  filesSdkMock.list.mockClear()
+  filesSdkMock.s3.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
   vi.restoreAllMocks()
 })
@@ -155,16 +185,27 @@ function createMemoryBucket() {
         uploaded: current.uploaded,
       }
     },
-    async list() {
-      return {
-        objects: [...store.entries()].map(([key, value]) => ({
+    async list(options: { cursor?: string, delimiter?: string, include?: string[], limit?: number, prefix?: string } = {}) {
+      const objects = [...store.entries()]
+        .filter(([key]) => !options.prefix || key.startsWith(options.prefix))
+        .map(([key, value]) => ({
           customMetadata: value.customMetadata,
           httpEtag: "\"etag\"",
           httpMetadata: { contentType: value.contentType },
           key,
           size: value.body.byteLength,
           uploaded: value.uploaded,
-        })),
+        }))
+      const delimitedPrefixes = options.delimiter
+        ? [...new Set(objects.flatMap((object) => {
+            const remainder = object.key.slice(options.prefix?.length || 0)
+            const index = remainder.indexOf(options.delimiter!)
+            return index >= 0 ? [`${options.prefix || ""}${remainder.slice(0, index + 1)}`] : []
+          }))]
+        : undefined
+      return {
+        delimitedPrefixes,
+        objects: options.delimiter ? objects.filter((object) => !delimitedPrefixes?.some(prefix => object.key.startsWith(prefix))) : objects,
         truncated: false,
       }
     },
@@ -234,6 +275,43 @@ describe("blob runtime", () => {
 
     await blob.del("notes/hello.txt")
     await expect(blob.head("notes/hello.txt")).rejects.toThrow("Blob not found")
+  })
+
+  it("returns folded folders from the active Cloudflare binding", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        binding: "BLOB",
+        bucketName: "assets",
+        driver: "cloudflare-r2",
+      },
+    })
+    setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
+
+    await blob.put("notes/hello.txt", "hello")
+    await blob.put("images/logo.png", "logo")
+
+    const list = await blob.list({ folded: true })
+
+    expect(list.blobs).toEqual([])
+    expect(list.folders).toEqual(["images/", "notes/"])
+  })
+
+  it("loads non-core drivers through the anchored files driver import", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        bucket: "assets",
+        driver: "s3",
+      },
+    })
+
+    const list = await blob.list()
+
+    expect(filesSdkMock.s3).toHaveBeenCalledWith(expect.objectContaining({ driver: "s3" }))
+    expect(list.blobs).toEqual([
+      expect.objectContaining({
+        pathname: "notes/hello.txt",
+      }),
+    ])
   })
 
   it("decodes percent-encoded pathnames once before reaching drivers", async () => {

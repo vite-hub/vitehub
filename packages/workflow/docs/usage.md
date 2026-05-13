@@ -123,6 +123,17 @@ Provider details belong in config:
     }
     ```
   :::
+
+  :::tabs-item{label="Docker" icon="i-lucide-container" class="p-4"}
+    ```ts
+    workflow: {
+      provider: 'openworkflow',
+      postgres: {
+        url: process.env.OPENWORKFLOW_POSTGRES_URL,
+      },
+    }
+    ```
+  :::
 ::
 
 ## Start with a bare payload
@@ -206,6 +217,7 @@ Provider support differs:
 | --- | --- |
 | Cloudflare | Reads the Workflow binding when available and normalizes provider status metadata. |
 | Vercel | Reports generated runtime state for runs started by the same deployment process. |
+| OpenWorkflow | Reads durable run state from the configured Postgres backend. |
 
 ## Validate request payloads
 

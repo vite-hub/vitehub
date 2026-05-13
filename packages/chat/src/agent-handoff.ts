@@ -212,7 +212,7 @@ export async function executeChatAgentResponse<
 ) {
   try {
     const agentContext = createAgentRuntimeContext(runtimeContext, baseArgs.thread, baseArgs.run)
-    const agent = await getAgentFromRegistry(binding.name, agentContext)
+    const agent = binding.definition || await getAgentFromRegistry(binding.name, agentContext)
     let result = await streamAgent(agent, agentContext, input)
     result = await binding.hooks?.afterRun?.({ ...baseArgs, input, result }) ?? result
     if (binding.hooks?.sendResponse) {

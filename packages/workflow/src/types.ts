@@ -1,4 +1,4 @@
-export type WorkflowProvider = "cloudflare" | "vercel"
+export type WorkflowProvider = "cloudflare" | "openworkflow" | "vercel"
 
 export interface CloudflareWorkflowBinding<TPayload = unknown> {
   create: (options?: { id?: string, params?: TPayload }) => Promise<CloudflareWorkflowInstance>
@@ -23,14 +23,48 @@ export interface VercelWorkflowProviderOptions extends WorkflowSharedOptions {
   provider: "vercel"
 }
 
+export interface OpenWorkflowPostgresOptions {
+  namespaceId?: string
+  runMigrations?: boolean
+  schema?: string
+  url?: string
+}
+
+export interface OpenWorkflowWorkerOptions {
+  concurrency?: number
+}
+
+export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
+  postgres?: OpenWorkflowPostgresOptions
+  provider: "openworkflow"
+  worker?: OpenWorkflowWorkerOptions
+}
+
+export interface NodeWorkflowProviderOptions extends WorkflowSharedOptions {
+  postgres?: OpenWorkflowPostgresOptions
+  provider: "node"
+  worker?: OpenWorkflowWorkerOptions
+}
+
+export interface InferredWorkflowProviderOptions extends WorkflowSharedOptions {
+  postgres?: OpenWorkflowPostgresOptions
+  provider?: undefined
+  worker?: OpenWorkflowWorkerOptions
+}
+
 export type WorkflowProviderOptions =
   | CloudflareWorkflowProviderOptions
+  | OpenWorkflowProviderOptions
   | VercelWorkflowProviderOptions
+
+export type WorkflowModuleProviderOptions =
+  | InferredWorkflowProviderOptions
+  | WorkflowProviderOptions
+  | NodeWorkflowProviderOptions
 
 export type WorkflowModuleOptions =
   | false
-  | (WorkflowSharedOptions & { provider?: undefined })
-  | WorkflowProviderOptions
+  | WorkflowModuleProviderOptions
 
 export type ResolvedWorkflowOptions = WorkflowProviderOptions
 

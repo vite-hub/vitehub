@@ -34,6 +34,7 @@
     "./runtime/agent-chat": "./dist/runtime/agent-chat.js",
     "./runtime/chat-devtools-handler": "./dist/runtime/chat-devtools-handler.js",
     "./runtime/cloudflare-workers-dev": "./dist/runtime/cloudflare-workers-dev.js",
+    "./runtime/memory-state": "./dist/runtime/memory-state.js",
     "./runtime/nitro-dev-initialize": "./dist/runtime/nitro-dev-initialize.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/nitro-runtime-config": "./dist/runtime/nitro-runtime-config.js",

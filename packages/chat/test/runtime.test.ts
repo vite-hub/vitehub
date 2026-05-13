@@ -563,7 +563,7 @@ describe("defineChat", () => {
   it("maps agent-centered chat metadata to chat and agent hooks", async () => {
     const prepareInput = vi.fn(() => ({ prompt: "from agent hook" }))
     const onAction = vi.fn()
-    const { streamAgent } = mockAgentPackage()
+    const { getAgentFromRegistry, streamAgent } = mockAgentPackage()
     const { defineAgent } = await import("@vitehub/agent")
     const { createChatFromAgent } = await import("../src/runtime/agent-chat.ts")
     const { resolveChat } = await import("../src/index.ts")
@@ -588,13 +588,14 @@ describe("defineChat", () => {
 
     expect(actionSpy).toHaveBeenCalled()
     expect(prepareInput).toHaveBeenCalled()
-    expect(streamAgent).toHaveBeenCalledWith(expect.anything(), expect.anything(), { prompt: "from agent hook" })
+    expect(getAgentFromRegistry).not.toHaveBeenCalled()
+    expect(streamAgent).toHaveBeenCalledWith(agent, expect.anything(), { prompt: "from agent hook" })
   })
 
   it("runs agent-centered workflow responses through agent lifecycle hooks", async () => {
     const afterRun = vi.fn(() => "after response")
     const sendResponse = vi.fn()
-    const { streamAgent } = mockAgentPackage()
+    const { getAgentFromRegistry, streamAgent } = mockAgentPackage()
     const { defineAgent } = await import("@vitehub/agent")
     const { createChatFromAgent } = await import("../src/runtime/agent-chat.ts")
     const { resolveChat } = await import("../src/index.ts")
@@ -620,8 +621,9 @@ describe("defineChat", () => {
     const directMessage = directMessageSpy.mock.calls[0]?.[0]
     await directMessage?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
 
+    expect(getAgentFromRegistry).not.toHaveBeenCalled()
     expect(streamAgent).toHaveBeenCalledWith(
-      { name: "agent" },
+      agent,
       expect.objectContaining({ run: expect.objectContaining({ runId: expect.any(String) }) }),
       expect.objectContaining({ messages: [expect.objectContaining({ id: "m2" })] }),
     )

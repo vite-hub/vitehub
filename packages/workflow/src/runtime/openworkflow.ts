@@ -1,0 +1,223 @@
+import { runWorkflowHandler } from "./execute.ts"
+
+import type { RetryPolicy } from "openworkflow"
+import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowStepOptions } from "../types.ts"
+
+type OpenWorkflowModule = typeof import("openworkflow")
+type OpenWorkflowPostgresModule = typeof import("openworkflow/postgres")
+type OpenWorkflowClient = InstanceType<OpenWorkflowModule["OpenWorkflow"]>
+type OpenWorkflowBackend = Awaited<ReturnType<OpenWorkflowPostgresModule["BackendPostgres"]["connect"]>>
+type OpenWorkflowRunnable = ReturnType<OpenWorkflowClient["defineWorkflow"]>
+type OpenWorkflowRun = Awaited<ReturnType<OpenWorkflowBackend["getWorkflowRun"]>>
+type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
+type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
+const defaultImporter = new Function("specifier", "return import(specifier)") as OpenWorkflowImporter
+let openWorkflowImporter = defaultImporter
+
+interface OpenWorkflowRuntime {
+  backend: OpenWorkflowBackend
+  client: OpenWorkflowClient
+  workflows: Map<string, OpenWorkflowRunnable>
+}
+
+const runtimes = new Map<string, Promise<OpenWorkflowRuntime>>()
+
+function readEnv(name: string): string | undefined {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+  const value = env?.[name]
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+function getOpenWorkflowConfig(config: ResolvedWorkflowOptions) {
+  if (config.provider !== "openworkflow") {
+    throw new Error(`OpenWorkflow runtime requires workflow.provider "openworkflow", received "${config.provider}".`)
+  }
+
+  const postgres = config.postgres || {}
+  const url = postgres.url || readEnv("OPENWORKFLOW_POSTGRES_URL") || readEnv("DATABASE_URL")
+  if (!url) {
+    throw new Error("Missing OpenWorkflow Postgres URL. Set workflow.postgres.url, OPENWORKFLOW_POSTGRES_URL, or DATABASE_URL.")
+  }
+
+  return {
+    namespaceId: postgres.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
+    runMigrations: postgres.runMigrations,
+    schema: postgres.schema || readEnv("OPENWORKFLOW_SCHEMA") || "openworkflow",
+    url,
+  }
+}
+
+function getRuntimeKey(config: ResolvedWorkflowOptions): string {
+  return JSON.stringify(getOpenWorkflowConfig(config))
+}
+
+async function createOpenWorkflowRuntime(config: ResolvedWorkflowOptions): Promise<OpenWorkflowRuntime> {
+  const options = getOpenWorkflowConfig(config)
+  const [{ OpenWorkflow }, { BackendPostgres }] = await Promise.all([
+    openWorkflowImporter<OpenWorkflowModule>("openworkflow"),
+    openWorkflowImporter<OpenWorkflowPostgresModule>("openworkflow/postgres"),
+  ])
+  const backend = await BackendPostgres.connect(options.url, {
+    namespaceId: options.namespaceId,
+    ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
+    schema: options.schema,
+  })
+
+  return {
+    backend,
+    client: new OpenWorkflow({ backend }),
+    workflows: new Map(),
+  }
+}
+
+export async function getOpenWorkflowRuntime(config: ResolvedWorkflowOptions): Promise<OpenWorkflowRuntime> {
+  const key = getRuntimeKey(config)
+  let runtime = runtimes.get(key)
+  if (!runtime) {
+    runtime = createOpenWorkflowRuntime(config)
+    runtimes.set(key, runtime)
+  }
+  return await runtime
+}
+
+function toOpenWorkflowRetryPolicy(options: WorkflowStepOptions): Partial<RetryPolicy> | undefined {
+  const retries = options.retries
+  if (!retries) {
+    return undefined
+  }
+
+  return {
+    ...(retries.backoff ? { backoffCoefficient: retries.backoff === "exponential" ? 2 : 1 } : {}),
+    ...(retries.delay ? { initialInterval: retries.delay as RetryPolicy["initialInterval"] } : {}),
+    ...(typeof retries.limit === "number" ? { maximumAttempts: retries.limit } : {}),
+  }
+}
+
+function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProviderStep {
+  return {
+    async do(name, options, run) {
+      return await step.run({
+        name,
+        ...(toOpenWorkflowRetryPolicy(options) ? { retryPolicy: toOpenWorkflowRetryPolicy(options) } : {}),
+      }, run)
+    },
+  }
+}
+
+export async function registerOpenWorkflowDefinition(
+  runtime: OpenWorkflowRuntime,
+  name: string,
+  definition: WorkflowDefinition,
+): Promise<OpenWorkflowRunnable> {
+  const existing = runtime.workflows.get(name)
+  if (existing) {
+    return existing
+  }
+
+  const workflow = runtime.client.defineWorkflow({ name }, async ({ input, run, step }) => {
+    return await runWorkflowHandler({
+      id: run.id,
+      name,
+      payload: input,
+      provider: "openworkflow",
+      step: createOpenWorkflowProviderStep(step),
+    }, definition as never)
+  })
+  runtime.workflows.set(name, workflow)
+  return workflow
+}
+
+function normalizeOpenWorkflowStatus(status: unknown): WorkflowRunStatus {
+  switch (String(status || "").toLowerCase()) {
+    case "completed":
+    case "succeeded":
+      return "completed"
+    case "canceled":
+    case "failed":
+      return "failed"
+    case "pending":
+      return "queued"
+    case "running":
+    case "sleeping":
+      return "running"
+    default:
+      return "unknown"
+  }
+}
+
+function serializeOpenWorkflowRun(run: OpenWorkflowRun, name: string): WorkflowRun {
+  if (!run || run.workflowName !== name) {
+    return {
+      id: run?.id || "",
+      provider: "openworkflow",
+      status: "unknown",
+    }
+  }
+
+  return {
+    id: run.id,
+    metadata: run.error || {
+      namespaceId: run.namespaceId,
+      version: run.version,
+      workflowName: run.workflowName,
+    },
+    provider: "openworkflow",
+    result: run.output ?? undefined,
+    status: normalizeOpenWorkflowStatus(run.status),
+  }
+}
+
+export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
+  config: ResolvedWorkflowOptions,
+  name: string,
+  payload: TPayload | undefined,
+  definition: WorkflowDefinition<TPayload, TResult>,
+  options: WorkflowDeferOptions,
+): Promise<WorkflowRun<TPayload, TResult>> {
+  const runtime = await getOpenWorkflowRuntime(config)
+  const workflow = await registerOpenWorkflowDefinition(runtime, name, definition as never)
+  const handle = await workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)
+
+  return {
+    id: handle.workflowRun.id,
+    metadata: {
+      ...(options.id ? { idempotencyKey: options.id } : {}),
+      workflow: name,
+    },
+    payload,
+    provider: "openworkflow",
+    status: normalizeOpenWorkflowStatus(handle.workflowRun.status),
+  }
+}
+
+export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
+  config: ResolvedWorkflowOptions,
+  name: string,
+  id: string,
+): Promise<WorkflowRun<TPayload, TResult>> {
+  const runtime = await getOpenWorkflowRuntime(config)
+  const run = await runtime.backend.getWorkflowRun({ workflowRunId: id })
+  const serialized = serializeOpenWorkflowRun(run, name)
+  return serialized.id
+    ? serialized as WorkflowRun<TPayload, TResult>
+    : {
+        id,
+        provider: "openworkflow",
+        status: "unknown",
+      }
+}
+
+export async function resetOpenWorkflowRuntime(): Promise<void> {
+  const settled = await Promise.allSettled(runtimes.values())
+  runtimes.clear()
+  openWorkflowImporter = defaultImporter
+  await Promise.all(settled.map(async (entry) => {
+    if (entry.status === "fulfilled") {
+      await entry.value.backend.stop()
+    }
+  }))
+}
+
+export function setOpenWorkflowImporter(importer: OpenWorkflowImporter): void {
+  openWorkflowImporter = importer
+}

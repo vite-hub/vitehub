@@ -195,13 +195,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     },
     async glob(pattern, options) {
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
+      await ensurePreparedSources()
+      await ensureMaterializedSources()
+
       const result = new Map<string, WorkspaceEntry>()
       for (const entry of await store.glob(patterns, options)) {
         result.set(entry.path, entry)
       }
-
-      await ensurePreparedSources()
-      await ensureMaterializedSources()
 
       return [...result.values()].sort((left, right) => left.path.localeCompare(right.path))
     },

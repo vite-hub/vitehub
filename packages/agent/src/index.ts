@@ -728,7 +728,10 @@ function sourceMaterialize(key: string, source: NonNullable<WorkspaceAgentWorksp
   return source.cache ? "lazy" : "build"
 }
 
-function hasLazyWorkspaceSources<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>) {
+function hasLazyWorkspaceSources<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>) {
   return Object.entries(options.workspace.sources || {}).some(([sourceName, source]) => sourceMaterialize(sourceName, source) === "lazy")
 }
 

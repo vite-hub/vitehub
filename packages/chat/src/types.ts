@@ -1,6 +1,7 @@
 import type {
   AgentChatOptions,
   AgentExecution,
+  AgentInput,
   AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeContext,
@@ -230,6 +231,7 @@ export interface ChatAgentBindingOptions<
   TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
 > {
+  definition?: AgentInput<ChatAgentRuntimeContext<TRuntimeConfig>>
   event?: ChatAgentEvent
   execution?: Extract<AgentExecution, "inline"> | "workflow"
   history?: ChatAgentHistory

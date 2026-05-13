@@ -17,7 +17,7 @@ interface R2BucketLike {
   delete(key: string): Promise<void>
   get(key: string): Promise<R2ObjectLike | null>
   head(key: string): Promise<R2ObjectLike | null>
-  list(options?: { cursor?: string, limit?: number, prefix?: string }): Promise<{ cursor?: string, objects: R2ObjectLike[], truncated?: boolean }>
+  list(options?: { cursor?: string, delimiter?: string, include?: string[], limit?: number, prefix?: string }): Promise<{ cursor?: string, delimitedPrefixes?: string[], objects: R2ObjectLike[], truncated?: boolean }>
   put(key: string, value: BlobPutBody, options?: { customMetadata?: Record<string, string>, httpMetadata?: { contentType?: string } }): Promise<R2ObjectLike>
 }
 
@@ -78,12 +78,15 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
       const result = await getBucket(options).list({
         cursor: listOptions.cursor,
+        delimiter: listOptions.folded ? "/" : undefined,
+        include: ["customMetadata", "httpMetadata"],
         limit: listOptions.limit ?? 1000,
         prefix: listOptions.prefix,
       })
       return {
         blobs: result.objects.map(mapObject),
-        cursor: result.cursor,
+        cursor: result.truncated ? result.cursor : undefined,
+        folders: listOptions.folded ? result.delimitedPrefixes?.sort((left, right) => left.localeCompare(right)) : undefined,
         hasMore: Boolean(result.truncated || result.cursor),
       }
     },
