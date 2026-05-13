@@ -40,6 +40,10 @@ function createContext(overrides: Record<string, unknown> = {}) {
 }
 
 afterEach(() => {
+  delete (globalThis as typeof globalThis & {
+    __vitehubApplyEnvRuntimeConfig?: unknown
+  }).__vitehubApplyEnvRuntimeConfig
+  delete process.env.GITHUB_TOKEN
   vi.doUnmock("@vitehub/agent")
   vi.doUnmock("@vitehub/workflow")
   vi.doUnmock("@vitehub/workflow/runtime/state")
@@ -630,6 +634,48 @@ describe("defineChat", () => {
     expect(afterRun).toHaveBeenCalledWith(expect.objectContaining({ result: "agent response" }))
     expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ result: "after response" }))
     expect(post).not.toHaveBeenCalled()
+  })
+
+  it("lets workflow-resumed agent chats resolve runtime env from process env", async () => {
+    const applyRuntimeConfig = vi.fn((runtimeConfig: Record<string, unknown>, event?: unknown) => {
+      const env = (event as { env?: Record<string, string> } | undefined)?.env
+      return {
+        ...runtimeConfig,
+        githubToken: env?.GITHUB_TOKEN || process.env.GITHUB_TOKEN,
+      }
+    })
+    ;(globalThis as typeof globalThis & {
+      __vitehubApplyEnvRuntimeConfig?: typeof applyRuntimeConfig
+    }).__vitehubApplyEnvRuntimeConfig = applyRuntimeConfig
+    process.env.GITHUB_TOKEN = "github-token"
+
+    const { streamAgent } = mockAgentPackage()
+    const { defineAgent } = await import("@vitehub/agent")
+    const { createChatFromAgent } = await import("../src/runtime/agent-chat.ts")
+    const { resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    vi.spyOn(Chat.prototype, "thread").mockReturnValue({ id: "thread-1", post: vi.fn() } as never)
+
+    const agent = defineAgent({
+      runtime: { kind: "workflow" },
+      chat: {
+        adapters: {},
+        history: false,
+        state: createState() as never,
+      },
+      run: () => "ok",
+    })
+
+    await resolveChat(createChatFromAgent(agent, "triager"), createContext() as never, { inferredName: "triager" })
+    const directMessage = directMessageSpy.mock.calls[0]?.[0]
+    await directMessage?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
+
+    expect(applyRuntimeConfig).toHaveBeenCalledWith(expect.any(Object), undefined)
+    expect(streamAgent).toHaveBeenCalledWith(
+      agent,
+      expect.objectContaining({ runtimeConfig: expect.objectContaining({ githubToken: "github-token" }) }),
+      expect.anything(),
+    )
   })
 
   it("lets agent-centered workflow error hooks handle failures", async () => {

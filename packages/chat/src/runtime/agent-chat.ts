@@ -44,17 +44,23 @@ function getCloudflareEnvFromEvent(event: unknown) {
   )
 }
 
+function hasRuntimeEnvValues(env: Record<string, unknown> | undefined): env is Record<string, unknown> {
+  return !!env && Object.keys(env).length > 0
+}
+
 function runtimeContext<TRuntimeConfig extends ChatRuntimeConfig>(options: Pick<ChatAgentWorkflowPayload, "cloudflare" | "dev"> = {}): ResolvedChatRuntimeContext<TRuntimeConfig> {
   const cloudflare = options.cloudflare
-  const env = cloudflare?.env || getCloudflareEnvFromEvent(getWorkflowRuntimeEvent()) || {}
-  const event = { env }
+  const env = hasRuntimeEnvValues(cloudflare?.env)
+    ? cloudflare.env
+    : getCloudflareEnvFromEvent(getWorkflowRuntimeEvent())
+  const event = hasRuntimeEnvValues(env) ? { env } : undefined
   const runtimeConfig = (useRuntimeConfig as unknown as (event?: unknown) => Record<string, unknown>)(event)
   const applyEnvRuntimeConfig = (globalThis as {
     __vitehubApplyEnvRuntimeConfig?: (runtimeConfig: Record<string, unknown>, event?: unknown) => Record<string, unknown>
   }).__vitehubApplyEnvRuntimeConfig
 
   return {
-    cloudflare: cloudflare || { env },
+    cloudflare: cloudflare || { env: env || {} },
     dev: options.dev,
     memo: createMemo(),
     runtime: "nitro",
