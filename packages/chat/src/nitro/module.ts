@@ -282,11 +282,18 @@ function createNitroSingleChatDevtoolsContents(file: string, definition: Discove
 }
 
 function renderAgentDevtoolsDefaults(definition: DiscoveredChatDefinition): string {
-  return `{ name: ${JSON.stringify(definition.name)}, workspace: ${JSON.stringify(definition.name)} }`
+  return `{ name: ${JSON.stringify(definition.name)}, workspace: ${JSON.stringify(definition.workspace || definition.name)} }`
 }
 
 function isAgentChatDefinition(definition: DiscoveredChatDefinition): boolean {
   return definition.source === "nitro-server-agent-chat"
+}
+
+function agentExpression(expression: string, definition: DiscoveredChatDefinition): string {
+  if (!definition.workspace) {
+    return expression
+  }
+  return `withWorkspaceAgentDefaults(${expression}, { name: ${JSON.stringify(definition.name)}, workspace: ${JSON.stringify(definition.workspace)} })`
 }
 
 function createChatImportLines(file: string, definition: DiscoveredChatDefinition): string[] {
@@ -296,15 +303,17 @@ function createChatImportLines(file: string, definition: DiscoveredChatDefinitio
   }
   if (definition.exportName) {
     return [
+      ...(definition.workspace ? [`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`] : []),
       `import { createChatFromAgent } from "@vitehub/chat/runtime/agent-chat"`,
       `import { ${definition.exportName} as agent } from ${importPath}`,
-      `const chat = createChatFromAgent(agent, ${JSON.stringify(definition.name)})`,
+      `const chat = createChatFromAgent(${agentExpression("agent", definition)}, ${JSON.stringify(definition.name)})`,
     ]
   }
   return [
+    ...(definition.workspace ? [`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`] : []),
     `import { createChatFromAgent } from "@vitehub/chat/runtime/agent-chat"`,
     `import agent from ${importPath}`,
-    `const chat = createChatFromAgent(agent, ${JSON.stringify(definition.name)})`,
+    `const chat = createChatFromAgent(${agentExpression("agent", definition)}, ${JSON.stringify(definition.name)})`,
   ]
 }
 
@@ -322,11 +331,13 @@ function createNitroChatRegistryContents(file: string, definitions: DiscoveredCh
       return `  ${JSON.stringify(definition.name)}: async () => import(${importPath}),`
     }
     if (definition.exportName) {
-      return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: createChatFromAgent(mod[${JSON.stringify(definition.exportName)}], ${JSON.stringify(definition.name)}) } },`
+      return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: createChatFromAgent(${agentExpression(`mod[${JSON.stringify(definition.exportName)}]`, definition)}, ${JSON.stringify(definition.name)}) } },`
     }
-    return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: createChatFromAgent(mod.default, ${JSON.stringify(definition.name)}) } },`
+    return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: createChatFromAgent(${agentExpression("mod.default", definition)}, ${JSON.stringify(definition.name)}) } },`
   })
+  const usesWorkspaceDefaults = definitions.some(definition => definition.workspace)
   return [
+    ...(usesWorkspaceDefaults ? [`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`] : []),
     `import { createChatFromAgent } from "@vitehub/chat/runtime/agent-chat"`,
     "",
     "const registry = {",

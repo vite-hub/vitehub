@@ -697,7 +697,11 @@ describe("Nitro module", () => {
 
     await module.setup(nitro as never)
 
+    const routeContents = await readFile(nitro.options.handlers[0]!.handler, "utf8")
+    expect(routeContents).toContain(`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`)
+    expect(routeContents).toContain(`createChatFromAgent(withWorkspaceAgentDefaults(agent, { name: "docs", workspace: "docs" }), "docs")`)
     const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
+    expect(devtoolsContents).toContain(`createChatFromAgent(withWorkspaceAgentDefaults(agent, { name: "docs", workspace: "docs" }), "docs")`)
     expect(devtoolsContents).toContain(`import { resolveAgentDevtoolsMetadata } from "@vitehub/agent"`)
     expect(devtoolsContents).toContain(`metadata: () => resolveAgentDevtoolsMetadata(agent, { name: "docs", workspace: "docs" })`)
   })
@@ -978,6 +982,9 @@ describe("Nitro module", () => {
     await module.setup(nitro as never)
 
     const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
+    const registryContents = await readFile(join(rootDir, ".nitro", ".vitehub", "nitro-runtime", "chat", "nitro-registry.ts"), "utf8")
+    expect(registryContents).toContain(`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`)
+    expect(registryContents).toContain(`createChatFromAgent(withWorkspaceAgentDefaults(mod.default, { name: "docs", workspace: "docs" }), "docs")`)
     expect(devtoolsContents).toContain("const metadata = {")
     expect(devtoolsContents).toContain(`"docs": () => resolveAgentDevtoolsMetadata(devtoolsMetadataAgent0, { name: "docs", workspace: "docs" })`)
     expect(devtoolsContents).toContain("metadata: metadata")

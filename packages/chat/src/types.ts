@@ -385,6 +385,7 @@ export interface DiscoveredChatDefinition {
   handler: string
   name: string
   source?: string
+  workspace?: string
 }
 
 export type AgentChatConfig<
