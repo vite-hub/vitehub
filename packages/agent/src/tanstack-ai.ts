@@ -2,7 +2,7 @@ import { getMessageText } from "@vitehub/messages"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
-} from "./index.ts"
+} from "./tool-runtime.ts"
 
 import type {
   AgentAdapter,
