@@ -737,22 +737,6 @@ function workspaceMetadataFiles<Name extends WorkspaceName>(
   defaults: WorkspaceAgentDefaults<Name>,
 ): AgentDevtoolsFileTreeItem[] {
   const workspaceName = options.name || defaults.workspace || defaults.name || "workspace"
-  const localEntries = listLocalMaterializedWorkspaceEntries(options)
-  if (localEntries.length) {
-    const root: AgentDevtoolsFileTreeItem = {
-      children: [],
-      kind: "directory",
-      label: workspaceName,
-      path: workspaceName,
-    }
-    for (const entry of localEntries) {
-      addFileTreePath(root, entry)
-    }
-    markSourceTreeMetadata(root, options)
-    propagateMaterializedDirectories(root)
-    sortFileTree(root)
-    return [root]
-  }
   const sources = options.workspace.sources || {}
   const children = Object.entries(sources).sort(([left], [right]) => left.localeCompare(right)).map(([sourceName, source]) => {
     const materialize = sourceMaterialize(sourceName, source)
@@ -805,41 +789,6 @@ function localWorkspaceRoots(options: WorkspaceAgentOptions<AgentRuntimeConfig, 
 
 function sourceMountPaths(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string[] {
   return Object.entries(options.workspace.sources || {}).map(([sourceName, source]) => sourceMountPath(sourceName, source))
-}
-
-function listLocalMaterializedWorkspaceEntries(
-  options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>,
-): WorkspaceEntry[] {
-  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
-  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
-  if (!fs || !path) return []
-
-  const entries: WorkspaceEntry[] = []
-  const visit = (root: string, current: string) => {
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === ".git") continue
-      const absolute = path.join(current, entry.name)
-      const relative = path.relative(root, absolute).replace(/\\/g, "/")
-      const stat = fs.statSync(absolute)
-      entries.push({
-        mtime: stat.mtimeMs,
-        path: relative,
-        size: entry.isFile() ? stat.size : undefined,
-        type: entry.isDirectory() ? "directory" : "file",
-      })
-      if (entry.isDirectory()) visit(root, absolute)
-    }
-  }
-
-  for (const root of localWorkspaceRoots(options)) {
-    try {
-      visit(root, root)
-    }
-    catch {
-      return []
-    }
-  }
-  return entries
 }
 
 function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry) {
