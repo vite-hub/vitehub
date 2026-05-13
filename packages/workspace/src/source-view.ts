@@ -2,6 +2,7 @@ import { WorkspaceError } from "./errors.ts"
 import { decodeFile, matchesAny, normalizeWorkspacePath } from "./path.ts"
 import { createSourceContext, normalizeWorkspaceSources } from "./source-config.ts"
 import {
+  hasCurrentSourceSnapshot,
   materializeWorkspaceSources,
   readResolvedSourceFile,
   searchMaterializedStore,
@@ -92,6 +93,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
     for (const source of getLazySourcesForPath(path)) {
       await ensurePrepared(source.key)
+      if (!path && options.recursive && !await hasCurrentSourceSnapshot(store, source)) {
+        for (const key of result.keys()) {
+          if (key === source.mountPath || key.startsWith(`${source.mountPath}/`)) result.delete(key)
+        }
+        result.set(source.mountPath, { path: source.mountPath, type: "directory" })
+        continue
+      }
       if (path === source.mountPath || path.startsWith(`${source.mountPath}/`)) {
         await ensureMaterialized(source.key)
         for (const entry of await store.list(path, options)) result.set(entry.path, entry)

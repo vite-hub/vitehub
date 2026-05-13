@@ -70,6 +70,17 @@ async function readSourceSnapshotMetadata(store: WorkspaceStore, sourceKey: stri
   return await store.getMeta?.(sourceSnapshotMetaKey(sourceKey)) as SourceSnapshotMetadata | undefined
 }
 
+export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
+  const configHash = await sourceConfigHash(source)
+  return isSnapshotFresh(await readSourceSnapshotMetadata(store, source.key), source, configHash)
+}
+
+export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
+  const configHash = await sourceConfigHash(source)
+  const meta = await readSourceSnapshotMetadata(store, source.key)
+  return meta?.status === "ready" && meta.configHash === configHash
+}
+
 async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: SourceSnapshotMetadata) {
   await store.setMeta?.(sourceSnapshotMetaKey(metadata.source), metadata)
 }
