@@ -127,6 +127,7 @@ export interface WorkspaceAssets<TKey extends string = string> {
   list(path?: TKey | (string & {}) | "", options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: TKey | (string & {}) | Array<TKey | (string & {})>, options?: GlobOptions): Promise<WorkspaceEntry[]>
   search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
+  materializeSources?(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
 }
 
 export type WorkspaceAssetsRegistry = Record<string, WorkspaceAssets>

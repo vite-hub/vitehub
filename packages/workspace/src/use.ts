@@ -251,9 +251,15 @@ async function ignoreMissingWorkspace<T>(operation: () => Promise<T>): Promise<T
     return await operation()
   }
   catch (error) {
-    if (error instanceof WorkspaceNotFoundError) return undefined
+    if (isMissingWorkspaceRead(error)) return undefined
     throw error
   }
+}
+
+function isMissingWorkspaceRead(error: unknown) {
+  return error instanceof WorkspaceNotFoundError
+    || (error instanceof Error && error.message.includes("Workspace file does not exist:"))
+    || (error instanceof Error && error.message.includes("Workspace path does not exist:"))
 }
 
 function mergeEntries(primary: WorkspaceEntry[] = [], fallback: WorkspaceEntry[] = []) {
@@ -282,14 +288,11 @@ function createReadonlyFs<Name extends WorkspaceName>(
   return {
     readFile: async (path, options) => {
       const normalized = normalizePath(path)
-      if (assets && await assets.exists(normalized as WorkspaceAssetPath<Name>)) {
-        return await assets.readFile(normalized as WorkspaceAssetPath<Name>, options as never)
-      }
       try {
         return await workspace.readFile(normalized, options as never)
       }
       catch (error) {
-        if (assets && error instanceof WorkspaceNotFoundError) {
+        if (assets && isMissingWorkspaceRead(error)) {
           return await assets.readFile(normalized as WorkspaceAssetPath<Name>, options as never)
         }
         throw error
@@ -297,14 +300,11 @@ function createReadonlyFs<Name extends WorkspaceName>(
     },
     stat: async (path) => {
       const normalized = normalizePath(path)
-      if (assets && await assets.exists(normalized as WorkspaceAssetPath<Name>)) {
-        return await assets.stat(normalized as WorkspaceAssetPath<Name>)
-      }
       try {
         return await workspace.stat(normalized)
       }
       catch (error) {
-        if (assets && error instanceof WorkspaceNotFoundError) {
+        if (assets && isMissingWorkspaceRead(error)) {
           return await assets.stat(normalized as WorkspaceAssetPath<Name>)
         }
         throw error
@@ -312,13 +312,14 @@ function createReadonlyFs<Name extends WorkspaceName>(
     },
     exists: async (path) => {
       const normalized = normalizePath(path)
-      if (assets && await assets.exists(normalized as WorkspaceAssetPath<Name>)) return true
-      return await ignoreMissingWorkspace(() => workspace.exists(normalized)) ?? false
+      return await ignoreMissingWorkspace(() => workspace.exists(normalized))
+        ?? (assets ? await assets.exists(normalized as WorkspaceAssetPath<Name>) : false)
     },
     list: async (path, options) => {
       const normalized = path ? normalizeListPath(path) : ""
-      const assetEntries = assets ? await assets.list(normalized as WorkspaceAssetPath<Name>, options) : []
       const workspaceEntries = await ignoreMissingWorkspace(() => workspace.list(normalized, options)) ?? []
+      if (normalized && workspaceEntries.length) return workspaceEntries
+      const assetEntries = assets ? await assets.list(normalized as WorkspaceAssetPath<Name>, options) : []
       return mergeEntries(assetEntries, workspaceEntries)
     },
     glob: async (pattern, options) => {
@@ -337,6 +338,14 @@ function createReadonlyFs<Name extends WorkspaceName>(
       const assetHits = assets ? await assets.search(normalized) : []
       const workspaceHits = await ignoreMissingWorkspace(() => workspace.search(normalized)) ?? []
       return mergeSearchHits(assetHits, workspaceHits).slice(0, limit)
+    },
+    materializeSources: async options => await workspace.materializeSources?.(options) ?? {
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 0,
+      path: options?.path || "",
+      sources: [],
     },
   }
 }
