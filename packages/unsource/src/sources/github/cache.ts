@@ -1,17 +1,11 @@
 import type { GitHubSourceOptions } from "./types.ts"
 import type { SourceCacheOptions } from "../../core/types.ts"
 
-export function normalizeGitHubCache(options: Pick<GitHubSourceOptions, "cache" | "swr">): SourceCacheOptions {
-  if (options.cache === false) return { maxAge: 0, swr: false }
+export function normalizeGitHubCache(options: Pick<GitHubSourceOptions, "cache">): SourceCacheOptions | undefined {
+  if (options.cache === false) return
   if (options.cache && typeof options.cache === "object") {
-    return {
-      maxAge: options.cache.maxAge ?? 1,
-      staleMaxAge: options.cache.staleMaxAge,
-      swr: options.cache.swr ?? true,
-    }
+    return { maxAge: options.cache.maxAge }
   }
-  if (typeof options.swr === "number") return { maxAge: options.swr, swr: true }
-  return { maxAge: 1, swr: options.swr === false ? false : true }
 }
 
 export function createGitHubCacheKey(input: {

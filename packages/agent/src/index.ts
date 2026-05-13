@@ -325,14 +325,16 @@ function materializeSummary(output: unknown): unknown {
     durationMs?: unknown
     files?: unknown
     path?: unknown
-    skipped?: unknown
+    sources?: unknown
   }
   const files = typeof result.files === "number" ? result.files : 0
-  const skipped = typeof result.skipped === "number" ? result.skipped : 0
-  const path = typeof result.path === "string" && result.path ? result.path : "workspace"
+  const sources = Array.isArray(result.sources)
+    ? result.sources.map(source => typeof source === "object" && source && "source" in source ? String((source as { source: unknown }).source) : "").filter(Boolean)
+    : []
+  const target = sources.length ? sources.join(" and ") : "workspace sources"
   return {
     ...result,
-    summary: `Materialized ${files.toLocaleString()} source file${files === 1 ? "" : "s"} for ${path}${skipped ? ` (${skipped.toLocaleString()} skipped by limit)` : ""}.`,
+    summary: `Materialized ${target}${files ? ` (${files.toLocaleString()} file${files === 1 ? "" : "s"})` : ""}.`,
   }
 }
 
@@ -348,7 +350,7 @@ async function reportWorkspaceMaterialization(
   if (!execute) return
 
   const toolCall: AgentToolStepItem = {
-    input: { limit: 25, path: "" },
+    input: { path: "" },
     toolCallId: createToolCallId("materialize_sources"),
     toolName: "materialize_sources",
   }
@@ -480,6 +482,7 @@ export interface AgentDevtoolsFileTreeItem {
   materializedAt?: string
   path: string
   source?: string
+  status?: "lazy" | "updating" | "ready" | "error"
   updatedAt?: string
 }
 
@@ -722,7 +725,7 @@ function sourceMountPath(key: string, source: NonNullable<WorkspaceAgentWorkspac
 function sourceMaterialize(key: string, source: NonNullable<WorkspaceAgentWorkspaceOptions["sources"]>[string]) {
   if (typeof source.mount === "object" && source.mount.materialize) return source.mount.materialize
   if (source.materialize) return source.materialize
-  return source.cache || source.swr ? "lazy" : "build"
+  return source.cache ? "lazy" : "build"
 }
 
 function hasLazyWorkspaceSources<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>) {
@@ -760,6 +763,7 @@ function workspaceMetadataFiles<Name extends WorkspaceName>(
       materialized: materialize === "build",
       path: `${workspaceName}/${sourceMountPath(sourceName, source)}`,
       source: sourceName,
+      status: materialize === "build" ? "ready" as const : "lazy" as const,
     }
   })
 
@@ -888,7 +892,13 @@ function markSourceTreeMetadata(
     const pending = [...(root.children || [])]
     while (pending.length) {
       const item = pending.shift()!
-      if (item.path === mountedRoot || item.path.startsWith(`${mountedRoot}/`)) {
+      if (item.path === mountedRoot) {
+        item.materialize = materialize
+        item.materialized = item.materialized || materialize === "build" || Boolean(item.children?.length)
+        item.source = sourceName
+        item.status = item.materialized ? "ready" : materialize === "lazy" ? "lazy" : "ready"
+      }
+      else if (item.path.startsWith(`${mountedRoot}/`)) {
         item.materialize = materialize
         item.materialized = item.materialized || materialize === "build"
         item.source = sourceName

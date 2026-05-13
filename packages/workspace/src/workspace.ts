@@ -23,6 +23,9 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       const { syncWorkspaceDefinition } = await import("./lifecycle.ts")
       await syncWorkspaceDefinition(definition, store)
     },
+    async materializeSources(options) {
+      return await files.materializeSources(options)
+    },
     async readFile(path, options) {
       return await files.readFile(path, options)
     },

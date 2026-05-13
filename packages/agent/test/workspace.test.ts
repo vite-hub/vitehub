@@ -388,7 +388,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("reports lazy source materialization before model tool usage", async () => {
-    const materialize = vi.fn(async () => ({ bytes: 12, directories: 1, durationMs: 3, files: 2, limit: 25, path: "", skipped: 0 }))
+    const materialize = vi.fn(async () => ({ bytes: 12, directories: 1, durationMs: 3, files: 2, path: "", sources: [{ source: "docs", status: "ready" }] }))
     const shell = vi.fn(async () => "workspace result")
     const reportToolStep = vi.fn()
     inspectTools.mockReturnValueOnce({
@@ -412,7 +412,7 @@ describe("defineAgent workspace option", () => {
       devtools: { reportToolStep },
     } as never)
 
-    expect(materialize).toHaveBeenCalledWith({ limit: 25, path: "" })
+    expect(materialize).toHaveBeenCalledWith({ path: "" })
     expect(reportToolStep.mock.calls.map(call => Object.keys(call[0])[0])).toEqual([
       "toolCalls",
       "toolResults",
@@ -423,7 +423,7 @@ describe("defineAgent workspace option", () => {
       toolCalls: [{ toolName: "materialize_sources" }],
     })
     expect(reportToolStep.mock.calls[1]?.[0]).toMatchObject({
-      toolResults: [{ output: { files: 2, summary: "Materialized 2 source files for workspace." }, toolName: "materialize_sources" }],
+      toolResults: [{ output: { files: 2, summary: "Materialized docs (2 files)." }, toolName: "materialize_sources" }],
     })
     expect(reportToolStep.mock.calls[2]?.[0]).toMatchObject({
       toolCalls: [{ toolName: "shell" }],
@@ -482,6 +482,7 @@ describe("defineAgent workspace option", () => {
           materialized: true,
           path: "support/docs",
           source: "docs",
+          status: "ready",
         }],
         kind: "directory",
         label: "support",
@@ -579,9 +580,10 @@ describe("defineAgent workspace option", () => {
           }],
           kind: "directory",
           materialize: "lazy",
-          materialized: false,
+          materialized: true,
           path: "support/docs",
           source: "docs",
+          status: "ready",
         }],
       }],
     })

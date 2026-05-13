@@ -169,7 +169,7 @@ import * as source from '@vitehub/workspace/source'
 export default defineAgent({
   workspace: {
     sources: {
-      docs: source.github({ repo: 'acme/docs', cache: { maxAge: 3600, swr: true } }),
+      docs: source.github({ repo: 'acme/docs', cache: { maxAge: 3600 } }),
     },
   },
   tools: ({ workspace }) => workspace.tools.inspect(),

@@ -55,7 +55,7 @@ type EnabledWriteCapability<Options, Key extends keyof WorkspaceWriteOperations>
 export type WorkspaceReadTools<Options = undefined> = ((ShellEnabled<Options> extends true
   ? { shell: Tool<{ command: string }, WorkspaceShellResult> }
   : {}) & (Options extends { materialize: true }
-    ? { materialize_sources: Tool<{ limit?: number, path?: string }, WorkspaceMaterializeSourcesResult> }
+    ? { materialize_sources: Tool<{ path?: string, sources?: string[] }, WorkspaceMaterializeSourcesResult> }
     : {}) & ToolSet)
 
 export type WorkspaceWriteTools<Options = undefined> = WorkspaceReadTools<Options> & {

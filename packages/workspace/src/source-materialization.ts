@@ -1,7 +1,8 @@
 import { posix } from "node:path"
 
 import { WorkspaceError } from "./errors.ts"
-import { decodeFile, normalizeWorkspacePath } from "./path.ts"
+import { decodeFile, normalizeWorkspacePath, sha256 } from "./path.ts"
+import { createSourceContext, normalizeWorkspaceSources } from "./source-config.ts"
 import { searchText } from "./search.ts"
 import type { ResolvedWorkspaceSource } from "./source-config.ts"
 import type { ResolvedSourcePath } from "./source-resolver.ts"
@@ -17,6 +18,10 @@ import type {
   WorkspaceSourceItem,
   WorkspaceStat,
   WorkspaceStore,
+  WorkspaceDefinition,
+  WorkspaceMaterializeSourcesOptions,
+  WorkspaceMaterializeSourcesResult,
+  WorkspaceSourceMaterializationStatus,
 } from "./types.ts"
 
 export interface LazyMaterializedMetadata {
@@ -30,15 +35,175 @@ export interface LazyMaterializedMetadata {
   ref?: string
 }
 
+interface SourceSnapshotMetadata extends WorkspaceSourceMaterializationStatus {
+  configHash: string
+  cacheMaxAge?: number
+}
+
+function sourceSnapshotMetaKey(sourceKey: string) {
+  return `source:${sourceKey}:snapshot`
+}
+
+function sourceConfigFingerprint(source: ResolvedWorkspaceSource) {
+  return {
+    cache: source.cache,
+    key: source.key,
+    materialize: source.materialize,
+    mountPath: source.mountPath,
+    name: source.source.name,
+    source: source.source.fingerprint,
+  }
+}
+
+async function sourceConfigHash(source: ResolvedWorkspaceSource) {
+  return await sha256(sourceConfigFingerprint(source))
+}
+
+function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: ResolvedWorkspaceSource, configHash: string) {
+  if (!meta || meta.status !== "ready" || meta.configHash !== configHash) return false
+  if (!source.cache || typeof source.cache.maxAge !== "number") return false
+  if (!meta.materializedAt) return false
+  return Date.now() - Date.parse(meta.materializedAt) <= source.cache.maxAge * 1000
+}
+
+async function readSourceSnapshotMetadata(store: WorkspaceStore, sourceKey: string) {
+  return await store.getMeta?.(sourceSnapshotMetaKey(sourceKey)) as SourceSnapshotMetadata | undefined
+}
+
+async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: SourceSnapshotMetadata) {
+  await store.setMeta?.(sourceSnapshotMetaKey(metadata.source), metadata)
+}
+
+function contentSize(content: string | Uint8Array) {
+  return typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength
+}
+
+function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
+  if (options?.sources?.length && !options.sources.includes(source.key)) return false
+  const requested = normalizeWorkspacePath(options?.path || "")
+  if (!requested) return true
+  return requested === source.mountPath || requested.startsWith(`${source.mountPath}/`) || source.mountPath.startsWith(`${requested}/`)
+}
+
+export async function materializeWorkspaceSources(
+  definition: WorkspaceDefinition,
+  store: WorkspaceStore,
+  options: WorkspaceMaterializeSourcesOptions = {},
+): Promise<WorkspaceMaterializeSourcesResult> {
+  const started = Date.now()
+  const ctx = createSourceContext(definition)
+  const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize === "lazy" && sourcePathMatches("", source, options))
+  const resultSources: WorkspaceSourceMaterializationStatus[] = []
+  let files = 0
+  let directories = 0
+  let bytes = 0
+
+  for (const source of sources) {
+    const configHash = await sourceConfigHash(source)
+    const existing = await readSourceSnapshotMetadata(store, source.key)
+    if (isSnapshotFresh(existing, source, configHash)) {
+      resultSources.push({
+        source: source.key,
+        mountPath: source.mountPath,
+        status: "ready",
+        commit: existing?.commit,
+        materializedAt: existing?.materializedAt,
+        files: existing?.files,
+        bytes: existing?.bytes,
+      })
+      files += existing?.files || 0
+      bytes += existing?.bytes || 0
+      continue
+    }
+
+    await writeSourceSnapshotMetadata(store, {
+      configHash,
+      source: source.key,
+      mountPath: source.mountPath,
+      status: "updating",
+      cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+    })
+
+    try {
+      await source.source.prepare?.(ctx)
+      const items = source.source.getItems
+        ? await source.source.getItems(ctx)
+        : await Promise.all((await source.source.getKeys(ctx)).map(async key => await source.source.getItem(key, ctx)))
+      await store.rm(source.mountPath, { recursive: true, force: true })
+      await store.mkdir(source.mountPath, { recursive: true })
+
+      let sourceFiles = 0
+      let sourceBytes = 0
+      let commit: string | undefined
+      const directorySet = new Set<string>([source.mountPath])
+      for (const item of items) {
+        const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
+        const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)
+        const parts = path.split("/")
+        for (let index = 1; index < parts.length; index++) directorySet.add(parts.slice(0, index).join("/"))
+        const metadata = item.metadata || {}
+        commit ||= readStringMeta(metadata, "ref") || readStringMeta(metadata, "sha")
+        await store.writeFile(path, {
+          path,
+          content,
+          mediaType: item.mediaType,
+          metadata: {
+            ...metadata,
+            source: source.key,
+          },
+        })
+        sourceFiles++
+        sourceBytes += contentSize(content)
+      }
+
+      const ready: SourceSnapshotMetadata = {
+        configHash,
+        source: source.key,
+        mountPath: source.mountPath,
+        status: "ready",
+        commit,
+        materializedAt: new Date().toISOString(),
+        files: sourceFiles,
+        bytes: sourceBytes,
+        cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+      }
+      await writeSourceSnapshotMetadata(store, ready)
+      resultSources.push(ready)
+      files += sourceFiles
+      bytes += sourceBytes
+      directories += directorySet.size
+    }
+    catch (error) {
+      const failed: SourceSnapshotMetadata = {
+        configHash,
+        source: source.key,
+        mountPath: source.mountPath,
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+        cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+      }
+      await writeSourceSnapshotMetadata(store, failed)
+      resultSources.push(failed)
+    }
+  }
+
+  return {
+    bytes,
+    directories,
+    durationMs: Date.now() - started,
+    files,
+    path: normalizeWorkspacePath(options.path || ""),
+    sources: resultSources,
+  }
+}
+
 export async function readResolvedSourceFile<TOptions extends ReadFileOptions | undefined>(
   resolution: ResolvedSourcePath,
   store: WorkspaceStore,
   ctx: SourceContext,
   options?: TOptions,
 ): Promise<ReadFileResult<TOptions>> {
-  const file = resolution.materialize === "lazy"
-    ? await materializeSourceFile(resolution, store, ctx)
-    : await store.readFile(resolution.workspacePath)
+  const file = await store.readFile(resolution.workspacePath)
   if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${resolution.workspacePath}.`)
   return decodeFile(file.content, options)
 }

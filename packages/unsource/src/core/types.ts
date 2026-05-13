@@ -15,8 +15,6 @@ export interface SourceContext {
 
 export interface SourceCacheOptions {
   maxAge?: number
-  swr?: boolean
-  staleMaxAge?: number
 }
 
 export interface SourceSearchQuery {
@@ -47,10 +45,10 @@ export interface SourceItem<TKey extends string = string> {
 export interface Source<TKey extends string = string> {
   name: string
   cache?: false | SourceCacheOptions
-  swr?: boolean | number
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<TKey[]>
   getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey>>
+  getItems?(ctx: SourceContext): Promise<SourceItem<TKey>[]>
   getMeta?(key: TKey, ctx: SourceContext): Promise<Record<string, unknown> | undefined>
   search?(query: SourceSearchQuery, ctx: SourceContext): Promise<SourceSearchHit[]>
   watch?: unknown[]

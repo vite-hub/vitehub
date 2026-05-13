@@ -56,7 +56,7 @@ describe("workspace types", () => {
     expectTypeOf(readonly.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(readonly.tools().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(readonly.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
-    expectTypeOf(readonly.tools.inspect({ materialize: true }).materialize_sources).toMatchTypeOf<Tool<{ limit?: number, path?: string }, WorkspaceMaterializeSourcesResult>>()
+    expectTypeOf(readonly.tools.inspect({ materialize: true }).materialize_sources).toMatchTypeOf<Tool<{ path?: string, sources?: string[] }, WorkspaceMaterializeSourcesResult>>()
     expectTypeOf(readonly.tools.readonly().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(readonly.tools.none()).toMatchTypeOf<ToolSet>()
     expectTypeOf(readonly.tools()).toMatchTypeOf<ToolSet>()

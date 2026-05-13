@@ -46,7 +46,7 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "tail -n 1 models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "where id is not null\n" })
     await expect(runShell(tools, "wc -l models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "2 models/orders.sql\n" })
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({ exitCode: 0, stdout: "models/orders.sql:1:select * from orders\n" })
-    await expect(runShell(tools, "rg -i \"customer\" . | head -n 2")).resolves.toMatchObject({
+    await expect(runShell(tools, "rg -i \"customer\" docs models | head -n 2")).resolves.toMatchObject({
       exitCode: 0,
       stdout: "docs/customers.md:1:Customer docs\nmodels/customers.sql:1:select * from customers\n",
     })
@@ -145,15 +145,15 @@ describe("createWorkspaceTools", () => {
     })
 
     expect("materialize_sources" in tools).toBe(true)
-    await expect(tools.materialize_sources.execute!({ path: "docs", limit: 1 }, { toolCallId: "test", messages: [] } as never)).resolves.toMatchObject({
+    await expect(tools.materialize_sources.execute!({ path: "docs" }, { toolCallId: "test", messages: [] } as never)).resolves.toMatchObject({
       directories: 0,
-      files: 1,
+      files: 2,
       path: "docs",
-      skipped: 1,
+      sources: [],
     })
   })
 
-  it("defaults source materialization to 25 files", async () => {
+  it("materializes all matching source files without a default cap", async () => {
     const tools = createWorkspaceTools(createAssets(Object.fromEntries(
       Array.from({ length: 30 }, (_, index) => [`docs/${index}.md`, `${index}\n`]),
     )), {
@@ -163,9 +163,8 @@ describe("createWorkspaceTools", () => {
     })
 
     await expect(tools.materialize_sources.execute!({}, { toolCallId: "test", messages: [] } as never)).resolves.toMatchObject({
-      files: 25,
-      limit: 25,
-      skipped: 5,
+      files: 30,
+      sources: [],
     })
   })
 

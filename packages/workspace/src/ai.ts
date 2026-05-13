@@ -3,22 +3,14 @@ import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspect
 
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 
-import type { Workspace, WorkspaceAssets, WriteFileOptions } from "./types.ts"
+import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./types.ts"
+
+export type { WorkspaceMaterializeSourcesResult } from "./types.ts"
 
 export interface WorkspaceShellResult {
   exitCode: number
   stderr: string
   stdout: string
-}
-
-export interface WorkspaceMaterializeSourcesResult {
-  bytes: number
-  directories: number
-  durationMs: number
-  files: number
-  limit: number
-  path: string
-  skipped: number
 }
 
 export interface WorkspacePathResult {
@@ -92,12 +84,11 @@ export type WorkspaceTools<Operations = undefined> = ((ShellEnabled<Operations> 
   ? { shell: Tool<{ command: string }, WorkspaceShellResult> }
   : {}) & EnabledWriteTools<ResolvedWriteOperations<Operations>>
   & (Operations extends { materialize: true }
-    ? { materialize_sources: Tool<{ limit?: number, path?: string }, WorkspaceMaterializeSourcesResult> }
+    ? { materialize_sources: Tool<{ path?: string, sources?: string[] }, WorkspaceMaterializeSourcesResult> }
     : {})
   ) & ToolSet
 
 const defaultMaxOutputLength = 30_000
-const defaultMaterializeLimit = 25
 const workspaceMountPoint = "/workspace"
 
 function isCloudflareWorkersRuntime() {
@@ -194,13 +185,16 @@ function sizeOf(content: string | Uint8Array) {
   return typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength
 }
 
-async function materializeWorkspaceSources(
+async function materializeWorkspaceSourcesTool(
   input: Workspace | WorkspaceAssets,
-  options: { limit?: number, path?: string },
+  options: { path?: string, sources?: string[] },
 ): Promise<WorkspaceMaterializeSourcesResult> {
+  if ("materializeSources" in input && typeof input.materializeSources === "function") {
+    return await input.materializeSources(options)
+  }
+
   const started = Date.now()
   const path = cleanWorkspaceShellPath(options.path || "") || ""
-  const limit = Math.max(1, Math.min(options.limit || defaultMaterializeLimit, 10_000))
   const entries = await input.list(path, { recursive: true })
   let bytes = 0
   let directories = 0
@@ -211,7 +205,6 @@ async function materializeWorkspaceSources(
       directories++
       continue
     }
-    if (files >= limit) continue
     const content = await input.readFile(entry.path, { encoding: "binary" })
     bytes += sizeOf(content)
     files++
@@ -222,9 +215,8 @@ async function materializeWorkspaceSources(
     directories,
     durationMs: Date.now() - started,
     files,
-    limit,
     path,
-    skipped: Math.max(0, entries.filter(entry => entry.type === "file").length - files),
+    sources: [],
   }
 }
 
@@ -405,25 +397,25 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   if (resolved.materialize) {
     result.materialize_sources = tool({
       description: [
-        "Materialize lazy workspace source files as an explicit tool step before shell inspection.",
-        "Use this when the first workspace read would otherwise hide source preparation inside another tool call.",
+        "Materialize complete workspace source snapshots as an explicit tool step before shell inspection.",
+        "This prepares whole sources, not individual files or partial limits.",
       ].join(" "),
-      inputSchema: jsonSchema<{ limit?: number, path?: string }>({
+      inputSchema: jsonSchema<{ path?: string, sources?: string[] }>({
         additionalProperties: false,
         properties: {
-          limit: {
-            description: "Maximum number of files to materialize. Defaults to 25.",
-            minimum: 1,
-            type: "number",
-          },
           path: {
             description: "Workspace path prefix to materialize. Defaults to the workspace root.",
             type: "string",
           },
+          sources: {
+            description: "Optional source names to materialize.",
+            items: { type: "string" },
+            type: "array",
+          },
         },
         type: "object",
       }),
-      execute: async ({ limit, path }) => await materializeWorkspaceSources(input, { limit, path }),
+      execute: async ({ path, sources }) => await materializeWorkspaceSourcesTool(input, { path, sources }),
     })
   }
 

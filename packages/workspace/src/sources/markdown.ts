@@ -10,7 +10,6 @@ export function markdown(options: FileSourceOptions): WorkspaceSource {
     cache: options.cache,
     materialize: options.materialize,
     mount: options.mount,
-    swr: options.swr,
     validate: options.validate,
   }
 }

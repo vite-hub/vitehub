@@ -4,7 +4,7 @@ import { github as createGitHubSource, type GitHubSourceOptions as UnsourceGitHu
 import { resolveWorkspaceEnv } from "../env.ts"
 import type { SourceContext, WorkspaceSource } from "../types.ts"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "swr" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "validate">
 type GitHubAuth = NonNullable<UnsourceGitHubSourceOptions["auth"]>
 
 export interface GitHubSourceOptions extends Omit<UnsourceGitHubSourceOptions, "auth">, SourceRuntimeOptions {
@@ -15,7 +15,6 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
   const resolvedOptions = {
     ...options,
     mount: options.mount ?? inferRepositoryMount(options.repo),
-    ref: options.ref ?? "main",
   }
   const baseSource = createGitHubSource({
     ...resolvedOptions,
@@ -39,9 +38,15 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
   return {
     ...baseSource,
     cache: resolvedOptions.cache,
+    fingerprint: {
+      exclude: resolvedOptions.exclude,
+      include: resolvedOptions.include,
+      ref: resolvedOptions.ref,
+      repo: resolvedOptions.repo,
+      root: resolvedOptions.root,
+    },
     materialize: resolvedOptions.materialize,
     mount: resolvedOptions.mount,
-    swr: resolvedOptions.swr,
     validate: resolvedOptions.validate,
     async prepare(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
@@ -54,6 +59,10 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
     async getItem(key, ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
       return await source.getItem(key, ctx)
+    },
+    async getItems(ctx) {
+      const source = await getSourceForRoot(ctx.rootDir)
+      return await source.getItems?.(ctx) ?? await Promise.all((await source.getKeys(ctx)).map(key => source.getItem(key, ctx)))
     },
     async getMeta(key, ctx) {
       const source = await getSourceForRoot(ctx.rootDir)

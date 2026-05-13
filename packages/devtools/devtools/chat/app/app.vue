@@ -132,6 +132,7 @@ type FileMaterialization = {
   materialized?: boolean
   materializedAt?: string
   source?: string
+  status?: "lazy" | "updating" | "ready" | "error"
 }
 
 const fileRows = computed<FileRow[]>(() => flattenFiles(state.value.files || [], expandedFilePaths.value))
@@ -402,13 +403,13 @@ function toggleFile(file: ChatDevtoolsFileTreeItem) {
 
 function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "materialized" | undefined {
   const meta = file as ChatDevtoolsFileTreeItem & FileMaterialization
-  if (meta.materialized || meta.materializedAt) return "materialized"
-  if (meta.materialized === false || meta.materialize === "lazy" || meta.source) return "lazy"
+  if (meta.status === "ready" || meta.materialized || meta.materializedAt) return "materialized"
+  if (meta.status === "lazy" || (meta.materialized === false && meta.materialize === "lazy")) return "lazy"
   return undefined
 }
 
 function isLazyFile(file: ChatDevtoolsFileTreeItem) {
-  return fileMaterialization(file) === "lazy"
+  return fileMaterialization(file) === "lazy" && Boolean((file as ChatDevtoolsFileTreeItem & FileMaterialization).source)
 }
 
 function hasToolOutput(tool: ChatDevtoolsTool) {

@@ -8,7 +8,6 @@ export interface GitHubSourceOptions {
   include?: string | string[]
   exclude?: string | string[]
   cache?: false | SourceCacheOptions
-  swr?: boolean | number
 }
 
 interface GitHubTreeItem {
