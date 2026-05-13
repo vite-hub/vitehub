@@ -229,7 +229,10 @@ describe("defineChat", () => {
     const { getAgentFromRegistry, streamAgent } = mockAgentPackage()
     const { defineChat, resolveChat } = await import("../src/index.ts")
     const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
-    const post = vi.fn()
+    const post = vi.fn(async (message: string) => ({
+      id: "placeholder-1",
+      text: message,
+    }))
     const context = createContext({ runtime: "nitro", platform: "slack" })
 
     await resolveChat(defineChat({
@@ -299,7 +302,10 @@ describe("defineChat", () => {
     const { getAgentFromRegistry, streamAgent } = mockAgentPackage()
     const { defineChat, resolveChat } = await import("../src/index.ts")
     const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
-    const post = vi.fn()
+    const post = vi.fn(async (message: string) => ({
+      id: "placeholder-1",
+      text: message,
+    }))
     const workflow = {
       defer: vi.fn(),
       getRun: vi.fn(),
@@ -345,6 +351,10 @@ describe("defineChat", () => {
         ],
       }),
       message: expect.objectContaining({ id: "m2" }),
+      placeholder: expect.objectContaining({
+        id: "placeholder-1",
+        text: "Working...",
+      }),
       run: expect.objectContaining({
         channelId: "channel-1",
         messageId: "m2",
@@ -356,7 +366,7 @@ describe("defineChat", () => {
     }), {
       id: expect.any(String),
     })
-    expect(post).not.toHaveBeenCalled()
+    expect(post).toHaveBeenCalledWith("Working...")
   })
 
   it("passes a stable run id through chat agent hooks and agent runtime context", async () => {

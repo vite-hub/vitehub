@@ -100,6 +100,9 @@ function createChatAgentWorkflow<TRuntimeConfig extends ChatRuntimeConfig>(
     const context = runtimeContext<TRuntimeConfig>(payload)
     const bot = await resolveChat(createChatFromAgent(agent, name), context, { inferredName: name })
     const thread = bot.thread(payload.threadId)
+    const placeholder = payload.placeholder
+      ? thread.createSentMessageFromMessage(payload.placeholder)
+      : undefined
     const baseArgs = {
       bot,
       channel: { id: payload.channelId },
@@ -115,7 +118,7 @@ function createChatAgentWorkflow<TRuntimeConfig extends ChatRuntimeConfig>(
       definition: agent as never,
       hooks: agent.hooks as never,
       name: payload.agentName,
-    }, baseArgs as never, payload.input)
+    }, baseArgs as never, payload.input, placeholder)
 
     try {
       await (step?.do

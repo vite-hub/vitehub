@@ -25,6 +25,7 @@ export interface ChatAgentWorkflowPayload {
   history: Message[]
   input: AgentRunInput
   message: ChatSdkMessage
+  placeholder?: ChatSdkMessage
   run: AgentRunMetadata
   threadId?: string
 }
@@ -241,6 +242,7 @@ export function createChatAgentWorkflowPayload<
   binding: ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>,
   baseArgs: ChatAgentHookArgs<TRuntimeConfig, TWorkflow>,
   input: AgentRunInput,
+  placeholder?: SentMessage,
 ): ChatAgentWorkflowPayload {
   return {
     agentName: binding.name,
@@ -248,6 +250,7 @@ export function createChatAgentWorkflowPayload<
     history: baseArgs.history,
     input,
     message: toChatMessageSnapshot(baseArgs.message),
+    placeholder: placeholder ? toChatMessageSnapshot(placeholder) : undefined,
     run: baseArgs.run,
     threadId: getEntityId(baseArgs.thread),
   }
@@ -295,18 +298,18 @@ export function createAgentDirectMessageHook<
         ? await binding.hooks.prepareInput(baseArgs)
         : createDefaultAgentInput(baseArgs, runtimeContext.platform)
       input = await binding.hooks?.beforeRun?.({ ...baseArgs, input }) || input
-      if (binding.execution === "workflow" && !runtimeContext.dev) {
-        if (!workflow?.run) {
-          throw new Error("Chat agent execution \"workflow\" requires defineChat({ workflow }).")
-        }
-        await workflow.run(createChatAgentWorkflowPayload(binding, baseArgs, input), { id: run.runId })
-        return
-      }
-
       const placeholderText = await resolvePlaceholder(options.fallbackStreamingPlaceholderText, baseArgs)
       const placeholder = placeholderText
         ? await thread.post(placeholderText).catch(() => undefined) as SentMessage | undefined
         : undefined
+      if (binding.execution === "workflow" && !runtimeContext.dev) {
+        if (!workflow?.run) {
+          throw new Error("Chat agent execution \"workflow\" requires defineChat({ workflow }).")
+        }
+        await workflow.run(createChatAgentWorkflowPayload(binding, baseArgs, input, placeholder), { id: run.runId })
+        return
+      }
+
       await executeChatAgentResponse(runtimeContext, binding, baseArgs, input, placeholder)
     }
     catch (error) {
