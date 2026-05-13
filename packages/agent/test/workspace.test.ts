@@ -579,7 +579,6 @@ describe("defineAgent workspace option", () => {
             source: "docs",
           }],
           kind: "directory",
-          materialize: "lazy",
           materialized: true,
           path: "support/docs",
           source: "docs",
@@ -611,7 +610,6 @@ describe("defineAgent workspace option", () => {
           children: [{
             children: [{
               kind: "file",
-              materialize: "lazy",
               materialized: true,
               materializedAt: "2024-03-09T16:00:00.000Z",
               path: "support/docs/guides/start.md",

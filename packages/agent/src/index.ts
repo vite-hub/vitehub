@@ -865,6 +865,13 @@ function propagateMaterializedDirectories(item: AgentDevtoolsFileTreeItem): bool
   return Boolean(item.materialized || item.materializedAt || childMaterialized.some(Boolean))
 }
 
+function clearReadyMaterializationHints(item: AgentDevtoolsFileTreeItem) {
+  if (item.materialized || item.materializedAt || item.status === "ready") {
+    delete item.materialize
+  }
+  for (const child of item.children || []) clearReadyMaterializationHints(child)
+}
+
 async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name>,
@@ -883,6 +890,7 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   }
   markSourceTreeMetadata(root, options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
   propagateMaterializedDirectories(root)
+  clearReadyMaterializationHints(root)
   sortFileTree(root)
   return [root]
 }
