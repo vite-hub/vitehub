@@ -45,6 +45,7 @@ export interface SourceItem<TKey extends string = string> {
 export interface Source<TKey extends string = string> {
   name: string
   cache?: false | SourceCacheOptions
+  fingerprint?: unknown
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<TKey[]>
   getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey>>

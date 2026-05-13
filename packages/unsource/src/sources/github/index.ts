@@ -153,6 +153,13 @@ export function github<const TKey extends string = string>(options: GitHubSource
 
   return {
     cache: options.cache,
+    fingerprint: {
+      exclude: options.exclude,
+      include: options.include,
+      ref: configuredRef || "default",
+      repo: options.repo,
+      root,
+    },
     name: "github",
     async getKeys() {
       return (await getFiles()).map(file => file.key)
