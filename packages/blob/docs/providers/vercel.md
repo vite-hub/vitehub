@@ -17,7 +17,7 @@ Vercel needs a `BLOB_READ_WRITE_TOKEN` available at runtime.
 ## Install Blob
 
 ```bash
-pnpm add @vitehub/blob
+pnpm add @vitehub/blob @vercel/blob
 ```
 
 ## Add the Runtime Token

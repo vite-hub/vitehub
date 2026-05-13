@@ -41,4 +41,3 @@ describe("@vitehub/ci helpers", () => {
     expect(extractLikelyCIError(lines, { fallbackLineCount: 3 })).toBe("line 7\nline 8\nline 9")
   })
 })
-

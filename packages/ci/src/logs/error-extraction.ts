@@ -44,4 +44,3 @@ function findLastHighSignalLine(lines: CILogLine[]): number {
 function formatLines(lines: CILogLine[]): string {
   return lines.map((line) => line.timestamp ? `[${line.timestamp}] ${line.message}` : line.message).join("\n")
 }
-

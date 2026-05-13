@@ -13,4 +13,3 @@ export function createCIProvider(id: CIProviderID): CIProvider {
       return vercelCIProvider
   }
 }
-

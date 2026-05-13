@@ -14,8 +14,20 @@ import type {
   ResolvedChatRuntimeContext,
 } from "./types.ts"
 import type { AgentRunInput, AgentRunMetadata } from "@vitehub/agent"
-import type { Chat, Channel, Message as ChatSdkMessage, MessageContext, SentMessage, Thread } from "chat"
+import type { Chat, Message as ChatSdkMessage, SentMessage, Thread } from "chat"
 import type { Message } from "@vitehub/messages"
+
+export interface ChatAgentWorkflowPayload {
+  agentName: string
+  channelId?: string
+  cloudflare?: ResolvedChatRuntimeContext["cloudflare"]
+  dev?: boolean
+  history: Message[]
+  input: AgentRunInput
+  message: ChatSdkMessage
+  run: AgentRunMetadata
+  threadId?: string
+}
 
 function normalizeAgentHistory(history: ChatAgentBindingOptions["history"]): { enabled: boolean, maxMessages: number } {
   if (history === false || history === "none") {
@@ -88,6 +100,16 @@ function getMessageText(message: ChatSdkMessage): string {
 function getMessageCreatedAt(message: ChatSdkMessage): Date | string | undefined {
   const dateSent = (message as { metadata?: { dateSent?: unknown } }).metadata?.dateSent
   return dateSent instanceof Date || typeof dateSent === "string" ? dateSent : undefined
+}
+
+function toChatMessageSnapshot(message: ChatSdkMessage): ChatSdkMessage {
+  return {
+    id: getEntityId(message),
+    metadata: {
+      dateSent: getMessageCreatedAt(message),
+    },
+    text: getMessageText(message),
+  } as ChatSdkMessage
 }
 
 export function toViteHubMessages(messages: ChatSdkMessage[]): Message[] {
@@ -178,6 +200,59 @@ function createDefaultAgentInput(args: ChatAgentHookArgs, platform?: string): Ag
   }
 }
 
+export async function executeChatAgentResponse<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
+  runtimeContext: ResolvedChatRuntimeContext<TRuntimeConfig>,
+  binding: ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>,
+  baseArgs: ChatAgentHookArgs<TRuntimeConfig, TWorkflow>,
+  input: AgentRunInput,
+  placeholder?: SentMessage,
+) {
+  try {
+    const agentContext = createAgentRuntimeContext(runtimeContext, baseArgs.thread, baseArgs.run)
+    const agent = await getAgentFromRegistry(binding.name, agentContext)
+    let result = await streamAgent(agent, agentContext, input)
+    result = await binding.hooks?.afterRun?.({ ...baseArgs, input, result }) ?? result
+    if (binding.hooks?.sendResponse) {
+      await binding.hooks.sendResponse({ ...baseArgs, input, result })
+      return
+    }
+    if (placeholder) {
+      await placeholder.edit(result as never)
+      return
+    }
+    await baseArgs.thread.post(result as never)
+  }
+  catch (error) {
+    if (binding.hooks?.error) {
+      await binding.hooks.error({ ...baseArgs, error, input })
+      return
+    }
+    throw error
+  }
+}
+
+export function createChatAgentWorkflowPayload<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
+  binding: ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>,
+  baseArgs: ChatAgentHookArgs<TRuntimeConfig, TWorkflow>,
+  input: AgentRunInput,
+): ChatAgentWorkflowPayload {
+  return {
+    agentName: binding.name,
+    channelId: getEntityId(baseArgs.channel),
+    history: baseArgs.history,
+    input,
+    message: toChatMessageSnapshot(baseArgs.message),
+    run: baseArgs.run,
+    threadId: getEntityId(baseArgs.thread),
+  }
+}
+
 export function createAgentDirectMessageHook<
   TRuntimeConfig extends ChatRuntimeConfig,
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
@@ -215,44 +290,24 @@ export function createAgentDirectMessageHook<
     } satisfies ChatAgentHookArgs<TRuntimeConfig, TWorkflow>
 
     let input: AgentRunInput | undefined
-    let placeholder: SentMessage | undefined
     try {
       input = binding.hooks?.prepareInput
         ? await binding.hooks.prepareInput(baseArgs)
         : createDefaultAgentInput(baseArgs, runtimeContext.platform)
       input = await binding.hooks?.beforeRun?.({ ...baseArgs, input }) || input
-      const placeholderText = await resolvePlaceholder(options.fallbackStreamingPlaceholderText, baseArgs)
-      if (placeholderText) {
-        placeholder = await thread.post(placeholderText).catch(() => undefined) as SentMessage | undefined
-      }
       if (binding.execution === "workflow" && !runtimeContext.dev) {
         if (!workflow?.run) {
           throw new Error("Chat agent execution \"workflow\" requires defineChat({ workflow }).")
         }
-        await workflow.run({
-          agentName: binding.name,
-          cloudflare: runtimeContext.dev ? runtimeContext.cloudflare : undefined,
-          dev: runtimeContext.dev,
-          input,
-          message,
-          run,
-          threadId: getEntityId(thread),
-        }, { id: run.runId })
+        await workflow.run(createChatAgentWorkflowPayload(binding, baseArgs, input), { id: run.runId })
         return
       }
-      const agentContext = createAgentRuntimeContext(runtimeContext, thread, run)
-      const agent = await getAgentFromRegistry(binding.name, agentContext)
-      let result = await streamAgent(agent, agentContext, input)
-      result = await binding.hooks?.afterRun?.({ ...baseArgs, input, result }) ?? result
-      if (binding.hooks?.sendResponse) {
-        await binding.hooks.sendResponse({ ...baseArgs, input, result })
-        return
-      }
-      if (placeholder) {
-        await placeholder.edit(result as never)
-        return
-      }
-      await thread.post(result as never)
+
+      const placeholderText = await resolvePlaceholder(options.fallbackStreamingPlaceholderText, baseArgs)
+      const placeholder = placeholderText
+        ? await thread.post(placeholderText).catch(() => undefined) as SentMessage | undefined
+        : undefined
+      await executeChatAgentResponse(runtimeContext, binding, baseArgs, input, placeholder)
     }
     catch (error) {
       if (binding.hooks?.error) {

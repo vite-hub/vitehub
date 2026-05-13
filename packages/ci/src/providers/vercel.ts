@@ -137,4 +137,3 @@ function normalizeVercelEventStream(event: VercelEvent): "stdout" | "stderr" | "
   if (level.length > 0) return "system"
   return "unknown"
 }
-

@@ -41,6 +41,9 @@ function createContext(overrides: Record<string, unknown> = {}) {
 
 afterEach(() => {
   vi.doUnmock("@vitehub/agent")
+  vi.doUnmock("@vitehub/workflow")
+  vi.doUnmock("@vitehub/workflow/runtime/state")
+  vi.doUnmock("nitro/runtime-config")
   vi.resetModules()
   vi.restoreAllMocks()
 })
@@ -292,6 +295,7 @@ describe("defineChat", () => {
     const { getAgentFromRegistry, streamAgent } = mockAgentPackage()
     const { defineChat, resolveChat } = await import("../src/index.ts")
     const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const post = vi.fn()
     const workflow = {
       defer: vi.fn(),
       getRun: vi.fn(),
@@ -306,6 +310,7 @@ describe("defineChat", () => {
         execution: "workflow",
         name: "triager",
       },
+      fallbackStreamingPlaceholderText: "Working...",
       state: createState() as never,
       userName: "Quiver Chat",
       workflow,
@@ -314,7 +319,7 @@ describe("defineChat", () => {
     const handler = directMessageSpy.mock.calls[0]?.[0]
     await handler?.({
       id: "thread-1",
-      post: vi.fn(),
+      post,
       recentMessages: [createMessage("m1", "hello")],
       refresh: vi.fn(),
     } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
@@ -323,6 +328,11 @@ describe("defineChat", () => {
     expect(streamAgent).not.toHaveBeenCalled()
     expect(workflow.run).toHaveBeenCalledWith(expect.objectContaining({
       agentName: "triager",
+      channelId: "channel-1",
+      history: [
+        expect.objectContaining({ id: "m1" }),
+        expect.objectContaining({ id: "m2" }),
+      ],
       input: expect.objectContaining({
         context: { chat: expect.objectContaining({ channelId: "channel-1", messageId: "m2", source: "chat", threadId: "thread-1" }) },
         messages: [
@@ -342,6 +352,7 @@ describe("defineChat", () => {
     }), {
       id: expect.any(String),
     })
+    expect(post).not.toHaveBeenCalled()
   })
 
   it("passes a stable run id through chat agent hooks and agent runtime context", async () => {
@@ -578,6 +589,76 @@ describe("defineChat", () => {
     expect(actionSpy).toHaveBeenCalled()
     expect(prepareInput).toHaveBeenCalled()
     expect(streamAgent).toHaveBeenCalledWith(expect.anything(), expect.anything(), { prompt: "from agent hook" })
+  })
+
+  it("runs agent-centered workflow responses through agent lifecycle hooks", async () => {
+    const afterRun = vi.fn(() => "after response")
+    const sendResponse = vi.fn()
+    const { streamAgent } = mockAgentPackage()
+    const { defineAgent } = await import("@vitehub/agent")
+    const { createChatFromAgent } = await import("../src/runtime/agent-chat.ts")
+    const { resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const post = vi.fn()
+    vi.spyOn(Chat.prototype, "thread").mockReturnValue({ id: "thread-1", post } as never)
+
+    const agent = defineAgent({
+      runtime: { kind: "workflow" },
+      chat: {
+        adapters: {},
+        history: false,
+        state: createState() as never,
+      },
+      hooks: {
+        afterRun,
+        sendResponse,
+      },
+      run: () => "ok",
+    })
+
+    await resolveChat(createChatFromAgent(agent, "triager"), createContext() as never, { inferredName: "triager" })
+    const directMessage = directMessageSpy.mock.calls[0]?.[0]
+    await directMessage?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)
+
+    expect(streamAgent).toHaveBeenCalledWith(
+      { name: "agent" },
+      expect.objectContaining({ run: expect.objectContaining({ runId: expect.any(String) }) }),
+      expect.objectContaining({ messages: [expect.objectContaining({ id: "m2" })] }),
+    )
+    expect(afterRun).toHaveBeenCalledWith(expect.objectContaining({ result: "agent response" }))
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ result: "after response" }))
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it("lets agent-centered workflow error hooks handle failures", async () => {
+    const error = new Error("workflow agent failed")
+    const errorHook = vi.fn()
+    mockAgentPackage({ streamAgent: vi.fn(async () => { throw error }) })
+    const { defineAgent } = await import("@vitehub/agent")
+    const { createChatFromAgent } = await import("../src/runtime/agent-chat.ts")
+    const { resolveChat } = await import("../src/index.ts")
+    const directMessageSpy = vi.spyOn(Chat.prototype, "onDirectMessage")
+    const post = vi.fn()
+    vi.spyOn(Chat.prototype, "thread").mockReturnValue({ id: "thread-1", post } as never)
+
+    const agent = defineAgent({
+      runtime: { kind: "workflow" },
+      chat: {
+        adapters: {},
+        state: createState() as never,
+      },
+      hooks: {
+        error: errorHook,
+      },
+      run: () => "ok",
+    })
+
+    await resolveChat(createChatFromAgent(agent, "triager"), createContext() as never, { inferredName: "triager" })
+    const directMessage = directMessageSpy.mock.calls[0]?.[0]
+    await expect(directMessage?.({ id: "thread-1", post: vi.fn() } as never, createMessage("m2", "help me") as never, { id: "channel-1" } as never)).resolves.toBeUndefined()
+
+    expect(errorHook).toHaveBeenCalledWith(expect.objectContaining({ error }))
+    expect(post).not.toHaveBeenCalled()
   })
 
   it("rejects duplicate direct message and agent bindings", async () => {

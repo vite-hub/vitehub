@@ -89,4 +89,3 @@ export interface CIProvider {
   getRun(context: CIContext, runID: string): Promise<CIRun>
   getLogs(context: CIContext, runID: string, query?: CILogQuery): Promise<CILogPage>
 }
-

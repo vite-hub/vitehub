@@ -1,8 +1,6 @@
 import { ofetch } from "ofetch"
 import { normalizeProviderError } from "./errors.ts"
 
-export type CIHTTPClient = ReturnType<typeof createCIHTTPClient>
-
 export function createCIHTTPClient(provider: string, baseURL: string, token: string, extraHeaders: Record<string, string> = {}) {
   const client = ofetch.create({
     baseURL,

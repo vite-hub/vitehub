@@ -163,7 +163,7 @@ export interface NetlifyBlobsStoreConfig {
   token?: string
 }
 
-export interface S3CompatibleBlobStoreConfig {
+interface S3CompatibleBlobStoreConfig {
   accessKeyId?: string
   bucket: string
   defaultUrlExpiresIn?: number

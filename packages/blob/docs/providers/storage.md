@@ -10,6 +10,12 @@ frameworks: [vite, nitro]
 
 ViteHub exposes provider names directly through `blob.driver`. Users configure ViteHub Blob only; provider implementation details stay inside the package.
 
+Non-first-class providers are powered by `files-sdk`. Install it when using the drivers on this page:
+
+```bash
+pnpm add @vitehub/blob files-sdk
+```
+
 ## Object Storage
 
 ```ts [vite.config.ts]

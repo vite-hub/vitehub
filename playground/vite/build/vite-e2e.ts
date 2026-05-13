@@ -815,6 +815,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
     alias: artifacts.alias,
     conditions: ["workerd", "worker", "browser", "default"],
     external: [
+      "@vercel/blob",
       "@vercel/queue",
       "@vercel/sandbox",
       "cloudflare:workers",
@@ -907,6 +908,7 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   await bundleEsmEntry(sourceEntry, resolve(serverDir, "index.mjs"), {
     alias: withoutCloudflareWorkspaceAliases(artifacts.alias),
     external: [
+      "@vercel/blob",
       "cloudflare:workers",
       "files-sdk",
       "files-sdk/akamai",

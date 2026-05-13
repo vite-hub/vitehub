@@ -1,4 +1,5 @@
 import { toArray } from "@vitehub/internal/arrays"
+import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 
 import type {
@@ -19,7 +20,7 @@ type FilesCtor = typeof import("files-sdk").Files
 type FilesInstance = Files<Adapter>
 
 async function loadFiles(): Promise<FilesCtor> {
-  return (await import("files-sdk")).Files
+  return (await importOptionalPeer<typeof import("files-sdk")>("files-sdk", "files")).Files
 }
 
 function isNotFound(error: unknown): boolean {
@@ -76,48 +77,48 @@ function getCloudflareBinding(options: ResolvedCloudflareR2BlobStoreConfig) {
 async function createAdapter(options: ResolvedBlobStoreConfig, putOptions: BlobPutOptions = {}): Promise<Adapter> {
   switch (options.driver) {
     case "akamai":
-      return (await import("files-sdk/akamai")).akamai(options)
+      return (await importOptionalPeer<typeof import("files-sdk/akamai")>("files-sdk/akamai", options.driver, "files-sdk")).akamai(options)
     case "azure":
-      return (await import("files-sdk/azure")).azure(options)
+      return (await importOptionalPeer<typeof import("files-sdk/azure")>("files-sdk/azure", options.driver, "files-sdk")).azure(options)
     case "box":
-      return (await import("files-sdk/box")).box(options)
+      return (await importOptionalPeer<typeof import("files-sdk/box")>("files-sdk/box", options.driver, "files-sdk")).box(options)
     case "cloudflare-r2":
-      return (await import("files-sdk/r2")).r2({
+      return (await importOptionalPeer<typeof import("files-sdk/r2")>("files-sdk/r2", options.driver, "files-sdk")).r2({
         ...options,
         binding: getCloudflareBinding(options),
         bucket: options.bucketName,
       } as never)
     case "digitalocean-spaces":
-      return (await import("files-sdk/digitalocean-spaces")).digitaloceanSpaces(options)
+      return (await importOptionalPeer<typeof import("files-sdk/digitalocean-spaces")>("files-sdk/digitalocean-spaces", options.driver, "files-sdk")).digitaloceanSpaces(options)
     case "dropbox":
-      return (await import("files-sdk/dropbox")).dropbox(options)
+      return (await importOptionalPeer<typeof import("files-sdk/dropbox")>("files-sdk/dropbox", options.driver, "files-sdk")).dropbox(options)
     case "fs":
-      return (await import("files-sdk/fs")).fs({
+      return (await importOptionalPeer<typeof import("files-sdk/fs")>("files-sdk/fs", options.driver, "files-sdk")).fs({
         ...(options as ResolvedFsBlobStoreConfig),
         root: options.base,
       })
     case "gcs":
-      return (await import("files-sdk/gcs")).gcs(options)
+      return (await importOptionalPeer<typeof import("files-sdk/gcs")>("files-sdk/gcs", options.driver, "files-sdk")).gcs(options)
     case "google-drive":
-      return (await import("files-sdk/google-drive")).googleDrive(options)
+      return (await importOptionalPeer<typeof import("files-sdk/google-drive")>("files-sdk/google-drive", options.driver, "files-sdk")).googleDrive(options)
     case "hetzner":
-      return (await import("files-sdk/hetzner")).hetzner(options)
+      return (await importOptionalPeer<typeof import("files-sdk/hetzner")>("files-sdk/hetzner", options.driver, "files-sdk")).hetzner(options)
     case "minio":
-      return (await import("files-sdk/minio")).minio(options)
+      return (await importOptionalPeer<typeof import("files-sdk/minio")>("files-sdk/minio", options.driver, "files-sdk")).minio(options)
     case "netlify-blobs":
-      return (await import("files-sdk/netlify-blobs")).netlifyBlobs(options)
+      return (await importOptionalPeer<typeof import("files-sdk/netlify-blobs")>("files-sdk/netlify-blobs", options.driver, "files-sdk")).netlifyBlobs(options)
     case "onedrive":
-      return (await import("files-sdk/onedrive")).onedrive(options)
+      return (await importOptionalPeer<typeof import("files-sdk/onedrive")>("files-sdk/onedrive", options.driver, "files-sdk")).onedrive(options)
     case "s3":
-      return (await import("files-sdk/s3")).s3(options)
+      return (await importOptionalPeer<typeof import("files-sdk/s3")>("files-sdk/s3", options.driver, "files-sdk")).s3(options)
     case "storj":
-      return (await import("files-sdk/storj")).storj(options)
+      return (await importOptionalPeer<typeof import("files-sdk/storj")>("files-sdk/storj", options.driver, "files-sdk")).storj(options)
     case "supabase":
-      return (await import("files-sdk/supabase")).supabase(options)
+      return (await importOptionalPeer<typeof import("files-sdk/supabase")>("files-sdk/supabase", options.driver, "files-sdk")).supabase(options)
     case "uploadthing":
-      return (await import("files-sdk/uploadthing")).uploadthing(options)
+      return (await importOptionalPeer<typeof import("files-sdk/uploadthing")>("files-sdk/uploadthing", options.driver, "files-sdk")).uploadthing(options)
     case "vercel-blob":
-      return (await import("files-sdk/vercel-blob")).vercelBlob({
+      return (await importOptionalPeer<typeof import("files-sdk/vercel-blob")>("files-sdk/vercel-blob", options.driver, "files-sdk")).vercelBlob({
         ...(options as ResolvedVercelBlobStoreConfig),
         access: putOptions.access || options.access,
         addRandomSuffix: false,

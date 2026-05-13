@@ -70,4 +70,3 @@ export function normalizeProviderError(error: unknown, provider: string): CIProv
   }
   return new CIProviderError(message, { provider, statusCode, cause: error })
 }
-

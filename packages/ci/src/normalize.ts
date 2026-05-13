@@ -134,7 +134,6 @@ export function firstString(...values: unknown[]): string | undefined {
   }
   return undefined
 }
-
 export function epochOrStringToISOString(value: unknown): string | undefined {
   if (typeof value === "string" && value.length > 0) return value
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -143,4 +142,3 @@ export function epochOrStringToISOString(value: unknown): string | undefined {
   }
   return undefined
 }
-

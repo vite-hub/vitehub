@@ -1,83 +1,66 @@
-import { vercelBlob } from "files-sdk/vercel-blob"
+import { importOptionalPeer } from "../internal/optional-peer.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
-import type { Adapter, StoredFile, UploadResult } from "files-sdk"
+
+type VercelBlobModule = typeof import("@vercel/blob")
+
+async function loadVercelBlob() {
+  return await importOptionalPeer<VercelBlobModule>("@vercel/blob", "vercel-blob")
+}
 
 function isNotFound(error: unknown): boolean {
-  const value = error as { code?: unknown, message?: unknown }
-  return value?.code === "NotFound" || /not found/i.test(String(value?.message || ""))
+  return error instanceof Error && /not found/i.test(error.message)
 }
 
-function mapStoredFile(file: StoredFile): BlobObject {
-  return {
-    contentType: file.type,
-    customMetadata: file.metadata || {},
-    httpEtag: file.etag,
-    httpMetadata: file.type ? { contentType: file.type } : {},
-    pathname: file.key,
-    size: file.size,
-    uploadedAt: file.lastModified ? new Date(file.lastModified) : new Date(),
-  }
+function commandOptions(options: ResolvedVercelBlobStoreConfig) {
+  return { token: options.token }
 }
 
-function mapUploadResult(result: UploadResult, options: BlobPutOptions): BlobObject {
-  const contentType = result.contentType || options.contentType
+function mapBlob(blob: {
+  contentType?: string | null
+  etag?: string
+  pathname: string
+  size?: number | null
+  uploadedAt?: Date
+  url?: string
+}, fallback: BlobPutOptions = {}): BlobObject {
+  const contentType = blob.contentType || fallback.contentType
   return {
     contentType,
-    customMetadata: options.customMetadata || {},
-    httpEtag: result.etag,
+    customMetadata: fallback.customMetadata || {},
+    httpEtag: blob.etag,
     httpMetadata: contentType ? { contentType } : {},
-    pathname: result.key,
-    size: result.size,
-    uploadedAt: result.lastModified ? new Date(result.lastModified) : new Date(),
+    pathname: blob.pathname,
+    size: blob.size ?? undefined,
+    uploadedAt: blob.uploadedAt || new Date(),
+    url: blob.url,
   }
-}
-
-function createAdapter(options: ResolvedVercelBlobStoreConfig, access = options.access): Adapter {
-  return vercelBlob({
-    ...options,
-    access,
-    addRandomSuffix: false,
-    allowOverwrite: options.allowOverwrite ?? true,
-  })
 }
 
 export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriverAdapter<ResolvedVercelBlobStoreConfig> {
-  const adapter = createAdapter(options)
   return {
     name: "vercel-blob",
     options,
     async delete(pathnames) {
-      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(async pathname => {
-        try {
-          await adapter.delete(pathname)
-        }
-        catch (error) {
-          if (!isNotFound(error)) throw error
-        }
-      }))
+      const { del } = await loadVercelBlob()
+      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => del(pathname, commandOptions(options))))
     },
     async get(pathname) {
-      try {
-        return await adapter.download(pathname).then(file => file.blob())
-      }
-      catch (error) {
-        if (isNotFound(error)) return null
-        throw error
-      }
+      const bytes = await this.getArrayBuffer(pathname)
+      return bytes ? new Blob([bytes]) : null
     },
     async getArrayBuffer(pathname) {
-      try {
-        return await adapter.download(pathname).then(file => file.arrayBuffer())
-      }
-      catch (error) {
-        if (isNotFound(error)) return null
-        throw error
-      }
+      const { get } = await loadVercelBlob()
+      const result = await get(pathname, {
+        access: options.access || "public",
+        ...commandOptions(options),
+      })
+      return result?.stream ? await new Response(result.stream).arrayBuffer() : null
     },
     async head(pathname) {
+      const { head } = await loadVercelBlob()
       try {
-        return mapStoredFile(await adapter.head(pathname))
+        return mapBlob(await head(pathname, commandOptions(options)))
       }
       catch (error) {
         if (isNotFound(error)) return null
@@ -85,23 +68,30 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
       }
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
-      const result = await adapter.list({
+      const { list } = await loadVercelBlob()
+      const result = await list({
         cursor: listOptions.cursor,
         limit: listOptions.limit ?? 1000,
+        mode: listOptions.folded ? "folded" : undefined,
         prefix: listOptions.prefix,
+        ...commandOptions(options),
       })
       return {
-        blobs: result.items.map(mapStoredFile),
+        blobs: result.blobs.map(blob => mapBlob(blob)),
         cursor: result.cursor,
-        hasMore: Boolean(result.cursor),
+        folders: "folders" in result ? result.folders : undefined,
+        hasMore: result.hasMore,
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const uploadOptions = {
+      const { put } = await loadVercelBlob()
+      return mapBlob(await put(pathname, body as Parameters<typeof put>[1], {
+        access: putOptions.access || options.access || "public",
+        addRandomSuffix: false,
+        allowOverwrite: options.allowOverwrite ?? true,
         contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
-        metadata: putOptions.customMetadata,
-      }
-      return mapUploadResult(await createAdapter(options, putOptions.access || options.access).upload(pathname, body as never, uploadOptions), putOptions)
+        ...commandOptions(options),
+      }), putOptions)
     },
   }
 }

@@ -209,6 +209,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
       },
       conditions: ["workerd", "worker", "browser", "default"],
       external: [
+        "@vercel/blob",
         "files-sdk",
         "files-sdk/akamai",
         "files-sdk/azure",
@@ -246,6 +247,8 @@ function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDe
         "@vitehub/blob": artifacts.runtimeModuleFiles.vercel,
       },
       external: [
+        "@vercel/blob",
+        "files-sdk",
         "files-sdk/akamai",
         "files-sdk/azure",
         "files-sdk/box",

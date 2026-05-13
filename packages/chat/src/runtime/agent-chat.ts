@@ -1,24 +1,16 @@
-import { getAgentFromRegistry, streamAgent } from "@vitehub/agent"
 import { createWorkflow } from "@vitehub/workflow"
 import { getWorkflowRuntimeEvent } from "@vitehub/workflow/runtime/state"
 import { useRuntimeConfig } from "nitro/runtime-config"
 
+import { executeChatAgentResponse } from "../agent-handoff.ts"
 import { defineChat, resolveChat } from "../index.ts"
 
-import type { AgentDefinition, AgentRunInput, AgentRunMetadata } from "@vitehub/agent"
+import type { AgentDefinition } from "@vitehub/agent"
 import type { WorkflowExecutionContext } from "@vitehub/workflow"
-import type { ChatDefinition, ChatRuntimeConfig, ChatRuntimeContext, ChatWorkflowHandle, DefineChatOptions } from "../types.ts"
+import type { ChatAgentWorkflowPayload } from "../agent-handoff.ts"
+import type { ChatDefinition, ChatRuntimeConfig, ChatWorkflowHandle, DefineChatOptions, ResolvedChatRuntimeContext } from "../types.ts"
 
-interface AgentChatWorkflowPayload {
-  agentName: string
-  cloudflare?: ChatRuntimeContext["cloudflare"]
-  dev?: boolean
-  input: AgentRunInput
-  run: AgentRunMetadata
-  threadId?: string
-}
-
-const workflowCache = new WeakMap<AgentDefinition<any>, Map<string, ChatWorkflowHandle<AgentChatWorkflowPayload>>>()
+const workflowCache = new WeakMap<AgentDefinition<any>, Map<string, ChatWorkflowHandle<ChatAgentWorkflowPayload>>>()
 
 function createMemo() {
   const cache = new Map<string, unknown>()
@@ -52,7 +44,7 @@ function getCloudflareEnvFromEvent(event: unknown) {
   )
 }
 
-function runtimeContext<TRuntimeConfig extends ChatRuntimeConfig>(options: Pick<AgentChatWorkflowPayload, "cloudflare" | "dev"> = {}): ChatRuntimeContext<TRuntimeConfig> {
+function runtimeContext<TRuntimeConfig extends ChatRuntimeConfig>(options: Pick<ChatAgentWorkflowPayload, "cloudflare" | "dev"> = {}): ResolvedChatRuntimeContext<TRuntimeConfig> {
   const cloudflare = options.cloudflare
   const env = cloudflare?.env || getCloudflareEnvFromEvent(getWorkflowRuntimeEvent()) || {}
   const event = { env }
@@ -68,7 +60,7 @@ function runtimeContext<TRuntimeConfig extends ChatRuntimeConfig>(options: Pick<
     runtime: "nitro",
     runtimeConfig: (applyEnvRuntimeConfig?.(runtimeConfig, event) || runtimeConfig) as TRuntimeConfig,
     waitUntil: () => {},
-  } as ChatRuntimeContext<TRuntimeConfig>
+  } as ResolvedChatRuntimeContext<TRuntimeConfig>
 }
 
 function errorMessage(error: unknown) {
@@ -83,7 +75,7 @@ function shouldRunWorkflowInlineInDev() {
 function createChatAgentWorkflow<TRuntimeConfig extends ChatRuntimeConfig>(
   agent: AgentDefinition<TRuntimeConfig>,
   name: string,
-): ChatWorkflowHandle<AgentChatWorkflowPayload> {
+): ChatWorkflowHandle<ChatAgentWorkflowPayload> {
   const cached = workflowCache.get(agent)?.get(name)
   if (cached) {
     return cached
@@ -93,7 +85,8 @@ function createChatAgentWorkflow<TRuntimeConfig extends ChatRuntimeConfig>(
     ? agent.runtime.name
     : `agent:${name}`
 
-  const handler = async ({ payload, step }: WorkflowExecutionContext<AgentChatWorkflowPayload>) => {
+  let handle!: ChatWorkflowHandle<ChatAgentWorkflowPayload>
+  const handler = async ({ payload, step }: WorkflowExecutionContext<ChatAgentWorkflowPayload>) => {
     if (!payload.threadId) {
       throw new Error("Missing chat thread id for workflow reply.")
     }
@@ -101,40 +94,48 @@ function createChatAgentWorkflow<TRuntimeConfig extends ChatRuntimeConfig>(
     const context = runtimeContext<TRuntimeConfig>(payload)
     const bot = await resolveChat(createChatFromAgent(agent, name), context, { inferredName: name })
     const thread = bot.thread(payload.threadId)
-    const agentContext = { ...context, run: payload.run } as never
-    const runAgent = async () => {
-      const definition = await getAgentFromRegistry(payload.agentName, agentContext as never)
-      return await streamAgent(definition as never, agentContext as never, payload.input)
+    const baseArgs = {
+      bot,
+      channel: { id: payload.channelId },
+      context: undefined,
+      history: payload.history,
+      message: payload.message,
+      run: payload.run,
+      runtimeConfig: context.runtimeConfig,
+      thread,
+      workflow: handle,
     }
+    const runAgent = async () => await executeChatAgentResponse(context, {
+      hooks: agent.hooks as never,
+      name: payload.agentName,
+    }, baseArgs as never, payload.input)
 
     try {
-      const result = step?.do
-        ? await step.do("run chat agent", {}, runAgent)
-        : await runAgent()
-
-      await thread.post(result as never)
+      await (step?.do
+        ? step.do("run chat agent", {}, runAgent)
+        : runAgent())
     }
     catch (error) {
       await thread.post(`ViteHub chat response failed: ${errorMessage(error)}`)
       throw error
     }
   }
-  const handle = shouldRunWorkflowInlineInDev()
+  handle = shouldRunWorkflowInlineInDev()
     ? {
         name: workflowName,
-        defer: async (payload?: AgentChatWorkflowPayload, options = {}) => {
+        defer: async (payload?: ChatAgentWorkflowPayload, options = {}) => {
           const id = options.id || `inline-${Date.now()}`
-          await handler({ id, name: workflowName, payload: payload as AgentChatWorkflowPayload, provider: "vercel" })
+          await handler({ id, name: workflowName, payload: payload as ChatAgentWorkflowPayload, provider: "vercel" })
           return { id, payload, provider: "vercel", status: "completed" as const }
         },
         getRun: async (id: string) => ({ id, provider: "vercel", status: "completed" as const }),
-        run: async (payload?: AgentChatWorkflowPayload, options = {}) => {
+        run: async (payload?: ChatAgentWorkflowPayload, options = {}) => {
           const id = options.id || `inline-${Date.now()}`
-          await handler({ id, name: workflowName, payload: payload as AgentChatWorkflowPayload, provider: "vercel" })
+          await handler({ id, name: workflowName, payload: payload as ChatAgentWorkflowPayload, provider: "vercel" })
           return { id, payload, provider: "vercel", status: "completed" as const }
         },
-      } satisfies ChatWorkflowHandle<AgentChatWorkflowPayload>
-    : createWorkflow<AgentChatWorkflowPayload>(workflowName, handler)
+      } satisfies ChatWorkflowHandle<ChatAgentWorkflowPayload>
+    : createWorkflow<ChatAgentWorkflowPayload>(workflowName, handler)
   const agentWorkflows = workflowCache.get(agent) || new Map()
   agentWorkflows.set(name, handle)
   workflowCache.set(agent, agentWorkflows)

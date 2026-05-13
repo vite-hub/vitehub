@@ -1,11 +1,19 @@
-import { fs } from "files-sdk/fs"
+import { createHash } from "node:crypto"
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { dirname, relative, resolve, sep } from "node:path"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
-import type { Adapter, StoredFile, UploadResult } from "files-sdk"
 
-function isNotFound(error: unknown): boolean {
-  const value = error as { code?: unknown, message?: unknown }
-  return value?.code === "NotFound" || /not found/i.test(String(value?.message || ""))
+interface FsBlobMetadata {
+  contentType?: string
+  customMetadata?: Record<string, string>
+}
+
+interface FsBlobEntry {
+  meta: FsBlobMetadata
+  path: string
+  size: number
+  uploadedAt: Date
 }
 
 function encodeCursor(value: number) {
@@ -17,62 +25,164 @@ function decodeCursor(cursor: string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function mapStoredFile(file: StoredFile): BlobObject {
-  return {
-    contentType: file.type,
-    customMetadata: file.metadata || {},
-    httpEtag: file.etag,
-    httpMetadata: file.type ? { contentType: file.type } : {},
-    pathname: file.key,
-    size: file.size,
-    uploadedAt: file.lastModified ? new Date(file.lastModified) : new Date(),
+function encodeMetaKey(pathname: string) {
+  return Buffer.from(pathname).toString("base64url")
+}
+
+function isInside(root: string, path: string) {
+  const resolvedRoot = root.endsWith(sep) ? root : `${root}${sep}`
+  return path === root || path.startsWith(resolvedRoot)
+}
+
+function resolveRoot(options: ResolvedFsBlobStoreConfig) {
+  return resolve(options.base || ".data/blob")
+}
+
+function resolveBlobPath(root: string, pathname: string) {
+  const path = resolve(root, pathname)
+  if (!isInside(root, path)) {
+    throw new Error(`Blob pathname escapes the configured base: ${pathname}`)
+  }
+  return path
+}
+
+function resolveMetaPath(root: string, pathname: string) {
+  return resolve(root, ".vitehub", "blob-meta", `${encodeMetaKey(pathname)}.json`)
+}
+
+function isNotFound(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
+}
+
+function isDirectoryError(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === "ENOTDIR"
+}
+
+async function bodyToBytes(body: BlobPutBody) {
+  return new Uint8Array(await new Response(body as any).arrayBuffer())
+}
+
+async function readMetadata(root: string, pathname: string): Promise<FsBlobMetadata> {
+  try {
+    return JSON.parse(await readFile(resolveMetaPath(root, pathname), "utf8")) as FsBlobMetadata
+  }
+  catch (error) {
+    if (isNotFound(error)) return {}
+    throw error
   }
 }
 
-function mapUploadResult(result: UploadResult, options: BlobPutOptions): BlobObject {
-  const contentType = result.contentType || options.contentType
+async function writeMetadata(root: string, pathname: string, meta: FsBlobMetadata) {
+  const path = resolveMetaPath(root, pathname)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, JSON.stringify(meta), "utf8")
+}
+
+async function removeMetadata(root: string, pathname: string) {
+  await rm(resolveMetaPath(root, pathname), { force: true })
+}
+
+function toBlobObject(entry: FsBlobEntry): BlobObject {
+  const httpEtag = createHash("sha1")
+    .update(`${entry.path}:${entry.size}:${entry.uploadedAt.getTime()}`)
+    .digest("hex")
+
   return {
-    contentType,
-    customMetadata: options.customMetadata || {},
-    httpEtag: result.etag,
-    httpMetadata: contentType ? { contentType } : {},
-    pathname: result.key,
-    size: result.size,
-    uploadedAt: result.lastModified ? new Date(result.lastModified) : new Date(),
+    contentType: entry.meta.contentType,
+    customMetadata: entry.meta.customMetadata || {},
+    httpEtag: `"${httpEtag}"`,
+    httpMetadata: entry.meta.contentType ? { contentType: entry.meta.contentType } : {},
+    pathname: entry.path,
+    size: entry.size,
+    uploadedAt: entry.uploadedAt,
+  }
+}
+
+async function readEntry(root: string, pathname: string): Promise<FsBlobEntry | null> {
+  try {
+    const stats = await stat(resolveBlobPath(root, pathname))
+    if (!stats.isFile()) return null
+    return {
+      meta: await readMetadata(root, pathname),
+      path: pathname,
+      size: stats.size,
+      uploadedAt: stats.mtime,
+    }
+  }
+  catch (error) {
+    if (isNotFound(error)) return null
+    throw error
+  }
+}
+
+async function walkFiles(root: string, dir = root): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true })
+  const files = await Promise.all(entries.map(async (entry) => {
+    const path = resolve(dir, entry.name)
+    const pathname = relative(root, path).split(sep).join("/")
+    if (pathname === ".vitehub" || pathname.startsWith(".vitehub/")) return []
+    if (entry.isDirectory()) return await walkFiles(root, path)
+    return entry.isFile() ? [pathname] : []
+  }))
+  return files.flat().sort((left, right) => left.localeCompare(right))
+}
+
+async function listEntries(root: string, prefix?: string) {
+  const files = await walkFiles(root)
+  const filtered = prefix ? files.filter(path => path.startsWith(prefix)) : files
+  const entries = await Promise.all(filtered.map(path => readEntry(root, path)))
+  return entries.filter((entry): entry is FsBlobEntry => Boolean(entry))
+}
+
+function foldedList(entries: FsBlobEntry[], options: BlobListOptions): BlobListResult {
+  const prefix = options.prefix || ""
+  const start = decodeCursor(options.cursor)
+  const limit = options.limit ?? 1000
+  const folders = new Set<string>()
+  const blobs: BlobObject[] = []
+  let consumed = start
+
+  for (const entry of entries.slice(start)) {
+    consumed += 1
+    const remainder = entry.path.slice(prefix.length).replace(/^\/+/, "")
+    const firstSlash = remainder.indexOf("/")
+    if (firstSlash !== -1) {
+      folders.add(`${prefix.replace(/\/?$/, "/")}${remainder.slice(0, firstSlash + 1)}`)
+      continue
+    }
+
+    blobs.push(toBlobObject(entry))
+    if (blobs.length >= limit) break
+  }
+
+  return {
+    blobs,
+    cursor: consumed < entries.length ? encodeCursor(consumed) : undefined,
+    folders: [...folders].sort((left, right) => left.localeCompare(right)),
+    hasMore: consumed < entries.length,
   }
 }
 
 export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdapter<ResolvedFsBlobStoreConfig> {
-  const adapter: Adapter = fs({
-    ...options,
-    root: options.base,
-  })
+  const root = resolveRoot(options)
 
   return {
     name: "fs",
     options,
     async delete(pathnames) {
       await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(async pathname => {
-        try {
-          await adapter.delete(pathname)
-        }
-        catch (error) {
-          if (!isNotFound(error)) throw error
-        }
+        await rm(resolveBlobPath(root, pathname), { force: true })
+        await removeMetadata(root, pathname)
       }))
     },
     async get(pathname) {
-      try {
-        return await adapter.download(pathname).then(file => file.blob())
-      }
-      catch (error) {
-        if (isNotFound(error)) return null
-        throw error
-      }
+      const bytes = await this.getArrayBuffer(pathname)
+      return bytes ? new Blob([bytes]) : null
     },
     async getArrayBuffer(pathname) {
       try {
-        return await adapter.download(pathname).then(file => file.arrayBuffer())
+        const bytes = await readFile(resolveBlobPath(root, pathname))
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
       }
       catch (error) {
         if (isNotFound(error)) return null
@@ -80,69 +190,47 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       }
     },
     async head(pathname) {
-      try {
-        return mapStoredFile(await adapter.head(pathname))
-      }
-      catch (error) {
-        if (isNotFound(error)) return null
-        throw error
-      }
+      const entry = await readEntry(root, pathname)
+      return entry ? toBlobObject(entry) : null
     },
-    async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
-      let result
+    async list(options: BlobListOptions = {}): Promise<BlobListResult> {
       try {
-        result = await adapter.list({
-          cursor: listOptions.folded ? undefined : listOptions.cursor,
-          limit: listOptions.folded ? 1000 : listOptions.limit ?? 1000,
-          prefix: listOptions.prefix,
-        })
+        const entries = await listEntries(root, options.prefix)
+        if (options.folded) {
+          return foldedList(entries, options)
+        }
+
+        const start = decodeCursor(options.cursor)
+        const limit = options.limit ?? 1000
+        const page = entries.slice(start, start + limit)
+        const consumed = start + page.length
+        return {
+          blobs: page.map(toBlobObject),
+          cursor: consumed < entries.length ? encodeCursor(consumed) : undefined,
+          hasMore: consumed < entries.length,
+        }
       }
       catch (error) {
-        if (error instanceof Error && /ENOTDIR/.test(error.message)) {
-          throw Object.assign(error, { code: "ENOTDIR" })
+        if (isNotFound(error)) {
+          return { blobs: [], hasMore: false }
+        }
+        if (isDirectoryError(error)) {
+          throw Object.assign(error as object, { code: "ENOTDIR" })
         }
         throw error
-      }
-
-      if (listOptions.folded) {
-        const prefix = listOptions.prefix || ""
-        const limit = listOptions.limit ?? 1000
-        const start = decodeCursor(listOptions.cursor)
-        const folders = new Set<string>()
-        const blobs: BlobObject[] = []
-        let consumed = start
-
-        for (const item of result.items.slice(start)) {
-          consumed += 1
-          const remainder = item.key.slice(prefix.length).replace(/^\/+/, "")
-          const firstSlash = remainder.indexOf("/")
-          if (firstSlash !== -1) {
-            folders.add(`${prefix.replace(/\/?$/, "/")}${remainder.slice(0, firstSlash + 1)}`)
-            continue
-          }
-          blobs.push(mapStoredFile(item))
-          if (blobs.length >= limit) break
-        }
-
-        return {
-          blobs,
-          cursor: consumed < result.items.length ? encodeCursor(consumed) : undefined,
-          folders: [...folders].sort((left, right) => left.localeCompare(right)),
-          hasMore: consumed < result.items.length,
-        }
-      }
-
-      return {
-        blobs: result.items.map(mapStoredFile),
-        cursor: result.cursor,
-        hasMore: Boolean(result.cursor),
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      return mapUploadResult(await adapter.upload(pathname, body as never, {
+      const path = resolveBlobPath(root, pathname)
+      const bytes = await bodyToBytes(body)
+      await mkdir(dirname(path), { recursive: true })
+      await writeFile(path, bytes)
+      await writeMetadata(root, pathname, {
         contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
-        metadata: putOptions.customMetadata,
-      }), putOptions)
+        customMetadata: putOptions.customMetadata,
+      })
+      const entry = await readEntry(root, pathname)
+      return toBlobObject(entry!)
     },
   }
 }
