@@ -146,6 +146,7 @@ Time to swap the dummy reply for a real model. ViteHub agents live in `server/ag
 
 ::code-tree-intersection
 ```ts [server/agents/support/chat/config.ts]
+import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vitehub/agent'
 import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 
@@ -153,7 +154,7 @@ export default defineAgent({
   description: 'Answer support chat messages.',
   adapter: aiSdkAdapter({
     instructions: 'You are a friendly support bot. Keep replies short and concrete.',
-    model,
+    model: gateway('openai/gpt-5.1-mini'),
   }),
 })
 ```
@@ -194,6 +195,7 @@ Models guess. Tools inspect. Add a Workspace to your agent so it can search, lis
 
 ::code-tree-intersection
 ```ts [server/agents/support/chat/config.ts]
+import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vitehub/agent'
 import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 import * as source from '@vitehub/workspace/source'
@@ -225,7 +227,7 @@ export default defineAgent({
   adapter: aiSdkAdapter({
     instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
     tools: ({ workspace }) => workspace.tools.inspect(),
-    model,
+    model: gateway('openai/gpt-5.1-mini'),
   }),
 })
 ```

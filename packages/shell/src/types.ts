@@ -105,6 +105,7 @@ export interface ShellRuntime {
 export interface CloudflareShellClient {
   exec: (
     command: string,
+    args?: string[],
     options?: {
       cwd?: string
       env?: Record<string, string>

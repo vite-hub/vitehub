@@ -23,13 +23,13 @@ describe("workflow config", () => {
     })
   })
 
-  it("infers openworkflow from node hosting", () => {
+  it("does not infer openworkflow from node hosting without Postgres config", () => {
     expect(normalizeWorkflowOptions(undefined, { hosting: "node-server" })).toEqual({
-      provider: "openworkflow",
+      provider: "vercel",
     })
   })
 
-  it("normalizes inferred openworkflow options from node hosting", () => {
+  it("infers openworkflow from node hosting with Postgres config", () => {
     expect(normalizeWorkflowOptions({
       postgres: {
         url: "postgres://localhost/vitehub",
@@ -41,6 +41,12 @@ describe("workflow config", () => {
       },
       provider: "openworkflow",
       worker: { concurrency: 2 },
+    })
+  })
+
+  it("does not infer openworkflow from docker hosting without Postgres config", () => {
+    expect(normalizeWorkflowOptions({}, { hosting: "docker" })).toEqual({
+      provider: "vercel",
     })
   })
 

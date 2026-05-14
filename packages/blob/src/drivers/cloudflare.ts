@@ -64,8 +64,10 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => getBucket(options).delete(pathname)))
     },
     async get(pathname) {
-      const bytes = await this.getArrayBuffer(pathname)
-      return bytes ? new Blob([bytes]) : null
+      const object = await getBucket(options).get(pathname)
+      if (!object) return null
+      const bytes = await readArrayBuffer(object)
+      return new Blob([bytes], { type: object.httpMetadata?.contentType || "" })
     },
     async getArrayBuffer(pathname) {
       const object = await getBucket(options).get(pathname)

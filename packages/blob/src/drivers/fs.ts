@@ -177,7 +177,9 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     },
     async get(pathname) {
       const bytes = await this.getArrayBuffer(pathname)
-      return bytes ? new Blob([bytes]) : null
+      if (!bytes) return null
+      const meta = await readMetadata(root, pathname)
+      return new Blob([bytes], { type: meta.contentType || "" })
     },
     async getArrayBuffer(pathname) {
       try {

@@ -1,4 +1,5 @@
 import { analyzeShellCommand } from "./analyze.ts"
+import { parseShellCommand } from "./parse.ts"
 
 import type { ShellRuntime } from "./types.ts"
 import type { CloudflareShellRuntimeOptions, ShellRuntimeExecOptions } from "./types.ts"
@@ -13,7 +14,8 @@ export function createCloudflareShellRuntime(options: CloudflareShellRuntimeOpti
       writeFs: true,
     },
     async exec(command, execOptions: ShellRuntimeExecOptions = {}) {
-      const result = await options.sandbox.exec(command, {
+      const [cmd = "", ...args] = parseShellCommand(command)
+      const result = await options.sandbox.exec(cmd, args, {
         cwd: execOptions.cwd,
         env: execOptions.env,
         onStderr: execOptions.onStderr,

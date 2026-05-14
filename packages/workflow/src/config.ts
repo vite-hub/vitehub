@@ -77,6 +77,10 @@ function normalizeOpenWorkflowWorkerOptions(value: unknown): OpenWorkflowWorkerO
   return typeof concurrency === "number" ? { concurrency } : {}
 }
 
+function hasOpenWorkflowPostgresConfig(options: Record<string, unknown>): boolean {
+  return isPlainObject(options.postgres) && typeof options.postgres.url === "string" && !!options.postgres.url.trim()
+}
+
 function inferProvider(provider: unknown, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
   if (provider === "node") {
     return "openworkflow"
@@ -87,10 +91,14 @@ function inferProvider(provider: unknown, hosting: string): "cloudflare" | "open
   if (hosting.includes("cloudflare")) {
     return "cloudflare"
   }
-  if (hosting.includes("node") || hosting.includes("docker")) {
+  return "vercel"
+}
+
+function inferProviderFromOptions(options: Record<string, unknown>, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
+  if (typeof options.provider === "undefined" && (hosting.includes("node") || hosting.includes("docker")) && hasOpenWorkflowPostgresConfig(options)) {
     return "openworkflow"
   }
-  return "vercel"
+  return inferProvider(options.provider, hosting)
 }
 
 function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedWorkflowOptions {
@@ -104,7 +112,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
     throw new TypeError(`Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", "node", or "vercel".`)
   }
 
-  const resolved = inferProvider(provider, hosting)
+  const resolved = inferProviderFromOptions(options, hosting)
 
   if (resolved === "cloudflare") {
     return defu(shared, { provider: "cloudflare" as const })

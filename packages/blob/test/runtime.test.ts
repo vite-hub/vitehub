@@ -271,6 +271,7 @@ describe("blob runtime", () => {
 
     expect(list.blobs).toHaveLength(1)
     expect(head.customMetadata).toEqual({ test: "true" })
+    expect(body?.type).toBe("text/plain")
     expect(await body?.text()).toBe("hello")
 
     await blob.del("notes/hello.txt")

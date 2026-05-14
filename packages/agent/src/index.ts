@@ -124,6 +124,8 @@ export type {
   ToolInvocationState,
 } from "@vitehub/messages"
 
+const syntheticWorkspaceRun = Symbol("vitehub.syntheticWorkspaceRun")
+
 async function resolveValue<T, TContext extends AgentRuntimeContext>(
   value: MaybeResolvable<T, TContext>,
   context: TContext,
@@ -716,13 +718,14 @@ function createWorkspaceAgentDefinition<
   } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name>
 
   if (!definition.run) {
-    definition.run = async (context) => {
+    const run: NonNullable<AgentDefinition<TRuntimeConfig>["run"]> = async (context) => {
       const adapter = await definition.resolve(context)
       const result = await adapter.generate(await createAdapterRunContext(definition as never, adapter, context as never, context.input))
       return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
         ? (result as { text: string }).text
         : result
     }
+    definition.run = Object.assign(run, { [syntheticWorkspaceRun]: true })
   }
 
   Object.assign(definition, options.workspace, {
@@ -816,6 +819,22 @@ function toAgentRunResult(value: unknown): AgentRunResult {
   }
 }
 
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return !!value && typeof value === "object" && Symbol.asyncIterator in value
+}
+
+function isTransportReadyResult(value: unknown): value is Response | AsyncIterable<StreamEvent> {
+  return value instanceof Response || isAsyncIterable(value)
+}
+
+function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+): agent is AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & { run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> } {
+  return hasAgentDefinition(agent)
+    && typeof agent.run === "function"
+    && !(syntheticWorkspaceRun in agent.run)
+}
+
 function toStreamEvent(chunk: unknown): StreamEvent | undefined {
   if (typeof chunk === "string") {
     return { text: chunk, type: "text-delta" }
@@ -852,7 +871,12 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
 }
 
 async function* streamTextResultToEvents(value: unknown): AsyncIterable<StreamEvent> {
-  if (value && typeof value === "object" && Symbol.asyncIterator in value) {
+  if (typeof value === "string") {
+    if (value) yield { text: value, type: "text-delta" }
+    yield { type: "finish" }
+    return
+  }
+  if (isAsyncIterable(value)) {
     for await (const chunk of value as AsyncIterable<unknown>) {
       const event = toStreamEvent(chunk)
       if (event) yield event
@@ -870,6 +894,17 @@ async function* streamTextResultToEvents(value: unknown): AsyncIterable<StreamEv
   if (result.textStream) {
     for await (const text of result.textStream) {
       yield { text, type: "text-delta" }
+    }
+    return
+  }
+  if (typeof (value as { text?: unknown } | undefined)?.text === "string") {
+    const text = (value as { text: string }).text
+    if (text) yield { text, type: "text-delta" }
+    yield {
+      reason: typeof (value as { finishReason?: unknown }).finishReason === "string"
+        ? (value as { finishReason: string }).finishReason
+        : undefined,
+      type: "finish",
     }
   }
 }
@@ -924,14 +959,14 @@ export async function runAgent<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
-  if (hasAgentDefinition(agent) && agent.run) {
-    const definition = agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
-    return await definition.run!(createRunContext(definition, context, input))
+  if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
+    return await agent.run(createRunContext(agent, context, input))
   }
 
   const resolved = await resolveAgent(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
-  return toAgentRunResult(await resolved.generate(await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)))
+  const result = await resolved.generate(await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input))
+  return isTransportReadyResult(result) ? result : toAgentRunResult(result)
 }
 
 export async function streamAgent<
@@ -942,9 +977,8 @@ export async function streamAgent<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  if (hasAgentDefinition(agent) && agent.run) {
-    const definition = agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
-    return await definition.run!(createRunContext(definition, context, input))
+  if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
+    return await agent.run(createRunContext(agent, context, input))
   }
 
   const resolved = await resolveAgent(agent, context)
@@ -953,7 +987,7 @@ export async function streamAgent<
   const result = resolved.stream
     ? await resolved.stream(adapterContext)
     : await resolved.generate(adapterContext)
-  return streamTextResultToEvents(result)
+  return isTransportReadyResult(result) ? result : streamTextResultToEvents(result)
 }
 
 export async function getAgent<TContext extends AgentRuntimeContext>(

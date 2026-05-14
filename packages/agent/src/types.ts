@@ -185,6 +185,7 @@ export interface AgentDefinition<
 
 export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   | AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig>
+  | AgentAdapter<unknown, TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   | { default?: AgentInput<TContext> }

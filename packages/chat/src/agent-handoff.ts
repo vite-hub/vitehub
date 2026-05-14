@@ -264,10 +264,13 @@ export function createChatAgentWorkflowPayload<
   baseArgs: ChatAgentHookArgs<TRuntimeConfig, TWorkflow>,
   input: AgentRunInput,
   placeholder?: SentMessage,
+  runtimeContext?: ResolvedChatRuntimeContext<TRuntimeConfig>,
 ): ChatAgentWorkflowPayload {
   return {
     agentName: binding.name,
     channelId: getEntityId(baseArgs.channel),
+    cloudflare: runtimeContext?.cloudflare,
+    dev: runtimeContext?.dev,
     history: baseArgs.history,
     input,
     message: toChatMessageSnapshot(baseArgs.message),
@@ -327,7 +330,7 @@ export function createAgentDirectMessageHook<
         if (!workflow?.run) {
           throw new Error("Chat agent execution \"workflow\" requires defineChat({ workflow }).")
         }
-        await workflow.run(createChatAgentWorkflowPayload(binding, baseArgs, input, placeholder), { id: run.runId })
+        await workflow.run(createChatAgentWorkflowPayload(binding, baseArgs, input, placeholder, runtimeContext), { id: run.runId })
         return
       }
 

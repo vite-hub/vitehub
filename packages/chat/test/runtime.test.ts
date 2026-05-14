@@ -720,6 +720,27 @@ describe("defineChat", () => {
     )
   })
 
+  it("includes runtime context in chat agent workflow payloads", async () => {
+    const { createChatAgentWorkflowPayload } = await import("../src/agent-handoff.ts")
+    const cloudflare = { durableObjectStateName: "ChatState", env: { TOKEN: "secret" } }
+    const payload = createChatAgentWorkflowPayload(
+      { name: "triager" } as never,
+      {
+        channel: { id: "channel-1" },
+        history: [],
+        message: createMessage("m1", "hello"),
+        run: { runId: "run-1" },
+        thread: { id: "thread-1" },
+      } as never,
+      { prompt: "hello" },
+      undefined,
+      createContext({ cloudflare, dev: true }) as never,
+    )
+
+    expect(payload.cloudflare).toBe(cloudflare)
+    expect(payload.dev).toBe(true)
+  })
+
   it("lets agent-centered workflow error hooks handle failures", async () => {
     const error = new Error("workflow agent failed")
     const errorHook = vi.fn()

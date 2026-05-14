@@ -409,7 +409,7 @@ describe("@vitehub/shell just-bash runtime", () => {
 describe("@vitehub/shell cloudflare runtime", () => {
   it("delegates to the cloudflare sandbox client", async () => {
     const sandbox = {
-      exec: vi.fn(async (_command: string, options?: Record<string, unknown>) => {
+      exec: vi.fn(async (_command: string, _args?: string[], options?: Record<string, unknown>) => {
         options?.onStdout && (options.onStdout as (data: string) => void)("out")
         options?.onStderr && (options.onStderr as (data: string) => void)("err")
         return {
@@ -446,6 +446,7 @@ describe("@vitehub/shell cloudflare runtime", () => {
       env: { FOO: "bar" },
       onStderr,
       onStdout,
+      stdin: "input",
       timeout: 100,
     })
 
@@ -454,9 +455,10 @@ describe("@vitehub/shell cloudflare runtime", () => {
       stderr: "err",
       stdout: "out",
     })
-    expect(sandbox.exec).toHaveBeenCalledWith(command, expect.objectContaining({
+    expect(sandbox.exec).toHaveBeenCalledWith("ls", ["-la", "/workspace", "|", "head", "-n", "1"], expect.objectContaining({
       cwd: "/workspace",
       env: { FOO: "bar" },
+      stdin: "input",
       timeout: 100,
     }))
     expect(onStdout).toHaveBeenCalledWith("out")

@@ -54,6 +54,33 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("returns generated Response results unchanged", async () => {
+    const { runAgent } = await import("../src/index.ts")
+    const response = Response.json({ ok: true })
+    const agent = {
+      generate: vi.fn(async () => response),
+      name: "response-agent",
+    }
+
+    await expect(runAgent(agent as never, {} as never, {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    })).resolves.toBe(response)
+  })
+
+  it("returns streamed Response results unchanged", async () => {
+    const { streamAgent } = await import("../src/index.ts")
+    const response = new Response("ok")
+    const agent = {
+      generate: vi.fn(),
+      name: "response-agent",
+      stream: vi.fn(async () => response),
+    }
+
+    await expect(streamAgent(agent as never, {} as never, {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    })).resolves.toBe(response)
+  })
+
   it("converts text streams into ViteHub stream events", async () => {
     const { streamAgent } = await import("../src/index.ts")
     const agent = {
@@ -79,6 +106,48 @@ describe("agent message protocol", () => {
     expect(events).toEqual([
       { text: "hel", type: "text-delta" },
       { text: "lo", type: "text-delta" },
+    ])
+  })
+
+  it("converts generate-only text results into ViteHub stream events", async () => {
+    const { streamAgent } = await import("../src/index.ts")
+    const agent = {
+      generate: vi.fn(async () => ({ finishReason: "stop", text: "generated text" })),
+      name: "generate-only-agent",
+    }
+
+    const stream = await streamAgent(agent, {} as never, {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    })
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "generated text", type: "text-delta" },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
+  it("converts generate-only string results into ViteHub stream events", async () => {
+    const { streamAgent } = await import("../src/index.ts")
+    const agent = {
+      generate: vi.fn(async () => "generated string"),
+      name: "generate-only-agent",
+    }
+
+    const stream = await streamAgent(agent, {} as never, {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    })
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "generated string", type: "text-delta" },
+      { type: "finish" },
     ])
   })
 

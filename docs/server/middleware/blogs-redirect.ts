@@ -1,6 +1,6 @@
 export default defineEventHandler((event) => {
   const path = getRequestURL(event).pathname;
-  const match = path.match(/^\/docs\/(vite|nitro|nuxt)\/tutorials(?:\/(.*))?\/?$/);
+  const match = path.match(/^\/docs\/(vite|nitro)\/tutorials(?:\/(.*))?\/?$/);
 
   if (!match) {
     return;

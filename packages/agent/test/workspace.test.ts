@@ -192,6 +192,26 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("uses adapter stream for workspace agents on the streaming path", async () => {
+    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const stream = (async function* () {
+      yield { text: "ok", type: "text-delta" }
+    })()
+    const adapter = {
+      generate: vi.fn(async () => ({ text: "generated" })),
+      name: "workspace-stream",
+      stream: vi.fn(async () => stream),
+    }
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      adapter,
+      workspace: {},
+    }), { workspace: "docs" })
+
+    await expect(streamAgent(agent as never, context(), { messages: [] })).resolves.toBe(stream)
+    expect(adapter.stream).toHaveBeenCalled()
+    expect(adapter.generate).not.toHaveBeenCalled()
+  })
+
   it("wraps workspace agent models with runtime instrumentation", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const baseModel = { id: "base" }
