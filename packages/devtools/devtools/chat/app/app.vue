@@ -170,6 +170,13 @@ function clearPendingMessages() {
   messages.value = messages.value.filter(message => message.id !== pendingId && message.id !== pendingAssistantId)
 }
 
+function clearPendingAssistantMessage() {
+  const pendingAssistantId = pendingAssistantMessage.value?.id
+  pendingAssistantMessage.value = undefined
+  pendingAssistantBaselineIds.value = undefined
+  messages.value = messages.value.filter(message => message.id !== pendingAssistantId)
+}
+
 function selectedChat(next = state.value) {
   return next.chats.find(chat => chat.name === next.selected) || next.chats[0]
 }
@@ -235,7 +242,7 @@ function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
     return
   }
   if (event.type === "error") {
-    clearPendingMessages()
+    clearPendingAssistantMessage()
     error.value = event.message
   }
 }
@@ -1001,7 +1008,6 @@ async function send() {
       text,
     })
     if (!result.streamId) {
-      pendingUserMessage.value = undefined
       applyState(result)
       status.value = "ready"
       return
@@ -1013,7 +1019,7 @@ async function send() {
   catch (cause) {
     const message = cause instanceof Error ? cause.message : "Chat DevTools send failed."
     if (connected.value) {
-      clearPendingMessages()
+      clearPendingAssistantMessage()
       error.value = message
       return
     }
