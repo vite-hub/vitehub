@@ -490,6 +490,14 @@ function chatToolParts(parts: unknown): Array<{ type: "tool", tool: ChatDevtools
     : []
 }
 
+function hasToolParts(parts: unknown) {
+  return chatToolParts(parts).length > 0
+}
+
+function hasRunningTool(parts: unknown) {
+  return chatToolParts(parts).some(part => part.tool.status === "running")
+}
+
 function appendDummy(message: ChatDevtoolsMessage) {
   messages.value = [...messages.value, toChatMessage(message)]
 }
@@ -1126,43 +1134,55 @@ onBeforeUnmount(() => stopSidebarResize?.())
             >
               <template #content="{ content, message, parts }">
                 <div class="flex min-w-0 flex-col gap-2 text-sm/5">
-                  <UChatShimmer
-                    v-if="isLoadingMessage(message)"
+                  <UChatReasoning
+                    v-if="isLoadingMessage(message) || hasToolParts(parts)"
+                    icon="i-lucide-brain"
+                    chevron="leading"
                     :text="loadingMessageText(message)"
-                    :duration="1.8"
-                  />
-                  <UChatTool
-                    v-for="part in chatToolParts(parts)"
-                    :key="part.tool.id"
-                    :icon="toolIcon(part.tool)"
-                    :text="renderToolCommand(part.tool)"
-                    :streaming="part.tool.status === 'running'"
-                    variant="card"
-                    :default-open="false"
+                    :streaming="isLoadingMessage(message) || hasRunningTool(parts)"
                     :ui="{
-                      root: 'min-w-0 rounded-md',
-                      trigger: 'min-h-7 px-2 py-1 text-xs',
+                      root: 'min-w-0',
+                      trigger: 'text-xs',
                       leading: 'size-3.5',
-                      leadingIcon: 'size-3.5 opacity-70',
+                      leadingIcon: 'size-3.5',
+                      chevronIcon: 'size-3.5',
                       label: 'min-w-0 truncate',
-                      trailingIcon: 'size-3.5 opacity-70',
-                      body: 'p-2 text-xs/5',
+                      body: 'flex max-h-none flex-col gap-2 pt-2 overflow-visible text-xs/5 whitespace-normal',
                     }"
                   >
-                    <template v-if="toolMetadataLabel(part.tool)" #actions>
-                      <UBadge color="neutral" variant="soft" size="sm">
-                        {{ toolMetadataLabel(part.tool) }}
-                      </UBadge>
-                    </template>
-                    <Suspense v-if="hasToolOutput(part.tool)">
-                      <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
-                        {{ renderToolOutput(part.tool) }}
-                      </Comark>
-                    </Suspense>
-                    <p v-else class="italic text-muted">
-                      No output
-                    </p>
-                  </UChatTool>
+                    <UChatTool
+                      v-for="part in chatToolParts(parts)"
+                      :key="part.tool.id"
+                      :icon="toolIcon(part.tool)"
+                      :text="renderToolCommand(part.tool)"
+                      :streaming="part.tool.status === 'running'"
+                      variant="card"
+                      :default-open="false"
+                      :ui="{
+                        root: 'min-w-0 rounded-md',
+                        trigger: 'min-h-7 px-2 py-1 text-xs',
+                        leading: 'size-3.5',
+                        leadingIcon: 'size-3.5 opacity-70',
+                        label: 'min-w-0 truncate',
+                        trailingIcon: 'size-3.5 opacity-70',
+                        body: 'p-2 text-xs/5',
+                      }"
+                    >
+                      <template v-if="toolMetadataLabel(part.tool)" #actions>
+                        <UBadge color="neutral" variant="soft" size="sm">
+                          {{ toolMetadataLabel(part.tool) }}
+                        </UBadge>
+                      </template>
+                      <Suspense v-if="hasToolOutput(part.tool)">
+                        <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
+                          {{ renderToolOutput(part.tool) }}
+                        </Comark>
+                      </Suspense>
+                      <p v-else class="italic text-muted">
+                        No output
+                      </p>
+                    </UChatTool>
+                  </UChatReasoning>
                   <Suspense
                     v-if="content"
                   >
