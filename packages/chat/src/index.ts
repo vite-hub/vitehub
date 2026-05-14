@@ -419,7 +419,7 @@ async function createChat<
   const resolvedContext = resolveRuntimeContext(context) as ResolvedChatRuntimeContext<TRuntimeConfig>
   const runtimeConfig = resolvedContext.runtimeConfig
   const adapters = resolveOptions.adapters || await resolveAdapters(options.adapters, resolvedContext)
-  const state = await resolveValue(options.state, context)
+  const state = resolveOptions.state || await resolveValue(options.state, context)
   const {
     adapters: _adapters,
     agent: _agent,

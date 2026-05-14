@@ -5,6 +5,7 @@ import { chatDevtoolsAdapterName, createDevtoolsAdapter as createBaseDevtoolsAda
 import { chatDevtoolsClearRpc, chatDevtoolsGetStateRpc, chatDevtoolsSendRpc } from "../devtools-shared.ts"
 import { resolveChat } from "../index.ts"
 import { createMemo } from "../runtime/context.ts"
+import { createMemoryChatStateAdapter } from "../runtime/memory-state.ts"
 import { getChatRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 
 import type { Adapter, AdapterPostableMessage, Chat as ChatInstance, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
@@ -267,6 +268,7 @@ async function resolveDevtoolsChat(event: H3Event, state: ChatDevtoolsHandlerSta
     const bot = await resolveChat(chat, createRuntimeContext(event, session), {
       adapters: { [chatDevtoolsAdapterName]: adapter },
       inferredName: session.name,
+      state: createMemoryChatStateAdapter(),
     })
     await bot.initialize()
     return bot

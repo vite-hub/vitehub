@@ -285,6 +285,7 @@ export interface DefineChatOptions<
 export interface ResolveChatOptions {
   adapters?: Record<string, Adapter>
   inferredName?: string
+  state?: StateAdapter
 }
 
 export interface ChatDefinition<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {

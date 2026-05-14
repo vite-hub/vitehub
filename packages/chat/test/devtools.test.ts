@@ -786,6 +786,28 @@ describe("Chat DevTools Nitro bridge", () => {
     ])
   })
 
+  it("registry bridge uses in-memory DevTools state without resolving production state", async () => {
+    const { defineChat } = await import("../src/index.ts")
+    const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
+    const chat = defineChat({
+      adapters: {},
+      state: vi.fn(() => {
+        throw new Error("Production state should not be resolved")
+      }) as never,
+      async onDirectMessage({ message, thread }) {
+        await thread.post(`echo: ${message.text}`)
+      },
+    })
+    const handler = defineChatDevtoolsHandler(chat as never)
+
+    const result = await handler(createBridgeEvent({ action: "send", text: "hello" }) as never) as ChatDevtoolsStateResult
+
+    expect(result.chats[0]?.messages).toEqual([
+      expect.objectContaining({ role: "user", text: "hello" }),
+      expect.objectContaining({ role: "assistant", text: "echo: hello" }),
+    ])
+  })
+
   it("stores tool status updates on the assistant transcript message", async () => {
     const { createChatDevtoolsToolStatus } = await import("../src/devtools.ts")
     const { defineChatDevtoolsHandler } = await import("../src/nitro.ts")
