@@ -10,6 +10,7 @@ const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ f
 
 vi.mock("ai", () => ({
   generateText,
+  jsonSchema: vi.fn(schema => ({ jsonSchema: schema })),
   stepCountIs: vi.fn(count => ({ count })),
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {

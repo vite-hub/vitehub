@@ -24,6 +24,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./agent": "./dist/agent.js",
     "./drizzle": "./dist/drizzle.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
@@ -50,15 +51,20 @@
     "pathe": "catalog:"
   },
   "peerDependencies": {
+    "@vitehub/agent": "workspace:*",
     "drizzle-orm": "catalog:",
     "vite": ">=6.0.0"
   },
   "peerDependenciesMeta": {
+    "@vitehub/agent": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@vitehub/agent": "workspace:*",
     "@vitehub/internal": "workspace:*",
     "drizzle-orm": "catalog:",
     "publint": "^0.3.15",

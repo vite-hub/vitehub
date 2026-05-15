@@ -24,6 +24,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./agent": "./dist/agent.js",
     "./config": "./dist/config.js",
     "./drivers/cloudflare": "./dist/drivers/cloudflare.js",
     "./drivers/files": "./dist/drivers/files.js",
@@ -60,12 +61,16 @@
     "pathe": "catalog:"
   },
   "peerDependencies": {
+    "@vitehub/agent": "workspace:*",
     "@vercel/blob": "catalog:",
     "files-sdk": "catalog:",
     "nitro": "^3.0.0-0",
     "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
+    "@vitehub/agent": {
+      "optional": true
+    },
     "@vercel/blob": {
       "optional": true
     },
@@ -82,6 +87,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@vercel/blob": "catalog:",
+    "@vitehub/agent": "workspace:*",
     "@vitehub/internal": "workspace:*",
     "files-sdk": "catalog:",
     "nitro": "catalog:",

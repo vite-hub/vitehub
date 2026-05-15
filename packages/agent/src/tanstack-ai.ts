@@ -88,7 +88,6 @@ async function resolveTools(options: TanStackAiAdapterOptions, context: AgentAda
       inputSchema: tool.inputSchema as never,
       metadata: tool.metadata,
       name: tool.name,
-      needsApproval: tool.policy === "require-approval",
       outputSchema: tool.outputSchema as never,
     })
     return tool.execute ? definition.server(tool.execute as never) : definition

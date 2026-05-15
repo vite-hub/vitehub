@@ -98,6 +98,27 @@ await kv.del('settings')
 
 Use this for explicit user actions such as resetting preferences or removing a cache entry.
 
+## Expose KV Tools to an agent
+
+Use `@vitehub/kv/agent` when an agent should read or write provider-neutral KV state through the configured runtime handle.
+
+```ts [server/agents/settings.ts]
+import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { createKvTools } from '@vitehub/kv/agent'
+
+export default defineAgent({
+  adapter: aiSdkAdapter({
+    model,
+    tools: () => createKvTools({ access: 'write' }),
+  }),
+})
+```
+
+Install `@vitehub/agent` alongside `@vitehub/kv` when importing `@vitehub/kv/agent`.
+
+`access: 'write'` can set and delete individual keys. It does not expose `kv.clear()`.
+
 ## Clear a Prefix
 
 `kv.clear()` clears the whole active store. Pass a prefix when only one feature namespace should be removed:

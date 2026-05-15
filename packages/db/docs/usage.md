@@ -109,6 +109,36 @@ export default defineConfig({
 
 Run migrations with your Drizzle or provider workflow, then keep route code on the same `@vitehub/db/drizzle` runtime import.
 
+## Expose DB Tools to an agent
+
+Use `@vitehub/db/agent` when an agent should inspect or change configured databases through the same runtime handles used by route code.
+
+```ts [server/agents/data.ts]
+import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { createDbTools } from '@vitehub/db/agent'
+
+export default defineAgent({
+  adapter: aiSdkAdapter({
+    model,
+    tools: () => createDbTools({ access: 'read' }),
+  }),
+})
+```
+
+Install `@vitehub/agent` alongside `@vitehub/db` when importing `@vitehub/db/agent`.
+
+`database` can be omitted when the project has a single configured database. Pass `database` when multiple databases are configured so the agent receives Tools scoped to one database. The default database uses `db_*` Tool names; named databases use `<database>_db_*` names:
+
+```ts
+tools: () => ({
+  ...createDbTools({ access: 'write' }),
+  ...createDbTools({ database: 'analytics', access: 'read' }),
+})
+```
+
+Use `access: 'write'` for seed-style row changes. Use `access: 'schema'` only for explicit runtime DDL; deployment migrations still belong to Drizzle or provider workflows.
+
 ## Keep hosted code provider-neutral
 
 Application code should not branch on Cloudflare or Vercel:

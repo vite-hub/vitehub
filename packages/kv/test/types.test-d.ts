@@ -4,6 +4,7 @@ import virtualConfig, { hosting as virtualHosting, kv as virtualKV } from "virtu
 import { describe, expectTypeOf, it } from "vitest"
 
 import { kv, type KVModuleOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
+import { createKvTools } from "../src/agent.ts"
 import { hubKv } from "../src/vite.ts"
 
 describe("types", () => {
@@ -42,6 +43,13 @@ describe("types", () => {
     expectTypeOf(kv.has).returns.toEqualTypeOf<Promise<boolean>>()
     expectTypeOf(kv.keys).returns.toEqualTypeOf<Promise<string[]>>()
     expectTypeOf(kv.set<string>).returns.toEqualTypeOf<Promise<void>>()
+  })
+
+  it("exposes KV agent tools", () => {
+    const tools = createKvTools({ access: "write" })
+
+    expectTypeOf(tools.kv_get.name).toEqualTypeOf<string>()
+    expectTypeOf(tools.kv_set.execute).toMatchTypeOf<unknown>()
   })
 
   it("returns a vite plugin with runtime config access", () => {

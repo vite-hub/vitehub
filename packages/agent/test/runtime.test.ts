@@ -277,6 +277,26 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it("preserves execution receiver and extra arguments when applying tool policies", async () => {
+    const { applyAgentToolPolicies } = await import("../src/index.ts")
+    const context = { toolCallId: "call_1" }
+    const tool = {
+      name: "inspect",
+      policy: "allow" as const,
+      marker: "receiver",
+      execute: vi.fn(function (this: { marker: string }, input: unknown, runContext: unknown) {
+        return { input, marker: this.marker, runContext }
+      }),
+    }
+    const tools = applyAgentToolPolicies({ inspect: tool })
+
+    await expect(tools?.inspect.execute?.({ ok: true }, context)).resolves.toEqual({
+      input: { ok: true },
+      marker: "receiver",
+      runContext: context,
+    })
+  })
+
   it("turns approval-required tool policy into an approval error", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const execute = vi.fn()

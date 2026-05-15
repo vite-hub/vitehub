@@ -12,6 +12,7 @@ import {
   reportWorkspaceMaterialization,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
+export { defineTool } from "./tool-definition.ts"
 
 import type {
   AgentAdapter,
@@ -101,6 +102,7 @@ export type {
   AgentStateProviderOptions,
   AgentToolResolver,
   AgentToolResolverWithWorkspace,
+  AgentToolSet,
   AgentToolStep,
   AgentWaitUntil,
   CloudflareExportedHandlerFetchHandler,
@@ -790,18 +792,6 @@ function getRunMessages(input: AgentRunInput): Message[] {
   if (input.messages) return input.messages
   if (Array.isArray(input.prompt)) return input.prompt
   return []
-}
-
-export function defineTool<TInput = unknown, TOutput = unknown>(
-  tool: AgentToolDefinition<TInput, TOutput>,
-): AgentToolDefinition<TInput, TOutput> {
-  if (!tool || typeof tool !== "object") {
-    throw new TypeError("[vitehub] defineTool() requires a tool definition.")
-  }
-  if (!tool.name || typeof tool.name !== "string") {
-    throw new TypeError("[vitehub] defineTool() requires a tool name.")
-  }
-  return tool
 }
 
 function toAgentRunResult(value: unknown): AgentRunResult {

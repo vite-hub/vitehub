@@ -276,13 +276,41 @@ async function resolveInstructions(options: AiSdkAdapterOptions, context: AgentA
 
 async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never) {
   if (!options.tools) return undefined
+  const { jsonSchema } = await import("ai")
   const resolved = await resolveValue(options.tools as never, context)
   const tools = applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {}
   const { materialize_sources: materializeSources, ...reportableTools } = tools
   return {
-    ...withAgentToolStepReporting(reportableTools, reportToolStep as never),
+    ...normalizeAiSdkTools(withAgentToolStepReporting(reportableTools, reportToolStep as never), jsonSchema),
     ...(materializeSources ? { materialize_sources: materializeSources } : {}),
   }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function isRawJsonSchema(value: unknown): value is Record<string, unknown> {
+  return isObject(value) && (
+    "$schema" in value
+    || "$defs" in value
+    || "anyOf" in value
+    || "oneOf" in value
+    || "properties" in value
+    || "type" in value
+  )
+}
+
+function normalizeAiSdkTools(
+  tools: AgentToolSet,
+  jsonSchema: (schema: Record<string, unknown>) => unknown,
+): AgentToolSet {
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => [
+    name,
+    isRawJsonSchema(tool.inputSchema)
+      ? { ...tool, inputSchema: jsonSchema(tool.inputSchema) }
+      : tool,
+  ]))
 }
 
 function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapterRunContext) {

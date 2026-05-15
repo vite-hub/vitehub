@@ -342,7 +342,7 @@ export interface AgentToolPolicyContext {
 
 export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
   description?: string
-  execute?: (input: TInput) => MaybePromise<TOutput>
+  execute?: (input: TInput, ...args: unknown[]) => MaybePromise<TOutput>
   inputSchema?: unknown
   metadata?: Record<string, unknown>
   name: string
@@ -350,7 +350,7 @@ export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
   policy?: AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 }
 
-export type AgentToolSet = Record<string, AgentToolDefinition>
+export type AgentToolSet = Record<string, AgentToolDefinition<any, any>>
 
 export interface WorkspaceAgentWorkspaceOptions extends Omit<WorkspaceDefinitionInput, "name"> {}
 

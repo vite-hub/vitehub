@@ -5,6 +5,7 @@ import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "v
 import { describe, expectTypeOf, it } from "vitest"
 
 import { blob, type BlobModuleOptions, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import { createBlobTools } from "../src/agent.ts"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -42,6 +43,13 @@ describe("types", () => {
     expectTypeOf(blob.get).returns.toEqualTypeOf<Promise<Blob | null>>()
     expectTypeOf(blob.list).toBeFunction()
     expectTypeOf(blob.put).toBeFunction()
+  })
+
+  it("exposes Blob agent tools", () => {
+    const tools = createBlobTools({ access: "write" })
+
+    expectTypeOf(tools.blob_get_text.name).toEqualTypeOf<string>()
+    expectTypeOf(tools.blob_put_text.execute).toMatchTypeOf<unknown>()
   })
 
   it("returns a vite plugin with runtime config access", () => {

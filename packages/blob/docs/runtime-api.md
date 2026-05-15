@@ -145,6 +145,28 @@ return await blob.serve(event, 'avatars/user-1.png')
 
 Missing pathnames throw an H3 `404` error with `File not found`.
 
+## Agent Tools
+
+```ts
+import { createBlobTools } from '@vitehub/blob/agent'
+```
+
+`createBlobTools()` returns ViteHub Agent-compatible Tools backed by the same `blob` runtime handle:
+
+```ts
+createBlobTools({ access: 'read' })
+createBlobTools({ access: 'write' })
+```
+
+Install `@vitehub/agent` alongside `@vitehub/blob` when importing `@vitehub/blob/agent`.
+
+| Access | Tools |
+| --- | --- |
+| `read` | List objects, read metadata, and read one object as text. |
+| `write` | Includes `read`, plus write text, write JSON, and delete one object. |
+
+The write preset accepts text and JSON bodies only. Binary uploads and bulk deletes stay in application code.
+
 ## Validation API
 
 ### `ensureBlob(blob, options)`

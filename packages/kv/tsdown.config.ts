@@ -11,6 +11,7 @@ export default defineConfig({
   ],
   dts: true,
   entry: [
+    "src/agent.ts",
     "src/index.ts",
     "src/vite.ts",
     "src/nitro.ts",

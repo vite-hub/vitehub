@@ -56,6 +56,30 @@ import { databases, db, schema } from '@vitehub/db/drizzle'
 - `schema` is `databases.default.schema`.
 - `databases.default` and every `databases.<name>` entry expose `{ db, schema }`.
 
+## Agent Tools
+
+```ts
+import { createDbTools } from '@vitehub/db/agent'
+```
+
+`createDbTools()` returns ViteHub Agent-compatible Tools backed by the same `@vitehub/db/drizzle` runtime handles:
+
+```ts
+createDbTools({ access: 'read' })
+createDbTools({ database: 'analytics', access: 'write' })
+createDbTools({ database: 'analytics', access: 'schema' })
+```
+
+| Access | Tools |
+| --- | --- |
+| `read` | List schema tables, select rows, and run `SELECT` SQL for the configured database. |
+| `write` | Includes `read`, plus seed-style insert, update, and delete operations through Drizzle tables. |
+| `schema` | Includes `write`, plus approval-gated runtime DDL SQL execution through Drizzle SQL primitives. |
+
+Each factory call is scoped to one database. `database` can be omitted when only one database is configured; pass it when multiple databases are configured. The default database exposes `db_*` Tool names. Named databases expose `<database>_db_*` Tool names, or use `prefix` to choose a different Tool prefix.
+
+Schema Tools execute explicit runtime DDL. They do not replace Drizzle Kit, provider migration commands, or the deployment migration workflow.
+
 ## Runtime Resolution
 
 For each database entry, ViteHub resolves the runtime in this order:

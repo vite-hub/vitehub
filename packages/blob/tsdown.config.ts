@@ -10,6 +10,7 @@ export default defineConfig({
   },
   dts: true,
   entry: [
+    "src/agent.ts",
     "src/config.ts",
     "src/ensure.ts",
     "src/storage.ts",

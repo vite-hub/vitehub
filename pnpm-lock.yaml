@@ -320,6 +320,9 @@ importers:
       '@vercel/blob':
         specifier: 'catalog:'
         version: 2.3.3
+      '@vitehub/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -498,6 +501,9 @@ importers:
         specifier: 'catalog:'
         version: 2.0.3
     devDependencies:
+      '@vitehub/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -687,6 +693,9 @@ importers:
       '@nuxt/schema':
         specifier: 'catalog:'
         version: 4.4.2
+      '@vitehub/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal

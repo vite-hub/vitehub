@@ -138,6 +138,27 @@ await blob.del([
 ])
 ```
 
+## Expose Blob Tools to an agent
+
+Use `@vitehub/blob/agent` when an agent should inspect stored objects or create text/JSON artifacts through the configured Blob runtime handle.
+
+```ts [server/agents/assets.ts]
+import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { createBlobTools } from '@vitehub/blob/agent'
+
+export default defineAgent({
+  adapter: aiSdkAdapter({
+    model,
+    tools: () => createBlobTools({ access: 'write' }),
+  }),
+})
+```
+
+Install `@vitehub/agent` alongside `@vitehub/blob` when importing `@vitehub/blob/agent`.
+
+`access: 'write'` can write text or JSON content and delete one object by pathname. Binary uploads and bulk deletes stay in application code.
+
 ## Keep Routes Provider-Neutral
 
 The route should not know whether local files, Cloudflare R2, or Vercel Blob is active.

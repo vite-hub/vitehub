@@ -234,3 +234,31 @@ Workspace sources no longer imply model tools. Replace older workspace agents th
 ```
 
 Use `workspace.tools.none()` when a resolver needs to return an empty tool set, and reserve `workspace.tools.write()` for agents that intentionally receive mutable workspace access.
+
+## Compose Storage Tools
+
+Storage packages expose their own Agent-compatible Tools. Compose them in the same `tools` resolver used for custom and Workspace Tools:
+
+```ts [server/agents/storage.ts]
+import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { createBlobTools } from '@vitehub/blob/agent'
+import { createDbTools } from '@vitehub/db/agent'
+import { createKvTools } from '@vitehub/kv/agent'
+
+export default defineAgent({
+  adapter: aiSdkAdapter({
+    model,
+    tools: () => ({
+      ...createDbTools({ access: 'read' }),
+      ...createDbTools({ database: 'analytics', access: 'read' }),
+      ...createKvTools({ access: 'write' }),
+      ...createBlobTools({ access: 'read' }),
+    }),
+  }),
+})
+```
+
+Each package uses its configured runtime handle, so provider details stay in DB, KV, and Blob config.
+Install the storage package and `@vitehub/agent` when importing a storage `./agent` subpath.
+DB Tools infer the database when only one database is configured. Pass `database` when multiple databases are configured; the default database exposes `db_*` names, while named databases expose `<database>_db_*` names.

@@ -25,6 +25,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./agent": "./dist/agent.js",
     "./nitro": "./dist/nitro.js",
     "./nuxt": "./dist/nuxt.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
@@ -50,11 +51,15 @@
     "unstorage": "catalog:"
   },
   "peerDependencies": {
+    "@vitehub/agent": "workspace:*",
     "@upstash/redis": "^1.37.0",
     "nitro": "^3.0.0-0",
     "vite": ">=6.0.0"
   },
   "peerDependenciesMeta": {
+    "@vitehub/agent": {
+      "optional": true
+    },
     "@upstash/redis": {
       "optional": true
     },
@@ -67,6 +72,7 @@
   },
   "devDependencies": {
     "@nuxt/schema": "catalog:",
+    "@vitehub/agent": "workspace:*",
     "@vitehub/internal": "workspace:*",
     "nitro": "catalog:",
     "ofetch": "catalog:",

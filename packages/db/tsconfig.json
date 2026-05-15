@@ -8,6 +8,18 @@
     ],
     "baseUrl": "../..",
     "paths": {
+      "@vitehub/agent": [
+        "packages/agent/src/tool-definition.ts"
+      ],
+      "@vitehub/messages": [
+        "packages/messages/src/index.ts"
+      ],
+      "@vitehub/runtime": [
+        "packages/runtime/src/index.ts"
+      ],
+      "@vitehub/workspace": [
+        "packages/workspace/src/index.ts"
+      ],
       "@vitehub/internal/*": [
         "packages/internal/src/*"
       ]

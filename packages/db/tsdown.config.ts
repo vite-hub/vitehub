@@ -11,6 +11,7 @@ export default defineConfig({
   },
   dts: true,
   entry: [
+    "src/agent.ts",
     "src/index.ts",
     "src/drizzle.ts",
     "src/virtual.ts",

@@ -79,6 +79,28 @@ interface KVStorage {
 
 Method options are passed to the underlying unstorage driver. Treat them as provider-specific.
 
+## Agent Tools
+
+```ts
+import { createKvTools } from '@vitehub/kv/agent'
+```
+
+`createKvTools()` returns ViteHub Agent-compatible Tools backed by the same `kv` runtime handle:
+
+```ts
+createKvTools({ access: 'read' })
+createKvTools({ access: 'write' })
+```
+
+Install `@vitehub/agent` alongside `@vitehub/kv` when importing `@vitehub/kv/agent`.
+
+| Access | Tools |
+| --- | --- |
+| `read` | Get one key, check one key, and list keys by optional prefix. |
+| `write` | Includes `read`, plus set one key and delete one key. |
+
+The write preset intentionally does not expose `kv.clear()`.
+
 ## Module Options
 
 ### `KVModuleOptions`
