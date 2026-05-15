@@ -7,6 +7,15 @@ const repoRoot = resolve(docsRoot, "..");
 const outputDir = resolve(docsRoot, ".generated");
 
 const docsSchema = z.object({
+  authors: z.array(z.object({
+    avatar: z.object({
+      src: z.string(),
+    }).optional(),
+    name: z.string(),
+    to: z.string().optional(),
+  })).optional(),
+  date: z.string().optional(),
+  image: z.string().optional(),
   links: z.array(z.object({
     label: z.string(),
     icon: z.string(),

@@ -46,25 +46,3 @@ export async function fetchGitHubArchive(input: {
 
   return new Uint8Array(await response.arrayBuffer())
 }
-
-export async function fetchGitHubRawContent(input: {
-  encodedPath: string
-  ref: string
-  repo: string
-  repoPath: string
-  token?: string
-}) {
-  const response = await fetch(`https://raw.githubusercontent.com/${input.repo}/${encodeURIComponent(input.ref)}/${input.encodedPath}`, {
-    headers: {
-      ...(input.token ? { authorization: `Bearer ${input.token}` } : {}),
-      "user-agent": "vitehub-unsource",
-    },
-  })
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new UnsourceError(`[vitehub] source.github(${JSON.stringify(input.repo)}) could not find ${JSON.stringify(input.repoPath)} at ref ${JSON.stringify(input.ref)}.`)
-    }
-    throw new UnsourceError(`[vitehub] source.github(${JSON.stringify(input.repo)}) raw content request failed with ${response.status} for ${input.repoPath}.`)
-  }
-  return new Uint8Array(await response.arrayBuffer())
-}

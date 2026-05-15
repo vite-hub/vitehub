@@ -127,6 +127,7 @@ export interface WorkspaceAssets<TKey extends string = string> {
   list(path?: TKey | (string & {}) | "", options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: TKey | (string & {}) | Array<TKey | (string & {})>, options?: GlobOptions): Promise<WorkspaceEntry[]>
   search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
+  materializeSources?(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
 }
 
 export type WorkspaceAssetsRegistry = Record<string, WorkspaceAssets>
@@ -200,15 +201,12 @@ export type WorkspaceValidateMode = false | "request"
 
 export interface WorkspaceCacheOptions {
   maxAge?: number
-  swr?: boolean
-  staleMaxAge?: number
 }
 
 export interface WorkspaceSourceMountOptions {
   path?: string
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
-  swr?: boolean | number
   validate?: WorkspaceValidateMode
 }
 
@@ -228,11 +226,12 @@ export interface WorkspaceSource {
   mount?: WorkspaceSourceMount
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
-  swr?: boolean | number
   validate?: WorkspaceValidateMode
+  fingerprint?: unknown
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<string[]>
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
+  getItems?(ctx: SourceContext): Promise<WorkspaceSourceItem[]>
   getMeta?(key: string, ctx: SourceContext): Promise<Record<string, unknown> | undefined>
   search?(query: WorkspaceSearchQuery, ctx: SourceContext): Promise<WorkspaceSearchHit[]>
   watch?: unknown[]
@@ -335,6 +334,7 @@ export interface ResolvedWorkspaceModuleOptions {
 export interface Workspace {
   name: string
   sync(options?: WorkspaceSyncOptions): Promise<void>
+  materializeSources?(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
@@ -348,4 +348,29 @@ export interface Workspace {
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   open(options?: WorkspaceOpenOptions): Promise<WorkspaceSession>
   mount(options?: WorkspaceMountOptions): WorkspaceMount
+}
+
+export interface WorkspaceSourceMaterializationStatus {
+  source: string
+  mountPath: string
+  status: "lazy" | "updating" | "ready" | "error"
+  commit?: string
+  materializedAt?: string
+  files?: number
+  bytes?: number
+  error?: string
+}
+
+export interface WorkspaceMaterializeSourcesOptions {
+  sources?: string[]
+  path?: string
+}
+
+export interface WorkspaceMaterializeSourcesResult {
+  bytes: number
+  directories: number
+  durationMs: number
+  files: number
+  path: string
+  sources: WorkspaceSourceMaterializationStatus[]
 }

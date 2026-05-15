@@ -1,11 +1,17 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "rootDir": ".",
+    "rootDir": "..",
     "types": [
       "node",
       "vitest/globals"
-    ]
+    ],
+    "baseUrl": "../..",
+    "paths": {
+      "@vitehub/internal/*": [
+        "packages/internal/src/*"
+      ]
+    }
   },
   "include": [
     "src/**/*.d.ts",

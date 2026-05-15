@@ -1,32 +1,29 @@
 ---
 title: Shell usage
-description: Configure command policies, workspace filesystems, search commands, and Cloudflare shell clients.
+description: Configure real shell execution, workspace filesystems, analysis, and sandbox clients.
 navigation.title: Usage
 navigation.order: 2
 icon: i-lucide-file-code-2
 frameworks: [vite, nitro]
 ---
 
-Use this page after the [Quickstart](./quickstart) when you need to tune policy or connect a different execution backend.
+Use this page after the [Quickstart](./quickstart).
 
-## Restrict commands
+## Choose workspace commands
 
-Pass the commands supported by the filesystem adapter and the commands allowed by policy.
+Pass the commands that `just-bash` should expose in the workspace-backed runtime.
 
 ```ts
 const runtime = createShellRuntime({
-  allowedCommands: ['pwd', 'ls', 'cat', 'rg'],
-  commands: ['pwd', 'ls', 'cat', 'rg'],
-  cwd: workspaceMountPoint,
+  commands: ['pwd', 'ls', 'cat', 'head', 'rg'],
   fs,
   provider: 'just-bash',
-  singleCommand: true,
 })
 ```
 
-Use `singleCommand: true` for agent-facing command execution. It rejects separators such as `&&`, `;`, pipes, redirects, command substitution, and multiline commands.
+The runtime accepts real shell syntax. Pipes, redirects, chaining, command substitution, and multiline commands are passed through to the provider.
 
-## Use a read-only workspace filesystem
+## Use read-only files
 
 ```ts
 import { createReadonlyWorkspaceFs } from '@vitehub/shell'
@@ -34,9 +31,9 @@ import { createReadonlyWorkspaceFs } from '@vitehub/shell'
 const fs = createReadonlyWorkspaceFs(workspace)
 ```
 
-Read-only filesystems support inspection commands. Write attempts fail with a read-only filesystem error or command policy rejection.
+Use read-only filesystems for inspection surfaces.
 
-## Use a writable workspace filesystem
+## Use writable files
 
 ```ts
 import { createWritableWorkspaceFs } from '@vitehub/shell'
@@ -44,13 +41,21 @@ import { createWritableWorkspaceFs } from '@vitehub/shell'
 const fs = createWritableWorkspaceFs(workspace)
 ```
 
-Writable filesystems support filesystem mutation APIs when the underlying workspace implements `writeFile`, `mkdir`, and `rm`.
+Writable filesystems require the workspace to implement `writeFile`, `mkdir`, and `rm`. Keep the exposed command list narrow.
 
-Keep command policy explicit even with writable filesystems. Enable only the commands a caller needs.
+## Analyze commands
 
-## Run workspace inspection commands
+Use `analyzeShellCommand()` when you need advisory metadata before execution.
 
-Use `runWorkspaceInspectionCommand()` when you want search command handling and output limits around a searchable workspace.
+```ts
+import { analyzeShellCommand } from '@vitehub/shell'
+
+const analysis = await analyzeShellCommand('rg TODO docs | head -n 20')
+```
+
+## Run workspace shell commands
+
+Use `runWorkspaceInspectionCommand()` when AI tools should execute against a ViteHub workspace filesystem.
 
 ```ts
 import {
@@ -59,19 +64,17 @@ import {
   workspaceMountPoint,
 } from '@vitehub/shell'
 
-const result = await runWorkspaceInspectionCommand(workspace, 'rg TODO docs', {
-  commands: ['rg'],
+const result = await runWorkspaceInspectionCommand(workspace, 'rg TODO docs | head -n 20', {
+  commands: ['rg', 'head'],
   cwd: workspaceMountPoint,
   fs: createReadonlyWorkspaceFs(workspace),
   maxOutputLength: 30_000,
 })
 ```
 
-`rg` and `grep` are routed through the workspace `search()` API. Other commands run through the `just-bash` runtime.
+## Clean paths
 
-## Clean workspace paths
-
-Use the path helpers before mutating workspace state from user input.
+Use path helpers before reading or mutating workspace paths from input.
 
 ```ts
 import {
@@ -83,11 +86,11 @@ const readPath = cleanWorkspaceShellPath('/workspace/docs/README.md')
 const writePath = cleanWorkspaceMutationPath('generated/summary.md')
 ```
 
-`cleanWorkspaceMutationPath()` rejects the workspace root because root-level mutation is too broad.
+`cleanWorkspaceMutationPath()` rejects the workspace root.
 
 ## Use a Cloudflare shell client
 
-Use `cloudflare-shell` when execution happens in a Cloudflare sandbox-compatible client.
+Use `cloudflare-shell` when a Cloudflare sandbox-compatible client owns execution.
 
 ```ts
 const runtime = createShellRuntime({
@@ -100,16 +103,4 @@ const result = await runtime.exec('node --version', {
 })
 ```
 
-The client must expose `exec(command, args, options)` and support metadata. Shell parses the command string into command and args before delegating.
-
-## Stream output
-
-Both runtime providers accept `onStdout` and `onStderr` callbacks when the underlying backend supports streaming.
-
-```ts
-await runtime.exec('cat README.md', {
-  onStdout(chunk) {
-    console.log(chunk)
-  },
-})
-```
+The client must expose `exec(command, options)` and support metadata.

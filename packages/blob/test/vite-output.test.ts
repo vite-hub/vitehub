@@ -42,6 +42,7 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
   put: vi.fn(async (pathname: string) => ({
     contentType: "text/plain",
+    key: pathname,
     pathname,
     size: 5,
     uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -50,11 +51,34 @@ const vercelBlobMock = vi.hoisted(() => ({
 }))
 
 vi.mock("@vercel/blob", () => ({
-  del: vercelBlobMock.del,
-  get: vercelBlobMock.get,
-  head: vercelBlobMock.head,
-  list: vercelBlobMock.list,
-  put: vercelBlobMock.put,
+  del: async (pathname: string, options: { token?: string } = {}) => {
+    await (vercelBlobMock.del as any)(pathname, { token: options.token })
+  },
+  get: async (pathname: string, options: { access?: "private" | "public", token?: string } = {}) => {
+    return await (vercelBlobMock.get as any)(pathname, {
+      access: options.access,
+      token: options.token,
+    })
+  },
+  head: async (pathname: string, options: { token?: string } = {}) => {
+    const result = await (vercelBlobMock.head as any)(pathname, { token: options.token })
+    return {
+      contentType: "text/plain",
+      etag: "\"etag\"",
+      pathname: result.pathname,
+      size: result.size,
+      uploadedAt: result.uploadedAt,
+      url: result.url,
+    }
+  },
+  list: async () => await (vercelBlobMock.list as any)(),
+  put: async (pathname: string, body: Blob | Uint8Array | string, options: { access?: "private" | "public", contentType?: string, token?: string } = {}) => {
+    return await (vercelBlobMock.put as any)(pathname, body, {
+      access: options.access,
+      contentType: options.contentType,
+      token: options.token,
+    })
+  },
 }))
 
 async function createWorkspaceTempDir(prefix: string) {

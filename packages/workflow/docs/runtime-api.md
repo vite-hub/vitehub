@@ -53,7 +53,7 @@ The handler receives:
 | `id` | `string \| undefined` | Run id chosen by the caller or provider. |
 | `name` | `string` | Discovered workflow name. |
 | `payload` | `TPayload` | Payload passed to `runWorkflow()` or `deferWorkflow()`. |
-| `provider` | `'cloudflare' \| 'vercel'` | Active provider. |
+| `provider` | `'cloudflare' \| 'openworkflow' \| 'vercel'` | Active provider. |
 | `step` | `unknown` | Provider step object when one is available. |
 
 Options:
@@ -81,7 +81,7 @@ Return shape:
 ```ts
 type WorkflowRun<TPayload = unknown, TResult = unknown> = {
   id: string
-  provider: 'cloudflare' | 'vercel'
+  provider: 'cloudflare' | 'openworkflow' | 'vercel'
   status: 'queued' | 'running' | 'completed' | 'failed' | 'unknown'
   payload?: TPayload
   result?: TResult
@@ -115,7 +115,7 @@ Reads normalized status for a workflow run.
 const run = await getWorkflowRun<WelcomePayload, WelcomeResult>('welcome', id)
 ```
 
-Cloudflare uses the generated Workflow binding when it is available. Vercel returns generated runtime state for runs started by the same deployment process.
+Cloudflare uses the generated Workflow binding when it is available. Vercel returns generated runtime state for runs started by the same deployment process. OpenWorkflow reads the configured Postgres backend.
 
 ## Payload helpers
 
@@ -168,19 +168,49 @@ const result = await chatReply.getRun(run.id)
 
 ```ts
 workflow: {
-  provider: 'cloudflare',
-  binding: 'WORKFLOW_WELCOME',
-  name: 'workflow--welcome',
+  provider: 'openworkflow',
+  postgres: {
+    url: process.env.OPENWORKFLOW_POSTGRES_URL,
+    namespaceId: 'production',
+    schema: 'openworkflow',
+  },
+  worker: {
+    concurrency: 10,
+  },
 }
 ```
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `provider` | `'cloudflare' \| 'vercel'` | Explicit provider. Defaults from hosting: Cloudflare hosting selects Cloudflare, everything else selects Vercel. |
+| `provider` | `'cloudflare' \| 'openworkflow' \| 'node' \| 'vercel'` | Explicit provider. `node` is accepted as an alias for `openworkflow`. Defaults from hosting: Cloudflare hosting selects Cloudflare, Nitro node/Docker hosting selects OpenWorkflow, everything else selects Vercel. |
 | `binding` | `string` | Override the generated Cloudflare binding name used at runtime. |
 | `name` | `string` | Override the provider workflow name used by generated output. |
+| `postgres.url` | `string` | OpenWorkflow Postgres URL. Defaults to `OPENWORKFLOW_POSTGRES_URL` or `DATABASE_URL`. |
+| `postgres.namespaceId` | `string` | OpenWorkflow namespace. Defaults to `OPENWORKFLOW_NAMESPACE_ID` or `production`. |
+| `postgres.schema` | `string` | OpenWorkflow schema. Defaults to `OPENWORKFLOW_SCHEMA` or `openworkflow`. |
+| `postgres.runMigrations` | `boolean` | Whether OpenWorkflow should run migrations when connecting. |
+| `worker.concurrency` | `number` | OpenWorkflow worker concurrency. |
 
 Set `workflow: false` to disable the runtime and generated provider output.
+
+## OpenWorkflow worker helpers
+
+Docker deployments can start a worker process from the generated registry:
+
+```ts
+import workflowRegistry from '#vitehub/workflow/registry'
+import { startOpenWorkflowWorker } from '@vitehub/workflow/runtime/openworkflow-worker'
+
+await startOpenWorkflowWorker({
+  config: {
+    provider: 'openworkflow',
+    postgres: { url: process.env.OPENWORKFLOW_POSTGRES_URL },
+  },
+  registry: workflowRegistry,
+})
+```
+
+When called inside a Nitro runtime that uses `@vitehub/workflow/nitro`, the helper can use the installed runtime workflow config and registry. Separate Docker worker entrypoints should pass `{ config, registry, concurrency }` explicitly.
 
 ## Helper exports
 

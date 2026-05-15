@@ -1,22 +1,20 @@
-import { Buffer } from "node:buffer"
-
 import { defineCachedFunction } from "ocache"
 
 import { UnsourceError } from "../../core/errors.ts"
 import { matchesAny, normalizeSourcePath } from "../../core/path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, normalizeGitHubCache } from "./cache.ts"
-import { fetchGitHubArchive, fetchGitHubRawContent, requestGitHubJson } from "./client.ts"
+import { fetchGitHubArchive, requestGitHubJson } from "./client.ts"
 
 import type { Source } from "../../core/types.ts"
-import type { GitHubContentResponse, GitHubFile, GitHubSourceOptions, GitHubTreeResponse } from "./types.ts"
+import type { GitHubCommitResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
 
 function normalizeGitHubRoot(path = "") {
   return normalizeSourcePath(path).split("/").filter(part => part && part !== ".").join("/")
 }
 
 export function github<const TKey extends string = string>(options: GitHubSourceOptions): Source<TKey> {
-  const ref = options.ref || "main"
+  const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
   let auth: string | undefined
   const providerCache = normalizeGitHubCache(options)
@@ -47,33 +45,52 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return true
   }
 
-  async function loadTreeFiles(token = auth) {
-    const tree = await requestGitHubJson<GitHubTreeResponse>({
-      ref,
-      repo: options.repo,
-      token,
-      url: `https://api.github.com/repos/${options.repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
-    })
+  async function resolveRef(token = auth) {
+    if (configuredRef) return configuredRef
 
-    if (tree.truncated) {
-      throw new UnsourceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) received a truncated tree for ref ${JSON.stringify(ref)}.`)
-    }
-
-    return tree.tree
-      .filter(item => item.type === "blob")
-      .map((item): GitHubFile<TKey> | undefined => {
-        const key = keyForRepoPath(item.path)
-        if (!key || !shouldInclude(key)) return undefined
-        return {
-          key,
-          path: key,
-          sha: item.sha,
-        }
+    try {
+      const repo = await requestGitHubJson<GitHubRepositoryResponse>({
+        ref: "default",
+        repo: options.repo,
+        token,
+        url: `https://api.github.com/repos/${options.repo}`,
       })
-      .filter((file): file is GitHubFile<TKey> => Boolean(file))
+      const defaultBranch = repo.default_branch || "main"
+      const commit = await requestGitHubJson<GitHubCommitResponse>({
+        ref: defaultBranch,
+        repo: options.repo,
+        token,
+        url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(defaultBranch)}`,
+      })
+      return commit.sha || defaultBranch
+    }
+    catch (error) {
+      if (shouldResolveMainFallback(error)) return "main"
+      throw error
+    }
+  }
+
+  function shouldResolveMainFallback(error: unknown) {
+    return error instanceof UnsourceError && error.message.includes(" request failed with 403 ")
+  }
+
+  const cachedResolveRef = providerCache
+    ? defineCachedFunction(
+        async (token: string | undefined) => await resolveRef(token),
+        {
+          ...providerCache,
+          getKey: token => cacheKey("ref", token || ""),
+          name: "github-source-ref",
+        },
+      )
+    : async (token: string | undefined) => await resolveRef(token)
+
+  async function getRef(token = refreshAuth()) {
+    return await cachedResolveRef(token)
   }
 
   async function loadArchiveFiles(token = auth) {
+    const ref = await getRef(token)
     const archive = await fetchGitHubArchive({ ref, repo: options.repo, token })
     return parseGitHubArchive(archive)
       .map((entry): GitHubFile<TKey> | undefined => {
@@ -83,83 +100,43 @@ export function github<const TKey extends string = string>(options: GitHubSource
           content: entry.content,
           key,
           path: key,
-          sha: undefined,
+          sha: ref,
         }
       })
       .filter((file): file is GitHubFile<TKey> => Boolean(file))
   }
 
   async function loadFiles(token = auth) {
-    try {
-      return await loadTreeFiles(token)
-    }
-    catch (error) {
-      if (shouldLoadArchive(error)) {
-        return await loadArchiveFiles(token)
-      }
-      throw error
-    }
+    return await loadArchiveFiles(token)
   }
 
-  function shouldLoadArchive(error: unknown) {
-    return error instanceof UnsourceError
-      && (error.message.includes(" request failed with 403 ") || error.message.includes(" received a truncated tree "))
-  }
-
-  const cachedLoadFiles = defineCachedFunction(
-    async (token: string | undefined) => await loadFiles(token),
-    {
-      ...providerCache,
-      getKey: token => cacheKey("tree", token || ""),
-      name: "github-source-tree",
-    },
-  )
+  const cachedLoadFiles = providerCache
+    ? defineCachedFunction(
+        async (token: string | undefined) => await loadFiles(token),
+        {
+          ...providerCache,
+          getKey: token => cacheKey("archive", token || ""),
+          name: "github-source-archive",
+        },
+      )
+    : async (token: string | undefined) => await loadFiles(token)
 
   function getFiles(token = refreshAuth()) {
     return cachedLoadFiles(token)
   }
 
-  function repoPathForKey(key: string) {
-    return root ? `${root}/${key}` : key
-  }
-
-  function fetchContent(key: TKey, file: GitHubFile<TKey>, token = auth) {
+  function fetchContent(key: TKey, file: GitHubFile<TKey>) {
     if (file.content) return Promise.resolve(file.content)
-
-    const repoPath = repoPathForKey(key)
-    const encodedPath = encodeURIComponent(repoPath).replaceAll("%2F", "/")
-    if (!token) {
-      return fetchRawContent(repoPath, encodedPath)
-    }
-    return requestGitHubJson<GitHubContentResponse>(
-      {
-        ref,
-        repo: options.repo,
-        token,
-        url: `https://api.github.com/repos/${options.repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
-      },
-    ).then((file) => {
-      if (file.encoding !== "base64" || typeof file.content !== "string") {
-        return fetchRawContent(repoPath, encodedPath, token)
-      }
-      return new Uint8Array(Buffer.from(file.content, "base64"))
-    })
+    throw new UnsourceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) did not include archive content for ${JSON.stringify(key)}.`)
   }
 
-  const cachedFetchContent = defineCachedFunction(
-    async (key: TKey, token: string | undefined) => {
-      const file = (await getFiles(token)).find(file => file.key === key)
-      if (!file) {
-        throw new UnsourceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
-      }
-      return await fetchContent(key, file, token)
-    },
-    {
-      ...providerCache,
-      getKey: (key, token) => cacheKey("content", token || "", key),
-      name: "github-source-content",
-    },
-  )
+  async function getContent(key: TKey, token: string | undefined) {
+    const file = (await getFiles(token)).find(file => file.key === key)
+    if (!file) {
+      throw new UnsourceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
+    }
+    return await fetchContent(key, file)
+  }
 
   function cacheKey(kind: string, token: string, key = "") {
     return createGitHubCacheKey({
@@ -167,30 +144,45 @@ export function github<const TKey extends string = string>(options: GitHubSource
       include: options.include,
       key,
       kind,
-      ref,
+      ref: configuredRef || "default",
       repo: options.repo,
       root,
       token,
     })
   }
 
-  async function fetchRawContent(repoPath: string, encodedPath: string, token = auth) {
-    return await fetchGitHubRawContent({ encodedPath, ref, repo: options.repo, repoPath, token })
-  }
-
   return {
     cache: options.cache,
+    fingerprint: {
+      exclude: options.exclude,
+      include: options.include,
+      ref: configuredRef || "default",
+      repo: options.repo,
+      root,
+    },
     name: "github",
-    swr: options.swr,
     async getKeys() {
       return (await getFiles()).map(file => file.key)
+    },
+    async getItems() {
+      const token = refreshAuth()
+      const ref = await getRef(token)
+      return await Promise.all((await getFiles(token)).map(async file => ({
+        key: file.key,
+        path: file.path,
+        content: await fetchContent(file.key, file),
+        metadata: {
+          ref,
+          sha: file.sha,
+        },
+      })))
     },
     async getMeta(key) {
       const token = refreshAuth()
       const file = (await getFiles(token)).find(file => file.key === key)
       if (!file) return
       return {
-        ref,
+        ref: await getRef(token),
         sha: file.sha,
       }
     },
@@ -203,7 +195,11 @@ export function github<const TKey extends string = string>(options: GitHubSource
       return {
         key,
         path: file.path,
-        content: await cachedFetchContent(key, token),
+        content: await getContent(key, token),
+        metadata: {
+          ref: await getRef(token),
+          sha: file.sha,
+        },
       }
     },
   }

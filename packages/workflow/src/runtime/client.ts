@@ -1,21 +1,12 @@
-import { getCloudflareEnv, resolveWaitUntil } from "@vitehub/internal/runtime/cloudflare-env"
 import { randomId } from "@vitehub/internal/runtime/random"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { WorkflowError } from "../errors.ts"
-import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
-import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
-import { runWorkflowHandler } from "./execute.ts"
-import { getWorkflowRunState, getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRun } from "./state.ts"
-import { getVercelWorkflowRunState, setVercelWorkflowRunState } from "./vercel-state.ts"
+import { getWorkflowRuntimeAdapter } from "./adapters.ts"
+import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
 
-import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowRunStatus, WorkflowStartOptions } from "../types.ts"
-
-function resolveCloudflareBinding(binding: string | undefined, name: string) {
-  const bindingName = binding || getCloudflareWorkflowBindingName(name)
-  return getCloudflareEnv(getWorkflowRuntimeEvent())?.[bindingName] as CloudflareWorkflowBinding | undefined
-}
+import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowStartOptions } from "../types.ts"
 
 function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
   const config = getWorkflowRuntimeConfig()
@@ -36,22 +27,6 @@ async function loadRequiredWorkflowDefinition(name: string) {
     })
   }
   return definition
-}
-
-const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
-  complete: "completed",
-  completed: "completed",
-  errored: "failed",
-  failed: "failed",
-  queued: "queued",
-  running: "running",
-  success: "completed",
-  terminated: "failed",
-}
-
-function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
-  const value = typeof status === "object" && status ? (status as { status?: unknown }).status : status
-  return cloudflareStatusMap[String(value || "").toLowerCase()] || "unknown"
 }
 
 function normalizeWorkflowRunIdValue(value: WorkflowRunIdValue): unknown {
@@ -198,54 +173,14 @@ export async function runWorkflow<TPayload = unknown, TResult = unknown>(
 
   const id = options.id || randomId("wrun")
   const definition = await loadRequiredWorkflowDefinition(name)
-  if (config.provider === "cloudflare") {
-    const binding = resolveCloudflareBinding(config.binding, name)
-    if (binding) {
-      const start = binding.create({ id, params: payload })
-      const waitUntil = options.deferred ? resolveWaitUntil(getWorkflowRuntimeEvent()) : undefined
-      if (waitUntil) {
-        waitUntil(start)
-      }
-      const instance = await start
-      return {
-        id: instance.id,
-        metadata: await instance.status(),
-        payload,
-        provider: "cloudflare",
-        status: "queued",
-      }
-    }
-  }
-
-  const run = Promise.resolve()
-    .then(() => runWorkflowHandler({
-      id,
-      name,
-      payload: payload as TPayload,
-      provider: config.provider,
-    }, definition as never) as TResult | Promise<TResult>)
-    .then(result => ({ result, status: "completed" as const }))
-    .catch(error => ({ error, status: "failed" as const }))
-  const runState = setWorkflowRun(name, id, run)
-  const persistStarted = config.provider === "vercel"
-    ? setVercelWorkflowRunState(name, id, { status: "running" }).catch(() => {})
-    : Promise.resolve()
-  const persistFinished = config.provider === "vercel"
-    ? runState.promise.then(result => setVercelWorkflowRunState(name, id, result)).catch(() => {})
-    : Promise.resolve()
-  const waitUntil = resolveWaitUntil(getWorkflowRuntimeEvent())
-  if (waitUntil) {
-    waitUntil(Promise.all([runState.promise, persistFinished]))
-  }
-  await persistStarted
-
-  return {
+  return await getWorkflowRuntimeAdapter(config).run<TPayload, TResult>({
+    definition: definition as WorkflowDefinition<TPayload, TResult>,
+    event: getWorkflowRuntimeEvent(),
     id,
-    metadata: config.provider === "vercel" ? { workflow: getVercelWorkflowName(name) } : undefined,
+    name,
+    options,
     payload,
-    provider: config.provider,
-    status: "queued",
-  }
+  })
 }
 
 export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name: string, id: string): Promise<WorkflowRun<TPayload, TResult>> {
@@ -257,56 +192,11 @@ export async function getWorkflowRun<TPayload = unknown, TResult = unknown>(name
     })
   }
 
-  if (config.provider === "cloudflare") {
-    const binding = resolveCloudflareBinding(config.binding, name)
-    if (binding) {
-      const instance = await binding.get(id)
-      const metadata = await instance.status()
-      return {
-        id,
-        metadata,
-        provider: "cloudflare",
-        status: normalizeCloudflareStatus(metadata),
-      }
-    }
-  }
-
-  const run = getWorkflowRunState(name, id)
-  if (run) {
-    if (run.status === "running") {
-      return {
-        id,
-        provider: config.provider,
-        status: "running",
-      }
-    }
-    return {
-      id,
-      metadata: run.error,
-      provider: config.provider,
-      result: run.result as TResult,
-      status: run.status,
-    }
-  }
-
-  if (config.provider === "vercel") {
-    const persisted = await getVercelWorkflowRunState(name, id)
-    if (persisted) {
-      return {
-        id,
-        metadata: persisted.error,
-        provider: "vercel",
-        result: persisted.result as TResult,
-        status: persisted.status,
-      }
-    }
-  }
-
-  return {
+  return await getWorkflowRuntimeAdapter(config).get<TPayload, TResult>({
+    event: getWorkflowRuntimeEvent(),
     id,
-    provider: config.provider,
-    status: "unknown",
-  }
+    name,
+  })
 }
 
 export function deferWorkflow<TPayload = unknown>(

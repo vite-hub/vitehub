@@ -1,4 +1,5 @@
 import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import { useRuntimeConfig } from "nitro/runtime-config"
 
 import type { EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvRuntimeSchema, SafeRuntimeConfig } from "../types.ts"
 
@@ -9,13 +10,22 @@ export function setEnvRegistry(nextRegistry: EnvRuntimeRegistry): void {
 }
 
 export function useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig {
-  return resolveRuntimeValues(registry, resolveRuntimeEnv(event))
+  return applyEnvRegistryToRuntimeConfig(resolveNitroRuntimeConfig(event), event)
 }
 
 export function applyEnvRegistryToRuntimeConfig(runtimeConfig: Record<string, unknown>, event?: unknown): SafeRuntimeConfig {
-  const values = useSafeRuntimeConfig(event)
+  const values = resolveRuntimeValues(registry, resolveRuntimeEnv(event))
   assignRuntimeValues(runtimeConfig, values)
   return runtimeConfig
+}
+
+function resolveNitroRuntimeConfig(event?: unknown): Record<string, unknown> {
+  try {
+    return (useRuntimeConfig as unknown as (event?: unknown) => Record<string, unknown>)(event)
+  }
+  catch {
+    return {}
+  }
 }
 
 function resolveRuntimeEnv(event?: unknown): Record<string, string | undefined> {
@@ -42,7 +52,7 @@ function resolveRuntimeValues(declarations: EnvRuntimeRegistry, env: Record<stri
       continue
     }
     const declaration = entry
-    const rawValue = env[declaration.source.name] ?? declaration.default
+    const rawValue = resolveEnvValue(declaration.source, env) ?? declaration.default
     if (typeof rawValue === "undefined") {
       if (declaration.required) {
         throw new Error(`[vitehub] Missing runtime env value ${path}.${key} from ${declaration.source.label}.`)
@@ -63,6 +73,16 @@ function parseRuntimeValue(schema: EnvRuntimeSchema | undefined, value: unknown,
     return value
   }
   throw new Error(`[vitehub] Invalid ${label}: Expected string`)
+}
+
+function resolveEnvValue(source: EnvRegistryEntry["source"], env: Record<string, string | undefined>): string | undefined {
+  for (const name of source.names || [source.name]) {
+    const value = env[name]
+    if (typeof value !== "undefined") {
+      return value
+    }
+  }
+  return undefined
 }
 
 function assignRuntimeValues(target: Record<string, unknown>, values: Record<string, unknown>): void {

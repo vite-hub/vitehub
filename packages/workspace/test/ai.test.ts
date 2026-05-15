@@ -28,21 +28,54 @@ afterEach(() => {
 })
 
 describe("createWorkspaceTools", () => {
-  it("emulates read-only shell inspection commands", async () => {
+  it("runs real read-only shell inspection commands", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
       "models/orders.sql": "select * from orders\nwhere id is not null\n",
       "models/customers.sql": "select * from customers\n",
+      "docs/customers.md": "Customer docs\nmore\n",
     }))
 
     await expect(runShell(tools, "pwd")).resolves.toMatchObject({ exitCode: 0, stdout: "/workspace\n" })
     await expect(runShell(tools, "ls models")).resolves.toMatchObject({ exitCode: 0, stdout: "customers.sql\norders.sql\n" })
-    await expect(runShell(tools, "find . -name '*.sql'")).resolves.toMatchObject({ exitCode: 0, stdout: "models/customers.sql\nmodels/orders.sql\n" })
+    await expect(runShell(tools, "find . -name '*.sql'")).resolves.toMatchObject({ exitCode: 0, stdout: "./models/customers.sql\n./models/orders.sql\n" })
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
+    await expect(runShell(tools, "cat models/orders.sql | head -n 1")).resolves.toMatchObject({ exitCode: 0, stdout: "select * from orders\n" })
+    await expect(runShell(tools, "cat models/orders.sql | tail -n 1")).resolves.toMatchObject({ exitCode: 0, stdout: "where id is not null\n" })
     await expect(runShell(tools, "head -n 1 models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "select * from orders\n" })
     await expect(runShell(tools, "tail -n 1 models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "where id is not null\n" })
     await expect(runShell(tools, "wc -l models/orders.sql")).resolves.toMatchObject({ exitCode: 0, stdout: "2 models/orders.sql\n" })
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({ exitCode: 0, stdout: "models/orders.sql:1:select * from orders\n" })
+    await expect(runShell(tools, "rg -i \"customer\" docs models | head -n 2")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "docs/customers.md:1:Customer docs\nmodels/customers.sql:1:select * from customers\n",
+    })
+    await expect(runShell(tools, "grep -ri \"customer\" . | head -n 1")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "docs/customers.md:Customer docs\n",
+    })
+    await expect(runShell(tools, "cd /workspace && rg orders models")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/orders.sql:1:select * from orders\n",
+    })
+    await expect(runShell(tools, "pwd && ls models")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "/workspace\ncustomers.sql\norders.sql\n",
+    })
+  })
+
+  it("describes shell syntax in tool metadata", () => {
+    const tools = createWorkspaceTools(createAssets({
+      "README.md": "# Docs\n",
+    }))
+    const description = tools.shell.description || ""
+    const commandDescription = (tools.shell.inputSchema as any).jsonSchema.properties.command.description
+
+    expect(description).toContain("real Bash-compatible")
+    expect(description).toContain("/workspace")
+    expect(description).toContain("Pipes, redirects, chaining")
+    expect(description).toContain("rg 'siff|PLC' ingestion forecasting-engine | head -n 20")
+    expect(commandDescription).toContain("Bash-compatible")
   })
 
   it("limits shell commands to the enabled read capabilities", async () => {
@@ -56,33 +89,37 @@ describe("createWorkspaceTools", () => {
       },
     })
 
-    await expect(runShell(tools, "ls .")).resolves.toMatchObject({ exitCode: 0, stdout: "README.md\nmodels/\n" })
+    await expect(runShell(tools, "ls .")).resolves.toMatchObject({ exitCode: 0, stdout: "README.md\nmodels\n" })
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported workspace shell command: cat\n",
+      exitCode: 127,
+      stderr: "bash: cat: command not found\n",
     })
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported workspace shell command: rg\n",
+      exitCode: 127,
+      stderr: "bash: rg: command not found\n",
     })
   })
 
-  it("rejects traversal and unsupported shell syntax deterministically", async () => {
+  it("surfaces shell failures and read-only filesystem errors deterministically", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
     }))
 
     await expect(runShell(tools, "rm README.md")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported workspace shell command: rm\n",
+      exitCode: 127,
+      stderr: "bash: rm: command not found\n",
     })
     await expect(runShell(tools, "cat README.md | wc -l")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
+      exitCode: 0,
+      stdout: "1\n",
+    })
+    await expect(runShell(tools, "cat README.md | head -n 1 | tail -n 1")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
     })
     await expect(runShell(tools, "cat ../README.md")).resolves.toMatchObject({
       exitCode: 1,
-      stderr: "[vitehub] Workspace path escapes the workspace root: \"../README.md\".\n",
+      stderr: "cat: ../README.md: No such file or directory\n",
     })
   })
 
@@ -93,6 +130,41 @@ describe("createWorkspaceTools", () => {
 
     await expect(runShell(tools, "cat large.txt")).resolves.toMatchObject({
       stdout: "0123\n[output truncated to 4 characters]\n",
+    })
+  })
+
+  it("exposes source materialization as an opt-in tool", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "README.md": "# Docs\n",
+      "docs/a.md": "A\n",
+      "docs/b.md": "B\n",
+    }), {
+      operations: {
+        materialize: true,
+      },
+    })
+
+    expect("materialize_sources" in tools).toBe(true)
+    await expect(tools.materialize_sources.execute!({ path: "docs" }, { toolCallId: "test", messages: [] } as never)).resolves.toMatchObject({
+      directories: 0,
+      files: 2,
+      path: "docs",
+      sources: [],
+    })
+  })
+
+  it("materializes all matching source files without a default cap", async () => {
+    const tools = createWorkspaceTools(createAssets(Object.fromEntries(
+      Array.from({ length: 30 }, (_, index) => [`docs/${index}.md`, `${index}\n`]),
+    )), {
+      operations: {
+        materialize: true,
+      },
+    })
+
+    await expect(tools.materialize_sources.execute!({}, { toolCallId: "test", messages: [] } as never)).resolves.toMatchObject({
+      files: 30,
+      sources: [],
     })
   })
 
@@ -149,12 +221,27 @@ describe("useWorkspace facade tools", () => {
       }),
     })
 
-    const tools = useWorkspace("docs").tools()
+    const tools = useWorkspace("docs").tools.inspect()
 
     expect("shell" in tools).toBe(true)
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
       exitCode: 0,
       stdout: "# Docs\n",
     })
+  })
+
+  it("exposes explicit read-only tool presets", () => {
+    setWorkspaceRuntimeAssetsRegistry({
+      docs: createAssets({
+        "README.md": new TextEncoder().encode("# Docs\n"),
+      }),
+    })
+
+    const workspace = useWorkspace("docs")
+
+    expect("shell" in workspace.tools.inspect()).toBe(true)
+    expect("shell" in workspace.tools.readonly()).toBe(true)
+    expect(workspace.tools.none()).toEqual({})
+    expect("shell" in workspace.tools()).toBe(true)
   })
 })

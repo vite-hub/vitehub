@@ -1,0 +1,45 @@
+{
+  "name": "@vitehub/runtime",
+  "version": "0.0.0",
+  "description": "Shared runtime context, capability, policy, approval, and tracing primitives for ViteHub.",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/runtime"
+  },
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "keywords": [
+    "vitehub",
+    "runtime",
+    "capabilities",
+    "approvals",
+    "policy"
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsdown --tsconfig tsconfig.build.json",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "pnpm --filter @vitehub/runtime build && vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "publint": "^0.3.15",
+    "tsdown": "^0.21.8",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -10,6 +10,7 @@ import { defineWorkspace, registerWorkspace, source } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/registry.ts"
 import { useRegisteredWorkspace } from "../src/registry.ts"
 import { glob as globSource } from "../src/source.ts"
+import { github as githubSource } from "../src/source.ts"
 import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
 
 const tempDirs: string[] = []
@@ -58,9 +59,9 @@ describe("lazy sources", () => {
   it("normalizes keyed source mounts and cache defaults", () => {
     const resolved = normalizeWorkspaceSources({
       docs: source.custom({
-        name: "docs",
-        materialize: "lazy",
-        swr: 3600,
+          name: "docs",
+          materialize: "lazy",
+          cache: { maxAge: 3600 },
         async getKeys() {
           return []
         },
@@ -89,12 +90,48 @@ describe("lazy sources", () => {
         key: "docs",
         mountPath: "docs",
         materialize: "lazy",
-        cache: { swr: true, maxAge: 3600 },
+        cache: { maxAge: 3600 },
       }),
     ])
   })
 
-  it("keeps lazy sources virtual until read and materializes only the requested file", async () => {
+  it("defaults cached GitHub sources to lazy repo basename mounts", () => {
+    const resolved = normalizeWorkspaceSources({
+      forecastingEngine: githubSource({
+        cache: { maxAge: 3600 },
+        repo: "onmax/forecasting-engine",
+      }),
+    })
+
+    expect(resolved).toEqual([
+      expect.objectContaining({
+        key: "forecastingEngine",
+        mountPath: "forecasting-engine",
+        materialize: "lazy",
+        cache: { maxAge: 3600 },
+      }),
+    ])
+  })
+
+  it("keeps explicit GitHub source mount and materialization options", () => {
+    const resolved = normalizeWorkspaceSources({
+      forecastingEngine: githubSource({
+        cache: { maxAge: 3600 },
+        materialize: "build",
+        mount: "forecasting",
+        repo: "onmax/forecasting-engine",
+      }),
+    })
+
+    expect(resolved).toEqual([
+      expect.objectContaining({
+        mountPath: "forecasting",
+        materialize: "build",
+      }),
+    ])
+  })
+
+  it("keeps lazy source roots virtual until first access then materializes the whole source", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
     registerWorkspace("lazy-docs", defineWorkspace({
       store: { provider: "memory" },
@@ -114,28 +151,40 @@ describe("lazy sources", () => {
     await workspace.sync()
 
     await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
-    await expect(workspace.list("docs")).resolves.toEqual([
+    expect(getItem).not.toHaveBeenCalled()
+
+    await expect(workspace.list("")).resolves.toEqual([
+      expect.objectContaining({ path: "docs", type: "directory" }),
+    ])
+
+    await expect(workspace.glob("docs/**/*.md")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "docs/foo.md", type: "file" }),
+      expect.objectContaining({ path: "docs/nested/bar.md", type: "file" }),
+    ]))
+    expect(getItem).toHaveBeenCalledTimes(2)
+
+    await expect(workspace.list("docs")).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "docs/foo.md", type: "file" }),
       expect.objectContaining({ path: "docs/nested", type: "directory" }),
-    ])
+    ]))
+    expect(getItem).toHaveBeenCalledTimes(2)
     await expect(workspace.glob("docs/**/*.md")).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "docs/foo.md", type: "file" }),
       expect.objectContaining({ path: "docs/nested/bar.md", type: "file" }),
     ]))
     await expect(workspace.stat("docs/foo.md")).resolves.toMatchObject({ path: "docs/foo.md", type: "file" })
     await expect(workspace.exists("docs/nested/bar.md")).resolves.toBe(true)
-    expect(getItem).not.toHaveBeenCalled()
-    await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
-
     await expect(workspace.readFile("docs/foo.md")).resolves.toBe("# foo.md\n")
-    expect(getItem).toHaveBeenCalledTimes(1)
-    expect(getItem).toHaveBeenCalledWith("foo.md", expect.any(Object))
+    expect(getItem).toHaveBeenCalledTimes(2)
     await expect(workspace.diff()).resolves.toMatchObject({
-      entries: expect.arrayContaining([expect.objectContaining({ path: "docs/foo.md", type: "added" })]),
+      entries: expect.arrayContaining([
+        expect.objectContaining({ path: "docs/foo.md", type: "added" }),
+        expect.objectContaining({ path: "docs/nested/bar.md", type: "added" }),
+      ]),
     })
   })
 
-  it("keeps lazy glob source listings live across workspace reads", async () => {
+  it("uses a complete source snapshot after materialization", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })
     await writeFile(join(root, "docs", "README.md"), "# Docs\n")
@@ -158,7 +207,6 @@ describe("lazy sources", () => {
     await writeFile(join(root, "docs", "guide.md"), "# Guide\n")
 
     await expect(workspace.list("docs")).resolves.toEqual([
-      expect.objectContaining({ path: "docs/guide.md", type: "file" }),
       expect.objectContaining({ path: "docs/README.md", type: "file" }),
     ])
   })
@@ -188,7 +236,7 @@ describe("lazy sources", () => {
     await expect(workspace.readFile("artifacts/result.md")).resolves.toBe("ok")
   })
 
-  it("prefers source-native search without materializing files", async () => {
+  it("searches materialized source snapshots", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: "hello\n" }))
     const search = vi.fn(async () => [{
       path: "foo.md",
@@ -216,14 +264,16 @@ describe("lazy sources", () => {
     await workspace.sync()
 
     await expect(workspace.search({ pattern: "hello", paths: ["docs"] })).resolves.toEqual([
-      { path: "docs/foo.md", line: 1, column: 1, text: "hello world" },
+      { path: "docs/foo.md", line: 1, column: 1, text: "hello" },
     ])
-    expect(search).toHaveBeenCalledTimes(1)
-    expect(getItem).not.toHaveBeenCalled()
-    await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
+    expect(search).not.toHaveBeenCalled()
+    expect(getItem).toHaveBeenCalledTimes(1)
+    await expect(workspace.diff()).resolves.toMatchObject({
+      entries: expect.arrayContaining([expect.objectContaining({ path: "docs/foo.md", type: "added" })]),
+    })
   })
 
-  it("does not scan unmaterialized source files during search", async () => {
+  it("materializes source files before fallback search", async () => {
     const getItem = vi.fn(async (key: string) => ({
       key,
       path: key,
@@ -247,16 +297,10 @@ describe("lazy sources", () => {
     const workspace = await useRegisteredWorkspace("lazy-fallback-search")
     await workspace.sync()
 
-    await expect(workspace.search({ pattern: "hello", paths: ["docs"] })).resolves.toEqual([])
-    expect(getItem).not.toHaveBeenCalled()
-    await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
-
-    await expect(workspace.readFile("docs/foo.md")).resolves.toBe("hello world\n")
-    expect(getItem).toHaveBeenCalledTimes(1)
     await expect(workspace.search({ pattern: "hello", paths: ["docs"] })).resolves.toEqual([
       { path: "docs/foo.md", line: 1, column: 1, text: "hello world" },
     ])
-    expect(getItem).toHaveBeenCalledTimes(1)
+    expect(getItem).toHaveBeenCalledTimes(2)
     await expect(workspace.diff()).resolves.toMatchObject({
       entries: expect.arrayContaining([expect.objectContaining({ path: "docs/foo.md", type: "added" })]),
     })
@@ -276,9 +320,8 @@ describe("lazy sources", () => {
       sources: {
         docs: source.custom({
           name: "docs",
-          cache: { maxAge: 3600, swr: true },
+          cache: { maxAge: 3600 },
           materialize: "lazy",
-          validate: "request",
           async getKeys() {
             return ["foo.md"]
           },

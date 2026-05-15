@@ -68,8 +68,6 @@ After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
 
 ::
 
-## What to read next
-
 ::u-page-grid{class="pb-2"}
   :::u-page-card
   ---

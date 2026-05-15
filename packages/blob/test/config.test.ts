@@ -112,4 +112,28 @@ describe("blob config", () => {
       },
     }, "vercel")).not.toThrow()
   })
+
+  it("preserves every first-class provider driver", () => {
+    const stores = [
+      { bucket: "assets", container: "assets", driver: "azure" },
+      { bucket: "assets", driver: "akamai", region: "us-east-1" },
+      { bucket: "assets", driver: "digitalocean-spaces", region: "nyc3" },
+      { bucket: "assets", driver: "gcs" },
+      { bucket: "assets", driver: "hetzner", region: "fsn1" },
+      { bucket: "assets", driver: "minio", endpoint: "http://localhost:9000" },
+      { bucket: "assets", driver: "s3" },
+      { bucket: "assets", driver: "storj" },
+      { bucket: "assets", driver: "supabase" },
+      { developerToken: "token", driver: "box" },
+      { driver: "dropbox", accessToken: "token" },
+      { driver: "google-drive", rootFolderId: "folder" },
+      { driver: "onedrive", accessToken: "token" },
+      { driver: "uploadthing", token: "token" },
+      { driver: "netlify-blobs", name: "assets" },
+    ] as const
+
+    for (const store of stores) {
+      expect(normalizeBlobOptions(store)?.store.driver).toBe(store.driver)
+    }
+  })
 })

@@ -2,10 +2,10 @@ import { WorkspaceError } from "./errors.ts"
 import { decodeFile, matchesAny, normalizeWorkspacePath } from "./path.ts"
 import { createSourceContext, normalizeWorkspaceSources } from "./source-config.ts"
 import {
-  listVirtualSourceEntries,
+  hasCurrentSourceSnapshot,
+  materializeWorkspaceSources,
   readResolvedSourceFile,
   searchMaterializedStore,
-  searchResolvedSource,
   statVirtualSourcePath,
 } from "./source-materialization.ts"
 import { resolveWorkspacePath } from "./source-resolver.ts"
@@ -35,6 +35,7 @@ export interface WorkspaceSourceView {
   search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
   stat(path: string): Promise<WorkspaceStat>
   exists(path: string): Promise<boolean>
+  materializeSources(options?: import("./types.ts").WorkspaceMaterializeSourcesOptions): Promise<import("./types.ts").WorkspaceMaterializeSourcesResult>
   mkdir(path: string, options?: MkdirOptions): Promise<void>
   rm(path: string, options?: RmOptions): Promise<void>
 }
@@ -43,6 +44,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const sourceContext = createSourceContext(definition)
   const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize === "lazy")
   const prepareBySource = new Map<string, Promise<void>>()
+  const materializeBySource = new Map<string, Promise<void>>()
 
   function isLazySourcePath(path: string) {
     return sources.some(source => path === source.mountPath || path.startsWith(`${source.mountPath}/`))
@@ -72,15 +74,50 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     await Promise.all(items.map(async source => await ensurePrepared(source.key)))
   }
 
+  async function ensureMaterialized(sourceKey: string) {
+    let pending = materializeBySource.get(sourceKey)
+    if (!pending) {
+      pending = materializeWorkspaceSources(definition, store, { sources: [sourceKey] }).then(() => undefined)
+      materializeBySource.set(sourceKey, pending)
+    }
+    await pending
+  }
+
+  async function ensureMaterializedSources(items = sources) {
+    await Promise.all(items.map(async source => await ensureMaterialized(source.key)))
+  }
+
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const storeEntries = await store.list(path, options)
     const result = new Map<string, WorkspaceEntry>(storeEntries.map(entry => [entry.path, entry]))
 
     for (const source of getLazySourcesForPath(path)) {
       await ensurePrepared(source.key)
-      const entries = await listVirtualSourceEntries(source, path, options, store, sourceContext)
-      for (const entry of entries) {
-        if (!result.has(entry.path)) result.set(entry.path, entry)
+      if (!path && options.recursive && !await hasCurrentSourceSnapshot(store, source)) {
+        if ([...result.keys()].some(key => key.startsWith(`${source.mountPath}/`))) {
+          const allowed = await currentSourceTreePaths(source, sourceContext)
+          for (const key of result.keys()) {
+            if ((key === source.mountPath || key.startsWith(`${source.mountPath}/`)) && !allowed.has(key)) result.delete(key)
+          }
+          result.set(source.mountPath, { path: source.mountPath, type: "directory" })
+          continue
+        }
+        for (const key of result.keys()) {
+          if (key === source.mountPath || key.startsWith(`${source.mountPath}/`)) result.delete(key)
+        }
+        result.set(source.mountPath, { path: source.mountPath, type: "directory" })
+        continue
+      }
+      if (path === source.mountPath || path.startsWith(`${source.mountPath}/`)) {
+        await ensureMaterialized(source.key)
+        for (const entry of await store.list(path, options)) result.set(entry.path, entry)
+      }
+      else if (!path && !result.has(source.mountPath)) {
+        result.set(source.mountPath, { path: source.mountPath, type: "directory" })
+      }
+      else if (path === source.mountPath && !result.has(source.mountPath)) {
+        const stat = await store.stat(source.mountPath)
+        if (stat) result.set(source.mountPath, stat)
       }
     }
 
@@ -118,13 +155,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of sources) {
       const paths = sourcePaths.get(source.key)
       if (query.paths?.length && !paths?.length) continue
-      await ensurePrepared(source.key)
-      const hits = await searchResolvedSource(source, {
+      await ensureMaterialized(source.key)
+      results.push(...await searchMaterializedStore(store, {
         ...query,
         paths,
         limit: limit - results.length,
-      }, store, sourceContext)
-      results.push(...hits)
+      }))
       if (results.length >= limit) break
     }
 
@@ -142,6 +178,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
+        await ensureMaterialized(resolution.sourceKey)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
       const file = await store.readFile(resolution.workspacePath)
@@ -158,19 +195,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     },
     async glob(pattern, options) {
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
+      await ensurePreparedSources()
+      await ensureMaterializedSources()
+
       const result = new Map<string, WorkspaceEntry>()
       for (const entry of await store.glob(patterns, options)) {
         result.set(entry.path, entry)
-      }
-
-      await ensurePreparedSources()
-      for (const source of sources) {
-        const keys = await source.source.getKeys(sourceContext)
-        for (const key of keys) {
-          const path = normalizeWorkspacePath(`${source.mountPath}/${key}`)
-          if (!patterns.some(item => matchesAny(path, item))) continue
-          if (!result.has(path)) result.set(path, { path, type: "file" })
-        }
       }
 
       return [...result.values()].sort((left, right) => left.path.localeCompare(right.path))
@@ -182,6 +212,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
+        await ensureMaterialized(resolution.sourceKey)
         const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, sourceContext)
         if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         return result
@@ -190,10 +221,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
       return result
     },
+    async materializeSources(options) {
+      return await materializeWorkspaceSources(definition, store, options)
+    },
     async exists(path) {
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
+        await ensureMaterialized(resolution.sourceKey)
         return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, sourceContext))
       }
       return Boolean(await store.stat(resolution.workspacePath))
@@ -209,6 +244,19 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       await store.rm(resolution.workspacePath, options)
     },
   }
+}
+
+async function currentSourceTreePaths(source: ReturnType<typeof normalizeWorkspaceSources>[number], sourceContext: ReturnType<typeof createSourceContext>) {
+  const allowed = new Set<string>([source.mountPath])
+  const keys = await source.source.getKeys(sourceContext)
+  for (const key of keys) {
+    const path = `${source.mountPath}/${key}`.replace(/\/+/g, "/")
+    const parts = path.split("/")
+    for (let index = 1; index <= parts.length; index++) {
+      allowed.add(parts.slice(0, index).join("/"))
+    }
+  }
+  return allowed
 }
 
 function dedupeHits(hits: WorkspaceSearchHit[]) {

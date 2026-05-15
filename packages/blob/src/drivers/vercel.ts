@@ -1,62 +1,37 @@
-import { toArray } from "@vitehub/internal/arrays"
+import { importOptionalPeer } from "../internal/optional-peer.ts"
 
-import type {
-  BlobDriverAdapter,
-  BlobListOptions,
-  BlobListResult,
-  BlobObject,
-  BlobPutBody,
-  BlobPutOptions,
-  ResolvedVercelBlobStoreConfig,
-} from "../types.ts"
+import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
 
-type VercelPutBlobResult = {
-  contentType?: string
-  downloadUrl?: string
+type VercelBlobModule = typeof import("@vercel/blob")
+
+async function loadVercelBlob() {
+  return await importOptionalPeer<VercelBlobModule>("@vercel/blob", "vercel-blob")
+}
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof Error && /not found/i.test(error.message)
+}
+
+function commandOptions(options: ResolvedVercelBlobStoreConfig) {
+  return { token: options.token }
+}
+
+function mapBlob(blob: {
+  contentType?: string | null
   etag?: string
   pathname: string
-  size?: number
+  size?: number | null
   uploadedAt?: Date
-  url: string
-}
-
-type VercelListBlobResult = {
-  blobs: Array<VercelPutBlobResult>
-  cursor?: string
-  folders?: string[]
-  hasMore: boolean
-}
-
-function getContentType(pathname: string): string | undefined {
-  return pathname.endsWith(".json") ? "application/json; charset=utf-8" : undefined
-}
-
-function getAccessFromUrl(url: string | undefined): "private" | "public" | undefined {
-  if (!url) {
-    return
-  }
-
-  if (url.includes(".private.blob.vercel-storage.com")) {
-    return "private"
-  }
-
-  if (url.includes(".public.blob.vercel-storage.com")) {
-    return "public"
-  }
-}
-
-function shouldRetryPrivate(error: unknown): boolean {
-  return error instanceof Error && /private store|public access/i.test(error.message)
-}
-
-function mapVercelBlobToBlob(blob: VercelPutBlobResult): BlobObject {
+  url?: string
+}, fallback: BlobPutOptions = {}): BlobObject {
+  const contentType = blob.contentType || fallback.contentType
   return {
-    contentType: blob.contentType || getContentType(blob.pathname),
-    customMetadata: {},
+    contentType,
+    customMetadata: fallback.customMetadata || {},
     httpEtag: blob.etag,
-    httpMetadata: {},
+    httpMetadata: contentType ? { contentType } : {},
     pathname: blob.pathname,
-    size: blob.size,
+    size: blob.size ?? undefined,
     uploadedAt: blob.uploadedAt || new Date(),
     url: blob.url,
   }
@@ -67,100 +42,56 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
     name: "vercel-blob",
     options,
     async delete(pathnames) {
-      const { del, head } = await import("@vercel/blob")
-      for (const pathname of toArray(pathnames)) {
-        try {
-          const current = await head(pathname, { token: options.token })
-          if (current) {
-            await del(current.url, { token: options.token })
-          }
-        }
-        catch {
-          continue
-        }
-      }
+      const { del } = await loadVercelBlob()
+      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => del(pathname, commandOptions(options))))
     },
     async get(pathname) {
-      const current = await this.head(pathname)
-      if (!current?.url) {
-        return null
-      }
-
-      const { get } = await import("@vercel/blob")
-      const result = await get(current.url, {
-        access: getAccessFromUrl(current.url) || options.access,
-        token: options.token,
-      })
-
-      return result?.statusCode === 200 ? await new Response(result.stream).blob() : null
+      const bytes = await this.getArrayBuffer(pathname)
+      return bytes ? new Blob([bytes]) : null
     },
     async getArrayBuffer(pathname) {
-      const current = await this.head(pathname)
-      if (!current?.url) {
-        return null
-      }
-
-      const { get } = await import("@vercel/blob")
-      const result = await get(current.url, {
-        access: getAccessFromUrl(current.url) || options.access,
-        token: options.token,
+      const { get } = await loadVercelBlob()
+      const result = await get(pathname, {
+        access: options.access || "public",
+        ...commandOptions(options),
       })
-
-      return result?.statusCode === 200 ? await new Response(result.stream).arrayBuffer() : null
+      return result?.stream ? await new Response(result.stream).arrayBuffer() : null
     },
     async head(pathname) {
-      const { head } = await import("@vercel/blob")
+      const { head } = await loadVercelBlob()
       try {
-        const result = await head(pathname, { token: options.token })
-        return result ? mapVercelBlobToBlob(result as VercelPutBlobResult) : null
+        return mapBlob(await head(pathname, commandOptions(options)))
       }
-      catch {
-        return null
+      catch (error) {
+        if (isNotFound(error)) return null
+        throw error
       }
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
-      const { list } = await import("@vercel/blob")
+      const { list } = await loadVercelBlob()
       const result = await list({
         cursor: listOptions.cursor,
         limit: listOptions.limit ?? 1000,
-        mode: listOptions.folded ? "folded" : "expanded",
+        mode: listOptions.folded ? "folded" : undefined,
         prefix: listOptions.prefix,
-        token: options.token,
-      }) as VercelListBlobResult
-
+        ...commandOptions(options),
+      })
       return {
-        blobs: result.blobs.map(mapVercelBlobToBlob),
+        blobs: result.blobs.map(blob => mapBlob(blob)),
         cursor: result.cursor,
-        folders: result.folders,
+        folders: "folders" in result ? result.folders : undefined,
         hasMore: result.hasMore,
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const { put } = await import("@vercel/blob")
-      const access = putOptions.access || options.access
-      const putInput = {
-        access,
+      const { put } = await loadVercelBlob()
+      return mapBlob(await put(pathname, body as Parameters<typeof put>[1], {
+        access: putOptions.access || options.access || "public",
         addRandomSuffix: false,
+        allowOverwrite: options.allowOverwrite ?? true,
         contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
-        token: options.token,
-      } as const
-
-      let result: unknown
-      try {
-        result = await put(pathname, body as any, putInput)
-      }
-      catch (error) {
-        if (access !== "public" || !shouldRetryPrivate(error)) {
-          throw error
-        }
-
-        result = await put(pathname, body as any, {
-          ...putInput,
-          access: "private",
-        })
-      }
-
-      return mapVercelBlobToBlob(result as VercelPutBlobResult)
+        ...commandOptions(options),
+      }), putOptions)
     },
   }
 }

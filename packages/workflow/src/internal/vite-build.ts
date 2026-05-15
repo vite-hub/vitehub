@@ -155,7 +155,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
 
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
-  const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", vercel: "" }
+  const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", openworkflow: "", vercel: "" }
   await Promise.all(providerEntrySpecs.map(async (spec) => {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const workflowConfig = spec.name === "cloudflare"

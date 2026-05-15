@@ -134,8 +134,10 @@ describe("Vite provider outputs", () => {
     expect(existsSync(vercelConsumerSource)).toBe(false)
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).not.toContain("runWithQueueRuntimeEvent({ req, res },")
+    expect(vercelConsumerContents).toContain("__vitehubVercelQueue")
     expect(vercelConsumerContents).toContain("reportQueueMarker")
     expect(vercelServerContents).toContain("/api/tests/queue")
+    expect(vercelServerContents).toContain("__vitehubVercelQueue")
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome-email_Swelcome-email_Dfunc",
       topic: "topic--77656c636f6d652d656d61696c",

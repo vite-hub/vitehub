@@ -8,12 +8,16 @@ const repoRoot = resolve(import.meta.dirname, "../../..")
 describe("workspace inventory", () => {
   it("lists publishable @vitehub packages from the workspace", () => {
     expect(listWorkspacePackageNames(repoRoot)).toEqual([
+      "agent",
       "blob",
       "chat",
+      "ci",
       "db",
       "env",
       "kv",
+      "messages",
       "queue",
+      "runtime",
       "sandbox",
       "shell",
       "unshell",

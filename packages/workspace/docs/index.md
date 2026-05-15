@@ -95,24 +95,35 @@ const readme = await workspace.fs.readFile('docs/README.md')
 const files = await workspace.fs.list('', { recursive: true })
 ```
 
-For AI SDK agents, expose read-only workspace inspection tools:
+For AI SDK agents, expose read-only workspace inspection tools explicitly:
 
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const tools = useWorkspace('docs').tools()
+const tools = useWorkspace('docs').tools.inspect()
 ```
 
-The `shell` tool emulates safe file-inspection commands against workspace assets. It does not execute a real shell.
-Read, list, and search commands are enabled by default. Write tools are exposed automatically when the facade is writable:
+The `shell` tool is a restricted workspace shell for inspection. It operates over files mounted at `/workspace`, and its AI SDK description includes the supported command forms and examples.
+
+Read, list, and search commands are enabled by default in the inspection preset. Use explicit presets when choosing what a model can access:
 
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const tools = useWorkspace('docs', { allowWrite: true }).tools()
+const readOnlyTools = useWorkspace('docs').tools.inspect()
+const sameReadOnlyTools = useWorkspace('docs').tools.readonly()
+const noTools = useWorkspace('docs').tools.none()
+const writeTools = useWorkspace('docs', { allowWrite: true }).tools.write()
 ```
 
-Applications that use `AGENTS.md` as the model instruction source should preload it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')`.
+- `inspect()` exposes the read-only `shell` tool.
+- `readonly()` is an alias for `inspect()`.
+- `none()` returns an empty tool set.
+- `write()` exposes read tools plus structured write tools, and requires `useWorkspace(name, { allowWrite: true })`.
+
+`workspace.tools()` remains as a temporary alias for `workspace.tools.inspect()` for migration, but new code should use an explicit preset.
+
+Applications that use `AGENTS.md` as the model instruction source should load it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')` or an agent `instructions` resolver. Keep detailed shell command syntax in tool metadata instead of duplicating it in app instructions.
 
 ## Sandbox runtime
 
@@ -185,7 +196,7 @@ The agent never receives a real filesystem mount. It only sees workspace tools s
 
 Source-backed paths are read-only in this release. Write generated or editable files to normal workspace paths such as `artifacts/**` or `generated/**`.
 
-Nitro supports both flat workspace files like `server/workspaces/docs.ts` and directory workspaces like `server/workspaces/docs/.config.ts`. Duplicate workspace names across those shapes are invalid.
+Nitro supports both flat workspace files like `server/workspaces/docs.ts` and directory workspaces like `server/workspaces/docs/config.ts`. Duplicate workspace names across those shapes are invalid.
 
 ## Hosted Providers
 

@@ -55,11 +55,14 @@ function sanitizeVercelConsumerName(functionPath: string) {
 
 function createVercelQueueWrapperContents(file: string, registryFile: string, name: string, queueConfig: false | ReturnType<typeof normalizeQueueOptions>) {
   return [
+    "import * as __vitehubVercelQueue from '@vercel/queue'",
     "import { H3 } from 'h3'",
     "import { toNodeHandler } from 'h3/node'",
     `import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    "",
+    "globalThis.__vitehubVercelQueue = __vitehubVercelQueue",
     "",
     `setQueueRuntimeConfig(${JSON.stringify(queueConfig, null, 2)})`,
     "setQueueRuntimeRegistry(queueRegistry)",

@@ -187,7 +187,25 @@ Set at least one option. Failing validation throws an H3 `400` error.
 ### `BlobDriver`
 
 ```ts
-type BlobDriver = 'cloudflare-r2' | 'fs' | 'vercel-blob'
+type BlobDriver =
+  | 'akamai'
+  | 'azure'
+  | 'box'
+  | 'cloudflare-r2'
+  | 'digitalocean-spaces'
+  | 'dropbox'
+  | 'fs'
+  | 'gcs'
+  | 'google-drive'
+  | 'hetzner'
+  | 'minio'
+  | 'netlify-blobs'
+  | 'onedrive'
+  | 's3'
+  | 'storj'
+  | 'supabase'
+  | 'uploadthing'
+  | 'vercel-blob'
 ```
 
 ## Config API
@@ -235,6 +253,14 @@ Blob accepts:
 | `{ driver: 'fs', base? }` | Local filesystem storage. Defaults to `.data/blob`. |
 | `{ driver: 'cloudflare-r2', binding?, bucketName? }` | Cloudflare R2 storage. `binding` defaults to `BLOB`. |
 | `{ driver: 'vercel-blob', access?, token? }` | Vercel Blob storage. `access` defaults to `public`. |
+| `{ driver: 's3', bucket, region?, endpoint? }` | Amazon S3-compatible storage. |
+| `{ driver: 'gcs', bucket, projectId? }` | Google Cloud Storage. |
+| `{ driver: 'azure', container, accountName? }` | Azure Blob Storage. |
+| `{ driver: 'supabase', bucket, url?, key? }` | Supabase Storage. |
+| `{ driver: 'netlify-blobs', name, siteID?, token? }` | Netlify Blobs. |
+| `{ driver: 'minio' | 'digitalocean-spaces' | 'storj' | 'hetzner' | 'akamai', bucket, endpoint?, region? }` | S3-compatible providers. |
+| `{ driver: 'uploadthing', token?, slug? }` | UploadThing. |
+| `{ driver: 'google-drive' | 'onedrive' | 'dropbox' | 'box', ... }` | Drive-backed providers. |
 
 On Cloudflare hosting, you can omit `driver` and pass `binding` or `bucketName`. Blob resolves those as Cloudflare R2 options.
 

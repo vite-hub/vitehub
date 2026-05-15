@@ -6,7 +6,7 @@ import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { env, envNitro } from "../src/nitro.ts"
+import { env, envNitro, openWorkflowEnv } from "../src/nitro.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
 
@@ -39,6 +39,10 @@ interface NitroStub {
 afterEach(() => {
   delete process.env.AUTH_SECRET
   delete process.env.DATABASE_URL
+  delete process.env.OPENWORKFLOW_NAMESPACE_ID
+  delete process.env.OPENWORKFLOW_POSTGRES_URL
+  delete process.env.OPENWORKFLOW_SCHEMA
+  delete process.env.OPENWORKFLOW_WORKER_CONCURRENCY
   delete process.env.PUBLIC_API_BASE
   delete process.env.TELEGRAM_BOT_TOKEN
 })
@@ -131,6 +135,9 @@ describe("Nitro module", () => {
     expect(integrationTypes).toContain("export interface NitroRuntimeConfig")
     expect(integrationTypes).toContain("declare module \"@vitehub/chat\"")
     expect(integrationTypes).toContain("export interface ChatRuntimeConfig")
+    expect(integrationTypes).toContain("declare module \"@vitehub/agent\"")
+    expect(integrationTypes).toContain("export interface AgentRuntimeConfig")
+    expect(integrationTypes).not.toContain("declare module \"@vitehub/agent/workspace\"")
     expect(types).toContain("\"botToken\": string")
     expect(integrationTypes).toContain("\"botToken\": string")
     expect(integrationTypes).not.toContain("NitroChatRuntimeConfig")
@@ -150,7 +157,42 @@ describe("Nitro module", () => {
     expect(registry).not.toContain("telegram-secret")
   })
 
-  it("types defineChat runtime config from generated env declarations", async () => {
+  it("describes OpenWorkflow env aliases with the active source", async () => {
+    process.env.DATABASE_URL = "postgres://localhost/shared"
+    process.env.OPENWORKFLOW_SCHEMA = "workflow_state"
+
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-openworkflow-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          openWorkflow: openWorkflowEnv(),
+        },
+        preset: "node-server",
+        rootDir: root,
+      },
+    }
+
+    await envNitro({ diagnostics: "trace" }).setup(nitro as never)
+
+    const diagnostics = nitro.logger.info.mock.calls.map(([message]) => String(message)).join("\n")
+    expect(diagnostics).toContain("env.openWorkflow.postgresUrl")
+    expect(diagnostics).toContain("env:DATABASE_URL")
+    expect(diagnostics).toContain("env.openWorkflow.schema")
+    expect(diagnostics).toContain("env:OPENWORKFLOW_SCHEMA")
+    expect(diagnostics).toContain("env.openWorkflow.namespaceId")
+    expect(diagnostics).toContain("default")
+
+    const registry = JSON.parse(await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8").then(contents => contents.replace(/^export default /, "")))
+    expect(registry.openWorkflow.postgresUrl.source).toMatchObject({
+      name: "OPENWORKFLOW_POSTGRES_URL",
+      names: ["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"],
+    })
+  })
+
+  it("types defineChat and workspace defineAgent runtime config from generated env declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-chat-types-"))
     const nitro: NitroStub = {
       hooks: { hook: vi.fn() },
@@ -176,6 +218,8 @@ describe("Nitro module", () => {
 
     await writeFile(join(root, "typecheck.ts"), [
       "import { defineChat } from '@vitehub/chat'",
+      "import { defineAgent } from '@vitehub/agent'",
+      "import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'",
       "",
       "defineChat({",
       "  adapters({ runtimeConfig }) {",
@@ -190,6 +234,18 @@ describe("Nitro module", () => {
       "  state: {} as never,",
       "})",
       "",
+      "defineAgent({",
+      "  workspace: {},",
+      "  adapter: aiSdkAdapter({",
+      "    model({ runtimeConfig }) {",
+      "      const model: string = runtimeConfig.vertex.model",
+      "      const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",
+      "      void apiUrl",
+      "      return model as never",
+      "    },",
+      "  }),",
+      "})",
+      "",
     ].join("\n"), "utf8")
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({
       compilerOptions: {
@@ -198,7 +254,10 @@ describe("Nitro module", () => {
         baseUrl: root,
         ignoreDeprecations: "6.0",
         paths: {
+          "@vitehub/agent": [join(import.meta.dirname, "../../agent/src/index.ts")],
+          "@vitehub/agent/ai-sdk": [join(import.meta.dirname, "../../agent/src/ai-sdk.ts")],
           "@vitehub/chat": [join(import.meta.dirname, "../../chat/src/index.ts")],
+          "@vitehub/workspace": [join(import.meta.dirname, "../../workspace/src/index.ts")],
         },
         module: "NodeNext",
         moduleResolution: "NodeNext",
@@ -218,7 +277,7 @@ describe("Nitro module", () => {
       cwd: join(import.meta.dirname, ".."),
       maxBuffer: 1024 * 1024 * 4,
     })
-  })
+  }, 60_000)
 
   it("exports generated runtime config types for application code", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-runtime-types-"))

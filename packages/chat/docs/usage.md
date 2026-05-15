@@ -1,80 +1,40 @@
 ---
 title: Chat usage
-description: Define chats, resolve runtime config, configure webhook discovery, and handle Chat SDK events.
+description: Configure hooks, multiple chats, webhook routes, lifecycle hooks, and Agent handoff.
 navigation.title: Usage
 navigation.order: 2
 icon: i-lucide-file-code-2
 frameworks: [vite, nitro]
 ---
 
-Use this page after the [Quickstart](./quickstart) when you need more than the default single-chat setup.
+Use this page after the [Quickstart](./quickstart).
 
-## Define one chat
+## Define hooks
 
-`defineChat()` accepts Chat SDK config plus ViteHub-specific resolvers for adapters, state, top-level event handlers, and lifecycle behavior.
-
-```ts [server/chat.ts]
-import { defineChat } from '@vitehub/chat'
-
-export default defineChat({
-  adapters: ({ runtimeConfig }) => ({
-    telegram: createTelegramAdapter({
-      botToken: runtimeConfig.telegram.botToken,
-    }),
-  }),
-  async onDirectMessage({ message, thread }) {
-    await thread.post(`Received: ${message.text}`)
-  },
-  state: ({ runtimeConfig }) => createState(runtimeConfig),
-  userName: 'Support Bot',
-})
-```
-
-`adapters` and `state` can be static values, functions, or objects with a `resolve(context)` method. Use resolvers when they need runtime config, Cloudflare bindings, the current request, or per-request memoization.
-
-## Use runtime config
-
-The generated handler passes the active runtime config into chat resolvers and hook args.
-
-```ts
-interface ChatRuntimeConfig {
-  telegram: {
-    botToken: string
-  }
-}
-
-export default defineChat<ChatRuntimeConfig>({
-  adapters: ({ runtimeConfig }) => ({
-    telegram: createTelegramAdapter({
-      botToken: runtimeConfig.telegram.botToken,
-    }),
-  }),
-  state,
-  userName: 'Support Bot',
-})
-```
-
-Pair Chat with `@vitehub/env` when you want typed server-only runtime config for secrets.
-
-## Handle events
-
-Top-level event handlers wrap common Chat SDK event registrations and pass object-style arguments.
+You can define hooks at the top level:
 
 ```ts
 export default defineChat({
   adapters,
   async onDirectMessage({ message, thread }) {
-    await thread.post(`Received: ${message.text}`)
+    await thread.post(message.text)
   },
-  onNewMessage: {
-    pattern: /^!help/,
-    handler: async ({ thread }) => {
-      await thread.post('Available commands: !help')
-    },
+  async onNewMention({ message, thread }) {
+    await thread.post(`Mentioned: ${message.text}`)
   },
-  onReaction: {
-    thumbs_up: async ({ event }) => {
-      console.log('Reaction received', event)
+  state,
+  userName: 'Support Bot',
+})
+```
+
+Or group them under `hooks`:
+
+```ts
+export default defineChat({
+  adapters,
+  hooks: {
+    async onDirectMessage({ message, thread }) {
+      await thread.post(message.text)
     },
   },
   state,
@@ -82,11 +42,82 @@ export default defineChat({
 })
 ```
 
-Supported top-level handler keys are `onDirectMessage`, `onNewMention`, `onSubscribedMessage`, `onNewMessage`, `onReaction`, `onAction`, and `onModalSubmit`. The older `hooks` object still works, but do not define the same handler in both places.
+Do not define the same hook in both places.
 
-## Run setup code
+## Handle events
 
-Use `setup` when the Chat SDK adapter needs direct bot access.
+```ts
+export default defineChat({
+  adapters,
+  onReaction: {
+    '👍': async ({ event }) => {
+      console.log(event)
+    },
+  },
+  onAction: {
+    approve: async ({ event }) => {
+      console.log(event)
+    },
+  },
+  state,
+  userName: 'Support Bot',
+})
+```
+
+Use `$all` in `onReaction`, `onAction`, or `onModalSubmit` when one handler should receive all events of that type.
+
+## Bind Chat to Agent
+
+When `@vitehub/agent` is enabled, Chat can route direct messages to a discovered agent.
+
+```ts
+export default defineChat({
+  adapters,
+  agent: 'triager',
+  state,
+  userName: 'Support Bot',
+})
+```
+
+Use the object form to customize history or response behavior.
+
+```ts
+export default defineChat({
+  adapters,
+  agent: {
+    name: 'triager',
+    history: {
+      source: 'thread',
+      maxMessages: 20,
+    },
+    hooks: {
+      prepareInput({ history, message, thread }) {
+        return {
+          messages: history,
+          context: {
+            chat: {
+              messageId: message.id,
+              source: 'chat',
+              threadId: thread.id,
+            },
+          },
+        }
+      },
+      async sendResponse({ result, thread }) {
+        await thread.post(result)
+      },
+    },
+  },
+  state,
+  userName: 'Support Bot',
+})
+```
+
+`agent` handles direct messages. Use `onDirectMessage` instead when you want to own the full flow.
+
+## Use setup
+
+Use `setup` when the Chat SDK adapter needs direct bot access before webhooks run.
 
 ```ts
 export default defineChat({
@@ -101,8 +132,6 @@ export default defineChat({
 })
 ```
 
-`setup` runs after ViteHub registers hook sugar and before the generated webhook handles a request.
-
 ## Use multiple chats
 
 Use `server/chats/**` when one app serves more than one bot.
@@ -112,7 +141,7 @@ server/chats/support.ts
 server/chats/ops.ts
 ```
 
-The generated registry route resolves the chat from the webhook route. With the default route shape, requests include both chat and platform params:
+With the default route shape, requests include both chat and platform params.
 
 ```txt
 /api/webhooks/support/telegram
@@ -121,23 +150,13 @@ The generated registry route resolves the chat from the webhook route. With the 
 
 ## Customize webhook routes
 
-Pass `webhook` options in config when the default route does not match your provider setup.
-
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
-import { hubChat } from '@vitehub/chat/vite'
-import { DevTools } from '@vitejs/devtools'
-
-export default defineConfig({
-  plugins: [
-    DevTools(),
-    hubChat({
-      webhook: {
-        route: '/api/chat/[platform]',
-        routeParam: 'platform',
-      },
-    }),
-  ],
+hubChat({
+  webhook: {
+    route: '/api/chat/[platform]',
+    routeParam: 'platform',
+  },
 })
 ```
 ::
@@ -167,15 +186,13 @@ export default defineChat({
   adapters,
   lifecycleHooks: {
     request(context) {
-      console.log('Incoming chat request', context.platform)
+      console.log(context.platform)
     },
-    error(error, context) {
-      console.error('Chat webhook failed', context.platform, error)
+    error(error) {
+      console.error(error)
     },
   },
   state,
   userName: 'Support Bot',
 })
 ```
-
-Use lifecycle hooks for logging and observability. Keep message behavior in Chat SDK event hooks.

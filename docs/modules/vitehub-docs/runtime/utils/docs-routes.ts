@@ -20,5 +20,19 @@ export function resolveFrameworkSwitchPath(path: string, framework: Framework) {
     return nextPath;
   }
 
+  if (new RegExp(`^/blogs/(?:${frameworkPattern})(?:/|$)`).test(path)) {
+    const nextPath = path.replace(new RegExp(`^/blogs/(?:${frameworkPattern})`), `/blogs/${framework}`);
+    const parts = nextPath.split("/").filter(Boolean);
+    const page = parts.slice(2).join("/") || "index";
+
+    if (!isDocsPageSupported("tutorials", page, framework)) {
+      return isDocsSectionSupported("tutorials", framework)
+        ? `/blogs/${framework}`
+        : "/blogs/vite";
+    }
+
+    return nextPath;
+  }
+
   return path;
 }

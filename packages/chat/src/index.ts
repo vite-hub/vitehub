@@ -1,10 +1,14 @@
 import { Chat } from "chat"
+import { isResolvable, resolveRuntimeContext, resolveRuntimeValue } from "@vitehub/runtime"
 
+import { createAgentDirectMessageHook } from "./agent-handoff.ts"
 import { chatDevtoolsAdapterName, observeChatDevtoolsStream } from "./devtools.ts"
 import { isChatDefinition } from "./runtime/definition.ts"
 
 import type {
   ChatActionHookInput,
+  ChatAgentBinding,
+  ChatAgentBindingOptions,
   ChatDefinition,
   ChatDirectMessageHook,
   ChatEventHook,
@@ -16,6 +20,7 @@ import type {
   ChatReactionHookInput,
   ChatRuntimeConfig,
   ChatRuntimeContext,
+  ChatStreamingPlaceholder,
   ChatWorkflowHandle,
   DefineChatOptions,
   MaybeResolvable,
@@ -26,10 +31,25 @@ import type { ActionEvent, Adapter, ChatConfig, Message, ModalSubmitEvent, React
 
 export type {
   ActionEvent,
+  AgentChatConfig,
+  AgentChatMetadata,
   Adapter,
   AdapterInput,
   Channel,
   ChatActionHookInput,
+  ChatCapabilities,
+  ChatCapabilityHandle,
+  ChatAgentAfterRunArgs,
+  ChatAgentBeforeRunArgs,
+  ChatAgentBinding,
+  ChatAgentBindingOptions,
+  ChatAgentErrorArgs,
+  ChatAgentEvent,
+  ChatAgentHistory,
+  ChatAgentHookArgs,
+  ChatAgentHooks,
+  ChatAgentMetadata,
+  ChatAgentRuntimeContext,
   ChatCloudflareDurableObjectModuleOptions,
   ChatDefinition,
   ChatDevModuleOptions,
@@ -71,31 +91,15 @@ export type {
   WorkflowRunLike,
 } from "./types.ts"
 export * from "./devtools.ts"
+export { nodeDockerRuntimePreset } from "./presets.ts"
 
 let definitionId = 0
-
-function isResolvable<T, TContext extends ChatRuntimeContext>(
-  value: MaybeResolvable<T, TContext>,
-): value is { resolve: (context: TContext) => T | Promise<T> } {
-  return typeof value === "object"
-    && value !== null
-    && "resolve" in value
-    && typeof value.resolve === "function"
-}
 
 async function resolveValue<T, TContext extends ChatRuntimeContext>(
   value: MaybeResolvable<T, TContext>,
   context: TContext,
 ): Promise<T> {
-  if (isResolvable(value)) {
-    return await value.resolve(context)
-  }
-
-  if (typeof value === "function") {
-    return await (value as (context: TContext) => T | Promise<T>)(context)
-  }
-
-  return value
+  return await resolveRuntimeValue(value, context)
 }
 
 async function resolveAdapters<TRuntimeConfig extends ChatRuntimeConfig>(
@@ -150,6 +154,15 @@ function createDirectMessageHook<
     thread: wrapDevtoolsThread(thread) as never,
     workflow,
   })
+}
+
+function normalizeAgentBinding<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
+  binding: ChatAgentBinding<TRuntimeConfig, TWorkflow>,
+): ChatAgentBindingOptions<TRuntimeConfig, TWorkflow> {
+  return typeof binding === "string" ? { name: binding } : binding
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
@@ -330,6 +343,39 @@ function registerChatHooks<
   registerModalSubmitHooks(bot, runtimeConfig, hooks.onModalSubmit, workflow)
 }
 
+function registerAgentBinding<
+  TRuntimeConfig extends ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
+>(
+  bot: Chat,
+  runtimeContext: ResolvedChatRuntimeContext<TRuntimeConfig>,
+  hooks: ChatEventHooks<TRuntimeConfig, TWorkflow>,
+  binding: ChatAgentBinding<TRuntimeConfig, TWorkflow> | undefined,
+  workflow: TWorkflow,
+  options: { fallbackStreamingPlaceholderText?: ChatStreamingPlaceholder<TRuntimeConfig> } = {},
+) {
+  if (!binding) return
+
+  const resolved = normalizeAgentBinding(binding)
+  const event = resolved.event || "directMessage"
+  if (event !== "directMessage") {
+    throw new Error(`Unsupported chat agent event "${event}". The v1 agent binding only supports "directMessage".`)
+  }
+  if (resolved.execution && resolved.execution !== "inline" && resolved.execution !== "workflow") {
+    throw new Error(`Unsupported chat agent execution "${resolved.execution}". The v1 agent binding only supports "inline" and "workflow".`)
+  }
+  if (hooks.onDirectMessage) {
+    throw new Error("Duplicate chat hook \"onDirectMessage\". Use either defineChat({ agent }) or defineChat({ onDirectMessage }), not both.")
+  }
+
+  bot.onDirectMessage(createDirectMessageHook(
+    bot,
+    runtimeContext.runtimeConfig,
+    createAgentDirectMessageHook(bot, runtimeContext, resolved, workflow, options),
+    workflow,
+  ) as never)
+}
+
 const chatHookNames = [
   "onAction",
   "onDirectMessage",
@@ -370,12 +416,13 @@ async function createChat<
   context: ChatRuntimeContext<TRuntimeConfig>,
   resolveOptions: ResolveChatOptions = {},
 ) {
-  const runtimeConfig = context.runtimeConfig as TRuntimeConfig
-  const resolvedContext = { ...context, runtimeConfig } as ResolvedChatRuntimeContext<TRuntimeConfig>
+  const resolvedContext = resolveRuntimeContext(context) as ResolvedChatRuntimeContext<TRuntimeConfig>
+  const runtimeConfig = resolvedContext.runtimeConfig
   const adapters = resolveOptions.adapters || await resolveAdapters(options.adapters, resolvedContext)
-  const state = await resolveValue(options.state, context)
+  const state = resolveOptions.state || await resolveValue(options.state, context)
   const {
     adapters: _adapters,
+    agent: _agent,
     hooks: _hooks,
     lifecycleHooks: _lifecycleHooks,
     onAction: _onAction,
@@ -385,6 +432,7 @@ async function createChat<
     onNewMessage: _onNewMessage,
     onReaction: _onReaction,
     onSubscribedMessage: _onSubscribedMessage,
+    fallbackStreamingPlaceholderText,
     setup,
     state: _state,
     userName: _userName,
@@ -399,11 +447,18 @@ async function createChat<
   const bot = new Chat({
     ...(chatOptions as Omit<ChatConfig, "adapters" | "state">),
     adapters,
+    ...(typeof fallbackStreamingPlaceholderText === "string" || fallbackStreamingPlaceholderText === null
+      ? { fallbackStreamingPlaceholderText }
+      : {}),
     state: state as StateAdapter,
     userName,
   })
 
-  registerChatHooks(bot, runtimeConfig, resolveChatHooks(options), workflow as TWorkflow)
+  const hooks = resolveChatHooks(options)
+  registerChatHooks(bot, runtimeConfig, hooks, workflow as TWorkflow)
+  registerAgentBinding(bot, resolvedContext, hooks, options.agent, workflow as TWorkflow, {
+    fallbackStreamingPlaceholderText,
+  })
   await setup?.(bot, resolvedContext)
   return bot
 }

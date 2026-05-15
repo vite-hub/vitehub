@@ -1,15 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 const runtimeConfigMock = vi.hoisted(() => ({
-  blob: undefined as undefined | false | {
-    store: {
-      binding?: string
-      bucketName?: string
-      driver: "cloudflare-r2" | "fs" | "vercel-blob"
-      token?: string
-      access?: "private" | "public"
-    }
-  },
+  blob: undefined as undefined | false | import("../src/types.ts").ResolvedBlobModuleOptions,
 }))
 
 interface NitroRequestMock {
@@ -67,6 +59,7 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
   put: vi.fn(async (pathname: string) => ({
     contentType: "text/plain",
+    key: pathname,
     pathname,
     size: 5,
     uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -74,12 +67,63 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
 }))
 
+const filesSdkMock = vi.hoisted(() => ({
+  list: vi.fn(async (_options?: unknown) => ({
+    items: [
+      {
+        etag: "\"etag\"",
+        key: "notes/hello.txt",
+        lastModified: "2026-01-01T00:00:00.000Z",
+        metadata: {},
+        size: 5,
+        type: "text/plain",
+      },
+    ],
+  })),
+  s3: vi.fn(() => ({ provider: "s3" })),
+}))
+
 vi.mock("@vercel/blob", () => ({
-  del: vercelBlobMock.del,
-  get: vercelBlobMock.get,
-  head: vercelBlobMock.head,
-  list: vercelBlobMock.list,
-  put: vercelBlobMock.put,
+  del: async (pathname: string, options: { token?: string } = {}) => {
+    await (vercelBlobMock.del as any)(pathname, { token: options.token })
+  },
+  get: async (pathname: string, options: { access?: "private" | "public", token?: string } = {}) => {
+    return await (vercelBlobMock.get as any)(pathname, {
+      access: options.access,
+      token: options.token,
+    })
+  },
+  head: async (pathname: string, options: { token?: string } = {}) => {
+    const result = await (vercelBlobMock.head as any)(pathname, { token: options.token })
+    return {
+      contentType: "text/plain",
+      etag: "\"etag\"",
+      pathname: result.pathname,
+      size: result.size,
+      uploadedAt: result.uploadedAt,
+      url: result.url,
+    }
+  },
+  list: async () => await (vercelBlobMock.list as any)(),
+  put: async (pathname: string, body: Blob | Uint8Array | string, options: { access?: "private" | "public", contentType?: string, token?: string } = {}) => {
+    return await (vercelBlobMock.put as any)(pathname, body, {
+      access: options.access,
+      contentType: options.contentType,
+      token: options.token,
+    })
+  },
+}))
+
+vi.mock("files-sdk", () => ({
+  Files: class {
+    async list(options?: unknown) {
+      return await filesSdkMock.list(options)
+    }
+  },
+}))
+
+vi.mock("files-sdk/s3", () => ({
+  s3: filesSdkMock.s3,
 }))
 
 afterEach(() => {
@@ -92,6 +136,8 @@ afterEach(() => {
   vercelBlobMock.head.mockClear()
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()
+  filesSdkMock.list.mockClear()
+  filesSdkMock.s3.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
   vi.restoreAllMocks()
 })
@@ -139,16 +185,27 @@ function createMemoryBucket() {
         uploaded: current.uploaded,
       }
     },
-    async list() {
-      return {
-        objects: [...store.entries()].map(([key, value]) => ({
+    async list(options: { cursor?: string, delimiter?: string, include?: string[], limit?: number, prefix?: string } = {}) {
+      const objects = [...store.entries()]
+        .filter(([key]) => !options.prefix || key.startsWith(options.prefix))
+        .map(([key, value]) => ({
           customMetadata: value.customMetadata,
           httpEtag: "\"etag\"",
           httpMetadata: { contentType: value.contentType },
           key,
           size: value.body.byteLength,
           uploaded: value.uploaded,
-        })),
+        }))
+      const delimitedPrefixes = options.delimiter
+        ? [...new Set(objects.flatMap((object) => {
+            const remainder = object.key.slice(options.prefix?.length || 0)
+            const index = remainder.indexOf(options.delimiter!)
+            return index >= 0 ? [`${options.prefix || ""}${remainder.slice(0, index + 1)}`] : []
+          }))]
+        : undefined
+      return {
+        delimitedPrefixes,
+        objects: options.delimiter ? objects.filter((object) => !delimitedPrefixes?.some(prefix => object.key.startsWith(prefix))) : objects,
         truncated: false,
       }
     },
@@ -214,10 +271,48 @@ describe("blob runtime", () => {
 
     expect(list.blobs).toHaveLength(1)
     expect(head.customMetadata).toEqual({ test: "true" })
+    expect(body?.type).toBe("text/plain")
     expect(await body?.text()).toBe("hello")
 
     await blob.del("notes/hello.txt")
     await expect(blob.head("notes/hello.txt")).rejects.toThrow("Blob not found")
+  })
+
+  it("returns folded folders from the active Cloudflare binding", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        binding: "BLOB",
+        bucketName: "assets",
+        driver: "cloudflare-r2",
+      },
+    })
+    setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
+
+    await blob.put("notes/hello.txt", "hello")
+    await blob.put("images/logo.png", "logo")
+
+    const list = await blob.list({ folded: true })
+
+    expect(list.blobs).toEqual([])
+    expect(list.folders).toEqual(["images/", "notes/"])
+  })
+
+  it("loads non-core drivers through the anchored files driver import", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        bucket: "assets",
+        driver: "s3",
+      },
+    })
+
+    const list = await blob.list()
+
+    expect(filesSdkMock.s3).toHaveBeenCalledWith(expect.objectContaining({ driver: "s3" }))
+    expect(list.blobs).toEqual([
+      expect.objectContaining({
+        pathname: "notes/hello.txt",
+      }),
+    ])
   })
 
   it("decodes percent-encoded pathnames once before reaching drivers", async () => {
@@ -260,46 +355,9 @@ describe("blob runtime", () => {
       "value",
       expect.anything(),
     )
-    expect(vercelBlobMock.head).toHaveBeenCalledWith(
+    expect(vercelBlobMock.del).toHaveBeenCalledWith(
       "notes/héllo.txt",
       expect.anything(),
-    )
-  })
-
-  it("uses Vercel Blob private access when the connected store requires it", async () => {
-    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
-    setBlobRuntimeConfig({
-      store: { access: "public", driver: "vercel-blob", token: "********" },
-    })
-    vercelBlobMock.put
-      .mockRejectedValueOnce(new Error("Vercel Blob: Cannot use public access on a private store."))
-      .mockResolvedValueOnce({
-        contentType: "text/plain",
-        pathname: "notes/private.txt",
-        size: 5,
-        uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
-        url: "https://store.private.blob.vercel-storage.com/notes/private.txt",
-      })
-    vercelBlobMock.head.mockResolvedValueOnce({
-      pathname: "notes/private.txt",
-      size: 5,
-      uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
-      url: "https://store.private.blob.vercel-storage.com/notes/private.txt",
-    })
-
-    await blob.put("notes/private.txt", "value")
-    expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/private.txt", "value", expect.objectContaining({
-      access: "private",
-      token: "secret-token",
-    }))
-
-    expect(await (await blob.get("notes/private.txt"))?.text()).toBe("value")
-    expect(vercelBlobMock.get).toHaveBeenCalledWith(
-      "https://store.private.blob.vercel-storage.com/notes/private.txt",
-      expect.objectContaining({
-        access: "private",
-        token: "secret-token",
-      }),
     )
   })
 

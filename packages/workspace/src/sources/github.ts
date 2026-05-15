@@ -4,7 +4,7 @@ import { github as createGitHubSource, type GitHubSourceOptions as UnsourceGitHu
 import { resolveWorkspaceEnv } from "../env.ts"
 import type { SourceContext, WorkspaceSource } from "../types.ts"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "swr" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "validate">
 type GitHubAuth = NonNullable<UnsourceGitHubSourceOptions["auth"]>
 
 export interface GitHubSourceOptions extends Omit<UnsourceGitHubSourceOptions, "auth">, SourceRuntimeOptions {
@@ -12,9 +12,13 @@ export interface GitHubSourceOptions extends Omit<UnsourceGitHubSourceOptions, "
 }
 
 export function github(options: GitHubSourceOptions): WorkspaceSource {
-  const baseSource = createGitHubSource({
+  const resolvedOptions = {
     ...options,
-    auth: createGitHubAuthResolver(options.auth),
+    mount: options.mount ?? inferRepositoryMount(options.repo),
+  }
+  const baseSource = createGitHubSource({
+    ...resolvedOptions,
+    auth: createGitHubAuthResolver(resolvedOptions.auth),
   })
   const sourceByRootAndToken = new Map<string, typeof baseSource>()
 
@@ -24,8 +28,8 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
     const cachedSource = sourceByRootAndToken.get(cacheKey)
     if (cachedSource) return cachedSource
     const source = createGitHubSource({
-      ...options,
-      auth: createGitHubAuthResolver(options.auth, envFileToken),
+      ...resolvedOptions,
+      auth: createGitHubAuthResolver(resolvedOptions.auth, envFileToken),
     })
     sourceByRootAndToken.set(cacheKey, source)
     return source
@@ -33,11 +37,17 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
 
   return {
     ...baseSource,
-    cache: options.cache,
-    materialize: options.materialize,
-    mount: options.mount,
-    swr: options.swr,
-    validate: options.validate,
+    cache: resolvedOptions.cache,
+    fingerprint: {
+      exclude: resolvedOptions.exclude,
+      include: resolvedOptions.include,
+      ref: resolvedOptions.ref,
+      repo: resolvedOptions.repo,
+      root: resolvedOptions.root,
+    },
+    materialize: resolvedOptions.materialize,
+    mount: resolvedOptions.mount,
+    validate: resolvedOptions.validate,
     async prepare(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
       await source.prepare?.(ctx)
@@ -50,6 +60,10 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       const source = await getSourceForRoot(ctx.rootDir)
       return await source.getItem(key, ctx)
     },
+    async getItems(ctx) {
+      const source = await getSourceForRoot(ctx.rootDir)
+      return await source.getItems?.(ctx) ?? await Promise.all((await source.getKeys(ctx)).map(key => source.getItem(key, ctx)))
+    },
     async getMeta(key, ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
       return await source.getMeta?.(key, ctx)
@@ -59,6 +73,10 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
       return await source.search?.(query, ctx) ?? []
     },
   }
+}
+
+function inferRepositoryMount(repo: string | undefined) {
+  return repo?.split("/").filter(Boolean).at(-1)
 }
 
 function createGitHubAuthResolver(auth: GitHubAuth | undefined, envFileToken?: string) {

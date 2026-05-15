@@ -62,8 +62,24 @@ function resolveExplicitStore(
       return resolveFsStore(store)
     case "vercel-blob":
       return resolveVercelStore(store)
+    case "akamai":
+    case "azure":
+    case "box":
+    case "digitalocean-spaces":
+    case "dropbox":
+    case "gcs":
+    case "google-drive":
+    case "hetzner":
+    case "minio":
+    case "netlify-blobs":
+    case "onedrive":
+    case "s3":
+    case "storj":
+    case "supabase":
+    case "uploadthing":
+      return store
     default:
-      throw new TypeError(`Unknown \`blob.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}. Expected "cloudflare-r2", "fs", or "vercel-blob".`)
+      throw new TypeError(`Unknown \`blob.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}.`)
   }
 }
 

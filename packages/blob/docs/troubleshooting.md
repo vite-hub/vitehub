@@ -79,18 +79,6 @@ BLOB_READ_WRITE_TOKEN=<blob-read-write-token>
 
 **Verify:** Restart the app or redeploy, then call a route that writes with `blob.put()`.
 
-## `Cannot find package '@vercel/blob'`
-
-**Cause:** The Vercel Blob driver imports the optional `@vercel/blob` peer dependency at runtime.
-
-**Fix:** Install the provider SDK.
-
-```bash
-pnpm add @vercel/blob
-```
-
-**Verify:** Restart the app and retry the route.
-
 ## `Blob not found`
 
 **Cause:** `blob.head()` did not find the pathname. Unlike `blob.get()`, `head()` throws a `404` for missing objects.
@@ -149,4 +137,5 @@ blob: {
 - [Quickstart](./quickstart)
 - [Cloudflare](./providers/cloudflare)
 - [Vercel](./providers/vercel)
+- [Storage Providers](./providers/storage)
 - [Runtime API](./runtime-api)

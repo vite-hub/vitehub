@@ -1,19 +1,21 @@
-import { createJustBashRuntime, parseShellCommand, withShellRuntimePolicy } from "./runtime.ts"
+import { posix } from "node:path"
+
+import { createJustBashRuntime } from "./runtime.ts"
 import { workspaceMountPoint } from "./workspace-fs.ts"
 
 import type {
   SearchableShellWorkspace,
   ShellRuntimeExecResult,
-  ShellSearchHit,
-  ShellSearchQuery,
   WorkspaceShellFileSystem,
 } from "./types.ts"
 
 interface WorkspaceInspectionCommandOptions {
-  commands: string[]
+  commands?: string[]
   cwd?: string
   fs: WorkspaceShellFileSystem
   maxOutputLength?: number
+  provider?: "cloudflare-shell" | "just-bash"
+  timeout?: number
 }
 
 export function cleanWorkspaceShellPath(path = "."): string {
@@ -29,186 +31,186 @@ export function cleanWorkspaceMutationPath(path: string): string {
 }
 
 export async function runWorkspaceInspectionCommand(
-  input: SearchableShellWorkspace,
+  _input: SearchableShellWorkspace,
   command: string,
   options: WorkspaceInspectionCommandOptions,
 ): Promise<ShellRuntimeExecResult> {
-  const resolved = {
-    ...options,
+  const maxOutputLength = options.maxOutputLength || 30_000
+  const timeout = options.timeout || 30_000
+  const preflight = preflightWorkspaceInspectionCommand(command)
+  if (preflight) return preflight
+  const runtime = createJustBashRuntime({
+    commands: options.commands,
     cwd: options.cwd || workspaceMountPoint,
-    maxOutputLength: options.maxOutputLength || 30_000,
-  }
-  const words = tryParseCommand(command)
-  const name = words[0]
-
-  if (name && isSearchCommand(name)) {
-    return await runSearchCommand(input, command, name, resolved)
-  }
-
-  const runtime = withShellRuntimePolicy(createJustBashRuntime({
-    commands: resolved.commands,
-    cwd: resolved.cwd,
-    fs: resolved.fs,
-  }), {
-    allowedCommands: resolved.commands,
-    singleCommand: true,
+    fs: options.fs,
   })
-  const result = await runtime.exec(command, { cwd: resolved.cwd })
-  const traversalArg = findTraversalArg(command)
-  const stderr = traversalArg && result.exitCode && /No such file or directory/.test(result.stderr)
-    ? `[vitehub] Workspace path escapes the workspace root: "${traversalArg}".\n`
-    : result.stderr
-  const stdout = result.exitCode ? result.stdout : await normalizeShellStdout(input, command, result.stdout)
+  const result = await Promise.race([
+    runtime.exec(command, { cwd: options.cwd || workspaceMountPoint, timeout }),
+    new Promise<ShellRuntimeExecResult>(resolve => setTimeout(() => resolve({
+      exitCode: null,
+      stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`,
+      stdout: "",
+    }), timeout)),
+  ])
 
   return {
-    exitCode: result.exitCode ?? 0,
-    stderr: applyOutputLimit(stderr, resolved.maxOutputLength),
-    stdout: applyOutputLimit(stdout, resolved.maxOutputLength),
+    exitCode: result.exitCode,
+    stderr: applyOutputLimit(result.stderr, maxOutputLength),
+    stdout: applyOutputLimit(result.stdout, maxOutputLength),
   }
 }
 
-async function runSearchCommand(
-  input: SearchableShellWorkspace,
-  command: string,
-  name: string,
-  options: Required<WorkspaceInspectionCommandOptions>,
-): Promise<ShellRuntimeExecResult> {
-  if (!options.commands.includes(name)) {
-    return {
-      exitCode: 126,
-      stderr: applyOutputLimit(`Unsupported workspace shell command: ${name}\n`, options.maxOutputLength),
-      stdout: "",
-    }
-  }
+function preflightWorkspaceInspectionCommand(command: string): ShellRuntimeExecResult | undefined {
   try {
-    const query = parseSearchCommand(command, options.cwd)
-    const hits = await input.search(query)
-    return {
-      exitCode: hits.length ? 0 : 1,
-      stderr: "",
-      stdout: applyOutputLimit(formatSearchHits(hits), options.maxOutputLength),
+    for (const segment of splitShellSegments(command)) {
+      const words = parseShellWords(segment)
+      if (isBroadWorkspaceSearch(words)) {
+        return {
+          exitCode: 126,
+          stderr: "[vitehub] Workspace root search is too broad. Use a narrow mounted source or subdirectory path instead.\n",
+          stdout: "",
+        }
+      }
     }
-  }
-  catch (error) {
-    return {
-      exitCode: 1,
-      stderr: applyOutputLimit(`${error instanceof Error ? error.message : String(error)}\n`, options.maxOutputLength),
-      stdout: "",
-    }
-  }
-}
-
-function normalizeSafeShellPath(path = ""): string {
-  const raw = path.replace(/\\/g, "/")
-  const trimmed = raw.replace(/^\/+/, "").replace(/\/+$/, "")
-  const parts = trimmed.split("/").filter(part => part && part !== ".")
-
-  if (raw.startsWith("/") || parts.some(part => part === "..")) {
-    throw new Error(`[vitehub] Workspace path escapes the workspace root: "${path}".`)
-  }
-  if (parts[0] === ".git" || parts[0] === ".vitehub") {
-    throw new Error(`[vitehub] Workspace path is reserved: "${path}".`)
-  }
-
-  return parts.join("/")
-}
-
-function tryParseCommand(command: string): string[] {
-  try {
-    return parseShellCommand(command)
-  }
-  catch {
-    return []
-  }
-}
-
-async function normalizeShellStdout(input: SearchableShellWorkspace, command: string, stdout: string) {
-  const words = parseShellCommand(command)
-  const [name] = words
-  if (name === "find") return stdout.replace(/^\.\/+/gm, "")
-  if (name !== "ls") return stdout
-
-  const hasFlags = words.slice(1).some(word => word.startsWith("-"))
-  if (hasFlags) return stdout
-
-  const rawPath = words[1] || "."
-  const prefix = cleanWorkspaceShellPath(rawPath)
-  const entries = await input.list(prefix, { recursive: false })
-  const directories = new Set(entries.filter(entry => entry.type === "directory").map((entry) => {
-    if (!prefix) return entry.path
-    return entry.path.slice(prefix.length + 1)
-  }))
-
-  return stdout
-    .split("\n")
-    .map((line) => {
-      if (!line || line.endsWith("/")) return line
-      return directories.has(line) ? `${line}/` : line
-    })
-    .join("\n")
-}
-
-function findTraversalArg(command: string) {
-  try {
-    return parseShellCommand(command).find(word => /(?:^|\/)\.\.(?:\/|$)/.test(word))
   }
   catch {
     return undefined
   }
 }
 
-function applyOutputLimit(output: string, max: number) {
-  if (output.length <= max) return output
-  return `${output.slice(0, max)}\n[output truncated to ${max} characters]\n`
+function isBroadWorkspaceSearch(words: string[]) {
+  const name = words[0]
+  if (name !== "rg") return false
+
+  const paths = commandPathArguments(words)
+  return paths.length === 0 || paths.some(path => path === "." || path === "./" || path === "/" || path === workspaceMountPoint)
 }
 
-function isSearchCommand(command: string) {
-  return command === "grep" || command === "rg"
-}
-
-function parseSearchCommand(command: string, cwd: string): ShellSearchQuery {
-  const words = parseShellCommand(command)
-  const [name, ...rest] = words
-  if (!name || !isSearchCommand(name)) throw new Error("Unsupported search command.")
-
-  let caseSensitive = true
-  let pattern: string | undefined
+function commandPathArguments(words: string[]) {
+  const args = words.slice(1)
   const paths: string[] = []
-
-  for (let index = 0; index < rest.length; index++) {
-    const word = rest[index]
-    if (word === "-i" || word === "--ignore-case") {
-      caseSensitive = false
+  let sawPattern = false
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!
+    if (arg === "--") {
+      paths.push(...args.slice(index + 1))
+      break
+    }
+    if (arg.startsWith("-")) {
+      if (takesOptionValue(arg)) index += 1
       continue
     }
-    if (word === "-n" || word === "--line-number") continue
-    if (word === "-e" || word === "--regexp") {
-      pattern = rest[index + 1]
-      index += 1
+    if (!sawPattern) {
+      sawPattern = true
       continue
     }
-    if (word.startsWith("-")) {
-      throw new Error(`[vitehub] Unsupported workspace search flag: ${word}.`)
-    }
-    if (!pattern) {
-      pattern = word
-      continue
-    }
-    paths.push(cleanWorkspaceShellPath(word))
+    paths.push(arg)
   }
-
-  if (!pattern) throw new Error("[vitehub] Workspace search commands require a pattern.")
-
-  return {
-    caseSensitive,
-    cwd: cleanWorkspaceShellPath(cwd),
-    limit: 200,
-    paths,
-    pattern,
-    regex: true,
-  }
+  return paths
 }
 
-function formatSearchHits(hits: ShellSearchHit[]) {
-  return hits.map(hit => `${hit.path}:${hit.line}:${hit.text}`).join("\n") + (hits.length ? "\n" : "")
+function takesOptionValue(arg: string) {
+  return [
+    "-A",
+    "-B",
+    "-C",
+    "-e",
+    "-f",
+    "-g",
+    "-m",
+    "--after-context",
+    "--before-context",
+    "--context",
+    "--glob",
+    "--max-count",
+    "--regexp",
+  ].includes(arg)
+}
+
+function splitShellSegments(command: string) {
+  const segments: string[] = []
+  let current = ""
+  let quote: "'" | "\"" | undefined
+  let escaped = false
+  for (const char of command) {
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+    if (char === "\\") {
+      current += char
+      escaped = true
+      continue
+    }
+    if (quote) {
+      if (char === quote) quote = undefined
+      current += char
+      continue
+    }
+    if (char === "'" || char === "\"") {
+      quote = char
+      current += char
+      continue
+    }
+    if (char === "|" || char === ";" || char === "\n") {
+      segments.push(current)
+      current = ""
+      continue
+    }
+    current += char
+  }
+  segments.push(current)
+  return segments
+}
+
+function parseShellWords(command: string) {
+  const words: string[] = []
+  let current = ""
+  let quote: "'" | "\"" | undefined
+  let escaped = false
+  for (const char of command) {
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+    if (char === "\\") {
+      escaped = true
+      continue
+    }
+    if (quote) {
+      if (char === quote) quote = undefined
+      else current += char
+      continue
+    }
+    if (char === "'" || char === "\"") {
+      quote = char
+      continue
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        words.push(current)
+        current = ""
+      }
+      continue
+    }
+    current += char
+  }
+  if (current) words.push(current)
+  return words
+}
+
+function normalizeSafeShellPath(path: string): string {
+  const normalized = posix.normalize(path.replace(/\\/g, "/")).replace(/^\//, "")
+  if (normalized === ".") return ""
+  if (normalized === ".." || normalized.startsWith("../")) {
+    throw new Error(`[vitehub] Workspace path escapes the workspace root: "${path}".`)
+  }
+  return normalized
+}
+
+function applyOutputLimit(output: string, maxLength: number): string {
+  if (output.length <= maxLength) return output
+  return `${output.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
 }

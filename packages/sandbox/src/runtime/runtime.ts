@@ -7,11 +7,11 @@ import {
 import { sleep } from '../internal/shared/utils'
 import { SandboxError } from '../sandbox/errors'
 import { detectSandbox, isSandboxAvailable } from '../sandbox/providers/shared'
-import { loadSandboxRuntimeProvider } from 'virtual:vitehub-sandbox-provider-loader'
 import { validateSandboxConfig } from '../sandbox/validation'
 import { safeUseRequest } from '../internal/shared/runtime'
 import { executeSandboxDefinition } from './execute'
 import { readSandboxErrorMetadata, toSandboxError } from './error-normalization'
+import { loadSandboxProviderRuntime } from './provider-loader-resolver'
 import {
   assertSandboxDefinitionOptions,
   createCloudflareExecutionSandboxId,
@@ -22,7 +22,6 @@ import {
 } from './provider-resolution'
 import { err, ok } from './result'
 import { getSandboxRuntimeConfig, getSandboxRuntimeRegistry, type SandboxRegistryEntry } from './state'
-import sandboxRegistry from 'virtual:vitehub-sandbox-registry'
 
 import type {
   AgentSandboxConfig,
@@ -34,6 +33,7 @@ import { getSandboxFeatureProvider } from '../module-types'
 import type { SandboxClient, SandboxProviderOptions } from '../sandbox/types'
 
 type SandboxRuntimeContext = ResourceRuntimeContext<AgentSandboxConfig, SandboxRegistryEntry, SandboxEvent>
+const sandboxRegistry = {}
 
 function isRetriableCloudflareSandboxError(error: unknown) {
   const sandboxError = error instanceof SandboxError ? error : undefined
@@ -93,7 +93,7 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
     )).resolvedProvider
   },
   async create(provider, context) {
-    const runtimeProvider = await loadSandboxRuntimeProvider(provider.provider)
+    const runtimeProvider = await loadSandboxProviderRuntime(provider.provider)
 
     return {
       name: context.name,

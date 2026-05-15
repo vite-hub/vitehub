@@ -15,10 +15,30 @@ let loaders: WorkspaceRegistry = runtimeRegistry
 
 function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
   if (!definition) throw new WorkspaceNotFoundError(name)
+  const workspaceAgentOptions = (definition as { __vitehubWorkspaceAgentOptions?: { workspace?: WorkspaceDefinitionInput } }).__vitehubWorkspaceAgentOptions
+  if (workspaceAgentOptions?.workspace) {
+    return { ...workspaceAgentOptions.workspace, name }
+  }
   if ("name" in definition) {
     throw new TypeError(`[vitehub] Workspace definition "${name}" must not declare a name. Workspace names are inferred from filenames.`)
   }
-  return { ...definition, name }
+  const {
+    __vitehubWorkspaceAgent: _agent,
+    __vitehubWorkspaceAgentDefaults: _agentDefaults,
+    __vitehubWorkspaceAgentOptions: _agentOptions,
+    description: _description,
+    fallback: _fallback,
+    instructions: _instructions,
+    model: _model,
+    name: _agentName,
+    resolve: _resolve,
+    run: _run,
+    stepLimit: _stepLimit,
+    tools: _tools,
+    workspace: _workspace,
+    ...workspace
+  } = definition as WorkspaceDefinitionInput & Record<string, unknown>
+  return { ...workspace, name }
 }
 
 export function registerWorkspace(name: string, definition: WorkspaceDefinitionInput): void {

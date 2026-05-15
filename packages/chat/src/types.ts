@@ -1,4 +1,22 @@
 import type {
+  AgentChatOptions,
+  AgentExecution,
+  AgentInput,
+  AgentRunInput,
+  AgentRunMetadata,
+  AgentRuntimeContext,
+  AgentRuntimeName,
+} from "@vitehub/agent"
+import type {
+  MaybePromise,
+  MaybeResolvable,
+  Resolvable,
+  RuntimeCapabilities,
+  RuntimeCapabilityHandle,
+  RuntimeHostContext,
+  RuntimeWaitUntil,
+} from "@vitehub/runtime"
+import type {
   ActionEvent,
   Adapter,
   Chat,
@@ -19,43 +37,27 @@ import type {
   Thread,
 } from "chat"
 
-export type MaybePromise<T> = T | Promise<T>
+export type {
+  MaybePromise,
+  MaybeResolvable,
+  Resolvable,
+}
 export type ChatRuntimeName = "nitro" | "cloudflare" | "vercel" | "unknown"
-export type ChatWaitUntil = (task: Promise<unknown>) => void
+export type ChatWaitUntil = RuntimeWaitUntil
 export type ChatWebhookProcessingMode = "defer" | "inline"
+export type ChatCapabilityHandle<TKind extends string = string, TValue = unknown> = RuntimeCapabilityHandle<TKind, TValue>
+export type ChatCapabilities = RuntimeCapabilities
 
 export interface ChatRuntimeConfig {}
 
-export interface ChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
-  cloudflare?: {
-    context?: unknown
-    durableObjectStateName?: string
-    env?: Record<string, unknown>
-  }
+export interface ChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig>
+  extends Omit<RuntimeHostContext<TRuntimeConfig>, "runtime"> {
   dev?: boolean
-  event?: unknown
-  memo<T>(key: string, create: () => T): T
-  platform?: string
-  request?: Request
   runtime: ChatRuntimeName
-  runtimeConfig?: TRuntimeConfig
-  vercel?: {
-    waitUntil?: ChatWaitUntil
-  }
-  waitUntil: ChatWaitUntil
 }
 
 export type ResolvedChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
   ChatRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
-
-export interface Resolvable<T, TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> {
-  resolve(context: TContext): MaybePromise<T>
-}
-
-export type MaybeResolvable<T, TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> =
-  | T
-  | Resolvable<T, TContext>
-  | ((context: TContext) => MaybePromise<T>)
 
 export type AdapterInput<TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> =
   | MaybeResolvable<Record<string, Adapter>, TContext>
@@ -162,6 +164,91 @@ export interface ChatEventHooks<
   onSubscribedMessage?: ChatMessageHook<TRuntimeConfig, TWorkflow>
 }
 
+export type ChatAgentEvent = "directMessage"
+
+export type ChatAgentHistory =
+  | boolean
+  | "none"
+  | {
+    maxMessages?: number
+    source: "thread"
+  }
+
+export interface ChatAgentMetadata {
+  channelId?: string
+  messageId?: string
+  platform?: string
+  runId: string
+  source: "chat"
+  threadId?: string
+}
+
+export interface ChatAgentHookArgs<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> extends ChatHookArgs<TRuntimeConfig, TWorkflow> {
+  channel: Channel
+  history: NonNullable<AgentRunInput["messages"]>
+  message: Message
+  run: AgentRunMetadata
+  thread: Thread
+}
+
+export interface ChatAgentBeforeRunArgs<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> extends ChatAgentHookArgs<TRuntimeConfig, TWorkflow> {
+  input: AgentRunInput
+}
+
+export interface ChatAgentAfterRunArgs<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> extends ChatAgentBeforeRunArgs<TRuntimeConfig, TWorkflow> {
+  result: unknown
+}
+
+export interface ChatAgentErrorArgs<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> extends ChatAgentHookArgs<TRuntimeConfig, TWorkflow> {
+  error: unknown
+  input?: AgentRunInput
+}
+
+export interface ChatAgentHooks<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> {
+  afterRun?: (args: ChatAgentAfterRunArgs<TRuntimeConfig, TWorkflow>) => MaybePromise<unknown>
+  beforeRun?: (args: ChatAgentBeforeRunArgs<TRuntimeConfig, TWorkflow>) => MaybePromise<AgentRunInput | void>
+  error?: (args: ChatAgentErrorArgs<TRuntimeConfig, TWorkflow>) => MaybePromise<void>
+  prepareInput?: (args: ChatAgentHookArgs<TRuntimeConfig, TWorkflow>) => MaybePromise<AgentRunInput>
+  sendResponse?: (args: ChatAgentAfterRunArgs<TRuntimeConfig, TWorkflow>) => MaybePromise<void>
+}
+
+export interface ChatAgentBindingOptions<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> {
+  definition?: AgentInput<ChatAgentRuntimeContext<TRuntimeConfig>>
+  event?: ChatAgentEvent
+  execution?: Extract<AgentExecution, "inline"> | "workflow"
+  history?: ChatAgentHistory
+  hooks?: ChatAgentHooks<TRuntimeConfig, TWorkflow>
+  name: string
+}
+
+export type ChatAgentBinding<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> = string | ChatAgentBindingOptions<TRuntimeConfig, TWorkflow>
+
+export interface ChatAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig>
+  extends AgentRuntimeContext<TRuntimeConfig> {
+  runtime: AgentRuntimeName
+}
+
 export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> {
   error?: (error: unknown, context: TContext) => MaybePromise<void>
   request?: (context: TContext) => MaybePromise<void>
@@ -169,15 +256,21 @@ export interface ChatWebhookRuntimeHooks<TContext extends ChatRuntimeContext<any
   webhook?: (context: TContext & { bot: Chat }) => MaybePromise<void>
 }
 
-type ChatConfigPassthrough = Omit<ChatConfig, "adapters" | "state" | "userName">
+export type ChatStreamingPlaceholder<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
+  | string
+  | null
+  | ((context: ChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+
+type ChatConfigPassthrough = Omit<ChatConfig, "adapters" | "fallbackStreamingPlaceholderText" | "state" | "userName">
 
 export interface DefineChatOptions<
   TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
 > extends ChatConfigPassthrough, ChatEventHooks<TRuntimeConfig, TWorkflow> {
   adapters: AdapterInput<ResolvedChatRuntimeContext<TRuntimeConfig>>
+  agent?: ChatAgentBinding<TRuntimeConfig, TWorkflow>
   concurrency?: ConcurrencyStrategy | ConcurrencyConfig
-  fallbackStreamingPlaceholderText?: string | null
+  fallbackStreamingPlaceholderText?: ChatStreamingPlaceholder<TRuntimeConfig>
   hooks?: ChatEventHooks<TRuntimeConfig, TWorkflow>
   lifecycleHooks?: ChatWebhookRuntimeHooks<ChatRuntimeContext<TRuntimeConfig>>
   lockScope?: LockScope | ((context: LockScopeContext) => LockScope | Promise<LockScope>)
@@ -192,6 +285,7 @@ export interface DefineChatOptions<
 export interface ResolveChatOptions {
   adapters?: Record<string, Adapter>
   inferredName?: string
+  state?: StateAdapter
 }
 
 export interface ChatDefinition<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> {
@@ -288,10 +382,20 @@ export interface ChatWebhookRegistryHandlerOptions<TContext extends ChatRuntimeC
 }
 
 export interface DiscoveredChatDefinition {
+  exportName?: string
   handler: string
   name: string
   source?: string
+  workspace?: string
 }
+
+export type AgentChatConfig<
+  TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
+  TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
+> = Omit<DefineChatOptions<TRuntimeConfig, TWorkflow>, "agent">
+
+export type AgentChatMetadata<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
+  AgentChatOptions<TRuntimeConfig> & AgentChatConfig<TRuntimeConfig>
 
 export type ChatDurableObjectStateResolver = Resolvable<StateAdapter, ChatRuntimeContext>
 

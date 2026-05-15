@@ -316,13 +316,14 @@ export default {
   it("auto-mounts visible sibling files for directory workspaces", async () => {
     const root = await createRoot()
     await mkdir(join(root, "server", "workspaces", "docs", "nested"), { recursive: true })
-    await writeFile(join(root, "server", "workspaces", "docs", ".config.mjs"), [
+    await writeFile(join(root, "server", "workspaces", "docs", "config.mjs"), [
       `export default {`,
       `  store: { provider: "memory" },`,
       `}`,
       ``,
     ].join("\n"))
     await writeFile(join(root, "server", "workspaces", "docs", "AGENTS.md"), "# Instructions\n", "utf8")
+    await writeFile(join(root, "server", "workspaces", "docs", "agent.ts"), "export default {}\n", "utf8")
     await writeFile(join(root, "server", "workspaces", "docs", "notes.txt"), "notes\n", "utf8")
     await writeFile(join(root, "server", "workspaces", "docs", "nested", "glossary.md"), "glossary\n", "utf8")
     await writeFile(join(root, "server", "workspaces", "docs", ".hidden.md"), "hidden\n", "utf8")
@@ -362,8 +363,45 @@ export default {
     await expect(registry.docs.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
     await expect(registry.docs.readFile("notes.txt")).resolves.toBe("notes\n")
     await expect(registry.docs.readFile("nested/glossary.md")).resolves.toBe("glossary\n")
-    await expect(registry.docs.exists(".config.mjs" as never)).resolves.toBe(false)
+    await expect(registry.docs.exists("config.mjs" as never)).resolves.toBe(false)
+    await expect(registry.docs.exists("agent.ts" as never)).resolves.toBe(false)
     await expect(registry.docs.exists(".hidden.md" as never)).resolves.toBe(false)
+  })
+
+  it("auto-mounts AGENTS.md for colocated agent workspaces", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "const defineAgent = <T>(value: T): T => value\nexport default defineAgent({ workspace: {}, model: {} })\n", "utf8")
+    await writeFile(join(root, "server", "agents", "docs", "AGENTS.md"), "# Agent Instructions\n", "utf8")
+
+    const hooks: Record<string, Array<() => Promise<void>>> = {}
+    const nitro = {
+      hooks: {
+        hook(name: string, callback: () => Promise<void>) {
+          hooks[name] ||= []
+          hooks[name].push(callback)
+        },
+      },
+      logger: {
+        info() {},
+      },
+      options: {
+        _config: {},
+        rootDir: root,
+        runtimeConfig: {},
+        workspace: {
+          assets: ["docs"],
+        },
+      },
+    }
+
+    await workspaceNitroModule.setup!(nitro as never)
+    for (const callback of hooks["build:before"] ?? []) await callback()
+
+    const registryFile = join(root, ".vitehub/nitro-runtime/workspace/assets/registry.mjs")
+    const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
+    await expect(registry.docs.readFile("AGENTS.md")).resolves.toBe("# Agent Instructions\n")
+    await expect(registry.docs.exists("config.ts" as never)).resolves.toBe(false)
   })
 
 })

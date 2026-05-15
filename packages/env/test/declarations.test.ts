@@ -57,6 +57,16 @@ describe("env declarations", () => {
     })
   })
 
+  it("supports ordered env source aliases", () => {
+    expect(resolveEnvSource(env({ source: env.source(["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"]) }), "env.openWorkflow.postgresUrl")).toMatchObject({
+      kind: "env",
+      label: "env:OPENWORKFLOW_POSTGRES_URL|DATABASE_URL",
+      name: "OPENWORKFLOW_POSTGRES_URL",
+      names: ["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"],
+    })
+    expect(() => env.source([])).toThrow("one or more non-empty")
+  })
+
   it("creates built-in and custom sources", () => {
     expect(env.packageJson("version")).toMatchObject({
       kind: "package-json",

@@ -1,5 +1,5 @@
 import { createImportPath } from "@vitehub/internal/build/paths"
-import { createGeneratedDefinitionPath, createRuntimeRegistryContents, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
+import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
@@ -91,7 +91,7 @@ function installCloudflareChatEntrypoint(nitro: Nitro, className: string): void 
 function createNitroChatRoutePath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: "webhook-handler.mjs",
+    fileName: "webhook-handler.ts",
     segments: [".vitehub", "nitro-runtime", "chat"],
   })
 }
@@ -99,7 +99,7 @@ function createNitroChatRoutePath(rootDir: string, buildDir: string): string {
 function createNitroChatRegistryPath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: "nitro-registry.mjs",
+    fileName: "nitro-registry.ts",
     segments: [".vitehub", "nitro-runtime", "chat"],
   })
 }
@@ -107,7 +107,7 @@ function createNitroChatRegistryPath(rootDir: string, buildDir: string): string 
 function createNitroChatDevInitializerPath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: "dev-initialize.mjs",
+    fileName: "dev-initialize.ts",
     segments: [".vitehub", "nitro-runtime", "chat"],
   })
 }
@@ -115,7 +115,7 @@ function createNitroChatDevInitializerPath(rootDir: string, buildDir: string): s
 function createNitroChatDevtoolsPath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: "devtools-handler.mjs",
+    fileName: "devtools-handler.ts",
     segments: [".vitehub", "nitro-runtime", "chat"],
   })
 }
@@ -204,12 +204,20 @@ function renderOptions(options: Record<string, string | undefined>): string {
   return ["{", ...entries, "}"].join("\n")
 }
 
+function renderDevtoolsOptions(options: Record<string, string | undefined>): string {
+  const entries = Object.entries(options)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .map(([key, value]) => `  ${key}: ${value},`)
+  return ["{", ...entries, "}"].join("\n")
+}
+
 function createNitroSingleChatRouteContents(file: string, definition: DiscoveredChatDefinition, options: ResolvedChatModuleOptions): string {
+  const chatExpression = resolveChatImportExpression(file, definition)
   return [
-    `import chat from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     `import { defineChatWebhookHandler } from "@vitehub/chat/nitro"`,
+    ...createChatImportLines(file, definition),
     "",
-    `export default defineChatWebhookHandler(chat, ${renderOptions({
+    `export default defineChatWebhookHandler(${chatExpression}, ${renderOptions({
       processing: options.webhook && options.webhook.processing !== "defer" ? options.webhook.processing : undefined,
       inferredName: definition.name,
       routeParam: options.webhook && options.webhook.routeParam !== "platform" ? options.webhook.routeParam : undefined,
@@ -233,11 +241,12 @@ function createNitroRegistryChatRouteContents(file: string, registryFile: string
 }
 
 function createNitroSingleChatDevInitializerContents(file: string, definition: DiscoveredChatDefinition): string {
+  const chatExpression = resolveChatImportExpression(file, definition)
   return [
-    `import chat from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     `import { defineChatDevInitializer } from "@vitehub/chat/nitro"`,
+    ...createChatImportLines(file, definition),
     "",
-    `export default defineChatDevInitializer(chat, ${renderOptions({
+    `export default defineChatDevInitializer(${chatExpression}, ${renderOptions({
       inferredName: definition.name,
     })})`,
     "",
@@ -255,23 +264,115 @@ function createNitroRegistryChatDevInitializerContents(file: string, registryFil
 }
 
 function createNitroSingleChatDevtoolsContents(file: string, definition: DiscoveredChatDefinition): string {
+  const chatExpression = resolveChatImportExpression(file, definition)
+  const metadataExpression = isAgentChatDefinition(definition)
+    ? `() => resolveAgentDevtoolsMetadata(agent, ${renderAgentDevtoolsDefaults(definition)})`
+    : undefined
   return [
-    `import chat from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     `import { defineChatDevtoolsHandler } from "@vitehub/chat/nitro"`,
+    ...(metadataExpression ? [`import { resolveAgentDevtoolsMetadata } from "@vitehub/agent"`] : []),
+    ...createChatImportLines(file, definition),
     "",
-    `export default defineChatDevtoolsHandler(chat, ${renderOptions({
-      inferredName: definition.name,
+    `export default defineChatDevtoolsHandler(${chatExpression}, ${renderDevtoolsOptions({
+      inferredName: JSON.stringify(definition.name),
+      metadata: metadataExpression,
     })})`,
     "",
   ].join("\n")
 }
 
-function createNitroRegistryChatDevtoolsContents(file: string, registryFile: string): string {
+function renderAgentDevtoolsDefaults(definition: DiscoveredChatDefinition): string {
+  return `{ name: ${JSON.stringify(definition.name)}, workspace: ${JSON.stringify(definition.workspace || definition.name)} }`
+}
+
+function isAgentChatDefinition(definition: DiscoveredChatDefinition): boolean {
+  return definition.source === "nitro-server-agent-chat"
+}
+
+function agentExpression(expression: string, definition: DiscoveredChatDefinition): string {
+  if (!definition.workspace) {
+    return expression
+  }
+  return `withWorkspaceAgentDefaults(${expression}, { name: ${JSON.stringify(definition.name)}, workspace: ${JSON.stringify(definition.workspace)} })`
+}
+
+function createChatImportLines(file: string, definition: DiscoveredChatDefinition): string[] {
+  const importPath = JSON.stringify(createImportPath(file, definition.handler))
+  if (!isAgentChatDefinition(definition)) {
+    return [`import chat from ${importPath}`]
+  }
+  if (definition.exportName) {
+    return [
+      ...(definition.workspace ? [`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`] : []),
+      `import { createChatFromAgent } from "@vitehub/chat/runtime/agent-chat"`,
+      `import { ${definition.exportName} as agent } from ${importPath}`,
+      `const chat = createChatFromAgent(${agentExpression("agent", definition)}, ${JSON.stringify(definition.name)})`,
+    ]
+  }
+  return [
+    ...(definition.workspace ? [`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`] : []),
+    `import { createChatFromAgent } from "@vitehub/chat/runtime/agent-chat"`,
+    `import agent from ${importPath}`,
+    `const chat = createChatFromAgent(${agentExpression("agent", definition)}, ${JSON.stringify(definition.name)})`,
+  ]
+}
+
+function resolveChatImportExpression(_file: string, _definition: DiscoveredChatDefinition): string {
+  return "chat"
+}
+
+function createNitroChatRegistryContents(file: string, definitions: DiscoveredChatDefinition[]): string {
+  const entries = definitions.map((definition) => {
+    const importPath = JSON.stringify(createImportPath(file, definition.handler))
+    if (!isAgentChatDefinition(definition)) {
+      if (definition.exportName) {
+        return `  ${JSON.stringify(definition.name)}: async () => ({ default: (await import(${importPath}))[${JSON.stringify(definition.exportName)}] }),`
+      }
+      return `  ${JSON.stringify(definition.name)}: async () => import(${importPath}),`
+    }
+    if (definition.exportName) {
+      return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: createChatFromAgent(${agentExpression(`mod[${JSON.stringify(definition.exportName)}]`, definition)}, ${JSON.stringify(definition.name)}) } },`
+    }
+    return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: createChatFromAgent(${agentExpression("mod.default", definition)}, ${JSON.stringify(definition.name)}) } },`
+  })
+  const usesWorkspaceDefaults = definitions.some(definition => definition.workspace)
+  return [
+    ...(usesWorkspaceDefaults ? [`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`] : []),
+    `import { createChatFromAgent } from "@vitehub/chat/runtime/agent-chat"`,
+    "",
+    "const registry = {",
+    ...entries,
+    "}",
+    "export default registry",
+    "",
+  ].join("\n")
+}
+
+function metadataImportName(index: number): string {
+  return `devtoolsMetadataAgent${index}`
+}
+
+function createNitroRegistryChatDevtoolsContents(file: string, registryFile: string, definitions: DiscoveredChatDefinition[]): string {
+  const agentDefinitions = definitions.filter(isAgentChatDefinition)
   return [
     `import chatRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    ...(agentDefinitions.length ? [`import { resolveAgentDevtoolsMetadata } from "@vitehub/agent"`] : []),
     `import { defineChatDevtoolsRegistryHandler } from "@vitehub/chat/nitro"`,
+    ...agentDefinitions.map((definition, index) => definition.exportName
+      ? `import { ${definition.exportName} as ${metadataImportName(index)} } from ${JSON.stringify(createImportPath(file, definition.handler))}`
+      : `import ${metadataImportName(index)} from ${JSON.stringify(createImportPath(file, definition.handler))}`),
+    ...(agentDefinitions.length
+      ? [
+          "",
+          "const metadata = {",
+          ...agentDefinitions.map((definition, index) => `  ${JSON.stringify(definition.name)}: () => resolveAgentDevtoolsMetadata(${metadataImportName(index)}, ${renderAgentDevtoolsDefaults(definition)}),`),
+          "}",
+        ]
+      : []),
     "",
-    `export default defineChatDevtoolsRegistryHandler(chatRegistry)`,
+    `export default defineChatDevtoolsRegistryHandler(chatRegistry, ${renderDevtoolsOptions({
+      metadata: agentDefinitions.length ? "metadata" : undefined,
+    })})`,
     "",
   ].join("\n")
 }
@@ -311,7 +412,7 @@ async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | Resolve
   let registryFile: string | undefined
   if (definitions.length && (definitions.length > 1 || hasChatParam)) {
     registryFile = createNitroChatRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
-    await writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions))
+    await writeFileIfChanged(registryFile, createNitroChatRegistryContents(registryFile, definitions))
   }
 
   let routeFile: string | undefined
@@ -344,7 +445,7 @@ async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | Resolve
       await writeFileIfChanged(devtoolsFile, createNitroEmptyChatDevtoolsContents())
     }
     else if (definitions.length > 1 && registryFile) {
-      await writeFileIfChanged(devtoolsFile, createNitroRegistryChatDevtoolsContents(devtoolsFile, registryFile))
+      await writeFileIfChanged(devtoolsFile, createNitroRegistryChatDevtoolsContents(devtoolsFile, registryFile, definitions))
     }
     else {
       await writeFileIfChanged(devtoolsFile, createNitroSingleChatDevtoolsContents(devtoolsFile, definitions[0]!))
@@ -359,6 +460,7 @@ function installAliases(nitro: Nitro): void {
   nitro.options.alias["@vitehub/chat"] = resolveRuntimeEntry("../index", "@vitehub/chat")
   nitro.options.alias["@vitehub/chat/cloudflare"] = resolveRuntimeEntry("../cloudflare", "@vitehub/chat/cloudflare")
   nitro.options.alias["@vitehub/chat/nitro"] = resolveRuntimeEntry("../nitro", "@vitehub/chat/nitro")
+  nitro.options.alias["@vitehub/chat/runtime/agent-chat"] = resolveRuntimeEntry("../runtime/agent-chat", "@vitehub/chat/runtime/agent-chat")
   nitro.options.alias["@vitehub/chat/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vitehub/chat/runtime/nitro-runtime-config")
   nitro.options.alias["@vitehub/chat/runtime/nitro-plugin"] = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/chat/runtime/nitro-plugin")
   nitro.options.alias["@vitehub/chat/vercel"] = resolveRuntimeEntry("../vercel", "@vitehub/chat/vercel")
@@ -384,7 +486,7 @@ function installExternals(nitro: Nitro): void {
   }
   options.externals ||= {}
   options.externals.inline ||= []
-  for (const dependency of ["@vitehub/chat", "chat", "chat-state-cloudflare-do"]) {
+  for (const dependency of ["@vitehub/chat", "@vitehub/workflow", "chat", "chat-state-cloudflare-do"]) {
     if (!options.externals.inline.includes(dependency)) {
       options.externals.inline.push(dependency)
     }

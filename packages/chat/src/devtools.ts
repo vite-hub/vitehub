@@ -22,6 +22,8 @@ import type { DevToolsRpcServerFunctions, ViteDevToolsNodeContext } from "@vitej
 import type {
   ChatDevtoolsClearInput,
   ChatDevtoolsConversation,
+  ChatDevtoolsFileTreeItem,
+  ChatDevtoolsMetadata,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
@@ -29,6 +31,7 @@ import type {
   ChatDevtoolsStateResult,
   ChatDevtoolsStreamEvent,
   ChatDevtoolsTool,
+  ChatDevtoolsToolDefinition,
   ChatDevtoolsToolStatus,
 } from "./devtools-shared.js"
 
@@ -48,6 +51,9 @@ export {
 export type {
   ChatDevtoolsClearInput,
   ChatDevtoolsConversation,
+  ChatDevtoolsFileKind,
+  ChatDevtoolsFileTreeItem,
+  ChatDevtoolsMetadata,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
@@ -55,6 +61,7 @@ export type {
   ChatDevtoolsStateResult,
   ChatDevtoolsStreamEvent,
   ChatDevtoolsTool,
+  ChatDevtoolsToolDefinition,
   ChatDevtoolsToolStatus,
 } from "./devtools-shared.js"
 
@@ -89,6 +96,7 @@ export interface ChatDevtoolsAdapter extends Adapter {
 }
 
 export interface ChatDevtoolsAdapterOptions {
+  metadata?: ChatDevtoolsMetadata
   name?: string
 }
 
@@ -126,6 +134,7 @@ export interface ChatDevtoolsToolStepItem {
 export interface ChatDevtoolsToolStep {
   text?: string
   toolCalls?: ChatDevtoolsToolStepItem[]
+  toolErrors?: ChatDevtoolsToolStepItem[]
   toolResults?: ChatDevtoolsToolStepItem[]
 }
 
@@ -187,6 +196,29 @@ function commandLabel(input: unknown): string | undefined {
   return isRecord(input) && typeof input.command === "string"
     ? truncateText(input.command.trim(), 80)
     : undefined
+}
+
+function commandFromInput(input: unknown): string | undefined {
+  return isRecord(input) && typeof input.command === "string" ? input.command.trim() : undefined
+}
+
+function isUnsupportedShellOutput(output: unknown): boolean {
+  if (typeof output === "string") {
+    return output.includes("Unsupported shell syntax:")
+      || output.includes("Unsupported workspace shell command:")
+  }
+  if (isRecord(output)) {
+    return isUnsupportedShellOutput(output.stderr) || isUnsupportedShellOutput(output.stdout)
+  }
+  return false
+}
+
+function isConversationalEchoTool(tool: Pick<ChatDevtoolsTool, "input" | "name" | "output">): boolean {
+  const command = commandFromInput(tool.input)
+  return tool.name === "shell"
+    && !!command
+    && /^echo(?:\s|$)/.test(command)
+    && isUnsupportedShellOutput(tool.output)
 }
 
 function toolName(tool: { name?: unknown, toolName?: unknown }): string {
@@ -255,16 +287,19 @@ export async function reportChatDevtoolsToolStep(
 ): Promise<void> {
   if (step.text?.trim()) return
 
-  const latestTool = step.toolResults?.at(-1) || step.toolCalls?.at(-1)
+  const latestError = step.toolErrors?.at(-1)
+  const latestResult = step.toolResults?.at(-1)
+  const latestTool = latestError || latestResult || step.toolCalls?.at(-1)
   if (!latestTool) return
 
-  const status: ChatDevtoolsToolStatus = step.toolResults?.at(-1) === latestTool ? "completed" : "running"
+  const status: ChatDevtoolsToolStatus = latestError === latestTool ? "error" : latestResult === latestTool ? "completed" : "running"
   const name = toolName(latestTool)
   const toolCalls = step.toolCalls?.length || 0
+  const toolErrors = step.toolErrors?.length || 0
   const toolResults = step.toolResults?.length || 0
   const text = options.label?.(latestTool, status) || defaultToolLabel(latestTool)
   await thread.startTyping(createChatDevtoolsToolStatus({
-    id: toolId(latestTool, name, (toolResults || toolCalls) - 1),
+    id: toolId(latestTool, name, (toolErrors || toolResults || toolCalls) - 1),
     input: latestTool.input,
     name,
     output: "output" in latestTool ? previewValue(latestTool.output, options.outputPreviewLength) : undefined,
@@ -303,6 +338,9 @@ export function createChatDevtoolsStepReporter(
     }
     for (const [index, toolResult] of (step.toolResults || []).entries()) {
       await reportToolStepItem(thread, toolResult, "completed", index, options)
+    }
+    for (const [index, toolError] of (step.toolErrors || []).entries()) {
+      await reportToolStepItem(thread, toolError, "error", index, options)
     }
   }
 }
@@ -423,8 +461,17 @@ function createTranscriptMessage(role: ChatDevtoolsMessageRole, text: string): C
   }
 }
 
+function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): Required<ChatDevtoolsMetadata> {
+  return {
+    files: metadata?.files ? [...metadata.files] : [],
+    instructions: metadata?.instructions ? [...metadata.instructions] : [],
+    tools: metadata?.tools ? [...metadata.tools] : [],
+  }
+}
+
 export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}): ChatDevtoolsAdapter {
   const adapterName = options.name || chatDevtoolsAdapterName
+  const metadata = normalizeDevtoolsMetadata(options.metadata)
   const transcripts = new Map<string, ChatDevtoolsMessage[]>()
   const typingMessageIds = new Map<string, string>()
 
@@ -449,11 +496,13 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     const id = typingMessageIds.get(threadId) || latestAssistantMessage(threadId)?.id
     const existing = id ? findMessage(threadId, id) : undefined
     if (existing) {
+      existing.loading = true
       typingMessageIds.set(threadId, existing.id)
       return existing
     }
 
     const message = createTranscriptMessage("assistant", "")
+    message.loading = true
     typingMessageIds.set(threadId, message.id)
     getMessages(chatFromThreadId(adapterName, threadId)).push(message)
     return message
@@ -462,6 +511,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
   function recordToolStatus(threadId: string, text: string): boolean {
     const tool = parseChatDevtoolsToolStatus(text)
     if (!tool) return false
+    if (isConversationalEchoTool(tool)) return true
 
     const message = ensureTypingMessage(threadId)
     const tools = message.tools ||= []
@@ -478,6 +528,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
       const existing = findMessage(threadId, typingMessageId)
       typingMessageIds.delete(threadId)
       if (existing) {
+        existing.loading = false
         existing.text = text
         return existing
       }
@@ -535,7 +586,11 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     editMessage: async (threadId, messageId, message) => {
       const text = renderPostableText(message)
       const existing = findMessage(threadId, messageId)
-      if (existing) existing.text = text
+      if (existing) {
+        existing.loading = false
+        existing.text = text
+        if (typingMessageIds.get(threadId) === messageId) typingMessageIds.delete(threadId)
+      }
       return { id: messageId, threadId, raw: { text } }
     },
     fetchMessages: async threadId => ({ messages: getMessages(chatFromThreadId(adapterName, threadId)) as never }),
@@ -555,7 +610,10 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
       }
       return {
         chats,
+        files: metadata.files,
+        instructions: metadata.instructions,
         selected: chat && chats.some(item => item.name === chat) ? chat : chats[0]!.name,
+        tools: metadata.tools,
       }
     },
     handleWebhook: async () => new Response(null, { status: 204 }),
@@ -726,7 +784,6 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsGetStateRpc,
           type: "query",
-          jsonSerializable: true,
           setup: () => ({ handler: async () => await postChatDevtoolsBridge(ctx, route, { action: "get-state" }) }),
         }) as never)
         ctx.rpc.register(defineRpcFunction({
@@ -739,9 +796,9 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
               }
               const stream = chatStream.start()
               void writeChatDevtoolsStream(ctx, route, { action: "send", ...input }, stream)
-              const state = await postChatDevtoolsBridge(ctx, route, { action: "get-state" })
               return {
-                ...state,
+                chats: [],
+                selected: input.chat || "",
                 streamId: stream.id,
               }
             },
@@ -750,7 +807,6 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsClearRpc,
           type: "action",
-          jsonSerializable: true,
           setup: () => ({ handler: async input => await postChatDevtoolsBridge(ctx, route, { action: "clear", ...input }) }),
         }) as never)
       },

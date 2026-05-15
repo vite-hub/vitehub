@@ -1,122 +1,115 @@
 ---
 title: Chat
-description: Define Chat SDK bots once and run their webhooks through Vite, Nitro, Cloudflare, or Vercel.
+description: Define Chat SDK bots and run their webhooks through ViteHub.
 navigation.title: Overview
 navigation.order: 0
 icon: i-lucide-message-circle
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/chat` connects the Chat SDK to ViteHub apps. Define a bot with adapters, state, and event hooks, then let ViteHub generate webhook handlers for the runtime that serves the app.
+`@vitehub/chat` connects Chat SDK adapters to ViteHub apps. A chat-enabled Agent owns the bot configuration and message handling in one discovered file. When Chat hands off to Agent, it passes canonical `@vitehub/messages` history and a runtime-compatible context.
 
-Use Chat when an app needs a bot entrypoint without hand-writing platform-specific webhook routes, `waitUntil` plumbing, or Cloudflare Durable Object state setup.
+Use Chat when an app receives provider chat events and posts responses back to a thread.
 
-::code-group
-```ts [server/chat.ts]
-import { defineChat } from '@vitehub/chat'
-import { cloudflareDurableObjectState } from '@vitehub/chat/cloudflare'
+```ts [server/agents/triage.ts]
+import { defineAgent } from '@vitehub/agent'
+import { getMessageText } from '@vitehub/messages'
 
-export default defineChat({
-  adapters: ({ runtimeConfig }) => ({
-    telegram: createTelegramAdapter({
-      botToken: runtimeConfig.telegram.botToken,
-    }),
-  }),
-  async onDirectMessage({ message, thread }) {
-    await thread.post(`Received: ${message.text}`)
+export default defineAgent({
+  chat: {
+    adapters,
+    state,
   },
-  state: cloudflareDurableObjectState(),
-  userName: 'Support Bot',
+  async run({ input }) {
+    const latest = input.messages?.at(-1)
+    const message = latest ? getMessageText(latest) : ''
+
+    return {
+      text: `Received: ${message}`,
+    }
+  },
 })
 ```
 
-```ts [vite.config.ts]
-import { hubChat } from '@vitehub/chat/vite'
-import { DevTools } from '@vitejs/devtools'
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [
-    DevTools(),
-    hubChat(),
-    nitro(),
-  ],
-})
-```
-::
-
-## What Chat solves
-
-Chat keeps bot behavior in one definition while deployment-specific wiring stays in config.
+## What Chat owns
 
 ::card-group
   :::card
   ---
+  icon: i-lucide-webhook
+  title: Webhooks
+  ---
+  Generate webhook handlers and route provider events into Chat SDK adapters.
+  :::
+
+  :::card
+  ---
+  icon: i-lucide-message-circle
+  title: Conversation hooks
+  ---
+  Handle direct messages, mentions, reactions, actions, modal submits, and subscribed messages.
+  :::
+
+  :::card
+  ---
   icon: i-lucide-bot
-  title: One bot definition
+  title: Agent handoff
   ---
-  Configure Chat SDK adapters, state, and message handlers in `defineChat()`.
-  :::
-
-  :::card
-  ---
-  icon: i-lucide-route
-  title: Generated webhooks
-  ---
-  Discover chat files and mount webhook routes such as `/api/webhooks/[platform]`.
-  :::
-
-  :::card
-  ---
-  icon: i-lucide-cloud
-  title: Runtime context
-  ---
-  Resolve adapters and state from Nitro runtime config, Cloudflare bindings, or Vercel `waitUntil`.
-  :::
-
-  :::card
-  ---
-  icon: i-lucide-database
-  title: Durable state
-  ---
-  Use Cloudflare Durable Objects for Chat SDK state, with a memory fallback during local development.
+  Route direct messages to a discovered Agent with ViteHub message history.
   :::
 ::
 
-## One portable flow
+## What Chat does not own
 
-1. Install `@vitehub/chat` and the Chat SDK adapter packages your bot needs.
-2. Register `hubChat()` for Vite apps, or register `@vitehub/chat/nitro` for Nitro-only apps.
-3. Add `server/chat.ts` or named files under `server/chats/`.
-4. Export `defineChat()` from each chat file.
-5. Point provider webhooks at the generated route.
+Chat does not own model execution, canonical message storage, or shared runtime capability contracts. Use:
 
-::callout{icon="i-lucide-info" color="info"}
-Adapter packages, bot tokens, and webhook secrets come from the provider you are integrating with. `@vitehub/chat` provides the ViteHub runtime integration around those Chat SDK pieces.
+| Need | Use |
+| --- | --- |
+| Model and tool-loop execution | `@vitehub/agent` |
+| Portable conversation and stream state | `@vitehub/messages` |
+| Shared capability, approval, and trace contracts | `@vitehub/runtime` |
+| Durable orchestration | `@vitehub/workflow` |
+
+## Start here
+
+::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Quickstart
+  description: Register Chat and define one bot.
+  to: ./quickstart
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Usage
+  description: Configure hooks, multiple chats, webhook routes, and Agent handoff.
+  to: ./usage
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Runtime API
+  description: Review exports, options, runtime context, and webhook settings.
+  to: ./runtime-api
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Troubleshooting
+  description: Fix missing names, unknown platforms, duplicate hooks, and state issues.
+  to: ./troubleshooting
+  ---
+  :::
 ::
 
-## Discovery model
-
-::fw{id="vite:dev vite:build"}
-Vite apps use `hubChat()` and Nitro's Vite plugin together. Chat definitions are discovered from the Nitro server tree.
-
-The Chat DevTools panel must be registered from Vite with `hubChat()` or `chatDevTools()`. `@vitehub/chat/nitro` owns the generated bridge route and runtime behavior, but Nitro modules cannot currently add root Vite DevTools integrations on their own. Track [nitrojs/nitro#4250](https://github.com/nitrojs/nitro/issues/4250) for that upstream capability.
-::
-
-::fw{id="nitro:dev nitro:build"}
-Nitro discovers a single `server/chat.ts` definition or a registry under `server/chats/**`.
-
-`server/chat.ts` becomes the default chat. `server/chats/support.ts` becomes a named chat called `support`.
-::
-
-## Supported providers
+## Providers
 
 ::u-page-grid{class="pb-2"}
   :::u-page-card
   ---
   title: Cloudflare
-  description: Use Workers and Durable Objects for webhook execution and Chat SDK state.
+  description: Use Workers and Durable Objects for Chat webhooks and state.
   icon: i-simple-icons-cloudflare
   to: ./providers/cloudflare
   ---
@@ -124,46 +117,9 @@ Nitro discovers a single `server/chat.ts` definition or a registry under `server
   :::u-page-card
   ---
   title: Vercel
-  description: Use Vercel Functions with provider-neutral webhook handlers.
+  description: Use Vercel Functions with provider-neutral chat definitions.
   icon: i-simple-icons-vercel
   to: ./providers/vercel
-  ---
-  :::
-::
-
-## Start here
-
-Start with [Quickstart](./quickstart) for the smallest Nitro webhook setup. Use [Usage](./usage) when you need multiple chats, hook sugar, or custom routes.
-
-## Next steps
-
-::u-page-grid{class="pb-2"}
-  :::u-page-card
-  ---
-  title: Quickstart
-  description: Register Chat, define one bot, and verify the generated webhook route.
-  to: ./quickstart
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Usage
-  description: Configure discovery, hooks, state, lifecycle hooks, and webhook routes.
-  to: ./usage
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Runtime API
-  description: Review exports, option shapes, handlers, and runtime context fields.
-  to: ./runtime-api
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Troubleshooting
-  description: Fix missing user names, unknown platforms, bindings, and local state issues.
-  to: ./troubleshooting
   ---
   :::
 ::

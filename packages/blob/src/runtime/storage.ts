@@ -29,6 +29,11 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
         : await import("../drivers/vercel.js")) as { createDriver: (options: typeof config) => any }
       return module.createDriver(config)
     }
+    default: {
+      const modulePath = new URL(isSourceRuntime ? "../drivers/files.ts" : "../drivers/files.js", import.meta.url).href
+      const module = await import(modulePath) as { createDriver: (options: typeof config) => any }
+      return module.createDriver(config)
+    }
   }
 }
 

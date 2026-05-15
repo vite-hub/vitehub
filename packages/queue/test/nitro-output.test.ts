@@ -95,13 +95,16 @@ describe("Nitro provider outputs", () => {
 
     const vercelConsumer = join(vercelFunctionsDir, "api", "vitehub", "queues", "vercel", "welcome", "welcome.func", "index.mjs")
     const vercelConsumerConfig = join(vercelFunctionsDir, "api", "vitehub", "queues", "vercel", "welcome", "welcome.func", ".vc-config.json")
+    const vercelServerContents = await readFile(vercelServer, "utf8")
     const vercelConsumerContents = await readFile(vercelConsumer, "utf8")
     const vercelConsumerTrigger = JSON.parse(await readFile(vercelConsumerConfig, "utf8")).experimentalTriggers?.[0]
 
     expect(existsSync(vercelServer)).toBe(true)
     expect(existsSync(vercelConsumer)).toBe(true)
+    expect(vercelServerContents).toContain("__vitehubVercelQueue")
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).not.toContain("runWithQueueRuntimeEvent({ req, res },")
+    expect(vercelConsumerContents).toContain("__vitehubVercelQueue")
     await assertNoNitroInternalVirtualImports(vercelBuild.outputDir)
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Swelcome_Dfunc",

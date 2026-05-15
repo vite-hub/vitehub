@@ -3,11 +3,33 @@
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
     "paths": {
-      "@vitehub/chat": ["./src/index.ts"],
-      "@vitehub/chat/cloudflare": ["./src/cloudflare.ts"],
-      "@vitehub/chat/runtime/nitro-dev-initialize": ["./src/runtime/nitro-dev-initialize.ts"]
+      "#vitehub/agent/registry": [
+        "packages/agent/src/runtime/empty-registry.ts"
+      ],
+      "@vitehub/chat": [
+        "packages/chat/src/index.ts"
+      ],
+      "@vitehub/chat/cloudflare": [
+        "packages/chat/src/cloudflare.ts"
+      ],
+      "@vitehub/chat/runtime/nitro-dev-initialize": [
+        "packages/chat/src/runtime/nitro-dev-initialize.ts"
+      ],
+      "@vitehub/chat/runtime/memory-state": [
+        "packages/chat/src/runtime/memory-state.ts"
+      ],
+      "@vitehub/internal/*": [
+        "packages/internal/src/*"
+      ],
+      "@vitehub/messages": [
+        "packages/messages/src/index.ts"
+      ],
+      "@vitehub/runtime": [
+        "packages/runtime/src/index.ts"
+      ]
     },
-    "rootDir": "."
+    "rootDir": "..",
+    "baseUrl": "../.."
   },
   "include": [
     "src/**/*.ts",

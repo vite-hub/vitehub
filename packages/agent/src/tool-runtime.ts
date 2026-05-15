@@ -1,0 +1,170 @@
+import {
+  ApprovalRequiredError,
+  CapabilityDeniedError,
+  resolveCapabilityPolicy,
+} from "@vitehub/runtime"
+
+import type {
+  AgentRuntimeContext,
+  AgentToolDefinition,
+  AgentToolSet,
+  AgentToolStepItem,
+} from "./types.ts"
+
+function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
+  return typeof value === "object" && value !== null && "name" in value && typeof (value as { name?: unknown }).name === "string"
+}
+
+function createApprovalRequest(name: string, input: unknown, reason?: string) {
+  return {
+    capability: name,
+    id: `approval_${name}_${Math.random().toString(36).slice(2, 10)}`,
+    input,
+    reason,
+    state: "awaiting-approval" as const,
+  }
+}
+
+function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
+  if (!tool.policy || typeof tool.execute !== "function") {
+    return tool
+  }
+
+  const execute = tool.execute
+  const policy = tool.policy
+
+  return {
+    ...tool,
+    async execute(input) {
+      const decision = typeof policy === "function"
+        ? await policy({
+            name: tool.name,
+            input,
+          })
+        : await resolveCapabilityPolicy(policy, {
+            capability: tool.name,
+            input,
+            operation: "tool.execute",
+          })
+
+      const approvalRequest = createApprovalRequest(tool.name, input)
+
+      if (decision === "deny") {
+        throw new CapabilityDeniedError(tool.name)
+      }
+      if (decision === "require-approval") {
+        throw new ApprovalRequiredError(approvalRequest)
+      }
+      if (decision === "retryable-failure") {
+        throw new Error(`[vitehub:agent] Tool "${tool.name}" failed with a retryable policy decision.`)
+      }
+
+      return await execute(input)
+    },
+  }
+}
+
+export function applyAgentToolPolicies<TTools extends Record<string, unknown>>(tools: TTools | undefined): TTools | undefined {
+  if (!tools || typeof tools !== "object") {
+    return tools
+  }
+
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!isAgentToolDefinition(tool)) {
+      return [name, tool]
+    }
+    return [name, withToolPolicy(tool)]
+  })) as TTools
+}
+
+type AgentToolStepReporter = NonNullable<AgentRuntimeContext["devtools"]>["reportToolStep"]
+
+function createToolCallId(name: string): string {
+  return `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function getErrorOutput(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function materializeSummary(output: unknown): unknown {
+  if (!output || typeof output !== "object") return output
+  const result = output as {
+    bytes?: unknown
+    directories?: unknown
+    durationMs?: unknown
+    files?: unknown
+    path?: unknown
+    sources?: unknown
+  }
+  const files = typeof result.files === "number" ? result.files : 0
+  const sources = Array.isArray(result.sources)
+    ? result.sources.map(source => typeof source === "object" && source && "source" in source ? String((source as { source: unknown }).source) : "").filter(Boolean)
+    : []
+  const target = sources.length ? sources.join(" and ") : "workspace sources"
+  return {
+    ...result,
+    summary: `Materialized ${target}${files ? ` (${files.toLocaleString()} file${files === 1 ? "" : "s"})` : ""}.`,
+  }
+}
+
+export async function reportWorkspaceMaterialization(
+  tools: AgentToolSet | undefined,
+  reportToolStep?: AgentToolStepReporter,
+): Promise<void> {
+  if (!reportToolStep || !tools || typeof tools !== "object") return
+  const materializeTool = (tools as Record<string, unknown>).materialize_sources
+  const execute = materializeTool && typeof materializeTool === "object" && typeof (materializeTool as { execute?: unknown }).execute === "function"
+    ? (materializeTool as { execute: (input: unknown) => Promise<unknown> }).execute
+    : undefined
+  if (!execute) return
+
+  const toolCall: AgentToolStepItem = {
+    input: { path: "" },
+    toolCallId: createToolCallId("materialize_sources"),
+    toolName: "materialize_sources",
+  }
+  await reportToolStep({ toolCalls: [toolCall] })
+  try {
+    const output = await execute.call(materializeTool, toolCall.input)
+    await reportToolStep({ toolResults: [{ ...toolCall, output: materializeSummary(output) }] })
+  }
+  catch (error) {
+    await reportToolStep({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
+  }
+}
+
+export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: TTools, reportToolStep?: AgentToolStepReporter): TTools {
+  if (!reportToolStep || !tools || typeof tools !== "object") {
+    return tools
+  }
+
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
+      return [name, tool]
+    }
+
+    const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
+    return [name, {
+      ...tool,
+      async execute(input: unknown, ...args: unknown[]) {
+        const toolCall: AgentToolStepItem = {
+          input,
+          toolCallId: createToolCallId(name),
+          toolName: name,
+        }
+
+        await reportToolStep({ toolCalls: [toolCall] })
+        try {
+          const output = await execute.call(tool, input, ...args)
+          await reportToolStep({ toolResults: [{ ...toolCall, output }] })
+          return output
+        }
+        catch (error) {
+          await reportToolStep({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
+          throw error
+        }
+      },
+    }]
+  })) as TTools
+}

@@ -28,6 +28,14 @@ function resolveDependency(specifier: string) {
   return createRequire(import.meta.url).resolve(specifier)
 }
 
+function resolveShellDependency(specifier: string) {
+  return createRequire(resolveDependency("@vitehub/shell/package.json")).resolve(specifier)
+}
+
+function resolveShellTransitiveDependency(parentSpecifier: string, specifier: string) {
+  return createRequire(resolveShellDependency(parentSpecifier)).resolve(specifier)
+}
+
 function resolveIsomorphicGitEsmEntry() {
   return resolve(dirname(resolveDependency("isomorphic-git")), "index.js")
 }
@@ -194,6 +202,10 @@ const workspaceNitroModule: NitroModule = {
     for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
       nitro.options.alias[dependency] = resolveDependency(dependency)
     }
+    for (const dependency of ["sprintf-js", "turndown"]) {
+      nitro.options.alias[dependency] = resolveShellDependency(dependency)
+    }
+    nitro.options.alias["@mixmark-io/domino"] = resolveShellTransitiveDependency("turndown", "@mixmark-io/domino")
 
     let definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
     const registryFile = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)

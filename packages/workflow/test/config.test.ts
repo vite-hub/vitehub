@@ -23,6 +23,66 @@ describe("workflow config", () => {
     })
   })
 
+  it("does not infer openworkflow from node hosting without Postgres config", () => {
+    expect(normalizeWorkflowOptions(undefined, { hosting: "node-server" })).toEqual({
+      provider: "vercel",
+    })
+  })
+
+  it("infers openworkflow from node hosting with Postgres config", () => {
+    expect(normalizeWorkflowOptions({
+      postgres: {
+        url: "postgres://localhost/vitehub",
+      },
+      worker: { concurrency: 2 },
+    }, { hosting: "node-server" })).toEqual({
+      postgres: {
+        url: "postgres://localhost/vitehub",
+      },
+      provider: "openworkflow",
+      worker: { concurrency: 2 },
+    })
+  })
+
+  it("does not infer openworkflow from docker hosting without Postgres config", () => {
+    expect(normalizeWorkflowOptions({}, { hosting: "docker" })).toEqual({
+      provider: "vercel",
+    })
+  })
+
+  it("normalizes node provider alias to openworkflow", () => {
+    expect(normalizeWorkflowOptions({
+      postgres: {
+        namespaceId: "production",
+        runMigrations: false,
+        schema: "vitehub_workflow",
+        url: "postgres://localhost/vitehub",
+      },
+      provider: "node",
+      worker: { concurrency: 4 },
+    })).toEqual({
+      postgres: {
+        namespaceId: "production",
+        runMigrations: false,
+        schema: "vitehub_workflow",
+        url: "postgres://localhost/vitehub",
+      },
+      provider: "openworkflow",
+      worker: { concurrency: 4 },
+    })
+  })
+
+  it("rejects invalid openworkflow options", () => {
+    expect(() => normalizeWorkflowOptions({
+      postgres: "postgres://localhost/vitehub",
+      provider: "openworkflow",
+    } as never)).toThrow(/workflow\.postgres/)
+    expect(() => normalizeWorkflowOptions({
+      provider: "openworkflow",
+      worker: { concurrency: 0 },
+    } as never)).toThrow(/workflow\.worker\.concurrency/)
+  })
+
   it("rejects unknown providers", () => {
     expect(() => normalizeWorkflowOptions({ provider: "other" } as never)).toThrow(/Unknown `workflow.provider`/)
   })

@@ -57,4 +57,17 @@ describe("fs blob driver", () => {
       hasMore: false,
     })
   })
+
+  it("preserves content type when reading blobs", async () => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
+    tempDirs.push(base)
+
+    const driver = createDriver({ base, driver: "fs" })
+    await driver.put("notes/hello.txt", "hello", { contentType: "text/plain" })
+
+    const blob = await driver.get("notes/hello.txt")
+
+    expect(blob?.type).toBe("text/plain")
+    expect(await blob?.text()).toBe("hello")
+  })
 })

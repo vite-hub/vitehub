@@ -1,48 +1,46 @@
 ---
 title: Shell troubleshooting
-description: Fix unsupported commands, path escapes, read-only writes, search flags, and Cloudflare client mismatches.
+description: Fix command failures, path escapes, read-only writes, and parser errors.
 navigation.title: Troubleshooting
-navigation.order: 100
+navigation.order: 4
 icon: i-lucide-circle-alert
 frameworks: [vite, nitro]
 ---
 
-Use this page when a Shell runtime returns a non-zero exit code or rejects a command.
+Use this page when `exec()` returns a non-zero exit code or rejects input.
 
 ## Unsupported command
 
 Error:
 
 ```txt
-Unsupported workspace shell command: rm
+bash: rm: command not found
 ```
 
-Cause: the command is not included in `allowedCommands` or `commands`.
+Cause: the command is not included in the `commands` exposed by the `just-bash` runtime.
 
-Fix: add only the command you intend to expose, or choose a safer API for the operation.
+Fix: add only the command you intend to expose.
 
 ```ts
 createShellRuntime({
-  allowedCommands: ['pwd', 'ls', 'cat'],
   commands: ['pwd', 'ls', 'cat'],
   fs,
   provider: 'just-bash',
 })
 ```
 
-## Unsupported shell syntax
+## Parser failure
 
-Error:
+`analyzeShellCommand()` returns a structured failure instead of throwing.
 
-```txt
-Unsupported shell syntax: only a single workspace command is supported.
+```ts
+const result = await analyzeShellCommand('if then')
+// { ok: false, parser: 'sh-syntax', error: '...' }
 ```
 
-Cause: `singleCommand: true` rejects separators, pipes, redirects, substitutions, and multiline commands.
+Execution still belongs to the selected provider. Do not rewrite shell commands based on parser output.
 
-Fix: run one command at a time. Keep `singleCommand: true` for agent-facing command input.
-
-## Workspace path escapes the root
+## Path escapes the workspace
 
 Error:
 
@@ -50,40 +48,23 @@ Error:
 [vitehub] Workspace path escapes the workspace root: "../README.md".
 ```
 
-Cause: the command references a path outside `/workspace`.
-
-Fix: pass workspace-relative paths or `/workspace/...` paths only.
+Fix: use workspace-relative paths or `/workspace/...` paths.
 
 ```ts
 await runtime.exec('cat docs/README.md')
 ```
 
-## Workspace filesystem is read-only
+## Filesystem is read-only
 
-Cause: a mutation was attempted through `createReadonlyWorkspaceFs()`.
+Cause: a mutation reached `createReadonlyWorkspaceFs()`.
 
-Fix: use `createWritableWorkspaceFs()` only for workflows that should write files, and keep command allowlists narrow.
+Fix: use `createWritableWorkspaceFs()` only for flows that should write files, and keep command policy explicit.
 
-## Search flag is unsupported
+## Command failure
 
-Error:
-
-```txt
-[vitehub] Unsupported workspace search flag: --files.
-```
-
-Cause: `runWorkspaceInspectionCommand()` supports a small `rg` and `grep` subset backed by workspace search.
-
-Fix: use supported flags such as `-i`, `--ignore-case`, `-n`, `--line-number`, `-e`, or `--regexp`, or call the workspace API directly.
-
-## Cloudflare runtime ignores `cwd` or `env`
-
-Cause: the sandbox client reports whether it supports cwd and env through `supports.execCwd` and `supports.execEnv`.
-
-Fix: inspect `runtime.supports` before relying on those options.
+Real shell execution returns the provider's stdout, stderr, and exit code.
 
 ```ts
-if (runtime.supports.cwd) {
-  await runtime.exec('pwd', { cwd: '/workspace' })
-}
+const result = await runtime.exec('cat missing.md')
+console.log(result.exitCode, result.stderr)
 ```

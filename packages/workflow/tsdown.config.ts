@@ -17,6 +17,8 @@ export default defineConfig({
     "src/runtime/cloudflare-shared.ts",
     "src/runtime/execute.ts",
     "src/runtime/nitro-plugin.ts",
+    "src/runtime/openworkflow.ts",
+    "src/runtime/openworkflow-worker.ts",
     "src/runtime/state.ts",
     "src/runtime/vercel-vite.ts",
   ],

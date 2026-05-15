@@ -285,4 +285,34 @@ describe("Vite plugin", () => {
 
     expect(result).toEqual({ chat: { webhook: "/api/webhooks/[platform]" } })
   })
+
+  it("shares the Node Docker runtime preset with Nitro config while preserving the Vite plugin split", async () => {
+    const { nodeDockerRuntimePreset } = await import("../src/nitro.ts")
+    const { hubChat } = await import("../src/vite.ts")
+    const runtime = nodeDockerRuntimePreset({
+      workflow: {
+        postgres: { schema: "openworkflow" },
+        worker: { concurrency: 10 },
+      },
+    })
+    const plugin = hubChat(runtime.chat)
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
+      : undefined
+
+    expect(runtime).toEqual({
+      chat: {
+        provider: "nitro",
+        webhook: { processing: "inline" },
+      },
+      preset: "node-server",
+      workflow: {
+        postgres: { schema: "openworkflow" },
+        provider: "openworkflow",
+        worker: { concurrency: 10 },
+      },
+    })
+    expect(result).toEqual({ chat: runtime.chat })
+    expect(plugin.nitro).toBeTruthy()
+  })
 })

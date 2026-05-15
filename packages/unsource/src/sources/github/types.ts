@@ -8,24 +8,14 @@ export interface GitHubSourceOptions {
   include?: string | string[]
   exclude?: string | string[]
   cache?: false | SourceCacheOptions
-  swr?: boolean | number
 }
 
-interface GitHubTreeItem {
-  path: string
-  sha?: string
-  type: "blob" | "tree"
+export interface GitHubRepositoryResponse {
+  default_branch: string
 }
 
-export interface GitHubTreeResponse {
+export interface GitHubCommitResponse {
   sha: string
-  tree: GitHubTreeItem[]
-  truncated?: boolean
-}
-
-export interface GitHubContentResponse {
-  content?: string
-  encoding?: string
 }
 
 export interface GitHubFile<TKey extends string = string> {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  analyzeShellCommand,
   createReadonlyWorkspaceFs,
   createShellRuntime,
   createWritableWorkspaceFs,
@@ -126,12 +127,10 @@ class MemoryWorkspace implements WritableShellWorkspace {
 
 function createReadonlyRuntime(workspace: ReadonlyShellWorkspace) {
   return createShellRuntime({
-    allowedCommands: ["pwd", "ls", "find", "cat", "head", "tail", "wc", "rg"],
     commands: ["pwd", "ls", "find", "cat", "head", "tail", "wc", "rg"],
     cwd: workspaceMountPoint,
     fs: createReadonlyWorkspaceFs(workspace),
     provider: "just-bash",
-    singleCommand: true,
   })
 }
 
@@ -157,6 +156,31 @@ describe("@vitehub/shell just-bash runtime", () => {
     await expect(runtime.exec("rg orders models")).resolves.toMatchObject({ exitCode: 0, stdout: "models/orders.sql:1:select * from orders\n" })
   })
 
+  it("rejects broad root searches before they can time out", async () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+      "models/customers.sql": "select * from customers\n",
+    })
+    const fs = createReadonlyWorkspaceFs(workspace)
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg customers .", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: "[vitehub] Workspace root search is too broad. Use a narrow mounted source or subdirectory path instead.\n",
+    })
+    await expect(runWorkspaceInspectionCommand(workspace, "rg customers models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/customers.sql:1:select * from customers\n",
+    })
+  })
+
   it("rejects traversal and mutations on the read-only filesystem", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
@@ -168,8 +192,8 @@ describe("@vitehub/shell just-bash runtime", () => {
       stderr: "cat: ../README.md: No such file or directory\n",
     })
     await expect(runtime.exec("rm README.md")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported workspace shell command: rm\n",
+      exitCode: 127,
+      stderr: "bash: rm: command not found\n",
     })
   })
 
@@ -184,30 +208,21 @@ describe("@vitehub/shell just-bash runtime", () => {
     expect(() => fs.resolvePath("/workspace/models", "../../outside")).toThrow("[vitehub] Workspace path escapes the workspace root")
   })
 
-  it("rejects newlines as shell command separators", async () => {
+  it("executes real shell pipelines, redirects, chaining, and multiline scripts", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
     })
     const runtime = createShellRuntime({
-      allowedCommands: ["cat"],
-      commands: ["cat", "rm"],
+      commands: ["cat", "echo", "grep", "head", "mkdir", "printf", "test", "tr"],
       cwd: workspaceMountPoint,
       fs: createWritableWorkspaceFs(workspace),
       provider: "just-bash",
-      singleCommand: true,
     })
 
-    await expect(runtime.exec("cat README.md\nrm README.md")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
-    })
-    await expect(workspace.exists("README.md")).resolves.toBe(true)
-
-    await expect(runtime.exec("cat README.md\r\nrm README.md")).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
-    })
-    await expect(workspace.exists("README.md")).resolves.toBe(true)
+    await expect(runtime.exec("echo hello | tr a-z A-Z")).resolves.toMatchObject({ exitCode: 0, stdout: "HELLO\n" })
+    await expect(runtime.exec("printf 'a\\nb\\n' | grep b")).resolves.toMatchObject({ exitCode: 0, stdout: "b\n" })
+    await expect(runtime.exec("mkdir -p tmp && echo ok > tmp/out && cat tmp/out")).resolves.toMatchObject({ exitCode: 0, stdout: "ok\n" })
+    await expect(runtime.exec("if test -f tmp/out\nthen\ncat tmp/out\nfi")).resolves.toMatchObject({ exitCode: 0, stdout: "ok\n" })
   })
 
   it("exposes writable filesystem adapters", async () => {
@@ -227,20 +242,84 @@ describe("@vitehub/shell just-bash runtime", () => {
     await expect(workspace.exists("copy/opy")).resolves.toBe(false)
   })
 
-  it("runs workspace inspection policy and search through shell", async () => {
+  it("runs workspace inspection through the real shell runtime", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
+      "models/customers.sql": "select * from customers\n",
       "models/orders.sql": "select * from orders\n",
     })
     const fs = createReadonlyWorkspaceFs(workspace)
 
     await expect(runWorkspaceInspectionCommand(workspace, "cat README.md && pwd", {
+      commands: ["cat", "pwd"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n/workspace\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | wc -l", {
+      commands: ["cat", "wc"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "1\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls -la models", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("customers.sql"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat", {
       commands: ["cat"],
       cwd: workspaceMountPoint,
       fs,
     })).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "Unsupported shell syntax: only a single workspace command is supported.\n",
+      exitCode: 0,
+      stdout: "",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find . -type f -name '*.sql'", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "./models/customers.sql\n./models/orders.sql\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find . -maxdepth 1", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: ".\n./models\n./README.md\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find . -maxdepth 2 -name '*customer*'", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "./models/customers.sql\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "wc -l", {
+      commands: ["wc"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "0\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "rg orders models", {
@@ -251,17 +330,90 @@ describe("@vitehub/shell just-bash runtime", () => {
       exitCode: 0,
       stdout: "models/orders.sql:1:select * from orders\n",
     })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "grep -ri customer models | head -n 1", {
+      commands: ["grep", "head"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/customers.sql:select * from customers\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "grep -ri customer . | grep -v orders | head -n 1", {
+      commands: ["grep", "head"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/customers.sql:select * from customers\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg customer|orders models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: expect.stringContaining("Workspace root search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cd /workspace && rg orders models", {
+      commands: ["cd", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/orders.sql:1:select * from orders\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "pwd && ls models", {
+      commands: ["pwd", "ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "/workspace\ncustomers.sql\norders.sql\n",
+    })
+  })
+
+  it("does not refresh workspace paths when creating a shell filesystem", () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+    })
+    const list = vi.spyOn(workspace, "list")
+
+    createReadonlyWorkspaceFs(workspace)
+
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  it("returns a structured result when workspace inspection times out", async () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "sleep 1", {
+      commands: ["sleep"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+      timeout: 5,
+    })).resolves.toMatchObject({
+      exitCode: null,
+      stderr: "[vitehub] Workspace shell command timed out after 5ms.",
+      stdout: "",
+    })
   })
 })
 
 describe("@vitehub/shell cloudflare runtime", () => {
   it("delegates to the cloudflare sandbox client", async () => {
     const sandbox = {
-      exec: vi.fn(async (_command: string, _args: string[], options?: Record<string, unknown>) => {
+      exec: vi.fn(async (_command: string, _args?: string[], options?: Record<string, unknown>) => {
         options?.onStdout && (options.onStdout as (data: string) => void)("out")
         options?.onStderr && (options.onStderr as (data: string) => void)("err")
         return {
-          code: 0,
+          exitCode: 0,
           ok: true,
           stderr: "err",
           stdout: "out",
@@ -288,11 +440,13 @@ describe("@vitehub/shell cloudflare runtime", () => {
     })
     const onStdout = vi.fn()
     const onStderr = vi.fn()
-    const result = await runtime.exec("ls -la /workspace", {
+    const command = "ls -la /workspace | head -n 1"
+    const result = await runtime.exec(command, {
       cwd: "/workspace",
       env: { FOO: "bar" },
       onStderr,
       onStdout,
+      stdin: "input",
       timeout: 100,
     })
 
@@ -301,12 +455,49 @@ describe("@vitehub/shell cloudflare runtime", () => {
       stderr: "err",
       stdout: "out",
     })
-    expect(sandbox.exec).toHaveBeenCalledWith("ls", ["-la", "/workspace"], expect.objectContaining({
+    expect(sandbox.exec).toHaveBeenCalledWith("ls", ["-la", "/workspace", "|", "head", "-n", "1"], expect.objectContaining({
       cwd: "/workspace",
       env: { FOO: "bar" },
+      stdin: "input",
       timeout: 100,
     }))
     expect(onStdout).toHaveBeenCalledWith("out")
     expect(onStderr).toHaveBeenCalledWith("err")
+  })
+})
+
+describe("@vitehub/shell analyzer", () => {
+  it("parses shell commands with sh-syntax and returns conservative metadata", async () => {
+    await expect(analyzeShellCommand("FOO=bar echo $(pwd) | tr a-z A-Z > out")).resolves.toMatchObject({
+      commands: ["echo", "tr"],
+      hasCommandSubstitution: true,
+      hasPipelines: true,
+      hasRedirects: true,
+      ok: true,
+      parser: "sh-syntax",
+    })
+  })
+
+  it("reports malformed shell and input limits without throwing", async () => {
+    await expect(analyzeShellCommand("if then")).resolves.toMatchObject({
+      ok: false,
+      parser: "sh-syntax",
+    })
+    await expect(analyzeShellCommand("x".repeat(12), { maxInputBytes: 8 })).resolves.toMatchObject({
+      error: "Shell command exceeds 8 bytes.",
+      ok: false,
+      parser: "sh-syntax",
+    })
+  })
+
+  it("detects heredocs and parser timeouts as structured analysis failures", async () => {
+    await expect(analyzeShellCommand("cat <<EOF\nhello\nEOF")).resolves.toMatchObject({
+      hasHeredocs: true,
+      ok: true,
+    })
+    await expect(analyzeShellCommand("echo ok", { timeoutMs: 0 })).resolves.toMatchObject({
+      ok: false,
+      parser: "sh-syntax",
+    })
   })
 })

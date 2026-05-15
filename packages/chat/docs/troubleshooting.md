@@ -1,52 +1,25 @@
 ---
 title: Chat troubleshooting
-description: Fix missing user names, unknown platforms, missing Durable Object bindings, and generated route issues.
+description: Fix missing names, platform routes, duplicate hooks, Agent binding, and state issues.
 navigation.title: Troubleshooting
-navigation.order: 100
+navigation.order: 4
 icon: i-lucide-circle-alert
 frameworks: [vite, nitro]
 ---
 
-Use this page when a Chat definition builds but webhooks do not behave as expected.
+Use this page when a webhook or chat definition fails.
 
-## Chat DevTools panel is missing
-
-Symptom: the generated Chat DevTools bridge route exists, but the Chat dock does not appear in Vite DevTools.
-
-Cause: `@vitehub/chat/nitro` can install Nitro runtime wiring and the bridge route, but Nitro modules cannot currently register root Vite DevTools integrations.
-
-Fix: register the Vite panel explicitly with `hubChat()` or `chatDevTools()`.
-
-```ts [vite.config.ts]
-import { chatDevTools } from '@vitehub/chat/devtools'
-import { DevTools } from '@vitejs/devtools'
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [
-    DevTools(),
-    chatDevTools(),
-    nitro({
-      modules: ['@vitehub/chat/nitro'],
-    }),
-  ],
-})
-```
-
-Track [nitrojs/nitro#4250](https://github.com/nitrojs/nitro/issues/4250) for the upstream Nitro capability that would let modules register Vite DevTools integrations directly.
-
-## Missing chat user name
+## Missing user name
 
 Error:
 
 ```txt
-Missing chat userName. Set userName in defineChat() or place the definition in a discovered chat file such as server/chat.ts.
+Missing chat userName
 ```
 
-Cause: Chat SDK needs a user name, and ViteHub could not infer one from the discovered file.
+Cause: the chat cannot infer a name.
 
-Fix: set `userName` in `defineChat()` or move the definition into a discovered file path.
+Fix: set `userName`, or use a discovered file name such as `server/chat.ts`.
 
 ```ts
 export default defineChat({
@@ -56,29 +29,54 @@ export default defineChat({
 })
 ```
 
-## Unknown chat platform
+## Unknown platform
 
-Response:
+Cause: the webhook route includes a platform that is not present in `adapters`.
 
-```txt
-Unknown chat platform: telegram
+Fix: make the adapter key match the route param.
+
+```ts
+export default defineChat({
+  adapters: {
+    telegram: createTelegramAdapter(config),
+  },
+  state,
+  userName: 'Support Bot',
+})
 ```
 
-Cause: the route param resolved to `telegram`, but the Chat SDK bot did not register a `telegram` webhook.
+The default route for this adapter is:
 
-Fix: add the adapter and webhook setup for that platform, or send requests to a route that matches an existing platform key.
+```txt
+/api/webhooks/telegram
+```
 
-## Missing Durable Object binding
+## Duplicate hook
 
 Error:
 
 ```txt
-Missing Cloudflare Durable Object binding CHAT_STATE.
+Duplicate chat hook "onDirectMessage"
 ```
 
-Cause: `cloudflareDurableObjectState()` is active, but the Worker request did not include the expected Durable Object binding.
+Cause: the same hook exists at the top level and inside `hooks`, or `agent` is used with `onDirectMessage`.
 
-Fix: enable generated Cloudflare Durable Object setup or configure the binding manually.
+Fix: choose one owner for the direct-message flow.
+
+## Agent binding does not run
+
+Check these conditions:
+
+- `@vitehub/agent` is registered.
+- The agent file is under `server/agents/**` or exported from `server/agent.ts`.
+- The chat definition uses `agent: 'agentName'`.
+- The chat does not also define `onDirectMessage`.
+
+## Durable Object state is missing
+
+Cause: Cloudflare Durable Object state is configured in the chat definition but not in module config.
+
+Fix: enable it in both places.
 
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
@@ -92,47 +90,12 @@ export default defineNitroConfig({
 })
 ```
 
-If you use a custom binding name, pass the same name to both module config and `cloudflareDurableObjectState()`.
+```ts [server/chat.ts]
+import { cloudflareDurableObjectState } from '@vitehub/chat/cloudflare'
 
-## Generated route is missing
-
-Symptom: `/api/webhooks/telegram` returns the app's normal 404 page.
-
-Cause: the Chat module did not discover a chat definition, or generated webhook routes are disabled.
-
-Fix:
-
-1. Confirm the module is registered.
-2. Confirm `webhook` is not `false`.
-3. Place the definition at `server/chat.ts` or under `server/chats/**`.
-4. Restart the dev server so discovery runs again.
-
-## Local dev state resets
-
-Symptom: conversations lose state after a dev server restart.
-
-Cause: the local memory state fallback is for development only.
-
-Fix: use Cloudflare Durable Object state for hosted Cloudflare deployments. Do not rely on local memory state for persistence.
-
-## Runtime config is undefined
-
-Symptom: an adapter resolver throws when reading `runtimeConfig.telegram.botToken`.
-
-Cause: the runtime config key was not added by Nitro, or the generated handler is running outside the configured Nitro app.
-
-Fix: add the config key through Nitro runtime config or `@vitehub/env`, then read it in the resolver.
-
-```ts
 export default defineChat({
-  adapters({ runtimeConfig }) {
-    return {
-      telegram: createTelegramAdapter({
-        botToken: runtimeConfig.telegram.botToken,
-      }),
-    }
-  },
-  state,
+  adapters,
+  state: cloudflareDurableObjectState(),
   userName: 'Support Bot',
 })
 ```

@@ -198,7 +198,7 @@ describe("sandbox workspace runtime", () => {
     await expect(workspace.exists("stale.txt")).resolves.toBe(false)
   })
 
-  it("keeps lazy source files out of the initial sandbox diff", async () => {
+  it("keeps lazy source files out of the initial sandbox sync until materialized", async () => {
     const fake = createFakeSandbox("cloudflare")
     const sandboxPackage = await import("@vitehub/sandbox")
     vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
@@ -227,8 +227,15 @@ describe("sandbox workspace runtime", () => {
 
     const session = await workspace.open()
 
-    await expect(session.readFile("docs/README.md")).resolves.toBe("# Lazy docs\n")
+    await expect(session.readFile("docs/README.md")).rejects.toThrow("does not exist")
     expect((await session.diff()).entries).toEqual([])
+    await session.close()
+
+    await workspace.materializeSources?.()
+    const materialized = await workspace.open()
+
+    await expect(materialized.readFile("docs/README.md")).resolves.toBe("# Lazy docs\n")
+    expect((await materialized.diff()).entries).toEqual([])
   })
 
   it("round-trips binary file contents through sandbox sessions", async () => {

@@ -26,15 +26,21 @@ interface EnvNamespace {
   gitBranch: () => EnvSource
   gitCommit: (options?: { short?: boolean }) => EnvSource
   packageJson: (path: string) => EnvSource
-  source: (name: string) => EnvSource
+  source: (name: string | string[]) => EnvSource
   variable: (options?: EnvVariableOptions) => EnvVariableDeclaration
 }
 
-function source(name: string): EnvSource {
+function source(name: string | string[]): EnvSource {
+  const names = Array.isArray(name) ? name : [name]
+  if (!names.length || names.some(value => typeof value !== "string" || !value.trim())) {
+    throw new TypeError("env.source() requires one or more non-empty env variable names.")
+  }
+  const normalized = names.map(value => value.trim())
   return {
     kind: "env",
-    label: `env:${name}`,
-    name,
+    label: `env:${normalized.join("|")}`,
+    name: normalized[0]!,
+    ...(normalized.length > 1 ? { names: normalized } : {}),
     serializable: true,
   }
 }

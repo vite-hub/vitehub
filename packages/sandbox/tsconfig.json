@@ -5,10 +5,18 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
-      "#vitehub-sandbox-provider-loader": ["./src/runtime/provider-loader.ts"],
-      "#vitehub-sandbox-registry": ["./src/runtime/empty-registry.ts"]
+      "#vitehub-sandbox-provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
+      "#vitehub-sandbox-registry": [
+        "packages/sandbox/src/runtime/empty-registry.ts"
+      ],
+      "@vitehub/internal/*": [
+        "packages/internal/src/*"
+      ]
     },
-    "rootDir": "."
+    "rootDir": "..",
+    "baseUrl": "../.."
   },
   "include": [
     "src/**/*.ts",

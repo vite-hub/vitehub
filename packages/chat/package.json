@@ -31,8 +31,11 @@
     "./cloudflare": "./dist/cloudflare.js",
     "./devtools": "./dist/devtools.js",
     "./nitro": "./dist/nitro.js",
+    "./presets": "./dist/presets.js",
+    "./runtime/agent-chat": "./dist/runtime/agent-chat.js",
     "./runtime/chat-devtools-handler": "./dist/runtime/chat-devtools-handler.js",
     "./runtime/cloudflare-workers-dev": "./dist/runtime/cloudflare-workers-dev.js",
+    "./runtime/memory-state": "./dist/runtime/memory-state.js",
     "./runtime/nitro-dev-initialize": "./dist/runtime/nitro-dev-initialize.js",
     "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/nitro-runtime-config": "./dist/runtime/nitro-runtime-config.js",
@@ -50,10 +53,14 @@
     "build:devtools": "pnpm --filter @vitehub/devtools build:chat",
     "dev": "tsdown --watch",
     "dev:devtools": "pnpm --filter @vitehub/devtools dev:chat",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/chat build && vitest run"
+    "typecheck": "pnpm --filter @vitehub/agent... build && pnpm --filter @vitehub/workflow build && tsc --noEmit -p ./tsconfig.json",
+    "test": "pnpm --filter @vitehub/agent... build && pnpm --filter @vitehub/workflow build && pnpm --filter @vitehub/chat build && vitest run"
   },
   "dependencies": {
+    "@vitehub/agent": "workspace:*",
+    "@vitehub/messages": "workspace:*",
+    "@vitehub/runtime": "workspace:*",
+    "@vitehub/workflow": "workspace:*",
     "@vitejs/devtools-kit": "catalog:",
     "@vercel/functions": "^3.4.3",
     "h3": "2.0.1-rc.20",

@@ -9,7 +9,9 @@
   "dependencies": {
     "@cloudflare/sandbox": "catalog:",
     "@vercel/blob": "catalog:",
+    "@vercel/queue": "catalog:",
     "@vercel/sandbox": "catalog:",
+    "@vitehub/agent": "workspace:*",
     "@vitehub/blob": "workspace:*",
     "@vitehub/chat": "workspace:*",
     "@vitehub/env": "workspace:*",

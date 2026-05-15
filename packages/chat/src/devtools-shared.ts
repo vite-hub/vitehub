@@ -22,9 +22,40 @@ export interface ChatDevtoolsTool {
   updatedAt: string
 }
 
+export type ChatDevtoolsFileKind = "directory" | "file"
+
+export interface ChatDevtoolsFileTreeItem {
+  children?: ChatDevtoolsFileTreeItem[]
+  kind: ChatDevtoolsFileKind
+  label?: string
+  materialize?: "build" | "lazy"
+  materialized?: boolean
+  materializedAt?: string
+  path: string
+  source?: string
+  updatedAt?: string
+}
+
+export interface ChatDevtoolsToolDefinition {
+  category?: string
+  commands?: string[]
+  description?: string
+  icon?: string
+  name: string
+  preset?: string
+  status?: "available" | "disabled"
+}
+
+export interface ChatDevtoolsMetadata {
+  files?: ChatDevtoolsFileTreeItem[]
+  instructions?: string[]
+  tools?: ChatDevtoolsToolDefinition[]
+}
+
 export interface ChatDevtoolsMessage {
   createdAt: string
   id: string
+  loading?: boolean
   role: ChatDevtoolsMessageRole
   text: string
   tools?: ChatDevtoolsTool[]
@@ -37,7 +68,10 @@ export interface ChatDevtoolsConversation {
 
 export interface ChatDevtoolsStateResult {
   chats: ChatDevtoolsConversation[]
+  files?: ChatDevtoolsFileTreeItem[]
+  instructions?: string[]
   selected: string
+  tools?: ChatDevtoolsToolDefinition[]
 }
 
 export interface ChatDevtoolsSendInput {

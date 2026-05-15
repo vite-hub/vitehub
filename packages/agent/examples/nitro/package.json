@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nitro build"
+  },
+  "dependencies": {
+    "@vitehub/agent": "workspace:*",
+    "@vitehub/messages": "workspace:*",
+    "nitro": "catalog:"
+  }
+}

@@ -185,6 +185,9 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
   else if (config?.store.driver === "fs") {
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/fs")))}`)
   }
+  else if (config) {
+    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/files")))}`)
+  }
 
   const storageExpression = !config
     ? "undefined"
@@ -301,6 +304,7 @@ function renderWorkspaceUnshellRuntimeModule() {
   return [
     "export const workspaceMountPoint = '/workspace'",
     "export function cleanWorkspaceMutationPath(path) { return path }",
+    "export function cleanWorkspaceShellPath(path = '.') { return path }",
     "export function createReadonlyWorkspaceFs(fs) { return fs }",
     "export function createWritableWorkspaceFs(fs) { return fs }",
     "export async function runWorkspaceInspectionCommand() {",
@@ -420,6 +424,8 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     const workspaceUnshellRuntimeFile = resolve(generatedDir, "workspace-unshell-runtime.mjs")
     alias["@vitehub/workspace/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
     alias["@vitehub/workspace"] = workspaceRuntimeFile
+    alias["@vitehub/shell/workspace"] = workspaceUnshellRuntimeFile
+    alias["@vitehub/shell"] = workspaceUnshellRuntimeFile
     alias["@vitehub/unshell"] = workspaceUnshellRuntimeFile
     alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
@@ -621,6 +627,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   const appEntry = resolve(options.rootDir, "src/server.e2e.ts")
   const resolveApp = resolve(packagesDir, "internal/src/runtime/app.ts")
   const workspaceProvider = options.workspace && options.workspace.store.provider
+  const preloadVercelQueue = options.queue && options.queue.provider === "vercel"
 
   const imports = [
     `import { waitUntil as vercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolvePackageDependency(queuePackageDir, "@vercel/functions")))}`,
@@ -634,6 +641,9 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/runtime/state.ts")))}`,
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
   ]
+  if (preloadVercelQueue) {
+    imports.push("import * as __vitehubVercelQueue from '@vercel/queue'")
+  }
 
   if (workspaceProvider === "vercel-blob") {
     imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/vercel-blob.ts")))}`)
@@ -655,6 +665,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   return [
     ...imports,
     "",
+    preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
     `const queueConfig = ${JSON.stringify(options.queue || false, null, 2)}`,
     `const workflowConfig = ${JSON.stringify(options.workflow || false, null, 2)}`,
     `const blobConfig = ${JSON.stringify(options.blob || false, null, 2)}`,
@@ -688,17 +699,26 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     "  return runWithQueueRuntimeEvent(runtimeEvent, () => runWithWorkflowRuntimeEvent(runtimeEvent, () => nodeHandler(req, res)))",
     "}",
     "",
-  ].join("\n")
+  ].filter(Boolean).join("\n")
 }
 
 function renderVercelQueueWrapper(file: string, queueRegistryFile: string, definitionName: string, queueConfig: false | ResolvedQueueOptions | undefined) {
-  return [
+  const preloadVercelQueue = queueConfig && queueConfig.provider === "vercel"
+  const imports = [
     "import { H3 } from 'h3'",
     "import { toNodeHandler } from 'h3/node'",
+  ]
+  if (preloadVercelQueue) {
+    imports.push("import * as __vitehubVercelQueue from '@vercel/queue'")
+  }
+
+  return [
+    ...imports,
     `import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/hosted.ts")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(file, queueRegistryFile))}`,
     "",
+    preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
     `setQueueRuntimeConfig(${JSON.stringify(queueConfig || false, null, 2)})`,
     "setQueueRuntimeRegistry(queueRegistry)",
     "",
@@ -714,7 +734,7 @@ function renderVercelQueueWrapper(file: string, queueRegistryFile: string, defin
     "  return runWithQueueRuntimeEvent({ req, res, waitUntil: hostedVercelWaitUntil }, () => handler(req, res))",
     "}",
     "",
-  ].join("\n")
+  ].filter(Boolean).join("\n")
 }
 
 function sanitizeVercelConsumerName(functionPath: string) {
@@ -799,6 +819,25 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
       "@vercel/queue",
       "@vercel/sandbox",
       "cloudflare:workers",
+      "files-sdk",
+      "files-sdk/akamai",
+      "files-sdk/azure",
+      "files-sdk/box",
+      "files-sdk/digitalocean-spaces",
+      "files-sdk/dropbox",
+      "files-sdk/fs",
+      "files-sdk/gcs",
+      "files-sdk/google-drive",
+      "files-sdk/hetzner",
+      "files-sdk/minio",
+      "files-sdk/netlify-blobs",
+      "files-sdk/onedrive",
+      "files-sdk/r2",
+      "files-sdk/s3",
+      "files-sdk/storj",
+      "files-sdk/supabase",
+      "files-sdk/uploadthing",
+      "files-sdk/vercel-blob",
       "node:async_hooks",
       "node:child_process",
       "node:buffer",
@@ -869,7 +908,27 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   await bundleEsmEntry(sourceEntry, resolve(serverDir, "index.mjs"), {
     alias: withoutCloudflareWorkspaceAliases(artifacts.alias),
     external: [
+      "@vercel/blob",
       "cloudflare:workers",
+      "files-sdk",
+      "files-sdk/akamai",
+      "files-sdk/azure",
+      "files-sdk/box",
+      "files-sdk/digitalocean-spaces",
+      "files-sdk/dropbox",
+      "files-sdk/fs",
+      "files-sdk/gcs",
+      "files-sdk/google-drive",
+      "files-sdk/hetzner",
+      "files-sdk/minio",
+      "files-sdk/netlify-blobs",
+      "files-sdk/onedrive",
+      "files-sdk/r2",
+      "files-sdk/s3",
+      "files-sdk/storj",
+      "files-sdk/supabase",
+      "files-sdk/uploadthing",
+      "files-sdk/vercel-blob",
       "isomorphic-git",
       "isomorphic-git/http/web",
       "workflow",

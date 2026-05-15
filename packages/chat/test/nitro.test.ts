@@ -97,6 +97,14 @@ async function writeSingleChat(rootDir: string, contents = "export default {}") 
   return file
 }
 
+async function writeAgentChat(rootDir: string, name: string, contents = "export default defineAgent({ chat: { adapters: {}, state: {} }, run: () => 'ok' })") {
+  const directory = join(rootDir, "server", "agents", name)
+  const file = join(directory, "config.ts")
+  await mkdir(directory, { recursive: true })
+  await writeFile(file, contents, "utf8")
+  return file
+}
+
 describe("defineChatWebhookHandler", () => {
   it("uses the route platform and forwards Nitro waitUntil", async () => {
     const { defineChatWebhookHandler } = await import("../src/nitro.ts")
@@ -644,14 +652,58 @@ describe("Nitro module", () => {
     expect(routeContents).toContain("defineChatWebhookHandler(chat")
     expect(routeContents).toContain("inferredName: \"chat\"")
     expect(routeContents).not.toContain("processing:")
+    expect(routeFile).toContain("/.nitro/.vitehub/nitro-runtime/chat/webhook-handler.ts")
     const devInitializerFile = nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"]
-    expect(devInitializerFile).toContain("/.nitro/.vitehub/nitro-runtime/chat/dev-initialize.mjs")
+    expect(devInitializerFile).toContain("/.nitro/.vitehub/nitro-runtime/chat/dev-initialize.ts")
     const devInitializerContents = await readFile(devInitializerFile, "utf8")
     expect(devInitializerContents).toContain("defineChatDevInitializer(chat")
     expect(devInitializerContents).toContain("inferredName: \"chat\"")
     const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
     expect(devtoolsContents).toContain("defineChatDevtoolsHandler(chat")
     expect(devtoolsContents).toContain("inferredName: \"chat\"")
+  })
+
+  it("discovers agent chat config and injects the agent name", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-agent-"))
+    await writeAgentChat(rootDir, "docs")
+    const nitro = createNitroStub(rootDir)
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    const routeContents = await readFile(nitro.options.handlers[0]!.handler, "utf8")
+    expect(routeContents).not.toContain("defineChatFromAgent")
+    expect(routeContents).toContain("createChatFromAgent(agent, \"docs\")")
+    expect(routeContents).toContain("defineChatWebhookHandler(chat")
+    expect(nitro.options.handlers[0]!.handler).toContain("/.nitro/.vitehub/nitro-runtime/chat/webhook-handler.ts")
+    const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
+    expect(devtoolsContents).toContain("createChatFromAgent(agent, \"docs\")")
+  })
+
+  it("generates DevTools metadata for workspace agent chats", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-agent-metadata-"))
+    await writeAgentChat(rootDir, "docs", [
+      `import { defineAgent } from "@vitehub/agent"`,
+      `import * as source from "@vitehub/workspace/source"`,
+      `export default defineAgent({`,
+      `  chat: { adapters: {}, state: {} },`,
+      `  model: {} as never,`,
+      `  workspace: { sources: { docs: source.custom({ name: "docs", getKeys: async () => [], getItem: async () => ({ content: "", path: "README.md" }) }) } },`,
+      `  tools: ({ workspace }) => workspace.tools.inspect(),`,
+      `})`,
+    ].join("\n"))
+    const nitro = createNitroStub(rootDir)
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    const routeContents = await readFile(nitro.options.handlers[0]!.handler, "utf8")
+    expect(routeContents).toContain(`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`)
+    expect(routeContents).toContain(`createChatFromAgent(withWorkspaceAgentDefaults(agent, { name: "docs", workspace: "docs" }), "docs")`)
+    const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
+    expect(devtoolsContents).toContain(`createChatFromAgent(withWorkspaceAgentDefaults(agent, { name: "docs", workspace: "docs" }), "docs")`)
+    expect(devtoolsContents).toContain(`import { resolveAgentDevtoolsMetadata } from "@vitehub/agent"`)
+    expect(devtoolsContents).toContain(`metadata: () => resolveAgentDevtoolsMetadata(agent, { name: "docs", workspace: "docs" })`)
   })
 
   it("writes inline webhook processing to generated Nitro routes", async () => {
@@ -907,5 +959,34 @@ describe("Nitro module", () => {
     expect(await readFile(nitro.options.handlers[0]!.handler, "utf8")).toContain("defineChatWebhookRegistryHandler")
     expect(await readFile(nitro.options.alias["@vitehub/chat/runtime/nitro-dev-initialize"], "utf8")).toContain("defineChatDevRegistryInitializer")
     expect(await readFile(nitro.options.handlers[1]!.handler, "utf8")).toContain("defineChatDevtoolsRegistryHandler")
+  })
+
+  it("generates registry DevTools metadata for workspace agent chats", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-registry-metadata-"))
+    await writeAgentChat(rootDir, "docs", [
+      `import { defineAgent } from "@vitehub/agent"`,
+      `import * as source from "@vitehub/workspace/source"`,
+      `export default defineAgent({`,
+      `  chat: { adapters: {}, state: {} },`,
+      `  model: {} as never,`,
+      `  workspace: { sources: { docs: source.custom({ name: "docs", getKeys: async () => [], getItem: async () => ({ content: "", path: "README.md" }) }) } },`,
+      `  tools: ({ workspace }) => workspace.tools.inspect(),`,
+      `})`,
+    ].join("\n"))
+    await writeChat(rootDir, "support")
+    const nitro = createNitroStub(rootDir, {
+      webhook: "/api/webhooks/[chat]/[platform]",
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    const devtoolsContents = await readFile(nitro.options.handlers[1]!.handler, "utf8")
+    const registryContents = await readFile(join(rootDir, ".nitro", ".vitehub", "nitro-runtime", "chat", "nitro-registry.ts"), "utf8")
+    expect(registryContents).toContain(`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`)
+    expect(registryContents).toContain(`createChatFromAgent(withWorkspaceAgentDefaults(mod.default, { name: "docs", workspace: "docs" }), "docs")`)
+    expect(devtoolsContents).toContain("const metadata = {")
+    expect(devtoolsContents).toContain(`"docs": () => resolveAgentDevtoolsMetadata(devtoolsMetadataAgent0, { name: "docs", workspace: "docs" })`)
+    expect(devtoolsContents).toContain("metadata: metadata")
   })
 })

@@ -1,0 +1,76 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "#vitehub/agent/registry": [
+        "packages/agent/src/runtime/empty-registry.ts"
+      ],
+      "#vitehub-sandbox-provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
+      "#vitehub-sandbox-registry": [
+        "packages/sandbox/src/runtime/empty-registry.ts"
+      ],
+      "#vitehub-workspace-assets-registry": [
+        "packages/workspace/src/runtime/empty-assets-registry.ts"
+      ],
+      "#vitehub-workspace-registry": [
+        "packages/workspace/src/runtime/empty-registry.ts"
+      ],
+      "@vitehub/internal/*": [
+        "packages/internal/src/*"
+      ],
+      "@vitehub/messages": [
+        "packages/messages/src/index.ts"
+      ],
+      "@vitehub/runtime": [
+        "packages/runtime/src/index.ts"
+      ],
+      "@vitehub/sandbox": [
+        "packages/sandbox/src/index.ts"
+      ],
+      "@vitehub/sandbox/runtime/state": [
+        "packages/sandbox/src/runtime/state.ts"
+      ],
+      "@vitehub/shell": [
+        "packages/shell/src/index.ts"
+      ],
+      "@vitehub/shell/workspace": [
+        "packages/shell/src/workspace.ts"
+      ],
+      "@vitehub/unsource": [
+        "packages/unsource/src/index.ts"
+      ],
+      "@vitehub/unshell": [
+        "packages/unshell/src/index.ts"
+      ],
+      "@vitehub/workspace": [
+        "packages/workspace/src/index.ts"
+      ],
+      "@vitehub/workspace/*": [
+        "packages/workspace/src/*"
+      ],
+      "virtual:vitehub-sandbox-provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
+      "virtual:vitehub-sandbox-registry": [
+        "packages/sandbox/src/runtime/empty-registry.ts"
+      ]
+    },
+    "rootDir": "..",
+    "baseUrl": "../.."
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "test/**/*.ts",
+    "test/**/*.test-d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
+}

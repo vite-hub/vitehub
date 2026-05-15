@@ -1,10 +1,8 @@
-import { Buffer } from "node:buffer"
-
 import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { clearSources, github, registerSources, useSource } from "../../src/index.ts"
-import { jsonResponse, stubGitHubSource } from "./fixtures/github.ts"
+import { createTarGz, jsonResponse, stubGitHubSource } from "./fixtures/github.ts"
 
 afterEach(() => {
   clearSources()
@@ -65,7 +63,7 @@ describe("@vitehub/unsource GitHub source", () => {
     ])
   })
 
-  it("falls back to GitHub archives when the tree API is rate limited", async () => {
+  it("uses GitHub archives when the API is rate limited", async () => {
     stubGitHubSource({
       "dbt/models/marts/orders.sql": "select 1\n",
       "docs/README.md": "# Docs\n",
@@ -79,7 +77,7 @@ describe("@vitehub/unsource GitHub source", () => {
     await expect(dbt.read("models/marts/orders.sql")).resolves.toBe("select 1\n")
   })
 
-  it("falls back to GitHub archives when the tree API returns a truncated tree", async () => {
+  it("uses GitHub archives for source snapshots", async () => {
     stubGitHubSource({
       "dbt/models/marts/orders.sql": "select 1\n",
       "docs/README.md": "# Docs\n",
@@ -115,22 +113,23 @@ describe("@vitehub/unsource GitHub source", () => {
     expect((archiveCall?.[1]?.headers as Record<string, string> | undefined)?.authorization).toBe("Bearer github-token")
   })
 
-  it("keys GitHub tree cache by the resolved auth token", async () => {
+  it("keys GitHub archive cache by the resolved auth token", async () => {
     let token = "first-token"
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const requestUrl = String(url)
       const authorization = (init?.headers as Record<string, string> | undefined)?.authorization
 
-      if (requestUrl.includes("/git/trees/")) {
-        return jsonResponse({
-          sha: "tree-sha",
-          tree: [
-            {
-              path: authorization === "Bearer first-token" ? "first.md" : "second.md",
-              type: "blob",
-            },
-          ],
-        })
+      if (requestUrl === "https://api.github.com/repos/acme/private") {
+        return jsonResponse({ default_branch: "main" })
+      }
+
+      if (requestUrl.endsWith("/commits/main")) {
+        return jsonResponse({ sha: authorization === "Bearer first-token" ? "first-commit" : "second-commit" })
+      }
+
+      if (requestUrl.startsWith("https://codeload.github.com/")) {
+        const file = authorization === "Bearer first-token" ? "first.md" : "second.md"
+        return new Response(createTarGz({ [file]: `${file}\n` }))
       }
 
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
@@ -144,37 +143,30 @@ describe("@vitehub/unsource GitHub source", () => {
 
     await expect(useSource("docs").keys()).resolves.toEqual(["second.md"])
 
-    const treeCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/git/trees/"))
-    expect(treeCalls.map(([, init]) => (init?.headers as Record<string, string> | undefined)?.authorization)).toEqual([
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect(archiveCalls.map(([, init]) => (init?.headers as Record<string, string> | undefined)?.authorization)).toEqual([
       "Bearer first-token",
       "Bearer second-token",
     ])
   })
 
-  it("uses the same GitHub auth token for item and content lookup", async () => {
+  it("uses the same GitHub auth token for archive item lookup", async () => {
     const tokens = ["first-token", "second-token"]
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const requestUrl = String(url)
       const authorization = (init?.headers as Record<string, string> | undefined)?.authorization
 
-      if (requestUrl.includes("/git/trees/")) {
-        return jsonResponse({
-          sha: "tree-sha",
-          tree: [
-            {
-              path: authorization === "Bearer first-token" ? "first.md" : "second.md",
-              type: "blob",
-            },
-          ],
-        })
+      if (requestUrl === "https://api.github.com/repos/acme/private") {
+        return jsonResponse({ default_branch: "main" })
       }
 
-      if (requestUrl.includes("/contents/first.md")) {
+      if (requestUrl.endsWith("/commits/main")) {
+        return jsonResponse({ sha: "first-commit" })
+      }
+
+      if (requestUrl.startsWith("https://codeload.github.com/")) {
         expect(authorization).toBe("Bearer first-token")
-        return jsonResponse({
-          content: Buffer.from("first\n").toString("base64"),
-          encoding: "base64",
-        })
+        return new Response(createTarGz({ "first.md": "first\n" }))
       }
 
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
@@ -184,26 +176,26 @@ describe("@vitehub/unsource GitHub source", () => {
 
     await expect(useSource("github").read("first.md")).resolves.toBe("first\n")
 
-    const treeCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/git/trees/"))
-    expect(treeCalls.map(([, init]) => (init?.headers as Record<string, string> | undefined)?.authorization)).toEqual(["Bearer first-token"])
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect(archiveCalls.map(([, init]) => (init?.headers as Record<string, string> | undefined)?.authorization)).toEqual([
+      "Bearer first-token",
+      "Bearer first-token",
+    ])
   })
 
-  it("falls back to raw GitHub bytes when the contents API does not return base64", async () => {
-    stubGitHubSource({ "metadata.xml": "<metadata />\n" })
+  it("reads GitHub bytes from archive snapshots", async () => {
+    vi.stubGlobal("fetch", vi.fn())
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
       const requestUrl = String(url)
-      if (requestUrl.includes("/git/trees/")) {
-        return jsonResponse({
-          sha: "tree-sha",
-          tree: [{ path: "metadata.xml", type: "blob" }],
-        })
+      if (requestUrl === "https://api.github.com/repos/acme/app") {
+        return jsonResponse({ default_branch: "main" })
       }
-      if (requestUrl.includes("/contents/")) {
-        return jsonResponse({ content: "", encoding: "none" })
+      if (requestUrl.endsWith("/commits/main")) {
+        return jsonResponse({ sha: "latest-commit-sha" })
       }
-      if (requestUrl.startsWith("https://raw.githubusercontent.com/")) {
+      if (requestUrl.startsWith("https://codeload.github.com/")) {
         expect((init?.headers as Record<string, string> | undefined)?.authorization).toBe("Bearer token")
-        return new Response("<metadata />\n")
+        return new Response(createTarGz({ "metadata.xml": "<metadata />\n" }))
       }
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
     })
@@ -213,14 +205,14 @@ describe("@vitehub/unsource GitHub source", () => {
     await expect(useSource("github").read("metadata.xml")).resolves.toBe("<metadata />\n")
   })
 
-  it("dedupes cached GitHub tree and content reads", async () => {
+  it("dedupes cached GitHub archive reads", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
 
     registerSources({
       docs: github({
-        cache: { maxAge: 3600, swr: true },
+        cache: { maxAge: 3600 },
         repo: "acme/app",
         root: "docs",
       }),
@@ -233,9 +225,7 @@ describe("@vitehub/unsource GitHub source", () => {
       docs.read("README.md"),
     ])).resolves.toEqual(["# Docs\n", "# Docs\n"])
 
-    const treeCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/git/trees/"))
-    const contentCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://raw.githubusercontent.com/"))
-    expect(treeCalls).toHaveLength(1)
-    expect(contentCalls).toHaveLength(1)
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect(archiveCalls).toHaveLength(1)
   })
 })

@@ -91,6 +91,12 @@ function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
     "  }",
     "}",
     "",
+    "declare module \"@vitehub/agent\" {",
+    "  export interface AgentRuntimeConfig {",
+    ...fields,
+    "  }",
+    "}",
+    "",
     "export {}",
     "",
   ].join("\n")
@@ -234,7 +240,8 @@ function describeRuntimeEntries(
       return describeRuntimeEntries(value as EnvNitroConfigOptions, prefix, valuePath)
     }
     const source = resolveEnvSource(value, valuePath, prefix)
-    const hasRuntimeValue = source.kind === "env" && typeof process.env[source.name] !== "undefined"
+    const activeSource = resolveActiveEnvSourceLabel(source)
+    const hasRuntimeValue = typeof activeSource.value !== "undefined"
     const hasDefault = typeof value.default !== "undefined"
     const exposure = valuePath === "env.public" || valuePath.startsWith("env.public.")
       ? "public runtime transport"
@@ -244,12 +251,25 @@ function describeRuntimeEntries(
       key: valuePath,
       masked: value.secret,
       mode: "runtime",
-      source: hasDefault && !hasRuntimeValue ? "default" : source.label,
+      source: hasDefault && !hasRuntimeValue ? "default" : activeSource.label,
       status: hasRuntimeValue ? "valid" : hasDefault ? "defaulted" : "missing",
       timing: "Nitro runtime",
       type: value.type,
     }
   })
+}
+
+function resolveActiveEnvSourceLabel(source: ReturnType<typeof resolveEnvSource>): { label: string, value: string | undefined } {
+  if (source.kind !== "env") {
+    return { label: source.label, value: undefined }
+  }
+  for (const name of source.names || [source.name]) {
+    const value = process.env[name]
+    if (typeof value !== "undefined") {
+      return { label: `env:${name}`, value }
+    }
+  }
+  return { label: source.label, value: undefined }
 }
 
 function isRegistryEntry(value: EnvRuntimeRegistryValue): value is EnvRegistryEntry {

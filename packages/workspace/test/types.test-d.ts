@@ -9,7 +9,7 @@ import {
   publish,
   useWorkspace,
 } from "../src/index.ts"
-import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
+import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type WorkspaceShellResult } from "../src/ai.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as source from "../src/source.ts"
 import { hubWorkspace } from "../src/vite.ts"
@@ -55,11 +55,17 @@ describe("workspace types", () => {
     })).shell).toMatchTypeOf<object>()
     expectTypeOf(readonly.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(readonly.tools().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
+    expectTypeOf(readonly.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
+    expectTypeOf(readonly.tools.inspect({ materialize: true }).materialize_sources).toMatchTypeOf<Tool<{ path?: string, sources?: string[] }, WorkspaceMaterializeSourcesResult>>()
+    expectTypeOf(readonly.tools.readonly().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
+    expectTypeOf(readonly.tools.none()).toMatchTypeOf<ToolSet>()
     expectTypeOf(readonly.tools()).toMatchTypeOf<ToolSet>()
     // @ts-expect-error read-only facade does not expose executable write sessions
     readonly.open()
     expectTypeOf(writable.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(writable.tools().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
+    expectTypeOf(writable.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
+    expectTypeOf(writable.tools.write().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.open).toBeFunction()
     const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
     // @ts-expect-error syncOnBuild was removed in favor of assets

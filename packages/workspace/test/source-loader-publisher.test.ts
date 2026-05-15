@@ -75,13 +75,21 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
     const requestUrl = String(url)
 
-    if (requestUrl.startsWith("https://codeload.github.com/")) {
+  if (requestUrl.startsWith("https://codeload.github.com/")) {
       if (archiveStatus !== 200) return new Response("not found", { status: archiveStatus })
       return new Response(createTarGz(files))
     }
 
     if (apiStatus !== 200) {
       return jsonResponse({ message: "not found" }, apiStatus)
+    }
+
+    if (requestUrl === "https://api.github.com/repos/acme/app" || requestUrl === "https://api.github.com/repos/acme/private" || requestUrl === "https://api.github.com/repos/acme/public") {
+      return jsonResponse({ default_branch: "main" })
+    }
+
+    if (requestUrl.endsWith("/commits/main")) {
+      return jsonResponse({ sha: "latest-commit-sha" })
     }
 
     if (requestUrl.includes("/git/trees/")) {
@@ -110,14 +118,14 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
   }))
 }
 
-function treeRequestAuthorizations() {
+function archiveRequestAuthorizations() {
   return vi.mocked(fetch).mock.calls
-    .filter(([url]) => String(url).includes("/git/trees/"))
+    .filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
     .map(([, init]) => (init?.headers as Record<string, string> | undefined)?.authorization)
 }
 
-function treeRequestAuthorization() {
-  const [authorization] = treeRequestAuthorizations()
+function archiveRequestAuthorization() {
+  const [authorization] = archiveRequestAuthorizations()
   return authorization
 }
 
@@ -138,6 +146,18 @@ describe("sources, loaders, and publishers", () => {
       "dbt_project.yml",
       "models/marts/orders.sql",
     ])
+  })
+
+  it("resolves default GitHub refs to a commit snapshot", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    const githubSource = source.github({ repo: "acme/app" })
+
+    await expect(githubSource.getKeys({ rootDir: "", workspace: "github-default-ref" })).resolves.toEqual(["docs/README.md"])
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/commits/main"))).toBe(true)
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/tar.gz/latest-commit-sha"))).toBe(true)
   })
 
   it("applies GitHub include and exclude filters to root-relative keys", async () => {
@@ -173,7 +193,7 @@ describe("sources, loaders, and publishers", () => {
     process.env.GITHUB_TOKEN = "second-token"
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-auth" })).resolves.toEqual(["docs/README.md"])
 
-    expect(treeRequestAuthorizations()).toEqual([
+    expect(archiveRequestAuthorizations()).toEqual([
       "Bearer first-token",
       "Bearer second-token",
     ])
@@ -190,7 +210,7 @@ describe("sources, loaders, and publishers", () => {
 
     await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
 
-    expect(treeRequestAuthorization()).toBe("Bearer env-file-token")
+    expect(archiveRequestAuthorization()).toBe("Bearer env-file-token")
     expect(process.env.GITHUB_TOKEN).toBeUndefined()
   })
 
@@ -207,7 +227,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, ".env"), "GITHUB_TOKEN=second-env-file-token\n")
     await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
 
-    expect(treeRequestAuthorizations()).toEqual([
+    expect(archiveRequestAuthorizations()).toEqual([
       "Bearer first-env-file-token",
       "Bearer second-env-file-token",
     ])
@@ -225,7 +245,7 @@ describe("sources, loaders, and publishers", () => {
 
     await githubSource.getKeys({ rootDir: root, workspace: "github-runtime-auth" })
 
-    expect(treeRequestAuthorization()).toBe("Bearer runtime-token")
+    expect(archiveRequestAuthorization()).toBe("Bearer runtime-token")
   })
 
   it("prefers Cloudflare GitHub auth over local env files", async () => {
@@ -240,7 +260,7 @@ describe("sources, loaders, and publishers", () => {
 
     await githubSource.getKeys({ rootDir: root, workspace: "github-cloudflare-auth" })
 
-    expect(treeRequestAuthorization()).toBe("Bearer cloudflare-token")
+    expect(archiveRequestAuthorization()).toBe("Bearer cloudflare-token")
   })
 
   it("prefers explicit GitHub auth over Cloudflare runtime env", async () => {
@@ -253,7 +273,7 @@ describe("sources, loaders, and publishers", () => {
 
     await githubSource.getKeys({ rootDir: "", workspace: "github-auth" })
 
-    expect(treeRequestAuthorization()).toBe("Bearer explicit-token")
+    expect(archiveRequestAuthorization()).toBe("Bearer explicit-token")
   })
 
   it("prefers explicit GitHub auth over local env files", async () => {
@@ -267,7 +287,7 @@ describe("sources, loaders, and publishers", () => {
 
     await githubSource.getKeys({ rootDir: root, workspace: "github-explicit-auth" })
 
-    expect(treeRequestAuthorization()).toBe("Bearer explicit-token")
+    expect(archiveRequestAuthorization()).toBe("Bearer explicit-token")
   })
 
   it("keeps public GitHub source requests unauthenticated when no token exists", async () => {
@@ -279,7 +299,7 @@ describe("sources, loaders, and publishers", () => {
 
     await githubSource.getKeys({ rootDir: "", workspace: "github-public" })
 
-    expect(treeRequestAuthorization()).toBeUndefined()
+    expect(archiveRequestAuthorization()).toBeUndefined()
   })
 
   it("falls back to GitHub archives when the public tree API is rate limited", async () => {
@@ -317,24 +337,19 @@ describe("sources, loaders, and publishers", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("https://codeload.github.com/"))).toBe(true)
   })
 
-  it("falls back to raw GitHub bytes when the contents API does not return base64", async () => {
-    stubGitHubSource({
-      "metadata.xml": "<metadata />\n",
-    })
+  it("loads GitHub bytes from archive snapshots", async () => {
+    vi.stubGlobal("fetch", vi.fn())
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
       const requestUrl = String(url)
-      if (requestUrl.includes("/git/trees/")) {
-        return jsonResponse({
-          sha: "tree-sha",
-          tree: [{ path: "metadata.xml", type: "blob" }],
-        })
+      if (requestUrl === "https://api.github.com/repos/acme/app") {
+        return jsonResponse({ default_branch: "main" })
       }
-      if (requestUrl.includes("/contents/")) {
-        return jsonResponse({ content: "", encoding: "none" })
+      if (requestUrl.endsWith("/commits/main")) {
+        return jsonResponse({ sha: "latest-commit-sha" })
       }
-      if (requestUrl.startsWith("https://raw.githubusercontent.com/")) {
+      if (requestUrl.startsWith("https://codeload.github.com/")) {
         expect((init?.headers as Record<string, string> | undefined)?.authorization).toBe("Bearer token")
-        return new Response("<metadata />\n")
+        return new Response(createTarGz({ "metadata.xml": "<metadata />\n" }))
       }
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
     })
@@ -349,7 +364,7 @@ describe("sources, loaders, and publishers", () => {
     expect(Buffer.from(item.content as Uint8Array).toString("utf8")).toBe("<metadata />\n")
   })
 
-  it("reuses cached GitHub tree listings across lazy source navigation", async () => {
+  it("reuses cached GitHub archives across lazy source navigation", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
       "docs/guide/setup.md": "# Setup\n",
@@ -359,8 +374,9 @@ describe("sources, loaders, and publishers", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.github({
-          cache: { maxAge: 3600, swr: true },
+          cache: { maxAge: 3600 },
           materialize: "lazy",
+          mount: "docs",
           repo: "acme/app",
           root: "docs",
         }),
@@ -377,12 +393,17 @@ describe("sources, loaders, and publishers", () => {
     await expect(workspace.stat("docs/README.md")).resolves.toMatchObject({ path: "docs/README.md", type: "file" })
     await expect(workspace.exists("docs/guide/setup.md")).resolves.toBe(true)
 
-    const treeCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/git/trees/"))
-    expect(treeCalls).toHaveLength(1)
-    await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect(archiveCalls).toHaveLength(1)
+    await expect(workspace.diff()).resolves.toMatchObject({
+      entries: expect.arrayContaining([
+        expect.objectContaining({ path: "docs/README.md", type: "added" }),
+        expect.objectContaining({ path: "docs/guide/setup.md", type: "added" }),
+      ]),
+    })
   })
 
-  it("dedupes concurrent cached GitHub content reads while materializing once", async () => {
+  it("dedupes concurrent cached GitHub archive reads while materializing once", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -391,11 +412,11 @@ describe("sources, loaders, and publishers", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.github({
-          cache: { maxAge: 3600, swr: true },
+          cache: { maxAge: 3600 },
           materialize: "lazy",
+          mount: "docs",
           repo: "acme/app",
           root: "docs",
-          validate: "request",
         }),
       },
     }))
@@ -408,8 +429,8 @@ describe("sources, loaders, and publishers", () => {
       workspace.readFile("docs/README.md"),
     ])).resolves.toEqual(["# Docs\n", "# Docs\n"])
 
-    const contentCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://raw.githubusercontent.com/"))
-    expect(contentCalls).toHaveLength(1)
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect(archiveCalls).toHaveLength(1)
     await expect(workspace.diff()).resolves.toMatchObject({
       entries: expect.arrayContaining([expect.objectContaining({ path: "docs/README.md", type: "added" })]),
     })
@@ -426,6 +447,7 @@ describe("sources, loaders, and publishers", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.github({
+          mount: "docs",
           repo: "acme/app",
           root: "dbt",
         }),
@@ -442,15 +464,15 @@ describe("sources, loaders, and publishers", () => {
     const root = await createRoot()
     const directory = join(root, "server", "workspaces", "docs")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, ".config.ts"), "export default {}\n")
+    await writeFile(join(directory, "config.ts"), "export default {}\n")
     await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
     await writeFile(join(directory, "README.md"), "# Docs\n")
     const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
 
     await initializeWorkspaceAssetRegistry(registryFile, [{
-      handler: join(directory, ".config.ts"),
+      handler: join(directory, "config.ts"),
       name: "docs",
-      path: join(directory, ".config.ts"),
+      path: join(directory, "config.ts"),
       source: "test",
     }], root)
 
@@ -463,14 +485,14 @@ describe("sources, loaders, and publishers", () => {
     const root = await createRoot()
     const directory = join(root, "server", "workspaces", "docs")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, ".config.mjs"), "export default {}\n")
+    await writeFile(join(directory, "config.mjs"), "export default {}\n")
     await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
     const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
 
     await syncWorkspaceBuildAssets([{
-      handler: join(directory, ".config.mjs"),
+      handler: join(directory, "config.mjs"),
       name: "docs",
-      path: join(directory, ".config.mjs"),
+      path: join(directory, "config.mjs"),
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
@@ -489,21 +511,21 @@ describe("sources, loaders, and publishers", () => {
     const skippedDirectory = join(root, "server", "workspaces", "skipped")
     await mkdir(selectedDirectory, { recursive: true })
     await mkdir(skippedDirectory, { recursive: true })
-    await writeFile(join(selectedDirectory, ".config.mjs"), "export default {}\n")
+    await writeFile(join(selectedDirectory, "config.mjs"), "export default {}\n")
     await writeFile(join(selectedDirectory, "AGENTS.md"), "# Selected\n")
-    await writeFile(join(skippedDirectory, ".config.mjs"), "export default {}\n")
+    await writeFile(join(skippedDirectory, "config.mjs"), "export default {}\n")
     await writeFile(join(skippedDirectory, "AGENTS.md"), "# Skipped\n")
     const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
 
     await syncWorkspaceBuildAssets([{
-      handler: join(selectedDirectory, ".config.mjs"),
+      handler: join(selectedDirectory, "config.mjs"),
       name: "selected",
-      path: join(selectedDirectory, ".config.mjs"),
+      path: join(selectedDirectory, "config.mjs"),
       source: "test",
     }, {
-      handler: join(skippedDirectory, ".config.mjs"),
+      handler: join(skippedDirectory, "config.mjs"),
       name: "skipped",
-      path: join(skippedDirectory, ".config.mjs"),
+      path: join(skippedDirectory, "config.mjs"),
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
@@ -520,7 +542,7 @@ describe("sources, loaders, and publishers", () => {
     const root = await createRoot()
     const directory = join(root, "server", "workspaces", "docs")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, ".config.mjs"), [
+    await writeFile(join(directory, "config.mjs"), [
       "export default {",
       "  sources: {",
       "    docs: {",
@@ -540,9 +562,9 @@ describe("sources, loaders, and publishers", () => {
     }))
 
     await syncWorkspaceBuildAssets([{
-      handler: join(directory, ".config.mjs"),
+      handler: join(directory, "config.mjs"),
       name: "docs",
-      path: join(directory, ".config.mjs"),
+      path: join(directory, "config.mjs"),
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),

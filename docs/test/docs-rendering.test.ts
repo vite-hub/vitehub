@@ -64,6 +64,13 @@ describe("docs rendering state", () => {
     expect(sidebar.some(item => item.path === "/docs/vite/blob/quickstart" && item.active)).toBe(true);
   });
 
+  it("keeps local sidebar links on the selected framework", () => {
+    const sidebar = buildDocsSidebarNavigation("/docs/nitro/philosophy", "nitro");
+
+    expect(sidebar.some(item => item.path === "/docs/nitro/philosophy" && item.active)).toBe(true);
+    expect(sidebar.some(item => item.path?.startsWith("/docs/vite/"))).toBe(false);
+  });
+
   it("creates a content page state without mutating the source document", () => {
     const doc = { title: "Source", description: "Desc", meta: { order: 1 } };
     const state = createDocsPageState(doc, "/docs/vite/getting-started", {

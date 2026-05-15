@@ -167,16 +167,19 @@ function getSectionLink(section: DocsSection, framework: Framework, currentPath:
   };
 }
 
-function buildDocsIndexSidebarNavigation(sections: DocsSection[], currentPath: string) {
-  const gettingStartedSection = sections.find(section => section.id === "getting-started");
-  if (!gettingStartedSection) return [];
-
-  return [toNavigationItem({ title: gettingStartedSection.title, path: "/docs", icon: gettingStartedSection.icon }, currentPath)];
+function buildDocsIndexSidebarNavigation(sections: DocsSection[], currentPath: string, framework: Framework) {
+  return sections
+    .filter(section => section.source === "local")
+    .map((section) => {
+      const path = section.id === "getting-started" ? "/docs" : getDocsPath(section.id, framework);
+      return toNavigationItem({ title: section.title, path, icon: section.icon }, currentPath);
+    });
 }
 
 function buildSectionSidebarNavigation(section: DocsSection, framework: Framework, currentPath: string) {
   const pages = getSupportedDocsPages(section, framework);
   const rootItems = [
+    toNavigationItem({ title: "Docs home", path: "/docs", icon: "i-lucide-house" }, currentPath),
     toNavigationItem({ title: "Overview", path: getDocsPath(section.id, framework), icon: section.icon }, currentPath),
     ...pages
       .filter(page => page.id !== "index" && !page.group)
@@ -210,19 +213,32 @@ export function getDocsActiveSection(path: string, sections: DocsSection[]) {
 
 export function buildDocsSidebarNavigation(path: string, framework: Framework, sections = getSupportedDocsSections(framework)) {
   if (path === "/docs") {
-    return buildDocsIndexSidebarNavigation(sections, path);
+    return buildDocsIndexSidebarNavigation(sections, path, framework);
   }
 
   const activeSection = getDocsActiveSection(path, sections);
 
   if (!activeSection) {
+    const localLinks = sections
+      .filter(section => section.source === "local")
+      .map((section) => {
+        const path = section.id === "getting-started" ? "/docs" : getDocsPath(section.id, framework);
+        return toNavigationItem({ title: section.title, path, icon: section.icon }, path);
+      });
     const packageLinks = sections
-      .filter(section => section.id !== "getting-started")
+      .filter(section => section.source === "package")
       .map(section => getSectionLink(section, framework, path))
       .filter((item): item is DocsSectionLink => Boolean(item))
       .map(item => toNavigationItem({ title: item.label, path: item.to, icon: item.icon }, path));
     const group = createNavigationGroup("Packages", packageLinks);
-    return group ? [group] : [];
+    return [
+      ...localLinks,
+      ...(group ? [group] : []),
+    ];
+  }
+
+  if (activeSection.source === "local") {
+    return buildDocsIndexSidebarNavigation(sections, path, framework);
   }
 
   return buildSectionSidebarNavigation(activeSection, framework, path);

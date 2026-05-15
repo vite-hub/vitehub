@@ -128,6 +128,29 @@ describe("showcase examples", () => {
     expect(sandbox?.frameworks.nuxt).toBeFalsy();
   });
 
+  it("loads the agent example for vite and nitro only", () => {
+    const agent = getShowcaseExamples().find(example => example.docsPath === "agent");
+    expect(agent).toBeTruthy();
+
+    expect(agent?.label).toBe("Agent");
+    expect(agent?.frameworks.vite).toBeTruthy();
+    expect(agent?.frameworks.nitro).toBeTruthy();
+    expect(agent?.frameworks.nuxt).toBeFalsy();
+  });
+
+  it("loads a runnable Chat Nitro showcase definition", () => {
+    const chat = getShowcaseExamples().find(example => example.docsPath === "chat");
+    expect(chat).toBeTruthy();
+
+    expect(getShowcasePhasePaths(chat!, "nitro", "dev")).toEqual({
+      configure: "vite.config.ts",
+      define: "server/agents/triage.ts",
+    });
+    const defineFile = getShowcaseFiles(chat!, "nitro", "dev").find(file => file.path === "server/agents/triage.ts");
+    expect(defineFile?.code).toContain("createDevtoolsAdapter");
+    expect(defineFile?.code).toContain("createMemoryChatStateAdapter");
+  });
+
   it("returns queue phase paths for supported frameworks", () => {
     const queue = getShowcaseExamples().find(example => example.docsPath === "queue");
     expect(queue).toBeTruthy();
@@ -171,6 +194,22 @@ describe("showcase examples", () => {
       configure: "nitro.config.ts",
       define: "server/sandboxes/release-notes.ts",
       run: "server/api/release-notes.post.ts",
+    });
+  });
+
+  it("returns agent phase paths for supported frameworks", () => {
+    const agent = getShowcaseExamples().find(example => example.docsPath === "agent");
+    expect(agent).toBeTruthy();
+
+    expect(getShowcasePhasePaths(agent!, "vite", "build")).toEqual({
+      configure: "vite.config.ts",
+      define: "src/support.agent.ts",
+      run: "src/server.ts",
+    });
+    expect(getShowcasePhasePaths(agent!, "nitro", "build")).toEqual({
+      configure: "nitro.config.ts",
+      define: "server/agents/support.ts",
+      run: "server/api/support.post.ts",
     });
   });
 
@@ -226,6 +265,25 @@ describe("showcase examples", () => {
       "nitro.config.ts",
       "server/sandboxes/release-notes.ts",
       "server/api/release-notes.post.ts",
+      "package.json",
+    ]);
+  });
+
+  it("keeps agent showcase files ordered by phase and supplemental files", () => {
+    const agent = getShowcaseExamples().find(example => example.docsPath === "agent");
+    expect(agent).toBeTruthy();
+
+    expect(getShowcaseFiles(agent!, "vite", "build").slice(0, 4).map(file => file.path)).toEqual([
+      "vite.config.ts",
+      "src/support.agent.ts",
+      "src/server.ts",
+      "package.json",
+    ]);
+
+    expect(getShowcaseFiles(agent!, "nitro", "build").slice(0, 4).map(file => file.path)).toEqual([
+      "nitro.config.ts",
+      "server/agents/support.ts",
+      "server/api/support.post.ts",
       "package.json",
     ]);
   });
