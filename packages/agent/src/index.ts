@@ -12,6 +12,11 @@ import {
   reportWorkspaceMaterialization,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
+import {
+  mergeAgentToolSets,
+  normalizeAgentSkillsOptions,
+  resolveSkillsInstructions,
+} from "./skills.ts"
 
 import type {
   AgentAdapter,
@@ -114,6 +119,11 @@ export type {
 } from "./types.ts"
 
 export type {
+  AgentSkillsOptions,
+  ResolvedAgentSkillsOptions,
+} from "./skills.ts"
+
+export type {
   Message,
   MessageMetadata,
   MessagePart,
@@ -204,6 +214,7 @@ function defineBaseAgent<
   }
 
   const { adapter, chat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
+  const skills = normalizeAgentSkillsOptions((options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>).skills)
 
   return {
     chat,
@@ -211,6 +222,7 @@ function defineBaseAgent<
     hooks,
     runtime,
     run,
+    skills,
     workspace,
     async resolve(context) {
       const resolvedAdapter = adapter || ("model" in options
@@ -272,8 +284,16 @@ export type WorkspaceAgentOptions<
   hooks?: AgentChatAgentHooks<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
-  workspace: WorkspaceAgentWorkspaceOptions
-}
+} & (
+  | {
+    skills?: boolean | import("./skills.ts").AgentSkillsOptions
+    workspace: WorkspaceAgentWorkspaceOptions
+  }
+  | {
+    skills: true | import("./skills.ts").AgentSkillsOptions
+    workspace?: WorkspaceAgentWorkspaceOptions
+  }
+)
 
 export type WorkspaceAgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -307,9 +327,10 @@ export interface DefineAgent {
 function isWorkspaceAgentOptions(value: unknown): value is WorkspaceAgentOptions {
   return typeof value === "object"
     && value !== null
-    && "workspace" in value
-    && typeof (value as { workspace?: unknown }).workspace === "object"
-    && (value as { workspace?: unknown }).workspace !== null
+    && ((("workspace" in value
+      && typeof (value as { workspace?: unknown }).workspace === "object"
+      && (value as { workspace?: unknown }).workspace !== null)
+    || Boolean((value as { skills?: unknown }).skills)))
 }
 
 function getPromptText(input: AgentRunInput) {
@@ -408,7 +429,7 @@ function hasLazyWorkspaceSources<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>) {
-  return Object.entries(options.workspace.sources || {}).some(([sourceName, source]) => sourceMaterialize(sourceName, source) === "lazy")
+  return Object.entries(options.workspace?.sources || {}).some(([sourceName, source]) => sourceMaterialize(sourceName, source) === "lazy")
 }
 
 function workspaceMetadataFiles<Name extends WorkspaceName>(
@@ -416,7 +437,7 @@ function workspaceMetadataFiles<Name extends WorkspaceName>(
   defaults: WorkspaceAgentDefaults<Name>,
 ): AgentDevtoolsFileTreeItem[] {
   const workspaceName = options.name || defaults.workspace || defaults.name || "workspace"
-  const sources = options.workspace.sources || {}
+  const sources = options.workspace?.sources || {}
   const children = Object.entries(sources).sort(([left], [right]) => left.localeCompare(right)).map(([sourceName, source]) => {
     const materialize = sourceMaterialize(sourceName, source)
     return {
@@ -467,7 +488,7 @@ function localWorkspaceRoots(options: WorkspaceAgentOptions<AgentRuntimeConfig, 
 }
 
 function sourceMountPaths(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string[] {
-  return Object.entries(options.workspace.sources || {}).map(([sourceName, source]) => sourceMountPath(sourceName, source))
+  return Object.entries(options.workspace?.sources || {}).map(([sourceName, source]) => sourceMountPath(sourceName, source))
 }
 
 function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry) {
@@ -512,7 +533,7 @@ function markSourceTreeMetadata(
   root: AgentDevtoolsFileTreeItem,
   options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>,
 ) {
-  const sources = options.workspace.sources || {}
+  const sources = options.workspace?.sources || {}
   for (const [sourceName, source] of Object.entries(sources)) {
     const mountPath = sourceMountPath(sourceName, source)
     const materialize = sourceMaterialize(sourceName, source)
@@ -591,9 +612,11 @@ function workspaceMetadataTools<Name extends WorkspaceName>(
     } as never)
     if (typeof (resolved as { then?: unknown })?.then === "function") return []
 
-    return Object.entries(resolved as Record<string, unknown> || {})
+    return [
+      ...Object.entries(resolved as Record<string, unknown> || {})
       .map(([name, tool]) => toolDefinitionFromEntry(name, tool))
-      .sort((left, right) => left.name.localeCompare(right.name))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    ]
   }
   catch {
     return []
@@ -604,7 +627,7 @@ function workspaceMetadataInstructions<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
 ): string[] {
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  return parts.flatMap((part) => {
+  const instructions = parts.flatMap((part) => {
     if (typeof part === "string" && part.trim().length > 0) return [part]
     if (typeof part === "function") {
       const localInstructions = readLocalWorkspaceInstructions(options as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
@@ -613,6 +636,10 @@ function workspaceMetadataInstructions<Name extends WorkspaceName>(
     }
     return []
   })
+  if (options.skills) {
+    instructions.push("Workspace-backed Skills configured.")
+  }
+  return instructions
 }
 
 function readLocalWorkspaceInstructions(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string | undefined {
@@ -644,10 +671,36 @@ async function resolveWorkspaceMetadataInstructions<
   const instructions = await Promise.all(parts.map(part => typeof part === "function"
     ? part(instructionContext as never)
     : part))
-  return instructions
+  const resolvedInstructions = instructions
     .flatMap(part => Array.isArray(part) ? part : [part])
     .map(part => part?.trim())
     .filter((part): part is string => Boolean(part))
+  if (options.skills) {
+    const skills = normalizeAgentSkillsOptions(options.skills)
+    const skillInstructions = skills ? await resolveSkillsInstructions(workspace, skills) : undefined
+    if (skillInstructions) resolvedInstructions.push(skillInstructions)
+  }
+  return resolvedInstructions
+}
+
+async function resolveWorkspaceTools<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  workspace: ReadonlyWorkspaceFacade<Name>,
+): Promise<AgentToolSet | undefined> {
+  if (!options.tools) return
+  const toolContext = {
+    ...runtime,
+    fs: workspace.fs,
+    workspace,
+  } as AgentAdapterMetadataContext<TRuntimeConfig, Name>
+  const resolved = typeof options.tools === "function"
+    ? await options.tools(toolContext)
+    : options.tools
+  return resolved as AgentToolSet | undefined
 }
 
 export function createAgentDevtoolsMetadata<
@@ -693,10 +746,34 @@ export async function resolveAgentDevtoolsMetadata<
   const { useWorkspace } = await import("@vitehub/workspace")
   const workspace = useWorkspace(workspaceName)
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
+  const metadataContext = {
+    fs: workspace.fs,
+    workspace,
+  } as AgentAdapterMetadataContext<AgentRuntimeConfig, Name>
+  let adapterMetadata: AgentDevtoolsMetadata | undefined
+  if (options.adapter) {
+    try {
+      const adapter = await workspaceDefinition.resolve?.({
+        input: { messages: [] },
+        memo: (_key: string, create: () => unknown) => create(),
+        runtime: "devtools",
+        runtimeConfig: {},
+        waitUntil: () => {},
+      } as never)
+      adapterMetadata = await adapter?.metadata?.(metadataContext as never)
+    }
+    catch {}
+  }
   return {
     files: await resolveWorkspaceMetadataFiles(options, defaults, workspace),
-    instructions: await resolveWorkspaceMetadataInstructions(options, workspace),
-    tools: workspaceMetadataTools(options),
+    instructions: [
+      ...(adapterMetadata?.instructions || []),
+      ...await resolveWorkspaceMetadataInstructions(options, workspace),
+    ],
+    tools: [
+      ...(adapterMetadata?.tools || []),
+      ...workspaceMetadataTools(options),
+    ],
   }
 }
 
@@ -707,6 +784,11 @@ function createWorkspaceAgentDefinition<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name> = {},
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name> {
+  const skills = normalizeAgentSkillsOptions(options.skills)
+  const resolvedDefaults = skills && !defaults.workspace
+    ? { ...defaults, workspace: (defaults.name || options.name || "workspace") as Name }
+    : defaults
+  const workspace = options.workspace || {}
   const definition = defineBaseAgent<TRuntimeConfig>({
     ...options,
     chat: options.chat,
@@ -714,7 +796,8 @@ function createWorkspaceAgentDefinition<
     hooks: options.hooks,
     run: options.run,
     runtime: options.runtime,
-    workspace: options.workspace,
+    skills,
+    workspace,
   } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name>
 
   if (!definition.run) {
@@ -728,10 +811,14 @@ function createWorkspaceAgentDefinition<
     definition.run = Object.assign(run, { [syntheticWorkspaceRun]: true })
   }
 
-  Object.assign(definition, options.workspace, {
+  Object.assign(definition, workspace, {
     __vitehubWorkspaceAgent: true,
-    __vitehubWorkspaceAgentDefaults: defaults,
-    __vitehubWorkspaceAgentOptions: options,
+    __vitehubWorkspaceAgentDefaults: resolvedDefaults,
+    __vitehubWorkspaceAgentOptions: {
+      ...options,
+      skills,
+      workspace,
+    },
   })
   return definition
 }
@@ -935,20 +1022,45 @@ async function createAdapterRunContext<
   input: AgentRunInput<CALL_OPTIONS>,
 ) {
   const runtime = createResolvedRuntimeContext(context)
-  const workspaceName = (definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined)?.__vitehubWorkspaceAgentDefaults?.workspace
-  const workspace = workspaceName
-    ? (await import("@vitehub/workspace")).useWorkspace(workspaceName)
+  const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
+  const workspaceName = workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
+  const skills = (workspaceDefinition?.skills || false) as false | import("./skills.ts").ResolvedAgentSkillsOptions
+  const workspaceModule = workspaceName ? await import("@vitehub/workspace") : undefined
+  const readWorkspace = workspaceName && workspaceModule
+    ? workspaceModule.useWorkspace(workspaceName)
+    : undefined
+  const skillInstructions = readWorkspace && skills
+    ? await resolveSkillsInstructions(readWorkspace, skills)
+    : undefined
+  const workspaceTools = readWorkspace && workspaceDefinition?.__vitehubWorkspaceAgentOptions?.adapter
+    ? await resolveWorkspaceTools(workspaceDefinition.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig>, runtime, readWorkspace)
     : undefined
   return {
     devtools: context.devtools,
     input,
-    instructions: undefined,
+    instructions: skillInstructions,
     messages: getRunMessages(input),
     prompt: typeof input.prompt === "string" ? input.prompt : undefined,
     runtime,
-    tools: undefined,
-    workspace,
+    skills,
+    tools: workspaceTools,
+    workspace: readWorkspace,
   }
+}
+
+async function validateCustomRunSkills<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+) {
+  const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
+  const workspaceName = workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
+  const skills = (workspaceDefinition?.skills || false) as false | import("./skills.ts").ResolvedAgentSkillsOptions
+  if (!workspaceName || !skills) return
+  const { useWorkspace } = await import("@vitehub/workspace")
+  await resolveSkillsInstructions(useWorkspace(workspaceName), skills)
 }
 
 export async function runAgent<
@@ -960,6 +1072,7 @@ export async function runAgent<
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
+    await validateCustomRunSkills(agent, context)
     return await agent.run(createRunContext(agent, context, input))
   }
 
@@ -978,6 +1091,7 @@ export async function streamAgent<
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
+    await validateCustomRunSkills(agent, context)
     return await agent.run(createRunContext(agent, context, input))
   }
 

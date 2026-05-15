@@ -44,6 +44,7 @@ defineAgent({
   description?: string
   adapter?: AgentAdapter | AgentAdapterFactory
   run?: AgentRunHandler
+  skills?: boolean | AgentSkillsOptions
   workspace?: WorkspaceAgentWorkspaceOptions
 })
 ```
@@ -81,6 +82,54 @@ defineAgent({
 ```
 
 The resolver receives the same runtime context as `instructions`, plus `fs` and the workspace facade. Use `workspace.tools.inspect()` for the default read-only shell inspection tool, `workspace.tools.none()` for no tools, and `workspace.tools.write()` only with mutable workspace access.
+
+## Skills
+
+Use `skills` when an agent should load workspace-backed Skill files into its system instructions.
+
+```ts
+defineAgent({
+  skills: true,
+  adapter: aiSdkAdapter({
+    model,
+    instructions: 'Help the user with their work.',
+    tools: developerTools,
+  }),
+})
+```
+
+`skills: true` enables an agent workspace and reads Skill frontmatter from `skills/`. The generated instruction block contains a compact index of available Skills with their workspace paths. If the developer exposes workspace read tools, the agent can use those paths to load the full Skill body when a description matches the user's request. Existing files are adopted; invalid Skills fail at boot so they can be fixed before the agent runs.
+
+```md [skills/receipt-tracking.md]
+---
+name: receipt-tracking
+description: Track receipts from messages and attachments. Use when the user sends receipts, invoices, or expense screenshots.
+---
+
+# Receipt Tracking
+
+When the user sends a receipt, extract merchant, date, amount, and currency.
+```
+
+Flat files are the default: `skills/<name>.md`. Folder Skills are also supported when a Skill needs supporting material: `skills/<name>/SKILL.md`.
+
+Enable authoring when the agent should create or update Skills:
+
+```ts
+defineAgent({
+  skills: {
+    dir: 'skills',
+    authoring: true,
+  },
+  adapter: aiSdkAdapter({
+    model,
+    instructions: 'Help the user with their work.',
+    tools: developerTools,
+  }),
+})
+```
+
+Authoring adds concise skill-writing guidance. It does not add a generated write tool; if the developer exposes a workspace `writeFile` tool, ViteHub validates writes that target the configured Skills directory before the underlying tool runs. Skills describe behavior; they should not name implementation-specific tools. Tools remain developer-defined and tested.
 
 ## Run input
 

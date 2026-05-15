@@ -3,6 +3,7 @@ import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
+import { mergeAgentToolSets, withSkillWriteValidation } from "./skills.ts"
 
 import type {
   Agent,
@@ -274,10 +275,10 @@ async function resolveInstructions(options: AiSdkAdapterOptions, context: AgentA
   return joinInstructions(...instructions)
 }
 
-async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never) {
-  if (!options.tools) return undefined
-  const resolved = await resolveValue(options.tools as never, context)
-  const tools = applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {}
+async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never, extraTools?: AgentToolSet, skills?: AgentAdapterRunContext["skills"]) {
+  if (!options.tools && !extraTools) return undefined
+  const resolved = options.tools ? await resolveValue(options.tools as never, context) : undefined
+  const tools = applyAgentToolPolicies(withSkillWriteValidation(mergeAgentToolSets(resolved as AgentToolSet | undefined, extraTools), skills)) || {}
   const { materialize_sources: materializeSources, ...reportableTools } = tools
   return {
     ...withAgentToolStepReporting(reportableTools, reportToolStep as never),
@@ -348,8 +349,9 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const instrumentedModel = options.instrumentModel
     ? await options.instrumentModel({ ...context.runtime, model, run: context.runtime.run })
     : model
-  const instructions = context.instructions ?? await resolveInstructions(options, metadataContext)
-  const tools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
+  const adapterInstructions = await resolveInstructions(options, metadataContext)
+  const instructions = joinInstructions(adapterInstructions, context.instructions)
+  const tools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep, context.tools, context.skills)
   const {
     fallback: _fallback,
     instructions: _instructions,

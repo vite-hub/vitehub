@@ -13,6 +13,7 @@ import type {
   WorkspaceDefinitionInput,
   WorkspaceName,
 } from "@vitehub/workspace"
+import type { AgentSkillsOptions, ResolvedAgentSkillsOptions } from "./skills.ts"
 
 export type {
   MaybePromise,
@@ -145,6 +146,7 @@ type AgentSettingsBase<
   hooks?: AgentChatAgentHooks<TRuntimeConfig>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
+  skills?: boolean | AgentSkillsOptions
   tools?: AgentToolResolverWithWorkspace<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   workspace?: WorkspaceAgentWorkspaceOptions
@@ -180,6 +182,7 @@ export interface AgentDefinition<
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
+  skills?: false | ResolvedAgentSkillsOptions
   workspace?: WorkspaceAgentWorkspaceOptions
 }
 
@@ -410,6 +413,7 @@ export interface AgentAdapterRunContext<
   messages: Message[]
   prompt?: string
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
+  skills?: false | ResolvedAgentSkillsOptions
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade<Name>
 }

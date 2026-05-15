@@ -3,6 +3,7 @@ import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
+import { mergeAgentToolSets, withSkillWriteValidation } from "./skills.ts"
 
 import type {
   AgentAdapter,
@@ -75,12 +76,12 @@ async function resolveInstructions(options: TanStackAiAdapterOptions, context: A
   return joinInstructions(...instructions)
 }
 
-async function resolveTools(options: TanStackAiAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never) {
-  if (!options.tools) return []
+async function resolveTools(options: TanStackAiAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never, extraTools?: AgentToolSet, skills?: AgentAdapterRunContext["skills"]) {
+  if (!options.tools && !extraTools) return []
   const resolved = typeof options.tools === "function"
     ? await options.tools(context)
     : await options.tools
-  const tools = withAgentToolStepReporting(applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {}, reportToolStep as never)
+  const tools = withAgentToolStepReporting(applyAgentToolPolicies(withSkillWriteValidation(mergeAgentToolSets(resolved as AgentToolSet | undefined, extraTools), skills)) || {}, reportToolStep as never)
   const { toolDefinition } = await import("@tanstack/ai")
   return Object.values(tools).map((tool) => {
     const definition = toolDefinition({
@@ -101,7 +102,8 @@ async function createChatOptions(options: TanStackAiAdapterOptions, context: Age
     fs: context.workspace?.fs,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
-  const instructions = context.instructions ?? await resolveInstructions(options, metadataContext)
+  const adapterInstructions = await resolveInstructions(options, metadataContext)
+  const instructions = joinInstructions(adapterInstructions, context.instructions)
   const {
     adapter,
     instructions: _instructions,
@@ -117,7 +119,7 @@ async function createChatOptions(options: TanStackAiAdapterOptions, context: Age
     messages: context.messages.length ? toTanStackAiMessages(context.messages) : context.prompt ? [{ content: context.prompt, role: "user" as const }] : [],
     stream,
     systemPrompts: instructions ? [instructions] : undefined,
-    tools: await resolveTools(options, metadataContext, context.devtools?.reportToolStep),
+    tools: await resolveTools(options, metadataContext, context.devtools?.reportToolStep, context.tools, context.skills),
   }
 }
 

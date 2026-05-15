@@ -234,3 +234,58 @@ Workspace sources no longer imply model tools. Replace older workspace agents th
 ```
 
 Use `workspace.tools.none()` when a resolver needs to return an empty tool set, and reserve `workspace.tools.write()` for agents that intentionally receive mutable workspace access.
+
+## Use Skills
+
+Use `skills` when an agent should pick up reusable behavior from Markdown files in its workspace.
+
+```ts [server/agents/assistant.ts]
+import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+
+export default defineAgent({
+  skills: true,
+  adapter: aiSdkAdapter({
+    model,
+    instructions: 'Help the user with their work.',
+    tools: developerTools,
+  }),
+})
+```
+
+Skill files live under `skills/` by default. The agent receives a compact Skill index with each Skill path. If the developer exposes workspace read tools, the agent can use those paths to load the full Skill body when needed. Prefer flat files for simple Skills:
+
+```md [skills/receipt-tracking.md]
+---
+name: receipt-tracking
+description: Track receipts from messages and attachments. Use when the user sends receipts, invoices, or expense screenshots.
+---
+
+# Receipt Tracking
+
+When the user sends a receipt, extract merchant, date, amount, and currency.
+```
+
+Use folder Skills only when the Skill needs supporting files:
+
+```txt
+skills/receipt-tracking/SKILL.md
+skills/receipt-tracking/EXAMPLES.md
+```
+
+Enable authoring when the agent should create or update Skills from user-confirmed drafts:
+
+```ts [server/agents/assistant.ts]
+export default defineAgent({
+  skills: {
+    authoring: true,
+  },
+  adapter: aiSdkAdapter({
+    model,
+    instructions: 'Help the user with their work.',
+    tools: developerTools,
+  }),
+})
+```
+
+Authoring adds concise skill-writing guidance. It does not add a generated write tool; if the developer exposes a workspace `writeFile` tool, ViteHub validates writes that target the configured Skills directory before the underlying tool runs. Skills describe behavior; they should not name implementation-specific tools.
