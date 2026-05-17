@@ -19,8 +19,6 @@
     "@vitehub/sandbox": "workspace:*",
     "@vitehub/workspace": "workspace:*",
     "@vitehub/workflow": "workspace:*",
-    "chat": "catalog:",
-    "chat-state-cloudflare-do": "catalog:",
     "drizzle-orm": "catalog:",
     "h3": "catalog:",
     "nitro": "catalog:",

@@ -207,7 +207,12 @@ describe("defineAgent workspace option", () => {
       workspace: {},
     }), { workspace: "docs" })
 
-    await expect(streamAgent(agent as never, context(), { messages: [] })).resolves.toBe(stream)
+    const result = await streamAgent(agent as never, context(), { messages: [] })
+    const events = []
+    for await (const event of result as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+    expect(events).toEqual([{ text: "ok", type: "text-delta" }])
     expect(adapter.stream).toHaveBeenCalled()
     expect(adapter.generate).not.toHaveBeenCalled()
   })

@@ -842,6 +842,17 @@ function isTransportReadyResult(value: unknown): value is Response | AsyncIterab
   return value instanceof Response || isAsyncIterable(value)
 }
 
+async function* closeAfterAsyncIterable<T>(iterable: AsyncIterable<T>, close: () => Promise<void>): AsyncIterable<T> {
+  try {
+    for await (const chunk of iterable) {
+      yield chunk
+    }
+  }
+  finally {
+    await close()
+  }
+}
+
 function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): agent is AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & { run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> } {
@@ -857,6 +868,25 @@ function getCapabilityOptions<
 ): AgentCapabilityOptions<TRuntimeConfig> | undefined {
   return (definition as { __vitehubAgentCapabilityOptions?: AgentCapabilityOptions<TRuntimeConfig> } | undefined)?.__vitehubAgentCapabilityOptions
     || (definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined)?.__vitehubWorkspaceAgentOptions
+}
+
+function getWorkspaceName<
+  TRuntimeConfig extends AgentRuntimeConfig,
+>(
+  definition: AgentDefinition<TRuntimeConfig> | undefined,
+): string | undefined {
+  const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
+  const defaults = workspaceDefinition?.__vitehubWorkspaceAgentDefaults
+  const options = workspaceDefinition?.__vitehubWorkspaceAgentOptions
+  const optionWorkspace = options?.workspace
+  const definitionWorkspace = (definition as { workspace?: WorkspaceAgentWorkspaceOptions | string } | undefined)?.workspace
+
+  if (defaults?.workspace) return defaults.workspace
+  if (defaults?.name) return defaults.name
+  if (options?.name) return options.name
+  if (typeof optionWorkspace === "object" && optionWorkspace && "name" in optionWorkspace && typeof optionWorkspace.name === "string") return optionWorkspace.name
+  if (typeof definitionWorkspace === "string") return definitionWorkspace
+  if (typeof definitionWorkspace === "object" && definitionWorkspace && "name" in definitionWorkspace && typeof definitionWorkspace.name === "string") return definitionWorkspace.name
 }
 
 function toStreamEvent(chunk: unknown): AgentStreamEvent | undefined {
@@ -949,17 +979,16 @@ function createRunContext<
   }
 }
 
-async function createAdapterRunContext<
+async function createCapabilityRunContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
-  adapter: AgentAdapter<CALL_OPTIONS>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
 ) {
   const runtime = createResolvedRuntimeContext(context)
-  const workspaceName = (definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined)?.__vitehubWorkspaceAgentDefaults?.workspace
+  const workspaceName = getWorkspaceName(definition)
   const workspace = workspaceName
     ? (await import("@vitehub/workspace")).useWorkspace(workspaceName)
     : undefined
@@ -969,8 +998,22 @@ async function createAdapterRunContext<
     input,
     workspace,
   )
+  return { capabilities, runtime, workspace }
+}
+
+async function createAdapterRunContext<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  adapter: AgentAdapter<CALL_OPTIONS>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+) {
+  const { capabilities, runtime, workspace } = await createCapabilityRunContext(definition, context, input)
   return {
     capabilityInstructions: capabilities.capabilityInstructions,
+    capabilityClose: capabilities.close,
     capabilityRegistries: capabilities.registries,
     capabilityToolTransforms: capabilities.toolTransforms,
     devtools: context.devtools,
@@ -984,6 +1027,14 @@ async function createAdapterRunContext<
   }
 }
 
+async function applyOutputRenderers(result: unknown, registries: Awaited<ReturnType<typeof resolveAgentCapabilities>>["registries"] | undefined) {
+  let current = result
+  for (const renderer of registries?.outputRenderers || []) {
+    current = await renderer(current, undefined as never)
+  }
+  return current
+}
+
 export async function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -993,17 +1044,26 @@ export async function runAgent<
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
-    return await agent.run(createRunContext(agent, context, input))
+    const { capabilities } = await createCapabilityRunContext(agent, context, input)
+    try {
+      const result = await agent.run(createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>))
+      return await applyOutputRenderers(result, capabilities.registries)
+    }
+    finally {
+      await capabilities.close()
+    }
   }
 
   const resolved = await resolveAgent(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
-  let result = await resolved.generate(adapterContext)
-  for (const renderer of adapterContext.capabilityRegistries?.outputRenderers || []) {
-    result = await renderer(result, undefined as never)
+  try {
+    const result = await applyOutputRenderers(await resolved.generate(adapterContext), adapterContext.capabilityRegistries)
+    return isTransportReadyResult(result) ? result : toAgentRunResult(result)
   }
-  return isTransportReadyResult(result) ? result : toAgentRunResult(result)
+  finally {
+    await adapterContext.capabilityClose()
+  }
 }
 
 export async function streamAgent<
@@ -1015,19 +1075,49 @@ export async function streamAgent<
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AsyncIterable<AgentStreamEvent> | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
-    return await agent.run(createRunContext(agent, context, input))
+    const { capabilities } = await createCapabilityRunContext(agent, context, input)
+    let closeImmediately = true
+    try {
+      const result = await applyOutputRenderers(
+        await agent.run(createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>)),
+        capabilities.registries,
+      )
+      if (isAsyncIterable(result)) {
+        closeImmediately = false
+        return closeAfterAsyncIterable(result, capabilities.close)
+      }
+      return result
+    }
+    finally {
+      if (closeImmediately) {
+        await capabilities.close()
+      }
+    }
   }
 
   const resolved = await resolveAgent(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
-  let result = resolved.stream
-    ? await resolved.stream(adapterContext)
-    : await resolved.generate(adapterContext)
-  for (const renderer of adapterContext.capabilityRegistries?.outputRenderers || []) {
-    result = await renderer(result, undefined as never)
+  let closeImmediately = true
+  try {
+    const result = await applyOutputRenderers(
+      resolved.stream
+        ? await resolved.stream(adapterContext)
+        : await resolved.generate(adapterContext),
+      adapterContext.capabilityRegistries,
+    )
+    const streamResult = isTransportReadyResult(result) ? result : streamTextResultToEvents(result)
+    if (isAsyncIterable(streamResult)) {
+      closeImmediately = false
+      return closeAfterAsyncIterable(streamResult, adapterContext.capabilityClose)
+    }
+    return streamResult
   }
-  return isTransportReadyResult(result) ? result : streamTextResultToEvents(result)
+  finally {
+    if (closeImmediately) {
+      await adapterContext.capabilityClose()
+    }
+  }
 }
 
 export async function getAgent<TContext extends AgentRuntimeContext>(

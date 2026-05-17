@@ -9,7 +9,6 @@ const buildMode: ViteHubMode = getViteMode() || VITEHUB_MODES.queue
 const inputByMode: Record<ViteHubMode, string> = {
   e2e: "src/server.e2e.ts",
   blob: "src/server.blob.ts",
-  chat: "src/server.ts",
   db: "src/server.db.ts",
   env: "src/server-env.ts",
   kv: "src/server.ts",

@@ -12,7 +12,7 @@ const playgroundDir = resolve(import.meta.dirname, "../../../playground/nitro")
 const repoRoot = resolve(playgroundDir, "../..")
 const testBuildDir = join(playgroundDir, "node_modules", ".workspace-nitro-output-test")
 const testOutputRoot = join(playgroundDir, ".workspace-test-output")
-const playgroundNitroPackages = ["blob", "chat", "env", "kv", "queue", "sandbox", "workflow"] as const
+const playgroundNitroPackages = ["agent", "blob", "env", "kv", "queue", "sandbox", "workflow"] as const
 
 async function cleanupPlayground() {
   await rm(testBuildDir, { force: true, recursive: true, maxRetries: 10, retryDelay: 50 })

@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
-const workspacePackages = ["runtime", "messages", "shell", "unshell", "unsource", "sandbox", "workspace", "agent", "blob", "chat", "db", "env", "kv", "queue", "workflow"] as const
+const workspacePackages = ["runtime", "shell", "unshell", "unsource", "sandbox", "workspace", "agent", "blob", "db", "env", "kv", "queue", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
 
@@ -181,7 +181,7 @@ describe("unified vite e2e hosted outputs", () => {
     })
   }, 45_000)
 
-  it("builds the env and chat playground modes", async () => {
+  it("builds the env playground mode", async () => {
     const envRoot = await createPlaygroundCopy("vitehub-internal-vite-env-")
 
     await execFileAsync("pnpm", ["exec", "vite", "build"], {
@@ -196,19 +196,5 @@ describe("unified vite e2e hosted outputs", () => {
     const envOutput = await readGeneratedJavaScript(join(envRoot, "dist"))
     expect(envOutput).toContain("Vite playground")
     expect(envOutput).toContain("enabled")
-
-    const chatRoot = await createPlaygroundCopy("vitehub-internal-vite-chat-")
-
-    await execFileAsync("pnpm", ["exec", "vite", "build"], {
-      cwd: chatRoot,
-      env: {
-        ...process.env,
-        VITEHUB_VITE_MODE: "chat",
-      },
-      maxBuffer: execMaxBuffer,
-    })
-
-    const chatOutput = await readGeneratedJavaScript(join(chatRoot, "dist"))
-    expect(chatOutput).toContain("vite-playground")
   }, 45_000)
 })

@@ -64,6 +64,128 @@ describe("agent capabilities", () => {
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow("Duplicate agent capability")
   })
 
+  it("runs capabilities for custom run agents", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [
+        inputCommands({
+          commands: {
+            summarize: {
+              run: async ({ args }) => `Summarize: ${args}`,
+            },
+          },
+        }),
+      ],
+      async run({ input }) {
+        return {
+          text: input.messages?.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n"),
+        }
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "/summarize last week" })],
+    })).resolves.toMatchObject({ text: "Summarize: last week" })
+  })
+
+  it("runs output renderers with context and closes capabilities", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineCapability } = await import("../src/capabilities.ts")
+    const order: string[] = []
+    const agent = defineAgent({
+      adapter: {
+        async generate() {
+          order.push("adapter")
+          return { text: "base" }
+        },
+        name: "test",
+      },
+      hooks: {
+        "capability:close": () => {
+          order.push("close:hook")
+        },
+        "capability:close:after": () => {
+          order.push("close:after")
+        },
+      },
+      capabilities: [
+        defineCapability({
+          id: "decorate",
+          close() {
+            order.push("close")
+          },
+          output(context) {
+            context.output.render((result, renderContext) => {
+              order.push(`render:${renderContext.capability.id}`)
+              return { text: `${(result as { text?: string }).text}:rendered` }
+            })
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({ text: "base:rendered" })
+    expect(order).toEqual(["adapter", "render:decorate", "close:hook", "close", "close:after"])
+  })
+
+  it("runs output renderers and close phase for custom run agents", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineCapability } = await import("../src/capabilities.ts")
+    const order: string[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "customDecorate",
+          close() {
+            order.push("close")
+          },
+          output(context) {
+            context.output.render((result, renderContext) => {
+              order.push(`render:${renderContext.capability.id}`)
+              return { text: `${(result as { text?: string }).text}:rendered` }
+            })
+          },
+        }),
+      ],
+      async run() {
+        order.push("run")
+        return { text: "base" }
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({ text: "base:rendered" })
+    expect(order).toEqual(["run", "render:customDecorate", "close"])
+  })
+
+  it("closes stream capabilities after custom stream consumption", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineCapability } = await import("../src/capabilities.ts")
+    const order: string[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "streamClose",
+          close() {
+            order.push("close")
+          },
+        }),
+      ],
+      run() {
+        order.push("run")
+        return (async function* () {
+          yield "hello"
+          order.push("stream:done")
+        })()
+      },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    expect(order).toEqual(["run"])
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+    expect(order).toEqual(["run", "stream:done", "close"])
+  })
+
   it("transcribes audio input before adapter execution", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { voiceInput } = await import("../src/capabilities.ts")
@@ -249,6 +371,38 @@ describe("agent capabilities", () => {
     })
   })
 
+  it("clears stale messages when input command patches replace the prompt", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      adapter: {
+        async generate(context) {
+          return {
+            text: context.messages.length
+              ? context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n")
+              : String(context.prompt),
+          }
+        },
+        name: "test",
+      },
+      capabilities: [
+        inputCommands({
+          commands: {
+            triage: {
+              run: async ({ args }) => ({ prompt: `Triage this request:\n${args}` }),
+            },
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "/triage broken login" })],
+    })).resolves.toMatchObject({
+      text: "Triage this request:\nbroken login",
+    })
+  })
+
   it("rejects invalid input command names", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     expect(() => inputCommands({ commands: { Summarize: { run: () => "" } } })).toThrow("lowercase stable identifier")
@@ -297,6 +451,29 @@ describe("agent capabilities", () => {
 
     expect(post).toHaveBeenCalledWith("Working...")
     expect(edit).toHaveBeenCalledWith("Summarize: last week")
+  })
+
+  it("resolves workspace for direct workspace agents with chat history", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      name: "support",
+      workspace: {},
+      adapter: {
+        async generate() {
+          return { text: "ok" }
+        },
+        name: "test",
+      },
+      capabilities: [
+        chat({
+          adapters: {},
+          history: { source: "thread" },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({ text: "ok" })
   })
 
   it("injects compact storage capability tools", async () => {

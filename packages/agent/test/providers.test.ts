@@ -28,6 +28,25 @@ describe("agent Vite plugin", () => {
 
     expect(result).toEqual({ agent: { route: true } })
   })
+
+  it("registers chat devtools handler from the agent chat runtime", async () => {
+    const { hubChatDevtools } = await import("../src/vite.ts")
+    const plugin = hubChatDevtools()
+    const nitro = {
+      options: {
+        dev: true,
+        handlers: [] as Array<{ handler: string, method?: string, route: string }>,
+      },
+    }
+
+    await plugin.nitro.setup?.(nitro as never)
+
+    expect(nitro.options.handlers[0]).toMatchObject({
+      method: "POST",
+    })
+    expect(nitro.options.handlers[0]?.handler).toContain("/chat/runtime/chat-devtools-handler")
+    expect(nitro.options.handlers[0]?.handler).not.toContain("/runtime/agent/chat-devtools-handler")
+  })
 })
 
 describe("Vercel helpers", () => {

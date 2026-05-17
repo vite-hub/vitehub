@@ -21,8 +21,8 @@ For the architecture behind these boundaries, read [ViteHub philosophy](../philo
 | Coordinate durable steps, waits, retries, or resumable work | Workflow | The work needs orchestration beyond one request or one model call. |
 | Run user-defined or risky code behind an isolated boundary | Sandbox | The work needs an execution boundary and a result payload. |
 | Run a model/tool loop | Agent | The feature needs model instructions, tools, and ViteHub message input. |
-| Receive and respond to chat platform events | Chat | The feature needs Chat SDK adapters, webhook handling, and conversation state. |
-| Persist conversation or stream state across interfaces | Messages | Agent and chat need the same serializable message/event model. |
+| Receive and respond to chat platform events | Agent with `chat()` | The feature needs an agent-scoped Chat capability with adapters, webhook handling, and optional history. |
+| Persist conversation or stream state across interfaces | Agent messages | Agent-local message primitives provide the serializable message/event model. |
 | Finish a small amount of work before responding | Inline request code | The work is quick, reliable, and belongs to the response path. |
 | Query relationships, joins, transactions, or history | A database | The data has a relational or durable application model. |
 
@@ -93,22 +93,6 @@ Choose the primitive for the runtime behavior you need. Provider setup comes aft
   to: ../agent
   ---
   :::
-  :::u-page-card
-  ---
-  title: Chat
-  description: Connect Chat SDK adapters, webhook routes, state, and optional agent handoff.
-  icon: i-lucide-message-circle
-  to: ../chat
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Messages
-  description: Share serializable message and stream-event state between chat, agent, and interfaces.
-  icon: i-lucide-messages-square
-  to: ../messages
-  ---
-  :::
 ::
 ::
 
@@ -154,22 +138,6 @@ Choose the primitive for the runtime behavior you need. Provider setup comes aft
   to: ../agent
   ---
   :::
-  :::u-page-card
-  ---
-  title: Chat
-  description: Connect Chat SDK adapters, webhook routes, state, and optional agent handoff.
-  icon: i-lucide-message-circle
-  to: ../chat
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Messages
-  description: Share serializable message and stream-event state between chat, agent, and interfaces.
-  icon: i-lucide-messages-square
-  to: ../messages
-  ---
-  :::
 ::
 ::
 
@@ -187,8 +155,8 @@ Only KV currently has Nuxt package docs. Blob, Queue, and Sandbox are documented
 | Run an onboarding process that waits for provider callbacks | Workflow |
 | Generate release notes from a request payload in an isolated runtime | Sandbox |
 | Answer a support question with tools and model instructions | Agent |
-| Receive Slack, Discord, or Teams messages and respond in a thread | Chat |
-| Save assistant stream events and replay them after reload | Messages |
+| Receive Slack, Discord, or Teams messages and respond in a thread | Agent with `chat()` |
+| Save assistant stream events and replay them after reload | Agent messages |
 | Increment a request-local counter before returning JSON | Inline request code |
 | Store users, teams, permissions, and audit history | A database |
 
@@ -199,7 +167,7 @@ Many features use more than one primitive:
 1. Store upload metadata in KV and the file body in Blob.
 2. Accept a request, write a small status record to KV, then enqueue Queue work.
 3. Run a Sandbox job, store its output in Blob, and save the latest result key in KV.
-4. Let Chat adapt a direct message into Messages, then hand it to Agent.
+4. Let an Agent `chat()` capability adapt a direct message into agent messages before the model runs.
 5. Let Workflow coordinate a long-running Agent task that uses Sandbox as a scoped capability.
 
 Keep the public route small. It should validate input, call the primitive that owns the work, and return a result the client can handle.

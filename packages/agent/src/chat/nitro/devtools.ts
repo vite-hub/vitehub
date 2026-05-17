@@ -226,6 +226,12 @@ function resolveRegistryModule(module: unknown): ChatInput {
     : module as ChatInput
 }
 
+function getAgentCapabilities(agent: ChatInput): unknown[] {
+  return (agent as { __vitehubAgentCapabilityOptions?: { capabilities?: unknown[] } }).__vitehubAgentCapabilityOptions?.capabilities
+    || (agent as { __vitehubWorkspaceAgentOptions?: { capabilities?: unknown[] } }).__vitehubWorkspaceAgentOptions?.capabilities
+    || []
+}
+
 function getChatNames(state: ChatDevtoolsHandlerState): string[] {
   return Object.keys(state.registry)
 }
@@ -274,8 +280,7 @@ async function resolveDevtoolsChat(event: H3Event, state: ChatDevtoolsHandlerSta
 
     const agent = resolveRegistryModule(await loader())
     const adapter = createSessionDevtoolsAdapter(session)
-    const chatCapability = ((agent as { __vitehubAgentCapabilityOptions?: { capabilities?: unknown[] } }).__vitehubAgentCapabilityOptions?.capabilities || [])
-      .find(isChatCapability)
+    const chatCapability = getAgentCapabilities(agent).find(isChatCapability)
     if (!chatCapability) {
       throw createError({
         statusCode: 500,

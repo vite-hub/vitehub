@@ -130,6 +130,7 @@ export interface AgentCapabilityOptions<
 
 export interface ResolvedAgentCapabilities {
   capabilityInstructions: AgentInstructionBlock[]
+  close: () => Promise<void>
   input: AgentRunInput
   messages: AgentMessage[]
   registries: AgentCapabilityRegistries
@@ -204,6 +205,7 @@ export async function resolveAgentCapabilities<
   let messages = getRunMessages(currentInput)
   let tools: AgentToolSet | undefined
   const capabilityInstructions: AgentInstructionBlock[] = []
+  const closeCallbacks: Array<() => MaybePromise<void>> = []
   const toolTransforms: AgentToolTransform[] = []
   const registries: AgentCapabilityRegistries = {
     invocations: [],
@@ -253,7 +255,7 @@ export async function resolveAgentCapabilities<
       },
       output: {
         render(renderer) {
-          registries.outputRenderers.push(renderer)
+          registries.outputRenderers.push(result => renderer(result, capabilityContext))
         },
       },
       routes: {
@@ -304,6 +306,11 @@ export async function resolveAgentCapabilities<
       await capability[phase]?.(capabilityContext)
       await callHooks(`capability:${phase}:after`, capabilityContext, options?.hooks)
     }
+    closeCallbacks.push(async () => {
+      await callHooks("capability:close", capabilityContext, options?.hooks)
+      await capability.close?.(capabilityContext)
+      await callHooks("capability:close:after", capabilityContext, options?.hooks)
+    })
 
     if (capability.instructions !== undefined) {
       const value = typeof capability.instructions === "function"
@@ -313,7 +320,19 @@ export async function resolveAgentCapabilities<
     }
   }
 
-  return { capabilityInstructions, input: currentInput, messages, registries, toolTransforms, tools }
+  return {
+    capabilityInstructions,
+    close: async () => {
+      for (const callback of closeCallbacks) {
+        await callback()
+      }
+    },
+    input: currentInput,
+    messages,
+    registries,
+    toolTransforms,
+    tools,
+  }
 }
 
 function levenshtein(left: string, right: string) {

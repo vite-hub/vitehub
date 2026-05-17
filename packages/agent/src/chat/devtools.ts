@@ -163,7 +163,10 @@ export const chatDevtoolsPanelPluginName = "@vitehub/agent/chat/devtools-panel"
 const defaultOutputPreviewLength = 4_000
 
 function resolveChatDevtoolsClientDist(): string {
-  return new URL("../dist/devtools-client", import.meta.url).pathname
+  const clientPath = import.meta.url.endsWith(".ts")
+    ? "../../dist/devtools-client"
+    : "../devtools-client"
+  return new URL(clientPath, import.meta.url).pathname
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -740,7 +743,7 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
 
       nitro.options.handlers ||= []
       const handlerExtension = import.meta.url.endsWith(".ts") ? ".ts" : ".js"
-      const handler = new URL(`./runtime/agent/chat-devtools-handler${handlerExtension}`, import.meta.url).pathname
+      const handler = new URL(`./runtime/chat-devtools-handler${handlerExtension}`, import.meta.url).pathname
       if (!nitro.options.handlers.some(item => item.route === route && item.method === "POST" && item.handler === handler)) {
         nitro.options.handlers.push({ handler, method: "POST", route })
       }

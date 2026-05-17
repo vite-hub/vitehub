@@ -216,9 +216,6 @@ importers:
       '@vercel/functions':
         specifier: 'catalog:'
         version: 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38)
-      '@vitehub/devtools':
-        specifier: workspace:*
-        version: link:../devtools
       '@vitehub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -253,6 +250,9 @@ importers:
       '@vitehub/db':
         specifier: workspace:*
         version: link:../db
+      '@vitehub/devtools':
+        specifier: workspace:*
+        version: link:../devtools
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -1211,12 +1211,6 @@ importers:
       '@vitehub/workspace':
         specifier: workspace:*
         version: link:../../packages/workspace
-      chat:
-        specifier: 'catalog:'
-        version: 4.27.0
-      chat-state-cloudflare-do:
-        specifier: 'catalog:'
-        version: 0.2.0(chat@4.27.0)
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1)

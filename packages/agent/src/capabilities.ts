@@ -237,6 +237,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           ...(currentInput.context || {}),
           ...(result.context || {}),
         },
+        ...("prompt" in result && !("messages" in result) ? { messages: undefined } : {}),
       })
     },
   })
