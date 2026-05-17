@@ -31,17 +31,12 @@ dynamicallyLoaded = [
   "packages/blob/examples/**/nitro.config.ts",
   "packages/blob/examples/**/server/**",
   "packages/blob/examples/**/src/server.ts",
-  "packages/chat/examples/**/nitro.config.ts",
-  "packages/chat/examples/**/server/**",
-  "packages/chat/examples/**/src/server.ts",
-  "packages/chat/examples/**/src/**/*.chat.ts",
   "packages/agent/test/**/*.test-d.ts",
   "packages/agent/examples/**/nitro.config.ts",
   "packages/agent/examples/**/server/**",
   "packages/agent/examples/**/src/server.ts",
   "packages/agent/examples/**/src/**/*.agent.ts",
   "packages/devtools/devtools/**",
-  "packages/chat/test/**/*.test-d.ts",
   "packages/sandbox/test/**/*.test-d.ts",
   "packages/unsource/test/**/*.test-d.ts",
   "packages/sandbox/examples/**/nitro.config.ts",
@@ -64,7 +59,6 @@ dynamicallyLoaded = [
   "playground/vite/server/**",
   "playground/vite/src/server.ts",
   "playground/vite/src/server.blob.ts",
-  "playground/vite/src/server-chat.ts",
   "playground/vite/src/server.db.ts",
   "playground/vite/src/server-env.ts",
   "playground/vite/src/server.e2e.ts",
@@ -98,7 +92,6 @@ ignoreDependencies = [
 
 publicPackages = [
   "@vitehub/agent",
-  "@vitehub/chat",
   "@vitehub/sandbox",
   "@vitehub/workspace",
 ]

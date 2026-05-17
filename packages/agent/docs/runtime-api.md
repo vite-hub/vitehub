@@ -91,7 +91,7 @@ interface AgentRunInput {
 }
 ```
 
-`Message` comes from `@vitehub/messages` and is re-exported by `@vitehub/agent`.
+`Message` comes from `@vitehub/agent` and is re-exported by `@vitehub/agent`.
 
 ## Runtime context
 

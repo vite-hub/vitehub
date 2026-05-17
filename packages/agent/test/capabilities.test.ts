@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createMessage } from "@vitehub/messages"
+import { createAgentMessage as createMessage } from "../src/messages.ts"
 
 describe("agent capabilities", () => {
   it("runs capabilities once in array order and mutates adapter context", async () => {
@@ -85,6 +85,218 @@ describe("agent capabilities", () => {
       })],
     })).resolves.toMatchObject({ text: "voice transcript" })
     expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ mediaType: "audio/wav" }))
+  })
+
+  it("transforms latest user slash commands before adapter execution", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const run = vi.fn(async ({ args }) => `Summarize: ${args}`)
+    const agent = defineAgent({
+      adapter: {
+        async generate(context) {
+          return {
+            text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n"),
+          }
+        },
+        name: "test",
+      },
+      capabilities: [
+        inputCommands({
+          commands: {
+            summarize: {
+              description: "Summarize the requested context.",
+              run,
+            },
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [
+        createMessage({ role: "user", text: "/summarize old history" }),
+        createMessage({ role: "assistant", text: "Previous answer" }),
+        createMessage({ role: "user", text: "  /summarize last week  " }),
+      ],
+    })).resolves.toMatchObject({ text: "/summarize old history\nPrevious answer\nSummarize: last week" })
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      args: "last week",
+      name: "summarize",
+      text: "  /summarize last week  ",
+    }))
+  })
+
+  it("passes through unknown and non-leading slash messages", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const run = vi.fn(async () => "handled")
+    const agent = defineAgent({
+      adapter: {
+        async generate(context) {
+          return { text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n") }
+        },
+        name: "test",
+      },
+      capabilities: [
+        inputCommands({
+          commands: {
+            known: { run },
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "/unknown hello" })],
+    })).resolves.toMatchObject({ text: "/unknown hello" })
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "please run /known hello" })],
+    })).resolves.toMatchObject({ text: "please run /known hello" })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("transforms string prompts through input commands", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      adapter: {
+        async generate(context) {
+          return { text: String(context.prompt) }
+        },
+        name: "test",
+      },
+      capabilities: [
+        inputCommands({
+          commands: {
+            summarize: {
+              run: async ({ args }) => `Summarize: ${args}`,
+            },
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: "/summarize last week",
+    })).resolves.toMatchObject({ text: "Summarize: last week" })
+  })
+
+  it("transforms prompt message arrays through input commands", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      adapter: {
+        async generate(context) {
+          return { text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n") }
+        },
+        name: "test",
+      },
+      capabilities: [
+        inputCommands({
+          commands: {
+            summarize: {
+              run: async ({ args }) => `Summarize: ${args}`,
+            },
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: [
+        createMessage({ role: "user", text: "/summarize old history" }),
+        createMessage({ role: "assistant", text: "Previous answer" }),
+        createMessage({ role: "user", text: "/summarize last week" }),
+      ],
+    })).resolves.toMatchObject({ text: "/summarize old history\nPrevious answer\nSummarize: last week" })
+  })
+
+  it("merges input command patches into the current run input", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      adapter: {
+        async generate(context) {
+          return {
+            raw: context.input,
+            text: `${context.prompt} ${JSON.stringify(context.input.context)}`,
+          }
+        },
+        name: "test",
+      },
+      capabilities: [
+        inputCommands({
+          commands: {
+            triage: {
+              run: async ({ args, input }) => ({
+                context: {
+                  command: "triage",
+                  original: input.context?.original,
+                },
+                prompt: `Triage this request:\n${args}`,
+              }),
+            },
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { original: true },
+      messages: [createMessage({ role: "user", text: "/triage broken login" })],
+    })).resolves.toMatchObject({
+      text: "Triage this request:\nbroken login {\"original\":true,\"command\":\"triage\"}",
+    })
+  })
+
+  it("rejects invalid input command names", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    expect(() => inputCommands({ commands: { Summarize: { run: () => "" } } })).toThrow("lowercase stable identifier")
+  })
+
+  it("transforms chat-origin direct messages through agent input commands", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { createAgentDirectMessageHook } = await import("../src/chat/runtime/agent-chat.ts")
+    const agent = defineAgent({
+      adapter: {
+        async generate(context) {
+          return { text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n") }
+        },
+        name: "test",
+      },
+      capabilities: [
+        inputCommands({
+          commands: {
+            summarize: {
+              run: async ({ args }) => `Summarize: ${args}`,
+            },
+          },
+        }),
+      ],
+    })
+    const edit = vi.fn()
+    const post = vi.fn(async () => ({ edit, id: "placeholder-1" }))
+    const hook = createAgentDirectMessageHook(agent, {
+      memo: vi.fn(),
+      platform: "slack",
+      runtime: "nitro",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }, {
+      adapters: {},
+      fallbackStreamingPlaceholderText: "Working...",
+      history: false,
+    })
+
+    await hook({
+      channel: { id: "channel-1" },
+      message: { author: { isMe: false }, id: "message-1", text: "/summarize last week" },
+      thread: { id: "thread-1", post },
+    } as never)
+
+    expect(post).toHaveBeenCalledWith("Working...")
+    expect(edit).toHaveBeenCalledWith("Summarize: last week")
   })
 
   it("injects compact storage capability tools", async () => {

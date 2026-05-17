@@ -1,5 +1,5 @@
 import agentRegistry from "#vitehub/agent/registry"
-import { getMessageText } from "@vitehub/messages"
+import { getAgentMessageText } from "./messages.ts"
 import {
   ApprovalRequiredError,
   resolveRuntimeContext,
@@ -20,7 +20,6 @@ import type {
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentDefinition,
-  AgentChatOptions,
   AgentInput,
   AgentRegistry,
   AgentRegistryModule,
@@ -35,14 +34,13 @@ import type {
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
   AgentToolSet,
-  AgentChatAgentHooks,
   MaybePromise,
   MaybeResolvable,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
 } from "./types.ts"
 import type { AgentCapabilityOptions } from "./capability-runtime.ts"
-import type { Message, StreamEvent } from "@vitehub/messages"
+import type { AgentMessage, AgentStreamEvent } from "./messages.ts"
 import type {
   ReadonlyWorkspaceFacade,
   WorkspaceEntry,
@@ -60,11 +58,6 @@ export type {
   AgentAdapterRunContext,
   AgentCapabilities,
   AgentCapabilityHandle,
-  AgentChatAgentHookArgs,
-  AgentChatAgentHooks,
-  AgentChatEventHookArgs,
-  AgentChatEventHooks,
-  AgentChatOptions,
   AgentRequestBody,
   AgentDefinition,
   AgentExecution,
@@ -121,20 +114,30 @@ export type {
   AgentCapabilityHooks,
   AgentCapabilityHookName,
   AgentCapabilityPhase,
+  AgentCapabilityRegistries,
   AgentInstructionBlock,
   AgentToolTransform,
 } from "./capability-runtime.ts"
 
 export type {
-  Message,
-  MessageMetadata,
-  MessagePart,
-  MessageRole,
-  RunEvent,
-  StreamEvent,
+  AgentMessage,
+  AgentMessageMetadata,
+  AgentMessagePart,
+  AgentMessageRole,
+  AgentRunEvent,
+  AgentStreamEvent,
   ToolInvocation,
   ToolInvocationState,
-} from "@vitehub/messages"
+} from "./messages.ts"
+export {
+  applyAgentStreamEvent,
+  collectAgentStreamEvents,
+  createAgentMessage,
+  deserializeAgentMessages,
+  getAgentMessageText,
+  serializeAgentMessages,
+  validateAgentMessage,
+} from "./messages.ts"
 
 const syntheticWorkspaceRun = Symbol("vitehub.syntheticWorkspaceRun")
 
@@ -154,12 +157,12 @@ function hasAgentMethods(value: unknown): value is AgentAdapter {
 
 function toLegacyCallInput(context: {
   input: AgentRunInput
-  messages: Message[]
+  messages: AgentMessage[]
   prompt?: string
 }) {
   return {
     abortSignal: context.input.abortSignal,
-    ...(context.messages.length ? { messages: context.messages.map(message => ({ content: getMessageText(message), role: message.role })) } : {}),
+    ...(context.messages.length ? { messages: context.messages.map(message => ({ content: getAgentMessageText(message), role: message.role })) } : {}),
     ...(context.prompt ? { prompt: context.prompt } : {}),
     timeout: context.input.timeout,
   }
@@ -206,7 +209,7 @@ function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
-  options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentSettings<TRuntimeConfig, CALL_OPTIONS>["hooks"] }) | AgentAdapter<CALL_OPTIONS>,
+  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> | AgentAdapter<CALL_OPTIONS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   if (hasAgentMethods(options)) {
     const agent = options as AgentAdapter<CALL_OPTIONS> & { tools?: unknown }
@@ -215,10 +218,9 @@ function defineBaseAgent<
     }
   }
 
-  const { adapter, capabilities, chat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentSettings<TRuntimeConfig, CALL_OPTIONS>["hooks"] }
+  const { adapter, capabilities, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>
 
   const definition = {
-    chat,
     description,
     hooks,
     runtime,
@@ -282,7 +284,6 @@ export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > = AgentSettings<TRuntimeConfig> & {
-  chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentSettings<TRuntimeConfig>["hooks"]
   name?: string
@@ -315,7 +316,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
   >(
-    options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentSettings<TRuntimeConfig>["hooks"] }) | AgentAdapter<CALL_OPTIONS>,
+    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> | AgentAdapter<CALL_OPTIONS>,
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -334,7 +335,7 @@ function getPromptText(input: AgentRunInput) {
   const latestUserMessage = [...messages].reverse().find(message => message.role === "user")
 
   if (!latestUserMessage) return ""
-  return getMessageText(latestUserMessage)
+  return getAgentMessageText(latestUserMessage)
 }
 
 function createShellMetadataTool(): AgentDevtoolsToolDefinition {
@@ -724,7 +725,6 @@ function createWorkspaceAgentDefinition<
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name> {
   const definition = defineBaseAgent<TRuntimeConfig>({
     ...options,
-    chat: options.chat,
     description: options.description,
     hooks: options.hooks,
     run: options.run,
@@ -801,7 +801,7 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
   return agent
 }
 
-function getRunMessages(input: AgentRunInput): Message[] {
+function getRunMessages(input: AgentRunInput): AgentMessage[] {
   if (input.messages) return input.messages
   if (Array.isArray(input.prompt)) return input.prompt
   return []
@@ -838,7 +838,7 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
 }
 
-function isTransportReadyResult(value: unknown): value is Response | AsyncIterable<StreamEvent> {
+function isTransportReadyResult(value: unknown): value is Response | AsyncIterable<AgentStreamEvent> {
   return value instanceof Response || isAsyncIterable(value)
 }
 
@@ -859,7 +859,7 @@ function getCapabilityOptions<
     || (definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined)?.__vitehubWorkspaceAgentOptions
 }
 
-function toStreamEvent(chunk: unknown): StreamEvent | undefined {
+function toStreamEvent(chunk: unknown): AgentStreamEvent | undefined {
   if (typeof chunk === "string") {
     return { text: chunk, type: "text-delta" }
   }
@@ -894,7 +894,7 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
   return undefined
 }
 
-async function* streamTextResultToEvents(value: unknown): AsyncIterable<StreamEvent> {
+async function* streamTextResultToEvents(value: unknown): AsyncIterable<AgentStreamEvent> {
   if (typeof value === "string") {
     if (value) yield { text: value, type: "text-delta" }
     yield { type: "finish" }
@@ -971,6 +971,7 @@ async function createAdapterRunContext<
   )
   return {
     capabilityInstructions: capabilities.capabilityInstructions,
+    capabilityRegistries: capabilities.registries,
     capabilityToolTransforms: capabilities.toolTransforms,
     devtools: context.devtools,
     input: capabilities.input,
@@ -997,7 +998,11 @@ export async function runAgent<
 
   const resolved = await resolveAgent(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
-  const result = await resolved.generate(await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input))
+  const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
+  let result = await resolved.generate(adapterContext)
+  for (const renderer of adapterContext.capabilityRegistries?.outputRenderers || []) {
+    result = await renderer(result, undefined as never)
+  }
   return isTransportReadyResult(result) ? result : toAgentRunResult(result)
 }
 
@@ -1008,7 +1013,7 @@ export async function streamAgent<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+): Promise<Response | AsyncIterable<AgentStreamEvent> | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     return await agent.run(createRunContext(agent, context, input))
   }
@@ -1016,9 +1021,12 @@ export async function streamAgent<
   const resolved = await resolveAgent(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
-  const result = resolved.stream
+  let result = resolved.stream
     ? await resolved.stream(adapterContext)
     : await resolved.generate(adapterContext)
+  for (const renderer of adapterContext.capabilityRegistries?.outputRenderers || []) {
+    result = await renderer(result, undefined as never)
+  }
   return isTransportReadyResult(result) ? result : streamTextResultToEvents(result)
 }
 

@@ -3,7 +3,7 @@ import { defineConfig } from "tsdown"
 export default defineConfig({
   clean: true,
   deps: {
-    alwaysBundle: [/^@vitehub\/internal/],
+    alwaysBundle: [/^@vitehub\/(devtools|internal)/],
     neverBundle: ["#vitehub/agent/registry"],
     onlyBundle: false,
   },
@@ -11,6 +11,10 @@ export default defineConfig({
   entry: [
     "src/ai-sdk.ts",
     "src/capabilities.ts",
+    "src/chat/devtools.ts",
+    "src/chat/runtime/agent-chat.ts",
+    "src/chat/runtime/chat-devtools-handler.ts",
+    "src/chat/runtime/workspace-state.ts",
     "src/index.ts",
     "src/cloudflare.ts",
     "src/nitro.ts",

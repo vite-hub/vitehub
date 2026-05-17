@@ -11,8 +11,8 @@ ViteHub keeps common runtime contracts below the feature packages.
 | --- | --- |
 | `@vitehub/runtime` | Execution context, capabilities, policy, approvals, tracing, leases |
 | `@vitehub/agent` | Model loop orchestration, tools, step policy, run and stream calls |
-| `@vitehub/chat` | Chat SDK adapters, webhooks, thread interaction, agent handoff |
-| `@vitehub/messages` | Serializable message and stream state |
+| `@vitehub/agent` | Chat SDK adapters, webhooks, thread interaction, agent handoff |
+| `@vitehub/agent` | Serializable message and stream state |
 | `@vitehub/workflow` | Durable orchestration, checkpoints, retries, deferred work |
 | `@vitehub/sandbox` | Isolated execution sessions, files, shell, snapshots |
 

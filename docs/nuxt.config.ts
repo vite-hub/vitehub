@@ -22,7 +22,7 @@ export default defineNuxtConfig({
     enabled: false,
   },
   alias: {
-    "@vitehub/chat/devtools": fileURLToPath(new URL("../packages/chat/src/devtools-shared.ts", import.meta.url)),
+    "@vitehub/agent/chat/devtools": fileURLToPath(new URL("../packages/agent/src/chat/devtools-shared.ts", import.meta.url)),
   },
   nitro: {
     prerender: {

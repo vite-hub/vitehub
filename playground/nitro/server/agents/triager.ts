@@ -1,6 +1,10 @@
 import { defineAgent } from "@vitehub/agent"
+import { chat } from "@vitehub/agent/capabilities"
 
 export default defineAgent({
+  capabilities: [
+    chat({ adapters: {} }),
+  ],
   description: "Triage playground chat messages",
   instructions: "Summarize the incoming chat context and suggest the next action.",
   async run({ input }) {

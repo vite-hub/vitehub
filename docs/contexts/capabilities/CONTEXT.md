@@ -16,6 +16,10 @@ _Avoid_: Built-in plugin, core feature
 An Official Capability that lets users send spoken input to an agent.
 _Avoid_: Audio support, voice plugin
 
+**Input Commands**:
+An Official Capability that transforms a user's command-style input message before an Agent runs.
+_Avoid_: Commands, shell commands, chat commands
+
 **Skills**:
 An Official Capability that lets an agent consume Skill files from its workspace.
 _Avoid_: Skill plugin, skill system
@@ -35,6 +39,10 @@ _Avoid_: Agent Storage Tool, storage plugin, package-owned agent tool
 **Chat**:
 An Official Capability that lets external conversation events invoke an agent.
 _Avoid_: Chat definition, chat plugin, bot definition
+
+**Chat History**:
+Conversation context that Chat can persist in an Agent workspace and include in later Agent invocations.
+_Avoid_: Chat state, Chat SDK state, agent memory
 
 **Agent-Scoped Invocation**:
 An external event route that targets one discovered Agent.
@@ -117,10 +125,12 @@ _Avoid_: Capability instance, duplicate capability
 - A **Capability** can be added to an application.
 - An **Official Capability** is a **Capability**.
 - **Voice Input** is the first planned **Official Capability**.
+- **Input Commands** is an **Official Capability**.
 - **Skills** is an **Official Capability**.
 - **MCP** is an **Official Capability**.
 - A **Storage Capability** is an **Official Capability**.
 - **Chat** is an **Official Capability**.
+- **Chat** can use **Chat History**.
 - **MCP** can configure one or more **MCP Servers**.
 - **Skills** reads Skill files from a **Skills Path**.
 - The **V1 Capability Set** contains **Skills**, **Voice Input**, **MCP**, and **Storage Capabilities**.
@@ -149,6 +159,7 @@ _Avoid_: Capability instance, duplicate capability
 
 - "plugin" was used to mean both framework plugins and user-shareable ViteHub feature bundles - resolved: use **Capability** for the ViteHub domain concept.
 - "audio input" and "voice input" both appeared as names for spoken user messages - resolved: use **Voice Input** for the capability.
+- "commands" could mean shell/runtime execution or user message shortcuts - resolved: use **Input Commands** for command-style input transforms.
 - "capability" was considered as a raw function that mutates configuration - resolved: use a **Capability Factory** that returns a declarative Capability object.
 - "workspace tools" and "agent tools" were considered as primary Capability Surfaces - unresolved: this may expose the wrong abstraction for capabilities that produce artifacts.
 - "artifact storage" was considered as Capability configuration - resolved: storage is configured by the agent's workspace; a Capability only declares workspace-relative **Artifact Paths**.
@@ -168,3 +179,4 @@ _Avoid_: Capability instance, duplicate capability
 - Chat was considered as a separate definition type - resolved: **Chat** is an Agent-Scoped Capability.
 - Chat discovery was considered as a separate file convention - resolved: **Chat** is discovered only through Agent definitions.
 - Chat webhook routing was considered as a global route - resolved: **Chat** uses agent-scoped webhook routes.
+- Chat state was considered as a user-facing Capability or option - resolved: expose **Chat History** and keep any Chat SDK state adapter internal.

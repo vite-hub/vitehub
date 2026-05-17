@@ -1,15 +1,21 @@
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
+import { chatDevTools } from "./chat/devtools.ts"
 import agentNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
 import type { Plugin, UserConfig } from "vite"
 import type { AgentModuleOptions } from "./types.ts"
+import type { ChatDevToolsOptions, ChatDevToolsPlugin } from "./chat/devtools.ts"
 
 export type AgentVitePlugin = Plugin & { nitro: NitroModule }
 
 const agentPackageName = "@vitehub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
+
+export function hubChatDevtools(options?: ChatDevToolsOptions): ChatDevToolsPlugin {
+  return chatDevTools(options)
+}
 
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let agent: AgentModuleOptions | false | undefined = options

@@ -13,7 +13,7 @@ Use Agent when a server feature needs a model loop with ViteHub message input.
 
 ```ts [server/agents/triager.ts]
 import { defineAgent, defineTool } from '@vitehub/agent'
-import { getMessageText } from '@vitehub/messages'
+import { getAgentMessageText } from '@vitehub/agent'
 
 const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
   name: 'classifyTicket',
@@ -31,7 +31,7 @@ export default defineAgent({
   description: 'Triage support requests and prepare a queue handoff.',
   async run({ input }) {
     const latest = input.messages?.at(-1)
-    const message = latest ? getMessageText(latest) : ''
+    const message = latest ? getAgentMessageText(latest) : ''
 
     return {
       raw: { tool: classifyTicket.name },
@@ -57,7 +57,7 @@ export default defineAgent({
   icon: i-lucide-messages-square
   title: Message input
   ---
-  Accept `@vitehub/messages` input and convert it to model calls inside Agent.
+  Accept `@vitehub/agent` input and convert it to model calls inside Agent.
   :::
 
   :::card
@@ -75,8 +75,8 @@ Agent does not own chat webhooks, Chat SDK adapters, workflow runs, runtime capa
 
 | Need | Use |
 | --- | --- |
-| Receive Slack, Discord, Telegram, or Teams events | `@vitehub/chat` |
-| Store or replay conversation state | `@vitehub/messages` |
+| Receive Slack, Discord, Telegram, or Teams events | `@vitehub/agent` |
+| Store or replay conversation state | `@vitehub/agent` |
 | Resolve shared capabilities, approvals, and trace context | `@vitehub/runtime` |
 | Coordinate durable work | `@vitehub/workflow` |
 | Execute isolated code | `@vitehub/sandbox` |

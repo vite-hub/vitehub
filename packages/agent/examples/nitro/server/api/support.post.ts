@@ -1,4 +1,4 @@
-import { createMessage } from "@vitehub/messages"
+import { createAgentMessage } from "@vitehub/agent"
 import { runAgent } from "@vitehub/agent"
 import supportAgent from "../agents/support"
 
@@ -7,7 +7,7 @@ export default defineEventHandler(async (event) => {
 
   return await runAgent(supportAgent, { runtime: "nitro" }, {
     messages: [
-      createMessage({
+      createAgentMessage({
         role: "user",
         text: body.message || "How should I route this request?",
       }),

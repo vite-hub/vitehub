@@ -6,7 +6,7 @@ import {
   chatDevtoolsSendRpc,
   type ChatDevtoolsMessage,
   type ChatDevtoolsStateResult,
-} from "@vitehub/chat/devtools"
+} from "@vitehub/agent/chat/devtools"
 
 type DevtoolsRpcClient = {
   call<T>(name: string, params?: Record<string, unknown>): Promise<T>

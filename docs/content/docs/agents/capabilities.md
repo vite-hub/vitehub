@@ -10,6 +10,7 @@ import { defineAgent } from "@vitehub/agent"
 import {
   blob,
   db,
+  inputCommands,
   kv,
   mcp,
   skills,
@@ -33,6 +34,14 @@ Use external tools only when useful:
   capabilities: [
     skills(),
     voiceInput({ transcribe: async audio => "..." }),
+    inputCommands({
+      commands: {
+        summarize: {
+          description: "Summarize the requested context.",
+          run: async ({ args }) => `Summarize: ${args}`,
+        },
+      },
+    }),
     mcp({
       servers: {
         docs: { transport: "http", url: "https://example.com/mcp" },
@@ -47,7 +56,9 @@ Use external tools only when useful:
 
 Instruction blocks can be placed with `{{ capabilityId }}` slots. `{{ capabilities }}` inserts any blocks that have not already been placed, and remaining blocks are appended in capability order.
 
-Official capabilities currently include `skills()`, `voiceInput()`, `mcp()`, `db()`, `kv()`, and `blob()`.
+Official capabilities currently include `skills()`, `voiceInput()`, `inputCommands()`, `mcp()`, `db()`, `kv()`, and `blob()`.
+
+`inputCommands()` transforms command-style input before the model runs. Registered slash commands such as `/summarize last week` can return a replacement string or an `AgentRunInput` patch. Unknown slash commands pass through as normal user input. Input commands do not inject system instructions.
 
 Storage capabilities keep their injected tool sets compact:
 

@@ -98,16 +98,24 @@ export default defineAgent({
 
 ### Call it from Chat
 
-`@vitehub/chat` can route direct messages to a discovered agent by name.
+`@vitehub/agent` can bind Chat as a capability on the same discovered agent.
 
-```ts [server/chat.ts]
-import { defineChat } from '@vitehub/chat'
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vitehub/agent'
+import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { chat } from '@vitehub/agent/capabilities'
 
-export default defineChat({
-  adapters,
-  agent: 'triager',
-  state,
-  userName: 'Support Bot',
+export default defineAgent({
+  adapter: aiSdkAdapter({
+    model,
+    instructions: 'Classify support requests and prepare queue handoff.',
+    tools: { classifyTicket },
+  }),
+  capabilities: [
+    chat({
+      adapters,
+    }),
+  ],
 })
 ```
 

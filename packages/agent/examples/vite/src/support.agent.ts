@@ -1,5 +1,5 @@
 import { defineAgent, defineTool } from "@vitehub/agent"
-import { getMessageText } from "@vitehub/messages"
+import { getAgentMessageText } from "@vitehub/agent"
 
 type Queue = "billing" | "incident" | "product"
 
@@ -32,7 +32,7 @@ export default defineAgent({
   description: "Triage support requests and prepare a queue handoff.",
   async run({ input, waitUntil }) {
     const latest = input.messages?.at(-1)
-    const message = latest ? getMessageText(latest) : ""
+    const message = latest ? getAgentMessageText(latest) : ""
     const ticket = await classifyTicket.execute?.({
       message: message || "Empty support request.",
     })

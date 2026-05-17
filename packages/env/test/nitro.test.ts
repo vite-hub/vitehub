@@ -129,12 +129,11 @@ describe("Nitro module", () => {
     expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
     expect(types).not.toContain("declare module \"nitro/types\"")
     expect(types).not.toContain("export {}")
-    expect(integrationTypes).not.toContain("import \"@vitehub/chat\"")
+    expect(integrationTypes).not.toContain(`@vitehub/${"chat"}`)
     expect(integrationTypes).toContain("import \"nitro/types\"")
     expect(integrationTypes).toContain("declare module \"nitro/types\"")
     expect(integrationTypes).toContain("export interface NitroRuntimeConfig")
-    expect(integrationTypes).toContain("declare module \"@vitehub/chat\"")
-    expect(integrationTypes).toContain("export interface ChatRuntimeConfig")
+    expect(integrationTypes).not.toContain("export interface ChatRuntimeConfig")
     expect(integrationTypes).toContain("declare module \"@vitehub/agent\"")
     expect(integrationTypes).toContain("export interface AgentRuntimeConfig")
     expect(integrationTypes).not.toContain("declare module \"@vitehub/agent/workspace\"")
@@ -192,8 +191,8 @@ describe("Nitro module", () => {
     })
   })
 
-  it("types defineChat and workspace defineAgent runtime config from generated env declarations", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-chat-types-"))
+  it("types agent runtime runtime config from generated env declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-agent-types-"))
     const nitro: NitroStub = {
       hooks: { hook: vi.fn() },
       logger: { info: vi.fn() },
@@ -217,22 +216,8 @@ describe("Nitro module", () => {
     await typesHook?.({ tsConfig: { include: [] } })
 
     await writeFile(join(root, "typecheck.ts"), [
-      "import { defineChat } from '@vitehub/chat'",
       "import { defineAgent } from '@vitehub/agent'",
       "import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'",
-      "",
-      "defineChat({",
-      "  adapters({ runtimeConfig }) {",
-      "    const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",
-      "    const appId: string = runtimeConfig.teams.appId",
-      "    const model: string = runtimeConfig.vertex.model",
-      "    void apiUrl",
-      "    void appId",
-      "    void model",
-      "    return {}",
-      "  },",
-      "  state: {} as never,",
-      "})",
       "",
       "defineAgent({",
       "  workspace: {},",
@@ -256,7 +241,6 @@ describe("Nitro module", () => {
         paths: {
           "@vitehub/agent": [join(import.meta.dirname, "../../agent/src/index.ts")],
           "@vitehub/agent/ai-sdk": [join(import.meta.dirname, "../../agent/src/ai-sdk.ts")],
-          "@vitehub/chat": [join(import.meta.dirname, "../../chat/src/index.ts")],
           "@vitehub/workspace": [join(import.meta.dirname, "../../workspace/src/index.ts")],
         },
         module: "NodeNext",
@@ -265,6 +249,8 @@ describe("Nitro module", () => {
         skipLibCheck: true,
         strict: true,
         target: "ES2023",
+        typeRoots: [join(import.meta.dirname, "../../../node_modules/@types")],
+        types: ["node"],
       },
       files: [
         join(root, ".nitro/types/vitehub-env.d.ts"),

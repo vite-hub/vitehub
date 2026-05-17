@@ -1,4 +1,4 @@
-import { getMessageText } from "@vitehub/messages"
+import { getAgentMessageText } from "./messages.ts"
 import {
   applyCapabilityInstructionSlots,
   applyCapabilityToolTransforms,
@@ -21,7 +21,7 @@ import type {
   AgentToolResolverWithWorkspace,
   MaybePromise,
 } from "./types.ts"
-import type { Message } from "@vitehub/messages"
+import type { AgentMessage } from "./messages.ts"
 import type { WorkspaceName } from "@vitehub/workspace"
 
 export interface TanStackAiAdapterOptions<
@@ -42,8 +42,8 @@ type TanStackMessage = {
   toolCallId?: string
 }
 
-function toTextContent(message: Message): string {
-  return getMessageText(message) || message.parts.map((part) => {
+function toTextContent(message: AgentMessage): string {
+  return getAgentMessageText(message) || message.parts.map((part) => {
     if (part.type === "text") return part.text
     if (part.type === "error") return part.error
     if (part.type === "data") return JSON.stringify(part.data)
@@ -56,7 +56,7 @@ function toTextContent(message: Message): string {
   }).filter(Boolean).join("\n")
 }
 
-export function toTanStackAiMessages(messages: Message[]): TanStackMessage[] {
+export function toTanStackAiMessages(messages: AgentMessage[]): TanStackMessage[] {
   return messages.map(message => ({
     content: toTextContent(message),
     role: message.role,

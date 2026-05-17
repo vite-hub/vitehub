@@ -1,5 +1,5 @@
 import { H3, readBody } from "h3"
-import { createMessage } from "@vitehub/messages"
+import { createAgentMessage } from "@vitehub/agent"
 import { runAgent } from "@vitehub/agent"
 import supportAgent from "./support.agent"
 
@@ -10,7 +10,7 @@ app.post("/api/support", async (event) => {
 
   return await runAgent(supportAgent, { runtime: "vite" }, {
     messages: [
-      createMessage({
+      createAgentMessage({
         role: "user",
         text: body.message || "How should I route this request?",
       }),

@@ -1,6 +1,9 @@
 import { createError, defineEventHandler, getRouterParam } from "h3"
 
 import { resolveAgent, runAgent, streamAgent } from "../index.ts"
+import { isChatCapability } from "../chat/capability.ts"
+import { createChatBot } from "../chat/runtime/agent-chat.ts"
+import { createMemoryChatStateAdapter, createWorkspaceChatStateAdapter } from "../chat/runtime/workspace-state.ts"
 import { formatUnknownAgentMessage } from "../registry-error.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { getAgentRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
@@ -16,11 +19,13 @@ import type {
   AgentRuntimeContext,
   AgentRuntimeHooks,
 } from "../types.ts"
+import type { StateAdapter } from "chat"
 
 export interface NitroAgentRuntimeConfig extends NitroRuntimeConfig, AgentRuntimeConfig {}
 
 export interface NitroAgentRuntimeContext extends AgentRuntimeContext<NitroAgentRuntimeConfig> {
   event?: H3Event
+  platform?: string
   request?: Request
   runtime: "nitro"
   runtimeConfig: NitroAgentRuntimeConfig
@@ -202,6 +207,38 @@ function createRuntimeContext(event: H3Event): NitroAgentRuntimeContext {
   }) as NitroAgentRuntimeContext
 }
 
+function getAgentCapabilities(agent: AgentInput<NitroAgentRuntimeContext>) {
+  return (agent as { __vitehubAgentCapabilityOptions?: { capabilities?: unknown[] } }).__vitehubAgentCapabilityOptions?.capabilities
+    || (agent as { __vitehubWorkspaceAgentOptions?: { capabilities?: unknown[] } }).__vitehubWorkspaceAgentOptions?.capabilities
+    || []
+}
+
+function getAgentWorkspaceName(agent: AgentInput<NitroAgentRuntimeContext>, agentName?: string): string | undefined {
+  const defaults = (agent as { __vitehubWorkspaceAgentDefaults?: { workspace?: string, name?: string } }).__vitehubWorkspaceAgentDefaults
+  const workspace = (agent as { __vitehubWorkspaceAgentOptions?: { workspace?: { name?: string } | string } }).__vitehubWorkspaceAgentOptions?.workspace
+  if (typeof workspace === "string") return workspace
+  return defaults?.workspace || defaults?.name || workspace?.name || agentName
+}
+
+async function createChatState(agent: AgentInput<NitroAgentRuntimeContext>, history: unknown, agentName?: string): Promise<StateAdapter> {
+  if (!history) return createMemoryChatStateAdapter()
+  const workspaceName = getAgentWorkspaceName(agent, agentName)
+  if (!workspaceName) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: "chat({ history }) requires an agent workspace.",
+    })
+  }
+  const { useWorkspace } = await import("@vitehub/workspace")
+  return createWorkspaceChatStateAdapter(useWorkspace(workspaceName, { allowWrite: true }))
+}
+
+type WebhookHandler = (request: Request, options?: { waitUntil?: (promise: Promise<unknown>) => void }) => unknown
+
+function getChatWebhook(bot: { webhooks?: Record<string, WebhookHandler | undefined> }, platform: string): WebhookHandler | undefined {
+  return bot.webhooks?.[platform]
+}
+
 async function readAgentBody(request: Request): Promise<AgentRequestBody> {
   const body = await request.clone().json().catch(() => undefined)
   return typeof body === "object" && body !== null ? body as AgentRequestBody : {}
@@ -262,5 +299,44 @@ export function defineAgentRegistryHandler(
 
     const agent = resolveRegistryModule(await loader())
     return await defineAgentHandler(agent, options)(event)
+  })
+}
+
+export function defineAgentChatRegistryHandler(
+  agents: AgentRegistry,
+  options: AgentRegistryHandlerOptions<NitroAgentRuntimeContext> & { platformParam?: string } = {},
+): EventHandler {
+  const agentParam = options.agentParam || "agent"
+  const platformParam = options.platformParam || "platform"
+
+  return defineEventHandler(async (event) => {
+    const agentName = getRouterParam(event, agentParam)
+    const platform = getRouterParam(event, platformParam)
+    if (!agentName) {
+      throw createError({ statusCode: 400, statusMessage: `Missing agent route param: ${agentParam}` })
+    }
+    if (!platform) {
+      throw createError({ statusCode: 400, statusMessage: `Missing chat platform route param: ${platformParam}` })
+    }
+    const loader = agents[agentName]
+    if (!loader) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: formatUnknownAgentMessage(agentName, Object.keys(agents).sort()),
+      })
+    }
+    const agent = resolveRegistryModule(await loader())
+    const capability = getAgentCapabilities(agent).find(isChatCapability)
+    if (!capability) {
+      throw createError({ statusCode: 404, statusMessage: `Agent "${agentName}" does not define chat().` })
+    }
+    const context = { ...createRuntimeContext(event), platform } as NitroAgentRuntimeContext
+    const state = await createChatState(agent, capability.options.history, agentName)
+    const bot = await createChatBot(agent as never, capability.options as never, context as never, state, agentName)
+    const webhook = getChatWebhook(bot, platform)
+    if (!webhook) {
+      throw createError({ statusCode: 404, statusMessage: `Unknown chat platform: ${platform}` })
+    }
+    return await webhook(context.request!, { waitUntil: task => event.waitUntil(task) })
   })
 }

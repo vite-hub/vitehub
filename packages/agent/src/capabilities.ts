@@ -1,4 +1,5 @@
 import { appendMessageText, defineCapability } from "./capability-runtime.ts"
+import { createAgentMessage, getAgentMessageText } from "./messages.ts"
 import {
   mergeAgentToolSets,
   normalizeAgentSkillsOptions,
@@ -6,9 +7,29 @@ import {
   withSkillWriteValidation,
 } from "./skills.ts"
 
-import type { AgentCapabilityDefinition } from "./capability-runtime.ts"
-import type { AgentToolDefinition, AgentToolSet } from "./types.ts"
-import type { AudioPart } from "@vitehub/messages"
+import type { AgentCapabilityContext, AgentCapabilityDefinition } from "./capability-runtime.ts"
+import type { AgentRunInput, AgentToolDefinition, AgentToolSet, MaybePromise } from "./types.ts"
+import type { AgentMessage, AudioPart } from "./messages.ts"
+
+export { chat } from "./chat/capability.ts"
+export type {
+  ChatActionHookInput,
+  ChatAgentAfterRunArgs,
+  ChatAgentBeforeRunArgs,
+  ChatAgentErrorArgs,
+  ChatAgentHookArgs,
+  ChatAgentHooks,
+  ChatCapabilityOptions,
+  ChatDirectMessageHook,
+  ChatEventHook,
+  ChatEventHooks,
+  ChatHistory,
+  ChatMessageHook,
+  ChatModalSubmitHookInput,
+  ChatNewMessageHook,
+  ChatReactionHookInput,
+  ChatStreamingPlaceholder,
+} from "./chat/capability.ts"
 
 export {
   applyCapabilityInstructionSlots,
@@ -22,7 +43,14 @@ export type {
   AgentCapabilityHooks,
   AgentCapabilityHookName,
   AgentCapabilityPhase,
+  AgentCapabilityInvocationContribution,
+  AgentCapabilityRegistries,
+  AgentCapabilityRouteContribution,
+  AgentCapabilityRuntimeAliasContribution,
+  AgentCapabilityRuntimeFileContribution,
+  AgentCapabilityStateRequirement,
   AgentInstructionBlock,
+  AgentOutputRenderer,
   AgentToolTransform,
 } from "./capability-runtime.ts"
 
@@ -83,6 +111,134 @@ export function voiceInput(options: VoiceInputOptions): AgentCapabilityDefinitio
       context.input.setMessages(messages)
     },
     instructions: options.instructions ?? false,
+  })
+}
+
+export interface InputCommand {
+  description?: string
+  run: (input: InputCommandRunInput) => MaybePromise<Partial<AgentRunInput> | string | void>
+}
+
+export interface InputCommandRunInput {
+  args: string
+  command: InputCommand
+  context: AgentCapabilityContext
+  input: AgentRunInput
+  message: AgentMessage
+  name: string
+  text: string
+}
+
+export interface InputCommandsOptions {
+  commands: Record<string, InputCommand>
+}
+
+function assertInputCommandName(name: string) {
+  if (!/^[a-z][a-z0-9_-]*$/.test(name)) {
+    throw new TypeError(`[vitehub:agent] Input command "${name}" must be a lowercase stable identifier.`)
+  }
+}
+
+function parseInputCommand(text: string): { args: string, name: string, text: string } | undefined {
+  const match = /^\s*\/([A-Za-z][A-Za-z0-9_-]*)(?:\s+([\s\S]*))?$/.exec(text)
+  return match
+    ? { args: match[2]?.trim() || "", name: match[1]!.toLowerCase(), text }
+    : undefined
+}
+
+function replaceMessageText(message: AgentMessage, text: string): AgentMessage {
+  return createAgentMessage({
+    createdAt: message.createdAt,
+    id: message.id,
+    metadata: message.metadata,
+    role: message.role,
+    text,
+  })
+}
+
+function latestUserMessageIndex(messages: AgentMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index]?.role === "user") return index
+  }
+  return -1
+}
+
+function replaceCurrentInputCommandText(input: AgentRunInput, messages: AgentMessage[], messageIndex: number, text: string): AgentRunInput {
+  if (typeof input.prompt === "string" && !input.messages) {
+    return { ...input, prompt: text }
+  }
+  const next = [...messages]
+  next[messageIndex] = replaceMessageText(next[messageIndex]!, text)
+  return Array.isArray(input.prompt) && !input.messages
+    ? { ...input, prompt: next }
+    : { ...input, messages: next }
+}
+
+function getCurrentInputCommandTarget(input: AgentRunInput): { message: AgentMessage, messageIndex: number, messages: AgentMessage[], text: string } | undefined {
+  if (typeof input.prompt === "string" && !input.messages) {
+    const text = input.prompt
+    return {
+      message: createAgentMessage({ role: "user", text }),
+      messageIndex: 0,
+      messages: [],
+      text,
+    }
+  }
+  const messages = input.messages || (Array.isArray(input.prompt) ? input.prompt : [])
+  const messageIndex = latestUserMessageIndex(messages)
+  if (messageIndex < 0) return
+  const message = messages[messageIndex]!
+  return {
+    message,
+    messageIndex,
+    messages,
+    text: getAgentMessageText(message),
+  }
+}
+
+export function inputCommands(options: InputCommandsOptions): AgentCapabilityDefinition<InputCommandsOptions> {
+  const commands = Object.fromEntries(Object.entries(options.commands).map(([name, command]) => {
+    assertInputCommandName(name)
+    return [name, command]
+  }))
+
+  return defineCapability({
+    id: "inputCommands",
+    options: { ...options, commands },
+    async input(context) {
+      const currentInput = context.input.get()
+      const target = getCurrentInputCommandTarget(currentInput)
+      if (!target) return
+      const parsed = parseInputCommand(target.text)
+      if (!parsed) return
+      const command = commands[parsed.name]
+      if (!command) return
+
+      const result = await command.run({
+        args: parsed.args,
+        command,
+        context: context as AgentCapabilityContext,
+        input: currentInput,
+        message: target.message,
+        name: parsed.name,
+        text: parsed.text,
+      })
+
+      if (result === undefined) return
+      if (typeof result === "string") {
+        context.input.set(replaceCurrentInputCommandText(currentInput, target.messages, target.messageIndex, result))
+        return
+      }
+
+      context.input.set({
+        ...currentInput,
+        ...result,
+        context: {
+          ...(currentInput.context || {}),
+          ...(result.context || {}),
+        },
+      })
+    },
   })
 }
 

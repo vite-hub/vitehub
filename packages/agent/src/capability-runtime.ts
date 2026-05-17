@@ -1,4 +1,4 @@
-import { createMessage } from "@vitehub/messages"
+import { createAgentMessage } from "./messages.ts"
 
 import type {
   AgentAdapterMetadataContext,
@@ -10,10 +10,10 @@ import type {
   MaybePromise,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
-import type { Message } from "@vitehub/messages"
+import type { AgentMessage } from "./messages.ts"
 import type { ReadonlyWorkspaceFacade, WorkspaceName } from "@vitehub/workspace"
 
-export type AgentCapabilityPhase = "configure" | "prepare" | "input" | "resolve" | "close"
+export type AgentCapabilityPhase = "configure" | "prepare" | "bind" | "input" | "resolve" | "output" | "close"
 export type AgentCapabilityHookName = `capability:${AgentCapabilityPhase}` | `capability:${AgentCapabilityPhase}:after`
 
 export interface AgentInstructionBlock {
@@ -22,6 +22,42 @@ export interface AgentInstructionBlock {
 }
 
 export type AgentToolTransform = (tools: AgentToolSet | undefined) => MaybePromise<AgentToolSet | undefined>
+export type AgentOutputRenderer = (result: unknown, context: AgentCapabilityContext) => MaybePromise<unknown>
+
+export interface AgentCapabilityRouteContribution {
+  handler: string
+  method?: string
+  route: string
+}
+
+export interface AgentCapabilityRuntimeFileContribution {
+  contents?: string
+  path: string
+}
+
+export interface AgentCapabilityRuntimeAliasContribution {
+  find: string
+  replacement: string
+}
+
+export interface AgentCapabilityInvocationContribution {
+  handler: (event: unknown) => MaybePromise<unknown>
+  name: string
+}
+
+export interface AgentCapabilityStateRequirement {
+  name: string
+  optional?: boolean
+}
+
+export interface AgentCapabilityRegistries {
+  invocations: AgentCapabilityInvocationContribution[]
+  outputRenderers: AgentOutputRenderer[]
+  routes: AgentCapabilityRouteContribution[]
+  runtimeAliases: AgentCapabilityRuntimeAliasContribution[]
+  runtimeFiles: AgentCapabilityRuntimeFileContribution[]
+  stateRequirements: AgentCapabilityStateRequirement[]
+}
 
 export type AgentCapabilityHooks<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -34,12 +70,14 @@ export interface AgentCapabilityDefinition<
   Name extends WorkspaceName = WorkspaceName,
 > {
   close?: (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  bind?: (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<void>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
   input?: (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<void>
   instructions?: string | false | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<string | false | undefined>)
   options?: TOptions
+  output?: (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<void>
   prepare?: (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<void>
   resolve?: (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<void>
 }
@@ -47,16 +85,34 @@ export interface AgentCapabilityDefinition<
 export interface AgentCapabilityContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
+> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig, Name>, "runtime"> {
   capability: AgentCapabilityDefinition<unknown, TRuntimeConfig, Name>
   instructions: {
     add: (instructions: string | false | undefined, options?: { id?: string }) => void
   }
+  invocations: {
+    add: (name: string, handler: AgentCapabilityInvocationContribution["handler"]) => void
+  }
   input: {
     get: () => AgentRunInput
-    messages: () => Message[]
+    messages: () => AgentMessage[]
     set: (input: AgentRunInput) => void
-    setMessages: (messages: Message[]) => void
+    setMessages: (messages: AgentMessage[]) => void
+  }
+  output: {
+    render: (renderer: AgentOutputRenderer) => void
+  }
+  routes: {
+    add: (route: AgentCapabilityRouteContribution) => void
+  }
+  runtime: {
+    alias: (alias: AgentCapabilityRuntimeAliasContribution) => void
+    files: {
+      add: (file: AgentCapabilityRuntimeFileContribution) => void
+    }
+  }
+  state: {
+    require: (name: string, options?: { optional?: boolean }) => void
   }
   tools: {
     add: (tools: AgentToolSet | undefined) => void
@@ -75,18 +131,19 @@ export interface AgentCapabilityOptions<
 export interface ResolvedAgentCapabilities {
   capabilityInstructions: AgentInstructionBlock[]
   input: AgentRunInput
-  messages: Message[]
+  messages: AgentMessage[]
+  registries: AgentCapabilityRegistries
   toolTransforms: AgentToolTransform[]
   tools?: AgentToolSet
 }
 
-function getRunMessages(input: AgentRunInput): Message[] {
+function getRunMessages(input: AgentRunInput): AgentMessage[] {
   if (input.messages) return input.messages
   if (Array.isArray(input.prompt)) return input.prompt
   return []
 }
 
-function withMessages(input: AgentRunInput, messages: Message[]): AgentRunInput {
+function withMessages(input: AgentRunInput, messages: AgentMessage[]): AgentRunInput {
   if (input.messages) return { ...input, messages }
   if (Array.isArray(input.prompt)) return { ...input, prompt: messages }
   return { ...input, messages }
@@ -148,6 +205,14 @@ export async function resolveAgentCapabilities<
   let tools: AgentToolSet | undefined
   const capabilityInstructions: AgentInstructionBlock[] = []
   const toolTransforms: AgentToolTransform[] = []
+  const registries: AgentCapabilityRegistries = {
+    invocations: [],
+    outputRenderers: [],
+    routes: [],
+    runtimeAliases: [],
+    runtimeFiles: [],
+    stateRequirements: [],
+  }
 
   for (const capability of capabilities) {
     const capabilityContext: AgentCapabilityContext<TRuntimeConfig, Name> = {
@@ -166,6 +231,14 @@ export async function resolveAgentCapabilities<
           }
         },
       },
+      invocations: {
+        add(name, handler) {
+          if (registries.invocations.some(invocation => invocation.name === name)) {
+            throw new Error(`[vitehub] Duplicate capability invocation "${name}".`)
+          }
+          registries.invocations.push({ handler, name })
+        },
+      },
       input: {
         get: () => currentInput,
         messages: () => messages,
@@ -176,6 +249,42 @@ export async function resolveAgentCapabilities<
         setMessages(value) {
           messages = value
           currentInput = withMessages(currentInput, messages)
+        },
+      },
+      output: {
+        render(renderer) {
+          registries.outputRenderers.push(renderer)
+        },
+      },
+      routes: {
+        add(route) {
+          if (registries.routes.some(item => item.route === route.route && (item.method || "POST") === (route.method || "POST"))) {
+            throw new Error(`[vitehub] Duplicate capability route "${route.method || "POST"} ${route.route}".`)
+          }
+          registries.routes.push(route)
+        },
+      },
+      runtime: {
+        alias(alias) {
+          if (registries.runtimeAliases.some(item => item.find === alias.find)) {
+            throw new Error(`[vitehub] Duplicate capability runtime alias "${alias.find}".`)
+          }
+          registries.runtimeAliases.push(alias)
+        },
+        files: {
+          add(file) {
+            if (registries.runtimeFiles.some(item => item.path === file.path)) {
+              throw new Error(`[vitehub] Duplicate capability runtime file "${file.path}".`)
+            }
+            registries.runtimeFiles.push(file)
+          },
+        },
+      },
+      state: {
+        require(name, stateOptions) {
+          if (!registries.stateRequirements.some(requirement => requirement.name === name)) {
+            registries.stateRequirements.push({ name, optional: stateOptions?.optional })
+          }
         },
       },
       tools: {
@@ -190,7 +299,7 @@ export async function resolveAgentCapabilities<
       workspace: workspace as ReadonlyWorkspaceFacade<Name>,
     }
 
-    for (const phase of ["configure", "prepare", "input", "resolve"] as const) {
+    for (const phase of ["configure", "prepare", "bind", "input", "resolve", "output"] as const) {
       await callHooks(`capability:${phase}`, capabilityContext, options?.hooks)
       await capability[phase]?.(capabilityContext)
       await callHooks(`capability:${phase}:after`, capabilityContext, options?.hooks)
@@ -204,7 +313,7 @@ export async function resolveAgentCapabilities<
     }
   }
 
-  return { capabilityInstructions, input: currentInput, messages, toolTransforms, tools }
+  return { capabilityInstructions, input: currentInput, messages, registries, toolTransforms, tools }
 }
 
 function levenshtein(left: string, right: string) {
@@ -275,9 +384,9 @@ export async function applyCapabilityToolTransforms(
   return current
 }
 
-export function appendMessageText(message: Message, text: string): Message {
+export function appendMessageText(message: AgentMessage, text: string): AgentMessage {
   if (!text.trim()) return message
-  return createMessage({
+  return createAgentMessage({
     createdAt: message.createdAt,
     id: message.id,
     metadata: message.metadata,

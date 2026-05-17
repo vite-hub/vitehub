@@ -16,7 +16,7 @@ Install the runtime dependencies in the application:
 pnpm add openworkflow postgres
 ```
 
-Configure Workflow directly or use the Node/Docker runtime preset from `@vitehub/chat/nitro` when the app also uses ViteHub Chat:
+Configure Workflow directly or use the Node/Docker runtime preset from `@vitehub/agent/nitro` when the app also uses ViteHub Chat:
 
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
@@ -37,8 +37,8 @@ export default defineNitroConfig({
 ```
 
 ```ts [vite.config.ts]
-import { hubChat } from '@vitehub/chat/vite'
-import { nodeDockerRuntimePreset } from '@vitehub/chat/nitro'
+import { hubAgent } from '@vitehub/agent/vite'
+import { nodeDockerRuntimePreset } from '@vitehub/agent/nitro'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
@@ -46,10 +46,10 @@ const runtime = nodeDockerRuntimePreset()
 
 export default defineConfig({
   plugins: [
-    hubChat(runtime.chat),
+    hubAgent(runtime.chat),
     nitro({
       ...runtime,
-      modules: ['@vitehub/chat/nitro', '@vitehub/workflow/nitro'],
+      modules: ['@vitehub/agent/nitro', '@vitehub/workflow/nitro'],
     }),
   ],
 })

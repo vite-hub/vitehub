@@ -1,0 +1,382 @@
+export type AgentMessageRole = "assistant" | "system" | "tool" | "user"
+
+export interface AgentMessageMetadata {
+  [key: string]: unknown
+}
+
+export interface TextPart {
+  id?: string
+  text: string
+  type: "text"
+}
+
+export interface DataPart {
+  data: unknown
+  id?: string
+  type: "data"
+}
+
+export interface AudioPart {
+  data?: string
+  id?: string
+  mediaType: string
+  type: "audio"
+  url?: string
+}
+
+export type ToolInvocationState = "approval-required" | "failed" | "proposed" | "running" | "completed"
+
+export interface ToolInvocation {
+  error?: string
+  id: string
+  input?: unknown
+  name: string
+  output?: unknown
+  state: ToolInvocationState
+}
+
+export interface ToolCallPart {
+  id: string
+  input?: unknown
+  name: string
+  state: Exclude<ToolInvocationState, "completed">
+  type: "tool-call"
+}
+
+export interface ToolResultPart {
+  error?: string
+  id: string
+  name: string
+  output?: unknown
+  state: "completed" | "failed"
+  type: "tool-result"
+}
+
+export interface ApprovalRequestPart {
+  id: string
+  input?: unknown
+  name: string
+  reason?: string
+  type: "approval-request"
+}
+
+export interface ApprovalDecisionPart {
+  approved: boolean
+  decidedAt?: string
+  id: string
+  reason?: string
+  type: "approval-decision"
+}
+
+export interface SourcePart {
+  id?: string
+  sourceType?: string
+  title?: string
+  type: "source"
+  url?: string
+}
+
+export interface ErrorPart {
+  error: string
+  id?: string
+  recoverable?: boolean
+  type: "error"
+}
+
+export type AgentMessagePart =
+  | ApprovalDecisionPart
+  | ApprovalRequestPart
+  | AudioPart
+  | DataPart
+  | ErrorPart
+  | SourcePart
+  | TextPart
+  | ToolCallPart
+  | ToolResultPart
+
+export interface AgentMessage {
+  createdAt?: string
+  id: string
+  metadata?: AgentMessageMetadata
+  parts: AgentMessagePart[]
+  role: AgentMessageRole
+}
+
+export type AgentStreamEvent =
+  | { id?: string, messageId?: string, role?: AgentMessageRole, text: string, type: "text-delta" }
+  | { data: unknown, id?: string, messageId?: string, type: "data" }
+  | { id: string, input?: unknown, messageId?: string, name: string, type: "tool-call" | "tool-input-start" }
+  | { error?: string, id: string, messageId?: string, name: string, output?: unknown, type: "tool-result" }
+  | { id: string, input?: unknown, messageId?: string, name: string, reason?: string, type: "approval-request" }
+  | { approved: boolean, decidedAt?: Date | string, id: string, messageId?: string, reason?: string, type: "approval-decision" }
+  | { error: string, id?: string, messageId?: string, recoverable?: boolean, type: "error" }
+  | { messageId?: string, reason?: string, type: "finish" }
+
+export type AgentRunEvent = AgentStreamEvent
+
+export interface CreateAgentMessageOptions {
+  createdAt?: Date | string
+  id?: string
+  metadata?: AgentMessageMetadata
+  parts?: Array<AgentMessagePart | string>
+  role: AgentMessageRole
+  text?: string
+}
+
+export interface SerializedAgentMessages {
+  messages: AgentMessage[]
+  version: 1
+}
+
+function createId(prefix: string): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function normalizeCreatedAt(value: Date | string | undefined): string | undefined {
+  if (!value) return undefined
+  return value instanceof Date ? value.toISOString() : value
+}
+
+function normalizePart(part: AgentMessagePart | string, index: number): AgentMessagePart {
+  if (typeof part === "string") {
+    return { id: `text-${index}`, text: part, type: "text" }
+  }
+  return part
+}
+
+function omitUndefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T
+}
+
+export function createAgentMessage(options: CreateAgentMessageOptions): AgentMessage {
+  const parts = [
+    ...(options.text ? [{ id: "text-0", text: options.text, type: "text" } satisfies TextPart] : []),
+    ...(options.parts || []).map(normalizePart),
+  ]
+
+  const message: AgentMessage = {
+    id: options.id || createId("msg"),
+    parts,
+    role: options.role,
+  }
+  const createdAt = normalizeCreatedAt(options.createdAt)
+  if (createdAt) message.createdAt = createdAt
+  if (options.metadata) message.metadata = options.metadata
+  validateAgentMessage(message)
+  return message
+}
+
+export function getAgentMessageText(message: AgentMessage): string {
+  return message.parts
+    .filter((part): part is TextPart => part.type === "text")
+    .map(part => part.text)
+    .join("")
+}
+
+export function getAgentToolInvocations(message: AgentMessage): ToolInvocation[] {
+  const invocations = new Map<string, ToolInvocation>()
+
+  for (const part of message.parts) {
+    if (part.type === "approval-request") {
+      invocations.set(part.id, {
+        id: part.id,
+        input: part.input,
+        name: part.name,
+        state: "approval-required",
+      })
+    }
+    if (part.type === "tool-call") {
+      invocations.set(part.id, {
+        id: part.id,
+        input: part.input,
+        name: part.name,
+        state: part.state,
+      })
+    }
+    if (part.type === "tool-result") {
+      invocations.set(part.id, {
+        error: part.error,
+        id: part.id,
+        name: part.name,
+        output: part.output,
+        state: part.state,
+      })
+    }
+  }
+
+  return [...invocations.values()]
+}
+
+function assertString(value: unknown, field: string): void {
+  if (typeof value !== "string" || !value) {
+    throw new TypeError(`[vitehub:agent] ${field} must be a non-empty string.`)
+  }
+}
+
+function assertSerializable(value: unknown, field: string): void {
+  if (value === undefined) {
+    throw new TypeError(`[vitehub:agent] ${field} must not be undefined.`)
+  }
+  if (typeof value === "function" || typeof value === "symbol" || typeof value === "bigint") {
+    throw new TypeError(`[vitehub:agent] ${field} must be JSON serializable.`)
+  }
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new TypeError(`[vitehub:agent] ${field} must be a finite number.`)
+  }
+  if (!value || typeof value !== "object") {
+    return
+  }
+  if (value instanceof Date) {
+    throw new TypeError(`[vitehub:agent] ${field} must be serialized before storing.`)
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertSerializable(item, `${field}[${index}]`))
+    return
+  }
+  for (const [key, item] of Object.entries(value)) {
+    assertSerializable(item, `${field}.${key}`)
+  }
+}
+
+export function validateAgentMessage(message: AgentMessage): void {
+  assertString(message.id, "message.id")
+  assertSerializable(message.id, "message.id")
+  if (message.createdAt !== undefined) assertSerializable(message.createdAt, "message.createdAt")
+  if (message.metadata !== undefined) assertSerializable(message.metadata, "message.metadata")
+  if (!["assistant", "system", "tool", "user"].includes(message.role)) {
+    throw new TypeError(`[vitehub:agent] Unsupported message role: ${String(message.role)}.`)
+  }
+  if (!Array.isArray(message.parts)) {
+    throw new TypeError("[vitehub:agent] message.parts must be an array.")
+  }
+
+  const openToolCalls = new Map<string, ToolCallPart | ApprovalRequestPart>()
+  for (const [index, part] of message.parts.entries()) {
+    assertSerializable(part, `message.parts[${index}]`)
+    switch (part.type) {
+      case "audio":
+        assertString(part.mediaType, "audio.mediaType")
+        if (!part.mediaType.startsWith("audio/")) throw new TypeError("[vitehub:agent] audio part mediaType must start with audio/.")
+        if ((part.data ? 1 : 0) + (part.url ? 1 : 0) !== 1) throw new TypeError("[vitehub:agent] audio part requires exactly one of data or url.")
+        if (part.data !== undefined) assertString(part.data, "audio.data")
+        if (part.url !== undefined) assertString(part.url, "audio.url")
+        break
+      case "text":
+        if (typeof part.text !== "string") throw new TypeError("[vitehub:agent] text part requires text.")
+        break
+      case "tool-call":
+        assertString(part.id, "tool-call.id")
+        assertString(part.name, "tool-call.name")
+        openToolCalls.set(part.id, part)
+        break
+      case "approval-request":
+        assertString(part.id, "approval-request.id")
+        assertString(part.name, "approval-request.name")
+        openToolCalls.set(part.id, part)
+        break
+      case "approval-decision":
+        assertString(part.id, "approval-decision.id")
+        if (typeof part.approved !== "boolean") throw new TypeError("[vitehub:agent] approval-decision.approved must be a boolean.")
+        if (!openToolCalls.has(part.id)) {
+          throw new TypeError(`[vitehub:agent] approval-decision "${part.id}" must follow a matching approval-request.`)
+        }
+        break
+      case "tool-result":
+        assertString(part.id, "tool-result.id")
+        assertString(part.name, "tool-result.name")
+        if (!openToolCalls.has(part.id)) {
+          throw new TypeError(`[vitehub:agent] tool-result "${part.id}" must follow a matching tool-call or approval-request.`)
+        }
+        openToolCalls.delete(part.id)
+        break
+      case "data":
+        if (!("data" in part)) throw new TypeError("[vitehub:agent] data part requires data.")
+        break
+      case "source":
+      case "error":
+        break
+      default:
+        throw new TypeError(`[vitehub:agent] Unsupported message part type: ${String((part as { type?: unknown }).type)}.`)
+    }
+  }
+}
+
+function findOrCreateMessage(messages: AgentMessage[], event: AgentStreamEvent): AgentMessage {
+  const fallback = messages.at(-1)
+  const id = event.messageId || (fallback?.role === "assistant" ? fallback.id : createId("msg"))
+  let message = messages.find(item => item.id === id)
+  if (!message) {
+    message = createAgentMessage({ id, parts: [], role: "assistant" })
+    messages.push(message)
+  }
+  return message
+}
+
+export function applyAgentStreamEvent(messages: AgentMessage[], event: AgentStreamEvent): AgentMessage[] {
+  const next = messages.map(message => ({ ...message, parts: [...message.parts] }))
+  if (event.type === "finish") {
+    return next
+  }
+
+  const message = findOrCreateMessage(next, event)
+  if ("role" in event && event.role) message.role = event.role
+
+  if (event.type === "text-delta") {
+    const last = message.parts.at(-1)
+    if (last?.type === "text" && (!event.id || last.id === event.id)) {
+      last.text += event.text
+    }
+    else {
+      message.parts.push(omitUndefined({ id: event.id, text: event.text, type: "text" }) as TextPart)
+    }
+  }
+  else if (event.type === "data") {
+    message.parts.push({ ...omitUndefined({ id: event.id, type: "data" }), data: event.data } as DataPart)
+  }
+  else if (event.type === "tool-input-start") {
+    message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, state: "running", type: "tool-call" }) as ToolCallPart)
+  }
+  else if (event.type === "tool-call") {
+    const existing = message.parts.find((part): part is ToolCallPart => part.type === "tool-call" && part.id === event.id)
+    if (existing && event.input !== undefined) existing.input = event.input
+    else if (!existing) message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, state: "proposed", type: "tool-call" }) as ToolCallPart)
+  }
+  else if (event.type === "tool-result") {
+    message.parts.push(omitUndefined({ error: event.error, id: event.id, name: event.name, output: event.output, state: event.error ? "failed" : "completed", type: "tool-result" }) as ToolResultPart)
+  }
+  else if (event.type === "approval-request") {
+    message.parts.push(omitUndefined({ id: event.id, input: event.input, name: event.name, reason: event.reason, type: "approval-request" }) as ApprovalRequestPart)
+  }
+  else if (event.type === "approval-decision") {
+    const decidedAt = normalizeCreatedAt(event.decidedAt)
+    message.parts.push(omitUndefined({ approved: event.approved, decidedAt, id: event.id, reason: event.reason, type: "approval-decision" }) as ApprovalDecisionPart)
+  }
+  else if (event.type === "error") {
+    message.parts.push(omitUndefined({ error: event.error, id: event.id, recoverable: event.recoverable, type: "error" }) as ErrorPart)
+  }
+
+  validateAgentMessage(message)
+  return next
+}
+
+export async function collectAgentStreamEvents(stream: AsyncIterable<AgentStreamEvent>): Promise<AgentStreamEvent[]> {
+  const events: AgentStreamEvent[] = []
+  for await (const event of stream) {
+    events.push(event)
+  }
+  return events
+}
+
+export function serializeAgentMessages(messages: AgentMessage[]): string {
+  for (const message of messages) validateAgentMessage(message)
+  return JSON.stringify({ messages, version: 1 } satisfies SerializedAgentMessages)
+}
+
+export function deserializeAgentMessages(input: string | SerializedAgentMessages): AgentMessage[] {
+  const parsed = typeof input === "string" ? JSON.parse(input) as SerializedAgentMessages : input
+  if (parsed.version !== 1 || !Array.isArray(parsed.messages)) {
+    throw new TypeError("[vitehub:agent] Unsupported serialized messages payload.")
+  }
+  for (const message of parsed.messages) validateAgentMessage(message)
+  return parsed.messages
+}

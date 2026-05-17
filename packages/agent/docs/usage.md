@@ -88,7 +88,7 @@ Use `run` when the default model call is not the right shape.
 
 ```ts [server/agents/support.ts]
 import { defineAgent, defineTool } from '@vitehub/agent'
-import { getMessageText } from '@vitehub/messages'
+import { getAgentMessageText } from '@vitehub/agent'
 
 const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
   name: 'classifyTicket',
@@ -110,7 +110,7 @@ export default defineAgent({
   description: 'Triage support requests',
   async run({ input, waitUntil }) {
     const latest = input.messages?.at(-1)
-    const message = latest ? getMessageText(latest) : ''
+    const message = latest ? getAgentMessageText(latest) : ''
     const ticket = await classifyTicket.execute?.({ message })
 
     waitUntil?.(Promise.resolve({ event: 'support.triaged', ticket }))
@@ -129,36 +129,47 @@ export default defineAgent({
 
 ## Bind Chat to Agent
 
-Chat owns the webhook and thread. Agent owns the model work.
+The chat capability owns webhook binding and thread output inside the agent.
 
-```ts [server/chat.ts]
-export default defineChat({
-  adapters,
-  agent: 'triager',
-  state,
-  userName: 'Support Bot',
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vitehub/agent'
+import { chat } from '@vitehub/agent/capabilities'
+
+export default defineAgent({
+  adapter,
+  capabilities: [
+    chat({
+      adapters,
+    }),
+  ],
 })
 ```
 
-Use the object form to customize history, input, or response posting.
+Enable history when the current chat thread should be replayed into the next agent run.
 
-```ts [server/chat.ts]
-export default defineChat({
-  adapters,
-  agent: {
-    name: 'triager',
-    history: {
-      source: 'thread',
-      maxMessages: 20,
-    },
-    hooks: {
-      beforeRun({ input }) {
-        return input
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vitehub/agent'
+import { chat } from '@vitehub/agent/capabilities'
+
+export default defineAgent({
+  workspace: 'support',
+  adapter,
+  capabilities: [
+    chat({
+      adapters,
+      history: {
+        source: 'thread',
+        maxMessages: 20,
       },
-    },
-  },
-  state,
-  userName: 'Support Bot',
+      hooks: {
+        agent: {
+          beforeRun({ input }) {
+            return input
+          },
+        },
+      },
+    }),
+  ],
 })
 ```
 

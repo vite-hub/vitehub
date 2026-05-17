@@ -46,8 +46,8 @@ Runtime does not own chat adapters, model loops, durable workflow execution, san
 | Need | Use |
 | --- | --- |
 | Model and tool-loop execution | `@vitehub/agent` |
-| Chat SDK webhooks and threads | `@vitehub/chat` |
-| Canonical message state | `@vitehub/messages` |
+| Agent chat capability webhooks and threads | `@vitehub/agent` |
+| Agent message state | `@vitehub/agent` |
 | Durable orchestration | `@vitehub/workflow` |
 | Isolated execution | `@vitehub/sandbox` |
 

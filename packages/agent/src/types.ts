@@ -1,4 +1,4 @@
-import type { Message, StreamEvent } from "@vitehub/messages"
+import type { AgentMessage, AgentStreamEvent } from "./messages.ts"
 import type {
   MaybePromise,
   MaybeResolvable,
@@ -16,6 +16,7 @@ import type {
 import type {
   AgentCapabilityDefinition,
   AgentCapabilityHooks,
+  AgentCapabilityRegistries,
   AgentInstructionBlock,
   AgentToolTransform,
 } from "./capability-runtime.ts"
@@ -59,9 +60,9 @@ export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfi
 export interface AgentRunInput<CALL_OPTIONS = unknown> {
   abortSignal?: AbortSignal
   context?: Record<string, unknown>
-  messages?: Message[]
+  messages?: AgentMessage[]
   options?: CALL_OPTIONS
-  prompt?: string | Message[]
+  prompt?: string | AgentMessage[]
   timeout?: number
 }
 
@@ -100,7 +101,7 @@ export interface AgentRunContext<
 export type AgentRunHandler<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = (context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
+> = (context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<Response | AgentRunResult | AsyncIterable<AgentStreamEvent> | unknown>
 
 export type AgentToolResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -147,9 +148,8 @@ type AgentSettingsBase<
 > = {
   adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
   capabilities?: AgentCapabilityDefinition<unknown, TRuntimeConfig>[]
-  chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   tools?: AgentToolResolverWithWorkspace<TRuntimeConfig>
@@ -181,12 +181,11 @@ export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > {
-  chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
-  run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
+  run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<AgentStreamEvent> | unknown>
   workspace?: WorkspaceAgentWorkspaceOptions
 }
 
@@ -292,51 +291,10 @@ export interface AgentToolStep {
   toolResults?: AgentToolStepItem[]
 }
 
-export interface AgentChatAgentBindingOptions {
-  event?: "directMessage"
-  history?: boolean | "none" | { maxMessages?: number, source: "thread" }
-  hooks?: AgentChatAgentHooks
-}
-
-export interface AgentChatAgentHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
-  runtimeConfig: TRuntimeConfig
-  thread: { post: (message: unknown) => MaybePromise<unknown> }
-}
-
-export interface AgentChatAgentHooks<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  afterRun?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<unknown>
-  beforeRun?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<unknown>
-  error?: (args: { error: unknown } & AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<void>
-  prepareInput?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<unknown>
-  sendResponse?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<void>
-}
-
-export interface AgentChatEventHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
-  runtimeConfig: TRuntimeConfig
-}
-
-export interface AgentChatEventHooks<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
-  onDirectMessage?: (args: { message: { text: string } } & AgentChatEventHookArgs<TRuntimeConfig>) => MaybePromise<void>
-}
-
-export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  adapters?: MaybeResolvable<Record<string, unknown>, ResolvedAgentRuntimeContext<TRuntimeConfig>>
-  agent?: never
-  event?: AgentChatAgentBindingOptions["event"]
-  execution?: never
-  fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
-  history?: AgentChatAgentBindingOptions["history"]
-  hooks?: AgentChatEventHooks<TRuntimeConfig>
-  lifecycleHooks?: Record<string, unknown>
-  state?: MaybeResolvable<unknown, AgentRuntimeContext<TRuntimeConfig>>
-  workflow?: never
-  [key: string]: unknown
-}
-
 export type AgentRequestBody<CALL_OPTIONS = never> = {
-  messages?: Message[]
+  messages?: AgentMessage[]
   options?: CALL_OPTIONS
-  prompt?: string | Message[]
+  prompt?: string | AgentMessage[]
   stream?: boolean
 }
 
@@ -413,10 +371,11 @@ export interface AgentAdapterRunContext<
 > {
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
   capabilityInstructions?: AgentInstructionBlock[]
+  capabilityRegistries?: AgentCapabilityRegistries
   capabilityToolTransforms?: AgentToolTransform[]
   input: AgentRunInput<TOptions>
   instructions?: string
-  messages: Message[]
+  messages: AgentMessage[]
   prompt?: string
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
   tools?: AgentToolSet
@@ -428,10 +387,10 @@ export interface AgentAdapter<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  generate(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<AgentAdapterResult | Response | AsyncIterable<StreamEvent> | unknown>
+  generate(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<AgentAdapterResult | Response | AsyncIterable<AgentStreamEvent> | unknown>
   metadata?(context: AgentAdapterMetadataContext<TRuntimeConfig, Name>): MaybePromise<AgentDevtoolsMetadata | undefined>
   name: string
-  stream?(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<Response | AsyncIterable<StreamEvent> | AgentAdapterResult | unknown>
+  stream?(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<Response | AsyncIterable<AgentStreamEvent> | AgentAdapterResult | unknown>
 }
 
 export type AgentAdapterFactory<

@@ -11,7 +11,6 @@ export default defineNitroConfig({
   modules: [
     "@vitehub/env/nitro",
     "@vitehub/agent/nitro",
-    "@vitehub/chat/nitro",
     "@vitehub/queue/nitro",
     "@vitehub/kv/nitro",
     "@vitehub/blob/nitro",
@@ -23,12 +22,6 @@ export default defineNitroConfig({
     route: "/api/agents/[agent]",
   },
   blob: {},
-  chat: {
-    cloudflare: { durableObjectState: false },
-    dev: { initialize: false },
-    provider: "nitro",
-    webhook: false,
-  },
   queue: {},
   sandbox: {},
   serverDir: "./server",

@@ -1,4 +1,4 @@
-import { getMessageText } from "@vitehub/messages"
+import { getAgentMessageText } from "./messages.ts"
 import {
   applyCapabilityInstructionSlots,
   applyCapabilityToolTransforms,
@@ -33,7 +33,7 @@ import type {
   AgentToolResolverWithWorkspace,
   MaybePromise,
 } from "./types.ts"
-import type { Message, MessagePart } from "@vitehub/messages"
+import type { AgentMessage, AgentMessagePart } from "./messages.ts"
 import type { WorkspaceName } from "@vitehub/workspace"
 
 export interface AiSdkAdapterOptions<
@@ -56,7 +56,7 @@ export interface AiSdkWorkspaceFallbackOptions {
   maxToolResults?: number
 }
 
-function toTextModelMessageContent(parts: MessagePart[]): string {
+function toTextModelMessageContent(parts: AgentMessagePart[]): string {
   return parts.map((part) => {
     if (part.type === "text") return part.text
     if (part.type === "error") return part.error
@@ -70,11 +70,11 @@ function toTextModelMessageContent(parts: MessagePart[]): string {
   }).filter(Boolean).join("\n")
 }
 
-function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart["output"] {
+function toToolResultOutput(part: Extract<AgentMessagePart, { type: "tool-result" }>): ToolResultPart["output"] {
   return (part.error ? { error: part.error } : part.output ?? null) as ToolResultPart["output"]
 }
 
-function toAssistantModelMessageContent(parts: MessagePart[]): AssistantContent {
+function toAssistantModelMessageContent(parts: AgentMessagePart[]): AssistantContent {
   const content: Exclude<AssistantContent, string> = []
 
   for (const part of parts) {
@@ -109,7 +109,7 @@ function toAssistantModelMessageContent(parts: MessagePart[]): AssistantContent 
   return content.length ? content : toTextModelMessageContent(parts)
 }
 
-function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
+function toToolModelMessageContent(parts: AgentMessagePart[]): ToolContent {
   const content: ToolContent = []
 
   for (const part of parts) {
@@ -134,7 +134,7 @@ function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
   return content
 }
 
-export function toAiSdkModelMessages(messages: Message[]): ModelMessage[] {
+export function toAiSdkModelMessages(messages: AgentMessage[]): ModelMessage[] {
   return messages.map((message) => {
     if (message.role === "assistant") {
       return {
@@ -149,7 +149,7 @@ export function toAiSdkModelMessages(messages: Message[]): ModelMessage[] {
       }
     }
     return {
-      content: getMessageText(message) || toTextModelMessageContent(message.parts),
+      content: getAgentMessageText(message) || toTextModelMessageContent(message.parts),
       role: message.role,
     }
   }) as ModelMessage[]
@@ -230,7 +230,7 @@ function materializeSummary(output: unknown): unknown {
 function getPromptText(context: AgentAdapterRunContext) {
   if (context.prompt) return context.prompt
   const latestUserMessage = [...context.messages].reverse().find(message => message.role === "user")
-  return latestUserMessage ? getMessageText(latestUserMessage) : ""
+  return latestUserMessage ? getAgentMessageText(latestUserMessage) : ""
 }
 
 async function synthesizeWorkspaceFallback(

@@ -45,13 +45,13 @@ An agent can use capabilities. A workflow can call an agent. They still keep sep
 
 ## Interfaces adapt
 
-Chat owns Chat SDK adapters, webhook handling, conversation state, and thread responses.
+The agent chat capability owns Chat SDK adapters, webhook handling, conversation state, and thread responses.
 
 HTTP routes, webhooks, and queue consumers follow the same rule: validate input, call the primitive that owns the work, and return a result the caller can handle.
 
 ## State stays portable
 
-`@vitehub/messages` is the message and stream-event format shared by Chat and Agent. Persist it as structured data. Convert provider-specific objects at the edge.
+`@vitehub/agent` is the message and stream-event format shared by Chat and Agent. Persist it as structured data. Convert provider-specific objects at the edge.
 
 Portable state should avoid runtime-only values, provider SDK objects, functions, symbols, `undefined`, and un-serialized dates.
 

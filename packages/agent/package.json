@@ -27,6 +27,10 @@
     ".": "./dist/index.js",
     "./ai-sdk": "./dist/ai-sdk.js",
     "./capabilities": "./dist/capabilities.js",
+    "./chat/devtools": "./dist/chat/devtools.js",
+    "./chat/runtime/agent-chat": "./dist/chat/runtime/agent-chat.js",
+    "./chat/runtime/chat-devtools-handler": "./dist/chat/runtime/chat-devtools-handler.js",
+    "./chat/runtime/workspace-state": "./dist/chat/runtime/workspace-state.js",
     "./cloudflare": "./dist/cloudflare.js",
     "./nitro": "./dist/nitro.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
@@ -54,10 +58,12 @@
     "test": "pnpm --filter @vitehub/agent... build && vitest run"
   },
   "dependencies": {
-    "@vitehub/messages": "workspace:*",
+    "@vitehub/devtools": "workspace:*",
     "@vitehub/runtime": "workspace:*",
     "@vitehub/workspace": "workspace:*",
+    "@vitejs/devtools-kit": "catalog:",
     "@vercel/functions": "catalog:",
+    "chat": "catalog:",
     "h3": "catalog:"
   },
   "peerDependencies": {
@@ -67,6 +73,7 @@
     "@vitehub/db": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "ai": "^6.0.0",
+    "chat-state-cloudflare-do": "^0.2.0",
     "nitro": "^3.0.0-0",
     "vite": ">=8.0.0"
   },
@@ -87,6 +94,9 @@
       "optional": true
     },
     "ai": {
+      "optional": true
+    },
+    "chat-state-cloudflare-do": {
       "optional": true
     },
     "nitro": {

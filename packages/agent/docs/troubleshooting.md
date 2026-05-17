@@ -59,11 +59,11 @@ export default defineAgent({
 })
 ```
 
-## Chat hook conflict
+## Chat history requires workspace
 
-Cause: a chat definition uses both `agent` and `onDirectMessage`.
+Cause: `chat({ history })` persists thread history through the agent workspace.
 
-Fix: choose one owner. Use `agent` for the default handoff, or write `onDirectMessage` when you want to own the full flow.
+Fix: add `workspace` to the agent, or disable history with `history: false`.
 
 ## Cloudflare native routing fails
 

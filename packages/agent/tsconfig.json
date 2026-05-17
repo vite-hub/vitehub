@@ -23,9 +23,6 @@
       "@vitehub/internal/*": [
         "packages/internal/src/*"
       ],
-      "@vitehub/messages": [
-        "packages/messages/src/index.ts"
-      ],
       "@vitehub/runtime": [
         "packages/runtime/src/index.ts"
       ],

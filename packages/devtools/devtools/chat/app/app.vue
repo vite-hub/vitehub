@@ -15,7 +15,7 @@ import {
   type ChatDevtoolsStreamEvent,
   type ChatDevtoolsTool,
   type ChatDevtoolsToolDefinition,
-} from "../../../../chat/src/devtools-shared"
+} from "../../../../agent/src/chat/devtools-shared"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = {
@@ -41,7 +41,6 @@ const previewFiles: ChatDevtoolsFileTreeItem[] = [
     label: "server",
     path: "server",
     children: [
-      { kind: "file", path: "server/chat.ts", updatedAt: "Preview" },
       { kind: "file", path: "server/agents/support.ts", updatedAt: "Preview" },
     ],
   },
