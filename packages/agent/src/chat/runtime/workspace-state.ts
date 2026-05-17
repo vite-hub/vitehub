@@ -115,7 +115,7 @@ export function createMemoryChatStateAdapter(): StateAdapter {
 }
 
 export function createWorkspaceChatStateAdapter(workspace: WritableWorkspaceFacade, options: { basePath?: string } = {}): StateAdapter {
-  const path = `${options.basePath || ".vitehub/chat/state"}/state.json`
+  const path = `${options.basePath || "vitehub/chat/state"}/state.json`
 
   async function load(): Promise<StoredState> {
     try {
