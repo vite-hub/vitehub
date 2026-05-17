@@ -151,7 +151,7 @@ export default defineAgent({
 ```
 ::
 
-ViteHub stores the Chat SDK-compatible state inside the agent workspace. There is no public `state` option to wire.
+ViteHub stores Chat SDK state inside the agent workspace. There is no public `state` option to wire.
 
 ## Step 4 - Connect sources for grounded answers
 

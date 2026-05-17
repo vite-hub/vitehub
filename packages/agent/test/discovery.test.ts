@@ -62,8 +62,8 @@ describe("agent discovery", () => {
     ])
   })
 
-  it("ignores deprecated server agents aggregate files", async () => {
-    const root = await createTempRoot("vitehub-agent-deprecated-")
+  it("ignores plural server agents aggregate files", async () => {
+    const root = await createTempRoot("vitehub-agent-plural-")
     await mkdir(join(root, "server"), { recursive: true })
     await writeFile(join(root, "server", "agents.ts"), "export const support = {}", "utf8")
 

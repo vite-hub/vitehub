@@ -10,7 +10,6 @@ import {
 } from "./tool-runtime.ts"
 
 import type {
-  Agent,
   AssistantContent,
   GenerateTextResult,
   ModelMessage,
@@ -444,18 +443,6 @@ export function createAiSdkProviderAdapter(options: AiSdkAdapterOptions): AgentA
     async stream(context) {
       const { agent } = await createAgent(options, context)
       return await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never>
-    },
-  }
-}
-
-export function fromAiSdkAgent(agent: Agent): AgentAdapter {
-  return {
-    async generate(context) {
-      return await agent.generate(getCallInput(context) as never)
-    },
-    name: "ai-sdk",
-    async stream(context) {
-      return await agent.stream(getCallInput(context) as never)
     },
   }
 }

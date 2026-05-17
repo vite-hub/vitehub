@@ -25,7 +25,6 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./ai-sdk": "./dist/ai-sdk.js",
     "./capabilities": "./dist/capabilities.js",
     "./chat/devtools": "./dist/chat/devtools.js",
     "./chat/runtime/agent-chat": "./dist/chat/runtime/agent-chat.js",
@@ -35,7 +34,6 @@
     "./nitro": "./dist/nitro.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-runtime-config": "./dist/runtime/nitro-runtime-config.js",
-    "./tanstack-ai": "./dist/tanstack-ai.js",
     "./test": "./dist/test.js",
     "./vercel": "./dist/vercel.js",
     "./vite": "./dist/vite.js",

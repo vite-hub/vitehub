@@ -9,7 +9,6 @@ export default defineConfig({
   },
   dts: true,
   entry: [
-    "src/ai-sdk.ts",
     "src/capabilities.ts",
     "src/chat/devtools.ts",
     "src/chat/runtime/agent-chat.ts",
@@ -20,7 +19,6 @@ export default defineConfig({
     "src/nitro.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/nitro-runtime-config.ts",
-    "src/tanstack-ai.ts",
     "src/test.ts",
     "src/vercel.ts",
     "src/vite.ts",
