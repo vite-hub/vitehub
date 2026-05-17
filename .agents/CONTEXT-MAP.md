@@ -2,7 +2,7 @@
 
 ## Contexts
 
-- [Capabilities](./docs/contexts/capabilities/CONTEXT.md) - names the user-shareable abilities that ViteHub applications can add.
+- [Capabilities](./contexts/capabilities/CONTEXT.md) - names the user-shareable abilities that ViteHub applications can add.
 
 ## Relationships
 

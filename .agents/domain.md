@@ -4,7 +4,7 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- **`CONTEXT-MAP.md`** at the repo root. It points at one `CONTEXT.md` per context. Read each one relevant to the topic.
+- **`.agents/CONTEXT-MAP.md`**. It points at one `CONTEXT.md` per context. Read each one relevant to the topic.
 - **`docs/adr/`** for repo-wide architectural decisions, if present.
 - Context-local `docs/adr/` directories for decisions scoped to a specific context, if present.
 
@@ -16,11 +16,13 @@ This is a multi-context repo:
 
 ```text
 /
-+-- CONTEXT-MAP.md
++-- .agents/
+    +-- CONTEXT-MAP.md
+    +-- domain.md
+    +-- contexts/
+        +-- capabilities/
+            +-- CONTEXT.md
 +-- docs/adr/
-+-- docs/contexts/
-    +-- capabilities/
-        +-- CONTEXT.md
 ```
 
 ## Use The Glossary's Vocabulary
