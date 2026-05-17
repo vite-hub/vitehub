@@ -12,10 +12,10 @@ frameworks: [vite, nitro]
 Use Agent when a server feature needs a model loop with ViteHub message input.
 
 ```ts [server/agents/triager.ts]
-import { defineAgent, defineTool } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
 import { getAgentMessageText } from '@vitehub/agent'
 
-const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+const classifyTicket = {
   name: 'classifyTicket',
   description: 'Classify a support request before queue handoff.',
   policy: ({ input }) => {
@@ -25,7 +25,7 @@ const classifyTicket = defineTool<{ message: string }, { queue: string; priority
 
     return /refund|invoice|payment/i.test(message) ? 'require-approval' : 'allow'
   },
-})
+}
 
 export default defineAgent({
   description: 'Triage support requests and prepare a queue handoff.',
@@ -38,7 +38,7 @@ export default defineAgent({
       text: `Classify and route: ${message}`,
     }
   },
-})
+}
 ```
 
 ## What Agent owns

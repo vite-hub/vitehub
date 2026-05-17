@@ -56,12 +56,10 @@ describe("agent test runner", () => {
 
   it("normalizes run output from direct agents", async () => {
     const { runAgentForTest } = await import("../src/test.ts")
-    const agent = {
-      generate: vi.fn(async () => ({ finishReason: "stop", text: "done", usage: { outputTokens: 2 } })),
-      stream: vi.fn(),
-      tools: {},
-      version: "agent-v1",
-    }
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      run: vi.fn(async () => ({ finishReason: "stop", text: "done", usage: { outputTokens: 2 } })),
+    })
 
     await expect(runAgentForTest(agent as never, {
       runtimeConfig: {},
@@ -91,6 +89,7 @@ describe("agent test runner", () => {
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
       model: {} as never,
+      provider: "ai-sdk",
       tools: ({ workspace }) => workspace.tools.inspect(),
     }), {
       name: "support",
@@ -126,6 +125,7 @@ describe("agent test runner", () => {
       workspace: {},
       instrumentModel: agentInstrumentation,
       model: baseModel as never,
+      provider: "ai-sdk",
     }), {
       instrumentModel: testInstrumentation,
       runtimeConfig: {},

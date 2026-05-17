@@ -16,7 +16,6 @@ import {
 
 import type {
   AgentAdapter,
-  AgentAdapterFactory,
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentDefinition,
@@ -27,6 +26,8 @@ import type {
   AgentRunContext,
   AgentRunInput,
   AgentRunResult,
+  AgentModelProvider,
+  AgentModelResolver,
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -49,7 +50,6 @@ import type {
 
 export type {
   AgentAdapter,
-  AgentAdapterFactory,
   AgentAdapterInstructions,
   AgentAdapterInstructionsPart,
   AgentAdapterInstructionsValue,
@@ -68,7 +68,8 @@ export type {
   AgentModelInput,
   AgentModelInstrumentation,
   AgentModelInstrumentationContext,
-  AgentModelProviderOptions,
+  AgentModelProvider,
+  AgentModelResolver,
   AgentModuleOptions,
   AgentProvidersOptions,
   AgentRegistryHandlerOptions,
@@ -148,40 +149,6 @@ async function resolveValue<T, TContext extends AgentRuntimeContext>(
   return await resolveRuntimeValue(value, context)
 }
 
-function hasAgentMethods(value: unknown): value is AgentAdapter {
-  return typeof value === "object"
-    && value !== null
-    && "generate" in value
-    && typeof (value as { generate?: unknown }).generate === "function"
-}
-
-function toLegacyCallInput(context: {
-  input: AgentRunInput
-  messages: AgentMessage[]
-  prompt?: string
-}) {
-  return {
-    abortSignal: context.input.abortSignal,
-    ...(context.messages.length ? { messages: context.messages.map(message => ({ content: getAgentMessageText(message), role: message.role })) } : {}),
-    ...(context.prompt ? { prompt: context.prompt } : {}),
-    timeout: context.input.timeout,
-  }
-}
-
-function normalizeDirectAgent<CALL_OPTIONS>(agent: AgentAdapter<CALL_OPTIONS> & { tools?: unknown }): AgentAdapter<CALL_OPTIONS> {
-  if (agent.name) return agent
-  return {
-    async generate(context) {
-      return await agent.generate(toLegacyCallInput(context) as never)
-    },
-    name: "custom",
-    async stream(context) {
-      return await agent.stream?.(toLegacyCallInput(context) as never)
-    },
-    ...(agent.tools ? { tools: agent.tools } : {}),
-  }
-}
-
 function hasAgentDefinition(value: unknown): value is AgentDefinition {
   return typeof value === "object"
     && value !== null
@@ -209,16 +176,9 @@ function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
-  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> | AgentAdapter<CALL_OPTIONS>,
+  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
-  if (hasAgentMethods(options)) {
-    const agent = options as AgentAdapter<CALL_OPTIONS> & { tools?: unknown }
-    return {
-      resolve: async () => normalizeDirectAgent(agent),
-    }
-  }
-
-  const { adapter, capabilities, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>
+  const { capabilities, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>
 
   const definition = {
     description,
@@ -227,21 +187,36 @@ function defineBaseAgent<
     run,
     workspace,
     async resolve(context: AgentRuntimeContext<TRuntimeConfig>) {
-      const resolvedAdapter = adapter || ("model" in options
-        ? (await import("./ai-sdk.ts")).aiSdkAdapter(options as never)
-        : undefined)
-      if (!resolvedAdapter) {
-        throw new Error("[vitehub] Agent adapter is required unless the agent defines a custom run() handler.")
+      if (!("model" in options)) {
+        throw new Error("[vitehub] defineAgent() requires model and provider unless the agent defines a custom run() handler.")
       }
       const resolvedContext = createResolvedRuntimeContext<TRuntimeConfig>(context)
-      return typeof resolvedAdapter === "function"
-        ? await (resolvedAdapter as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
-        : resolvedAdapter
+      return await createProviderAdapter(options.provider, options as never)
     },
   }
   return Object.assign(definition, {
     __vitehubAgentCapabilityOptions: { capabilities, hooks },
   })
+}
+
+async function createProviderAdapter<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  provider: AgentModelProvider | undefined,
+  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
+): Promise<AgentAdapter<CALL_OPTIONS>> {
+  if (!provider) {
+    throw new Error("[vitehub] defineAgent({ model }) requires an explicit provider.")
+  }
+  switch (provider) {
+    case "ai-sdk":
+      return (await import("./ai-sdk.ts")).createAiSdkProviderAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
+    case "tanstack-ai":
+      return (await import("./tanstack-ai.ts")).createTanStackAiProviderAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
+    default:
+      throw new Error(`[vitehub] Unknown agent model provider "${String(provider)}". Pass provider: "ai-sdk" or provider: "tanstack-ai".`)
+  }
 }
 
 export function workflow(name?: string): AgentWorkflowRuntimeBinding {
@@ -316,7 +291,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
   >(
-    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> | AgentAdapter<CALL_OPTIONS>,
+    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -772,10 +747,6 @@ export async function resolveAgent<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,
   context: TContext,
 ): Promise<AgentAdapter> {
-  if (hasAgentMethods(agent)) {
-    return normalizeDirectAgent(agent as never)
-  }
-
   if (hasAgentDefinition(agent)) {
     return await agent.resolve(context as never)
   }
@@ -805,18 +776,6 @@ function getRunMessages(input: AgentRunInput): AgentMessage[] {
   if (input.messages) return input.messages
   if (Array.isArray(input.prompt)) return input.prompt
   return []
-}
-
-export function defineTool<TInput = unknown, TOutput = unknown>(
-  tool: AgentToolDefinition<TInput, TOutput>,
-): AgentToolDefinition<TInput, TOutput> {
-  if (!tool || typeof tool !== "object") {
-    throw new TypeError("[vitehub] defineTool() requires a tool definition.")
-  }
-  if (!tool.name || typeof tool.name !== "string") {
-    throw new TypeError("[vitehub] defineTool() requires a tool name.")
-  }
-  return tool
 }
 
 function toAgentRunResult(value: unknown): AgentRunResult {
@@ -970,12 +929,16 @@ function createRunContext<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  capabilities?: Awaited<ReturnType<typeof resolveAgentCapabilities>>,
 ): AgentRunContext<TRuntimeConfig, CALL_OPTIONS> {
   const resolvedContext = createResolvedRuntimeContext(context)
 
   return {
     ...resolvedContext,
     input,
+    messages: capabilities?.messages ?? getRunMessages(input),
+    prompt: typeof input.prompt === "string" ? input.prompt : undefined,
+    tools: capabilities?.tools,
   }
 }
 
@@ -1046,7 +1009,7 @@ export async function runAgent<
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const { capabilities } = await createCapabilityRunContext(agent, context, input)
     try {
-      const result = await agent.run(createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>))
+      const result = await agent.run(createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>, capabilities))
       return await applyOutputRenderers(result, capabilities.registries)
     }
     finally {
@@ -1079,7 +1042,7 @@ export async function streamAgent<
     let closeImmediately = true
     try {
       const result = await applyOutputRenderers(
-        await agent.run(createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>)),
+        await agent.run(createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>, capabilities)),
         capabilities.registries,
       )
       if (isAsyncIterable(result)) {

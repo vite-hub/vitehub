@@ -24,13 +24,12 @@ Use a default export for one agent per file:
 
 ```ts [server/agents/triager.ts]
 import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 
 export default defineAgent({
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     model,
     instructions: 'Triage support requests.',
-  }),
 })
 ```
 
@@ -38,13 +37,12 @@ Use named exports when one file owns several agents:
 
 ```ts [server/agent.ts]
 import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 
 export const triager = defineAgent({
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     model,
     instructions: 'Triage support requests.',
-  }),
 })
 ```
 
@@ -65,7 +63,7 @@ export default defineConfig({
     }),
     nitro(),
   ],
-})
+}
 ```
 ::
 
@@ -76,7 +74,7 @@ export default defineNitroConfig({
   agent: {
     route: true,
   },
-})
+}
 ```
 ::
 
@@ -87,10 +85,10 @@ Pass a route string when `/agents/[agent]` does not fit your app.
 Use `run` when the default model call is not the right shape.
 
 ```ts [server/agents/support.ts]
-import { defineAgent, defineTool } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
 import { getAgentMessageText } from '@vitehub/agent'
 
-const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+const classifyTicket = {
   name: 'classifyTicket',
   description: 'Classify a support request before queue handoff.',
   policy: ({ input }) => {
@@ -103,7 +101,6 @@ const classifyTicket = defineTool<{ message: string }, { queue: string; priority
   execute: ({ message }) => ({
     queue: /down|broken|500|urgent/i.test(message) ? 'incident' : 'product',
     priority: /down|broken|500|urgent/i.test(message) ? 'urgent' : 'normal',
-  }),
 })
 
 export default defineAgent({
@@ -122,7 +119,7 @@ export default defineAgent({
         : 'Unable to classify the support request.',
     }
   },
-})
+}
 ```
 
 `run` receives resolved runtime context and the agent input. Use it as the escape hatch when an official library API is not covered by a ViteHub adapter yet.
@@ -142,7 +139,7 @@ export default defineAgent({
       adapters,
     }),
   ],
-})
+}
 ```
 
 Enable history when the current chat thread should be replayed into the next agent run.
@@ -170,7 +167,7 @@ export default defineAgent({
       },
     }),
   ],
-})
+}
 ```
 
 ## Use Workspace tools
@@ -181,7 +178,6 @@ Add a `tools` resolver when the model should inspect the mounted files:
 
 ```ts [server/agents/data-sources/config.ts]
 import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 import * as source from '@vitehub/workspace/source'
 
 export default defineAgent({
@@ -190,10 +186,10 @@ export default defineAgent({
       docs: source.github({ repo: 'acme/docs', cache: { maxAge: 3600 } }),
     },
   },
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     tools: ({ workspace }) => workspace.tools.inspect(),
     model,
-  }),
 })
 ```
 
@@ -206,11 +202,11 @@ export default defineAgent({
       docs: source.github({ repo: 'acme/docs' }),
     },
   },
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
     tools: ({ workspace }) => workspace.tools.inspect(),
     model,
-  }),
 })
 ```
 
@@ -219,14 +215,14 @@ Instruction parts can also be composed with an array:
 ```ts
 export default defineAgent({
   workspace: {},
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     instructions: [
       'Answer only from inspected workspace evidence.',
       async ({ fs }) => await fs.readFile('AGENTS.md'),
     ],
     tools: ({ workspace }) => workspace.tools.inspect(),
     model,
-  }),
 })
 ```
 
@@ -237,7 +233,8 @@ Workspace sources no longer imply model tools. Replace older workspace agents th
 ```diff
  export default defineAgent({
    workspace: { sources },
-+  adapter: aiSdkAdapter({
++  provider: 'ai-sdk',
+
 +    tools: ({ workspace }) => workspace.tools.inspect(),
 +    model,
 +  }),

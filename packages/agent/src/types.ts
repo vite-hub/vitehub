@@ -94,8 +94,10 @@ export interface AgentRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
-  adapter?: AgentAdapter<CALL_OPTIONS>
   input: AgentRunInput<CALL_OPTIONS>
+  messages: AgentMessage[]
+  prompt?: string
+  tools?: AgentToolSet
 }
 
 export type AgentRunHandler<
@@ -133,6 +135,11 @@ export type AgentAdapterInstructionsPart<
 
 export type AgentModelInput = unknown
 
+export type AgentModelResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = MaybeResolvable<AgentModelInput, AgentAdapterMetadataContext<TRuntimeConfig, Name>>
+
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
   model: AgentModelInput
@@ -146,12 +153,13 @@ type AgentSettingsBase<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > = {
-  adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
   capabilities?: AgentCapabilityDefinition<unknown, TRuntimeConfig>[]
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
+  model?: AgentModelResolver<TRuntimeConfig>
+  provider?: AgentModelProvider
   tools?: AgentToolResolverWithWorkspace<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   workspace?: WorkspaceAgentWorkspaceOptions
@@ -163,16 +171,11 @@ export type AgentSettings<
   CALL_OPTIONS = unknown,
 > = AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS> & (
   | {
-    adapter: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
-    run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
-  }
-  | {
-    adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
-    adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
-    model: unknown
+    model: NonNullable<AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS>["model"]>
+    provider: NonNullable<AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS>["provider"]>
     run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )
@@ -190,8 +193,7 @@ export interface AgentDefinition<
 }
 
 export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
-  | AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig>
-  | AgentAdapter<unknown, TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig>
+  AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   | { default?: AgentInput<TContext> }
@@ -200,9 +202,7 @@ export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = Agen
 export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
-export interface AgentModelProviderOptions {
-  provider?: "ai-sdk" | "auto" | "tanstack-ai" | (string & {})
-}
+export type AgentModelProvider = "ai-sdk" | "tanstack-ai" | (string & {})
 
 export interface AgentStateProviderOptions {
   provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
@@ -222,7 +222,6 @@ export interface AgentIntegrationsOptions {
 }
 
 export interface AgentProvidersOptions {
-  model?: AgentModelProviderOptions
   sandbox?: AgentSandboxProviderOptions
   scheduler?: AgentSchedulerProviderOptions
   state?: AgentStateProviderOptions
@@ -242,7 +241,6 @@ export interface ResolvedAgentModuleOptions {
   imports: boolean
   integrations: Required<AgentIntegrationsOptions>
   providers: {
-    model: Required<AgentModelProviderOptions>
     sandbox: Required<AgentSandboxProviderOptions>
     scheduler: Required<AgentSchedulerProviderOptions>
     state: Required<AgentStateProviderOptions>
@@ -392,12 +390,6 @@ export interface AgentAdapter<
   name: string
   stream?(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<Response | AsyncIterable<AgentStreamEvent> | AgentAdapterResult | unknown>
 }
-
-export type AgentAdapterFactory<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  TOptions = unknown,
-  Name extends WorkspaceName = WorkspaceName,
-> = (context: ResolvedAgentRuntimeContext<TRuntimeConfig>) => MaybePromise<AgentAdapter<TOptions, TRuntimeConfig, Name>>
 
 export interface CloudflareExportedHandlerFetchHandler<TEnv = unknown> {
   (request: Request, env: TEnv, ctx: { waitUntil?: (promise: Promise<unknown>) => void }): Response | Promise<Response>

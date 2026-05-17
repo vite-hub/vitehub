@@ -54,7 +54,7 @@ export default defineConfig({
     hubChatDevtools(),
     nitro(),
   ],
-})
+}
 ```
 ::
 ::
@@ -69,7 +69,7 @@ export default defineNitroConfig({
     '@vitehub/workspace/nitro',
     '@vitehub/agent/nitro',
   ],
-})
+}
 ```
 ::
 ::
@@ -82,16 +82,16 @@ Create `server/agents/support.ts` and attach Chat as a capability:
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 import { createDevtoolsAdapter } from '@vitehub/agent/chat/devtools'
 import { chat } from '@vitehub/agent/capabilities'
 
 export default defineAgent({
   description: 'Answer support chat messages.',
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     instructions: 'You are a friendly support bot. Keep replies short and concrete.',
     model: gateway('openai/gpt-5.1-mini'),
-  }),
+  },
   capabilities: [
     chat({
       adapters: {
@@ -99,7 +99,7 @@ export default defineAgent({
       },
     }),
   ],
-})
+}
 ```
 ::
 
@@ -125,17 +125,17 @@ Chat is stateless by default. Enable history when you want recent thread message
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 import { createDevtoolsAdapter } from '@vitehub/agent/chat/devtools'
 import { chat } from '@vitehub/agent/capabilities'
 
 export default defineAgent({
   workspace: 'support',
   description: 'Answer support chat messages.',
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     instructions: 'You are a friendly support bot. Keep replies short and concrete.',
     model: gateway('openai/gpt-5.1-mini'),
-  }),
+  },
   capabilities: [
     chat({
       adapters: {
@@ -147,7 +147,7 @@ export default defineAgent({
       },
     }),
   ],
-})
+}
 ```
 ::
 
@@ -161,7 +161,6 @@ Models guess. Tools inspect. Add a Workspace so the agent can search, list, and 
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 import { createDevtoolsAdapter } from '@vitehub/agent/chat/devtools'
 import { chat } from '@vitehub/agent/capabilities'
 import * as source from '@vitehub/workspace/source'
@@ -183,11 +182,12 @@ export default defineAgent({
       }),
     },
   },
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
     tools: ({ workspace }) => workspace.tools.inspect(),
     model: gateway('openai/gpt-5.1-mini'),
-  }),
+  },
   capabilities: [
     chat({
       adapters: {
@@ -199,7 +199,7 @@ export default defineAgent({
       },
     }),
   ],
-})
+}
 ```
 ::
 

@@ -138,7 +138,7 @@ function toResult(value: unknown): AgentAdapterResult {
     : { raw: value, text: typeof (value as { text?: unknown })?.text === "string" ? (value as { text: string }).text : undefined }
 }
 
-export function tanstackAiAdapter(options: TanStackAiAdapterOptions): AgentAdapter {
+export function createTanStackAiProviderAdapter(options: TanStackAiAdapterOptions): AgentAdapter {
   return {
     async generate(context) {
       const { chat } = await import("@tanstack/ai")
@@ -157,8 +157,4 @@ export function tanstackAiAdapter(options: TanStackAiAdapterOptions): AgentAdapt
       return await chat(await createChatOptions(options, context, true) as never)
     },
   }
-}
-
-export function fromTanStackAi(config: TanStackAiAdapterOptions): AgentAdapter {
-  return tanstackAiAdapter(config)
 }

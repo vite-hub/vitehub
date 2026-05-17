@@ -15,9 +15,6 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
       workflow: options?.integrations?.workflow ?? "auto",
     },
     providers: {
-      model: {
-        provider: options?.providers?.model?.provider || "ai-sdk",
-      },
       sandbox: {
         provider: options?.providers?.sandbox?.provider || "auto",
       },

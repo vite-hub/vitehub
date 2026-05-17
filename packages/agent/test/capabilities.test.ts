@@ -9,13 +9,10 @@ describe("agent capabilities", () => {
     const order: string[] = []
 
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           order.push("adapter")
           return { text: context.messages.map(message => message.parts.map(part => part.type === "text" ? part.text : "").join("")).join("") }
         },
-        name: "test",
-      },
       capabilities: [
         defineCapability({
           id: "first",
@@ -57,7 +54,7 @@ describe("agent capabilities", () => {
     const { defineCapability } = await import("../src/capabilities.ts")
     const capability = defineCapability({ id: "same" })
     const agent = defineAgent({
-      adapter: { generate: async () => ({ text: "ok" }), name: "test" },
+      async run() { return { text: "ok" } },
       capabilities: [capability, capability],
     })
 
@@ -94,13 +91,10 @@ describe("agent capabilities", () => {
     const { defineCapability } = await import("../src/capabilities.ts")
     const order: string[] = []
     const agent = defineAgent({
-      adapter: {
-        async generate() {
+      async run() {
           order.push("adapter")
           return { text: "base" }
         },
-        name: "test",
-      },
       hooks: {
         "capability:close": () => {
           order.push("close:hook")
@@ -191,12 +185,9 @@ describe("agent capabilities", () => {
     const { voiceInput } = await import("../src/capabilities.ts")
     const transcribe = vi.fn(async () => "voice transcript")
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           return { text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("") }
         },
-        name: "test",
-      },
       capabilities: [voiceInput({ transcribe })],
     })
 
@@ -214,14 +205,11 @@ describe("agent capabilities", () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const run = vi.fn(async ({ args }) => `Summarize: ${args}`)
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           return {
             text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n"),
           }
         },
-        name: "test",
-      },
       capabilities: [
         inputCommands({
           commands: {
@@ -253,12 +241,9 @@ describe("agent capabilities", () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const run = vi.fn(async () => "handled")
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           return { text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n") }
         },
-        name: "test",
-      },
       capabilities: [
         inputCommands({
           commands: {
@@ -281,12 +266,9 @@ describe("agent capabilities", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { inputCommands } = await import("../src/capabilities.ts")
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           return { text: String(context.prompt) }
         },
-        name: "test",
-      },
       capabilities: [
         inputCommands({
           commands: {
@@ -307,12 +289,9 @@ describe("agent capabilities", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { inputCommands } = await import("../src/capabilities.ts")
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           return { text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n") }
         },
-        name: "test",
-      },
       capabilities: [
         inputCommands({
           commands: {
@@ -337,15 +316,12 @@ describe("agent capabilities", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { inputCommands } = await import("../src/capabilities.ts")
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           return {
             raw: context.input,
             text: `${context.prompt} ${JSON.stringify(context.input.context)}`,
           }
         },
-        name: "test",
-      },
       capabilities: [
         inputCommands({
           commands: {
@@ -375,16 +351,13 @@ describe("agent capabilities", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { inputCommands } = await import("../src/capabilities.ts")
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           return {
             text: context.messages.length
               ? context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n")
               : String(context.prompt),
           }
         },
-        name: "test",
-      },
       capabilities: [
         inputCommands({
           commands: {
@@ -413,12 +386,9 @@ describe("agent capabilities", () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { createAgentDirectMessageHook } = await import("../src/chat/runtime/agent-chat.ts")
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           return { text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n") }
         },
-        name: "test",
-      },
       capabilities: [
         inputCommands({
           commands: {
@@ -450,7 +420,8 @@ describe("agent capabilities", () => {
     } as never)
 
     expect(post).toHaveBeenCalledWith("Working...")
-    expect(edit).toHaveBeenCalledWith("Summarize: last week")
+    const editValue = edit.mock.calls[0]?.[0]
+    expect(typeof editValue === "string" ? editValue : editValue?.text).toBe("Summarize: last week")
   })
 
   it("resolves workspace for direct workspace agents with chat history", async () => {
@@ -459,12 +430,9 @@ describe("agent capabilities", () => {
     const agent = defineAgent({
       name: "support",
       workspace: {},
-      adapter: {
-        async generate() {
+      async run() {
           return { text: "ok" }
         },
-        name: "test",
-      },
       capabilities: [
         chat({
           adapters: {},
@@ -515,13 +483,10 @@ describe("agent capabilities", () => {
     const { blob, db, kv } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown, policy?: unknown }> = {}
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           capturedTools = context.tools as typeof capturedTools
           return { raw: context.tools, text: Object.keys(context.tools || {}).sort().join(",") }
         },
-        name: "test",
-      },
       capabilities: [
         db({ access: "write" }),
         kv({ access: "write" }),
@@ -570,13 +535,10 @@ describe("agent capabilities", () => {
     const { db } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { policy?: unknown }> = {}
     const agent = defineAgent({
-      adapter: {
-        async generate(context) {
+      async run(context) {
           capturedTools = context.tools as typeof capturedTools
           return { text: "ok" }
         },
-        name: "test",
-      },
       capabilities: [
         db({ access: "schema", policy: "allow" }),
       ],

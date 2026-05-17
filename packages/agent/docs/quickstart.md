@@ -30,7 +30,7 @@ export default defineConfig({
     hubAgent(),
     nitro(),
   ],
-})
+}
 ```
 ::
 
@@ -38,7 +38,7 @@ export default defineConfig({
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
   modules: ['@vitehub/agent/nitro'],
-})
+}
 ```
 ::
 
@@ -46,52 +46,48 @@ export default defineNitroConfig({
 
 ::fw{id="vite:dev vite:build"}
 ```ts [server/agents/triager.ts]
-import { defineAgent, defineTool } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { defineAgent } from '@vitehub/agent'
 import { gateway } from '@ai-sdk/gateway'
 
-const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+const classifyTicket = {
   name: 'classifyTicket',
   description: 'Classify a support request before queue handoff.',
   execute: ({ message }) => ({
     queue: /refund|invoice|payment/i.test(message) ? 'billing' : 'product',
     priority: /urgent|down|broken/i.test(message) ? 'urgent' : 'normal',
-  }),
 })
 
 export default defineAgent({
   description: 'Triage support requests and prepare a queue handoff.',
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     model: gateway('openai/gpt-5.1-mini'),
     instructions: 'Classify support requests and prepare queue handoff.',
     tools: { classifyTicket },
-  }),
 })
 ```
 ::
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/agents/triager.ts]
-import { defineAgent, defineTool } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { defineAgent } from '@vitehub/agent'
 import { gateway } from '@ai-sdk/gateway'
 
-const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+const classifyTicket = {
   name: 'classifyTicket',
   description: 'Classify a support request before queue handoff.',
   execute: ({ message }) => ({
     queue: /refund|invoice|payment/i.test(message) ? 'billing' : 'product',
     priority: /urgent|down|broken/i.test(message) ? 'urgent' : 'normal',
-  }),
 })
 
 export default defineAgent({
   description: 'Triage support requests and prepare a queue handoff.',
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     model: gateway('openai/gpt-5.1-mini'),
     instructions: 'Classify support requests and prepare queue handoff.',
     tools: { classifyTicket },
-  }),
 })
 ```
 ::
@@ -102,21 +98,21 @@ export default defineAgent({
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 import { chat } from '@vitehub/agent/capabilities'
 
 export default defineAgent({
-  adapter: aiSdkAdapter({
+  provider: 'ai-sdk',
+
     model,
     instructions: 'Classify support requests and prepare queue handoff.',
     tools: { classifyTicket },
-  }),
+  },
   capabilities: [
     chat({
       adapters,
     }),
   ],
-})
+}
 ```
 
 ::

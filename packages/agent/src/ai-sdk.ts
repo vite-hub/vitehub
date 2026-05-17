@@ -384,7 +384,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   }
 }
 
-export function aiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
+export function createAiSdkProviderAdapter(options: AiSdkAdapterOptions): AgentAdapter {
   const staticTools = typeof options.tools === "object" && options.tools
     ? withAgentToolStepReporting(applyAgentToolPolicies(options.tools as AgentToolSet) || {})
     : undefined
