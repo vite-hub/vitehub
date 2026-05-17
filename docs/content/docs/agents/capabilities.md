@@ -64,8 +64,8 @@ Storage capabilities keep their injected tool sets compact:
 
 | Capability | Read access | Write access |
 | --- | --- | --- |
-| `db()` | `db_schema`, `db_query` | adds approval-gated `db_exec` |
+| `db()` | `db_schema`, `db_query` | adds policy-gated `db_exec` |
 | `kv()` | `kv_read` | adds `kv_edit` |
 | `blob()` | `blob_read` | adds `blob_edit` |
 
-`db_exec` requires a rationale and approval. `blob_edit` writes text, JSON, or base64 media content with a `mediaType`, so future image and audio capabilities can write artifacts through the same storage capability.
+`db_exec` requires a rationale and defaults to approval. Trusted local databases can opt out explicitly with `db({ access: "schema", policy: "allow" })`. `blob_edit` writes text, JSON, or base64 media content with a `mediaType`, so future image and audio capabilities can write artifacts through the same storage capability.

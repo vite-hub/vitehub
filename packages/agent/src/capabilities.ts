@@ -8,7 +8,7 @@ import {
 } from "./skills.ts"
 
 import type { AgentCapabilityContext, AgentCapabilityDefinition } from "./capability-runtime.ts"
-import type { AgentRunInput, AgentToolDefinition, AgentToolSet, MaybePromise } from "./types.ts"
+import type { AgentRunInput, AgentToolDefinition, AgentToolPolicyDecision, AgentToolSet, MaybePromise } from "./types.ts"
 import type { AgentMessage, AudioPart } from "./messages.ts"
 
 export { chat } from "./chat/capability.ts"
@@ -316,6 +316,7 @@ export interface DbCapabilityOptions extends CapabilityInstructionsOption {
   access?: "read" | "schema" | "write"
   database?: string
   prefix?: string
+  policy?: AgentToolPolicyDecision
 }
 
 export interface StorageCapabilityOptions extends CapabilityInstructionsOption {
@@ -602,7 +603,7 @@ export function db(options: DbCapabilityOptions = {}): AgentCapabilityDefinition
             return await (database.db.run || database.db.execute)!.call(database.db, sql)
           },
           name: "db_exec",
-          policy: "require-approval",
+          policy: options.policy || "require-approval",
         })
       }
       context.tools.add(tools)

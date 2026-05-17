@@ -376,4 +376,37 @@ describe("agent capabilities", () => {
     expect(dbExecute).toHaveBeenCalledWith("with rows as (select 1) select * from rows")
     expect(dbRun).toHaveBeenCalledWith("update users set name = 'A'")
   })
+
+  it("allows db_exec policy override for trusted local databases", async () => {
+    vi.resetModules()
+    vi.doMock("@vitehub/db/drizzle", () => ({
+      databases: {
+        default: {
+          db: {
+            execute: vi.fn(),
+            run: vi.fn(),
+          },
+        },
+      },
+    }))
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { db } = await import("../src/capabilities.ts")
+    let capturedTools: Record<string, { policy?: unknown }> = {}
+    const agent = defineAgent({
+      adapter: {
+        async generate(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: "ok" }
+        },
+        name: "test",
+      },
+      capabilities: [
+        db({ access: "schema", policy: "allow" }),
+      ],
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+
+    expect(capturedTools.db_exec!.policy).toBe("allow")
+  })
 })
