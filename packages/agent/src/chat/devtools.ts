@@ -743,7 +743,12 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
 
       nitro.options.handlers ||= []
       const handlerExtension = import.meta.url.endsWith(".ts") ? ".ts" : ".js"
-      const handler = new URL(`./runtime/chat-devtools-handler${handlerExtension}`, import.meta.url).pathname
+      const handler = new URL(
+        import.meta.url.includes("/dist/")
+          ? `./chat/runtime/chat-devtools-handler${handlerExtension}`
+          : `./runtime/chat-devtools-handler${handlerExtension}`,
+        import.meta.url,
+      ).pathname
       if (!nitro.options.handlers.some(item => item.route === route && item.method === "POST" && item.handler === handler)) {
         nitro.options.handlers.push({ handler, method: "POST", route })
       }
