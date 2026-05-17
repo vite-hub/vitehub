@@ -48,3 +48,13 @@ Use external tools only when useful:
 Instruction blocks can be placed with `{{ capabilityId }}` slots. `{{ capabilities }}` inserts any blocks that have not already been placed, and remaining blocks are appended in capability order.
 
 Official capabilities currently include `skills()`, `voiceInput()`, `mcp()`, `db()`, `kv()`, and `blob()`.
+
+Storage capabilities keep their injected tool sets compact:
+
+| Capability | Read access | Write access |
+| --- | --- | --- |
+| `db()` | `db_schema`, `db_query` | adds approval-gated `db_exec` |
+| `kv()` | `kv_read` | adds `kv_edit` |
+| `blob()` | `blob_read` | adds `blob_edit` |
+
+`db_exec` requires a rationale and approval. `blob_edit` writes text, JSON, or base64 media content with a `mediaType`, so future image and audio capabilities can write artifacts through the same storage capability.

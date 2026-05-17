@@ -28,9 +28,17 @@ _Avoid_: Image tool, image plugin
 A Capability that lets an agent use tools from configured Model Context Protocol servers.
 _Avoid_: MCP client plugin, MCP tools
 
+**Storage Capability**:
+An Official Capability that lets an agent access a configured storage primitive.
+_Avoid_: Agent Storage Tool, storage plugin, package-owned agent tool
+
 **Chat**:
 An Official Capability that lets external conversation events invoke an agent.
 _Avoid_: Chat definition, chat plugin, bot definition
+
+**Agent-Scoped Invocation**:
+An external event route that targets one discovered Agent.
+_Avoid_: Global webhook, chat registry route
 
 **MCP Server**:
 A named Model Context Protocol server configured inside the MCP Capability.
@@ -111,10 +119,11 @@ _Avoid_: Capability instance, duplicate capability
 - **Voice Input** is the first planned **Official Capability**.
 - **Skills** is an **Official Capability**.
 - **MCP** is an **Official Capability**.
+- A **Storage Capability** is an **Official Capability**.
 - **Chat** is an **Official Capability**.
 - **MCP** can configure one or more **MCP Servers**.
 - **Skills** reads Skill files from a **Skills Path**.
-- The **V1 Capability Set** contains **Skills**, **Voice Input**, and **MCP**.
+- The **V1 Capability Set** contains **Skills**, **Voice Input**, **MCP**, and **Storage Capabilities**.
 - **Image Generation** can produce **Capability Artifacts** at an **Artifact Path**.
 - An **Official Capability** that produces files should provide a **Default Artifact Path**.
 - A **Capability Factory** creates one **Capability**.
@@ -128,6 +137,7 @@ _Avoid_: Capability instance, duplicate capability
 - A **Capability Hook** lets Capabilities observe or extend a **Capability Phase**.
 - An **Agent Capability Hook** is scoped to one Agent definition.
 - A **Capability** is an **Agent-Scoped Capability**.
+- **Chat** uses **Agent-Scoped Invocations**.
 - A **Capability** is a **Single-Instance Capability** by default.
 
 ## Example Dialogue
@@ -151,7 +161,10 @@ _Avoid_: Capability instance, duplicate capability
 - Capability Hooks were considered capability-only - resolved: Capabilities and Agent definitions can both register **Capability Hooks**.
 - Multiple instances of the same Capability were considered - resolved: Capabilities are single-instance by default; use nested configuration for multiple providers or servers.
 - Multiple MCP Capability instances were considered - resolved: use one **MCP** Capability with multiple **MCP Servers**.
+- Package-owned storage agent tools were considered - resolved: expose storage access through **Storage Capabilities**.
 - The default Skills location was unresolved - resolved: the default **Skills Path** is `skills`.
 - Capability Phases were considered as functions returning raw contribution objects - resolved: phases mutate a typed **Capability Context**.
 - Capability instructions needed placement control - resolved: Capabilities contribute named **Instruction Blocks**, Agent instructions can place them with **Instruction Slots**, and unplaced blocks append at the end.
 - Chat was considered as a separate definition type - resolved: **Chat** is an Agent-Scoped Capability.
+- Chat discovery was considered as a separate file convention - resolved: **Chat** is discovered only through Agent definitions.
+- Chat webhook routing was considered as a global route - resolved: **Chat** uses agent-scoped webhook routes.

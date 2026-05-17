@@ -86,4 +86,82 @@ describe("agent capabilities", () => {
     })).resolves.toMatchObject({ text: "voice transcript" })
     expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ mediaType: "audio/wav" }))
   })
+
+  it("injects compact storage capability tools", async () => {
+    const kvGet = vi.fn(async () => "value")
+    const kvKeys = vi.fn(async () => ["assets/image.png"])
+    const kvSet = vi.fn()
+    const kvDel = vi.fn()
+    const blobPut = vi.fn()
+    const dbExecute = vi.fn()
+    const dbRun = vi.fn()
+    vi.doMock("@vitehub/kv", () => ({
+      kv: {
+        del: kvDel,
+        get: kvGet,
+        keys: kvKeys,
+        set: kvSet,
+      },
+    }))
+    vi.doMock("@vitehub/blob", () => ({
+      blob: {
+        del: vi.fn(),
+        get: vi.fn(),
+        head: vi.fn(),
+        list: vi.fn(),
+        put: blobPut,
+      },
+    }))
+    vi.doMock("@vitehub/db/drizzle", () => ({
+      databases: {
+        default: {
+          db: {
+            execute: dbExecute,
+            run: dbRun,
+          },
+        },
+      },
+    }))
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { blob, db, kv } = await import("../src/capabilities.ts")
+    let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown, policy?: unknown }> = {}
+    const agent = defineAgent({
+      adapter: {
+        async generate(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { raw: context.tools, text: Object.keys(context.tools || {}).sort().join(",") }
+        },
+        name: "test",
+      },
+      capabilities: [
+        db({ access: "write" }),
+        kv({ access: "write" }),
+        blob({ access: "write" }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({
+      text: "blob_edit,blob_read,db_exec,db_query,db_schema,kv_edit,kv_read",
+    })
+
+    await expect(capturedTools.kv_read!.execute({ key: "theme" })).resolves.toBe("value")
+    await expect(capturedTools.kv_read!.execute({ prefix: "assets/" })).resolves.toEqual(["assets/image.png"])
+    await capturedTools.kv_edit!.execute({ key: "theme", operation: "put", value: "dark" })
+    await capturedTools.kv_edit!.execute({ key: "theme", operation: "delete" })
+    expect(kvGet).toHaveBeenCalledWith("theme")
+    expect(kvKeys).toHaveBeenCalledWith("assets/")
+    expect(kvSet).toHaveBeenCalledWith("theme", "dark")
+    expect(kvDel).toHaveBeenCalledWith("theme")
+
+    await capturedTools.blob_edit!.execute({ content: "AA==", format: "base64", mediaType: "image/png", operation: "write", pathname: "images/a.png" })
+    expect(blobPut).toHaveBeenCalledWith("images/a.png", expect.any(Blob), { contentType: "image/png" })
+
+    await capturedTools.db_query!.execute({ statement: "with rows as (select 1) select * from rows;" })
+    await expect(capturedTools.db_query!.execute({ statement: "with deleted as (delete from users returning *) select * from deleted" })).rejects.toThrow("read-only")
+    expect(capturedTools.db_exec!.policy).toBe("require-approval")
+    await expect(capturedTools.db_exec!.execute({ rationale: "", statement: "update users set name = 'A'" })).rejects.toThrow("rationale")
+    await capturedTools.db_exec!.execute({ rationale: "Fix stale row", statement: "update users set name = 'A'" })
+    expect(dbExecute).toHaveBeenCalledWith("with rows as (select 1) select * from rows")
+    expect(dbRun).toHaveBeenCalledWith("update users set name = 'A'")
+  })
 })
