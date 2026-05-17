@@ -7,6 +7,7 @@ import {
 } from "@vitehub/runtime"
 
 import { formatUnknownAgentMessage } from "./registry-error.ts"
+import { resolveAgentCapabilities } from "./capability-runtime.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -40,6 +41,7 @@ import type {
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
 } from "./types.ts"
+import type { AgentCapabilityOptions } from "./capability-runtime.ts"
 import type { Message, StreamEvent } from "@vitehub/messages"
 import type {
   ReadonlyWorkspaceFacade,
@@ -112,6 +114,16 @@ export type {
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
 } from "./types.ts"
+export { defineCapability } from "./capability-runtime.ts"
+export type {
+  AgentCapabilityContext,
+  AgentCapabilityDefinition,
+  AgentCapabilityHooks,
+  AgentCapabilityHookName,
+  AgentCapabilityPhase,
+  AgentInstructionBlock,
+  AgentToolTransform,
+} from "./capability-runtime.ts"
 
 export type {
   Message,
@@ -194,7 +206,7 @@ function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
-  options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }) | AgentAdapter<CALL_OPTIONS>,
+  options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentSettings<TRuntimeConfig, CALL_OPTIONS>["hooks"] }) | AgentAdapter<CALL_OPTIONS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   if (hasAgentMethods(options)) {
     const agent = options as AgentAdapter<CALL_OPTIONS> & { tools?: unknown }
@@ -203,28 +215,31 @@ function defineBaseAgent<
     }
   }
 
-  const { adapter, chat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
+  const { adapter, capabilities, chat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentSettings<TRuntimeConfig, CALL_OPTIONS>["hooks"] }
 
-  return {
+  const definition = {
     chat,
     description,
     hooks,
     runtime,
     run,
     workspace,
-    async resolve(context) {
+    async resolve(context: AgentRuntimeContext<TRuntimeConfig>) {
       const resolvedAdapter = adapter || ("model" in options
         ? (await import("./ai-sdk.ts")).aiSdkAdapter(options as never)
         : undefined)
       if (!resolvedAdapter) {
         throw new Error("[vitehub] Agent adapter is required unless the agent defines a custom run() handler.")
       }
-      const resolvedContext = createResolvedRuntimeContext(context)
+      const resolvedContext = createResolvedRuntimeContext<TRuntimeConfig>(context)
       return typeof resolvedAdapter === "function"
         ? await (resolvedAdapter as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
         : resolvedAdapter
     },
   }
+  return Object.assign(definition, {
+    __vitehubAgentCapabilityOptions: { capabilities, hooks },
+  })
 }
 
 export function workflow(name?: string): AgentWorkflowRuntimeBinding {
@@ -269,7 +284,7 @@ export type WorkspaceAgentOptions<
 > = AgentSettings<TRuntimeConfig> & {
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig>
+  hooks?: AgentSettings<TRuntimeConfig>["hooks"]
   name?: string
   runtime?: AgentRuntimeBinding
   workspace: WorkspaceAgentWorkspaceOptions
@@ -300,7 +315,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
   >(
-    options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }) | AgentAdapter<CALL_OPTIONS>,
+    options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentSettings<TRuntimeConfig>["hooks"] }) | AgentAdapter<CALL_OPTIONS>,
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -835,6 +850,15 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
     && !(syntheticWorkspaceRun in agent.run)
 }
 
+function getCapabilityOptions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+>(
+  definition: AgentDefinition<TRuntimeConfig> | undefined,
+): AgentCapabilityOptions<TRuntimeConfig> | undefined {
+  return (definition as { __vitehubAgentCapabilityOptions?: AgentCapabilityOptions<TRuntimeConfig> } | undefined)?.__vitehubAgentCapabilityOptions
+    || (definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined)?.__vitehubWorkspaceAgentOptions
+}
+
 function toStreamEvent(chunk: unknown): StreamEvent | undefined {
   if (typeof chunk === "string") {
     return { text: chunk, type: "text-delta" }
@@ -939,14 +963,22 @@ async function createAdapterRunContext<
   const workspace = workspaceName
     ? (await import("@vitehub/workspace")).useWorkspace(workspaceName)
     : undefined
-  return {
-    devtools: context.devtools,
-    input,
-    instructions: undefined,
-    messages: getRunMessages(input),
-    prompt: typeof input.prompt === "string" ? input.prompt : undefined,
+  const capabilities = await resolveAgentCapabilities(
+    getCapabilityOptions(definition),
     runtime,
-    tools: undefined,
+    input,
+    workspace,
+  )
+  return {
+    capabilityInstructions: capabilities.capabilityInstructions,
+    capabilityToolTransforms: capabilities.toolTransforms,
+    devtools: context.devtools,
+    input: capabilities.input,
+    instructions: undefined,
+    messages: capabilities.messages,
+    prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
+    runtime,
+    tools: capabilities.tools,
     workspace,
   }
 }

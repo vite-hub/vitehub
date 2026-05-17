@@ -1,5 +1,10 @@
 import { getMessageText } from "@vitehub/messages"
 import {
+  applyCapabilityInstructionSlots,
+  applyCapabilityToolTransforms,
+} from "./capability-runtime.ts"
+import { mergeAgentToolSets } from "./skills.ts"
+import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
@@ -274,10 +279,13 @@ async function resolveInstructions(options: AiSdkAdapterOptions, context: AgentA
   return joinInstructions(...instructions)
 }
 
-async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never) {
-  if (!options.tools) return undefined
-  const resolved = await resolveValue(options.tools as never, context)
-  const tools = applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {}
+async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, runContext: AgentAdapterRunContext) {
+  const resolved = options.tools ? await resolveValue(options.tools as never, context) : undefined
+  const merged = mergeAgentToolSets(resolved as AgentToolSet | undefined, runContext.tools)
+  const transformed = await applyCapabilityToolTransforms(merged, runContext.capabilityToolTransforms)
+  if (!transformed) return undefined
+  const tools = applyAgentToolPolicies(transformed) || {}
+  const reportToolStep = runContext.devtools?.reportToolStep
   const { materialize_sources: materializeSources, ...reportableTools } = tools
   return {
     ...withAgentToolStepReporting(reportableTools, reportToolStep as never),
@@ -348,8 +356,9 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const instrumentedModel = options.instrumentModel
     ? await options.instrumentModel({ ...context.runtime, model, run: context.runtime.run })
     : model
-  const instructions = context.instructions ?? await resolveInstructions(options, metadataContext)
-  const tools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
+  const baseInstructions = context.instructions ?? await resolveInstructions(options, metadataContext)
+  const instructions = applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions)
+  const tools = await resolveTools(options, metadataContext, context)
   const {
     fallback: _fallback,
     instructions: _instructions,

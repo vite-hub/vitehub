@@ -26,6 +26,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./ai-sdk": "./dist/ai-sdk.js",
+    "./capabilities": "./dist/capabilities.js",
     "./cloudflare": "./dist/cloudflare.js",
     "./nitro": "./dist/nitro.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
@@ -62,6 +63,9 @@
   "peerDependencies": {
     "agents": "^0.12.3",
     "@tanstack/ai": "0.16.0",
+    "@vitehub/blob": "workspace:*",
+    "@vitehub/db": "workspace:*",
+    "@vitehub/kv": "workspace:*",
     "ai": "^6.0.0",
     "nitro": "^3.0.0-0",
     "vite": ">=8.0.0"
@@ -71,6 +75,15 @@
       "optional": true
     },
     "@tanstack/ai": {
+      "optional": true
+    },
+    "@vitehub/blob": {
+      "optional": true
+    },
+    "@vitehub/db": {
+      "optional": true
+    },
+    "@vitehub/kv": {
       "optional": true
     },
     "ai": {
@@ -87,6 +100,9 @@
     "@types/node": "catalog:",
     "@vitehub/internal": "workspace:*",
     "@tanstack/ai": "0.16.0",
+    "@vitehub/blob": "workspace:*",
+    "@vitehub/db": "workspace:*",
+    "@vitehub/kv": "workspace:*",
     "ai": "^6.0.172",
     "nitro": "catalog:",
     "publint": "^0.3.15",

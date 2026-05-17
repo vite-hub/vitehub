@@ -16,6 +16,14 @@ export interface DataPart {
   type: "data"
 }
 
+export interface AudioPart {
+  data?: string
+  id?: string
+  mediaType: string
+  type: "audio"
+  url?: string
+}
+
 export type ToolInvocationState = "approval-required" | "failed" | "proposed" | "running" | "completed"
 
 export interface ToolInvocation {
@@ -78,6 +86,7 @@ export interface ErrorPart {
 export type MessagePart =
   | ApprovalDecisionPart
   | ApprovalRequestPart
+  | AudioPart
   | DataPart
   | ErrorPart
   | SourcePart
@@ -245,6 +254,13 @@ export function validateMessage(message: Message): void {
   for (const [index, part] of message.parts.entries()) {
     assertSerializable(part, `message.parts[${index}]`)
     switch (part.type) {
+      case "audio":
+        assertString(part.mediaType, "audio.mediaType")
+        if (!part.mediaType.startsWith("audio/")) throw new TypeError("[vitehub:messages] audio part mediaType must start with audio/.")
+        if ((part.data ? 1 : 0) + (part.url ? 1 : 0) !== 1) throw new TypeError("[vitehub:messages] audio part requires exactly one of data or url.")
+        if (part.data !== undefined) assertString(part.data, "audio.data")
+        if (part.url !== undefined) assertString(part.url, "audio.url")
+        break
       case "text":
         if (typeof part.text !== "string") throw new TypeError("[vitehub:messages] text part requires text.")
         break

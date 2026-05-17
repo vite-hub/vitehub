@@ -1,5 +1,10 @@
 import { getMessageText } from "@vitehub/messages"
 import {
+  applyCapabilityInstructionSlots,
+  applyCapabilityToolTransforms,
+} from "./capability-runtime.ts"
+import { mergeAgentToolSets } from "./skills.ts"
+import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
@@ -75,12 +80,17 @@ async function resolveInstructions(options: TanStackAiAdapterOptions, context: A
   return joinInstructions(...instructions)
 }
 
-async function resolveTools(options: TanStackAiAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never) {
-  if (!options.tools) return []
-  const resolved = typeof options.tools === "function"
+async function resolveTools(options: TanStackAiAdapterOptions, context: AgentAdapterMetadataContext, runContext: AgentAdapterRunContext) {
+  const resolved = options.tools
+    ? typeof options.tools === "function"
     ? await options.tools(context)
     : await options.tools
-  const tools = withAgentToolStepReporting(applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {}, reportToolStep as never)
+    : undefined
+  const merged = mergeAgentToolSets(resolved as AgentToolSet | undefined, runContext.tools)
+  const transformed = await applyCapabilityToolTransforms(merged, runContext.capabilityToolTransforms)
+  if (!transformed) return []
+  const reportToolStep = runContext.devtools?.reportToolStep
+  const tools = withAgentToolStepReporting(applyAgentToolPolicies(transformed) || {}, reportToolStep as never)
   const { toolDefinition } = await import("@tanstack/ai")
   return Object.values(tools).map((tool) => {
     const definition = toolDefinition({
@@ -101,7 +111,8 @@ async function createChatOptions(options: TanStackAiAdapterOptions, context: Age
     fs: context.workspace?.fs,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
-  const instructions = context.instructions ?? await resolveInstructions(options, metadataContext)
+  const baseInstructions = context.instructions ?? await resolveInstructions(options, metadataContext)
+  const instructions = applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions)
   const {
     adapter,
     instructions: _instructions,
@@ -117,7 +128,7 @@ async function createChatOptions(options: TanStackAiAdapterOptions, context: Age
     messages: context.messages.length ? toTanStackAiMessages(context.messages) : context.prompt ? [{ content: context.prompt, role: "user" as const }] : [],
     stream,
     systemPrompts: instructions ? [instructions] : undefined,
-    tools: await resolveTools(options, metadataContext, context.devtools?.reportToolStep),
+    tools: await resolveTools(options, metadataContext, context),
   }
 }
 

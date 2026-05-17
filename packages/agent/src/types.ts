@@ -13,6 +13,12 @@ import type {
   WorkspaceDefinitionInput,
   WorkspaceName,
 } from "@vitehub/workspace"
+import type {
+  AgentCapabilityDefinition,
+  AgentCapabilityHooks,
+  AgentInstructionBlock,
+  AgentToolTransform,
+} from "./capability-runtime.ts"
 
 export type {
   MaybePromise,
@@ -140,9 +146,10 @@ type AgentSettingsBase<
   CALL_OPTIONS = unknown,
 > = {
   adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
+  capabilities?: AgentCapabilityDefinition<unknown, TRuntimeConfig>[]
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig>
+  hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   tools?: AgentToolResolverWithWorkspace<TRuntimeConfig>
@@ -176,7 +183,7 @@ export interface AgentDefinition<
 > {
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig>
+  hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
@@ -405,6 +412,8 @@ export interface AgentAdapterRunContext<
   Name extends WorkspaceName = WorkspaceName,
 > {
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
+  capabilityInstructions?: AgentInstructionBlock[]
+  capabilityToolTransforms?: AgentToolTransform[]
   input: AgentRunInput<TOptions>
   instructions?: string
   messages: Message[]
