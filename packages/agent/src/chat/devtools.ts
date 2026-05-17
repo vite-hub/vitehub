@@ -164,7 +164,7 @@ const defaultOutputPreviewLength = 4_000
 
 function resolveChatDevtoolsClientDist(): string {
   const clientPath = import.meta.url.endsWith(".ts")
-    ? "../../dist/devtools-client"
+    ? "../../devtools-client"
     : "../devtools-client"
   return new URL(clientPath, import.meta.url).pathname
 }
