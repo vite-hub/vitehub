@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { parseArgs } from "node:util"
 
-import { type FetchOptions, ofetch } from "ofetch"
+import { FetchError, type FetchOptions, ofetch } from "ofetch"
 
 const providers = ["cloudflare", "vercel"] as const
 const frameworks = ["nitro", "vite"] as const
@@ -37,6 +37,9 @@ async function retry(label: string, run: () => Promise<void>) {
     catch (error) {
       lastError = error
       if (attempt < 10) {
+        if (error instanceof FetchError && error.data) {
+          log(`${label} error ${JSON.stringify(error.data)}`)
+        }
         log(`${label} retry ${attempt}/9`)
         await new Promise(resolve => setTimeout(resolve, 3000))
       }

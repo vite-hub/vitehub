@@ -1031,8 +1031,11 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
 
 export function resolveViteE2EOptions(rootDir: string, hosting: string) {
   const provider = resolveHostedProvider(hosting)
+  const blobOptions = provider === "vercel"
+    ? normalizeBlobOptions({ access: "private", driver: "vercel-blob" }, { hosting })
+    : normalizeBlobOptions(undefined, { hosting })
   return {
-    blob: normalizeBlobOptions(undefined, { hosting }),
+    blob: blobOptions,
     db: resolveDBViteConfig({
       connection: {
         authToken: process.env.TURSO_AUTH_TOKEN,
