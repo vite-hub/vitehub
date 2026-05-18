@@ -10,6 +10,8 @@ import {
 import type { AgentCapabilityContext, AgentCapabilityDefinition } from "./capability-runtime.ts"
 import type { AgentRunInput, AgentToolDefinition, AgentToolPolicyDecision, AgentToolSet, MaybePromise } from "./types.ts"
 import type { AgentMessage, AudioPart } from "./messages.ts"
+import type { Experimental_TranscriptionResult, experimental_transcribe as aiTranscribe } from "ai"
+import type { MCPClient, MCPClientConfig } from "@ai-sdk/mcp"
 
 export { chat } from "./chat/capability.ts"
 export type {
@@ -83,9 +85,21 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
   })
 }
 
-export interface VoiceInputOptions extends CapabilityInstructionsOption {
-  transcribe: (audio: AudioPart) => Promise<string> | string
+type AiSdkTranscribeOptions = Omit<Parameters<typeof aiTranscribe>[0], "abortSignal" | "audio">
+
+export interface TranscribeExecuteInput {
+  audio: AudioPart
 }
+
+export type TranscribeExecuteResult = Experimental_TranscriptionResult | string
+
+export type TranscribeOptions = CapabilityInstructionsOption & (
+  | (AiSdkTranscribeOptions & { execute?: never })
+  | {
+      execute: (input: TranscribeExecuteInput) => MaybePromise<TranscribeExecuteResult>
+      model?: never
+    }
+)
 
 function isAudioPart(part: unknown): part is AudioPart {
   return typeof part === "object"
@@ -93,9 +107,33 @@ function isAudioPart(part: unknown): part is AudioPart {
     && (part as { type?: unknown }).type === "audio"
 }
 
-export function voiceInput(options: VoiceInputOptions): AgentCapabilityDefinition<VoiceInputOptions> {
+function toAiSdkAudio(audio: AudioPart): Parameters<typeof aiTranscribe>[0]["audio"] {
+  if (audio.url) return new URL(audio.url)
+  if (audio.data) return audio.data
+  throw new Error("[vitehub:agent] transcribe() requires audio input with data or url.")
+}
+
+function transcriptText(result: TranscribeExecuteResult): string {
+  return typeof result === "string" ? result : result.text
+}
+
+async function runTranscription(options: TranscribeOptions, audio: AudioPart, abortSignal?: AbortSignal): Promise<string> {
+  if ("execute" in options && options.execute) {
+    return transcriptText(await options.execute({ audio }))
+  }
+  const { instructions: _instructions, ...transcribeOptions } = options
+  const { experimental_transcribe } = await import("ai")
+  const result = await experimental_transcribe({
+    ...transcribeOptions,
+    abortSignal,
+    audio: toAiSdkAudio(audio),
+  })
+  return result.text
+}
+
+export function transcribe(options: TranscribeOptions): AgentCapabilityDefinition<TranscribeOptions> {
   return defineCapability({
-    id: "voiceInput",
+    id: "transcribe",
     options,
     async input(context) {
       const messages = []
@@ -105,7 +143,7 @@ export function voiceInput(options: VoiceInputOptions): AgentCapabilityDefinitio
           messages.push(message)
           continue
         }
-        const transcripts = await Promise.all(audioParts.map(part => options.transcribe(part)))
+        const transcripts = await Promise.all(audioParts.map(part => runTranscription(options, part, context.input.get().abortSignal)))
         messages.push(appendMessageText(message, transcripts.filter(Boolean).join("\n")))
       }
       context.input.setMessages(messages)
@@ -243,14 +281,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
   })
 }
 
-export interface McpServerConfig {
-  headers?: Record<string, string>
-  name?: string
-  tools?: AgentToolSet | (() => Promise<AgentToolSet> | AgentToolSet)
-  transport?: "http" | "stdio"
-  url?: string
-  [key: string]: unknown
-}
+export type McpServerConfig = MCPClient | MCPClientConfig | (() => MaybePromise<MCPClient | MCPClientConfig>)
 
 export interface McpCapabilityOptions extends CapabilityInstructionsOption {
   servers: Record<string, McpServerConfig>
@@ -260,30 +291,56 @@ function redactSecret(value: string) {
   return value.length <= 6 ? "***" : `${value.slice(0, 2)}***${value.slice(-2)}`
 }
 
-function sanitizeMcpMetadata(config: McpServerConfig) {
-  const headers = Object.fromEntries(Object.entries(config.headers || {}).map(([key, value]) => [key, redactSecret(value)]))
+function isMcpClient(value: unknown): value is MCPClient {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as { close?: unknown }).close === "function"
+    && typeof (value as { tools?: unknown }).tools === "function"
+}
+
+function sanitizeMcpMetadata(config: MCPClientConfig | MCPClient) {
+  if (isMcpClient(config)) return { serverInfo: config.serverInfo }
+  const transport = config.transport
+  const headers = typeof transport === "object" && transport && "headers" in transport
+    ? Object.fromEntries(Object.entries((transport as { headers?: Record<string, string> }).headers || {}).map(([key, value]) => [key, redactSecret(value)]))
+    : {}
   return {
     ...config,
-    ...(Object.keys(headers).length ? { headers } : {}),
-    tools: undefined,
+    transport: typeof transport === "object" && transport && "type" in transport
+      ? {
+          ...transport,
+          ...(Object.keys(headers).length ? { headers } : {}),
+        }
+      : transport,
   }
 }
 
+async function resolveMcpClient(config: McpServerConfig): Promise<{ client: MCPClient, metadata: MCPClient | MCPClientConfig }> {
+  const resolved = typeof config === "function" ? await config() : config
+  if (isMcpClient(resolved)) return { client: resolved, metadata: resolved }
+  const { createMCPClient } = await import("@ai-sdk/mcp")
+  return { client: await createMCPClient(resolved), metadata: resolved }
+}
+
 export function mcp(options: McpCapabilityOptions): AgentCapabilityDefinition<McpCapabilityOptions> {
+  const clients: MCPClient[] = []
   return defineCapability({
     id: "mcp",
     options,
     async resolve(context) {
       const tools: AgentToolSet = {}
       for (const [serverName, server] of Object.entries(options.servers)) {
-        const serverTools = typeof server.tools === "function" ? await server.tools() : server.tools
+        const { client, metadata } = await resolveMcpClient(server)
+        clients.push(client)
+        const serverTools = await client.tools()
         for (const [toolName, tool] of Object.entries(serverTools || {})) {
+          const definition = tool as AgentToolDefinition & { metadata?: Record<string, unknown> }
           const name = `mcp_${serverName}_${toolName}`.replace(/[^a-zA-Z0-9_]/g, "_")
           tools[name] = {
-            ...tool,
+            ...definition,
             metadata: {
-              ...(tool.metadata || {}),
-              mcp: sanitizeMcpMetadata(server),
+              ...(definition.metadata || {}),
+              mcp: sanitizeMcpMetadata(metadata),
               mcpServer: serverName,
               originalName: toolName,
             },
@@ -300,15 +357,10 @@ export function mcp(options: McpCapabilityOptions): AgentCapabilityDefinition<Mc
         ].join("\n"))
       }
     },
+    async close() {
+      await Promise.all(clients.splice(0).map(client => client.close()))
+    },
   })
-}
-
-export function httpMcpServer(url: string, options: Omit<McpServerConfig, "transport" | "url"> = {}): McpServerConfig {
-  return { ...options, transport: "http", url }
-}
-
-export function stdioMcpServer(command: string, args: string[] = [], options: Omit<McpServerConfig, "args" | "command" | "transport"> = {}): McpServerConfig {
-  return { ...options, args, command, transport: "stdio" }
 }
 
 export type StorageAccess = "read" | "write"

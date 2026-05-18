@@ -12,9 +12,9 @@ _Avoid_: Plugin, integration, extension
 A Capability shipped by ViteHub.
 _Avoid_: Built-in plugin, core feature
 
-**Voice Input**:
-An Official Capability that lets users send spoken input to an agent.
-_Avoid_: Audio support, voice plugin
+**Transcription**:
+An Official Capability that turns audio input parts into transcript text before an Agent runs.
+_Avoid_: Voice Input, audio support, voice plugin
 
 **Input Commands**:
 An Official Capability that transforms a user's command-style input message before an Agent runs.
@@ -51,6 +51,10 @@ _Avoid_: Global webhook, chat registry route
 **MCP Server**:
 A named Model Context Protocol server configured inside the MCP Capability.
 _Avoid_: MCP instance, MCP capability
+
+**MCP Client Configuration**:
+The AI SDK MCP client configuration used by the MCP Capability to connect to an MCP Server.
+_Avoid_: ViteHub MCP transport config
 
 **Skills Path**:
 The workspace-relative directory used by the Skills Capability.
@@ -124,7 +128,7 @@ _Avoid_: Capability instance, duplicate capability
 
 - A **Capability** can be added to an application.
 - An **Official Capability** is a **Capability**.
-- **Voice Input** is the first planned **Official Capability**.
+- **Transcription** is the first planned **Official Capability**.
 - **Input Commands** is an **Official Capability**.
 - **Skills** is an **Official Capability**.
 - **MCP** is an **Official Capability**.
@@ -132,8 +136,9 @@ _Avoid_: Capability instance, duplicate capability
 - **Chat** is an **Official Capability**.
 - **Chat** can use **Chat History**.
 - **MCP** can configure one or more **MCP Servers**.
+- An **MCP Server** uses **MCP Client Configuration**.
 - **Skills** reads Skill files from a **Skills Path**.
-- The **V1 Capability Set** contains **Skills**, **Voice Input**, **MCP**, and **Storage Capabilities**.
+- The **V1 Capability Set** contains **Skills**, **Transcription**, **MCP**, and **Storage Capabilities**.
 - **Image Generation** can produce **Capability Artifacts** at an **Artifact Path**.
 - An **Official Capability** that produces files should provide a **Default Artifact Path**.
 - A **Capability Factory** creates one **Capability**.
@@ -158,7 +163,7 @@ _Avoid_: Capability instance, duplicate capability
 ## Flagged Ambiguities
 
 - "plugin" was used to mean both framework plugins and user-shareable ViteHub feature bundles - resolved: use **Capability** for the ViteHub domain concept.
-- "audio input" and "voice input" both appeared as names for spoken user messages - resolved: use **Voice Input** for the capability.
+- "audio input", "voice input", and "voice transcription" all appeared as names for spoken user messages - resolved: use **Transcription** for the capability.
 - "commands" could mean shell/runtime execution or user message shortcuts - resolved: use **Input Commands** for command-style input transforms.
 - "capability" was considered as a raw function that mutates configuration - resolved: use a **Capability Factory** that returns a declarative Capability object.
 - "workspace tools" and "agent tools" were considered as primary Capability Surfaces - unresolved: this may expose the wrong abstraction for capabilities that produce artifacts.
@@ -172,6 +177,7 @@ _Avoid_: Capability instance, duplicate capability
 - Capability Hooks were considered capability-only - resolved: Capabilities and Agent definitions can both register **Capability Hooks**.
 - Multiple instances of the same Capability were considered - resolved: Capabilities are single-instance by default; use nested configuration for multiple providers or servers.
 - Multiple MCP Capability instances were considered - resolved: use one **MCP** Capability with multiple **MCP Servers**.
+- A ViteHub-specific MCP transport shape was considered - resolved: use AI SDK **MCP Client Configuration** for each **MCP Server**.
 - Package-owned storage agent tools were considered - resolved: expose storage access through **Storage Capabilities**.
 - The default Skills location was unresolved - resolved: the default **Skills Path** is `skills`.
 - Capability Phases were considered as functions returning raw contribution objects - resolved: phases mutate a typed **Capability Context**.

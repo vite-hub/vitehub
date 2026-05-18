@@ -11,4 +11,4 @@ ViteHub agents will use agent-scoped Capabilities created with `defineCapability
 
 ## Consequences
 
-The first official capabilities are `skills()`, `voiceInput()`, `mcp()`, `db()`, `kv()`, and `blob()`. Capabilities are single-instance by default, run in user-provided order, and may contribute named instruction blocks that users place with instruction slots such as `{{ skills }}`, `{{ mcp }}`, and `{{ capabilities }}`.
+The first official capabilities are `skills()`, `transcribe()`, `mcp()`, `db()`, `kv()`, and `blob()`. Capabilities are single-instance by default, run in user-provided order, and may contribute named instruction blocks that users place with instruction slots such as `{{ skills }}`, `{{ mcp }}`, and `{{ capabilities }}`.

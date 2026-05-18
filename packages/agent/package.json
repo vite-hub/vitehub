@@ -66,6 +66,7 @@
   },
   "peerDependencies": {
     "agents": "^0.12.3",
+    "@ai-sdk/mcp": "^1.0.36",
     "@tanstack/ai": "0.16.0",
     "@vitehub/blob": "workspace:*",
     "@vitehub/db": "workspace:*",
@@ -78,6 +79,9 @@
   },
   "peerDependenciesMeta": {
     "agents": {
+      "optional": true
+    },
+    "@ai-sdk/mcp": {
       "optional": true
     },
     "@tanstack/ai": {
@@ -110,6 +114,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@ai-sdk/mcp": "^1.0.36",
     "@vitehub/internal": "workspace:*",
     "@tanstack/ai": "0.16.0",
     "@vitehub/blob": "workspace:*",

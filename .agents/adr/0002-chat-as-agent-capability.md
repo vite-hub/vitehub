@@ -14,7 +14,7 @@ ViteHub will migrate Chat into the Agent capability system instead of keeping `@
 
 ## Consequences
 
-The Agent package owns all Chat runtime surfaces. `@vitehub/agent/capabilities` exports `chat`, `skills`, `voiceInput`, and `mcp`; `@vitehub/agent/vite` exports `hubAgent()` and a separate `hubChatDevtools()` plugin for development tooling. Users add Chat by configuring the Agent capability and add Chat Devtools separately when they want the Vite panel.
+The Agent package owns all Chat runtime surfaces. `@vitehub/agent/capabilities` exports `chat`, `skills`, `transcribe`, and `mcp`; `@vitehub/agent/vite` exports `hubAgent()` and a separate `hubChatDevtools()` plugin for development tooling. Users add Chat by configuring the Agent capability and add Chat Devtools separately when they want the Vite panel.
 
 Chat uses Chat SDK internally for adapters, event handling, and state interfaces where useful, but Chat SDK state is hidden from the user. Chat is stateless unless the user enables Chat History; when history is enabled, ViteHub provides a Chat SDK-compatible state adapter backed by the Agent workspace. There is no public `chatState()` capability and no public `chat({ state })` option in the initial migration.
 

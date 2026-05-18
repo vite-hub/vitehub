@@ -180,15 +180,15 @@ describe("agent capabilities", () => {
     expect(order).toEqual(["run", "stream:done", "close"])
   })
 
-  it("transcribes audio input before adapter execution", async () => {
+  it("transcribes audio input with custom execution before adapter execution", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { voiceInput } = await import("../src/capabilities.ts")
-    const transcribe = vi.fn(async () => "voice transcript")
+    const { transcribe } = await import("../src/capabilities.ts")
+    const execute = vi.fn(async () => "voice transcript")
     const agent = defineAgent({
       async run(context) {
           return { text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("") }
         },
-      capabilities: [voiceInput({ transcribe })],
+      capabilities: [transcribe({ execute })],
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -197,7 +197,45 @@ describe("agent capabilities", () => {
         role: "user",
       })],
     })).resolves.toMatchObject({ text: "voice transcript" })
-    expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ mediaType: "audio/wav" }))
+    expect(execute).toHaveBeenCalledWith({ audio: expect.objectContaining({ mediaType: "audio/wav" }) })
+  })
+
+  it("mirrors AI SDK transcription options for audio input", async () => {
+    const { MockTranscriptionModelV3 } = await import("ai/test")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { transcribe } = await import("../src/capabilities.ts")
+    const doGenerate = vi.fn(async () => ({
+      durationInSeconds: 1,
+      language: "en",
+      providerMetadata: undefined,
+      response: { modelId: "mock-transcribe", timestamp: new Date() },
+      segments: [],
+      text: "ai sdk transcript",
+      warnings: [],
+    }))
+    const agent = defineAgent({
+      async run(context) {
+          return { text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("") }
+        },
+      capabilities: [
+        transcribe({
+          headers: { "x-test": "1" },
+          model: new MockTranscriptionModelV3({ doGenerate }) as never,
+          providerOptions: { mock: { timestampGranularities: ["word"] } },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
+        role: "user",
+      })],
+    })).resolves.toMatchObject({ text: "ai sdk transcript" })
+    expect(doGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      headers: expect.objectContaining({ "x-test": "1" }),
+      providerOptions: { mock: { timestampGranularities: ["word"] } },
+    }))
   })
 
   it("transforms latest user slash commands before adapter execution", async () => {
@@ -442,6 +480,60 @@ describe("agent capabilities", () => {
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({ text: "ok" })
+  })
+
+  it("creates MCP clients from AI SDK MCP config and closes them after the run", async () => {
+    const close = vi.fn()
+    const execute = vi.fn(async () => "docs result")
+    const tools = vi.fn(async () => ({
+      search: {
+        description: "Search docs.",
+        execute,
+        name: "search",
+      },
+    }))
+    const client = {
+      close,
+      serverInfo: { name: "docs", version: "1.0.0" },
+      tools,
+    }
+    const createMCPClient = vi.fn(async () => client)
+    vi.doMock("@ai-sdk/mcp", () => ({ createMCPClient }))
+
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
+    const agent = defineAgent({
+      async run(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: Object.keys(context.tools || {}).sort().join(",") }
+        },
+      capabilities: [
+        mcp({
+          servers: {
+            docs: {
+              name: "docs-client",
+              transport: {
+                headers: { authorization: "Bearer secret-token" },
+                type: "http",
+                url: "https://example.com/mcp",
+              },
+            },
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({
+      text: "mcp_docs_search",
+    })
+    await expect(capturedTools.mcp_docs_search!.execute({ query: "capabilities" })).resolves.toBe("docs result")
+    expect(createMCPClient).toHaveBeenCalledWith(expect.objectContaining({
+      name: "docs-client",
+      transport: expect.objectContaining({ type: "http", url: "https://example.com/mcp" }),
+    }))
+    expect(tools).toHaveBeenCalled()
+    expect(close).toHaveBeenCalled()
   })
 
   it("injects compact storage capability tools", async () => {
