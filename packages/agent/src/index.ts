@@ -901,6 +901,7 @@ function getWorkspaceName<
   if (typeof optionWorkspace === "object" && optionWorkspace && "name" in optionWorkspace && typeof optionWorkspace.name === "string") return optionWorkspace.name
   if (typeof definitionWorkspace === "string") return definitionWorkspace
   if (typeof definitionWorkspace === "object" && definitionWorkspace && "name" in definitionWorkspace && typeof definitionWorkspace.name === "string") return definitionWorkspace.name
+  if (optionWorkspace || definitionWorkspace) return "workspace"
 }
 
 function toStreamEvent(chunk: unknown): AgentStreamEvent | undefined {

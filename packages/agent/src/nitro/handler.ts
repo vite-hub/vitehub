@@ -215,15 +215,18 @@ function getAgentCapabilities(agent: AgentInput<NitroAgentRuntimeContext>) {
 
 function getAgentWorkspaceName(agent: AgentInput<NitroAgentRuntimeContext>): string | undefined {
   const defaults = (agent as { __vitehubWorkspaceAgentDefaults?: { workspace?: string, name?: string } }).__vitehubWorkspaceAgentDefaults
-  const options = (agent as { __vitehubWorkspaceAgentOptions?: { workspace?: { name?: string } | string } }).__vitehubWorkspaceAgentOptions
+  const options = (agent as { __vitehubWorkspaceAgentOptions?: { name?: string, workspace?: { name?: string } | string } }).__vitehubWorkspaceAgentOptions
   const optionWorkspace = options?.workspace
   const definitionWorkspace = (agent as { workspace?: { name?: string } | string }).workspace
 
   if (defaults?.workspace) return defaults.workspace
+  if (defaults?.name) return defaults.name
+  if (options?.name) return options.name
   if (typeof optionWorkspace === "string") return optionWorkspace
   if (typeof optionWorkspace === "object" && optionWorkspace?.name) return optionWorkspace.name
   if (typeof definitionWorkspace === "string") return definitionWorkspace
   if (typeof definitionWorkspace === "object" && definitionWorkspace?.name) return definitionWorkspace.name
+  if (optionWorkspace || definitionWorkspace) return "workspace"
 }
 
 async function createChatState(agent: AgentInput<NitroAgentRuntimeContext>, history: unknown): Promise<StateAdapter> {

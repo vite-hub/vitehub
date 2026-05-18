@@ -76,6 +76,23 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).not.toHaveBeenCalled()
   })
 
+  it("uses the default workspace name for workspace agents without discovered defaults", async () => {
+    const { useWorkspace } = await import("@vitehub/workspace")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      workspace: {},
+      instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
+      model: {} as never,
+      provider: "ai-sdk",
+    })
+
+    await agent.run!(context())
+
+    expect(useWorkspace).toHaveBeenCalledWith("workspace", { allowWrite: true })
+    expect(readFile).toHaveBeenCalledWith("AGENTS.md")
+  })
+
   it("uses string instructions", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 

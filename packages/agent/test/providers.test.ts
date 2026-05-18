@@ -204,6 +204,48 @@ describe("Nitro helpers", () => {
     })
   })
 
+  it("resolves chat history workspace from workspace agent defaults", async () => {
+    await vi.resetModules()
+    const useWorkspace = vi.fn(() => ({ fs: {}, tools: {} }))
+    vi.doMock("@vitehub/workspace", () => ({ useWorkspace }))
+    vi.doMock("../src/chat/runtime/agent-chat.ts", () => ({
+      createChatBot: vi.fn(async () => ({
+        webhooks: {
+          slack: async () => ({ ok: true }),
+        },
+      })),
+    }))
+
+    try {
+      const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+      const { chat } = await import("../src/capabilities.ts")
+      const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
+      const agent = withWorkspaceAgentDefaults(defineAgent({
+        capabilities: [chat({ adapters: {}, history: { source: "thread" } })],
+        model: {} as never,
+        provider: "ai-sdk",
+        workspace: {},
+      }), { name: "support-workspace" })
+      const handler = defineAgentChatRegistryHandler({
+        support: async () => ({ default: agent as never }),
+      })
+      const event = {
+        context: { params: { agent: "support", platform: "slack" } },
+        req: new Request("https://example.com/agents/support/chat/slack", { method: "POST" }),
+        url: "https://example.com/agents/support/chat/slack",
+        waitUntil: vi.fn(),
+      }
+
+      await expect(handler(event as never)).resolves.toEqual({ ok: true })
+      expect(useWorkspace).toHaveBeenCalledWith("support-workspace", { allowWrite: true })
+    }
+    finally {
+      vi.doUnmock("@vitehub/workspace")
+      vi.doUnmock("../src/chat/runtime/agent-chat.ts")
+      await vi.resetModules()
+    }
+  })
+
   it("reuses default chat state across webhook requests", async () => {
     await vi.resetModules()
     vi.doMock("../src/chat/runtime/agent-chat.ts", () => ({
