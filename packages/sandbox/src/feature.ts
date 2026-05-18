@@ -57,6 +57,7 @@ function createSandboxProviderLoaderAliases(defaultProviderName: keyof typeof sa
   const keys = [
     'virtual:vitehub-sandbox-provider-loader',
     '#vitehub-sandbox-provider-loader',
+    '@vitehub/sandbox/runtime/provider-loader',
   ]
 
   if (defaultProviderName)

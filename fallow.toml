@@ -70,6 +70,10 @@ dynamicallyLoaded = [
   "playground/vite/src/**/*.workflow.ts",
 ]
 
+ignorePatterns = [
+  "packages/agent/devtools-client/**",
+]
+
 ignoreDependencies = [
   "docus",
   "@cloudflare/sandbox",
@@ -83,11 +87,13 @@ ignoreDependencies = [
   "chat-state-cloudflare-do",
   "agents",
   "ai",
+  "picocolors",
   "publint",
   "@iconify-json/lucide",
   "@comark/nuxt",
   "@vitejs/devtools",
   "@vueuse/nuxt",
+  "xdg-portable",
 ]
 
 publicPackages = [

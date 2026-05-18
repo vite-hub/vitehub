@@ -31,6 +31,7 @@ export function createSandboxProviderLoaderAliases(nitro: Nitro, provider: 'clou
   const keys = [
     'virtual:vitehub-sandbox-provider-loader',
     '#vitehub-sandbox-provider-loader',
+    '@vitehub/sandbox/runtime/provider-loader',
   ]
 
   if (!providerLoaderTarget) {

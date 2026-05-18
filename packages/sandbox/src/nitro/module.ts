@@ -3,6 +3,7 @@ import { readPackageJSON } from 'pkg-types'
 import { hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from '@vitehub/internal/definition-discovery'
 
 import { createSandboxProviderLoaderContents } from '../feature'
+import { detectHosting } from '../internal/shared/hosting'
 import { hasInstalledDependency } from '../internal/shared/dependency'
 import { normalizeSandboxPublicOptions } from '../integration'
 import { getSandboxFeatureProvider } from '../module-types'
@@ -32,7 +33,7 @@ const sandboxNitroModule: NitroModule = {
       return
     }
 
-    const hosting = nitro.options.preset
+    const hosting = detectHosting(nitro)
     if (hosting)
       runtimeConfig.hosting ||= hosting
 

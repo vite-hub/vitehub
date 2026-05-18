@@ -24,6 +24,8 @@
     "chat-state-cloudflare-do": "catalog:",
     "h3": "catalog:",
     "nitro": "catalog:",
-    "valibot": "catalog:"
+    "picocolors": "catalog:",
+    "valibot": "catalog:",
+    "xdg-portable": "catalog:"
   }
 }

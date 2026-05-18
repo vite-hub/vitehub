@@ -4,9 +4,13 @@ import { defineNitroConfig } from "nitro/config"
 
 const require = createRequire(import.meta.url)
 
+const sandboxProvider = process.env.VITEHUB_SANDBOX_PROVIDER
+
 export default defineNitroConfig({
   alias: {
     "async-retry": require.resolve("async-retry"),
+    "picocolors": require.resolve("picocolors"),
+    "xdg-portable": require.resolve("xdg-portable"),
   },
   modules: [
     "@vitehub/env/nitro",
@@ -23,7 +27,9 @@ export default defineNitroConfig({
   },
   blob: {},
   queue: {},
-  sandbox: {},
+  sandbox: sandboxProvider === "cloudflare" || sandboxProvider === "vercel"
+    ? { provider: sandboxProvider }
+    : {},
   serverDir: "./server",
   workspace: {},
   workflow: {},
