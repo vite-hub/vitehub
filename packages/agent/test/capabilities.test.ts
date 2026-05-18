@@ -123,6 +123,41 @@ describe("agent capabilities", () => {
     expect(order).toEqual(["adapter", "render:decorate", "close:hook", "close", "close:after"])
   })
 
+  it("closes capabilities in reverse order and cleans up after setup failures", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineCapability } = await import("../src/capabilities.ts")
+    const order: string[] = []
+    const agent = defineAgent({
+      async run() {
+          return { text: "unreachable" }
+        },
+      capabilities: [
+        defineCapability({
+          id: "first",
+          close() {
+            order.push("close:first")
+          },
+          resolve() {
+            order.push("resolve:first")
+          },
+        }),
+        defineCapability({
+          id: "second",
+          close() {
+            order.push("close:second")
+          },
+          resolve() {
+            order.push("resolve:second")
+            throw new Error("setup failed")
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow("setup failed")
+    expect(order).toEqual(["resolve:first", "resolve:second", "close:second", "close:first"])
+  })
+
   it("runs output renderers and close phase for custom run agents", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { defineCapability } = await import("../src/capabilities.ts")
@@ -178,6 +213,63 @@ describe("agent capabilities", () => {
     expect(order).toEqual(["run"])
     for await (const _event of stream as AsyncIterable<unknown>) {}
     expect(order).toEqual(["run", "stream:done", "close"])
+  })
+
+  it("closes response capabilities after custom response consumption", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineCapability } = await import("../src/capabilities.ts")
+    const order: string[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "responseClose",
+          close() {
+            order.push("close")
+          },
+        }),
+      ],
+      run() {
+        order.push("run")
+        return new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("hello"))
+            order.push("response:ready")
+            controller.close()
+          },
+        }))
+      },
+    })
+
+    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    expect(order).toEqual(["run", "response:ready"])
+    await expect((response as Response).text()).resolves.toBe("hello")
+    expect(order).toEqual(["run", "response:ready", "close"])
+  })
+
+  it("applies capability tool transforms for custom run agents", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineCapability } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "tools",
+          resolve(context) {
+            context.tools.add({ original: { name: "original" } })
+            context.tools.transform(tools => ({
+              ...(tools || {}),
+              transformed: { name: "transformed" },
+            }))
+          },
+        }),
+      ],
+      async run(context) {
+        return { text: Object.keys(context.tools || {}).sort().join(",") }
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({
+      text: "original,transformed",
+    })
   })
 
   it("transcribes audio input with custom execution before adapter execution", async () => {
@@ -536,6 +628,79 @@ describe("agent capabilities", () => {
     expect(close).toHaveBeenCalled()
   })
 
+  it("rejects MCP tool name collisions after normalization", async () => {
+    const client = {
+      close: vi.fn(),
+      tools: vi.fn(async () => ({
+        "read-file": { name: "read-file" },
+        "read_file": { name: "read_file" },
+      })),
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      async run() {
+          return { text: "unreachable" }
+        },
+      capabilities: [
+        mcp({
+          servers: { fs: client as never },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow("Duplicate MCP tool name")
+    expect(client.close).toHaveBeenCalledOnce()
+  })
+
+  it("isolates MCP clients per concurrent agent run", async () => {
+    const closed = new Set<number>()
+    let nextId = 0
+    const createClient = () => {
+      const id = nextId++
+      return {
+        close: vi.fn(async () => {
+          closed.add(id)
+        }),
+        tools: vi.fn(async () => ({
+          ping: {
+            execute: async () => {
+              if (closed.has(id)) throw new Error(`client ${id} closed`)
+              return `pong:${id}`
+            },
+            name: "ping",
+          },
+        })),
+      }
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [
+        mcp({
+          servers: {
+            docs: createClient as never,
+          },
+        }),
+      ],
+      async run(context) {
+        if (context.input.context?.slow) {
+          await new Promise(resolve => setTimeout(resolve, 20))
+        }
+        const result = await context.tools?.mcp_docs_ping?.execute?.({})
+        return { text: String(result) }
+      },
+    })
+
+    await expect(Promise.all([
+      runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { context: { slow: false } }),
+      runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { context: { slow: true } }),
+    ])).resolves.toEqual([
+      expect.objectContaining({ text: "pong:0" }),
+      expect.objectContaining({ text: "pong:1" }),
+    ])
+  })
+
   it("injects compact storage capability tools", async () => {
     const kvGet = vi.fn(async () => "value")
     const kvKeys = vi.fn(async () => ["assets/image.png"])
@@ -682,7 +847,56 @@ describe("agent capabilities", () => {
     await expect(capturedTools.memory_read!.execute({ id: "mem_1" })).resolves.toMatchObject({ item: { id: "mem_1" } })
     await expect(capturedTools.memory_remember!.execute({ content: "Prefer workspace JSONL.", kind: "semantic" })).resolves.toMatchObject({ item: { id: "mem_2" } })
     await expect(capturedTools.memory_delete!.execute({ id: "mem_1", reason: "obsolete" })).resolves.toMatchObject({ ok: true })
-    expect(capturedTools.memory_remember!.policy).toBe("require-approval")
+    expect(await (capturedTools.memory_remember!.policy as (context: { input?: unknown }) => unknown)({ input: {} })).toBe("require-approval")
+  })
+
+  it("enforces memory write mode and policy for the selected store", async () => {
+    const writable = {
+      append: vi.fn(async () => ({ action: "created" as const, item: { id: "mem_1" } })),
+      delete: vi.fn(async () => ({ ok: true as const })),
+      export: vi.fn(async () => ({ items: [] })),
+      read: vi.fn(),
+      search: vi.fn(),
+    }
+    const readonly = {
+      append: vi.fn(),
+      delete: vi.fn(),
+      export: vi.fn(async () => ({ items: [] })),
+      read: vi.fn(),
+      search: vi.fn(),
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { memory } = await import("../src/capabilities.ts")
+    let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown, policy?: (context: { input?: unknown }) => unknown }> = {}
+    const agent = defineAgent({
+      async run(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: "ok" }
+        },
+      capabilities: [
+        memory({
+          stores: {
+            agent: {
+              adapter: writable,
+              scope: { agent: "support" },
+              write: { mode: "tool", policy: "allow" },
+            },
+            readonly: {
+              adapter: readonly,
+              scope: { agent: "support" },
+              write: { mode: "off", policy: "deny" },
+            },
+          },
+        }),
+      ],
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    expect(await capturedTools.memory_remember!.policy!({ input: { store: "agent" } })).toBe("allow")
+    await expect(Promise.resolve().then(() => capturedTools.memory_remember!.execute({ content: "Keep this.", kind: "semantic", store: "readonly" }))).rejects.toThrow("does not allow writes")
+    await expect(Promise.resolve().then(() => capturedTools.memory_delete!.execute({ id: "mem_1", store: "readonly" }))).rejects.toThrow("does not allow writes")
+    expect(readonly.append).not.toHaveBeenCalled()
+    expect(readonly.delete).not.toHaveBeenCalled()
   })
 
   it("persists workspace JSONL memory as append-only events", async () => {

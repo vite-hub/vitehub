@@ -324,12 +324,14 @@ async function resolveMcpClient(config: McpServerConfig): Promise<{ client: MCPC
 }
 
 export function mcp(options: McpCapabilityOptions): AgentCapabilityDefinition<McpCapabilityOptions> {
-  const clients: MCPClient[] = []
+  const clientsByContext = new WeakMap<AgentCapabilityContext, MCPClient[]>()
   return defineCapability({
     id: "mcp",
     options,
     async resolve(context) {
       const tools: AgentToolSet = {}
+      const clients: MCPClient[] = []
+      clientsByContext.set(context as AgentCapabilityContext, clients)
       for (const [serverName, server] of Object.entries(options.servers)) {
         const { client, metadata } = await resolveMcpClient(server)
         clients.push(client)
@@ -337,6 +339,9 @@ export function mcp(options: McpCapabilityOptions): AgentCapabilityDefinition<Mc
         for (const [toolName, tool] of Object.entries(serverTools || {})) {
           const definition = tool as AgentToolDefinition & { metadata?: Record<string, unknown> }
           const name = `mcp_${serverName}_${toolName}`.replace(/[^a-zA-Z0-9_]/g, "_")
+          if (tools[name]) {
+            throw new Error(`[vitehub:agent] Duplicate MCP tool name "${name}" after normalization.`)
+          }
           tools[name] = {
             ...definition,
             metadata: {
@@ -358,7 +363,9 @@ export function mcp(options: McpCapabilityOptions): AgentCapabilityDefinition<Mc
         ].join("\n"))
       }
     },
-    async close() {
+    async close(context) {
+      const clients = clientsByContext.get(context as AgentCapabilityContext) || []
+      clientsByContext.delete(context as AgentCapabilityContext)
       await Promise.all(clients.splice(0).map(client => client.close()))
     },
   })
@@ -808,6 +815,16 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
         if (!store) throw new Error(`[vitehub:agent] Unknown memory store "${storeName}".`)
         return { storeName, ...store }
       }
+      const assertWriteAllowed = (selected: ReturnType<typeof getStore>) => {
+        if (selected.options.write?.mode === "off") {
+          throw new Error(`[vitehub:agent] Memory store "${selected.storeName}" does not allow writes.`)
+        }
+      }
+      const writePolicy = ({ input }: { input?: unknown }) => {
+        const selected = getStore((input as { store?: string } | undefined)?.store)
+        assertWriteAllowed(selected)
+        return selected.options.write?.policy || "require-approval"
+      }
       const tools: AgentToolSet = {}
       if ([...resolved.values()].some(store => store.options.read?.tools?.search !== false)) {
         tools.memory_search = createTool({
@@ -834,6 +851,7 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
           description: "Create a durable scoped memory record. Use only for information that should persist across future agent invocations.",
           execute: ({ confidence, content, kind, metadata, pinned, provenance, store, supersedes, tags, title }: MemoryAppendRequest & { store?: string }) => {
             const selected = getStore(store)
+            assertWriteAllowed(selected)
             assertMemoryKind(selected.options, kind)
             return selected.adapter.append({
               confidence,
@@ -856,16 +874,17 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
             })
           },
           name: "memory_remember",
-          policy: [...resolved.values()].find(store => store.options.write?.policy)?.options.write?.policy || "require-approval",
+          policy: writePolicy,
         })
         tools.memory_delete = createTool({
           description: "Soft-delete one durable memory record.",
           execute: ({ id, reason, store }: { id: string, reason?: string, store?: string }) => {
             const selected = getStore(store)
+            assertWriteAllowed(selected)
             return selected.adapter.delete({ id, reason, scope: selected.scope, store: selected.storeName })
           },
           name: "memory_delete",
-          policy: [...resolved.values()].find(store => store.options.write?.policy)?.options.write?.policy || "require-approval",
+          policy: writePolicy,
         })
       }
       context.tools.add(tools)

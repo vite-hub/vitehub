@@ -23,6 +23,7 @@ export interface AgentInstructionBlock {
 
 export type AgentToolTransform = (tools: AgentToolSet | undefined) => MaybePromise<AgentToolSet | undefined>
 export type AgentOutputRenderer = (result: unknown, context: AgentCapabilityContext) => MaybePromise<unknown>
+type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
 
 export interface AgentCapabilityRouteContribution {
   handler: string
@@ -52,7 +53,7 @@ export interface AgentCapabilityStateRequirement {
 
 export interface AgentCapabilityRegistries {
   invocations: AgentCapabilityInvocationContribution[]
-  outputRenderers: AgentOutputRenderer[]
+  outputRenderers: ResolvedAgentOutputRenderer[]
   routes: AgentCapabilityRouteContribution[]
   runtimeAliases: AgentCapabilityRuntimeAliasContribution[]
   runtimeFiles: AgentCapabilityRuntimeFileContribution[]
@@ -131,6 +132,7 @@ export interface AgentCapabilityOptions<
 export interface ResolvedAgentCapabilities {
   capabilityInstructions: AgentInstructionBlock[]
   close: () => Promise<void>
+  hasCloseCallbacks: boolean
   input: AgentRunInput
   messages: AgentMessage[]
   registries: AgentCapabilityRegistries
@@ -216,8 +218,15 @@ export async function resolveAgentCapabilities<
     stateRequirements: [],
   }
 
-  for (const capability of capabilities) {
-    const capabilityContext: AgentCapabilityContext<TRuntimeConfig, Name> = {
+  async function closeRegisteredCallbacks() {
+    for (const callback of [...closeCallbacks].reverse()) {
+      await callback()
+    }
+  }
+
+  try {
+    for (const capability of capabilities) {
+      const capabilityContext: AgentCapabilityContext<TRuntimeConfig, Name> = {
       ...runtime,
       capability: capability as AgentCapabilityDefinition<unknown, TRuntimeConfig, Name>,
       fs: workspace?.fs as ReadonlyWorkspaceFacade<Name>["fs"],
@@ -301,32 +310,35 @@ export async function resolveAgentCapabilities<
       workspace: workspace as ReadonlyWorkspaceFacade<Name>,
     }
 
-    for (const phase of ["configure", "prepare", "bind", "input", "resolve", "output"] as const) {
-      await callHooks(`capability:${phase}`, capabilityContext, options?.hooks)
-      await capability[phase]?.(capabilityContext)
-      await callHooks(`capability:${phase}:after`, capabilityContext, options?.hooks)
-    }
-    closeCallbacks.push(async () => {
-      await callHooks("capability:close", capabilityContext, options?.hooks)
-      await capability.close?.(capabilityContext)
-      await callHooks("capability:close:after", capabilityContext, options?.hooks)
-    })
+      closeCallbacks.push(async () => {
+        await callHooks("capability:close", capabilityContext, options?.hooks)
+        await capability.close?.(capabilityContext)
+        await callHooks("capability:close:after", capabilityContext, options?.hooks)
+      })
 
-    if (capability.instructions !== undefined) {
-      const value = typeof capability.instructions === "function"
-        ? await capability.instructions(capabilityContext)
-        : capability.instructions
-      capabilityContext.instructions.add(value)
+      for (const phase of ["configure", "prepare", "bind", "input", "resolve", "output"] as const) {
+        await callHooks(`capability:${phase}`, capabilityContext, options?.hooks)
+        await capability[phase]?.(capabilityContext)
+        await callHooks(`capability:${phase}:after`, capabilityContext, options?.hooks)
+      }
+
+      if (capability.instructions !== undefined) {
+        const value = typeof capability.instructions === "function"
+          ? await capability.instructions(capabilityContext)
+          : capability.instructions
+        capabilityContext.instructions.add(value)
+      }
     }
+  }
+  catch (error) {
+    await closeRegisteredCallbacks()
+    throw error
   }
 
   return {
     capabilityInstructions,
-    close: async () => {
-      for (const callback of closeCallbacks) {
-        await callback()
-      }
-    },
+    close: closeRegisteredCallbacks,
+    hasCloseCallbacks: closeCallbacks.length > 0,
     input: currentInput,
     messages,
     registries,

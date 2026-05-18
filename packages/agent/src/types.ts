@@ -368,6 +368,8 @@ export interface AgentAdapterRunContext<
   Name extends WorkspaceName = WorkspaceName,
 > {
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
+  capabilityClose?: () => Promise<void>
+  capabilityHasCloseCallbacks?: boolean
   capabilityInstructions?: AgentInstructionBlock[]
   capabilityRegistries?: AgentCapabilityRegistries
   capabilityToolTransforms?: AgentToolTransform[]

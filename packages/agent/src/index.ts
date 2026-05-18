@@ -7,7 +7,7 @@ import {
 } from "@vitehub/runtime"
 
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { resolveAgentCapabilities } from "./capability-runtime.ts"
+import { applyCapabilityToolTransforms, resolveAgentCapabilities } from "./capability-runtime.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -812,6 +812,62 @@ async function* closeAfterAsyncIterable<T>(iterable: AsyncIterable<T>, close: ()
   }
 }
 
+function closeAfterResponse(response: Response, close: () => Promise<void>): Response {
+  if (!response.body) {
+    void close()
+    return response
+  }
+
+  const reader = response.body.getReader()
+  let closed = false
+  async function closeOnce() {
+    if (closed) return
+    closed = true
+    await close()
+  }
+  const body = new ReadableStream({
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      }
+      finally {
+        await closeOnce()
+      }
+    },
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read()
+        if (done) {
+          controller.close()
+          await closeOnce()
+          return
+        }
+        controller.enqueue(value)
+      }
+      catch (error) {
+        await closeOnce()
+        throw error
+      }
+    },
+  })
+
+  return new Response(body, {
+    headers: response.headers,
+    status: response.status,
+    statusText: response.statusText,
+  })
+}
+
+function closeAfterTransportResult<T>(result: T, close: () => Promise<void>): { deferred: boolean, result: T } {
+  if (result instanceof Response) {
+    return { deferred: true, result: closeAfterResponse(result, close) as T }
+  }
+  if (isAsyncIterable(result)) {
+    return { deferred: true, result: closeAfterAsyncIterable(result, close) as T }
+  }
+  return { deferred: false, result }
+}
+
 function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): agent is AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & { run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> } {
@@ -922,7 +978,7 @@ async function* streamTextResultToEvents(value: unknown): AsyncIterable<AgentStr
   }
 }
 
-function createRunContext<
+async function createRunContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
@@ -930,15 +986,16 @@ function createRunContext<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
   capabilities?: Awaited<ReturnType<typeof resolveAgentCapabilities>>,
-): AgentRunContext<TRuntimeConfig, CALL_OPTIONS> {
+): Promise<AgentRunContext<TRuntimeConfig, CALL_OPTIONS>> {
   const resolvedContext = createResolvedRuntimeContext(context)
+  const tools = await applyCapabilityToolTransforms(capabilities?.tools, capabilities?.toolTransforms)
 
   return {
     ...resolvedContext,
     input,
     messages: capabilities?.messages ?? getRunMessages(input),
     prompt: typeof input.prompt === "string" ? input.prompt : undefined,
-    tools: capabilities?.tools,
+    tools,
   }
 }
 
@@ -977,6 +1034,7 @@ async function createAdapterRunContext<
   return {
     capabilityInstructions: capabilities.capabilityInstructions,
     capabilityClose: capabilities.close,
+    capabilityHasCloseCallbacks: capabilities.hasCloseCallbacks,
     capabilityRegistries: capabilities.registries,
     capabilityToolTransforms: capabilities.toolTransforms,
     devtools: context.devtools,
@@ -993,7 +1051,7 @@ async function createAdapterRunContext<
 async function applyOutputRenderers(result: unknown, registries: Awaited<ReturnType<typeof resolveAgentCapabilities>>["registries"] | undefined) {
   let current = result
   for (const renderer of registries?.outputRenderers || []) {
-    current = await renderer(current, undefined as never)
+    current = await renderer(current)
   }
   return current
 }
@@ -1008,24 +1066,42 @@ export async function runAgent<
 ): Promise<Response | AgentRunResult | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const { capabilities } = await createCapabilityRunContext(agent, context, input)
+    let closeImmediately = true
     try {
-      const result = await agent.run(createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>, capabilities))
-      return await applyOutputRenderers(result, capabilities.registries)
+      const result = await applyOutputRenderers(
+        await agent.run(await createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>, capabilities)),
+        capabilities.registries,
+      )
+      const transport = capabilities.hasCloseCallbacks
+        ? closeAfterTransportResult(result, capabilities.close)
+        : { deferred: false, result }
+      closeImmediately = !transport.deferred
+      return transport.result
     }
     finally {
-      await capabilities.close()
+      if (closeImmediately) {
+        await capabilities.close()
+      }
     }
   }
 
   const resolved = await resolveAgent(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
+  let closeImmediately = true
   try {
     const result = await applyOutputRenderers(await resolved.generate(adapterContext), adapterContext.capabilityRegistries)
-    return isTransportReadyResult(result) ? result : toAgentRunResult(result)
+    const runResult = isTransportReadyResult(result) ? result : toAgentRunResult(result)
+    const transport = adapterContext.capabilityHasCloseCallbacks
+      ? closeAfterTransportResult(runResult, adapterContext.capabilityClose)
+      : { deferred: false, result: runResult }
+    closeImmediately = !transport.deferred
+    return transport.result
   }
   finally {
-    await adapterContext.capabilityClose()
+    if (closeImmediately) {
+      await adapterContext.capabilityClose()
+    }
   }
 }
 
@@ -1042,14 +1118,14 @@ export async function streamAgent<
     let closeImmediately = true
     try {
       const result = await applyOutputRenderers(
-        await agent.run(createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>, capabilities)),
+        await agent.run(await createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>, capabilities)),
         capabilities.registries,
       )
-      if (isAsyncIterable(result)) {
-        closeImmediately = false
-        return closeAfterAsyncIterable(result, capabilities.close)
-      }
-      return result
+      const transport = capabilities.hasCloseCallbacks
+        ? closeAfterTransportResult(result, capabilities.close)
+        : { deferred: false, result }
+      closeImmediately = !transport.deferred
+      return transport.result
     }
     finally {
       if (closeImmediately) {
@@ -1070,11 +1146,11 @@ export async function streamAgent<
       adapterContext.capabilityRegistries,
     )
     const streamResult = isTransportReadyResult(result) ? result : streamTextResultToEvents(result)
-    if (isAsyncIterable(streamResult)) {
-      closeImmediately = false
-      return closeAfterAsyncIterable(streamResult, adapterContext.capabilityClose)
-    }
-    return streamResult
+    const transport = adapterContext.capabilityHasCloseCallbacks
+      ? closeAfterTransportResult(streamResult, adapterContext.capabilityClose)
+      : { deferred: false, result: streamResult }
+    closeImmediately = !transport.deferred
+    return transport.result
   }
   finally {
     if (closeImmediately) {

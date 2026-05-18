@@ -31,7 +31,7 @@ function createToken(): string {
 }
 
 function encodeKey(key: string): string {
-  return encodeURIComponent(key).replace(/%/g, "~")
+  return encodeURIComponent(key).replace(/~/g, "%7E")
 }
 
 export function createMemoryChatStateAdapter(): StateAdapter {
@@ -116,6 +116,7 @@ export function createMemoryChatStateAdapter(): StateAdapter {
 
 export function createWorkspaceChatStateAdapter(workspace: WritableWorkspaceFacade, options: { basePath?: string } = {}): StateAdapter {
   const path = `${options.basePath || "vitehub/chat/state"}/state.json`
+  let mutationQueue: Promise<unknown> = Promise.resolve()
 
   async function load(): Promise<StoredState> {
     try {
@@ -132,10 +133,14 @@ export function createWorkspaceChatStateAdapter(workspace: WritableWorkspaceFaca
   }
 
   async function mutate<T>(fn: (state: StoredState) => T | Promise<T>): Promise<T> {
-    const state = await load()
-    const result = await fn(state)
-    await save(state)
-    return result
+    const run = mutationQueue.then(async () => {
+      const state = await load()
+      const result = await fn(state)
+      await save(state)
+      return result
+    })
+    mutationQueue = run.then(() => undefined, () => undefined)
+    return await run
   }
 
   return {
