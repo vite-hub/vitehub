@@ -1,8 +1,11 @@
 import { createRequire } from "node:module"
+import { fileURLToPath } from "node:url"
 
 import { defineNitroConfig } from "nitro/config"
 
 const require = createRequire(import.meta.url)
+const aiGatewayShim = fileURLToPath(new URL("./shims/ai-sdk-gateway.ts", import.meta.url))
+const vercelSandboxShim = fileURLToPath(new URL("./shims/vercel-sandbox.ts", import.meta.url))
 
 const sandboxProvider = process.env.VITEHUB_SANDBOX_PROVIDER
 
@@ -11,6 +14,12 @@ export default defineNitroConfig({
     "async-retry": require.resolve("async-retry"),
     "picocolors": require.resolve("picocolors"),
     "xdg-portable": require.resolve("xdg-portable"),
+    ...(sandboxProvider === "cloudflare"
+      ? {
+          "@ai-sdk/gateway": aiGatewayShim,
+          "@vercel/sandbox": vercelSandboxShim,
+        }
+      : {}),
   },
   modules: [
     "@vitehub/env/nitro",

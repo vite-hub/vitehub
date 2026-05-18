@@ -113,6 +113,26 @@ jobs:
           VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
+          validate_blob_token() {
+            local token
+            token="$1"
+            [ -n "$token" ] || return 1
+
+            BLOB_TOKEN_CANDIDATE="$token" node --input-type=module <<'NODE'
+          import { list } from "@vercel/blob"
+
+          try {
+            await list({
+              limit: 1,
+              token: process.env.BLOB_TOKEN_CANDIDATE,
+            })
+          }
+          catch {
+            process.exit(1)
+          }
+          NODE
+          }
+
           find_project_blob_token() {
             local app_dir project_name env_name tmp value
             local -a SEARCH_CONFIG
@@ -128,7 +148,7 @@ jobs:
                 npx vercel env pull "$tmp" --environment="$env_name" --yes --cwd "$app_dir" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
                 value="$(node .github/scripts/get-env-value.mjs "$tmp" BLOB_READ_WRITE_TOKEN)"
                 rm -f "$tmp"
-                if [ -n "$value" ]; then
+                if validate_blob_token "$value"; then
                   printf '%s' "$value"
                   return 0
                 fi
@@ -161,6 +181,10 @@ jobs:
           )
 
           blob_token="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
+          if [ -n "$blob_token" ] && ! validate_blob_token "$blob_token"; then
+            blob_token=""
+          fi
+
           if [ -z "$blob_token" ]; then
             existing_blob_token="$(find_existing_blob_token || true)"
             if [ -n "$existing_blob_token" ]; then

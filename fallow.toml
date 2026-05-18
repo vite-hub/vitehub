@@ -53,6 +53,7 @@ dynamicallyLoaded = [
   "packages/workspace/examples/**/workspaces/**",
   "playground/nitro/nitro.config.ts",
   "playground/nitro/server/**",
+  "playground/nitro/shims/**",
   "playground/nitro/workspaces/**",
   "playground/_shared/api/tests/**",
   "playground/vite/nitro.config.ts",
