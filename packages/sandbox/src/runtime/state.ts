@@ -1,6 +1,8 @@
 import type { AgentSandboxConfig } from '../module-types'
 import type { SandboxDefinitionBundle, SandboxDefinitionOptions } from '../module-types'
 
+export { setRequestEventResolver } from '../internal/shared/runtime'
+
 export type SandboxRegistryEntry = {
   bundle: SandboxDefinitionBundle
   options?: SandboxDefinitionOptions
