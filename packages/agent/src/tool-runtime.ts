@@ -143,6 +143,9 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
     if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
       return [name, tool]
     }
+    if (name === "materialize_sources") {
+      return [name, tool]
+    }
 
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
     return [name, {

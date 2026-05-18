@@ -18,9 +18,15 @@ import type {
   AgentAdapterFactory,
   AgentAdapterMetadataContext,
   AgentAdapterResult,
+  AgentCapabilitiesList,
+  AgentCapabilityContext,
+  AgentCapabilityDefinition,
+  AgentCapabilityInput,
+  AgentCapabilityMode,
   AgentDefinition,
   AgentChatOptions,
   AgentInput,
+  AgentModelProvider,
   AgentRegistry,
   AgentRegistryModule,
   AgentRequestBody,
@@ -39,6 +45,7 @@ import type {
   MaybeResolvable,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
+  WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
 import type { Message, StreamEvent } from "@vitehub/messages"
 import type {
@@ -46,6 +53,8 @@ import type {
   WorkspaceEntry,
   WorkspaceName,
 } from "@vitehub/workspace"
+
+type AgentToolStepReporter = NonNullable<AgentRuntimeContext["devtools"]>["reportToolStep"]
 
 export type {
   AgentAdapter,
@@ -57,7 +66,12 @@ export type {
   AgentAdapterResult,
   AgentAdapterRunContext,
   AgentCapabilities,
+  AgentCapabilitiesList,
   AgentCapabilityHandle,
+  AgentCapabilityContext,
+  AgentCapabilityDefinition,
+  AgentCapabilityInput,
+  AgentCapabilityMode,
   AgentChatAgentHookArgs,
   AgentChatAgentHooks,
   AgentChatEventHookArgs,
@@ -73,7 +87,8 @@ export type {
   AgentModelInput,
   AgentModelInstrumentation,
   AgentModelInstrumentationContext,
-  AgentModelProviderOptions,
+  AgentModelProvider,
+  AgentModelResolver,
   AgentModuleOptions,
   AgentProvidersOptions,
   AgentRegistryHandlerOptions,
@@ -100,7 +115,6 @@ export type {
   AgentToolPolicyDecision,
   AgentStateProviderOptions,
   AgentToolResolver,
-  AgentToolResolverWithWorkspace,
   AgentToolStep,
   AgentWaitUntil,
   CloudflareExportedHandlerFetchHandler,
@@ -111,6 +125,7 @@ export type {
   ResolvedAgentModuleOptions,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
+  WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
 
 export type {
@@ -125,6 +140,13 @@ export type {
 } from "@vitehub/messages"
 
 const syntheticWorkspaceRun = Symbol("vitehub.syntheticWorkspaceRun")
+const defaultWorkspaceName = "workspace"
+
+type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
+type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
+
+const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
+const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
 
 async function resolveValue<T, TContext extends AgentRuntimeContext>(
   value: MaybeResolvable<T, TContext>,
@@ -190,20 +212,305 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 
+function assertCapabilityId(id: unknown): asserts id is string {
+  if (typeof id !== "string" || !id.trim()) {
+    throw new TypeError("[vitehub] Capability definitions require a non-empty string id.")
+  }
+}
+
+export function defineCapability<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+>(
+  capability: AgentCapabilityInput<TRuntimeConfig, Name>,
+): AgentCapabilityDefinition<TRuntimeConfig, Name> {
+  if (!capability || typeof capability !== "object") {
+    throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
+  }
+  assertCapabilityId((capability as { id?: unknown }).id)
+  return capability as AgentCapabilityDefinition<TRuntimeConfig, Name>
+}
+
+function normalizeMode(value: unknown, label: string): AgentCapabilityMode {
+  if (value === undefined) return "read"
+  if (value === "read" || value === "write") return value
+  throw new TypeError(`[vitehub] ${label} mode must be "read" or "write".`)
+}
+
+function normalizeCapabilities(capabilities: AgentCapabilitiesList | undefined): NormalizedCapability[] {
+  if (capabilities === undefined) return []
+  if (!Array.isArray(capabilities)) {
+    throw new TypeError("[vitehub] defineAgent({ capabilities }) must be an ordered array.")
+  }
+  const seen = new Set<string>()
+  return capabilities.map((capability) => {
+    const normalized = defineCapability(capability) as NormalizedCapability
+    if (seen.has(normalized.id)) {
+      throw new Error(`[vitehub] Duplicate capability id "${normalized.id}" in one agent.`)
+    }
+    seen.add(normalized.id)
+    return normalized
+  })
+}
+
+function isToolSet(value: unknown): value is AgentToolSet {
+  return typeof value === "object" && value !== null
+}
+
+function primitiveHandle(context: AgentCapabilityContext, name: string): unknown {
+  const handle = context.capabilities?.[name] as { value?: unknown } | unknown
+  return typeof handle === "object" && handle !== null && "value" in handle
+    ? (handle as { value?: unknown }).value
+    : handle
+}
+
+function requirePrimitive(context: AgentCapabilityContext, name: string): unknown {
+  const handle = primitiveHandle(context, name)
+  if (!handle) throw new Error(`[vitehub] Capability "${name}" requires the ${name} primitive to be configured.`)
+  return handle
+}
+
+function defineInternalTool<TInput = unknown, TOutput = unknown>(
+  tool: AgentToolDefinition<TInput, TOutput>,
+): AgentToolDefinition<TInput, TOutput> {
+  if (!tool || typeof tool !== "object") {
+    throw new TypeError("[vitehub] tool definitions must be objects.")
+  }
+  if (!tool.name || typeof tool.name !== "string") {
+    throw new TypeError("[vitehub] tool definitions require a tool name.")
+  }
+  return tool
+}
+
+function primitiveMethodTool(primitive: "blob" | "db" | "kv", method: string, handle: unknown): AgentToolDefinition {
+  return defineInternalTool({
+    description: `Call ${primitive}.${method}.`,
+    name: `${primitive}_${method}`,
+    async execute(input) {
+      const primitiveHandle = handle as Record<string, unknown>
+      const fn = primitiveHandle[method]
+      if (typeof fn !== "function") throw new Error(`[vitehub] ${primitive} primitive does not expose ${method}().`)
+      const args = Array.isArray(input) ? input : [input]
+      return await fn.apply(primitiveHandle, args)
+    },
+  })
+}
+
+function primitiveTools(primitive: "blob" | "db" | "kv", mode: AgentCapabilityMode): AgentCapabilityDefinition["tools"] {
+  return (context) => {
+    const handle = requirePrimitive(context as never, primitive)
+    if (primitive === "kv") {
+      return {
+        kv_get: primitiveMethodTool("kv", "get", handle),
+        kv_keys: primitiveMethodTool("kv", "keys", handle),
+        ...(mode === "write"
+          ? {
+              kv_del: primitiveMethodTool("kv", "del", handle),
+              kv_set: primitiveMethodTool("kv", "set", handle),
+            }
+          : {}),
+      }
+    }
+    if (primitive === "blob") {
+      return {
+        blob_get: primitiveMethodTool("blob", "get", handle),
+        blob_head: primitiveMethodTool("blob", "head", handle),
+        blob_list: primitiveMethodTool("blob", "list", handle),
+        ...(mode === "write"
+          ? {
+              blob_del: primitiveMethodTool("blob", "del", handle),
+              blob_put: primitiveMethodTool("blob", "put", handle),
+            }
+          : {}),
+      }
+    }
+    return {
+      db_query: primitiveMethodTool("db", "query", handle),
+      db_schema: primitiveMethodTool("db", "schema", handle),
+      ...(mode === "write" ? { db_execute: primitiveMethodTool("db", "execute", handle) } : {}),
+    }
+  }
+}
+
+function validateSandboxCommands(commands: unknown): string[] {
+  if (!Array.isArray(commands) || !commands.length) {
+    throw new TypeError("[vitehub] sandbox({ commands }) requires at least one executable name.")
+  }
+  for (const command of commands) {
+    if (typeof command !== "string" || !/^[A-Za-z0-9_.-]+$/.test(command)) {
+      throw new TypeError("[vitehub] sandbox({ commands }) accepts executable names only, not shell command strings.")
+    }
+  }
+  return commands
+}
+
+function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>): void {
+  const capabilities = normalizeCapabilities(options.capabilities)
+  const workspaceMode = workspaceModeFromOptions(options)
+  for (const capability of capabilities) {
+    if (capability.id === "bash" && normalizeMode(capability.mode, "Bash") === "write" && workspaceMode !== "write") {
+      throw new Error("[vitehub] bash({ mode: \"write\" }) requires workspace.mode: \"write\".")
+    }
+    if (capability.id === "sandbox") {
+      validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
+    }
+  }
+}
+
+function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
+  if (hasWorkspace) return
+  for (const capability of capabilities) {
+    if (capability.id === "bash" || capability.id === "sandbox") {
+      throw new Error(`[vitehub] ${capability.id}() requires an explicit workspace.`)
+    }
+  }
+}
+
+function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtoolsToolDefinition | undefined {
+  if (capability.id === "bash") {
+    const mode = normalizeMode(capability.mode, "Bash")
+    return {
+      category: "workspace",
+      commands: mode === "write" ? writeCommands : readCommands,
+      description: mode === "write"
+        ? "Run curated workspace read and write shell operations."
+        : "Run curated workspace read shell operations.",
+      icon: "i-lucide-terminal",
+      name: "bash",
+      status: "available",
+    }
+  }
+  if (capability.id === "sandbox") {
+    return {
+      category: "execution",
+      commands: (capability.metadata as { commands?: string[] } | undefined)?.commands,
+      description: "Run explicitly allowed executables in an isolated sandbox.",
+      icon: "i-lucide-box",
+      name: "sandbox",
+      status: "available",
+    }
+  }
+  return capability.tools
+    ? {
+        category: "capability",
+        description: capability.description,
+        icon: "i-lucide-wrench",
+        name: capability.id,
+        status: "available",
+      }
+    : undefined
+}
+
+export function bash(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
+  const mode = normalizeMode(options.mode, "Bash")
+  return defineCapability({
+    id: "bash",
+    mode,
+    name: "Bash",
+    requires: [{ primitive: "workspace", workspace: { mode, required: true } }],
+    tools: ({ workspace }) => (mode === "write" && "write" in workspace.tools
+      ? (workspace.tools as unknown as { write: () => AgentToolSet }).write()
+      : workspace.tools.inspect()) as AgentToolSet,
+  })
+}
+
+export function sandbox(options: { commands: string[] }): AgentCapabilityDefinition {
+  const commands = validateSandboxCommands(options?.commands)
+  return defineCapability({
+    id: "sandbox",
+    metadata: { commands },
+    name: "Sandbox",
+    requires: [{ primitive: "workspace", workspace: { required: true } }, { primitive: "sandbox" }],
+    tools: (context) => {
+      const handle = requirePrimitive(context as never, "sandbox") as {
+        exec?: (command: string, args?: string[], options?: unknown) => MaybePromise<unknown>
+      }
+      return {
+        sandbox_exec: defineInternalTool({
+          description: `Run one allowed executable in an isolated sandbox. Allowed commands: ${commands.join(", ")}.`,
+          name: "sandbox_exec",
+          async execute(input) {
+            const value = input as { args?: string[], command?: string, cwd?: string, env?: Record<string, string>, timeout?: number }
+            if (!value || typeof value.command !== "string") throw new TypeError("[vitehub] sandbox_exec requires a command.")
+            if (!commands.includes(value.command)) throw new Error(`[vitehub] Sandbox command "${value.command}" is not allowed.`)
+            if (!handle.exec) throw new Error("[vitehub] Sandbox primitive does not expose exec().")
+            return await handle.exec(value.command, value.args || [], { cwd: value.cwd, env: value.env, timeout: value.timeout })
+          },
+        }),
+      }
+    },
+  })
+}
+
+export function kv(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
+  const mode = normalizeMode(options.mode, "KV")
+  return defineCapability({ id: "kv", mode, name: "KV", requires: [{ primitive: "kv" }], tools: primitiveTools("kv", mode) })
+}
+
+export function blob(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
+  const mode = normalizeMode(options.mode, "Blob")
+  return defineCapability({ id: "blob", mode, name: "Blob", requires: [{ primitive: "blob" }], tools: primitiveTools("blob", mode) })
+}
+
+export function db(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
+  const mode = normalizeMode(options.mode, "DB")
+  return defineCapability({ id: "db", mode, name: "DB", requires: [{ primitive: "db" }], tools: primitiveTools("db", mode) })
+}
+
+export function skills(options: { path?: string } = {}): AgentCapabilityDefinition {
+  const path = options.path || "skills"
+  const skillPath = path.replace(/\/+$/, "").endsWith("/SKILL.md")
+    ? path.replace(/\/+$/, "")
+    : `${path.replace(/\/+$/, "")}/SKILL.md`
+  return defineCapability({
+    id: "skills",
+    metadata: { path: path.replace(/\/+$/, ""), skillPath },
+    name: "Skills",
+    requires: [{ primitive: "workspace", workspace: { mode: "read", paths: [skillPath], required: true } }],
+  })
+}
+
+export function mcp(options: { servers?: Record<string, unknown> } = {}): AgentCapabilityDefinition {
+  return defineCapability({
+    id: "mcp",
+    metadata: { servers: options.servers || {} },
+    name: "MCP",
+  })
+}
+
+async function resolveProviderAdapter<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  provider: AgentModelProvider,
+  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
+): Promise<AgentAdapter<CALL_OPTIONS>> {
+  if (provider === "ai-sdk") {
+    return (await import("./ai-sdk.ts")).createAiSdkProviderAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
+  }
+  if (provider === "tanstack-ai") {
+    return (await import("./tanstack-ai.ts")).createTanStackAiProviderAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
+  }
+  throw new Error(`[vitehub] Unsupported agent model provider "${provider}".`)
+}
+
 function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
-  options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }) | AgentAdapter<CALL_OPTIONS>,
+  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> },
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
-  if (hasAgentMethods(options)) {
-    const agent = options as AgentAdapter<CALL_OPTIONS> & { tools?: unknown }
-    return {
-      resolve: async () => normalizeDirectAgent(agent),
-    }
+  if ("tools" in (options as Record<string, unknown>)) {
+    throw new Error("[vitehub] defineAgent({ tools }) is not public API. Expose raw tools through defineAgent({ capabilities: [...] }) instead.")
   }
 
-  const { adapter, chat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
+  if ("model" in (options as Record<string, unknown>) && !("provider" in (options as Record<string, unknown>))) {
+    throw new Error("[vitehub] defineAgent({ model }) requires an explicit provider, for example provider: \"ai-sdk\".")
+  }
+
+  const { capabilities, chat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
+  const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
+  validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
 
   return {
     chat,
@@ -212,17 +519,24 @@ function defineBaseAgent<
     runtime,
     run,
     workspace,
+    ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
-      const resolvedAdapter = adapter || ("model" in options
-        ? (await import("./ai-sdk.ts")).aiSdkAdapter(options as never)
-        : undefined)
+      const resolvedAdapter = "model" in options
+        ? await resolveProviderAdapter((options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { provider: AgentModelProvider }).provider, options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>)
+        : undefined
       if (!resolvedAdapter) {
-        throw new Error("[vitehub] Agent adapter is required unless the agent defines a custom run() handler.")
+        throw new Error("[vitehub] Agent model and provider are required unless the agent defines a custom run() handler.")
       }
       const resolvedContext = createResolvedRuntimeContext(context)
-      return typeof resolvedAdapter === "function"
+      const adapterInstance = typeof resolvedAdapter === "function"
         ? await (resolvedAdapter as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
         : resolvedAdapter
+      const capabilityTools = normalizedCapabilities.length && !workspace
+        ? await resolveCapabilityToolsFromList(normalizedCapabilities, resolvedContext, undefined, context.devtools?.reportToolStep)
+        : undefined
+      return capabilityTools
+        ? { ...adapterInstance, tools: capabilityTools }
+        : adapterInstance
     },
   }
 }
@@ -263,6 +577,36 @@ export interface AgentDevtoolsMetadata {
   tools?: AgentDevtoolsToolDefinition[]
 }
 
+function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConfig): NormalizedWorkspaceOptions {
+  if (typeof workspace === "string") {
+    return { mode: "read" }
+  }
+  return {
+    ...workspace,
+    mode: normalizeMode(workspace.mode, "Workspace"),
+  }
+}
+
+function workspaceNameFromOptions<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
+  defaults: WorkspaceAgentDefaults<Name> = {},
+): Name | string {
+  if (typeof options.workspace === "string") return options.workspace
+  return options.name || defaults.workspace || defaults.name || defaultWorkspaceName
+}
+
+function workspaceDefinitionFromOptions<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
+): WorkspaceAgentWorkspaceOptions {
+  return typeof options.workspace === "string" ? { mode: "read" } : options.workspace
+}
+
+function workspaceModeFromOptions<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
+): AgentCapabilityMode {
+  return normalizeWorkspaceOptions(options.workspace).mode
+}
+
 export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -272,7 +616,7 @@ export type WorkspaceAgentOptions<
   hooks?: AgentChatAgentHooks<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
-  workspace: WorkspaceAgentWorkspaceOptions
+  workspace: WorkspaceAgentWorkspaceConfig
 }
 
 export type WorkspaceAgentDefinition<
@@ -300,7 +644,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
   >(
-    options: (AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }) | AgentAdapter<CALL_OPTIONS>,
+    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -308,8 +652,9 @@ function isWorkspaceAgentOptions(value: unknown): value is WorkspaceAgentOptions
   return typeof value === "object"
     && value !== null
     && "workspace" in value
-    && typeof (value as { workspace?: unknown }).workspace === "object"
-    && (value as { workspace?: unknown }).workspace !== null
+    && (typeof (value as { workspace?: unknown }).workspace === "string"
+      || (typeof (value as { workspace?: unknown }).workspace === "object"
+        && (value as { workspace?: unknown }).workspace !== null))
 }
 
 function getPromptText(input: AgentRunInput) {
@@ -408,15 +753,16 @@ function hasLazyWorkspaceSources<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>) {
-  return Object.entries(options.workspace.sources || {}).some(([sourceName, source]) => sourceMaterialize(sourceName, source) === "lazy")
+  const workspace = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
+  return Object.entries(workspace.sources || {}).some(([sourceName, source]) => sourceMaterialize(sourceName, source) === "lazy")
 }
 
 function workspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name>,
 ): AgentDevtoolsFileTreeItem[] {
-  const workspaceName = options.name || defaults.workspace || defaults.name || "workspace"
-  const sources = options.workspace.sources || {}
+  const workspaceName = workspaceNameFromOptions(options, defaults)
+  const sources = workspaceDefinitionFromOptions(options).sources || {}
   const children = Object.entries(sources).sort(([left], [right]) => left.localeCompare(right)).map(([sourceName, source]) => {
     const materialize = sourceMaterialize(sourceName, source)
     return {
@@ -467,7 +813,7 @@ function localWorkspaceRoots(options: WorkspaceAgentOptions<AgentRuntimeConfig, 
 }
 
 function sourceMountPaths(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string[] {
-  return Object.entries(options.workspace.sources || {}).map(([sourceName, source]) => sourceMountPath(sourceName, source))
+  return Object.entries(workspaceDefinitionFromOptions(options).sources || {}).map(([sourceName, source]) => sourceMountPath(sourceName, source))
 }
 
 function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry) {
@@ -512,7 +858,7 @@ function markSourceTreeMetadata(
   root: AgentDevtoolsFileTreeItem,
   options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>,
 ) {
-  const sources = options.workspace.sources || {}
+  const sources = workspaceDefinitionFromOptions(options).sources || {}
   for (const [sourceName, source] of Object.entries(sources)) {
     const mountPath = sourceMountPath(sourceName, source)
     const materialize = sourceMaterialize(sourceName, source)
@@ -556,7 +902,7 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   defaults: WorkspaceAgentDefaults<Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
 ): Promise<AgentDevtoolsFileTreeItem[]> {
-  const workspaceName = options.name || defaults.workspace || defaults.name || "workspace"
+  const workspaceName = workspaceNameFromOptions(options, defaults)
   const root: AgentDevtoolsFileTreeItem = {
     children: [],
     kind: "directory",
@@ -577,27 +923,10 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
 function workspaceMetadataTools<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
 ): AgentDevtoolsToolDefinition[] {
-  if (!options.tools || typeof options.tools !== "function") return []
-
-  try {
-    const metadataTools = createMetadataToolSet()
-    const workspace = {
-      fs: {},
-      tools: Object.assign(metadataTools.default, metadataTools),
-    }
-    const resolved = options.tools({
-      fs: workspace.fs,
-      workspace,
-    } as never)
-    if (typeof (resolved as { then?: unknown })?.then === "function") return []
-
-    return Object.entries(resolved as Record<string, unknown> || {})
-      .map(([name, tool]) => toolDefinitionFromEntry(name, tool))
-      .sort((left, right) => left.name.localeCompare(right.name))
-  }
-  catch {
-    return []
-  }
+  return normalizeCapabilities(options.capabilities)
+    .map(capabilityMetadataTool)
+    .filter((tool): tool is AgentDevtoolsToolDefinition => Boolean(tool))
+    .sort((left, right) => left.name.localeCompare(right.name))
 }
 
 function workspaceMetadataInstructions<Name extends WorkspaceName>(
@@ -648,6 +977,69 @@ async function resolveWorkspaceMetadataInstructions<
     .flatMap(part => Array.isArray(part) ? part : [part])
     .map(part => part?.trim())
     .filter((part): part is string => Boolean(part))
+}
+
+async function resolveCapabilityTools<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  workspace: ReadonlyWorkspaceFacade<Name>,
+  reportToolStep?: AgentToolStepReporter,
+): Promise<AgentToolSet | undefined> {
+  const capabilities = normalizeCapabilities(options.capabilities as AgentCapabilitiesList | undefined)
+  return await resolveCapabilityToolsFromList(capabilities, runtime, workspace, reportToolStep)
+}
+
+async function resolveCapabilityToolsFromList<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+>(
+  capabilities: NormalizedCapability[],
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  workspace?: ReadonlyWorkspaceFacade<Name>,
+  reportToolStep?: AgentToolStepReporter,
+): Promise<AgentToolSet | undefined> {
+  if (!capabilities.length) return undefined
+
+  const tools: AgentToolSet = {}
+  for (const capability of capabilities) {
+    await validateCapabilityRuntimeRequirement(capability, workspace)
+    if (!capability.tools) continue
+    const context = {
+      ...runtime,
+      fs: workspace?.fs,
+      mode: capability.mode,
+      workspace,
+    } as unknown as AgentCapabilityContext<TRuntimeConfig, Name>
+    const resolved = typeof capability.tools === "function"
+      ? await capability.tools(context)
+      : capability.tools
+    if (isToolSet(resolved)) Object.assign(tools, resolved as AgentToolSet)
+  }
+
+  return Object.keys(tools).length
+    ? withAgentToolStepReporting(applyAgentToolPolicies(tools) || {}, reportToolStep)
+    : undefined
+}
+
+async function validateCapabilityRuntimeRequirement<Name extends WorkspaceName>(
+  capability: NormalizedCapability,
+  workspace?: ReadonlyWorkspaceFacade<Name>,
+): Promise<void> {
+  for (const requirement of capability.requires || []) {
+    if (!requirement.workspace) continue
+    if (requirement.workspace.required && !workspace) {
+      throw new Error(`[vitehub] ${capability.id}() requires an explicit workspace.`)
+    }
+    if (!workspace) continue
+    for (const path of requirement.workspace.paths || []) {
+      if (!await workspace.fs.exists(path as never)) {
+        throw new Error(`[vitehub] ${capability.id}() requires workspace path ${path}.`)
+      }
+    }
+  }
 }
 
 export function createAgentDevtoolsMetadata<
@@ -707,6 +1099,8 @@ function createWorkspaceAgentDefinition<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name> = {},
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name> {
+  const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
+  validateWorkspaceCapabilities(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   const definition = defineBaseAgent<TRuntimeConfig>({
     ...options,
     chat: options.chat,
@@ -714,7 +1108,7 @@ function createWorkspaceAgentDefinition<
     hooks: options.hooks,
     run: options.run,
     runtime: options.runtime,
-    workspace: options.workspace,
+    workspace: workspaceDefinition,
   } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name>
 
   if (!definition.run) {
@@ -728,7 +1122,7 @@ function createWorkspaceAgentDefinition<
     definition.run = Object.assign(run, { [syntheticWorkspaceRun]: true })
   }
 
-  Object.assign(definition, options.workspace, {
+  Object.assign(definition, workspaceDefinition, {
     __vitehubWorkspaceAgent: true,
     __vitehubWorkspaceAgentDefaults: defaults,
     __vitehubWorkspaceAgentOptions: options,
@@ -790,18 +1184,6 @@ function getRunMessages(input: AgentRunInput): Message[] {
   if (input.messages) return input.messages
   if (Array.isArray(input.prompt)) return input.prompt
   return []
-}
-
-export function defineTool<TInput = unknown, TOutput = unknown>(
-  tool: AgentToolDefinition<TInput, TOutput>,
-): AgentToolDefinition<TInput, TOutput> {
-  if (!tool || typeof tool !== "object") {
-    throw new TypeError("[vitehub] defineTool() requires a tool definition.")
-  }
-  if (!tool.name || typeof tool.name !== "string") {
-    throw new TypeError("[vitehub] defineTool() requires a tool name.")
-  }
-  return tool
 }
 
 function toAgentRunResult(value: unknown): AgentRunResult {
@@ -935,9 +1317,21 @@ async function createAdapterRunContext<
   input: AgentRunInput<CALL_OPTIONS>,
 ) {
   const runtime = createResolvedRuntimeContext(context)
-  const workspaceName = (definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined)?.__vitehubWorkspaceAgentDefaults?.workspace
+  const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
+  const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
+  const workspaceName = workspaceOptions
+    ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults)
+    : workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
+  const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
   const workspace = workspaceName
-    ? (await import("@vitehub/workspace")).useWorkspace(workspaceName)
+    ? workspaceMode === "write"
+      ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { allowWrite: true })
+      : (await import("@vitehub/workspace")).useWorkspace(workspaceName)
+    : undefined
+  const tools = workspaceOptions && workspace
+    ? await resolveCapabilityTools(workspaceOptions, runtime, workspace as never, context.devtools?.reportToolStep)
+    : definition?.capabilities?.length
+      ? await resolveCapabilityToolsFromList(definition.capabilities as NormalizedCapability[], runtime, undefined, context.devtools?.reportToolStep)
     : undefined
   return {
     devtools: context.devtools,
@@ -946,7 +1340,7 @@ async function createAdapterRunContext<
     messages: getRunMessages(input),
     prompt: typeof input.prompt === "string" ? input.prompt : undefined,
     runtime,
-    tools: undefined,
+    tools,
     workspace,
   }
 }

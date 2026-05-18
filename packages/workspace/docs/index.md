@@ -57,6 +57,23 @@ In Nitro, place the same definition at `server/workspaces/docs.ts`.
 Source entries are keyed. The key becomes the default workspace mount path, so the example above exposes files at `docs/**` and `instructions/**`.
 For inline files, use `workspacePath` and `content`. For file-backed sources, use `path` for the source file and `workspacePath` for its path inside the mounted source.
 
+Workspace rules are path-scoped write policy, similar in shape to Nitro route rules:
+
+```ts [src/docs.workspace.ts]
+import { defineWorkspace } from '@vitehub/workspace'
+
+export default defineWorkspace({
+  rules: {
+    '/**': { write: false },
+    '/CONTEXT.md': { write: true, mediaType: 'text/markdown' },
+    '/docs/adr/**': { write: true, maxBytes: '1mb' },
+    '/generated/**': { write: true },
+  },
+})
+```
+
+Rules are enforced before writes reach the workspace store. Reusable workspace plugins can contribute the same `rules` and write lifecycle `hooks` that users can define inline.
+
 Use it from server code:
 
 ```ts
@@ -121,7 +138,7 @@ const writeTools = useWorkspace('docs', { allowWrite: true }).tools.write()
 - `none()` returns an empty tool set.
 - `write()` exposes read tools plus structured write tools, and requires `useWorkspace(name, { allowWrite: true })`.
 
-`workspace.tools()` remains as a temporary alias for `workspace.tools.inspect()` for migration, but new code should use an explicit preset.
+`workspace.tools()` remains as a temporary alias for `workspace.tools.inspect()` for migration. Agent definitions should expose workspace shell access through the `bash()` capability.
 
 Applications that use `AGENTS.md` as the model instruction source should load it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')` or an agent `instructions` resolver. Keep detailed shell command syntax in tool metadata instead of duplicating it in app instructions.
 

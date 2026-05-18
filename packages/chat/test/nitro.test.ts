@@ -683,13 +683,13 @@ describe("Nitro module", () => {
   it("generates DevTools metadata for workspace agent chats", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-agent-metadata-"))
     await writeAgentChat(rootDir, "docs", [
-      `import { defineAgent } from "@vitehub/agent"`,
+      `import { bash, defineAgent } from "@vitehub/agent"`,
       `import * as source from "@vitehub/workspace/source"`,
       `export default defineAgent({`,
       `  chat: { adapters: {}, state: {} },`,
       `  model: {} as never,`,
       `  workspace: { sources: { docs: source.custom({ name: "docs", getKeys: async () => [], getItem: async () => ({ content: "", path: "README.md" }) }) } },`,
-      `  tools: ({ workspace }) => workspace.tools.inspect(),`,
+      `  capabilities: [bash()],`,
       `})`,
     ].join("\n"))
     const nitro = createNitroStub(rootDir)
@@ -964,13 +964,13 @@ describe("Nitro module", () => {
   it("generates registry DevTools metadata for workspace agent chats", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-chat-registry-metadata-"))
     await writeAgentChat(rootDir, "docs", [
-      `import { defineAgent } from "@vitehub/agent"`,
+      `import { bash, defineAgent } from "@vitehub/agent"`,
       `import * as source from "@vitehub/workspace/source"`,
       `export default defineAgent({`,
       `  chat: { adapters: {}, state: {} },`,
       `  model: {} as never,`,
       `  workspace: { sources: { docs: source.custom({ name: "docs", getKeys: async () => [], getItem: async () => ({ content: "", path: "README.md" }) }) } },`,
-      `  tools: ({ workspace }) => workspace.tools.inspect(),`,
+      `  capabilities: [bash()],`,
       `})`,
     ].join("\n"))
     await writeChat(rootDir, "support")

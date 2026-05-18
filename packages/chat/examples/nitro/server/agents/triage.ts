@@ -1,11 +1,11 @@
-import { defineAgent, defineTool } from "@vitehub/agent"
+import { defineAgent, type AgentToolDefinition } from "@vitehub/agent"
 import { createDevtoolsAdapter } from "@vitehub/chat/devtools"
 import { createMemoryChatStateAdapter } from "@vitehub/chat/runtime/memory-state"
 import { getMessageText } from "@vitehub/messages"
 
 type Queue = "billing" | "incident" | "product"
 
-const classifyMessage = defineTool<{ message: string }, { queue: Queue, priority: "normal" | "urgent", summary: string }>({
+const classifyMessage: AgentToolDefinition<{ message: string }, { queue: Queue, priority: "normal" | "urgent", summary: string }> = {
   name: "classifyMessage",
   description: "Classify an incoming chat message before queue handoff.",
   execute: ({ message }) => {
@@ -21,7 +21,7 @@ const classifyMessage = defineTool<{ message: string }, { queue: Queue, priority
       summary: message.slice(0, 140),
     }
   },
-})
+}
 
 export default defineAgent({
   chat: {

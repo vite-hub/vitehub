@@ -116,7 +116,7 @@ describe("agent message protocol", () => {
       name: "generate-only-agent",
     }
 
-    const stream = await streamAgent(agent, {} as never, {
+    const stream = await streamAgent(agent as never, {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
     })
     const events = []
@@ -137,7 +137,7 @@ describe("agent message protocol", () => {
       name: "generate-only-agent",
     }
 
-    const stream = await streamAgent(agent, {} as never, {
+    const stream = await streamAgent(agent as never, {} as never, {
       messages: [createMessage({ role: "user", text: "hello" })],
     })
     const events = []
@@ -221,30 +221,21 @@ describe("agent message protocol", () => {
     ])
   })
 
-  it("defines typed tools with policy metadata", async () => {
-    const { defineTool } = await import("../src/index.ts")
-
-    expect(defineTool({
-      description: "Refund an order",
-      name: "refund",
-      policy: "require-approval",
-    })).toMatchObject({
-      name: "refund",
-      policy: "require-approval",
-    })
-  })
-
   it("resolves tools with runtime capability handles", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
     const agent = defineAgent({
+      provider: "ai-sdk",
       model: {} as never,
-      tools: context => ({
-        inspect: {
-          name: "inspect",
-          execute: async () => context.capabilities?.sandbox,
-        },
-      }),
+      capabilities: [{
+        id: "inspect",
+        tools: context => ({
+          inspect: {
+            name: "inspect",
+            execute: async () => context.capabilities?.sandbox,
+          },
+        }),
+      }],
     })
 
     const resolved = await agent.resolve({
@@ -262,14 +253,18 @@ describe("agent message protocol", () => {
     const execute = vi.fn()
 
     const agent = defineAgent({
+      provider: "ai-sdk",
       model: {} as never,
-      tools: {
-        refund: {
-          execute,
-          name: "refund",
-          policy: "deny",
+      capabilities: [{
+        id: "refund-tools",
+        tools: {
+          refund: {
+            execute,
+            name: "refund",
+            policy: "deny",
+          },
         },
-      },
+      }],
     })
     const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
@@ -282,14 +277,18 @@ describe("agent message protocol", () => {
     const execute = vi.fn()
 
     const agent = defineAgent({
+      provider: "ai-sdk",
       model: {} as never,
-      tools: {
-        refund: {
-          execute,
-          name: "refund",
-          policy: "require-approval",
+      capabilities: [{
+        id: "refund-tools",
+        tools: {
+          refund: {
+            execute,
+            name: "refund",
+            policy: "require-approval",
+          },
         },
-      },
+      }],
     })
     const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
@@ -301,5 +300,66 @@ describe("agent message protocol", () => {
       },
     })
     expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("rejects public root-level tools", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      model: {} as never,
+    } as never)).toThrow("requires an explicit provider")
+
+    expect(() => defineAgent({
+      provider: "ai-sdk",
+      model: {} as never,
+      tools: {} as never,
+    })).toThrow("defineAgent({ tools }) is not public API")
+  })
+
+  it("validates capability ids and sandbox commands", async () => {
+    const { bash, defineAgent, sandbox } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      capabilities: [{ id: "custom" }, { id: "custom" }],
+      provider: "ai-sdk",
+      model: {} as never,
+    })).toThrow("Duplicate capability id")
+
+    expect(() => defineAgent({
+      capabilities: [{} as never],
+      provider: "ai-sdk",
+      model: {} as never,
+    })).toThrow("require a non-empty string id")
+
+    expect(() => defineAgent({
+      capabilities: [sandbox({ commands: ["pnpm test"] })],
+      provider: "ai-sdk",
+      model: {} as never,
+      workspace: {},
+    })).toThrow("executable names only")
+
+    expect(() => defineAgent({
+      capabilities: [bash()],
+      provider: "ai-sdk",
+      model: {} as never,
+    })).toThrow("requires an explicit workspace")
+
+    expect(() => defineAgent({
+      capabilities: [bash({ mode: "write" })],
+      provider: "ai-sdk",
+      model: {} as never,
+      workspace: { mode: "read" },
+    })).toThrow("requires workspace.mode")
+  })
+
+  it("fails when a primitive capability has no backing primitive", async () => {
+    const { defineAgent, kv } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [kv()],
+      provider: "ai-sdk",
+      model: {} as never,
+    })
+
+    await expect(agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() })).rejects.toThrow("requires the kv primitive")
   })
 })

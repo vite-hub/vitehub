@@ -2,8 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const readFile = vi.fn()
 const list = vi.fn()
+const exists = vi.fn()
 const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
+const useWorkspace = vi.fn(() => ({
+  fs: { exists, list, readFile },
+  tools: Object.assign(tools, {
+    inspect: inspectTools,
+    none: vi.fn(() => ({})),
+    readonly: inspectTools,
+  }),
+}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const generateText = vi.hoisted(() => vi.fn())
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, steps?: unknown[], text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
@@ -23,14 +32,7 @@ vi.mock("ai", () => ({
 }))
 
 vi.mock("@vitehub/workspace", () => ({
-  useWorkspace: vi.fn(() => ({
-    fs: { list, readFile },
-    tools: Object.assign(tools, {
-      inspect: inspectTools,
-      none: vi.fn(() => ({})),
-      readonly: inspectTools,
-    }),
-  })),
+  useWorkspace,
 }))
 
 function context(runtimeConfig: Record<string, unknown> = {}) {
@@ -50,12 +52,60 @@ describe("defineAgent workspace option", () => {
     agentGenerate.mockResolvedValue({ finishReason: "stop", text: "ok" })
     generateText.mockReset()
     generateText.mockResolvedValue({ text: "fallback answer" })
+    exists.mockReset()
+    exists.mockResolvedValue(false)
     list.mockReset()
     list.mockResolvedValue([])
     readFile.mockReset()
     tools.mockClear()
     inspectTools.mockReset()
     inspectTools.mockReturnValue({})
+    useWorkspace.mockClear()
+  })
+
+  it("fails when a capability-required workspace path is missing", async () => {
+    const { defineAgent, skills } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      capabilities: [skills({ path: "agent-skills/support" })],
+      provider: "ai-sdk",
+      model: {} as never,
+      workspace: {},
+    })
+
+    await expect(agent.run!(context())).rejects.toThrow("skills() requires workspace path agent-skills/support/SKILL.md")
+    expect(exists).toHaveBeenCalledWith("agent-skills/support/SKILL.md")
+  })
+
+  it("checks custom capability workspace path requirements", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      capabilities: [{
+        id: "docs",
+        requires: [{ primitive: "workspace", workspace: { paths: ["CONTEXT.md"], required: true } }],
+      }],
+      provider: "ai-sdk",
+      model: {} as never,
+      workspace: {},
+    })
+
+    await expect(agent.run!(context())).rejects.toThrow("docs() requires workspace path CONTEXT.md")
+    expect(exists).toHaveBeenCalledWith("CONTEXT.md")
+  })
+
+  it("accepts skills() when SKILL.md exists", async () => {
+    const { defineAgent, skills } = await import("../src/index.ts")
+    exists.mockResolvedValue(true)
+
+    const agent = defineAgent({
+      capabilities: [skills({ path: "agent-skills/support" })],
+      provider: "ai-sdk",
+      model: {} as never,
+      workspace: {},
+    })
+
+    await expect(agent.run!(context())).resolves.toBe("ok")
   })
 
   it("creates a workspace and agent definition without resolving workspace until run", async () => {
@@ -67,6 +117,7 @@ describe("defineAgent workspace option", () => {
         sources: {},
       },
       description: "Answer from workspace context",
+      provider: "ai-sdk",
       model: {} as never,
     })
 
@@ -81,6 +132,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: "Use workspace sources.",
+      provider: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -95,6 +147,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: [" First ", "", "Second"],
+      provider: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -113,6 +166,7 @@ describe("defineAgent workspace option", () => {
         "Use workspace sources.",
         async ({ fs }) => await fs.readFile("AGENTS.md"),
       ],
+      provider: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -129,6 +183,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
+      provider: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -154,6 +209,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
+      provider: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -173,6 +229,7 @@ describe("defineAgent workspace option", () => {
       workspace: {},
       experimental_telemetry: experimental_telemetry as never,
       maxOutputTokens: 100,
+      provider: "ai-sdk",
       model: {} as never,
       onStepFinish,
       stopWhen: stopWhen as never,
@@ -192,24 +249,19 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("uses adapter stream for workspace agents on the streaming path", async () => {
+  it("uses custom run for workspace agents on the streaming path", async () => {
     const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const stream = (async function* () {
       yield { text: "ok", type: "text-delta" }
     })()
-    const adapter = {
-      generate: vi.fn(async () => ({ text: "generated" })),
-      name: "workspace-stream",
-      stream: vi.fn(async () => stream),
-    }
+    const run = vi.fn(async () => stream)
     const agent = withWorkspaceAgentDefaults(defineAgent({
-      adapter,
+      run,
       workspace: {},
     }), { workspace: "docs" })
 
     await expect(streamAgent(agent as never, context(), { messages: [] })).resolves.toBe(stream)
-    expect(adapter.stream).toHaveBeenCalled()
-    expect(adapter.generate).not.toHaveBeenCalled()
+    expect(run).toHaveBeenCalled()
   })
 
   it("wraps workspace agent models with runtime instrumentation", async () => {
@@ -221,6 +273,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instrumentModel,
+      provider: "ai-sdk",
       model: baseModel as never,
       onStepFinish: vi.fn(),
     }), { workspace: "docs" })
@@ -239,6 +292,7 @@ describe("defineAgent workspace option", () => {
       run: expect.objectContaining({ runId: "run_123" }),
     }))
     expect(agentSettings.at(-1)).toMatchObject({
+      provider: "ai-sdk",
       model: wrappedModel,
       onStepFinish: expect.any(Function),
     })
@@ -258,6 +312,7 @@ describe("defineAgent workspace option", () => {
       workspace: {},
       experimental_onToolCallFinish: experimental_onToolCallFinish as never,
       experimental_onToolCallStart: experimental_onToolCallStart as never,
+      provider: "ai-sdk",
       model: {} as never,
       onRunStepFinish,
       onRunToolCallFinish,
@@ -299,6 +354,7 @@ describe("defineAgent workspace option", () => {
         expect(runtimeConfig).toEqual({ vertex: { model: "gemini" } })
         return runtimeConfig.vertex.model
       },
+      provider: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -313,6 +369,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
+      provider: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -329,6 +386,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: ({ fs }) => fs.readFile("MISSING.md"),
+      provider: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -340,6 +398,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
+      provider: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -361,8 +420,9 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent<{ vertex: { model: string } }>({
       workspace: {},
+      provider: "ai-sdk",
       model: {} as never,
-      tools: toolResolver as never,
+      capabilities: [{ id: "workspace-tools", tools: toolResolver as never }],
     }), { workspace: "docs" })
 
     await agent.run!(context({ vertex: { model: "gemini" } }))
@@ -387,8 +447,9 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
+      provider: "ai-sdk",
       model: {} as never,
-      tools: ({ workspace }) => workspace.tools.inspect(),
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
     await agent.run!({
@@ -423,8 +484,9 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
+      provider: "ai-sdk",
       model: {} as never,
-      tools: ({ workspace }) => workspace.tools.inspect(),
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
     await agent.run!({
@@ -462,8 +524,9 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
+      provider: "ai-sdk",
       model: {} as never,
-      tools: ({ workspace }) => workspace.tools.inspect(),
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
     await expect(agent.run!({
@@ -489,8 +552,9 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
+      provider: "ai-sdk",
       model: {} as never,
-      tools: ({ workspace }) => workspace.tools.inspect(),
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     expect(createAgentDevtoolsMetadata(agent)).toEqual({
@@ -511,15 +575,9 @@ describe("defineAgent workspace option", () => {
       instructions: ["Answer from the workspace."],
       tools: expect.arrayContaining([
         expect.objectContaining({
-          category: "workspace",
-          name: "materialize_sources",
-          preset: "vitehub-workspace",
-          status: "available",
-        }),
-        expect.objectContaining({
           commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
           category: "workspace",
-          name: "shell",
+          name: "bash",
           status: "available",
         }),
       ]),
@@ -532,8 +590,9 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
+      provider: "ai-sdk",
       model: {} as never,
-      tools: ({ workspace }) => workspace.tools.inspect(),
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     expect(createAgentDevtoolsMetadata(agent).instructions).toEqual(["Dynamic system instructions resolver configured."])
@@ -548,8 +607,9 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
+      provider: "ai-sdk",
       model: {} as never,
-      tools: ({ workspace }) => workspace.tools.inspect(),
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
@@ -577,8 +637,9 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
+      provider: "ai-sdk",
       model: {} as never,
-      tools: ({ workspace }) => workspace.tools.inspect(),
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
@@ -620,8 +681,9 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
+      provider: "ai-sdk",
       model: {} as never,
-      tools: ({ workspace }) => workspace.tools.inspect(),
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({

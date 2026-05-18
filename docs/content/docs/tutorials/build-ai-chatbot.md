@@ -34,7 +34,7 @@ Before we start, make sure you have:
 
 - Node 20+ for local DevTools
 - A Vite or Nitro app
-- A model provider key for the adapter you choose in the agent step
+- A model provider key for the provider you choose in the agent step
 
 ## Project setup
 
@@ -147,15 +147,13 @@ Time to swap the dummy reply for a real model. ViteHub agents live in `server/ag
 ::code-tree-intersection
 ```ts [server/agents/support/chat/config.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { bash, defineAgent } from '@vitehub/agent'
 
 export default defineAgent({
   description: 'Answer support chat messages.',
-  adapter: aiSdkAdapter({
-    instructions: 'You are a friendly support bot. Keep replies short and concrete.',
-    model: gateway('openai/gpt-5.1-mini'),
-  }),
+  instructions: 'You are a friendly support bot. Keep replies short and concrete.',
+  model: gateway('openai/gpt-5.1-mini'),
+  provider: 'ai-sdk',
 })
 ```
 ::
@@ -196,8 +194,7 @@ Models guess. Tools inspect. Add a Workspace to your agent so it can search, lis
 ::code-tree-intersection
 ```ts [server/agents/support/chat/config.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { bash, defineAgent } from '@vitehub/agent'
 import * as source from '@vitehub/workspace/source'
 
 export default defineAgent({
@@ -224,16 +221,17 @@ export default defineAgent({
       }),
     },
   },
-  adapter: aiSdkAdapter({
-    instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
-    tools: ({ workspace }) => workspace.tools.inspect(),
-    model: gateway('openai/gpt-5.1-mini'),
-  }),
+  capabilities: [
+    bash(),
+  ],
+  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+  model: gateway('openai/gpt-5.1-mini'),
+  provider: 'ai-sdk',
 })
 ```
 ::
 
-Each entry in `workspace.sources` becomes a mount. The `tools` resolver is the explicit opt-in that lets the model inspect those mounts through the read-only workspace shell. Local globs travel with your repo, GitHub sources stay remote until the agent asks for them (`materialize: 'lazy'`), and inline files are perfect for instructions that should live next to the agent.
+Each entry in `workspace.sources` becomes a mount. `bash()` is the explicit capability that lets the model inspect those mounts through the read-only workspace shell. Local globs travel with your repo, GitHub sources stay remote until the agent asks for them (`materialize: 'lazy'`), and inline files are perfect for instructions that should live next to the agent.
 
 Send a question that only your sources can answer—"What does our refund policy say?"—and watch the panel show the tool calls firing before the streamed reply.
 

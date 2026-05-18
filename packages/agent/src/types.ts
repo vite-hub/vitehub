@@ -108,6 +108,55 @@ export type AgentToolResolverWithWorkspace<
   | undefined
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
 
+export type AgentCapabilityMode = "read" | "write"
+
+export interface AgentCapabilityRequirement {
+  primitive?: "bash" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "skills" | "workspace" | (string & {})
+  workspace?: {
+    mode?: AgentCapabilityMode
+    paths?: string[]
+    required?: boolean
+  }
+}
+
+export interface AgentCapabilityContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
+  mode?: AgentCapabilityMode
+}
+
+export type AgentCapabilityToolResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | Record<string, unknown>
+  | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<Record<string, unknown> | undefined>)
+
+export interface AgentCapabilityDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> {
+  description?: string
+  id: string
+  instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
+  metadata?: Record<string, unknown>
+  mode?: AgentCapabilityMode
+  name?: string
+  requires?: AgentCapabilityRequirement[]
+  tools?: AgentCapabilityToolResolver<TRuntimeConfig, Name>
+}
+
+export type AgentCapabilityInput<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = AgentCapabilityDefinition<TRuntimeConfig, Name>
+
+export type AgentCapabilitiesList<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = Array<AgentCapabilityInput<TRuntimeConfig, Name>>
+
 export type AgentAdapterInstructionsValue = string | string[]
 
 export type AgentAdapterInstructions<
@@ -126,6 +175,11 @@ export type AgentAdapterInstructionsPart<
 
 export type AgentModelInput = unknown
 
+export type AgentModelResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = MaybeResolvable<AgentModelInput, AgentAdapterMetadataContext<TRuntimeConfig, Name>>
+
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
   model: AgentModelInput
@@ -139,15 +193,17 @@ type AgentSettingsBase<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > = {
-  adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentChatAgentHooks<TRuntimeConfig>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
-  tools?: AgentToolResolverWithWorkspace<TRuntimeConfig>
+  capabilities?: AgentCapabilitiesList<TRuntimeConfig>
+  model?: AgentModelResolver<TRuntimeConfig>
+  provider?: AgentModelProvider
   runtime?: AgentRuntimeBinding
-  workspace?: WorkspaceAgentWorkspaceOptions
+  tools?: never
+  workspace?: WorkspaceAgentWorkspaceConfig
   [key: string]: unknown
 }
 
@@ -156,16 +212,11 @@ export type AgentSettings<
   CALL_OPTIONS = unknown,
 > = AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS> & (
   | {
-    adapter: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
-    run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
-  }
-  | {
-    adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
-    adapter?: AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>
-    model: unknown
+    model: NonNullable<AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS>["model"]>
+    provider: NonNullable<AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS>["provider"]>
     run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )
@@ -174,18 +225,18 @@ export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > {
+  capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentChatAgentHooks<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
-  workspace?: WorkspaceAgentWorkspaceOptions
+  workspace?: WorkspaceAgentWorkspaceConfig
 }
 
 export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
-  | AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig>
-  | AgentAdapter<unknown, TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig>
+  AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   | { default?: AgentInput<TContext> }
@@ -194,9 +245,7 @@ export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = Agen
 export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
-export interface AgentModelProviderOptions {
-  provider?: "ai-sdk" | "auto" | "tanstack-ai" | (string & {})
-}
+export type AgentModelProvider = "ai-sdk" | "tanstack-ai" | (string & {})
 
 export interface AgentStateProviderOptions {
   provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
@@ -216,7 +265,6 @@ export interface AgentIntegrationsOptions {
 }
 
 export interface AgentProvidersOptions {
-  model?: AgentModelProviderOptions
   sandbox?: AgentSandboxProviderOptions
   scheduler?: AgentSchedulerProviderOptions
   state?: AgentStateProviderOptions
@@ -236,7 +284,6 @@ export interface ResolvedAgentModuleOptions {
   imports: boolean
   integrations: Required<AgentIntegrationsOptions>
   providers: {
-    model: Required<AgentModelProviderOptions>
     sandbox: Required<AgentSandboxProviderOptions>
     scheduler: Required<AgentSchedulerProviderOptions>
     state: Required<AgentStateProviderOptions>
@@ -352,7 +399,11 @@ export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
 
 export type AgentToolSet = Record<string, AgentToolDefinition>
 
-export interface WorkspaceAgentWorkspaceOptions extends Omit<WorkspaceDefinitionInput, "name"> {}
+export interface WorkspaceAgentWorkspaceOptions extends Omit<WorkspaceDefinitionInput, "name"> {
+  mode?: AgentCapabilityMode
+}
+
+export type WorkspaceAgentWorkspaceConfig = WorkspaceName | WorkspaceAgentWorkspaceOptions
 
 export interface AgentDevtoolsFileTreeItem {
   children?: AgentDevtoolsFileTreeItem[]

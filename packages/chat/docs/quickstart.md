@@ -47,17 +47,17 @@ export default defineNitroConfig({
 ### Define a chat Agent
 
 ```ts [server/agents/triage.ts]
-import { defineAgent, defineTool } from '@vitehub/agent'
+import { defineAgent, type AgentToolDefinition } from '@vitehub/agent'
 import { getMessageText } from '@vitehub/messages'
 
-const classifyMessage = defineTool<{ message: string }, { queue: string; priority: string }>({
+const classifyMessage: AgentToolDefinition<{ message: string }, { queue: string; priority: string }> = {
   name: 'classifyMessage',
   description: 'Classify an incoming chat message before queue handoff.',
   execute: ({ message }) => ({
     queue: /refund|invoice|payment/i.test(message) ? 'billing' : 'product',
     priority: /urgent|down|broken/i.test(message) ? 'urgent' : 'normal',
   }),
-})
+}
 
 export default defineAgent({
   chat: {

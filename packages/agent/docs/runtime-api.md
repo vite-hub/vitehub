@@ -13,14 +13,19 @@ Use this page for exact names and shapes. For setup, start with [Quickstart](./q
 
 ```ts
 import {
+  bash,
+  blob,
+  db,
   defineAgent,
-  defineTool,
+  defineCapability,
   getAgent,
+  kv,
+  mcp,
   runAgent,
+  sandbox,
+  skills,
   streamAgent,
 } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
-import { tanstackAiAdapter } from '@vitehub/agent/tanstack-ai'
 ```
 
 ::fw{id="vite:dev vite:build"}
@@ -42,45 +47,72 @@ export default defineNitroConfig({
 ```ts
 defineAgent({
   description?: string
-  adapter?: AgentAdapter | AgentAdapterFactory
+  capabilities?: AgentCapabilityDefinition[]
+  instructions?: AgentAdapterInstructions
+  model?: unknown
+  provider?: 'ai-sdk' | 'tanstack-ai' | string
   run?: AgentRunHandler
-  workspace?: WorkspaceAgentWorkspaceOptions
+  workspace?: string | ({ mode?: 'read' | 'write' } & WorkspaceAgentWorkspaceOptions)
 })
 ```
 
-Adapters own library-specific model, instruction, tool, and generation options. ViteHub owns runtime context, message input, tool policy, workspace integration, and chat handoff.
+Capabilities are the public model-facing extension surface. `provider` explicitly selects the model runtime; ViteHub does not infer it from installed packages or model object shape.
 
 ```ts
 defineAgent({
-  adapter: aiSdkAdapter({
-    model,
-    instructions: 'Use workspace sources.',
-    tools: ({ workspace }) => workspace.tools.inspect(),
-    options: {
-      providerOptions: {
-        openai: { reasoningEffort: 'medium' },
-      },
+  workspace: {
+    mode: 'read',
+    sources,
+  },
+  capabilities: [
+    bash(),
+  ],
+  instructions: 'Use workspace sources.',
+  model,
+  provider: 'ai-sdk',
+  options: {
+    providerOptions: {
+      openai: { reasoningEffort: 'medium' },
     },
-  }),
+  },
 })
 ```
 
-Use `tanstackAiAdapter()` from `@vitehub/agent/tanstack-ai` for TanStack AI. Adapter option objects forward unknown fields to the underlying library so new provider options are not blocked on ViteHub releases.
+Provider option objects forward unknown fields to the underlying library so new provider options are not blocked on ViteHub releases.
 
-Workspace agents do not attach workspace tools automatically. The `workspace` option defines the source mounts; the `tools` resolver decides what the model can use at runtime.
+Workspace agents do not attach workspace tools automatically. The `workspace` option defines the explicit primary filesystem boundary; capabilities decide what the model can use at runtime.
 
 ```ts
 defineAgent({
-  workspace: { sources },
-  adapter: aiSdkAdapter({
-    instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
-    tools: ({ workspace }) => workspace.tools.inspect(),
-    model,
-  }),
+  workspace: { mode: 'read', sources },
+  capabilities: [
+    bash(),
+  ],
+  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+  model,
+  provider: 'ai-sdk',
 })
 ```
 
-The resolver receives the same runtime context as `instructions`, plus `fs` and the workspace facade. Use `workspace.tools.inspect()` for the default read-only shell inspection tool, `workspace.tools.none()` for no tools, and `workspace.tools.write()` only with mutable workspace access.
+Use `bash()` for default read-only workspace shell inspection. Use `bash({ mode: 'write' })` only with `workspace.mode: 'write'`. Use inline or factory capabilities to expose raw tools:
+
+```ts
+defineAgent({
+  capabilities: [
+    defineCapability({
+      id: 'custom-tools',
+      tools: {
+        lookup: {
+          name: 'lookup',
+          execute: async input => input,
+        },
+      },
+    }),
+  ],
+  model,
+  provider: 'ai-sdk',
+})
+```
 
 ## Run input
 
@@ -121,7 +153,6 @@ interface AgentModuleOptions {
     sandbox?: 'auto' | boolean
   }
   providers?: {
-    model?: { provider?: 'auto' | 'ai-sdk' | 'tanstack-ai' | string }
     state?: { provider?: 'auto' | 'memory' | 'cloudflare-agents' | string }
     scheduler?: { provider?: 'auto' | 'memory' | 'cloudflare-agents' | string }
     sandbox?: { provider?: 'auto' | 'cloudflare' | 'vercel' | string }
@@ -132,11 +163,11 @@ interface AgentModuleOptions {
 ## Tool policy
 
 ```ts
-defineTool({
+const refundTool = {
   name: 'refund',
   description: 'Refund an order',
   policy: 'require-approval',
-})
+}
 ```
 
 Tool policy metadata travels with the tool definition. Runtime enforcement belongs to the executor that receives the tool handle.

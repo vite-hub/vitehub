@@ -24,13 +24,11 @@ Use a default export for one agent per file:
 
 ```ts [server/agents/triager.ts]
 import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 
 export default defineAgent({
-  adapter: aiSdkAdapter({
-    model,
-    instructions: 'Triage support requests.',
-  }),
+  instructions: 'Triage support requests.',
+  model,
+  provider: 'ai-sdk',
 })
 ```
 
@@ -38,13 +36,11 @@ Use named exports when one file owns several agents:
 
 ```ts [server/agent.ts]
 import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
 
 export const triager = defineAgent({
-  adapter: aiSdkAdapter({
-    model,
-    instructions: 'Triage support requests.',
-  }),
+  instructions: 'Triage support requests.',
+  model,
+  provider: 'ai-sdk',
 })
 ```
 
@@ -87,10 +83,10 @@ Pass a route string when `/agents/[agent]` does not fit your app.
 Use `run` when the default model call is not the right shape.
 
 ```ts [server/agents/support.ts]
-import { defineAgent, defineTool } from '@vitehub/agent'
+import { defineAgent, type AgentToolDefinition } from '@vitehub/agent'
 import { getMessageText } from '@vitehub/messages'
 
-const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+const classifyTicket: AgentToolDefinition<{ message: string }, { queue: string; priority: string }> = {
   name: 'classifyTicket',
   description: 'Classify a support request before queue handoff.',
   policy: ({ input }) => {
@@ -104,7 +100,7 @@ const classifyTicket = defineTool<{ message: string }, { queue: string; priority
     queue: /down|broken|500|urgent/i.test(message) ? 'incident' : 'product',
     priority: /down|broken|500|urgent/i.test(message) ? 'urgent' : 'normal',
   }),
-})
+}
 
 export default defineAgent({
   description: 'Triage support requests',
@@ -162,15 +158,14 @@ export default defineChat({
 })
 ```
 
-## Use Workspace tools
+## Use Workspace capabilities
 
 Use `defineAgent()` with a `workspace` option from a colocated agent config when an agent answers from ViteHub Workspace sources. `workspace` mounts the sources only; it does not expose model tools by itself.
 
-Add a `tools` resolver when the model should inspect the mounted files:
+Add `bash()` when the model should inspect the mounted files:
 
 ```ts [server/agents/data-sources/config.ts]
-import { defineAgent } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { bash, defineAgent } from '@vitehub/agent'
 import * as source from '@vitehub/workspace/source'
 
 export default defineAgent({
@@ -179,10 +174,11 @@ export default defineAgent({
       docs: source.github({ repo: 'acme/docs', cache: { maxAge: 3600 } }),
     },
   },
-  adapter: aiSdkAdapter({
-    tools: ({ workspace }) => workspace.tools.inspect(),
-    model,
-  }),
+  capabilities: [
+    bash(),
+  ],
+  model,
+  provider: 'ai-sdk',
 })
 ```
 
@@ -195,11 +191,12 @@ export default defineAgent({
       docs: source.github({ repo: 'acme/docs' }),
     },
   },
-  adapter: aiSdkAdapter({
-    instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
-    tools: ({ workspace }) => workspace.tools.inspect(),
-    model,
-  }),
+  capabilities: [
+    bash(),
+  ],
+  instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
+  model,
+  provider: 'ai-sdk',
 })
 ```
 
@@ -208,29 +205,33 @@ Instruction parts can also be composed with an array:
 ```ts
 export default defineAgent({
   workspace: {},
-  adapter: aiSdkAdapter({
-    instructions: [
-      'Answer only from inspected workspace evidence.',
-      async ({ fs }) => await fs.readFile('AGENTS.md'),
-    ],
-    tools: ({ workspace }) => workspace.tools.inspect(),
-    model,
-  }),
+  capabilities: [
+    bash(),
+  ],
+  instructions: [
+    'Answer only from inspected workspace evidence.',
+    async ({ fs }) => await fs.readFile('AGENTS.md'),
+  ],
+  model,
+  provider: 'ai-sdk',
 })
 ```
 
 ### Migration note
 
-Workspace sources no longer imply model tools. Replace older workspace agents that relied on implicit tools with an explicit resolver:
+Workspace sources do not imply model tools. Replace older workspace agents that relied on root or adapter-level tools with explicit capabilities:
 
 ```diff
+ import { bash, defineAgent } from '@vitehub/agent'
+
  export default defineAgent({
    workspace: { sources },
-+  adapter: aiSdkAdapter({
-+    tools: ({ workspace }) => workspace.tools.inspect(),
-+    model,
-+  }),
++  capabilities: [
++    bash(),
++  ],
++  model,
++  provider: 'ai-sdk',
  })
 ```
 
-Use `workspace.tools.none()` when a resolver needs to return an empty tool set, and reserve `workspace.tools.write()` for agents that intentionally receive mutable workspace access.
+Use `bash({ mode: 'write' })` only with `workspace.mode: 'write'`. Raw tools should be wrapped in inline or factory capabilities instead of `defineAgent({ tools })`.

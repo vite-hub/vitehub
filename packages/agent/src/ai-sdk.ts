@@ -349,7 +349,11 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     ? await options.instrumentModel({ ...context.runtime, model, run: context.runtime.run })
     : model
   const instructions = context.instructions ?? await resolveInstructions(options, metadataContext)
-  const tools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
+  const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
+  const tools = {
+    ...(context.tools || {}),
+    ...(adapterTools || {}),
+  }
   const {
     fallback: _fallback,
     instructions: _instructions,
@@ -368,14 +372,14 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
       instructions,
       model: instrumentedModel as never,
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? stepCountIs(stepLimit ?? 20)) as never,
-      ...(tools ? { tools: tools as never } : {}),
+      ...(Object.keys(tools).length ? { tools: tools as never } : {}),
     }),
     model: instrumentedModel,
-    tools,
+    tools: Object.keys(tools).length ? tools : undefined,
   }
 }
 
-export function aiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
+export function createAiSdkProviderAdapter(options: AiSdkAdapterOptions): AgentAdapter {
   const staticTools = typeof options.tools === "object" && options.tools
     ? withAgentToolStepReporting(applyAgentToolPolicies(options.tools as AgentToolSet) || {})
     : undefined

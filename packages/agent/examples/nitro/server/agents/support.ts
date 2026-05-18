@@ -1,9 +1,9 @@
-import { defineAgent, defineTool } from "@vitehub/agent"
+import { defineAgent, type AgentToolDefinition } from "@vitehub/agent"
 import { getMessageText } from "@vitehub/messages"
 
 type Queue = "billing" | "incident" | "product"
 
-const classifyTicket = defineTool<{ message: string }, { queue: Queue, priority: "normal" | "urgent", summary: string }>({
+const classifyTicket: AgentToolDefinition<{ message: string }, { queue: Queue, priority: "normal" | "urgent", summary: string }> = {
   name: "classifyTicket",
   description: "Classify a support request before it is handed to a queue.",
   policy: ({ input }) => {
@@ -26,7 +26,7 @@ const classifyTicket = defineTool<{ message: string }, { queue: Queue, priority:
       summary: message.slice(0, 140),
     }
   },
-})
+}
 
 export default defineAgent({
   description: "Triage support requests and prepare a queue handoff.",

@@ -46,52 +46,54 @@ export default defineNitroConfig({
 
 ::fw{id="vite:dev vite:build"}
 ```ts [server/agents/triager.ts]
-import { defineAgent, defineTool } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { defineAgent, type AgentToolDefinition } from '@vitehub/agent'
 import { gateway } from '@ai-sdk/gateway'
 
-const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+const classifyTicket: AgentToolDefinition<{ message: string }, { queue: string; priority: string }> = {
   name: 'classifyTicket',
   description: 'Classify a support request before queue handoff.',
   execute: ({ message }) => ({
     queue: /refund|invoice|payment/i.test(message) ? 'billing' : 'product',
     priority: /urgent|down|broken/i.test(message) ? 'urgent' : 'normal',
   }),
-})
+}
 
 export default defineAgent({
-  description: 'Triage support requests and prepare a queue handoff.',
-  adapter: aiSdkAdapter({
-    model: gateway('openai/gpt-5.1-mini'),
-    instructions: 'Classify support requests and prepare queue handoff.',
+  capabilities: [{
+    id: 'support-triage',
     tools: { classifyTicket },
-  }),
+  }],
+  description: 'Triage support requests and prepare a queue handoff.',
+  instructions: 'Classify support requests and prepare queue handoff.',
+  model: gateway('openai/gpt-5.1-mini'),
+  provider: 'ai-sdk',
 })
 ```
 ::
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/agents/triager.ts]
-import { defineAgent, defineTool } from '@vitehub/agent'
-import { aiSdkAdapter } from '@vitehub/agent/ai-sdk'
+import { defineAgent, type AgentToolDefinition } from '@vitehub/agent'
 import { gateway } from '@ai-sdk/gateway'
 
-const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+const classifyTicket: AgentToolDefinition<{ message: string }, { queue: string; priority: string }> = {
   name: 'classifyTicket',
   description: 'Classify a support request before queue handoff.',
   execute: ({ message }) => ({
     queue: /refund|invoice|payment/i.test(message) ? 'billing' : 'product',
     priority: /urgent|down|broken/i.test(message) ? 'urgent' : 'normal',
   }),
-})
+}
 
 export default defineAgent({
-  description: 'Triage support requests and prepare a queue handoff.',
-  adapter: aiSdkAdapter({
-    model: gateway('openai/gpt-5.1-mini'),
-    instructions: 'Classify support requests and prepare queue handoff.',
+  capabilities: [{
+    id: 'support-triage',
     tools: { classifyTicket },
-  }),
+  }],
+  description: 'Triage support requests and prepare a queue handoff.',
+  instructions: 'Classify support requests and prepare queue handoff.',
+  model: gateway('openai/gpt-5.1-mini'),
+  provider: 'ai-sdk',
 })
 ```
 ::

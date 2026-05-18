@@ -7,15 +7,15 @@ icon: i-lucide-bot
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/agent` defines server-side agents. An agent owns model instructions, tools, and the run or stream call that produces a response. It consumes `@vitehub/runtime` capabilities when it needs host resources.
+`@vitehub/agent` defines server-side agents. An agent owns model instructions, model-facing capabilities, and the run or stream call that produces a response. It consumes `@vitehub/runtime` capabilities when it needs host resources.
 
 Use Agent when a server feature needs a model loop with ViteHub message input.
 
 ```ts [server/agents/triager.ts]
-import { defineAgent, defineTool } from '@vitehub/agent'
+import { defineAgent, type AgentToolDefinition } from '@vitehub/agent'
 import { getMessageText } from '@vitehub/messages'
 
-const classifyTicket = defineTool<{ message: string }, { queue: string; priority: string }>({
+const classifyTicket: AgentToolDefinition<{ message: string }, { queue: string; priority: string }> = {
   name: 'classifyTicket',
   description: 'Classify a support request before queue handoff.',
   policy: ({ input }) => {
@@ -25,7 +25,7 @@ const classifyTicket = defineTool<{ message: string }, { queue: string; priority
 
     return /refund|invoice|payment/i.test(message) ? 'require-approval' : 'allow'
   },
-})
+}
 
 export default defineAgent({
   description: 'Triage support requests and prepare a queue handoff.',
@@ -49,7 +49,7 @@ export default defineAgent({
   icon: i-lucide-bot
   title: Agent definitions
   ---
-  Keep model instructions, tools, and custom run behavior in `defineAgent()`.
+  Keep model instructions, capabilities, and custom run behavior in `defineAgent()`.
   :::
 
   :::card
