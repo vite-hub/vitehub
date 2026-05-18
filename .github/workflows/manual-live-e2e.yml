@@ -426,12 +426,36 @@ jobs:
         id: deploy_vercel
         if: matrix.provider == 'vercel'
         env:
+          BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_token }}
+          KV_REST_API_TOKEN: ${{ steps.prepare_vercel.outputs.kv_token }}
+          KV_REST_API_URL: ${{ steps.prepare_vercel.outputs.kv_url }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
+          VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VITEHUB_HOSTING: vercel
+          VITEHUB_WORKSPACE_BLOB_PREFIX: vitehub/workspace-e2e/${{ matrix.framework }}
         run: |
           APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
-          DEPLOYMENT_URL=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
+          DEPLOYMENT_URL=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy \
+            --cwd "$APP_DIR" \
+            --prebuilt \
+            --prod \
+            --yes \
+            --token "$VERCEL_TOKEN" \
+            -e "BLOB_READ_WRITE_TOKEN=$BLOB_READ_WRITE_TOKEN" \
+            -e "KV_REST_API_TOKEN=$KV_REST_API_TOKEN" \
+            -e "KV_REST_API_URL=$KV_REST_API_URL" \
+            -e "TURSO_AUTH_TOKEN=$TURSO_AUTH_TOKEN" \
+            -e "TURSO_DATABASE_URL=$TURSO_DATABASE_URL" \
+            -e "VERCEL_PROJECT_ID=$VERCEL_PROJECT_ID" \
+            -e "VERCEL_TEAM_ID=$VERCEL_TEAM_ID" \
+            -e "VERCEL_TOKEN=$VERCEL_TOKEN" \
+            -e "VITEHUB_HOSTING=$VITEHUB_HOSTING" \
+            -e "VITEHUB_WORKSPACE_BLOB_PREFIX=$VITEHUB_WORKSPACE_BLOB_PREFIX" \
+            | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
           if [ -z "$DEPLOYMENT_URL" ]; then
             echo "Failed to capture Vercel deployment URL." >&2
             exit 1
