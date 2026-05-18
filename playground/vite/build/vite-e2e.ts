@@ -636,13 +636,19 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `import { resolveAppFetch } from ${JSON.stringify(createImportPath(file, resolveApp))}`,
     `import { setQueueRuntimeConfig, setQueueRuntimeRegistry, runWithQueueRuntimeEvent } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, runWithWorkflowRuntimeEvent } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
-    `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
+    `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
     `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/runtime/state.ts")))}`,
     `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/runtime/state.ts")))}`,
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
   ]
   if (preloadVercelQueue) {
     imports.push("import * as __vitehubVercelQueue from '@vercel/queue'")
+  }
+
+  if (options.blob && options.blob.store.driver === "vercel-blob") {
+    imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/config.ts")))}`)
+    imports.push(`import { createDriver as createVercelBlobDriver } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/drivers/vercel.ts")))}`)
+    imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/storage.ts")))}`)
   }
 
   if (workspaceProvider === "vercel-blob") {
@@ -676,6 +682,9 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     "setWorkflowRuntimeConfig(workflowConfig)",
     `setWorkflowRuntimeRegistry(${artifacts.workflowRegistryFile ? "workflowRegistry" : "undefined"})`,
     "setBlobRuntimeConfig(blobConfig)",
+    options.blob && options.blob.store.driver === "vercel-blob"
+      ? "setBlobRuntimeStorage(createBlobStorage(createVercelBlobDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env))))"
+      : "setBlobRuntimeStorage(undefined)",
     "setSandboxRuntimeConfig(sandboxConfig)",
     `setSandboxRuntimeRegistry(${artifacts.alias["virtual:vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",

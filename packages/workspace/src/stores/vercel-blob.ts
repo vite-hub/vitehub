@@ -1,3 +1,6 @@
+import { Files } from "files-sdk"
+import { vercelBlob } from "files-sdk/vercel-blob"
+
 import { WorkspaceError } from "../errors.ts"
 import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../path.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../store-provider.ts"
@@ -42,10 +45,6 @@ function contentType(path: string, fallback?: string) {
 }
 
 async function createVercelFiles(options: VercelBlobWorkspaceStoreOptions) {
-  const [{ Files }, { vercelBlob }] = await Promise.all([
-    import("files-sdk"),
-    import("files-sdk/vercel-blob"),
-  ])
   return new Files({
     adapter: vercelBlob({
       access: options.access || "private",

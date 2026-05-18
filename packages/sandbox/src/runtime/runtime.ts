@@ -107,6 +107,7 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
 
         for (let attempt = 0; attempt < attempts; attempt++) {
           let sandbox: SandboxClient | undefined
+          let retryingStartup = false
 
           try {
             const createdSandbox = await runtimeProvider.createSandboxClient(
@@ -136,10 +137,12 @@ const sandboxPort: ProviderPort<SandboxProviderOptions, SandboxRunner, SandboxRu
             if (!shouldRetry)
               throw sandboxError
 
+            retryingStartup = true
             await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
           }
           finally {
-            await sandbox?.stop().catch(() => {})
+            if (!retryingStartup)
+              await sandbox?.stop().catch(() => {})
           }
         }
 
