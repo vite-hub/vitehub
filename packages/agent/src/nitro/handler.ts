@@ -213,25 +213,22 @@ function getAgentCapabilities(agent: AgentInput<NitroAgentRuntimeContext>) {
     || []
 }
 
-function getAgentWorkspaceName(agent: AgentInput<NitroAgentRuntimeContext>, agentName?: string): string | undefined {
+function getAgentWorkspaceName(agent: AgentInput<NitroAgentRuntimeContext>): string | undefined {
   const defaults = (agent as { __vitehubWorkspaceAgentDefaults?: { workspace?: string, name?: string } }).__vitehubWorkspaceAgentDefaults
-  const options = (agent as { __vitehubWorkspaceAgentOptions?: { name?: string, workspace?: { name?: string } | string } }).__vitehubWorkspaceAgentOptions
+  const options = (agent as { __vitehubWorkspaceAgentOptions?: { workspace?: { name?: string } | string } }).__vitehubWorkspaceAgentOptions
   const optionWorkspace = options?.workspace
   const definitionWorkspace = (agent as { workspace?: { name?: string } | string }).workspace
 
   if (defaults?.workspace) return defaults.workspace
-  if (defaults?.name) return defaults.name
-  if (options?.name) return options.name
   if (typeof optionWorkspace === "string") return optionWorkspace
   if (typeof optionWorkspace === "object" && optionWorkspace?.name) return optionWorkspace.name
   if (typeof definitionWorkspace === "string") return definitionWorkspace
   if (typeof definitionWorkspace === "object" && definitionWorkspace?.name) return definitionWorkspace.name
-  return agentName
 }
 
-async function createChatState(agent: AgentInput<NitroAgentRuntimeContext>, history: unknown, agentName?: string): Promise<StateAdapter> {
+async function createChatState(agent: AgentInput<NitroAgentRuntimeContext>, history: unknown): Promise<StateAdapter> {
   if (!history) return createMemoryChatStateAdapter()
-  const workspaceName = getAgentWorkspaceName(agent, agentName)
+  const workspaceName = getAgentWorkspaceName(agent)
   if (!workspaceName) {
     throw createError({
       statusCode: 500,
@@ -340,7 +337,7 @@ export function defineAgentChatRegistryHandler(
       throw createError({ statusCode: 404, statusMessage: `Agent "${agentName}" does not define chat().` })
     }
     const context = { ...createRuntimeContext(event), platform } as NitroAgentRuntimeContext
-    const state = await createChatState(agent, capability.options.history, agentName)
+    const state = await createChatState(agent, capability.options.history)
     const bot = await createChatBot(agent as never, capability.options as never, context as never, state, agentName)
     const webhook = getChatWebhook(bot, platform)
     if (!webhook) {
@@ -349,3 +346,5 @@ export function defineAgentChatRegistryHandler(
     return await webhook(context.request!, { waitUntil: task => event.waitUntil(task) })
   })
 }
+
+export const defineAgentChatWebhookHandler: typeof defineAgentChatRegistryHandler = defineAgentChatRegistryHandler

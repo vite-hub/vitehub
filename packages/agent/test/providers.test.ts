@@ -172,6 +172,37 @@ describe("Nitro helpers", () => {
 
     expect(result).toMatchObject({ text: "still readable" })
   })
+
+  it("exports the chat webhook handler used by chat capability route metadata", async () => {
+    const { defineAgentChatRegistryHandler, defineAgentChatWebhookHandler } = await import("../src/nitro.ts")
+
+    expect(defineAgentChatWebhookHandler).toBe(defineAgentChatRegistryHandler)
+  })
+
+  it("requires an explicit workspace for chat history webhooks", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
+    const agent = defineAgent({
+      capabilities: [chat({ adapters: {}, history: { source: "thread" } })],
+      run: vi.fn(() => ({ text: "ok" })),
+    })
+    const handler = defineAgentChatRegistryHandler({
+      support: async () => ({ default: agent as never }),
+    })
+    const request = new Request("https://example.com/agents/support/chat/slack", { method: "POST" })
+    const event = {
+      context: { params: { agent: "support", platform: "slack" } },
+      req: request,
+      url: "https://example.com/agents/support/chat/slack",
+      waitUntil: vi.fn(),
+    }
+
+    await expect(handler(event as never)).rejects.toMatchObject({
+      statusCode: 500,
+      statusMessage: "chat({ history }) requires an agent workspace.",
+    })
+  })
 })
 
 describe("agent registry helpers", () => {

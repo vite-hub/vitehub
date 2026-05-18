@@ -86,8 +86,9 @@ export interface AgentCapabilityDefinition<
 export interface AgentCapabilityContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig, Name>, "runtime"> {
+> extends Omit<AgentAdapterMetadataContext<TRuntimeConfig, Name>, "fs" | "runtime" | "workspace"> {
   capability: AgentCapabilityDefinition<unknown, TRuntimeConfig, Name>
+  fs?: ReadonlyWorkspaceFacade<Name>["fs"]
   instructions: {
     add: (instructions: string | false | undefined, options?: { id?: string }) => void
   }
@@ -119,6 +120,7 @@ export interface AgentCapabilityContext<
     add: (tools: AgentToolSet | undefined) => void
     transform: (transform: AgentToolTransform) => void
   }
+  workspace?: ReadonlyWorkspaceFacade<Name>
 }
 
 export interface AgentCapabilityOptions<
@@ -227,88 +229,88 @@ export async function resolveAgentCapabilities<
   try {
     for (const capability of capabilities) {
       const capabilityContext: AgentCapabilityContext<TRuntimeConfig, Name> = {
-      ...runtime,
-      capability: capability as AgentCapabilityDefinition<unknown, TRuntimeConfig, Name>,
-      fs: workspace?.fs as ReadonlyWorkspaceFacade<Name>["fs"],
-      instructions: {
-        add(value, blockOptions) {
-          if (value === false || value === undefined) return
-          const instructions = value.trim()
-          if (instructions) {
-            capabilityInstructions.push({
-              id: blockOptions?.id || capability.id,
-              instructions,
-            })
-          }
-        },
-      },
-      invocations: {
-        add(name, handler) {
-          if (registries.invocations.some(invocation => invocation.name === name)) {
-            throw new Error(`[vitehub] Duplicate capability invocation "${name}".`)
-          }
-          registries.invocations.push({ handler, name })
-        },
-      },
-      input: {
-        get: () => currentInput,
-        messages: () => messages,
-        set(value) {
-          currentInput = value
-          messages = getRunMessages(currentInput)
-        },
-        setMessages(value) {
-          messages = value
-          currentInput = withMessages(currentInput, messages)
-        },
-      },
-      output: {
-        render(renderer) {
-          registries.outputRenderers.push(result => renderer(result, capabilityContext))
-        },
-      },
-      routes: {
-        add(route) {
-          if (registries.routes.some(item => item.route === route.route && (item.method || "POST") === (route.method || "POST"))) {
-            throw new Error(`[vitehub] Duplicate capability route "${route.method || "POST"} ${route.route}".`)
-          }
-          registries.routes.push(route)
-        },
-      },
-      runtime: {
-        alias(alias) {
-          if (registries.runtimeAliases.some(item => item.find === alias.find)) {
-            throw new Error(`[vitehub] Duplicate capability runtime alias "${alias.find}".`)
-          }
-          registries.runtimeAliases.push(alias)
-        },
-        files: {
-          add(file) {
-            if (registries.runtimeFiles.some(item => item.path === file.path)) {
-              throw new Error(`[vitehub] Duplicate capability runtime file "${file.path}".`)
+        ...runtime,
+        capability: capability as AgentCapabilityDefinition<unknown, TRuntimeConfig, Name>,
+        fs: workspace?.fs,
+        instructions: {
+          add(value, blockOptions) {
+            if (value === false || value === undefined) return
+            const instructions = value.trim()
+            if (instructions) {
+              capabilityInstructions.push({
+                id: blockOptions?.id || capability.id,
+                instructions,
+              })
             }
-            registries.runtimeFiles.push(file)
           },
         },
-      },
-      state: {
-        require(name, stateOptions) {
-          if (!registries.stateRequirements.some(requirement => requirement.name === name)) {
-            registries.stateRequirements.push({ name, optional: stateOptions?.optional })
-          }
+        invocations: {
+          add(name, handler) {
+            if (registries.invocations.some(invocation => invocation.name === name)) {
+              throw new Error(`[vitehub] Duplicate capability invocation "${name}".`)
+            }
+            registries.invocations.push({ handler, name })
+          },
         },
-      },
-      tools: {
-        add(value) {
-          if (!value) return
-          tools = { ...(tools || {}), ...value }
+        input: {
+          get: () => currentInput,
+          messages: () => messages,
+          set(value) {
+            currentInput = value
+            messages = getRunMessages(currentInput)
+          },
+          setMessages(value) {
+            messages = value
+            currentInput = withMessages(currentInput, messages)
+          },
         },
-        transform(transform) {
-          toolTransforms.push(transform)
+        output: {
+          render(renderer) {
+            registries.outputRenderers.push(result => renderer(result, capabilityContext))
+          },
         },
-      },
-      workspace: workspace as ReadonlyWorkspaceFacade<Name>,
-    }
+        routes: {
+          add(route) {
+            if (registries.routes.some(item => item.route === route.route && (item.method || "POST") === (route.method || "POST"))) {
+              throw new Error(`[vitehub] Duplicate capability route "${route.method || "POST"} ${route.route}".`)
+            }
+            registries.routes.push(route)
+          },
+        },
+        runtime: {
+          alias(alias) {
+            if (registries.runtimeAliases.some(item => item.find === alias.find)) {
+              throw new Error(`[vitehub] Duplicate capability runtime alias "${alias.find}".`)
+            }
+            registries.runtimeAliases.push(alias)
+          },
+          files: {
+            add(file) {
+              if (registries.runtimeFiles.some(item => item.path === file.path)) {
+                throw new Error(`[vitehub] Duplicate capability runtime file "${file.path}".`)
+              }
+              registries.runtimeFiles.push(file)
+            },
+          },
+        },
+        state: {
+          require(name, stateOptions) {
+            if (!registries.stateRequirements.some(requirement => requirement.name === name)) {
+              registries.stateRequirements.push({ name, optional: stateOptions?.optional })
+            }
+          },
+        },
+        tools: {
+          add(value) {
+            if (!value) return
+            tools = { ...(tools || {}), ...value }
+          },
+          transform(transform) {
+            toolTransforms.push(transform)
+          },
+        },
+        workspace,
+      }
 
       closeCallbacks.push(async () => {
         await callHooks("capability:close", capabilityContext, options?.hooks)
