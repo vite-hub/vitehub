@@ -851,9 +851,21 @@ describe("agent capabilities", () => {
   })
 
   it("enforces memory write mode and policy for the selected store", async () => {
+    const writableRecord = {
+      content: "Keep this.",
+      createdAt: "2026-05-18T00:00:00.000Z",
+      digest: "sha256:test",
+      id: "mem_1",
+      kind: "semantic" as const,
+      scope: { agent: "support" },
+      status: "active" as const,
+      store: "agent",
+      updatedAt: "2026-05-18T00:00:00.000Z",
+      version: 1,
+    }
     const writable = {
-      append: vi.fn(async () => ({ action: "created" as const, item: { id: "mem_1" } })),
-      delete: vi.fn(async () => ({ ok: true as const })),
+      append: vi.fn(async () => ({ action: "created" as const, item: writableRecord })),
+      delete: vi.fn(async request => ({ deletedId: request.id, ok: true as const, tombstoneId: "mem_del_1" })),
       export: vi.fn(async () => ({ items: [] })),
       read: vi.fn(),
       search: vi.fn(),

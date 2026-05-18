@@ -56,6 +56,59 @@ describe("workspace public API", () => {
     expect(await workspace.fs.glob("**/*.md")).toHaveLength(3)
   })
 
+  it("enforces workspace rules before writes reach the store", async () => {
+    registerWorkspace("rules", defineWorkspace({
+      store: { provider: "memory" },
+      rules: {
+        "/**": { write: false },
+        "/generated/**": { maxBytes: "1kb", write: true },
+        "/docs/**/*.md": {
+          mediaType: "text/markdown",
+          validate(input) {
+            if (typeof input.content === "string" && input.content.includes("<script")) return false
+          },
+          write: true,
+        },
+      },
+    }))
+
+    const workspace = useWorkspace("rules", { allowWrite: true })
+
+    await expect(workspace.fs.writeFile("README.md", "# Blocked\n")).rejects.toThrow("does not allow writeFile")
+    await expect(workspace.fs.writeFile("generated/result.txt", "ok")).resolves.toBeUndefined()
+    await expect(workspace.fs.writeFile("generated/large.txt", "x".repeat(1025))).rejects.toThrow("limits writes")
+    await expect(workspace.fs.writeFile("docs/guide.md", "# Guide\n", { mediaType: "text/plain" })).rejects.toThrow("does not allow media type")
+    await expect(workspace.fs.writeFile("docs/guide.md", "<script />\n", { mediaType: "text/markdown" })).rejects.toThrow("validator rejected")
+    await expect(workspace.fs.writeFile("docs/guide.md", "# Guide\n", { mediaType: "text/markdown" })).resolves.toBeUndefined()
+  })
+
+  it("merges workspace plugin rules and hooks into the write pipeline", async () => {
+    const events: string[] = []
+    registerWorkspace("plugin-rules", defineWorkspace({
+      store: { provider: "memory" },
+      plugins: [{
+        id: "docs",
+        hooks: {
+          "write:after": ({ operation, path }) => {
+            events.push(`${operation}:${path}`)
+          },
+        },
+        rules: {
+          "/docs/**": { write: true },
+        },
+      }],
+      rules: {
+        "/**": { write: false },
+      },
+    }))
+
+    const workspace = useWorkspace("plugin-rules", { allowWrite: true })
+
+    await workspace.fs.writeFile("docs/notes.md", "notes")
+    await expect(workspace.fs.writeFile("tmp/notes.md", "notes")).rejects.toThrow("does not allow writeFile")
+    expect(events).toEqual(["writeFile:docs/notes.md"])
+  })
+
   it("uses the read-only facade for bundled assets", async () => {
     setWorkspaceRuntimeAssetsRegistry({
       docs: createWorkspaceAssets({

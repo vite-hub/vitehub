@@ -44,6 +44,59 @@ export interface RmOptions {
   force?: boolean
 }
 
+export type WorkspaceWriteOperation = "writeFile" | "mkdir" | "rm"
+
+export type WorkspaceWriteMode = boolean | "create" | "update" | "delete"
+
+export interface WorkspaceWriteInput {
+  workspace: string
+  operation: WorkspaceWriteOperation
+  path: string
+  content?: WorkspaceContent
+  mediaType?: string
+  previous?: WorkspaceStat
+  rule?: ResolvedWorkspaceRule
+}
+
+export type WorkspaceWriteValidatorResult = boolean | void | WorkspaceWriteInput
+
+export type WorkspaceWriteValidator =
+  (input: WorkspaceWriteInput) => WorkspaceWriteValidatorResult | Promise<WorkspaceWriteValidatorResult>
+
+export interface WorkspaceRule {
+  read?: boolean
+  write?: WorkspaceWriteMode
+  maxBytes?: number | `${number}kb` | `${number}mb`
+  mediaType?: string | string[]
+  validate?: WorkspaceWriteValidator | WorkspaceWriteValidator[]
+}
+
+export type WorkspaceRules = Record<string, WorkspaceRule>
+
+export interface ResolvedWorkspaceRule extends Omit<WorkspaceRule, "maxBytes" | "validate"> {
+  maxBytes?: number
+  pattern: string
+  validate: WorkspaceWriteValidator[]
+}
+
+export interface WorkspaceHookContext extends WorkspaceWriteInput {}
+
+export interface WorkspaceHooks {
+  "write:before"?: WorkspaceWriteHook | WorkspaceWriteHook[]
+  "write:validate"?: WorkspaceWriteHook | WorkspaceWriteHook[]
+  "write:after"?: WorkspaceWriteHook | WorkspaceWriteHook[]
+  "write:error"?: WorkspaceWriteErrorHook | WorkspaceWriteErrorHook[]
+}
+
+export type WorkspaceWriteHook = (ctx: WorkspaceHookContext) => void | Promise<void>
+export type WorkspaceWriteErrorHook = (ctx: WorkspaceHookContext & { error: unknown }) => void | Promise<void>
+
+export interface WorkspacePlugin {
+  id: string
+  rules?: WorkspaceRules
+  hooks?: WorkspaceHooks
+}
+
 export interface SnapshotOptions {
   name?: string
 }
@@ -316,6 +369,9 @@ export interface WorkspaceDefinition {
   sources?: Record<string, WorkspaceSource>
   loaders?: WorkspaceLoader[]
   publish?: WorkspacePublisher[]
+  plugins?: WorkspacePlugin[]
+  rules?: WorkspaceRules
+  hooks?: WorkspaceHooks
 }
 
 export type WorkspaceDefinitionInput = Omit<WorkspaceDefinition, "name"> & {

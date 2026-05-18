@@ -1,5 +1,6 @@
 import { WorkspaceError } from "./errors.ts"
 import { decodeFile, matchesAny, normalizeWorkspacePath } from "./path.ts"
+import { createWorkspaceWritePolicy } from "./rules.ts"
 import { createSourceContext, normalizeWorkspaceSources } from "./source-config.ts"
 import {
   hasCurrentSourceSnapshot,
@@ -43,6 +44,7 @@ export interface WorkspaceSourceView {
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
   const sourceContext = createSourceContext(definition)
   const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize === "lazy")
+  const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
   const materializeBySource = new Map<string, Promise<void>>()
 
@@ -173,6 +175,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
   }
 
+  async function previousStat(path: string) {
+    return await store.stat(path)
+  }
+
   return {
     async readFile(path, options) {
       const resolution = resolveWorkspacePath(definition, path)
@@ -188,7 +194,22 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     async writeFile(path, content, options) {
       const resolution = resolveWorkspacePath(definition, path)
       assertWritableStorePath(path, resolution.workspacePath, resolution.type)
-      await store.writeFile(resolution.workspacePath, { path: resolution.workspacePath, content, mediaType: options?.mediaType })
+      const input = await writePolicy.before({
+        content,
+        mediaType: options?.mediaType,
+        operation: "writeFile",
+        path: resolution.workspacePath,
+        previous: await previousStat(resolution.workspacePath),
+        workspace: definition.name,
+      })
+      try {
+        await store.writeFile(input.path, { path: input.path, content: input.content ?? content, mediaType: input.mediaType })
+        await writePolicy.after(input)
+      }
+      catch (error) {
+        await writePolicy.error(input, error)
+        throw error
+      }
     },
     async list(path, options) {
       return await listSourceAware(path || "", options || {})
@@ -236,12 +257,38 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     async mkdir(path, options) {
       const resolution = resolveWorkspacePath(definition, path)
       assertWritableStorePath(path, resolution.workspacePath, resolution.type)
-      await store.mkdir(resolution.workspacePath, options)
+      const input = await writePolicy.before({
+        operation: "mkdir",
+        path: resolution.workspacePath,
+        previous: await previousStat(resolution.workspacePath),
+        workspace: definition.name,
+      })
+      try {
+        await store.mkdir(input.path, options)
+        await writePolicy.after(input)
+      }
+      catch (error) {
+        await writePolicy.error(input, error)
+        throw error
+      }
     },
     async rm(path, options) {
       const resolution = resolveWorkspacePath(definition, path)
       assertWritableStorePath(path, resolution.workspacePath, resolution.type)
-      await store.rm(resolution.workspacePath, options)
+      const input = await writePolicy.before({
+        operation: "rm",
+        path: resolution.workspacePath,
+        previous: await previousStat(resolution.workspacePath),
+        workspace: definition.name,
+      })
+      try {
+        await store.rm(input.path, options)
+        await writePolicy.after(input)
+      }
+      catch (error) {
+        await writePolicy.error(input, error)
+        throw error
+      }
     },
   }
 }

@@ -13,7 +13,7 @@ import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type Work
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as source from "../src/source.ts"
 import { hubWorkspace } from "../src/vite.ts"
-import type { WorkspaceModuleOptions } from "../src/types.ts"
+import type { WorkspaceModuleOptions, WorkspacePlugin, WorkspaceWriteInput } from "../src/types.ts"
 
 declare global {
   interface ViteHubWorkspaceAssetMap {
@@ -28,6 +28,23 @@ describe("workspace types", () => {
       sources: { docs: source.markdown({ path: "README.md" }) },
       loaders: [loader.files()],
       publish: [publish.virtualModule({ id: "virtual:vitehub/workspaces/typed" })],
+      rules: {
+        "/**": { write: false },
+        "/generated/**": {
+          maxBytes: "1mb",
+          validate: (input: WorkspaceWriteInput) => input,
+          write: true,
+        },
+      },
+      hooks: {
+        "write:before": (ctx) => {
+          expectTypeOf(ctx.path).toEqualTypeOf<string>()
+        },
+      },
+      plugins: [{
+        id: "typed-plugin",
+        rules: { "/docs/**": { write: "update" } },
+      } satisfies WorkspacePlugin],
     })
     source.file({
       workspacePath: "AGENTS.md",

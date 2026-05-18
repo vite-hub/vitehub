@@ -288,6 +288,13 @@ export interface McpCapabilityOptions extends CapabilityInstructionsOption {
   servers: Record<string, McpServerConfig>
 }
 
+type McpModule = typeof import("@ai-sdk/mcp")
+
+async function importMcpModule(): Promise<McpModule> {
+  const specifier = ["@ai-sdk", "mcp"].join("/")
+  return import(specifier) as Promise<McpModule>
+}
+
 function redactSecret(value: string) {
   return value.length <= 6 ? "***" : `${value.slice(0, 2)}***${value.slice(-2)}`
 }
@@ -319,7 +326,7 @@ function sanitizeMcpMetadata(config: MCPClientConfig | MCPClient) {
 async function resolveMcpClient(config: McpServerConfig): Promise<{ client: MCPClient, metadata: MCPClient | MCPClientConfig }> {
   const resolved = typeof config === "function" ? await config() : config
   if (isMcpClient(resolved)) return { client: resolved, metadata: resolved }
-  const { createMCPClient } = await import("@ai-sdk/mcp")
+  const { createMCPClient } = await importMcpModule()
   return { client: await createMCPClient(resolved), metadata: resolved }
 }
 
