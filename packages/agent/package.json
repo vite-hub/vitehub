@@ -68,7 +68,6 @@
     "agents": "^0.12.3",
     "@ai-sdk/mcp": "^1.0.36",
     "@tanstack/ai": "0.16.0",
-    "@vitehub/blob": "workspace:*",
     "@vitehub/db": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "ai": "^6.0.0",
@@ -85,9 +84,6 @@
       "optional": true
     },
     "@tanstack/ai": {
-      "optional": true
-    },
-    "@vitehub/blob": {
       "optional": true
     },
     "@vitehub/db": {
@@ -117,7 +113,6 @@
     "@ai-sdk/mcp": "^1.0.36",
     "@vitehub/internal": "workspace:*",
     "@tanstack/ai": "0.16.0",
-    "@vitehub/blob": "workspace:*",
     "@vitehub/db": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "ai": "^6.0.172",

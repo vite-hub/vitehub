@@ -9,7 +9,6 @@ Capabilities are agent-scoped plugins for ViteHub agents. They can contribute in
 import { openai } from "@ai-sdk/openai"
 import { defineAgent } from "@vitehub/agent"
 import {
-  blob,
   db,
   inputCommands,
   kv,
@@ -57,14 +56,13 @@ Use external tools only when useful:
     }),
     db({ access: "read" }),
     kv({ access: "write" }),
-    blob({ access: "read" }),
   ],
 })
 ```
 
 Instruction blocks can be placed with `{{ capabilityId }}` slots. `{{ capabilities }}` inserts any blocks that have not already been placed, and remaining blocks are appended in capability order.
 
-Official capabilities currently include `skills()`, `transcribe()`, `inputCommands()`, `mcp()`, `db()`, `kv()`, and `blob()`.
+Official capabilities currently include `skills()`, `transcribe()`, `inputCommands()`, `mcp()`, `db()`, and `kv()`.
 
 `transcribe()` mirrors the AI SDK transcription API. ViteHub supplies `audio` from incoming audio message parts, while the capability accepts AI SDK transcription options such as `model`, `providerOptions`, `headers`, `maxRetries`, and `download`. Use `execute` only when you need a custom transcription implementation.
 
@@ -72,12 +70,11 @@ Official capabilities currently include `skills()`, `transcribe()`, `inputComman
 
 `mcp()` accepts AI SDK MCP client configuration for each MCP Server. ViteHub creates and closes the clients with the Agent run, then exposes each server's tools with stable `mcp_<server>_<tool>` names so multiple MCP Servers can be attached to one Agent.
 
-Storage capabilities keep their injected tool sets compact:
+State capabilities keep their injected tool sets compact:
 
 | Capability | Read access | Write access |
 | --- | --- | --- |
 | `db()` | `db_schema`, `db_query` | adds policy-gated `db_exec` |
 | `kv()` | `kv_read` | adds `kv_edit` |
-| `blob()` | `blob_read` | adds `blob_edit` |
 
-`db_exec` requires a rationale and defaults to approval. Trusted local databases can opt out explicitly with `db({ access: "schema", policy: "allow" })`. `blob_edit` writes text, JSON, or base64 media content with a `mediaType`, so future image and audio capabilities can write artifacts through the same storage capability.
+`db_exec` requires a rationale and defaults to approval. Trusted local databases can opt out explicitly with `db({ access: "schema", policy: "allow" })`.

@@ -541,7 +541,6 @@ describe("agent capabilities", () => {
     const kvKeys = vi.fn(async () => ["assets/image.png"])
     const kvSet = vi.fn()
     const kvDel = vi.fn()
-    const blobPut = vi.fn()
     const dbExecute = vi.fn()
     const dbRun = vi.fn()
     vi.doMock("@vitehub/kv", () => ({
@@ -550,15 +549,6 @@ describe("agent capabilities", () => {
         get: kvGet,
         keys: kvKeys,
         set: kvSet,
-      },
-    }))
-    vi.doMock("@vitehub/blob", () => ({
-      blob: {
-        del: vi.fn(),
-        get: vi.fn(),
-        head: vi.fn(),
-        list: vi.fn(),
-        put: blobPut,
       },
     }))
     vi.doMock("@vitehub/db/drizzle", () => ({
@@ -572,7 +562,7 @@ describe("agent capabilities", () => {
       },
     }))
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { blob, db, kv } = await import("../src/capabilities.ts")
+    const { db, kv } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown, policy?: unknown }> = {}
     const agent = defineAgent({
       async run(context) {
@@ -582,12 +572,11 @@ describe("agent capabilities", () => {
       capabilities: [
         db({ access: "write" }),
         kv({ access: "write" }),
-        blob({ access: "write" }),
       ],
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({
-      text: "blob_edit,blob_read,db_exec,db_query,db_schema,kv_edit,kv_read",
+      text: "db_exec,db_query,db_schema,kv_edit,kv_read",
     })
 
     await expect(capturedTools.kv_read!.execute({ key: "theme" })).resolves.toBe("value")
@@ -598,9 +587,6 @@ describe("agent capabilities", () => {
     expect(kvKeys).toHaveBeenCalledWith("assets/")
     expect(kvSet).toHaveBeenCalledWith("theme", "dark")
     expect(kvDel).toHaveBeenCalledWith("theme")
-
-    await capturedTools.blob_edit!.execute({ content: "AA==", format: "base64", mediaType: "image/png", operation: "write", pathname: "images/a.png" })
-    expect(blobPut).toHaveBeenCalledWith("images/a.png", expect.any(Blob), { contentType: "image/png" })
 
     await capturedTools.db_query!.execute({ statement: "with rows as (select 1) select * from rows;" })
     await expect(capturedTools.db_query!.execute({ statement: "with deleted as (delete from users returning *) select * from deleted" })).rejects.toThrow("read-only")

@@ -247,9 +247,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
-      '@vitehub/blob':
-        specifier: workspace:*
-        version: link:../blob
       '@vitehub/db':
         specifier: workspace:*
         version: link:../db

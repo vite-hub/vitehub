@@ -519,13 +519,6 @@ function isDdlSql(statement: string) {
   return Boolean(single && /^\s*(alter|create|drop|reindex|vacuum)\b/i.test(stripSqlComments(single)))
 }
 
-function base64ToBlob(data: string, mediaType: string) {
-  const buffer = typeof Buffer !== "undefined"
-    ? Buffer.from(data, "base64")
-    : Uint8Array.from(atob(data), character => character.charCodeAt(0))
-  return new Blob([buffer], { type: mediaType })
-}
-
 export function kv(options: StorageCapabilityOptions = {}): AgentCapabilityDefinition<StorageCapabilityOptions> {
   return defineCapability({
     id: "kv",
@@ -561,57 +554,6 @@ export function kv(options: StorageCapabilityOptions = {}): AgentCapabilityDefin
       }
       context.tools.add(tools)
       if (options.instructions !== false) context.instructions.add(options.instructions || `KV storage tools are available with ${options.access || "read"} access.`)
-    },
-  })
-}
-
-export function blob(options: StorageCapabilityOptions = {}): AgentCapabilityDefinition<StorageCapabilityOptions> {
-  return defineCapability({
-    id: "blob",
-    options,
-    async resolve(context) {
-      const runtime = await import("@vitehub/blob")
-      const store = (runtime as { blob?: unknown }).blob as {
-        del: (path: string) => Promise<unknown>
-        get: (path: string) => Promise<Blob | string | undefined>
-        head: (path: string) => Promise<unknown>
-        list: (options?: Record<string, unknown>) => Promise<unknown>
-        put: (path: string, value: string | Blob, options?: Record<string, unknown>) => Promise<unknown>
-      }
-      const tools: AgentToolSet = {
-        blob_read: createTool({
-          description: "List blobs or read one blob as text, JSON, or metadata.",
-          execute: async ({ format = "text", operation, pathname, ...listOptions }: { format?: "json" | "metadata" | "text", operation: "list" | "read", pathname?: string } & Record<string, unknown>) => {
-            if (operation === "list") return await store.list(listOptions)
-            if (operation !== "read") throw new Error(`[vitehub:agent] Unsupported blob_read operation: ${String(operation)}`)
-            if (!pathname) throw new Error("[vitehub:agent] blob_read requires pathname for read operations.")
-            if (format === "metadata") return await store.head(pathname)
-            const value = await store.get(pathname)
-            const text = value instanceof Blob ? await value.text() : value
-            return format === "json" && typeof text === "string" ? JSON.parse(text) : text
-          },
-          name: "blob_read",
-        }),
-      }
-      if (options.access === "write") {
-        tools.blob_edit = createTool({
-          description: "Write or delete one blob. Writes support text, JSON, and base64 media content.",
-          execute: ({ content, contentType, format = "text", mediaType, operation, pathname }: { content?: unknown, contentType?: string, format?: "base64" | "json" | "text", mediaType?: string, operation: "delete" | "write", pathname: string }) => {
-            if (operation === "delete") return store.del(pathname)
-            if (operation !== "write") throw new Error(`[vitehub:agent] Unsupported blob_edit operation: ${String(operation)}`)
-            if (format === "base64") {
-              if (typeof content !== "string") throw new Error("[vitehub:agent] blob_edit base64 writes require string content.")
-              if (!mediaType) throw new Error("[vitehub:agent] blob_edit base64 writes require mediaType.")
-              return store.put(pathname, base64ToBlob(content, mediaType), { contentType: mediaType })
-            }
-            if (format === "json") return store.put(pathname, JSON.stringify(content), { contentType: contentType || "application/json; charset=utf-8" })
-            return store.put(pathname, String(content ?? ""), { contentType: contentType || "text/plain; charset=utf-8" })
-          },
-          name: "blob_edit",
-        })
-      }
-      context.tools.add(tools)
-      if (options.instructions !== false) context.instructions.add(options.instructions || `Blob storage tools are available with ${options.access || "read"} access.`)
     },
   })
 }
