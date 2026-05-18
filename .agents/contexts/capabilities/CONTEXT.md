@@ -231,5 +231,6 @@ _Avoid_: Capability instance, duplicate capability
 - Chat History and runtime state were considered the same concept - resolved: **Chat History** is replayable conversation context; **Chat Runtime State** is internal operational state.
 - Chat Runtime State was considered opt-in only when Chat History is enabled - resolved: **Chat** always creates internal **Chat Runtime State**; **Chat History** only controls conversation replay.
 - Chat runtime backing was considered as a public `state` option - resolved: use **Chat Storage** to select a ViteHub primitive without exposing Chat SDK adapters.
+- Chat History storage was considered separable from Chat Runtime State storage - resolved: **Chat Storage** backs both for v1; **Chat History** controls replay only.
 - Agent memory was considered as an extension of **Chat History** - resolved: use **Memory** for durable scoped records and keep **Chat History** limited to conversation replay.
 - `basicMemory()` and markdown-backed memory were considered as the public concept - resolved: use **Memory** for the capability and **Workspace JSONL Memory Store** for the first store implementation.

@@ -11,3 +11,5 @@ Chat will always create internal runtime state for coordination, while Chat Hist
 ## Consequences
 
 KV and Blob support named stores while preserving their default store APIs. KV needs internal coordination semantics for runtime users such as Chat; providers that cannot offer safe coordination must be rejected or diagnosed in hosted production runtimes, while local single-process development can use best-effort coordination with explicit diagnostics.
+
+Chat Storage backs both Chat Runtime State and Chat History for v1. Separate history stores were rejected because they split operational state across lifecycles and make coordination, cleanup, and diagnostics harder.
