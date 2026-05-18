@@ -1012,6 +1012,7 @@ function stripSqlComments(statement: string) {
     if (char === "/" && next === "*") {
       index += 2
       while (index < statement.length && !(statement[index] === "*" && statement[index + 1] === "/")) index++
+      if (index < statement.length) index++
       output += " "
       continue
     }

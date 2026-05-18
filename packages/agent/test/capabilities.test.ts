@@ -246,6 +246,26 @@ describe("agent capabilities", () => {
     expect(order).toEqual(["run", "response:ready", "close"])
   })
 
+  it("awaits close errors for response capabilities without bodies", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineCapability } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "responseClose",
+          async close() {
+            throw new Error("close failed")
+          },
+        }),
+      ],
+      run() {
+        return new Response(null, { status: 204 })
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow("close failed")
+  })
+
   it("applies capability tool transforms for custom run agents", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { defineCapability } = await import("../src/capabilities.ts")
@@ -757,6 +777,7 @@ describe("agent capabilities", () => {
     await expect(capturedTools.db_query!.execute({ statement: "with deleted as (delete from users returning *) select * from deleted" })).rejects.toThrow("read-only")
     expect(capturedTools.db_exec!.policy).toBe("require-approval")
     await expect(capturedTools.db_exec!.execute({ rationale: "", statement: "update users set name = 'A'" })).rejects.toThrow("rationale")
+    await expect(capturedTools.db_exec!.execute({ rationale: "drop", statement: "/*audit*/DROP TABLE users" })).rejects.toThrow("schema access")
     await capturedTools.db_exec!.execute({ rationale: "Fix stale row", statement: "update users set name = 'A'" })
     expect(dbExecute).toHaveBeenCalledWith("with rows as (select 1) select * from rows")
     expect(dbRun).toHaveBeenCalledWith("update users set name = 'A'")

@@ -812,20 +812,15 @@ async function* closeAfterAsyncIterable<T>(iterable: AsyncIterable<T>, close: ()
   }
 }
 
-function closeAfterResponse(response: Response, close: () => Promise<void>): Response {
-  if (!response.body) {
-    void close()
-    return response
-  }
-
-  const reader = response.body.getReader()
+function closeAfterResponse(response: Response, body: ReadableStream<Uint8Array>, close: () => Promise<void>): Response {
+  const reader = body.getReader()
   let closed = false
   async function closeOnce() {
     if (closed) return
     closed = true
     await close()
   }
-  const body = new ReadableStream({
+  const wrappedBody = new ReadableStream({
     async cancel(reason) {
       try {
         await reader.cancel(reason)
@@ -851,16 +846,20 @@ function closeAfterResponse(response: Response, close: () => Promise<void>): Res
     },
   })
 
-  return new Response(body, {
+  return new Response(wrappedBody, {
     headers: response.headers,
     status: response.status,
     statusText: response.statusText,
   })
 }
 
-function closeAfterTransportResult<T>(result: T, close: () => Promise<void>): { deferred: boolean, result: T } {
+async function closeAfterTransportResult<T>(result: T, close: () => Promise<void>): Promise<{ deferred: boolean, result: T }> {
   if (result instanceof Response) {
-    return { deferred: true, result: closeAfterResponse(result, close) as T }
+    if (!result.body) {
+      await close()
+      return { deferred: true, result }
+    }
+    return { deferred: true, result: closeAfterResponse(result, result.body, close) as T }
   }
   if (isAsyncIterable(result)) {
     return { deferred: true, result: closeAfterAsyncIterable(result, close) as T }
@@ -1073,7 +1072,7 @@ export async function runAgent<
         capabilities.registries,
       )
       const transport = capabilities.hasCloseCallbacks
-        ? closeAfterTransportResult(result, capabilities.close)
+        ? await closeAfterTransportResult(result, capabilities.close)
         : { deferred: false, result }
       closeImmediately = !transport.deferred
       return transport.result
@@ -1093,7 +1092,7 @@ export async function runAgent<
     const result = await applyOutputRenderers(await resolved.generate(adapterContext), adapterContext.capabilityRegistries)
     const runResult = isTransportReadyResult(result) ? result : toAgentRunResult(result)
     const transport = adapterContext.capabilityHasCloseCallbacks
-      ? closeAfterTransportResult(runResult, adapterContext.capabilityClose)
+      ? await closeAfterTransportResult(runResult, adapterContext.capabilityClose)
       : { deferred: false, result: runResult }
     closeImmediately = !transport.deferred
     return transport.result
@@ -1122,7 +1121,7 @@ export async function streamAgent<
         capabilities.registries,
       )
       const transport = capabilities.hasCloseCallbacks
-        ? closeAfterTransportResult(result, capabilities.close)
+        ? await closeAfterTransportResult(result, capabilities.close)
         : { deferred: false, result }
       closeImmediately = !transport.deferred
       return transport.result
@@ -1147,7 +1146,7 @@ export async function streamAgent<
     )
     const streamResult = isTransportReadyResult(result) ? result : streamTextResultToEvents(result)
     const transport = adapterContext.capabilityHasCloseCallbacks
-      ? closeAfterTransportResult(streamResult, adapterContext.capabilityClose)
+      ? await closeAfterTransportResult(streamResult, adapterContext.capabilityClose)
       : { deferred: false, result: streamResult }
     closeImmediately = !transport.deferred
     return transport.result
