@@ -536,11 +536,22 @@ export interface WorkspaceJsonlMemoryStoreOptions {
   path?: string
 }
 
-type MemoryEvent = MemoryUpsertEvent | MemoryDeleteEvent
+type MemoryEvent = MemoryUpsertEvent | MemorySupersedeEvent | MemoryDeleteEvent
 
 interface MemoryUpsertEvent extends Omit<MemoryRecord, "status"> {
   op: "upsert"
   status: "active" | "superseded"
+}
+
+interface MemorySupersedeEvent {
+  digest: string
+  id: string
+  op: "supersede"
+  scope: MemoryScope
+  store: string
+  supersededAt: string
+  supersededBy: string
+  version: number
 }
 
 interface MemoryDeleteEvent {
@@ -582,7 +593,7 @@ function normalizeMemoryScope(scope: MemoryScope | undefined): MemoryScope {
   return normalized
 }
 
-function memoryScopeMatches(record: MemoryRecord | MemoryDeleteEvent, scope: MemoryScope) {
+function memoryScopeMatches(record: MemoryRecord | MemorySupersedeEvent | MemoryDeleteEvent, scope: MemoryScope) {
   return Object.entries(scope).every(([key, value]) => (record.scope as Record<string, unknown>)[key] === value)
 }
 
@@ -657,6 +668,19 @@ function reduceMemoryEvents(events: MemoryEvent[], scope: MemoryScope, store: st
       if (existing) records.set(event.id, { ...existing, status: "deleted", updatedAt: event.deletedAt, version: event.version })
       continue
     }
+    if (event.op === "supersede") {
+      const existing = records.get(event.id)
+      if (existing) {
+        records.set(event.id, {
+          ...existing,
+          status: "superseded",
+          supersedes: [...(existing.supersedes || []), event.supersededBy],
+          updatedAt: event.supersededAt,
+          version: event.version,
+        })
+      }
+      continue
+    }
     const { op: _op, ...record } = event
     records.set(event.id, {
       ...record,
@@ -708,6 +732,19 @@ export function workspaceJsonlMemoryStore(options: WorkspaceJsonlMemoryStoreOpti
             digest: await digestMemoryValue(base),
             op: "upsert",
             status: "active",
+          }
+          const supersedeEvents = await Promise.all((request.supersedes || []).map(async id => ({
+            digest: await digestMemoryValue({ id, supersededAt: now, supersededBy: event.id }),
+            id,
+            op: "supersede" as const,
+            scope: request.scope,
+            store: request.store,
+            supersededAt: now,
+            supersededBy: event.id,
+            version: 1,
+          })))
+          for (const supersedeEvent of supersedeEvents) {
+            await appendWorkspaceJsonl(path, context, JSON.stringify(supersedeEvent))
           }
           await appendWorkspaceJsonl(path, context, JSON.stringify(event))
           return { action: request.supersedes?.length ? "superseded" : "created", item: { ...event, status: "active" } }
@@ -787,6 +824,11 @@ function renderMemoryPreload(items: MemoryRecord[]) {
   ].join("\n")
 }
 
+function sortMemoryPreloadRecords(left: MemoryRecord, right: MemoryRecord) {
+  const pinned = Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))
+  return pinned || right.updatedAt.localeCompare(left.updatedAt)
+}
+
 export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinition<MemoryCapabilityOptions> {
   return defineCapability({
     id: "memory",
@@ -802,6 +844,7 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
           const items = exported.items
             .filter(item => !kinds || kinds.includes(item.kind))
             .filter(item => preload.pinned === undefined || item.pinned === preload.pinned)
+            .sort(sortMemoryPreloadRecords)
             .slice(0, preload.maxItems || 5)
           context.instructions.add(renderMemoryPreload(items), { id: `memory.${storeName}` })
         }
@@ -823,7 +866,7 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
         return { storeName, ...store }
       }
       const assertWriteAllowed = (selected: ReturnType<typeof getStore>) => {
-        if (selected.options.write?.mode === "off") {
+        if (selected.options.write?.mode !== "tool") {
           throw new Error(`[vitehub:agent] Memory store "${selected.storeName}" does not allow writes.`)
         }
       }
@@ -853,7 +896,7 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
           name: "memory_read",
         })
       }
-      if ([...resolved.values()].some(store => store.options.write?.mode !== "off")) {
+      if ([...resolved.values()].some(store => store.options.write?.mode === "tool")) {
         tools.memory_remember = createTool({
           description: "Create a durable scoped memory record. Use only for information that should persist across future agent invocations.",
           execute: ({ confidence, content, kind, metadata, pinned, provenance, store, supersedes, tags, title }: MemoryAppendRequest & { store?: string }) => {

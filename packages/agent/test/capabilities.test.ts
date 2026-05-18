@@ -975,6 +975,68 @@ describe("agent capabilities", () => {
     expect(await (capturedTools.memory_remember!.policy as (context: { input?: unknown }) => unknown)({ input: {} })).toBe("require-approval")
   })
 
+  it("preloads newest matching memory records first", async () => {
+    const records = [
+      {
+        content: "Old workflow.",
+        createdAt: "2026-05-17T00:00:00.000Z",
+        digest: "sha256:old",
+        id: "mem_old",
+        kind: "procedural" as const,
+        pinned: true,
+        scope: { agent: "support" },
+        status: "active" as const,
+        store: "agent",
+        title: "Old",
+        updatedAt: "2026-05-17T00:00:00.000Z",
+        version: 1,
+      },
+      {
+        content: "New workflow.",
+        createdAt: "2026-05-18T00:00:00.000Z",
+        digest: "sha256:new",
+        id: "mem_new",
+        kind: "procedural" as const,
+        pinned: true,
+        scope: { agent: "support" },
+        status: "active" as const,
+        store: "agent",
+        title: "New",
+        updatedAt: "2026-05-18T00:00:00.000Z",
+        version: 1,
+      },
+    ]
+    const adapter = {
+      append: vi.fn(),
+      delete: vi.fn(),
+      export: vi.fn(async () => ({ items: records })),
+      read: vi.fn(),
+      search: vi.fn(),
+    }
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { memory } = await import("../src/capabilities.ts")
+
+    const capabilities = await resolveAgentCapabilities({
+      capabilities: [
+        memory({
+          stores: {
+            agent: {
+              adapter,
+              read: {
+                preload: [{ kind: "procedural", maxItems: 1, pinned: true }],
+              },
+              scope: { agent: "support" },
+            },
+          },
+        }),
+      ],
+    }, { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() }, {})
+
+    const preload = capabilities.capabilityInstructions.find(block => block.id === "memory.agent")
+    expect(preload?.instructions).toContain("New workflow.")
+    expect(preload?.instructions).not.toContain("Old workflow.")
+  })
+
   it("enforces memory write mode and policy for the selected store", async () => {
     const writableRecord = {
       content: "Keep this.",
@@ -1036,6 +1098,37 @@ describe("agent capabilities", () => {
     expect(readonly.delete).not.toHaveBeenCalled()
   })
 
+  it("does not expose memory write tools unless at least one store opts in", async () => {
+    const adapter = {
+      append: vi.fn(),
+      delete: vi.fn(),
+      export: vi.fn(async () => ({ items: [] })),
+      read: vi.fn(),
+      search: vi.fn(),
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { memory } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      async run(context) {
+        return { text: Object.keys(context.tools || {}).sort().join(",") }
+      },
+      capabilities: [
+        memory({
+          stores: {
+            agent: {
+              adapter,
+              scope: { agent: "support" },
+            },
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toMatchObject({
+      text: "memory_read,memory_search",
+    })
+  })
+
   it("persists workspace JSONL memory as append-only events", async () => {
     const files = new Map<string, string>()
     const { workspaceJsonlMemoryStore } = await import("../src/capabilities.ts")
@@ -1063,5 +1156,42 @@ describe("agent capabilities", () => {
     await adapter.delete({ id: created.item.id, scope: { agent: "support" }, store: "agent" })
     await expect(adapter.read({ id: created.item.id, scope: { agent: "support" }, store: "agent" })).resolves.toEqual({ item: null })
     expect(files.get(".vitehub/memory/test.jsonl")?.trim().split("\n")).toHaveLength(2)
+  })
+
+  it("supersedes old workspace JSONL memory records", async () => {
+    const files = new Map<string, string>()
+    const { workspaceJsonlMemoryStore } = await import("../src/capabilities.ts")
+    const adapter = await workspaceJsonlMemoryStore({ path: ".vitehub/memory/test.jsonl" }).create({
+      workspace: {
+        fs: {
+          appendFile: async (path: string, content: string) => files.set(path, `${files.get(path) || ""}${content}`),
+          mkdir: vi.fn(),
+          readFile: async (path: string) => files.get(path) || "",
+          writeFile: vi.fn(),
+        },
+      },
+    } as never)
+
+    const first = await adapter.append({
+      content: "Use the old workflow.",
+      kind: "procedural",
+      scope: { agent: "support" },
+      store: "agent",
+      title: "Workflow",
+    })
+    const second = await adapter.append({
+      content: "Use the new workflow.",
+      kind: "procedural",
+      scope: { agent: "support" },
+      store: "agent",
+      supersedes: [first.item.id],
+      title: "Workflow",
+    })
+
+    await expect(adapter.search({ query: "workflow", scope: { agent: "support" }, store: "agent" })).resolves.toMatchObject({
+      items: [{ id: second.item.id }],
+    })
+    await expect(adapter.read({ id: first.item.id, scope: { agent: "support" }, store: "agent" })).resolves.toEqual({ item: null })
+    expect(files.get(".vitehub/memory/test.jsonl")?.trim().split("\n")).toHaveLength(3)
   })
 })
