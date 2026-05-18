@@ -114,11 +114,12 @@ jobs:
             npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
           validate_blob_token() {
-            local token
-            token="$1"
+            local app_dir token
+            app_dir="$1"
+            token="$2"
             [ -n "$token" ] || return 1
 
-            BLOB_TOKEN_CANDIDATE="$token" node --input-type=module <<'NODE'
+            BLOB_TOKEN_CANDIDATE="$token" pnpm --dir "$app_dir" exec node --input-type=module <<'NODE'
           import { list } from "@vercel/blob"
 
           try {
@@ -148,7 +149,7 @@ jobs:
                 npx vercel env pull "$tmp" --environment="$env_name" --yes --cwd "$app_dir" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
                 value="$(node .github/scripts/get-env-value.mjs "$tmp" BLOB_READ_WRITE_TOKEN)"
                 rm -f "$tmp"
-                if validate_blob_token "$value"; then
+                if validate_blob_token "$app_dir" "$value"; then
                   printf '%s' "$value"
                   return 0
                 fi
@@ -181,7 +182,7 @@ jobs:
           )
 
           blob_token="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
-          if [ -n "$blob_token" ] && ! validate_blob_token "$blob_token"; then
+          if [ -n "$blob_token" ] && ! validate_blob_token "$APP_DIR" "$blob_token"; then
             blob_token=""
           fi
 
