@@ -203,6 +203,46 @@ describe("Nitro helpers", () => {
       statusMessage: "chat({ history }) requires an agent workspace.",
     })
   })
+
+  it("reuses default chat state across webhook requests", async () => {
+    await vi.resetModules()
+    vi.doMock("../src/chat/runtime/agent-chat.ts", () => ({
+      createChatBot: vi.fn(async (_agent, _options, _context, state) => ({
+        webhooks: {
+          slack: async () => {
+            const lock = await state.acquireLock("thread-1", 60_000)
+            return { locked: Boolean(lock) }
+          },
+        },
+      })),
+    }))
+
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { chat } = await import("../src/capabilities.ts")
+      const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
+      const agent = defineAgent({
+        capabilities: [chat({ adapters: {} })],
+        run: vi.fn(() => ({ text: "ok" })),
+      })
+      const handler = defineAgentChatRegistryHandler({
+        support: async () => ({ default: agent as never }),
+      })
+      const createEvent = () => ({
+        context: { params: { agent: "support", platform: "slack" } },
+        req: new Request("https://example.com/agents/support/chat/slack", { method: "POST" }),
+        url: "https://example.com/agents/support/chat/slack",
+        waitUntil: vi.fn(),
+      })
+
+      await expect(handler(createEvent() as never)).resolves.toEqual({ locked: true })
+      await expect(handler(createEvent() as never)).resolves.toEqual({ locked: false })
+    }
+    finally {
+      vi.doUnmock("../src/chat/runtime/agent-chat.ts")
+      await vi.resetModules()
+    }
+  })
 })
 
 describe("agent registry helpers", () => {

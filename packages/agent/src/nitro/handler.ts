@@ -239,6 +239,26 @@ async function createChatState(agent: AgentInput<NitroAgentRuntimeContext>, hist
   return createWorkspaceChatStateAdapter(useWorkspace(workspaceName, { allowWrite: true }))
 }
 
+async function getCachedChatState(
+  cache: Map<string, Promise<StateAdapter>>,
+  key: string,
+  create: () => Promise<StateAdapter>,
+): Promise<StateAdapter> {
+  let state = cache.get(key)
+  if (!state) {
+    state = create()
+    cache.set(key, state)
+  }
+
+  try {
+    return await state
+  }
+  catch (error) {
+    if (cache.get(key) === state) cache.delete(key)
+    throw error
+  }
+}
+
 type WebhookHandler = (request: Request, options?: { waitUntil?: (promise: Promise<unknown>) => void }) => unknown
 
 function getChatWebhook(bot: { webhooks?: Record<string, WebhookHandler | undefined> }, platform: string): WebhookHandler | undefined {
@@ -314,6 +334,7 @@ export function defineAgentChatRegistryHandler(
 ): EventHandler {
   const agentParam = options.agentParam || "agent"
   const platformParam = options.platformParam || "platform"
+  const chatStates = new Map<string, Promise<StateAdapter>>()
 
   return defineEventHandler(async (event) => {
     const agentName = getRouterParam(event, agentParam)
@@ -337,7 +358,11 @@ export function defineAgentChatRegistryHandler(
       throw createError({ statusCode: 404, statusMessage: `Agent "${agentName}" does not define chat().` })
     }
     const context = { ...createRuntimeContext(event), platform } as NitroAgentRuntimeContext
-    const state = await createChatState(agent, capability.options.history)
+    const state = await getCachedChatState(
+      chatStates,
+      `${agentName}:${capability.options.history ? "history" : "memory"}`,
+      () => createChatState(agent, capability.options.history),
+    )
     const bot = await createChatBot(agent as never, capability.options as never, context as never, state, agentName)
     const webhook = getChatWebhook(bot, platform)
     if (!webhook) {
