@@ -234,7 +234,7 @@ jobs:
         if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
         run: |
           node <<'NODE'
-          const { readFileSync } = require("node:fs")
+          const { existsSync, readFileSync, readdirSync, statSync } = require("node:fs")
           const wrangler = JSON.parse(readFileSync("playground/nitro/.output/server/wrangler.json", "utf8"))
           if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
             throw new Error("Expected Nitro Cloudflare wrangler.json to include kv_namespaces.")
@@ -242,7 +242,6 @@ jobs:
           if (typeof wrangler.artifacts !== "undefined") {
             throw new Error("Nitro Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
           }
-          const { existsSync, readdirSync, readFileSync, statSync } = require("node:fs")
           const { join, posix, relative } = require("node:path")
           const root = "playground/nitro/.output/server"
           const files = []

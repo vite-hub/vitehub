@@ -92,6 +92,8 @@ export function extendSandboxNitro(nitro: Nitro, config: AgentSandboxConfig, dep
   nitroOptions.externals ||= {}
   nitroOptions.externals.inline ||= []
   nitroOptions.externals.traceInclude ||= []
+  if (!nitroOptions.externals.inline.includes('@vitehub/sandbox'))
+    nitroOptions.externals.inline.push('@vitehub/sandbox')
 
   const runtimeDependencies = providerLoaderTarget
     ? [sandboxRuntimeDependencyByProvider[providerLoaderTarget]].filter(Boolean)

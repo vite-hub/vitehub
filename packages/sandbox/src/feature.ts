@@ -276,6 +276,8 @@ export async function createSandboxFeaturePlan(
       nitroTarget.externals = nitroTarget.externals || {}
       nitroTarget.externals.inline = nitroTarget.externals.inline || []
       nitroTarget.externals.traceInclude = nitroTarget.externals.traceInclude || []
+      if (!nitroTarget.externals.inline.includes('@vitehub/sandbox'))
+        nitroTarget.externals.inline.push('@vitehub/sandbox')
 
       const runtimeDependencies = providerLoaderTarget
         ? [sandboxRuntimeDependencyByProvider[providerLoaderTarget]].filter(Boolean)
