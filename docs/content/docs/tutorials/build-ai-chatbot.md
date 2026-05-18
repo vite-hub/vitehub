@@ -203,7 +203,7 @@ export default defineAgent({
 ```
 ::
 
-Each entry in `workspace.sources` becomes a mount. The `tools` resolver is the explicit opt-in that lets the model inspect those mounts through the read-only workspace shell.
+Each entry in `workspace.sources` declares a source: an origin that contributes files or items to the workspace. The source key becomes the default mount path, and the `tools` resolver is the explicit opt-in that lets the model inspect mounted workspace paths through the read-only workspace shell.
 
 ## Step 5 - Deploy anywhere
 

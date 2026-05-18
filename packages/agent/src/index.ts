@@ -953,7 +953,7 @@ async function createCapabilityRunContext<
   const runtime = createResolvedRuntimeContext(context)
   const workspaceName = getWorkspaceName(definition)
   const workspace = workspaceName
-    ? (await import("@vitehub/workspace")).useWorkspace(workspaceName)
+    ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { allowWrite: true })
     : undefined
   const capabilities = await resolveAgentCapabilities(
     getCapabilityOptions(definition),

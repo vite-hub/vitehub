@@ -603,7 +603,6 @@ describe("sources, loaders, and publishers", () => {
         docs: source.glob({ cwd: ".", include: ["**/*.md"] }),
         files: source.file({ path: "two.md", workspacePath: "two.md", content: "# Two\n" }),
         custom: source.custom({
-          name: "custom",
           async getKeys() {
             return ["custom.json"]
           },

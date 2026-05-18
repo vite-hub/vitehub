@@ -54,7 +54,7 @@ export default defineWorkspace({
 ```
 
 In Nitro, place the same definition at `server/workspaces/docs.ts`.
-Source entries are keyed. The key becomes the default workspace mount path, so the example above exposes files at `docs/**` and `instructions/**`.
+Source entries are named origins. The source key becomes the default workspace mount path, so the example above exposes files at `docs/**` and `instructions/**`.
 For inline files, use `workspacePath` and `content`. For file-backed sources, use `path` for the source file and `workspacePath` for its path inside the mounted source.
 
 Use it from server code:
@@ -173,7 +173,7 @@ On open, ViteHub syncs the readable workspace contents into the configured sandb
 
 ## Lazy materialization
 
-Source mounts default to `materialize: 'build'`, which syncs files into the workspace store during build or explicit workspace sync. This is separate from `workspace.assets`, which controls whether synced workspace files are also emitted into the read-only build asset registry.
+Sources default to `materialize: 'build'`, which syncs files into the workspace store during build or explicit workspace sync. This is separate from `workspace.assets`, which controls whether synced workspace files are also emitted into the read-only build asset registry.
 
 Use `materialize: 'lazy'` when the agent only needs source files on demand:
 

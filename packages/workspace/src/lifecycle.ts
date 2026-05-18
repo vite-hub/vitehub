@@ -9,19 +9,19 @@ import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceS
 import { createWorkspaceStoreFromProvider } from "./store-provider.ts"
 import { hasWorkspaceDirectoryConfig, isWorkspaceAssetFile } from "./workspace-config.ts"
 
-import type { LoaderContext, WorkspaceDefinition, WorkspaceSource, WorkspaceSourceItem, WorkspaceStore } from "./types.ts"
+import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceSource, WorkspaceSourceItem, WorkspaceStore } from "./types.ts"
 
 function workspaceDirectory(rootDir: string, name: string) {
   return resolve(rootDir, "server", "workspaces", ...name.split("/"))
 }
 
-function createImplicitWorkspaceDirectorySource(definition: WorkspaceDefinition): WorkspaceSource | undefined {
+function createImplicitWorkspaceDirectorySource(definition: WorkspaceDefinition): WorkspaceLoaderSource | undefined {
   const rootDir = definition.rootDir || process.cwd()
   const directory = workspaceDirectory(rootDir, definition.name)
   if (!hasWorkspaceDirectoryConfig(directory)) return
 
   return {
-    name: "directory-assets",
+    key: "directoryAssets",
     async getKeys() {
       return listMatchingFiles(directory, isWorkspaceAssetFile).map(file => normalizeWorkspacePath(relative(directory, file))).sort()
     },
@@ -72,9 +72,10 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
   }
 }
 
-function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceSource {
+function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceLoaderSource {
   return {
     ...source.source,
+    key: source.key,
     async getKeys(ctx) {
       return await source.source.getKeys(ctx)
     },

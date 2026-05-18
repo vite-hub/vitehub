@@ -1,10 +1,9 @@
 import { defineWorkspace, loader } from "@vitehub/workspace"
 
 export default defineWorkspace({
-  sources: [
-    {
+  sources: {
+    inlineMarkdown: {
       mount: "README.md",
-      name: "inline-markdown",
       async getKeys() {
         return [""]
       },
@@ -17,7 +16,7 @@ export default defineWorkspace({
         }
       },
     },
-  ],
+  },
   loaders: [
     loader.files({
       include: ["**/*.md"],

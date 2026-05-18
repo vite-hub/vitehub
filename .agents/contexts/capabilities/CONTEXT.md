@@ -44,6 +44,30 @@ _Avoid_: Chat definition, chat plugin, bot definition
 Conversation context that Chat can persist in an Agent workspace and include in later Agent invocations.
 _Avoid_: Chat state, Chat SDK state, agent memory
 
+**Memory**:
+An Official Capability that lets an agent use durable scoped records across invocations.
+_Avoid_: Chat History, basic memory, memory file
+
+**Memory Store**:
+A named durable collection of Memory Records backed by a replaceable storage adapter.
+_Avoid_: Memory backend, memory file, vector memory
+
+**Memory Record**:
+A scoped durable fact, episode, procedure, or profile item that Memory can retrieve or mutate.
+_Avoid_: Memory entry, note, remembered message
+
+**Memory Scope**:
+The boundary that determines which invocations can read or mutate a Memory Record.
+_Avoid_: Namespace, key prefix, memory path
+
+**Memory Kind**:
+The category of a Memory Record, such as semantic, episodic, procedural, or profile.
+_Avoid_: Memory type, backend type, vector kind
+
+**Workspace JSONL Memory Store**:
+A Memory Store that persists Memory Records as append-only JSONL in an Agent workspace.
+_Avoid_: Markdown memory, basic memory store, memory.md
+
 **Agent-Scoped Invocation**:
 An external event route that targets one discovered Agent.
 _Avoid_: Global webhook, chat registry route
@@ -135,6 +159,13 @@ _Avoid_: Capability instance, duplicate capability
 - A **Storage Capability** is an **Official Capability**.
 - **Chat** is an **Official Capability**.
 - **Chat** can use **Chat History**.
+- **Memory** is an **Official Capability**.
+- **Memory** uses one or more **Memory Stores**.
+- A **Memory Store** contains zero or more **Memory Records**.
+- A **Memory Record** has one **Memory Scope**.
+- A **Memory Record** has one **Memory Kind**.
+- A **Workspace JSONL Memory Store** is a **Memory Store**.
+- **Memory** is distinct from **Chat History**.
 - **MCP** can configure one or more **MCP Servers**.
 - An **MCP Server** uses **MCP Client Configuration**.
 - **Skills** reads Skill files from a **Skills Path**.
@@ -186,3 +217,5 @@ _Avoid_: Capability instance, duplicate capability
 - Chat discovery was considered as a separate file convention - resolved: **Chat** is discovered only through Agent definitions.
 - Chat webhook routing was considered as a global route - resolved: **Chat** uses agent-scoped webhook routes.
 - Chat state was considered as a user-facing Capability or option - resolved: expose **Chat History** and keep any Chat SDK state adapter internal.
+- Agent memory was considered as an extension of **Chat History** - resolved: use **Memory** for durable scoped records and keep **Chat History** limited to conversation replay.
+- `basicMemory()` and markdown-backed memory were considered as the public concept - resolved: use **Memory** for the capability and **Workspace JSONL Memory Store** for the first store implementation.
