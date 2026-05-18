@@ -120,11 +120,23 @@ jobs:
             [ -n "$token" ] || return 1
 
             BLOB_TOKEN_CANDIDATE="$token" pnpm --dir "$app_dir" exec node --input-type=module <<'NODE'
-          import { list } from "@vercel/blob"
+          import { del, get, put } from "@vercel/blob"
 
           try {
-            await list({
-              limit: 1,
+            const pathname = `.vitehub/e2e-token-check/${Date.now()}-${Math.random().toString(36).slice(2)}.txt`
+            await put(pathname, "ok", {
+              access: "private",
+              addRandomSuffix: false,
+              allowOverwrite: true,
+              token: process.env.BLOB_TOKEN_CANDIDATE,
+            })
+            const result = await get(pathname, {
+              access: "private",
+              token: process.env.BLOB_TOKEN_CANDIDATE,
+            })
+            if (!result?.stream)
+              throw new Error("Blob token did not allow private reads.")
+            await del(pathname, {
               token: process.env.BLOB_TOKEN_CANDIDATE,
             })
           }
