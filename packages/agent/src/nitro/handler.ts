@@ -3,7 +3,7 @@ import { createError, defineEventHandler, getRouterParam } from "h3"
 import { resolveAgent, runAgent, streamAgent } from "../index.ts"
 import { isChatCapability } from "../chat/capability.ts"
 import { createChatBot } from "../chat/runtime/agent-chat.ts"
-import { createMemoryChatStateAdapter, createWorkspaceChatStateAdapter } from "../chat/runtime/workspace-state.ts"
+import { createKVChatStateAdapter, createMemoryChatStateAdapter, createWorkspaceChatStateAdapter } from "../chat/runtime/workspace-state.ts"
 import { formatUnknownAgentMessage } from "../registry-error.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { getAgentRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
@@ -19,6 +19,7 @@ import type {
   AgentRuntimeContext,
   AgentRuntimeHooks,
 } from "../types.ts"
+import type { ChatStateProvider } from "../chat/types.ts"
 import type { StateAdapter } from "chat"
 
 export interface NitroAgentRuntimeConfig extends NitroRuntimeConfig, AgentRuntimeConfig {}
@@ -229,17 +230,72 @@ function getAgentWorkspaceName(agent: AgentInput<NitroAgentRuntimeContext>): str
   if (optionWorkspace || definitionWorkspace) return "workspace"
 }
 
-async function createChatState(agent: AgentInput<NitroAgentRuntimeContext>, history: unknown): Promise<StateAdapter> {
-  if (!history) return createMemoryChatStateAdapter()
+function warnChatState(message: string): void {
+  console.warn(`[vitehub:agent] ${message}`)
+}
+
+function normalizeChatStateProvider(state: ChatStateProvider | undefined): ChatStateProvider {
+  return state || "auto"
+}
+
+function resolveChatStateProvider(
+  agent: AgentInput<NitroAgentRuntimeContext>,
+  context: NitroAgentRuntimeContext,
+  state: ChatStateProvider | undefined,
+): ChatStateProvider {
+  const provider = normalizeChatStateProvider(state)
+  if (provider !== "auto") return provider
+  if (context.cloudflare?.env) return "cloudflare"
+  return getAgentWorkspaceName(agent) ? "workspace" : "memory"
+}
+
+function chatStateCacheKey(agentName: string, state: ChatStateProvider | undefined, resolved: ChatStateProvider): string {
+  return `${agentName}:${JSON.stringify(state || "auto")}:${JSON.stringify(resolved)}`
+}
+
+async function createWorkspaceState(agent: AgentInput<NitroAgentRuntimeContext>): Promise<StateAdapter> {
   const workspaceName = getAgentWorkspaceName(agent)
   if (!workspaceName) {
     throw createError({
       statusCode: 500,
-      statusMessage: "chat({ history }) requires an agent workspace.",
+      statusMessage: "chat({ state: \"workspace\" }) requires an agent workspace.",
     })
   }
   const { useWorkspace } = await import("@vitehub/workspace")
   return createWorkspaceChatStateAdapter(useWorkspace(workspaceName, { allowWrite: true }))
+}
+
+async function createKVState(state: Extract<ChatStateProvider, { provider: "kv" }>): Promise<StateAdapter> {
+  const { kv } = await import("@vitehub/kv")
+  if (!state.store || state.store === "default") {
+    warnChatState("Using the default KV store for Chat State is allowed but not recommended. Configure a dedicated KV store for production chat state.")
+  }
+  const storage = state.store ? kv.store(state.store) : kv
+  return createKVChatStateAdapter(storage, { prefix: state.prefix })
+}
+
+async function createChatState(
+  agent: AgentInput<NitroAgentRuntimeContext>,
+  context: NitroAgentRuntimeContext,
+  state: ChatStateProvider | undefined,
+): Promise<{ adapter: StateAdapter, provider: ChatStateProvider }> {
+  const provider = resolveChatStateProvider(agent, context, state)
+  if (provider === "memory") return { adapter: createMemoryChatStateAdapter(), provider }
+  if (provider === "workspace") return { adapter: await createWorkspaceState(agent), provider }
+  if (provider === "cloudflare") {
+    if (!context.cloudflare?.env) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: "chat({ state: \"cloudflare\" }) requires a Cloudflare runtime.",
+      })
+    }
+    warnChatState("Cloudflare Chat State is using best-effort in-memory coordination until a durable Cloudflare state provider is configured.")
+    return { adapter: createMemoryChatStateAdapter(), provider }
+  }
+  if (typeof provider === "object" && provider.provider === "kv") {
+    return { adapter: await createKVState(provider), provider }
+  }
+  return { adapter: createMemoryChatStateAdapter(), provider: "memory" }
 }
 
 async function getCachedChatState(
@@ -361,10 +417,11 @@ export function defineAgentChatRegistryHandler(
       throw createError({ statusCode: 404, statusMessage: `Agent "${agentName}" does not define chat().` })
     }
     const context = { ...createRuntimeContext(event), platform } as NitroAgentRuntimeContext
+    const resolvedStateProvider = resolveChatStateProvider(agent, context, capability.options.state)
     const state = await getCachedChatState(
       chatStates,
-      `${agentName}:${capability.options.history ? "history" : "memory"}`,
-      () => createChatState(agent, capability.options.history),
+      chatStateCacheKey(agentName, capability.options.state, resolvedStateProvider),
+      async () => (await createChatState(agent, context, capability.options.state)).adapter,
     )
     const bot = await createChatBot(agent as never, capability.options as never, context as never, state, agentName)
     const webhook = getChatWebhook(bot, platform)

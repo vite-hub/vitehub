@@ -184,6 +184,7 @@ function getEntityId(value: unknown): string | undefined {
 
 function normalizeHistory(history: ChatHistory | undefined): { enabled: boolean, maxMessages: number } {
   if (!history) return { enabled: false, maxMessages: 0 }
+  if (history === true) return { enabled: true, maxMessages: 20 }
   return { enabled: true, maxMessages: history.maxMessages || 20 }
 }
 
@@ -391,6 +392,7 @@ export async function createChatBot<TRuntimeConfig extends AgentRuntimeConfig>(
     onReaction: _onReaction,
     onSubscribedMessage: _onSubscribedMessage,
     setup,
+    state: _state,
     userName,
     ...chatOptions
   } = options

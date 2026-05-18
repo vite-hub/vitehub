@@ -89,10 +89,22 @@ export interface ChatEventHooks<TRuntimeConfig extends AgentRuntimeConfig = Agen
 }
 
 export type ChatHistory =
+  | boolean
   | false
   | {
     maxMessages?: number
     source: "thread"
+  }
+
+export type ChatStateProvider =
+  | "auto"
+  | "memory"
+  | "workspace"
+  | "cloudflare"
+  | {
+    prefix?: string
+    provider: "kv"
+    store?: string
   }
 
 export interface ChatAgentHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends ChatHookArgs<TRuntimeConfig> {
@@ -142,5 +154,6 @@ export interface ChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig
   logger?: Logger | LogLevel
   onLockConflict?: ChatConfig["onLockConflict"]
   setup?: (bot: Chat, context: AgentChatRuntimeContext<TRuntimeConfig>) => MaybePromise<void>
+  state?: ChatStateProvider
   userName?: ChatConfig["userName"]
 }

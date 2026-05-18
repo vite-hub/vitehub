@@ -38,10 +38,7 @@ export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
       })
     },
     prepare(context) {
-      if (options.history) {
-        if (!context.workspace) throw new Error("[vitehub:agent] chat({ history }) requires an agent workspace.")
-        context.state.require("chat.history")
-      }
+      context.state.require("chat.state")
     },
     bind(context) {
       context.invocations.add("chat:directMessage", async event => event)
@@ -66,4 +63,5 @@ export type {
   ChatNewMessageHook,
   ChatReactionHookInput,
   ChatStreamingPlaceholder,
+  ChatStateProvider,
 } from "./types.ts"

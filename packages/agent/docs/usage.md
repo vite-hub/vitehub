@@ -154,10 +154,7 @@ export default defineAgent({
   capabilities: [
     chat({
       adapters,
-      history: {
-        source: 'thread',
-        maxMessages: 20,
-      },
+      history: true,
       hooks: {
         agent: {
           beforeRun({ input }) {

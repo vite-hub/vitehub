@@ -640,6 +640,44 @@ describe("agent capabilities", () => {
     expect(typeof editValue === "string" ? editValue : editValue?.text).toBe("Summarize: last week")
   })
 
+  it("replays default thread history when chat history is true", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentDirectMessageHook } = await import("../src/chat/runtime/agent-chat.ts")
+    const agent = defineAgent({
+      async run(context) {
+          return { text: context.messages.map(message => message.parts.filter(part => part.type === "text").map(part => part.text).join("")).join("\n") }
+        },
+    })
+    const edit = vi.fn()
+    const post = vi.fn(async () => ({ edit, id: "placeholder-1" }))
+    const hook = createAgentDirectMessageHook(agent, {
+      memo: vi.fn(),
+      platform: "slack",
+      runtime: "nitro",
+      runtimeConfig: {},
+      waitUntil: vi.fn(),
+    }, {
+      adapters: {},
+      fallbackStreamingPlaceholderText: "Working...",
+      history: true,
+    })
+
+    await hook({
+      channel: { id: "channel-1" },
+      message: { author: { isMe: false }, id: "message-2", text: "Current request" },
+      thread: {
+        id: "thread-1",
+        post,
+        recentMessages: [
+          { author: { isMe: true }, id: "message-1", text: "Previous answer" },
+        ],
+      },
+    } as never)
+
+    const editValue = edit.mock.calls[0]?.[0]
+    expect(typeof editValue === "string" ? editValue : editValue?.text).toBe("Previous answer\nCurrent request")
+  })
+
   it("resolves workspace for direct workspace agents with chat history", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")

@@ -10,14 +10,14 @@ _Avoid_: Blob package, source package
 
 **Workspace Store**:
 The configured backing store used to persist a Workspace file tree.
-_Avoid_: Blob Store, Source, Chat Storage
+_Avoid_: Blob Store, Source, Chat State
 
 ## Relationships
 
 - The **Workspace Package** owns Workspace Stores.
 - A **Workspace Store** can be backed by a Blob Store.
 - Agents access Blob-backed files through Workspace when Workspace is the boundary.
-- Chat can use an Agent Workspace for Chat Storage only when that is valid for the runtime.
+- Chat can use an Agent Workspace for Chat State only when that is valid for the runtime.
 
 ## Example Dialogue
 

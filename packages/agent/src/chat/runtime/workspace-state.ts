@@ -1,4 +1,5 @@
 import type { WritableWorkspaceFacade } from "@vitehub/workspace"
+import type { KVStorage } from "@vitehub/kv"
 import type { Lock, QueueEntry, StateAdapter } from "chat"
 
 interface StoredEntry {
@@ -201,6 +202,132 @@ export function createWorkspaceChatStateAdapter(workspace: WritableWorkspaceFaca
       const state = await load()
       const encoded = encodeKey(key)
       const entry = state.values[encoded]
+      if (!entry || isExpired(entry)) return null
+      return entry.value as T
+    },
+    async getList<T = unknown>(key: string): Promise<T[]> {
+      const state = await load()
+      return (state.lists[encodeKey(key)] || []).filter(entry => !isExpired(entry)).map(entry => entry.value as T)
+    },
+    async isSubscribed(threadId) {
+      return (await load()).subscriptions.includes(threadId)
+    },
+    async queueDepth(threadId) {
+      const state = await load()
+      return (state.queues[threadId] || []).filter(entry => entry.expiresAt > Date.now()).length
+    },
+    async releaseLock(lock) {
+      await mutate((state) => {
+        if (state.locks[lock.threadId]?.token === lock.token) delete state.locks[lock.threadId]
+      })
+    },
+    async set(key, value, ttlMs) {
+      await mutate((state) => {
+        state.values[encodeKey(key)] = { expiresAt: ttlMs ? Date.now() + ttlMs : undefined, value }
+      })
+    },
+    async setIfNotExists(key, value, ttlMs) {
+      return await mutate((state) => {
+        const encoded = encodeKey(key)
+        const existing = state.values[encoded]
+        if (existing && !isExpired(existing)) return false
+        state.values[encoded] = { expiresAt: ttlMs ? Date.now() + ttlMs : undefined, value }
+        return true
+      })
+    },
+    async subscribe(threadId) {
+      await mutate((state) => {
+        if (!state.subscriptions.includes(threadId)) state.subscriptions.push(threadId)
+      })
+    },
+    async unsubscribe(threadId) {
+      await mutate((state) => {
+        state.subscriptions = state.subscriptions.filter(item => item !== threadId)
+      })
+    },
+  }
+}
+
+export function createKVChatStateAdapter(storage: KVStorage, options: { prefix?: string } = {}): StateAdapter {
+  const key = `${options.prefix || "vitehub:chat:state"}:state`
+  let mutationQueue: Promise<unknown> = Promise.resolve()
+
+  async function load(): Promise<StoredState> {
+    return await storage.get<StoredState>(key) || emptyState()
+  }
+
+  async function save(state: StoredState): Promise<void> {
+    await storage.set(key, state)
+  }
+
+  async function mutate<T>(fn: (state: StoredState) => T | Promise<T>): Promise<T> {
+    const run = mutationQueue.then(async () => {
+      const state = await load()
+      const result = await fn(state)
+      await save(state)
+      return result
+    })
+    mutationQueue = run.then(() => undefined, () => undefined)
+    return await run
+  }
+
+  return {
+    async acquireLock(threadId, ttlMs) {
+      return await mutate((state) => {
+        const existing = state.locks[threadId]
+        if (existing && existing.expiresAt > Date.now()) return null
+        const lock = { expiresAt: Date.now() + ttlMs, threadId, token: createToken() }
+        state.locks[threadId] = lock
+        return lock
+      })
+    },
+    async appendToList(key, value, listOptions = {}) {
+      await mutate((state) => {
+        const encoded = encodeKey(key)
+        const entries = (state.lists[encoded] || []).filter(entry => !isExpired(entry))
+        entries.push({ expiresAt: listOptions.ttlMs ? Date.now() + listOptions.ttlMs : undefined, value })
+        state.lists[encoded] = typeof listOptions.maxLength === "number" ? entries.slice(-listOptions.maxLength) : entries
+      })
+    },
+    async connect() {},
+    async delete(key) {
+      await mutate((state) => {
+        delete state.values[encodeKey(key)]
+      })
+    },
+    async dequeue(threadId) {
+      return await mutate((state) => {
+        const queue = (state.queues[threadId] || []).filter(entry => entry.expiresAt > Date.now())
+        const entry = queue.shift() ?? null
+        state.queues[threadId] = queue
+        return entry
+      })
+    },
+    async disconnect() {},
+    async enqueue(threadId, entry, maxSize) {
+      return await mutate((state) => {
+        const queue = (state.queues[threadId] || []).filter(item => item.expiresAt > Date.now())
+        queue.push(entry)
+        state.queues[threadId] = queue.slice(-maxSize)
+        return state.queues[threadId]!.length
+      })
+    },
+    async extendLock(lock, ttlMs) {
+      return await mutate((state) => {
+        const existing = state.locks[lock.threadId]
+        if (!existing || existing.token !== lock.token || existing.expiresAt <= Date.now()) return false
+        existing.expiresAt = Date.now() + ttlMs
+        return true
+      })
+    },
+    async forceReleaseLock(threadId) {
+      await mutate((state) => {
+        delete state.locks[threadId]
+      })
+    },
+    async get<T = unknown>(key: string): Promise<T | null> {
+      const state = await load()
+      const entry = state.values[encodeKey(key)]
       if (!entry || isExpired(entry)) return null
       return entry.value as T
     },

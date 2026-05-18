@@ -59,11 +59,11 @@ export default defineAgent({
 })
 ```
 
-## Chat history requires workspace
+## Workspace Chat State requires workspace
 
-Cause: `chat({ history })` persists thread history through the agent workspace.
+Cause: `chat({ state: 'workspace' })` persists Chat State through the agent workspace.
 
-Fix: add `workspace` to the agent, or disable history with `history: false`.
+Fix: add `workspace` to the agent, or use `state: 'auto'`, `state: 'memory'`, or another configured provider.
 
 ## Cloudflare native routing fails
 

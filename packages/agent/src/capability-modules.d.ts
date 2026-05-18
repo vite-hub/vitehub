@@ -9,5 +9,12 @@ declare module "@vitehub/kv" {
     has: (key: string) => Promise<boolean>
     keys: (prefix?: string) => Promise<string[]>
     set: (key: string, value: unknown) => Promise<unknown>
+    store: (name: string) => {
+      del: (key: string) => Promise<unknown>
+      get: (key: string) => Promise<unknown>
+      has: (key: string) => Promise<boolean>
+      keys: (prefix?: string) => Promise<string[]>
+      set: (key: string, value: unknown) => Promise<unknown>
+    }
   }
 }

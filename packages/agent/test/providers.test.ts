@@ -179,12 +179,49 @@ describe("Nitro helpers", () => {
     expect(defineAgentChatWebhookHandler).toBe(defineAgentChatRegistryHandler)
   })
 
-  it("requires an explicit workspace for chat history webhooks", async () => {
+  it("allows chat history without workspace when state falls back to memory", async () => {
+    await vi.resetModules()
+    vi.doMock("../src/chat/runtime/agent-chat.ts", () => ({
+      createChatBot: vi.fn(async () => ({
+        webhooks: {
+          slack: async () => ({ ok: true }),
+        },
+      })),
+    }))
+
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { chat } = await import("../src/capabilities.ts")
+      const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
+      const agent = defineAgent({
+        capabilities: [chat({ adapters: {}, history: true })],
+        run: vi.fn(() => ({ text: "ok" })),
+      })
+      const handler = defineAgentChatRegistryHandler({
+        support: async () => ({ default: agent as never }),
+      })
+      const request = new Request("https://example.com/agents/support/chat/slack", { method: "POST" })
+      const event = {
+        context: { params: { agent: "support", platform: "slack" } },
+        req: request,
+        url: "https://example.com/agents/support/chat/slack",
+        waitUntil: vi.fn(),
+      }
+
+      await expect(handler(event as never)).resolves.toEqual({ ok: true })
+    }
+    finally {
+      vi.doUnmock("../src/chat/runtime/agent-chat.ts")
+      await vi.resetModules()
+    }
+  })
+
+  it("requires an explicit workspace for workspace chat state", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
     const agent = defineAgent({
-      capabilities: [chat({ adapters: {}, history: { source: "thread" } })],
+      capabilities: [chat({ adapters: {}, state: "workspace" })],
       run: vi.fn(() => ({ text: "ok" })),
     })
     const handler = defineAgentChatRegistryHandler({
@@ -200,7 +237,31 @@ describe("Nitro helpers", () => {
 
     await expect(handler(event as never)).rejects.toMatchObject({
       statusCode: 500,
-      statusMessage: "chat({ history }) requires an agent workspace.",
+      statusMessage: "chat({ state: \"workspace\" }) requires an agent workspace.",
+    })
+  })
+
+  it("requires a Cloudflare runtime for cloudflare chat state", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
+    const agent = defineAgent({
+      capabilities: [chat({ adapters: {}, state: "cloudflare" })],
+      run: vi.fn(() => ({ text: "ok" })),
+    })
+    const handler = defineAgentChatRegistryHandler({
+      support: async () => ({ default: agent as never }),
+    })
+    const event = {
+      context: { params: { agent: "support", platform: "slack" } },
+      req: new Request("https://example.com/agents/support/chat/slack", { method: "POST" }),
+      url: "https://example.com/agents/support/chat/slack",
+      waitUntil: vi.fn(),
+    }
+
+    await expect(handler(event as never)).rejects.toMatchObject({
+      statusCode: 500,
+      statusMessage: "chat({ state: \"cloudflare\" }) requires a Cloudflare runtime.",
     })
   })
 
@@ -281,6 +342,105 @@ describe("Nitro helpers", () => {
       await expect(handler(createEvent() as never)).resolves.toEqual({ locked: false })
     }
     finally {
+      vi.doUnmock("../src/chat/runtime/agent-chat.ts")
+      await vi.resetModules()
+    }
+  })
+
+  it("uses an explicit KV store for chat state", async () => {
+    await vi.resetModules()
+    const store = vi.fn(() => ({
+      delete: vi.fn(),
+      get: vi.fn(async () => null),
+      set: vi.fn(),
+    }))
+    vi.doMock("@vitehub/kv", () => ({
+      kv: {
+        delete: vi.fn(),
+        get: vi.fn(async () => null),
+        set: vi.fn(),
+        store,
+      },
+    }))
+    vi.doMock("../src/chat/runtime/agent-chat.ts", () => ({
+      createChatBot: vi.fn(async () => ({
+        webhooks: {
+          slack: async () => ({ ok: true }),
+        },
+      })),
+    }))
+
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { chat } = await import("../src/capabilities.ts")
+      const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
+      const agent = defineAgent({
+        capabilities: [chat({ adapters: {}, state: { provider: "kv", store: "chat" } })],
+        run: vi.fn(() => ({ text: "ok" })),
+      })
+      const handler = defineAgentChatRegistryHandler({
+        support: async () => ({ default: agent as never }),
+      })
+      const event = {
+        context: { params: { agent: "support", platform: "slack" } },
+        req: new Request("https://example.com/agents/support/chat/slack", { method: "POST" }),
+        url: "https://example.com/agents/support/chat/slack",
+        waitUntil: vi.fn(),
+      }
+
+      await expect(handler(event as never)).resolves.toEqual({ ok: true })
+      expect(store).toHaveBeenCalledWith("chat")
+    }
+    finally {
+      vi.doUnmock("@vitehub/kv")
+      vi.doUnmock("../src/chat/runtime/agent-chat.ts")
+      await vi.resetModules()
+    }
+  })
+
+  it("warns when chat state uses the default KV store", async () => {
+    await vi.resetModules()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    vi.doMock("@vitehub/kv", () => ({
+      kv: {
+        delete: vi.fn(),
+        get: vi.fn(async () => null),
+        set: vi.fn(),
+        store: vi.fn(),
+      },
+    }))
+    vi.doMock("../src/chat/runtime/agent-chat.ts", () => ({
+      createChatBot: vi.fn(async () => ({
+        webhooks: {
+          slack: async () => ({ ok: true }),
+        },
+      })),
+    }))
+
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { chat } = await import("../src/capabilities.ts")
+      const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
+      const agent = defineAgent({
+        capabilities: [chat({ adapters: {}, state: { provider: "kv" } })],
+        run: vi.fn(() => ({ text: "ok" })),
+      })
+      const handler = defineAgentChatRegistryHandler({
+        support: async () => ({ default: agent as never }),
+      })
+      const event = {
+        context: { params: { agent: "support", platform: "slack" } },
+        req: new Request("https://example.com/agents/support/chat/slack", { method: "POST" }),
+        url: "https://example.com/agents/support/chat/slack",
+        waitUntil: vi.fn(),
+      }
+
+      await expect(handler(event as never)).resolves.toEqual({ ok: true })
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Using the default KV store for Chat State"))
+    }
+    finally {
+      warn.mockRestore()
+      vi.doUnmock("@vitehub/kv")
       vi.doUnmock("../src/chat/runtime/agent-chat.ts")
       await vi.resetModules()
     }

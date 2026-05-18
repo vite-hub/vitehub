@@ -142,6 +142,63 @@ describe("kv runtime", () => {
     })
   })
 
+  it("selects named stores from runtime config", async () => {
+    runtimeState.config = {
+      kv: {
+        store: {
+          base: ".data/kv",
+          driver: "fs-lite",
+        },
+        stores: {
+          chat: {
+            base: ".data/chat-kv",
+            driver: "fs-lite",
+          },
+          default: {
+            base: ".data/kv",
+            driver: "fs-lite",
+          },
+        },
+      },
+    }
+
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
+    await plugin()
+
+    const { kv } = await import("../src/runtime/storage.ts")
+    await kv.store("chat").set("state", "ok")
+
+    expect(await kv.store("chat").get("state")).toBe("ok")
+    expect(mountedDrivers.fsLite).toMatchObject({
+      base: ".data/chat-kv",
+      driver: "fs-lite",
+    })
+  })
+
+  it("rejects missing named stores at runtime", async () => {
+    runtimeState.config = {
+      kv: {
+        store: {
+          base: ".data/kv",
+          driver: "fs-lite",
+        },
+        stores: {
+          default: {
+            base: ".data/kv",
+            driver: "fs-lite",
+          },
+        },
+      },
+    }
+
+    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
+    await plugin()
+
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    await expect(kv.store("missing").get("state")).rejects.toThrow("[vitehub] Unknown KV store \"missing\".")
+  })
+
   it("prefers runtime env vars over masked Upstash config values", async () => {
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"

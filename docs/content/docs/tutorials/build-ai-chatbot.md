@@ -141,17 +141,14 @@ export default defineAgent({
       adapters: {
         devtools: createDevtoolsAdapter(),
       },
-      history: {
-        source: 'thread',
-        maxMessages: 20,
-      },
+      history: true,
     }),
   ],
 }
 ```
 ::
 
-ViteHub stores Chat SDK state inside the agent workspace. There is no public `state` option to wire.
+ViteHub manages Chat State internally. Configure `state` only when you want to choose a specific backing provider.
 
 ## Step 4 - Connect sources for grounded answers
 
@@ -193,10 +190,7 @@ export default defineAgent({
       adapters: {
         devtools: createDevtoolsAdapter(),
       },
-      history: {
-        source: 'thread',
-        maxMessages: 20,
-      },
+      history: true,
     }),
   ],
 }
