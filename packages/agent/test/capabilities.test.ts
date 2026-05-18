@@ -158,6 +158,72 @@ describe("agent capabilities", () => {
     expect(order).toEqual(["resolve:first", "resolve:second", "close:second", "close:first"])
   })
 
+  it("continues setup-failure cleanup and preserves the setup error when close fails", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineCapability } = await import("../src/capabilities.ts")
+    const order: string[] = []
+    const agent = defineAgent({
+      async run() {
+        return { text: "unreachable" }
+      },
+      capabilities: [
+        defineCapability({
+          id: "first",
+          close() {
+            order.push("close:first")
+          },
+          resolve() {
+            order.push("resolve:first")
+          },
+        }),
+        defineCapability({
+          id: "second",
+          close() {
+            order.push("close:second")
+            throw new Error("close failed")
+          },
+          resolve() {
+            order.push("resolve:second")
+            throw new Error("setup failed")
+          },
+        }),
+      ],
+    })
+
+    const error = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}).catch(error => error)
+
+    expect(error).toBeInstanceOf(AggregateError)
+    expect((error as AggregateError).errors).toHaveLength(2)
+    expect((error as AggregateError).errors[0]).toMatchObject({ message: "setup failed" })
+    expect((error as AggregateError).errors[1]).toMatchObject({ message: "close failed" })
+    expect(order).toEqual(["resolve:first", "resolve:second", "close:second", "close:first"])
+  })
+
+  it("preserves run errors when immediate capability close fails", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineCapability } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "cleanup",
+          close() {
+            throw new Error("close failed")
+          },
+        }),
+      ],
+      async run() {
+        throw new Error("run failed")
+      },
+    })
+
+    const error = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}).catch(error => error)
+
+    expect(error).toBeInstanceOf(AggregateError)
+    expect((error as AggregateError).errors).toHaveLength(2)
+    expect((error as AggregateError).errors[0]).toMatchObject({ message: "run failed" })
+    expect((error as AggregateError).errors[1]).toMatchObject({ message: "close failed" })
+  })
+
   it("runs output renderers and close phase for custom run agents", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { defineCapability } = await import("../src/capabilities.ts")

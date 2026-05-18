@@ -221,8 +221,25 @@ export async function resolveAgentCapabilities<
   }
 
   async function closeRegisteredCallbacks() {
+    const errors: unknown[] = []
     for (const callback of [...closeCallbacks].reverse()) {
-      await callback()
+      try {
+        await callback()
+      }
+      catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length === 1) throw errors[0]
+    if (errors.length > 1) throw new AggregateError(errors, "[vitehub] Multiple capability close callbacks failed.")
+  }
+
+  async function closeRegisteredCallbacksAfterSetupFailure(error: unknown) {
+    try {
+      await closeRegisteredCallbacks()
+    }
+    catch (closeError) {
+      throw new AggregateError([error, closeError], "[vitehub] Capability setup failed and cleanup also failed.")
     }
   }
 
@@ -333,7 +350,7 @@ export async function resolveAgentCapabilities<
     }
   }
   catch (error) {
-    await closeRegisteredCallbacks()
+    await closeRegisteredCallbacksAfterSetupFailure(error)
     throw error
   }
 

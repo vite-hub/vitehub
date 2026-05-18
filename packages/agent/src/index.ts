@@ -1055,6 +1055,18 @@ async function applyOutputRenderers(result: unknown, registries: Awaited<ReturnT
   return current
 }
 
+async function closeCapabilitiesImmediately(close: () => Promise<void>, primaryError: unknown, hasPrimaryError: boolean) {
+  try {
+    await close()
+  }
+  catch (closeError) {
+    if (hasPrimaryError) {
+      throw new AggregateError([primaryError, closeError], "[vitehub] Agent run failed and capability cleanup also failed.")
+    }
+    throw closeError
+  }
+}
+
 export async function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1066,20 +1078,28 @@ export async function runAgent<
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const { capabilities } = await createCapabilityRunContext(agent, context, input)
     let closeImmediately = true
+    let primaryError: unknown
+    let hasPrimaryError = false
     try {
       const result = await applyOutputRenderers(
         await agent.run(await createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>, capabilities)),
         capabilities.registries,
       )
+      if (capabilities.hasCloseCallbacks) closeImmediately = false
       const transport = capabilities.hasCloseCallbacks
         ? await closeAfterTransportResult(result, capabilities.close)
         : { deferred: false, result }
       closeImmediately = !transport.deferred
       return transport.result
     }
+    catch (error) {
+      primaryError = error
+      hasPrimaryError = true
+      throw error
+    }
     finally {
       if (closeImmediately) {
-        await capabilities.close()
+        await closeCapabilitiesImmediately(capabilities.close, primaryError, hasPrimaryError)
       }
     }
   }
@@ -1088,18 +1108,26 @@ export async function runAgent<
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
   let closeImmediately = true
+  let primaryError: unknown
+  let hasPrimaryError = false
   try {
     const result = await applyOutputRenderers(await resolved.generate(adapterContext), adapterContext.capabilityRegistries)
     const runResult = isTransportReadyResult(result) ? result : toAgentRunResult(result)
+    if (adapterContext.capabilityHasCloseCallbacks) closeImmediately = false
     const transport = adapterContext.capabilityHasCloseCallbacks
       ? await closeAfterTransportResult(runResult, adapterContext.capabilityClose)
       : { deferred: false, result: runResult }
     closeImmediately = !transport.deferred
     return transport.result
   }
+  catch (error) {
+    primaryError = error
+    hasPrimaryError = true
+    throw error
+  }
   finally {
     if (closeImmediately) {
-      await adapterContext.capabilityClose()
+      await closeCapabilitiesImmediately(adapterContext.capabilityClose, primaryError, hasPrimaryError)
     }
   }
 }
@@ -1115,20 +1143,28 @@ export async function streamAgent<
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const { capabilities } = await createCapabilityRunContext(agent, context, input)
     let closeImmediately = true
+    let primaryError: unknown
+    let hasPrimaryError = false
     try {
       const result = await applyOutputRenderers(
         await agent.run(await createRunContext(agent, context, capabilities.input as AgentRunInput<CALL_OPTIONS>, capabilities)),
         capabilities.registries,
       )
+      if (capabilities.hasCloseCallbacks) closeImmediately = false
       const transport = capabilities.hasCloseCallbacks
         ? await closeAfterTransportResult(result, capabilities.close)
         : { deferred: false, result }
       closeImmediately = !transport.deferred
       return transport.result
     }
+    catch (error) {
+      primaryError = error
+      hasPrimaryError = true
+      throw error
+    }
     finally {
       if (closeImmediately) {
-        await capabilities.close()
+        await closeCapabilitiesImmediately(capabilities.close, primaryError, hasPrimaryError)
       }
     }
   }
@@ -1137,6 +1173,8 @@ export async function streamAgent<
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
   let closeImmediately = true
+  let primaryError: unknown
+  let hasPrimaryError = false
   try {
     const result = await applyOutputRenderers(
       resolved.stream
@@ -1145,15 +1183,21 @@ export async function streamAgent<
       adapterContext.capabilityRegistries,
     )
     const streamResult = isTransportReadyResult(result) ? result : streamTextResultToEvents(result)
+    if (adapterContext.capabilityHasCloseCallbacks) closeImmediately = false
     const transport = adapterContext.capabilityHasCloseCallbacks
       ? await closeAfterTransportResult(streamResult, adapterContext.capabilityClose)
       : { deferred: false, result: streamResult }
     closeImmediately = !transport.deferred
     return transport.result
   }
+  catch (error) {
+    primaryError = error
+    hasPrimaryError = true
+    throw error
+  }
   finally {
     if (closeImmediately) {
-      await adapterContext.capabilityClose()
+      await closeCapabilitiesImmediately(adapterContext.capabilityClose, primaryError, hasPrimaryError)
     }
   }
 }
