@@ -44,6 +44,14 @@ _Avoid_: Chat definition, chat plugin, bot definition
 Conversation context that Chat can persist in an Agent workspace and include in later Agent invocations.
 _Avoid_: Chat state, Chat SDK state, agent memory
 
+**Chat Runtime State**:
+Internal operational state that Chat uses to coordinate conversation processing across invocations.
+_Avoid_: Chat History, public state adapter, agent memory
+
+**Chat Storage**:
+The ViteHub storage primitive selected to back Chat Runtime State.
+_Avoid_: Chat state adapter, Chat SDK state, lock adapter
+
 **Memory**:
 An Official Capability that lets an agent use durable scoped records across invocations.
 _Avoid_: Chat History, basic memory, memory file
@@ -159,6 +167,9 @@ _Avoid_: Capability instance, duplicate capability
 - A **Storage Capability** is an **Official Capability**.
 - **Chat** is an **Official Capability**.
 - **Chat** can use **Chat History**.
+- **Chat History** depends on **Chat Runtime State**.
+- **Chat Runtime State** is not a public Capability.
+- **Chat Storage** backs **Chat Runtime State**.
 - **Memory** is an **Official Capability**.
 - **Memory** uses one or more **Memory Stores**.
 - A **Memory Store** contains zero or more **Memory Records**.
@@ -217,5 +228,8 @@ _Avoid_: Capability instance, duplicate capability
 - Chat discovery was considered as a separate file convention - resolved: **Chat** is discovered only through Agent definitions.
 - Chat webhook routing was considered as a global route - resolved: **Chat** uses agent-scoped webhook routes.
 - Chat state was considered as a user-facing Capability or option - resolved: expose **Chat History** and keep any Chat SDK state adapter internal.
+- Chat History and runtime state were considered the same concept - resolved: **Chat History** is replayable conversation context; **Chat Runtime State** is internal operational state.
+- Chat Runtime State was considered opt-in only when Chat History is enabled - resolved: **Chat** always creates internal **Chat Runtime State**; **Chat History** only controls conversation replay.
+- Chat runtime backing was considered as a public `state` option - resolved: use **Chat Storage** to select a ViteHub primitive without exposing Chat SDK adapters.
 - Agent memory was considered as an extension of **Chat History** - resolved: use **Memory** for durable scoped records and keep **Chat History** limited to conversation replay.
 - `basicMemory()` and markdown-backed memory were considered as the public concept - resolved: use **Memory** for the capability and **Workspace JSONL Memory Store** for the first store implementation.
