@@ -65,6 +65,7 @@ interface KVStorage {
   has(key: string, options?: unknown): Promise<boolean>
   keys(base?: string, options?: unknown): Promise<string[]>
   set<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
+  store(name: KVStoreName): KVStorage
 }
 ```
 
@@ -76,18 +77,37 @@ interface KVStorage {
 | `kv.del(key, options?)` | Remove one key. |
 | `kv.keys(base?, options?)` | List keys, optionally under a prefix. |
 | `kv.clear(base?, options?)` | Clear the whole store or one prefix. |
+| `kv.store(name)` | Select a named KV store. |
 
 Method options are passed to the underlying unstorage driver. Treat them as provider-specific.
+
+Use `kv.store(name)` when an app has multiple configured stores:
+
+```ts
+await kv.store('chat').set('thread:1', { status: 'open' })
+const state = await kv.store('chat').get('thread:1')
+```
 
 ## Module Options
 
 ### `KVModuleOptions`
 
 ```ts
-type KVModuleOptions = KVStoreConfig | false
+type KVModuleOptions = KVStoreConfig | KVStoresConfig | false
 ```
 
 Set `kv: false` to disable runtime mounting.
+
+Use `stores.default` when configuring multiple stores:
+
+```ts
+kv: {
+  stores: {
+    default: { driver: 'fs-lite', base: '.data/kv' },
+    chat: { driver: 'fs-lite', base: '.data/chat-kv' },
+  },
+}
+```
 
 ### `KVDriver`
 

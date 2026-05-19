@@ -115,6 +115,53 @@ describe("normalizeKVOptions", () => {
     })
   })
 
+  it("normalizes named stores with a required default store", () => {
+    expect(normalizeKVOptions({
+      stores: {
+        chat: {
+          base: ".data/chat-kv",
+          driver: "fs-lite",
+        },
+        default: {
+          base: ".data/kv",
+          driver: "fs-lite",
+        },
+      },
+    }, {
+      env: {},
+      hosting: "",
+    })).toEqual({
+      store: {
+        base: ".data/kv",
+        driver: "fs-lite",
+      },
+      stores: {
+        chat: {
+          base: ".data/chat-kv",
+          driver: "fs-lite",
+        },
+        default: {
+          base: ".data/kv",
+          driver: "fs-lite",
+        },
+      },
+    })
+  })
+
+  it("rejects named stores without a default store", () => {
+    expect(() => normalizeKVOptions({
+      stores: {
+        chat: {
+          base: ".data/chat-kv",
+          driver: "fs-lite",
+        },
+      },
+    }, {
+      env: {},
+      hosting: "",
+    })).toThrow("`kv.stores.default` is required when using named KV stores.")
+  })
+
   it("rejects non-object config", () => {
     expect(() => normalizeKVOptions(true as never, {
       env: {},
@@ -161,6 +208,28 @@ describe("warnVercelKVFallback", () => {
       logger: { error },
     }, normalizeKVOptions({
       driver: "fs-lite",
+    }), "vercel")
+
+    expect(error).toHaveBeenCalledWith(
+      "Vercel hosting requires Upstash-backed KV. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN`.",
+    )
+  })
+
+  it("reports named fs-lite stores on Vercel hosting", () => {
+    const error = vi.fn()
+
+    warnVercelKVFallback({
+      logger: { error },
+    }, normalizeKVOptions({
+      stores: {
+        chat: {
+          base: ".data/chat",
+          driver: "fs-lite",
+        },
+        default: {
+          driver: "upstash",
+        },
+      },
     }), "vercel")
 
     expect(error).toHaveBeenCalledWith(

@@ -21,7 +21,17 @@ function assertHostedConfig(config: false | ResolvedKVModuleOptions | undefined)
 }
 
 export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined): RuntimeStorage {
+  return createNamedHostedKVStorage(config, "default")
+}
+
+export function createNamedHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name: string): RuntimeStorage {
+  const resolved = assertHostedConfig(config)
+  const stores = resolved.stores || { default: resolved.store }
+  const store = stores[name]
+  if (!store) {
+    throw new Error(`[vitehub] Unknown KV store "${name}".`)
+  }
   return createStorage({
-    driver: createLazyKVRuntimeDriver(assertHostedConfig(config)),
+    driver: createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } }),
   }) as RuntimeStorage
 }

@@ -250,6 +250,54 @@ describe("blob runtime", () => {
     }))
   })
 
+  it("selects named stores from runtime config", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "default-token",
+      },
+      stores: {
+        assets: {
+          access: "public",
+          driver: "vercel-blob",
+          token: "assets-token",
+        },
+        default: {
+          access: "public",
+          driver: "vercel-blob",
+          token: "default-token",
+        },
+      },
+    })
+
+    await blob.store("assets").put("notes/assets.txt", "value")
+
+    expect(vercelBlobMock.put).toHaveBeenCalledWith("notes/assets.txt", "value", expect.objectContaining({
+      access: "public",
+      token: "assets-token",
+    }))
+  })
+
+  it("rejects missing named stores at runtime", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "default-token",
+      },
+      stores: {
+        default: {
+          access: "public",
+          driver: "vercel-blob",
+          token: "default-token",
+        },
+      },
+    })
+
+    await expect(blob.store("missing").get("notes/missing.txt")).rejects.toThrow("Unknown Blob store \"missing\".")
+  })
+
   it("uses the active Cloudflare binding", async () => {
     setBlobRuntimeConfig({
       store: {

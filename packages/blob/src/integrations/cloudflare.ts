@@ -5,14 +5,16 @@ export function configureCloudflareR2(
   target: Pick<NitroOptions, "cloudflare">,
   config: ResolvedBlobModuleOptions,
 ): void {
-  if (config.store.driver !== "cloudflare-r2" || !config.store.bucketName) return
+  for (const store of Object.values(config.stores || { default: config.store })) {
+    if (store.driver !== "cloudflare-r2" || !store.bucketName) continue
 
-  const { binding, bucketName } = config.store
+    const { binding, bucketName } = store
 
-  target.cloudflare ||= {}
-  target.cloudflare.wrangler ||= {}
-  const buckets = (target.cloudflare.wrangler.r2_buckets ||= [])
+    target.cloudflare ||= {}
+    target.cloudflare.wrangler ||= {}
+    const buckets = (target.cloudflare.wrangler.r2_buckets ||= [])
 
-  if (buckets.some(b => b.binding === binding || b.bucket_name === bucketName)) return
-  buckets.push({ binding, bucket_name: bucketName })
+    if (buckets.some(b => b.binding === binding)) continue
+    buckets.push({ binding, bucket_name: bucketName })
+  }
 }

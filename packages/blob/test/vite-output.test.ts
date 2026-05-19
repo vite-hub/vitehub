@@ -168,6 +168,46 @@ describe("Vite provider outputs", () => {
     expect(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")).not.toContain("\"r2_buckets\"")
   })
 
+  it("emits Cloudflare bucket bindings for named R2 stores", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-named-r2-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: {
+        stores: {
+          assets: {
+            binding: "ASSETS",
+            bucketName: "assets",
+            driver: "cloudflare-r2",
+          },
+          assetsAlias: {
+            binding: "ASSETS",
+            bucketName: "assets",
+            driver: "cloudflare-r2",
+          },
+          default: {
+            binding: "DEFAULT",
+            driver: "cloudflare-r2",
+          },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const wranglerConfig = JSON.parse(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")) as {
+      r2_buckets?: Array<{ binding: string, bucket_name: string }>
+    }
+    expect(wranglerConfig.r2_buckets).toEqual([
+      {
+        binding: "ASSETS",
+        bucket_name: "assets",
+      },
+    ])
+  })
+
   it("rehydrates masked Vercel tokens from generated runtime output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
@@ -185,6 +225,9 @@ describe("Vite provider outputs", () => {
     const runtimeModule = await import(runtimeModulePath) as {
       blob: {
         put: (pathname: string, body: string) => Promise<unknown>
+        store: (name: string) => {
+          put: (pathname: string, body: string) => Promise<unknown>
+        }
       }
     }
 
@@ -200,6 +243,55 @@ describe("Vite provider outputs", () => {
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore")
-    expect(runtimeContents).toContain("createDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env))")
+    expect(runtimeContents).toContain("createVercelDriver(resolveRuntimeVercelBlobStore(store, process.env))")
+  })
+
+  it("selects named stores from generated runtime output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-named-runtime-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: {
+        stores: {
+          assets: {
+            access: "public",
+            driver: "vercel-blob",
+            token: "assets-token",
+          },
+          default: {
+            access: "public",
+            driver: "vercel-blob",
+            token: "default-token",
+          },
+        },
+      },
+      clientOutDir: "dist",
+      rootDir,
+    })
+
+    const runtimeModulePath = `${pathToFileURL(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs")).href}?t=${Date.now()}`
+    const runtimeModule = await import(runtimeModulePath) as {
+      blob: {
+        store: (name: string) => {
+          put: (pathname: string, body: string) => Promise<unknown>
+        }
+      }
+    }
+
+    await runtimeModule.blob.store("assets").put("notes/assets.txt", "hello")
+
+    expect(vercelBlobMock.put).toHaveBeenCalledWith(
+      "notes/assets.txt",
+      "hello",
+      expect.objectContaining({
+        token: "assets-token",
+      }),
+    )
+
+    const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    expect(runtimeContents).toContain("store: storeName => createGeneratedBlobStorage(storeName)")
+    expect(runtimeContents).toContain("export const blob = createGeneratedBlobStorage()")
   })
 })

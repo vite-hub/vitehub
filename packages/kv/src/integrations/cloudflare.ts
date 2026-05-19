@@ -7,17 +7,19 @@ export function configureCloudflareKV(
   target: Pick<NitroOptions, "cloudflare">,
   config: ResolvedKVModuleOptions,
 ): void {
-  if (config.store.driver !== "cloudflare-kv-binding" || !config.store.namespaceId) return
+  for (const store of Object.values(config.stores || { default: config.store })) {
+    if (store.driver !== "cloudflare-kv-binding" || !store.namespaceId) continue
 
-  const { binding, namespaceId } = config.store
+    const { binding, namespaceId } = store
 
-  target.cloudflare ||= {}
-  target.cloudflare.wrangler ||= {}
-  target.cloudflare.wrangler.kv_namespaces ||= []
+    target.cloudflare ||= {}
+    target.cloudflare.wrangler ||= {}
+    target.cloudflare.wrangler.kv_namespaces ||= []
 
-  pushUnique(
-    target.cloudflare.wrangler.kv_namespaces,
-    { binding, id: namespaceId },
-    entry => entry.binding,
-  )
+    pushUnique(
+      target.cloudflare.wrangler.kv_namespaces,
+      { binding, id: namespaceId },
+      entry => entry.binding,
+    )
+  }
 }

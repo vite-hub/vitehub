@@ -84,6 +84,44 @@ describe("Nitro module", () => {
     })
   })
 
+  it("preserves distinct Cloudflare R2 bindings that share a bucket", async () => {
+    const nitro = createNitroStub({
+      blob: {
+        stores: {
+          assets: {
+            binding: "ASSETS",
+            bucketName: "shared",
+            driver: "cloudflare-r2",
+          },
+          default: {
+            binding: "BLOB",
+            bucketName: "shared",
+            driver: "cloudflare-r2",
+          },
+        },
+      },
+      preset: "cloudflare-module",
+    })
+    const module = (await import("../src/nitro/module.ts")).default
+
+    await module.setup(nitro as never)
+
+    expect(nitro.options.cloudflare).toMatchObject({
+      wrangler: {
+        r2_buckets: [
+          {
+            binding: "BLOB",
+            bucket_name: "shared",
+          },
+          {
+            binding: "ASSETS",
+            bucket_name: "shared",
+          },
+        ],
+      },
+    })
+  })
+
   it("warns when Vercel explicitly uses fs", async () => {
     const nitro = createNitroStub({
       blob: {
