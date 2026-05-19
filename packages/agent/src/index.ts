@@ -234,6 +234,15 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
   return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
+function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<void>): (...args: TArgs) => Promise<void> {
+  let called = false
+  return async (...args) => {
+    if (called) return
+    called = true
+    await callback(...args)
+  }
+}
+
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
 
@@ -1359,6 +1368,7 @@ export async function runAgent<
   const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
+  adapterContext.close = once(adapterContext.close)
   try {
     const result = await resolved.generate(adapterContext as never)
     if (result instanceof Response) return adapterContext.hasCapabilityCleanup ? await withResponseCleanup(result, adapterContext.close) : result
@@ -1410,6 +1420,7 @@ export async function streamAgent<
   const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
+  adapterContext.close = once(adapterContext.close)
   try {
     const result = resolved.stream
       ? await resolved.stream(adapterContext as never)

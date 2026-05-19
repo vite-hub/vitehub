@@ -199,6 +199,38 @@ describe("agent capability runtime", () => {
     }
   })
 
+  it("does not close model-backed capability contexts twice when cleanup fails", async () => {
+    vi.doMock("ai", () => ({
+      ToolLoopAgent: class {
+        async generate() {
+          return { text: "ok" }
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const close = vi.fn(() => {
+        throw new Error("cleanup failed")
+      })
+      const agent = defineAgent({
+        capabilities: [{
+          close,
+          id: "tracked",
+        }],
+        model: {} as never,
+        provider: "ai-sdk",
+      })
+
+      await expect(runAgent(agent, runtime(), {})).rejects.toThrow("cleanup failed")
+      expect(close).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it("does not run invocation-scoped capability phases during agent resolution", async () => {
     vi.doMock("ai", () => ({
       ToolLoopAgent: class {
