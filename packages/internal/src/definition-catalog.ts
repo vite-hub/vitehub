@@ -305,10 +305,12 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
 
     return [
       `  ${JSON.stringify(definition.name)}: async () => {`,
+      `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
+      "    if (cached) return cached",
       indexImport ? `    ${indexImport}` : "",
       `    const steps = [${stepImports.join(", ")}]`,
       `    const definition = ${handler}`,
-      "    return {",
+      "    const entry = {",
       "      ...definition,",
       "      options: { ...definition.options, rootStep: false },",
       "      handler: async (context) => {",
@@ -316,6 +318,8 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
       "        return await definition.handler({ ...context, steps: workflowSteps })",
       "      },",
       "    }",
+      `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
+      "    return entry",
       "  },",
     ].filter(Boolean).join("\n")
   })
@@ -323,6 +327,7 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
   return [
     ...runtimeImport,
     runtimeImport.length ? "" : "",
+    ...(needsWorkflowRuntime ? ["const registryEntryCache = new Map()", ""] : []),
     "const registry = {",
     ...imports,
     "}",
