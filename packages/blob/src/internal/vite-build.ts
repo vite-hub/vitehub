@@ -8,7 +8,7 @@ import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../config.ts"
 
-import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../types.ts"
+import type { BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 
 export const blobPackageName = "@vitehub/blob"
@@ -62,15 +62,23 @@ interface CloudflareBlobConfig {
   r2_buckets?: Array<{ binding: string, bucket_name: string }>
 }
 
-function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | undefined) {
-  if (!config || config.store.driver !== "cloudflare-r2" || !config.store.bucketName) {
+function isCloudflareR2StoreWithBucket(store: ResolvedBlobModuleOptions["store"]): store is ResolvedCloudflareR2BlobStoreConfig & { bucketName: string } {
+  return store.driver === "cloudflare-r2" && Boolean(store.bucketName)
+}
+
+function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | undefined): Array<{ binding: string, bucket_name: string }> | undefined {
+  if (!config) {
     return undefined
   }
 
-  return [{
-    binding: config.store.binding,
-    bucket_name: config.store.bucketName,
-  }]
+  const bindings = Object.values(config.stores || { default: config.store })
+    .filter(isCloudflareR2StoreWithBucket)
+    .map(store => ({
+      binding: store.binding,
+      bucket_name: store.bucketName,
+    }))
+
+  return bindings.length > 0 ? bindings : undefined
 }
 
 function resolveBlobConfig(

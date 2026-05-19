@@ -168,6 +168,41 @@ describe("Vite provider outputs", () => {
     expect(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")).not.toContain("\"r2_buckets\"")
   })
 
+  it("emits Cloudflare bucket bindings for named R2 stores", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-named-r2-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: {
+        stores: {
+          assets: {
+            binding: "ASSETS",
+            bucketName: "assets",
+            driver: "cloudflare-r2",
+          },
+          default: {
+            binding: "DEFAULT",
+            driver: "cloudflare-r2",
+          },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const wranglerConfig = JSON.parse(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")) as {
+      r2_buckets?: Array<{ binding: string, bucket_name: string }>
+    }
+    expect(wranglerConfig.r2_buckets).toEqual([
+      {
+        binding: "ASSETS",
+        bucket_name: "assets",
+      },
+    ])
+  })
+
   it("rehydrates masked Vercel tokens from generated runtime output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
