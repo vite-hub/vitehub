@@ -149,6 +149,13 @@ vi.mock("files-sdk", () => ({
         size: result.size,
       }
     }
+
+    async url(pathname: string) {
+      if (this.adapter.provider !== "vercel-blob") {
+        throw new Error("URL not available")
+      }
+      return `https://blob.example/${pathname}`
+    }
   },
 }))
 
@@ -279,10 +286,70 @@ describe("blob runtime", () => {
     const result = await blob.put("notes/hello.txt", "hello")
 
     expect(result.pathname).toBe("notes/hello.txt")
+    expect(result.url).toBe("https://blob.example/notes/hello.txt")
     expect(vercelBlobMock.put).toHaveBeenCalledWith("notes/hello.txt", "hello", expect.objectContaining({
       access: "public",
       token: "secret-token",
     }))
+  })
+
+  it("preserves provider cursors for folded Vercel listings", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "default-token",
+      },
+    })
+    ;(vercelBlobMock.list as any).mockImplementation(async (options: { cursor?: string } = {}) => {
+      if (options.cursor === "page-2") {
+        return {
+          blobs: [
+            {
+              contentType: "text/plain",
+              pathname: "a/z-last.txt",
+              size: 4,
+              uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+            },
+          ],
+        }
+      }
+      return {
+        blobs: [
+          {
+            contentType: "text/plain",
+            pathname: "a/nested/one.txt",
+            size: 3,
+            uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+          {
+            contentType: "text/plain",
+            pathname: "a/root.txt",
+            size: 4,
+            uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ],
+        cursor: "page-2",
+      }
+    })
+
+    const firstPage = await blob.list({ folded: true, limit: 1, prefix: "a/" })
+
+    expect(firstPage).toMatchObject({
+      blobs: [{ pathname: "a/root.txt" }],
+      folders: ["a/nested/"],
+      hasMore: true,
+    })
+    expect(firstPage.cursor).toBeDefined()
+
+    const secondPage = await blob.list({ cursor: firstPage.cursor, folded: true, limit: 1, prefix: "a/" })
+
+    expect(vercelBlobMock.list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "page-2" }))
+    expect(secondPage).toMatchObject({
+      blobs: [{ pathname: "a/z-last.txt" }],
+      folders: [],
+      hasMore: false,
+    })
   })
 
   it("selects named stores from runtime config", async () => {

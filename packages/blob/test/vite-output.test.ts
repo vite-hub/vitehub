@@ -71,6 +71,10 @@ vi.mock("files-sdk", () => ({
         size: result.size,
       }
     }
+
+    async url(pathname: string) {
+      return `https://blob.example/${pathname}`
+    }
   },
 }))
 
