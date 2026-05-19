@@ -239,8 +239,11 @@ describe("Vite provider outputs", () => {
     )
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
     expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore")
     expect(runtimeContents).toContain("createDriver0(resolveRuntimeVercelBlobStore(store, process.env))")
+    expect(vercelServerContents).not.toContain("from \"@vercel/blob\"")
+    expect(vercelServerContents).not.toContain("from '@vercel/blob'")
   })
 
   it("selects named stores from generated runtime output", async () => {
