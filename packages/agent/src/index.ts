@@ -1346,6 +1346,7 @@ export async function runAgent<
 ): Promise<Response | AgentRunResult | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createRunContext(agent, context, input)
+    runContext.close = once(runContext.close)
     try {
       const result = await agent.run(runContext)
       if (result instanceof Response) return runContext.hasCapabilityCleanup ? await withResponseCleanup(result, runContext.close) : result
@@ -1398,6 +1399,7 @@ export async function streamAgent<
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createRunContext(agent, context, input)
+    runContext.close = once(runContext.close)
     try {
       const result = await agent.run(runContext)
       if (result instanceof Response) return runContext.hasCapabilityCleanup ? await withResponseCleanup(result, runContext.close) : result
