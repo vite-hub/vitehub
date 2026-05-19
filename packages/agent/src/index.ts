@@ -6,6 +6,16 @@ import {
   resolveRuntimeValue,
 } from "@vitehub/runtime"
 
+import {
+  applyCapabilityToolTransforms,
+  applyOutputRenderers,
+  defineCapability,
+  normalizeCapabilities,
+  normalizeMode,
+  resolveAgentCapabilities,
+  withCapabilityCleanup,
+  withResponseCleanup,
+} from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 import {
   applyAgentToolPolicies,
@@ -54,8 +64,6 @@ import type {
   WorkspaceName,
 } from "@vitehub/workspace"
 
-type AgentToolStepReporter = NonNullable<AgentRuntimeContext["devtools"]>["reportToolStep"]
-
 export type {
   AgentAdapter,
   AgentAdapterFactory,
@@ -70,8 +78,12 @@ export type {
   AgentCapabilityHandle,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
+  AgentCapabilityHookName,
+  AgentCapabilityHooks,
   AgentCapabilityInput,
   AgentCapabilityMode,
+  AgentCapabilityPhase,
+  AgentCapabilityRuntimeContext,
   AgentChatAgentHookArgs,
   AgentChatAgentHooks,
   AgentChatEventHookArgs,
@@ -82,6 +94,7 @@ export type {
   AgentExecution,
   AgentHandlerOptions,
   AgentInput,
+  AgentInstructionBlock,
   AgentIntegrationOption,
   AgentIntegrationsOptions,
   AgentModelInput,
@@ -111,6 +124,7 @@ export type {
   AgentSchedulerProviderOptions,
   AgentSettings,
   AgentToolDefinition,
+  AgentToolTransform,
   AgentToolPolicyContext,
   AgentToolPolicyDecision,
   AgentStateProviderOptions,
@@ -211,51 +225,7 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
 }
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
-
-function assertCapabilityId(id: unknown): asserts id is string {
-  if (typeof id !== "string" || !id.trim()) {
-    throw new TypeError("[vitehub] Capability definitions require a non-empty string id.")
-  }
-}
-
-export function defineCapability<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
->(
-  capability: AgentCapabilityInput<TRuntimeConfig, Name>,
-): AgentCapabilityDefinition<TRuntimeConfig, Name> {
-  if (!capability || typeof capability !== "object") {
-    throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
-  }
-  assertCapabilityId((capability as { id?: unknown }).id)
-  return capability as AgentCapabilityDefinition<TRuntimeConfig, Name>
-}
-
-function normalizeMode(value: unknown, label: string): AgentCapabilityMode {
-  if (value === undefined) return "read"
-  if (value === "read" || value === "write") return value
-  throw new TypeError(`[vitehub] ${label} mode must be "read" or "write".`)
-}
-
-function normalizeCapabilities(capabilities: AgentCapabilitiesList | undefined): NormalizedCapability[] {
-  if (capabilities === undefined) return []
-  if (!Array.isArray(capabilities)) {
-    throw new TypeError("[vitehub] defineAgent({ capabilities }) must be an ordered array.")
-  }
-  const seen = new Set<string>()
-  return capabilities.map((capability) => {
-    const normalized = defineCapability(capability) as NormalizedCapability
-    if (seen.has(normalized.id)) {
-      throw new Error(`[vitehub] Duplicate capability id "${normalized.id}" in one agent.`)
-    }
-    seen.add(normalized.id)
-    return normalized
-  })
-}
-
-function isToolSet(value: unknown): value is AgentToolSet {
-  return typeof value === "object" && value !== null
-}
+export { defineCapability } from "./capability-runtime.ts"
 
 function primitiveHandle(context: AgentCapabilityContext, name: string): unknown {
   const handle = context.capabilities?.[name] as { value?: unknown } | unknown
@@ -531,8 +501,14 @@ function defineBaseAgent<
       const adapterInstance = typeof resolvedAdapter === "function"
         ? await (resolvedAdapter as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
         : resolvedAdapter
-      const capabilityTools = normalizedCapabilities.length && !workspace
-        ? await resolveCapabilityToolsFromList(normalizedCapabilities, resolvedContext, undefined, context.devtools?.reportToolStep)
+      const resolvedCapabilities = normalizedCapabilities.length && !workspace
+        ? await resolveAgentCapabilities({ capabilities: normalizedCapabilities }, resolvedContext, {})
+        : undefined
+      const transformedTools = resolvedCapabilities
+        ? await applyCapabilityToolTransforms(resolvedCapabilities.tools, resolvedCapabilities.toolTransforms)
+        : undefined
+      const capabilityTools = Object.keys(transformedTools || {}).length
+        ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
         : undefined
       return capabilityTools
         ? { ...adapterInstance, tools: capabilityTools }
@@ -979,69 +955,6 @@ async function resolveWorkspaceMetadataInstructions<
     .filter((part): part is string => Boolean(part))
 }
 
-async function resolveCapabilityTools<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
-  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
-  workspace: ReadonlyWorkspaceFacade<Name>,
-  reportToolStep?: AgentToolStepReporter,
-): Promise<AgentToolSet | undefined> {
-  const capabilities = normalizeCapabilities(options.capabilities as AgentCapabilitiesList | undefined)
-  return await resolveCapabilityToolsFromList(capabilities, runtime, workspace, reportToolStep)
-}
-
-async function resolveCapabilityToolsFromList<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
->(
-  capabilities: NormalizedCapability[],
-  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
-  workspace?: ReadonlyWorkspaceFacade<Name>,
-  reportToolStep?: AgentToolStepReporter,
-): Promise<AgentToolSet | undefined> {
-  if (!capabilities.length) return undefined
-
-  const tools: AgentToolSet = {}
-  for (const capability of capabilities) {
-    await validateCapabilityRuntimeRequirement(capability, workspace)
-    if (!capability.tools) continue
-    const context = {
-      ...runtime,
-      fs: workspace?.fs,
-      mode: capability.mode,
-      workspace,
-    } as unknown as AgentCapabilityContext<TRuntimeConfig, Name>
-    const resolved = typeof capability.tools === "function"
-      ? await capability.tools(context)
-      : capability.tools
-    if (isToolSet(resolved)) Object.assign(tools, resolved as AgentToolSet)
-  }
-
-  return Object.keys(tools).length
-    ? withAgentToolStepReporting(applyAgentToolPolicies(tools) || {}, reportToolStep)
-    : undefined
-}
-
-async function validateCapabilityRuntimeRequirement<Name extends WorkspaceName>(
-  capability: NormalizedCapability,
-  workspace?: ReadonlyWorkspaceFacade<Name>,
-): Promise<void> {
-  for (const requirement of capability.requires || []) {
-    if (!requirement.workspace) continue
-    if (requirement.workspace.required && !workspace) {
-      throw new Error(`[vitehub] ${capability.id}() requires an explicit workspace.`)
-    }
-    if (!workspace) continue
-    for (const path of requirement.workspace.paths || []) {
-      if (!await workspace.fs.exists(path as never)) {
-        throw new Error(`[vitehub] ${capability.id}() requires workspace path ${path}.`)
-      }
-    }
-  }
-}
-
 export function createAgentDevtoolsMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -1291,19 +1204,50 @@ async function* streamTextResultToEvents(value: unknown): AsyncIterable<StreamEv
   }
 }
 
-function createRunContext<
+async function createRunContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
-): AgentRunContext<TRuntimeConfig, CALL_OPTIONS> {
+): Promise<AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
+  close: () => Promise<void>
+  hasCapabilityCleanup: boolean
+  outputRenderers: Array<(result: unknown) => MaybePromise<unknown>>
+}> {
   const resolvedContext = createResolvedRuntimeContext(context)
+  const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
+  const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
+  const workspaceName = workspaceOptions
+    ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults)
+    : undefined
+  const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
+  const workspace = workspaceName
+    ? workspaceMode === "write"
+      ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { allowWrite: true })
+      : (await import("@vitehub/workspace")).useWorkspace(workspaceName)
+    : undefined
+  const capabilityOptions = workspaceOptions
+    ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
+    : definition.capabilities?.length
+      ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
+      : undefined
+  const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never)
+  const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+  const tools = Object.keys(transformedTools || {}).length
+    ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
+    : undefined
 
   return {
     ...resolvedContext,
-    input,
+    close: capabilities.close,
+    hasCapabilityCleanup: capabilities.hasCloseCallbacks,
+    input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+    messages: capabilities.messages,
+    outputRenderers: capabilities.registries.outputRenderers,
+    prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
+    tools,
   }
 }
 
@@ -1328,17 +1272,26 @@ async function createAdapterRunContext<
       ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { allowWrite: true })
       : (await import("@vitehub/workspace")).useWorkspace(workspaceName)
     : undefined
-  const tools = workspaceOptions && workspace
-    ? await resolveCapabilityTools(workspaceOptions, runtime, workspace as never, context.devtools?.reportToolStep)
+  const capabilityOptions = workspaceOptions && workspace
+    ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
     : definition?.capabilities?.length
-      ? await resolveCapabilityToolsFromList(definition.capabilities as NormalizedCapability[], runtime, undefined, context.devtools?.reportToolStep)
+      ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
+      : undefined
+  const capabilities = await resolveAgentCapabilities(capabilityOptions, runtime, input, workspace as never)
+  const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+  const tools = Object.keys(transformedTools || {}).length
+    ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
     : undefined
   return {
+    capabilityInstructions: capabilities.capabilityInstructions,
+    close: capabilities.close,
     devtools: context.devtools,
-    input,
+    hasCapabilityCleanup: capabilities.hasCloseCallbacks,
+    input: capabilities.input,
     instructions: undefined,
-    messages: getRunMessages(input),
-    prompt: typeof input.prompt === "string" ? input.prompt : undefined,
+    messages: capabilities.messages,
+    outputRenderers: capabilities.registries.outputRenderers,
+    prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
     runtime,
     tools,
     workspace,
@@ -1354,13 +1307,46 @@ export async function runAgent<
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
-    return await agent.run(createRunContext(agent, context, input))
+    const runContext = await createRunContext(agent, context, input)
+    try {
+      const result = await agent.run(runContext)
+      if (result instanceof Response) return runContext.hasCapabilityCleanup ? await withResponseCleanup(result, runContext.close) : result
+      if (isAsyncIterable(result)) return runContext.hasCapabilityCleanup ? withCapabilityCleanup(result, runContext.close) : result
+      const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
+      await runContext.close()
+      return rendered
+    }
+    catch (error) {
+      try {
+        await runContext.close()
+      }
+      catch (closeError) {
+        throw new AggregateError([error, closeError], "[vitehub] Agent run failed and capability cleanup also failed.")
+      }
+      throw error
+    }
   }
 
   const resolved = await resolveAgent(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
-  const result = await resolved.generate(await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input))
-  return isTransportReadyResult(result) ? result : toAgentRunResult(result)
+  const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
+  try {
+    const result = await resolved.generate(adapterContext)
+    if (result instanceof Response) return adapterContext.hasCapabilityCleanup ? await withResponseCleanup(result, adapterContext.close) : result
+    if (isAsyncIterable(result)) return adapterContext.hasCapabilityCleanup ? withCapabilityCleanup(result, adapterContext.close) : result
+    const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
+    await adapterContext.close()
+    return toAgentRunResult(rendered)
+  }
+  catch (error) {
+    try {
+      await adapterContext.close()
+    }
+    catch (closeError) {
+      throw new AggregateError([error, closeError], "[vitehub] Agent run failed and capability cleanup also failed.")
+    }
+    throw error
+  }
 }
 
 export async function streamAgent<
@@ -1372,16 +1358,47 @@ export async function streamAgent<
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
-    return await agent.run(createRunContext(agent, context, input))
+    const runContext = await createRunContext(agent, context, input)
+    try {
+      const result = await agent.run(runContext)
+      if (result instanceof Response) return runContext.hasCapabilityCleanup ? await withResponseCleanup(result, runContext.close) : result
+      if (isAsyncIterable(result)) return runContext.hasCapabilityCleanup ? withCapabilityCleanup(result, runContext.close) : result
+      const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
+      await runContext.close()
+      return streamTextResultToEvents(rendered)
+    }
+    catch (error) {
+      try {
+        await runContext.close()
+      }
+      catch (closeError) {
+        throw new AggregateError([error, closeError], "[vitehub] Agent run failed and capability cleanup also failed.")
+      }
+      throw error
+    }
   }
 
   const resolved = await resolveAgent(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
-  const result = resolved.stream
-    ? await resolved.stream(adapterContext)
-    : await resolved.generate(adapterContext)
-  return isTransportReadyResult(result) ? result : streamTextResultToEvents(result)
+  try {
+    const result = resolved.stream
+      ? await resolved.stream(adapterContext)
+      : await resolved.generate(adapterContext)
+    if (result instanceof Response) return adapterContext.hasCapabilityCleanup ? await withResponseCleanup(result, adapterContext.close) : result
+    if (isAsyncIterable(result)) return adapterContext.hasCapabilityCleanup ? withCapabilityCleanup(result, adapterContext.close) : result
+    const events = streamTextResultToEvents(await applyOutputRenderers(result, adapterContext.outputRenderers))
+    return adapterContext.hasCapabilityCleanup ? withCapabilityCleanup(events, adapterContext.close) : events
+  }
+  catch (error) {
+    try {
+      await adapterContext.close()
+    }
+    catch (closeError) {
+      throw new AggregateError([error, closeError], "[vitehub] Agent stream failed and capability cleanup also failed.")
+    }
+    throw error
+  }
 }
 
 export async function getAgent<TContext extends AgentRuntimeContext>(

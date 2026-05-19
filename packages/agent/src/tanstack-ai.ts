@@ -1,4 +1,5 @@
 import { getMessageText } from "@vitehub/messages"
+import { applyCapabilityInstructionSlots } from "./capability-runtime.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -101,7 +102,8 @@ async function createChatOptions(options: TanStackAiAdapterOptions, context: Age
     fs: context.workspace?.fs,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
-  const instructions = context.instructions ?? await resolveInstructions(options, metadataContext)
+  const instructions = context.instructions
+    ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)
   const {
     adapter,
     instructions: _instructions,

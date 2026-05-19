@@ -1,5 +1,9 @@
 import { getMessageText } from "@vitehub/messages"
 import {
+  applyCapabilityInstructionSlots,
+  applyCapabilityToolTransforms,
+} from "./capability-runtime.ts"
+import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
@@ -348,12 +352,14 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const instrumentedModel = options.instrumentModel
     ? await options.instrumentModel({ ...context.runtime, model, run: context.runtime.run })
     : model
-  const instructions = context.instructions ?? await resolveInstructions(options, metadataContext)
+  const instructions = context.instructions
+    ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
-  const tools = {
+  const tools = await applyCapabilityToolTransforms({
     ...(context.tools || {}),
     ...(adapterTools || {}),
-  }
+  }, [])
+  const toolSet = tools || {}
   const {
     fallback: _fallback,
     instructions: _instructions,
@@ -372,10 +378,10 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
       instructions,
       model: instrumentedModel as never,
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? stepCountIs(stepLimit ?? 20)) as never,
-      ...(Object.keys(tools).length ? { tools: tools as never } : {}),
+      ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
     model: instrumentedModel,
-    tools: Object.keys(tools).length ? tools : undefined,
+    tools: Object.keys(toolSet).length ? toolSet : undefined,
   }
 }
 
