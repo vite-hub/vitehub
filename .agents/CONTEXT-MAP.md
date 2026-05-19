@@ -26,6 +26,6 @@
 - **Framework Integrations -> Packages**: Packages use framework integrations to discover definitions, generate runtime registries, and bind provider output.
 - **Capabilities -> Agents**: Agents attach Capabilities to expose user-shareable abilities.
 - **Agents -> Workspace**: Agents can reference Workspaces for persistent file-tree state.
-- **Workspace -> Blob**: Hosted Workspace stores can use Blob Stores without making Blob the agent-facing boundary.
+- **Workspace -> Blob**: Workspace Stores can use Blob Stores for persistence while Workspace owns file-tree behavior.
 - **Agents -> KV**: Agent-owned runtime behavior can use KV Stores internally when configured by ViteHub primitives.
 - **Packages -> Domain Contexts**: Package contexts define ownership boundaries; domain contexts define shared vocabulary.

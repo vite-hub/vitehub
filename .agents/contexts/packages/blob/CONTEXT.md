@@ -6,7 +6,7 @@ Blob Package names ownership boundaries for `@vitehub/blob`.
 
 **Blob Package**:
 The package that owns Blob Stores, Default Blob Store behavior, and Blob Store Selection.
-_Avoid_: Workspace package, Agent capability package
+_Avoid_: Workspace package, Capability package
 
 **Blob Driver Boundary**:
 The package boundary where provider-specific object storage drivers meet ViteHub Blob behavior.
@@ -18,13 +18,13 @@ _Avoid_: Store API, workspace store
 - The **Blob Package** preserves Default Blob Store ergonomics.
 - The **Blob Driver Boundary** hides provider-specific bucket, token, and binding details.
 - Workspace can use Blob Stores as hosted Workspace backing stores.
-- Blob-backed agent file access belongs behind Workspace, not a direct Blob Agent Capability.
+- Worktree-oriented file behavior belongs to Workspace, not the Blob Package.
 
 ## Example Dialogue
 
-> **Dev:** "Should `@vitehub/agent` add a direct Blob tool when Workspace is Blob-backed?"
-> **Domain expert:** "No. The **Blob Package** backs storage, and Workspace is the agent-facing boundary."
+> **Dev:** "Should the Blob Package decide how files appear in a worktree?"
+> **Domain expert:** "No. The **Blob Package** owns storage. Workspace owns file-tree behavior."
 
 ## Flagged Ambiguities
 
-- Blob Store access was considered direct Agent access - resolved: Blob-backed agent file access goes through Workspace.
+- Blob Store access was described through Agent file access - resolved: the **Blob Package** owns storage; Workspace owns file-tree behavior.

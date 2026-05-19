@@ -6,7 +6,7 @@ Blob names object/file storage primitives and configured stores.
 
 **Blob**:
 The ViteHub object storage primitive for files, streams, binary bodies, and objects with metadata.
-_Avoid_: Workspace, artifact capability
+_Avoid_: Workspace, Capability
 
 **Blob Store**:
 A named configured Blob backend that code and ViteHub storage layers can target.
@@ -27,15 +27,15 @@ _Avoid_: Adapter selection, bucket binding
 - Single-store Blob configuration is normalized to the **Default Blob Store**.
 - Named Blob configuration declares a map of **Blob Stores**.
 - Runtime code selects non-default stores through **Blob Store Selection**.
-- A Workspace Store can be backed by a **Blob Store**.
-- Blob is not an Agent Capability when accessed through Workspace.
+- Workspace Stores can use **Blob Stores** for persistence.
+- Workspace adds file-tree behavior and worktree-oriented DX on top of stored files.
 
 ## Example Dialogue
 
-> **Dev:** "Should agents get a Blob capability just because Workspace uses Blob underneath?"
-> **Domain expert:** "No. File access for agents goes through Workspace when Workspace is the boundary."
+> **Dev:** "Is a Workspace just a Blob Store?"
+> **Domain expert:** "No. Blob stores files and objects. Workspace decides how those files appear in a file tree."
 
 ## Flagged Ambiguities
 
-- Blob was considered as an Agent Capability - resolved: Blob-backed agent file access should go through Workspace unless a separate public use case is proven.
+- Blob was described through Agent access - resolved: Blob is the storage primitive; Workspace is one consumer that adds file-tree behavior.
 - "bucket" was considered for multiple Blob backends - resolved: use **Blob Store** publicly because buckets and bindings are backend details.

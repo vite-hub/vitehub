@@ -22,4 +22,4 @@ Will not be actioned.
 ## Notes
 
 - Do not create duplicate labels with alternate names unless the user asks.
-- If the repo later adopts a different label vocabulary, update this file and the `AGENTS.md` Agent skills block together.
+- If the repo later adopts a different label vocabulary, update this file and any agent-facing tracker guidance together.
