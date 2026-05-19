@@ -100,6 +100,7 @@ describe("agent capability runtime", () => {
       expect.objectContaining({ text: "rewritten" }),
     ])
     expect(applyCapabilityInstructionSlots("Base\n{{ skills }}", resolved.capabilityInstructions)).toBe("Base\nSkill instructions.")
+    expect(applyCapabilityInstructionSlots("Base {{ user_name }}\n{{ skills }}", resolved.capabilityInstructions)).toBe("Base {{ user_name }}\nSkill instructions.")
     await expect(applyCapabilityToolTransforms(resolved.tools, resolved.toolTransforms)).resolves.toEqual({
       added: { name: "added" },
       original: { name: "original" },

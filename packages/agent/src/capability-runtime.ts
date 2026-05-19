@@ -2,6 +2,7 @@ import { resolveRuntimeValue } from "@vitehub/runtime"
 
 import type {
   AgentAdapterInstructionsValue,
+  AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityHookName,
   AgentCapabilityHooks,
@@ -41,6 +42,11 @@ export interface ResolvedAgentCapabilities {
   input: AgentRunInput
   messages: Message[]
   registries: AgentCapabilityRegistries
+  toolTransforms: AgentToolTransform[]
+  tools?: AgentToolSet
+}
+
+export interface ResolvedAgentStaticCapabilities {
   toolTransforms: AgentToolTransform[]
   tools?: AgentToolSet
 }
@@ -226,7 +232,7 @@ export async function resolveAgentCapabilities<
         tools: {
           add(value) {
             if (!value) return
-            tools = { ...(tools || {}), ...value }
+            tools = { ...tools, ...value }
           },
           transform(transform) {
             toolTransforms.push(transform)
@@ -255,7 +261,7 @@ export async function resolveAgentCapabilities<
       }
       if (capability.tools) {
         const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext) as unknown
-        if (isToolSet(resolved)) tools = { ...(tools || {}), ...resolved }
+        if (isToolSet(resolved)) tools = { ...tools, ...resolved }
       }
     }
   }
@@ -276,6 +282,39 @@ export async function resolveAgentCapabilities<
     input: currentInput,
     messages,
     registries,
+    toolTransforms,
+    tools,
+  }
+}
+
+export async function resolveAgentStaticCapabilities<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: AgentCapabilityOptions<TRuntimeConfig, Name> | undefined,
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  workspace?: ReadonlyWorkspaceFacade<Name>,
+  workspaceMode: AgentCapabilityMode = "read",
+): Promise<ResolvedAgentStaticCapabilities> {
+  const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+  let tools: AgentToolSet | undefined
+  const toolTransforms: AgentToolTransform[] = []
+
+  for (const capability of capabilities) {
+    await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
+    if (!capability.tools) continue
+
+    const capabilityContext = {
+      ...runtime,
+      fs: workspace?.fs,
+      mode: capability.mode,
+      workspace,
+    } as unknown as AgentCapabilityContext<TRuntimeConfig, Name>
+    const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext as never) as unknown
+    if (isToolSet(resolved)) tools = { ...tools, ...resolved }
+  }
+
+  return {
     toolTransforms,
     tools,
   }
@@ -307,32 +346,6 @@ export async function validateCapabilityRuntimeRequirement<Name extends Workspac
   }
 }
 
-function levenshtein(left: string, right: string) {
-  const costs = Array.from({ length: right.length + 1 }, (_, index) => index)
-  for (let i = 1; i <= left.length; i++) {
-    let prev = i
-    for (let j = 1; j <= right.length; j++) {
-      const next = left[i - 1] === right[j - 1]
-        ? costs[j - 1]
-        : Math.min(costs[j - 1], prev, costs[j]) + 1
-      costs[j - 1] = prev
-      prev = next
-    }
-    costs[right.length] = prev
-  }
-  return costs[right.length]
-}
-
-function suggestSlot(slot: string, ids: string[]) {
-  const matches = ids
-    .map(id => ({ distance: levenshtein(slot, id), id }))
-    .filter(match => match.distance <= Math.max(2, Math.floor(slot.length / 2)))
-    .sort((left, right) => left.distance - right.distance)
-    .slice(0, 3)
-    .map(match => match.id)
-  return matches.length ? ` Did you mean ${matches.map(id => `{{ ${id} }}`).join(", ")}?` : ""
-}
-
 export function applyCapabilityInstructionSlots(instructions: string, blocks: AgentInstructionBlock[] = []): string {
   if (!blocks.length) return instructions
 
@@ -345,7 +358,7 @@ export function applyCapabilityInstructionSlots(instructions: string, blocks: Ag
       return remaining.splice(0).map(block => block.instructions).join("\n\n")
     }
     if (!known.has(slot)) {
-      throw new Error(`[vitehub] Unknown capability instruction slot "${slot}".${suggestSlot(slot, ["capabilities", ...known])}`)
+      return match
     }
     if (used.has(slot)) {
       throw new Error(`[vitehub] Duplicate capability instruction slot "${slot}". Use {{ capabilities }} for repeated catch-all insertion.`)

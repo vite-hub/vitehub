@@ -13,6 +13,7 @@ import {
   normalizeCapabilities,
   normalizeMode,
   resolveAgentCapabilities,
+  resolveAgentStaticCapabilities,
   withCapabilityCleanup,
   withResponseCleanup,
 } from "./capability-runtime.ts"
@@ -514,7 +515,19 @@ function defineBaseAgent<
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
       const adapterInstance = await resolveBaseAgent(context)
-      return adapterInstance
+      const resolvedContext = createResolvedRuntimeContext(context)
+      const resolvedCapabilities = normalizedCapabilities.length && !workspace
+        ? await resolveAgentStaticCapabilities({ capabilities: normalizedCapabilities }, resolvedContext)
+        : undefined
+      const transformedTools = resolvedCapabilities
+        ? await applyCapabilityToolTransforms(resolvedCapabilities.tools, resolvedCapabilities.toolTransforms)
+        : undefined
+      const capabilityTools = Object.keys(transformedTools || {}).length
+        ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
+        : undefined
+      return capabilityTools
+        ? { ...adapterInstance, tools: capabilityTools }
+        : adapterInstance
     },
   } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>
 }
