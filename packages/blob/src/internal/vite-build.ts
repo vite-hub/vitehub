@@ -295,7 +295,6 @@ function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDe
         "@vitehub/blob": artifacts.runtimeModuleFiles.vercel,
       },
       external: [
-        "@vercel/blob",
         "files-sdk",
         "files-sdk/akamai",
         "files-sdk/azure",
