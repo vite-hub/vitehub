@@ -1365,7 +1365,7 @@ export async function streamAgent<
       if (isAsyncIterable(result)) return runContext.hasCapabilityCleanup ? withCapabilityCleanup(result, runContext.close) : result
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       await runContext.close()
-      return streamTextResultToEvents(rendered)
+      return rendered
     }
     catch (error) {
       try {
