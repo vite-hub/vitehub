@@ -45,7 +45,7 @@ export interface WorkspaceVitePluginAPI {
 
 export type WorkspaceVitePlugin = Plugin & { api: WorkspaceVitePluginAPI, nitro: NitroModule }
 
-export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
+export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
   let resolved: ResolvedConfig | undefined
   let resolvedOptions: ReturnType<typeof normalizeWorkspaceOptions> = false
   let assetsRegistryFile: string | undefined
@@ -97,7 +97,7 @@ export function hubWorkspace(_options?: WorkspaceModuleOptions): WorkspaceVitePl
         process.env.VITEHUB_WORKSPACE_DEV = "true"
       else
         delete process.env.VITEHUB_WORKSPACE_DEV
-      resolvedOptions = normalizeWorkspaceOptions(_options ?? (config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace, {
+      resolvedOptions = normalizeWorkspaceOptions((config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? options, {
         dev: config.command !== "build",
         env: process.env,
         hosting: process.env.VITEHUB_HOSTING,
