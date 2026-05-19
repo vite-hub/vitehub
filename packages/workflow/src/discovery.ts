@@ -341,13 +341,19 @@ export function discoverWorkflowDefinitions(options:
 
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
   const serverScanDirs = roots.map(root => resolve(root, "server"))
+  const inlineDefinitions = discoverInlineWorkflowDefinitions(options)
+  const inlineHandlers = new Set(inlineDefinitions.map(definition => normalize(definition.handler)))
+  const preferInlineHandler = (definition: { handler: string }) => !inlineHandlers.has(normalize(definition.handler))
+
   return mergeDefinitions(
     "workflow",
-    discoverInlineWorkflowDefinitions(options),
+    inlineDefinitions,
     discoverDefinitions("workflow", [
-      createSuffixDefinitionSource("vite-suffix", roots, workflowSuffixPattern, normalizeSuffixWorkflowName),
-    ]),
-    discoverFlatServerWorkflowDefinitions(serverScanDirs, "nitro-server-workflows"),
+      createSuffixDefinitionSource<DiscoveredWorkflowDefinition>("vite-suffix", roots, workflowSuffixPattern, normalizeSuffixWorkflowName, {
+        createDefinition: ({ file, name }) => ({ handler: file, name, source: "vite-suffix" }),
+      }),
+    ]).filter(preferInlineHandler),
+    discoverFlatServerWorkflowDefinitions(serverScanDirs, "nitro-server-workflows").filter(preferInlineHandler),
     discoverWorkflowFolders(serverScanDirs, "nitro-server-workflows"),
   )
 }
