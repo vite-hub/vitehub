@@ -112,14 +112,11 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
   const loadingEntry = Promise.resolve().then(() => loadingRegistryStorage.run(nextActiveLoads, async () => {
     const loaded = await entry()
     const registeredInlineDefinition = inlineRegistry.get(name)
-    if (registeredInlineDefinition) {
+    if (!loaded || typeof loaded !== "object") {
       return registeredInlineDefinition
     }
-    if (!loaded || typeof loaded !== "object") {
-      return undefined
-    }
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
-    return definition && typeof definition.handler === "function" ? definition : undefined
+    return definition && typeof definition.handler === "function" ? definition : registeredInlineDefinition
   }))
   loadingRegistryEntries.set(name, loadingEntry)
   try {

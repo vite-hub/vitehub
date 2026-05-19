@@ -6,7 +6,8 @@ import { resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtim
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from "../src/runtime/client.ts"
-import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { createWorkflowSteps } from "../src/runtime/execute.ts"
+import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
 const openWorkflowMock = vi.hoisted(() => {
   const runs = new Map<string, any>()
@@ -325,6 +326,41 @@ describe("workflow runtime", () => {
 
     expect(stepDo).toHaveBeenCalledTimes(2)
     expect(stepDo.mock.calls.map(call => call[0])).toEqual(["pipeline/01.first", "pipeline/02.second"])
+  })
+
+  it("runs inline folder workflows through generated step wrappers", async () => {
+    const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
+    const step = { do: stepDo } as WorkflowProviderStep
+
+    await expect(runCloudflareWorkflow({
+      config: { provider: "cloudflare" },
+      env: {},
+      event: { id: "run-1", payload: "start" },
+      name: "pipeline",
+      registry: {
+        pipeline: async () => {
+          createWorkflow("pipeline", async ({ payload, steps }) => await steps!.first(payload))
+          const definition = getInlineWorkflowDefinitions().get("pipeline")!
+          const steps = [{ name: "01.first.ts", run: async (input: unknown) => `${input}-step` }]
+          return {
+            ...definition,
+            options: { ...definition.options, rootStep: false },
+            handler: async context => await definition.handler({
+              ...context,
+              steps: createWorkflowSteps(context, steps),
+            }),
+          }
+        },
+      },
+      step,
+    })).resolves.toBe("start-step")
+
+    expect(stepDo).toHaveBeenCalledTimes(1)
+    expect(stepDo).toHaveBeenCalledWith(
+      "pipeline/01.first.ts",
+      { retries: { backoff: "exponential", delay: "10 seconds", limit: 3 } },
+      expect.any(Function),
+    )
   })
 
   it("runs registered definitions through the Vercel provider", async () => {

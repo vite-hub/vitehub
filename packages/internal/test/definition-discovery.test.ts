@@ -104,6 +104,18 @@ describe("createRuntimeRegistryContents", () => {
     expect(contents).toContain('"release-notes": async () => import("../../server/sandboxes/release-notes.ts")')
     expect(contents).toContain("export default registry")
   })
+
+  it("creates workflow step registry entries that can wrap inline definitions", () => {
+    const registryFile = "/root/.vitehub/workflow/registry.mjs"
+    const contents = createRuntimeRegistryContents(registryFile, [{
+      handler: "/root/server/workflows/chat/index.ts",
+      name: "server/workflows/chat",
+      steps: ["/root/server/workflows/chat/01.reply.ts"],
+    }])
+
+    expect(contents).toContain('import { getInlineWorkflowDefinitions } from "@vitehub/workflow/runtime/state"')
+    expect(contents).toContain('getInlineWorkflowDefinitions().get("server/workflows/chat")')
+  })
 })
 
 describe("createNitroRuntimeFilePath", () => {
