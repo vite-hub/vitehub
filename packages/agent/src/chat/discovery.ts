@@ -24,7 +24,9 @@ function stripComments(source: string) {
 }
 
 function hasDefineAgentChat(source: string): boolean {
-  return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bchat\s*:/.test(stripComments(source))
+  const stripped = stripComments(source)
+  return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bchat\s*:/.test(stripped)
+    || /\bdefineAgent\s*\(\s*\{[\s\S]*?\bcapabilities\s*:\s*\[[\s\S]*?\bchat\s*\(/.test(stripped)
 }
 
 function parseAgentName(source: string): string | undefined {

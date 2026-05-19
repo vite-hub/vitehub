@@ -43,6 +43,7 @@ Install the packages that own the chat flow:
 ::code-tree-intersection{default}
 ```bash [Terminal]
 pnpm add @vitehub/agent @vitehub/workspace ai
+pnpm add -D @vitejs/devtools
 ```
 ::
 
@@ -54,11 +55,13 @@ Register the integration so ViteHub discovers `server/chat.ts` and your agents. 
 import { hubAgent } from '@vitehub/agent/vite'
 import { hubChat } from '@vitehub/agent/chat/vite'
 import { hubWorkspace } from '@vitehub/workspace/vite'
+import { DevTools } from '@vitejs/devtools'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
+    DevTools(),
     hubWorkspace(),
     hubAgent(),
     hubChat(),
@@ -98,6 +101,8 @@ The fastest way to feel the loop is to skip the model entirely. Create `server/c
 import { defineChat } from '@vitehub/agent/chat'
 import { createMemoryChatStateAdapter } from '@vitehub/agent/chat/runtime/memory-state'
 import { getMessageText } from '@vitehub/agent'
+
+const adapters = {}
 
 export default defineChat({
   userName: 'Support Bot',
@@ -159,6 +164,8 @@ ViteHub discovers this file as the `support/chat` agent. Now hand the chat over 
 ```ts [server/chat.ts]
 import { defineChat } from '@vitehub/agent/chat'
 import { createMemoryChatStateAdapter } from '@vitehub/agent/chat/runtime/memory-state'
+
+const adapters = {}
 
 export default defineChat({
   userName: 'Support Bot',
