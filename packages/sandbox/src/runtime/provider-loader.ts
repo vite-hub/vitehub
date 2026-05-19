@@ -12,19 +12,21 @@ export interface SandboxRuntimeProvider {
   createSandboxClient: (provider: SandboxProviderOptions | any) => Promise<SandboxClient>
 }
 
+const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>
+
 export async function loadSandboxRuntimeProvider(provider: SandboxProvider): Promise<SandboxRuntimeProvider> {
   if (provider === 'cloudflare') {
     const [{ resolveSandboxProvider }, { createCloudflareSandboxClient }] = await Promise.all([
-      import('./providers/cloudflare'),
-      import('../sandbox/providers/cloudflare'),
+      dynamicImport<typeof import('./providers/cloudflare')>('./providers/cloudflare'),
+      dynamicImport<typeof import('../sandbox/providers/cloudflare')>('../sandbox/providers/cloudflare'),
     ])
     return { resolveSandboxProvider, createSandboxClient: createCloudflareSandboxClient }
   }
 
   if (provider === 'vercel') {
     const [{ resolveSandboxProvider }, { createVercelSandboxClient }] = await Promise.all([
-      import('./providers/vercel'),
-      import('../sandbox/providers/vercel'),
+      dynamicImport<typeof import('./providers/vercel')>('./providers/vercel'),
+      dynamicImport<typeof import('../sandbox/providers/vercel')>('../sandbox/providers/vercel'),
     ])
     return { resolveSandboxProvider, createSandboxClient: createVercelSandboxClient }
   }
