@@ -503,6 +503,8 @@ describe("agent memory capability", () => {
       items: [{ id: second.item.id }],
     })
     await expect(adapter.read({ id: first.item.id, scope: { agent: "support" }, store: "agent" })).resolves.toEqual({ item: null })
-    expect(files.get(".vitehub/memory/test.jsonl")?.trim().split("\n")).toHaveLength(3)
+    const lines = files.get(".vitehub/memory/test.jsonl")?.trim().split("\n").map(line => JSON.parse(line)) || []
+    expect(lines).toHaveLength(3)
+    expect(lines.map(line => line.op)).toEqual(["upsert", "upsert", "supersede"])
   })
 })

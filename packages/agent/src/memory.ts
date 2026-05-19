@@ -420,10 +420,10 @@ export function workspaceJsonlMemoryStore(options: WorkspaceJsonlMemoryStoreOpti
             supersededBy: event.id,
             version: 1,
           })))
+          await appendWorkspaceJsonl(path, context, JSON.stringify(event))
           for (const supersedeEvent of supersedeEvents) {
             await appendWorkspaceJsonl(path, context, JSON.stringify(supersedeEvent))
           }
-          await appendWorkspaceJsonl(path, context, JSON.stringify(event))
           return { action: request.supersedes?.length ? "superseded" : "created", item: { ...event, status: "active" } }
         },
         async delete(request) {
