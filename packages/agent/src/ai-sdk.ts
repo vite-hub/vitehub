@@ -1,4 +1,4 @@
-import { getMessageText } from "@vitehub/messages"
+import { getMessageText } from "./messages.ts"
 import {
   applyCapabilityInstructionSlots,
   applyCapabilityToolTransforms,
@@ -32,7 +32,7 @@ import type {
   AgentToolResolverWithWorkspace,
   MaybePromise,
 } from "./types.ts"
-import type { Message, MessagePart } from "@vitehub/messages"
+import type { Message, MessagePart } from "./messages.ts"
 import type { WorkspaceName } from "@vitehub/workspace"
 
 export interface AiSdkAdapterOptions<

@@ -1,7 +1,5 @@
-import { getAgentFromRegistry, streamAgent } from "@vitehub/agent"
-import { createMessage } from "@vitehub/messages"
-
-import { chatDevtoolsAdapterName, createChatDevtoolsStepReporter } from "./devtools.ts"
+import { getAgentFromRegistry, streamAgent } from "../index.ts"
+import { createMessage } from "../messages.ts"
 
 import type {
   ChatAgentBindingOptions,
@@ -13,9 +11,9 @@ import type {
   ChatWorkflowHandle,
   ResolvedChatRuntimeContext,
 } from "./types.ts"
-import type { AgentRunInput, AgentRunMetadata } from "@vitehub/agent"
+import type { AgentRunInput, AgentRunMetadata } from "../index.ts"
 import type { Chat, Message as ChatSdkMessage, SentMessage, Thread } from "chat"
-import type { Message } from "@vitehub/messages"
+import type { Message } from "../messages.ts"
 
 export interface ChatAgentWorkflowPayload {
   agentName: string
@@ -125,7 +123,7 @@ export function toViteHubMessages(messages: ChatSdkMessage[]): Message[] {
 
 function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
   context: ResolvedChatRuntimeContext<TRuntimeConfig>,
-  thread?: Thread,
+  _thread?: Thread,
   run?: AgentRunMetadata,
 ): ChatAgentRuntimeContext<TRuntimeConfig> {
   const runtime = context.runtime === "cloudflare"
@@ -145,12 +143,6 @@ function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
     runtimeConfig: context.runtimeConfig,
     vercel: context.vercel,
     waitUntil: context.waitUntil,
-  }
-
-  if (isDevtoolsThread(thread)) {
-    agentContext.devtools = {
-      reportToolStep: createChatDevtoolsStepReporter(thread),
-    }
   }
 
   return agentContext
@@ -174,14 +166,6 @@ async function resolvePlaceholder<TRuntimeConfig extends ChatRuntimeConfig>(
     return await placeholder(args) || null
   }
   return null
-}
-
-function isDevtoolsThread(thread: unknown): thread is Thread & { adapter?: { name?: string }, startTyping: (text?: string) => Promise<unknown> } {
-  return !!thread
-    && typeof thread === "object"
-    && "startTyping" in thread
-    && typeof (thread as { startTyping?: unknown }).startTyping === "function"
-    && (thread as { adapter?: { name?: string } }).adapter?.name === chatDevtoolsAdapterName
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
@@ -218,7 +202,6 @@ function createDefaultAgentInput(args: ChatAgentHookArgs, platform?: string): Ag
       },
     },
     messages: args.history,
-    ...(platform === "devtools" ? { timeout: 90_000 } : {}),
   }
 }
 

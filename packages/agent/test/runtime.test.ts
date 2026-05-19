@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createMessage } from "@vitehub/messages"
+import { createMessage } from "@vitehub/agent"
 
 describe("agent message protocol", () => {
   it("converts ViteHub messages to model messages internally", async () => {

@@ -5,7 +5,7 @@ import { useRuntimeConfig } from "nitro/runtime-config"
 import { executeChatAgentResponse } from "../agent-handoff.ts"
 import { defineChat, resolveChat } from "../index.ts"
 
-import type { AgentDefinition } from "@vitehub/agent"
+import type { AgentDefinition } from "../../index.ts"
 import type { WorkflowExecutionContext } from "@vitehub/workflow"
 import type { ChatAgentWorkflowPayload } from "../agent-handoff.ts"
 import type { ChatDefinition, ChatRuntimeConfig, ChatWorkflowHandle, DefineChatOptions, ResolvedChatRuntimeContext } from "../types.ts"

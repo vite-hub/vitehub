@@ -1,5 +1,5 @@
 import { defineAgent, type AgentToolDefinition } from "@vitehub/agent"
-import { getMessageText } from "@vitehub/messages"
+import { getMessageText } from "@vitehub/agent"
 
 type Queue = "billing" | "incident" | "product"
 

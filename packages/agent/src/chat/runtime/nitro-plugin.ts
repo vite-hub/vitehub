@@ -5,7 +5,7 @@ const chatNitroPlugin: ReturnType<typeof defineNitroPlugin> = defineNitroPlugin(
     return
   }
 
-  const initializer = await import("@vitehub/chat/runtime/nitro-dev-initialize")
+  const initializer = await import("@vitehub/agent/chat/runtime/nitro-dev-initialize")
   await initializer.default()
 })
 

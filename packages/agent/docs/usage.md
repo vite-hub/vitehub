@@ -84,7 +84,7 @@ Use `run` when the default model call is not the right shape.
 
 ```ts [server/agents/support.ts]
 import { defineAgent, type AgentToolDefinition } from '@vitehub/agent'
-import { getMessageText } from '@vitehub/messages'
+import { getMessageText } from '@vitehub/agent'
 
 const classifyTicket: AgentToolDefinition<{ message: string }, { queue: string; priority: string }> = {
   name: 'classifyTicket',

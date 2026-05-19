@@ -16,7 +16,7 @@ import type {
   MaybePromise,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
-import type { Message } from "@vitehub/messages"
+import type { Message } from "./messages.ts"
 import type { ReadonlyWorkspaceFacade, WorkspaceName } from "@vitehub/workspace"
 
 type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>

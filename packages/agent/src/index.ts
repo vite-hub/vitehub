@@ -1,5 +1,5 @@
 import agentRegistry from "#vitehub/agent/registry"
-import { getMessageText } from "@vitehub/messages"
+import { getMessageText } from "./messages.ts"
 import {
   ApprovalRequiredError,
   resolveRuntimeContext,
@@ -57,7 +57,7 @@ import type {
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
-import type { Message, StreamEvent } from "@vitehub/messages"
+import type { Message, StreamEvent } from "./messages.ts"
 import type {
   ReadonlyWorkspaceFacade,
   WorkspaceEntry,
@@ -151,7 +151,7 @@ export type {
   StreamEvent,
   ToolInvocation,
   ToolInvocationState,
-} from "@vitehub/messages"
+} from "./messages.ts"
 
 const syntheticWorkspaceRun = Symbol("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
@@ -166,6 +166,10 @@ type AgentDefinitionWithBaseResolve<
   CALL_OPTIONS = unknown,
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
+}
+type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
+  chat: AgentChatOptions<TRuntimeConfig>
+  kind: "chat"
 }
 
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
@@ -235,6 +239,7 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
+export * from "./messages.ts"
 
 function primitiveHandle(context: AgentCapabilityContext, name: string): unknown {
   const handle = context.capabilities?.[name] as { value?: unknown } | unknown
@@ -457,6 +462,29 @@ export function mcp(options: { servers?: Record<string, unknown> } = {}): AgentC
   })
 }
 
+function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
+  capabilities: NormalizedCapability[],
+): AgentChatOptions<TRuntimeConfig> | undefined {
+  return capabilities.find(capability => capability.id === "chat" && (capability.metadata as ChatCapabilityMetadata | undefined)?.kind === "chat")
+    ?.metadata?.chat as AgentChatOptions<TRuntimeConfig> | undefined
+}
+
+export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig>,
+): AgentCapabilityDefinition<TRuntimeConfig> {
+  return defineCapability({
+    id: "chat",
+    metadata: {
+      chat: options,
+      kind: "chat",
+    } satisfies ChatCapabilityMetadata<TRuntimeConfig>,
+    name: "Chat",
+    prepare(context) {
+      context.state.require("chat-history", { optional: true })
+    },
+  })
+}
+
 async function resolveProviderAdapter<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -487,8 +515,9 @@ function defineBaseAgent<
     throw new Error("[vitehub] defineAgent({ model }) requires an explicit provider, for example provider: \"ai-sdk\".")
   }
 
-  const { capabilities, chat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
+  const { capabilities, chat: legacyChat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
+  const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities) || legacyChat
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = "model" in options
