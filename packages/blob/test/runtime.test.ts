@@ -345,7 +345,7 @@ describe("blob runtime", () => {
     expect(list.folders).toEqual(["images/", "notes/"])
   })
 
-  it("loads non-core drivers through the anchored files driver import", async () => {
+  it("loads non-core drivers through provider-specific driver imports", async () => {
     setBlobRuntimeConfig({
       store: {
         bucket: "assets",

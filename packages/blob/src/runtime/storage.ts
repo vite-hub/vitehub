@@ -5,36 +5,36 @@ import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeSt
 
 import type { BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
 
+const driverModules = {
+  akamai: "akamai",
+  azure: "azure",
+  box: "box",
+  "cloudflare-r2": "cloudflare",
+  "digitalocean-spaces": "digitalocean-spaces",
+  dropbox: "dropbox",
+  fs: "fs",
+  gcs: "gcs",
+  "google-drive": "google-drive",
+  hetzner: "hetzner",
+  minio: "minio",
+  "netlify-blobs": "netlify-blobs",
+  onedrive: "onedrive",
+  s3: "s3",
+  storj: "storj",
+  supabase: "supabase",
+  uploadthing: "uploadthing",
+  "vercel-blob": "vercel",
+} satisfies Record<ResolvedBlobStoreConfig["driver"], string>
+
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   const isSourceRuntime = typeof import.meta !== "undefined"
     && typeof import.meta.url === "string"
     && import.meta.url.endsWith(".ts")
 
-  switch (config.driver) {
-    case "cloudflare-r2": {
-      const module = (isSourceRuntime
-        ? await import("../drivers/cloudflare.ts")
-        : await import("../drivers/cloudflare.js")) as { createDriver: (options: typeof config) => any }
-      return module.createDriver(config)
-    }
-    case "fs": {
-      const module = (isSourceRuntime
-        ? await import("../drivers/fs.ts")
-        : await import("../drivers/fs.js")) as { createDriver: (options: typeof config) => any }
-      return module.createDriver(config)
-    }
-    case "vercel-blob": {
-      const module = (isSourceRuntime
-        ? await import("../drivers/vercel.ts")
-        : await import("../drivers/vercel.js")) as { createDriver: (options: typeof config) => any }
-      return module.createDriver(config)
-    }
-    default: {
-      const modulePath = new URL(isSourceRuntime ? "../drivers/files.ts" : "../drivers/files.js", import.meta.url).href
-      const module = await import(modulePath) as { createDriver: (options: typeof config) => any }
-      return module.createDriver(config)
-    }
-  }
+  const moduleName = driverModules[config.driver]
+  const modulePath = new URL(isSourceRuntime ? `../drivers/${moduleName}.ts` : `../drivers/${moduleName}.js`, import.meta.url).href
+  const module = await import(modulePath) as { createDriver: (options: typeof config) => any }
+  return module.createDriver(config)
 }
 
 async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions): Promise<BlobStorage> {
