@@ -15,7 +15,7 @@ import {
   type ChatDevtoolsStreamEvent,
   type ChatDevtoolsTool,
   type ChatDevtoolsToolDefinition,
-} from "../../../../chat/src/devtools-shared"
+} from "./devtools-shared"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = {
