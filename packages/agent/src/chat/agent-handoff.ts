@@ -33,7 +33,7 @@ function normalizeAgentHistory(history: ChatAgentBindingOptions["history"]): { e
     return { enabled: false, maxMessages: 0 }
   }
   if (typeof history === "object" && history) {
-    return { enabled: true, maxMessages: history.maxMessages || 20 }
+    return { enabled: true, maxMessages: history.maxMessages ?? 20 }
   }
   return { enabled: true, maxMessages: 20 }
 }
