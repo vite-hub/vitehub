@@ -11,7 +11,7 @@ export default defineNitroConfig({
   modules: [
     "@vitehub/env/nitro",
     "@vitehub/agent/nitro",
-    "@vitehub/chat/nitro",
+    "@vitehub/agent/chat/nitro",
     "@vitehub/queue/nitro",
     "@vitehub/kv/nitro",
     "@vitehub/blob/nitro",

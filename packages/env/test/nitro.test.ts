@@ -129,11 +129,11 @@ describe("Nitro module", () => {
     expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
     expect(types).not.toContain("declare module \"nitro/types\"")
     expect(types).not.toContain("export {}")
-    expect(integrationTypes).not.toContain("import \"@vitehub/chat\"")
+    expect(integrationTypes).not.toContain("import \"@vitehub/agent/chat\"")
     expect(integrationTypes).toContain("import \"nitro/types\"")
     expect(integrationTypes).toContain("declare module \"nitro/types\"")
     expect(integrationTypes).toContain("export interface NitroRuntimeConfig")
-    expect(integrationTypes).toContain("declare module \"@vitehub/chat\"")
+    expect(integrationTypes).toContain("declare module \"@vitehub/agent/chat\"")
     expect(integrationTypes).toContain("export interface ChatRuntimeConfig")
     expect(integrationTypes).toContain("declare module \"@vitehub/agent\"")
     expect(integrationTypes).toContain("export interface AgentRuntimeConfig")
@@ -217,7 +217,7 @@ describe("Nitro module", () => {
     await typesHook?.({ tsConfig: { include: [] } })
 
     await writeFile(join(root, "typecheck.ts"), [
-      "import { defineChat } from '@vitehub/chat'",
+      "import { defineChat } from '@vitehub/agent/chat'",
       "import { defineAgent } from '@vitehub/agent'",
       "import type { AgentAdapterMetadataContext } from '@vitehub/agent'",
       "",
@@ -254,7 +254,7 @@ describe("Nitro module", () => {
         ignoreDeprecations: "6.0",
         paths: {
           "@vitehub/agent": [join(import.meta.dirname, "../../agent/src/index.ts")],
-          "@vitehub/chat": [join(import.meta.dirname, "../../chat/src/index.ts")],
+          "@vitehub/agent/chat": [join(import.meta.dirname, "../../agent/src/chat/index.ts")],
           "@vitehub/workspace": [join(import.meta.dirname, "../../workspace/src/index.ts")],
         },
         module: "NodeNext",

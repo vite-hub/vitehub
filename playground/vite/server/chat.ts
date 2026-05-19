@@ -1,4 +1,4 @@
-import { defineChat } from "@vitehub/chat"
+import { defineChat } from "@vitehub/agent/chat"
 
 import type { StateAdapter } from "chat"
 

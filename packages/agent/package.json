@@ -28,8 +28,19 @@
     "./ai-sdk": "./dist/ai-sdk.js",
     "./capabilities": "./dist/capabilities.js",
     "./capability-runtime": "./dist/capability-runtime.js",
+    "./chat": "./dist/chat/index.js",
+    "./chat/cloudflare": "./dist/chat/cloudflare.js",
+    "./chat/nitro": "./dist/chat/nitro.js",
+    "./chat/runtime/agent-chat": "./dist/chat/runtime/agent-chat.js",
+    "./chat/runtime/memory-state": "./dist/chat/runtime/memory-state.js",
+    "./chat/runtime/nitro-dev-initialize": "./dist/chat/runtime/nitro-dev-initialize.js",
+    "./chat/runtime/nitro-plugin": "./dist/chat/runtime/nitro-plugin.js",
+    "./chat/runtime/nitro-runtime-config": "./dist/chat/runtime/nitro-runtime-config.js",
+    "./chat/vercel": "./dist/chat/vercel.js",
+    "./chat/vite": "./dist/chat/vite.js",
     "./cloudflare": "./dist/cloudflare.js",
     "./memory": "./dist/memory.js",
+    "./messages": "./dist/messages.js",
     "./nitro": "./dist/nitro.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-runtime-config": "./dist/runtime/nitro-runtime-config.js",
@@ -56,11 +67,13 @@
     "test": "pnpm --filter @vitehub/agent... build && vitest run"
   },
   "dependencies": {
-    "@vitehub/messages": "workspace:*",
     "@vitehub/runtime": "workspace:*",
+    "@vitehub/workflow": "workspace:*",
     "@vitehub/workspace": "workspace:*",
     "@vercel/functions": "catalog:",
-    "h3": "catalog:"
+    "chat": "catalog:",
+    "h3": "catalog:",
+    "hookable": "^6.1.1"
   },
   "peerDependencies": {
     "agents": "^0.12.3",
@@ -91,6 +104,7 @@
     "@vitehub/internal": "workspace:*",
     "@tanstack/ai": "0.16.0",
     "ai": "^6.0.172",
+    "chat-state-cloudflare-do": "^0.2.0",
     "nitro": "catalog:",
     "publint": "^0.3.15",
     "tsdown": "^0.21.8",

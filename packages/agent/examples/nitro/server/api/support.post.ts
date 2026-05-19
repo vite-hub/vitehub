@@ -1,4 +1,4 @@
-import { createMessage } from "@vitehub/messages"
+import { createMessage } from "@vitehub/agent"
 import { runAgent } from "@vitehub/agent"
 import supportAgent from "../agents/support"
 

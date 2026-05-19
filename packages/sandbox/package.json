@@ -54,7 +54,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/chat... build && pnpm --dir ../blob build && pnpm --dir ../kv build && pnpm --dir ../queue build && pnpm --dir . build && vitest run",
+    "test": "pnpm --filter @vitehub/agent... build && pnpm --dir ../blob build && pnpm --dir ../kv build && pnpm --dir ../queue build && pnpm --dir . build && vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {

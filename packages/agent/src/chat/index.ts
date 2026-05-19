@@ -2,7 +2,6 @@ import { Chat } from "chat"
 import { isResolvable, resolveRuntimeContext, resolveRuntimeValue } from "@vitehub/runtime"
 
 import { createAgentDirectMessageHook } from "./agent-handoff.ts"
-import { chatDevtoolsAdapterName, observeChatDevtoolsStream } from "./devtools.ts"
 import { isChatDefinition } from "./runtime/definition.ts"
 
 import type {
@@ -90,7 +89,6 @@ export type {
   Thread,
   WorkflowRunLike,
 } from "./types.ts"
-export * from "./devtools.ts"
 export { nodeDockerRuntimePreset } from "./presets.ts"
 
 let definitionId = 0
@@ -131,7 +129,7 @@ function createMessageHook<
     context: context as never,
     message: message as Message,
     runtimeConfig,
-    thread: wrapDevtoolsThread(thread) as never,
+    thread: thread as never,
     workflow,
   })
 }
@@ -151,7 +149,7 @@ function createDirectMessageHook<
     context: context as never,
     message: message as Message,
     runtimeConfig,
-    thread: wrapDevtoolsThread(thread) as never,
+    thread: thread as never,
     workflow,
   })
 }
@@ -163,41 +161,6 @@ function normalizeAgentBinding<
   binding: ChatAgentBinding<TRuntimeConfig, TWorkflow>,
 ): ChatAgentBindingOptions<TRuntimeConfig, TWorkflow> {
   return typeof binding === "string" ? { name: binding } : binding
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return !!value && typeof value === "object" && Symbol.asyncIterator in value
-}
-
-function isDevtoolsThread(thread: unknown): thread is { adapter?: { name?: string }, post: (message: unknown) => unknown, startTyping: (text?: string) => Promise<unknown> } {
-  return !!thread
-    && typeof thread === "object"
-    && "post" in thread
-    && typeof (thread as { post?: unknown }).post === "function"
-    && "startTyping" in thread
-    && typeof (thread as { startTyping?: unknown }).startTyping === "function"
-    && (thread as { adapter?: { name?: string } }).adapter?.name === chatDevtoolsAdapterName
-}
-
-function wrapDevtoolsThread(thread: unknown): unknown {
-  if (!isDevtoolsThread(thread)) {
-    return thread
-  }
-
-  return new Proxy(thread, {
-    get(target, property, receiver) {
-      if (property !== "post") {
-        return Reflect.get(target, property, receiver)
-      }
-
-      return (message: unknown) => {
-        const next = isAsyncIterable(message)
-          ? observeChatDevtoolsStream(target, message)
-          : message
-        return target.post(next)
-      }
-    },
-  })
 }
 
 function createEventHook<

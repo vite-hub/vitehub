@@ -1,4 +1,4 @@
-import type { Message, StreamEvent } from "@vitehub/messages"
+import type { Message, StreamEvent } from "./messages.ts"
 import type {
   MaybePromise,
   MaybeResolvable,
