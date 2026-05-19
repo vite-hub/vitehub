@@ -339,6 +339,7 @@ export interface ChatWebhookModuleOptions {
 }
 
 export interface ChatDevModuleOptions {
+  devtools?: false | { url?: string }
   initialize?: boolean
   localStateFallback?: boolean
 }
@@ -360,7 +361,7 @@ export interface ResolvedChatModuleOptions {
       name?: string
     }
   }
-  dev: false | Required<ChatDevModuleOptions>
+  dev: false | Omit<Required<ChatDevModuleOptions>, "devtools"> & Pick<ChatDevModuleOptions, "devtools">
   imports: boolean
   provider: "auto" | "cloudflare" | "nitro" | "vercel"
   webhook: false | Required<ChatWebhookModuleOptions>
