@@ -81,49 +81,83 @@ const filesSdkMock = vi.hoisted(() => ({
     ],
   })),
   s3: vi.fn(() => ({ provider: "s3" })),
-}))
-
-vi.mock("@vercel/blob", () => ({
-  del: async (pathname: string, options: { token?: string } = {}) => {
-    await (vercelBlobMock.del as any)(pathname, { token: options.token })
-  },
-  get: async (pathname: string, options: { access?: "private" | "public", token?: string } = {}) => {
-    return await (vercelBlobMock.get as any)(pathname, {
-      access: options.access,
-      token: options.token,
-    })
-  },
-  head: async (pathname: string, options: { token?: string } = {}) => {
-    const result = await (vercelBlobMock.head as any)(pathname, { token: options.token })
-    return {
-      contentType: "text/plain",
-      etag: "\"etag\"",
-      pathname: result.pathname,
-      size: result.size,
-      uploadedAt: result.uploadedAt,
-      url: result.url,
-    }
-  },
-  list: async () => await (vercelBlobMock.list as any)(),
-  put: async (pathname: string, body: Blob | Uint8Array | string, options: { access?: "private" | "public", contentType?: string, token?: string } = {}) => {
-    return await (vercelBlobMock.put as any)(pathname, body, {
-      access: options.access,
-      contentType: options.contentType,
-      token: options.token,
-    })
-  },
+  vercelBlob: vi.fn((options: unknown) => ({ options, provider: "vercel-blob" })),
 }))
 
 vi.mock("files-sdk", () => ({
   Files: class {
+    adapter: { options?: { access?: "private" | "public", token?: string }, provider?: string }
+
+    constructor(options: { adapter?: { options?: { access?: "private" | "public", token?: string }, provider?: string } } = {}) {
+      this.adapter = options.adapter || {}
+    }
+
+    async delete(pathname: string) {
+      if (this.adapter.provider === "vercel-blob") {
+        await (vercelBlobMock.del as any)(pathname, { token: this.adapter.options?.token })
+      }
+    }
+
+    async download(pathname: string) {
+      const result = await (vercelBlobMock.get as any)(pathname, {
+        access: this.adapter.options?.access,
+        token: this.adapter.options?.token,
+      })
+      return new Response(result.stream, {
+        headers: { "content-type": result.blob?.contentType || "text/plain" },
+      })
+    }
+
+    async head(pathname: string) {
+      const result = await (vercelBlobMock.head as any)(pathname, { token: this.adapter.options?.token })
+      return {
+        etag: "\"etag\"",
+        key: result.pathname,
+        lastModified: result.uploadedAt,
+        size: result.size,
+        type: "text/plain",
+      }
+    }
+
     async list(options?: unknown) {
+      if (this.adapter.provider === "vercel-blob") {
+        const result = await (vercelBlobMock.list as any)(options)
+        return {
+          cursor: result.cursor,
+          items: result.blobs.map((blob: any) => ({
+            etag: blob.etag,
+            key: blob.pathname,
+            lastModified: blob.uploadedAt,
+            size: blob.size,
+            type: blob.contentType,
+          })),
+        }
+      }
       return await filesSdkMock.list(options)
+    }
+
+    async upload(pathname: string, body: Blob | Uint8Array | string, options: { contentType?: string } = {}) {
+      const result = await (vercelBlobMock.put as any)(pathname, body, {
+        access: this.adapter.options?.access,
+        contentType: options.contentType,
+        token: this.adapter.options?.token,
+      })
+      return {
+        contentType: result.contentType,
+        key: result.pathname,
+        lastModified: result.uploadedAt,
+        size: result.size,
+      }
     }
   },
 }))
 
 vi.mock("files-sdk/s3", () => ({
   s3: filesSdkMock.s3,
+}))
+
+vi.mock("files-sdk/vercel-blob", () => ({
+  vercelBlob: filesSdkMock.vercelBlob,
 }))
 
 afterEach(() => {
@@ -138,6 +172,7 @@ afterEach(() => {
   vercelBlobMock.put.mockClear()
   filesSdkMock.list.mockClear()
   filesSdkMock.s3.mockClear()
+  filesSdkMock.vercelBlob.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
   vi.restoreAllMocks()
 })

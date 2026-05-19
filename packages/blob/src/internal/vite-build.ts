@@ -172,7 +172,7 @@ function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobM
   }
   for (const driverModule of selectedDriverModules) {
     const driverImport = driverImports[driverModule]
-    imports.push(`import { createDriver as ${driverImport} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(`drivers/${driverModule}`)))}`)
+    imports.push(`import { createDriver as ${driverImport} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(driverModule)))}`)
   }
   if (stores.some(store => store.driver === "vercel-blob")) {
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
