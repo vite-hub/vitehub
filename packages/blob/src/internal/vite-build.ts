@@ -126,33 +126,68 @@ function renderProviderEntry(
 }
 
 function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions) {
+  const stores = blobConfig ? Object.values(blobConfig.stores || { default: blobConfig.store }) : []
+  const driverModules = [...new Set(stores.map(store => store.driver === "cloudflare-r2" ? "cloudflare" : store.driver === "fs" ? "fs" : store.driver === "vercel-blob" ? "vercel" : "files"))]
+  const driverImports = {
+    cloudflare: "createCloudflareDriver",
+    files: "createFilesDriver",
+    fs: "createFsDriver",
+    vercel: "createVercelDriver",
+  } as const
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
-  const driverModule = blobConfig ? `drivers/${blobConfig.store.driver === "cloudflare-r2" ? "cloudflare" : blobConfig.store.driver === "fs" ? "fs" : blobConfig.store.driver === "vercel-blob" ? "vercel" : "files"}` : undefined
-  if (driverModule) {
+  if (driverModules.length > 0) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(driverModule)))}`)
   }
-  if (blobConfig && blobConfig.store.driver === "vercel-blob") {
+  for (const driverModule of driverModules) {
+    const driverImport = driverImports[driverModule as keyof typeof driverImports]
+    imports.push(`import { createDriver as ${driverImport} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(`drivers/${driverModule}`)))}`)
+  }
+  if (stores.some(store => store.driver === "vercel-blob")) {
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
   }
 
-  const storageExpression = !blobConfig
-    ? undefined
-    : blobConfig.store.driver === "vercel-blob"
-      ? "createBlobStorage(createDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env)))"
-      : "createBlobStorage(createDriver(blobConfig.store))"
+  const createDriverCases = [
+    driverModules.includes("cloudflare") ? `    case "cloudflare-r2": return createCloudflareDriver(store)` : undefined,
+    driverModules.includes("fs") ? `    case "fs": return createFsDriver(store)` : undefined,
+    driverModules.includes("vercel") ? `    case "vercel-blob": return createVercelDriver(resolveRuntimeVercelBlobStore(store, process.env))` : undefined,
+    driverModules.includes("files") ? `    default: return createFilesDriver(store)` : undefined,
+  ].filter(Boolean)
 
   return [
     ...imports,
     "",
     `const blobConfig = ${JSON.stringify(blobConfig, null, 2)}`,
     "setBlobRuntimeConfig(blobConfig)",
-    ...(storageExpression
+    ...(blobConfig
       ? [
-          `export const blob = ${storageExpression}`,
+          "const blobStorages = new Map()",
+          "",
+          "function createBlobDriver(store) {",
+          "  switch (store.driver) {",
+          ...createDriverCases,
+          "  }",
+          "}",
+          "",
+          "function resolveBlobStoreConfig(name) {",
+          "  const stores = blobConfig.stores || { default: blobConfig.store }",
+          "  const store = stores[name]",
+          "  if (!store) throw new Error(`Unknown Blob store \"${name}\".`)",
+          "  return store",
+          "}",
+          "",
+          "function createGeneratedBlobStorage(name = \"default\") {",
+          "  const existing = blobStorages.get(name)",
+          "  if (existing) return existing",
+          "  const storage = createBlobStorage(createBlobDriver(resolveBlobStoreConfig(name)))",
+          "  const runtimeStorage = { ...storage, store: storeName => createGeneratedBlobStorage(storeName) }",
+          "  blobStorages.set(name, runtimeStorage)",
+          "  return runtimeStorage",
+          "}",
+          "",
+          "export const blob = createGeneratedBlobStorage()",
           "setBlobRuntimeStorage(blob)",
         ]
       : [
