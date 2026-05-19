@@ -35,7 +35,6 @@ async function createViteAssetRoot() {
       `  store: { provider: "memory" },`,
       `  sources: {`,
       `    files: {`,
-      `      name: "inline",`,
       `      async getKeys() { return ["README.md"] },`,
       `      async getItem(key) { return { key, path: key, content: "${name}\\n" } },`,
       `    },`,

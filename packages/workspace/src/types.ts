@@ -275,7 +275,6 @@ export interface WorkspaceSourceItem {
 }
 
 export interface WorkspaceSource {
-  name: string
   mount?: WorkspaceSourceMount
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
@@ -290,10 +289,14 @@ export interface WorkspaceSource {
   watch?: unknown[]
 }
 
+export interface WorkspaceLoaderSource extends WorkspaceSource {
+  key: string
+}
+
 export interface LoaderContext {
   workspace: string
   rootDir: string
-  sources: WorkspaceSource[]
+  sources: WorkspaceLoaderSource[]
   store: WorkspaceStore
   parseData(input: { id: string, data: unknown, filePath?: string }): Promise<unknown>
   generateDigest(input: unknown): string

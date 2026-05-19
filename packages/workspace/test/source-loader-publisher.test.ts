@@ -547,7 +547,6 @@ describe("sources, loaders, and publishers", () => {
       "  sources: {",
       "    docs: {",
       "      materialize: 'lazy',",
-      "      name: 'lazy-test',",
       "      async getKeys() { throw new Error('lazy source should not be fetched') },",
       "      async getItem() { throw new Error('lazy source should not be fetched') },",
       "    },",
@@ -603,7 +602,6 @@ describe("sources, loaders, and publishers", () => {
         docs: source.glob({ cwd: ".", include: ["**/*.md"] }),
         files: source.file({ path: "two.md", workspacePath: "two.md", content: "# Two\n" }),
         custom: source.custom({
-          name: "custom",
           async getKeys() {
             return ["custom.json"]
           },
