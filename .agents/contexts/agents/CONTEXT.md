@@ -20,6 +20,14 @@ _Avoid_: Chat message, webhook call
 Runtime state created while an Agent Invocation is being processed.
 _Avoid_: Chat state, workflow state
 
+**Chat History**:
+Ordered conversational messages for one chat interaction with an Agent.
+_Avoid_: Agent Memory, Agent Run State
+
+**Agent Memory**:
+Durable knowledge or preferences an Agent can carry across Agent Invocations when explicitly configured.
+_Avoid_: Chat History, better chat state
+
 **Concurrent Invocation Guard**:
 Internal Agent behavior that prevents overlapping invocations from mutating the same Agent Run State.
 _Avoid_: Public lock API, Capability
@@ -35,6 +43,8 @@ _Avoid_: Production state provider, durable coordination
 - An **Agent** can attach zero or more Capabilities.
 - Tools are contributed by Capabilities, not by top-level Agent Definition fields.
 - An **Agent Invocation** can create or update **Agent Run State**.
+- **Chat History** is conversation-scoped and is not **Agent Memory**.
+- **Agent Memory** can outlive one conversation.
 - A **Concurrent Invocation Guard** protects **Agent Run State**.
 - A **Development State Provider** is not acceptable for hosted production runtimes.
 
@@ -47,4 +57,5 @@ _Avoid_: Production state provider, durable coordination
 
 - Raw tools were considered as top-level Agent Definition fields - resolved: tools are contributed by Capabilities.
 - Chat runtime state was considered a public Chat option - resolved: use **Agent Run State** for Agent-owned runtime state.
+- Chat History and Agent Memory were considered interchangeable - resolved: Chat History is conversation-scoped message history; Agent Memory is durable knowledge or preferences across invocations.
 - Local and hosted state providers were considered equivalent - resolved: hosted production runtimes require a durable provider and a **Concurrent Invocation Guard**.
