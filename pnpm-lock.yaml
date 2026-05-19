@@ -225,6 +225,9 @@ importers:
       '@vitehub/workspace':
         specifier: workspace:*
         version: link:../workspace
+      '@vitejs/devtools-kit':
+        specifier: 'catalog:'
+        version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
       agents:
         specifier: ^0.12.3
         version: 0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1)
@@ -247,6 +250,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
+      '@vitehub/devtools':
+        specifier: workspace:*
+        version: link:../devtools
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
