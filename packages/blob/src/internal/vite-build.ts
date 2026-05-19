@@ -71,12 +71,17 @@ function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | 
     return undefined
   }
 
-  const bindings = Object.values(config.stores || { default: config.store })
-    .filter(isCloudflareR2StoreWithBucket)
-    .map(store => ({
+  const bindingsByBinding = new Map<string, { binding: string, bucket_name: string }>()
+  for (const store of Object.values(config.stores || { default: config.store })) {
+    if (!isCloudflareR2StoreWithBucket(store) || bindingsByBinding.has(store.binding)) {
+      continue
+    }
+    bindingsByBinding.set(store.binding, {
       binding: store.binding,
       bucket_name: store.bucketName,
-    }))
+    })
+  }
+  const bindings = [...bindingsByBinding.values()]
 
   return bindings.length > 0 ? bindings : undefined
 }

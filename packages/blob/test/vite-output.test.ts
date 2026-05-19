@@ -182,6 +182,11 @@ describe("Vite provider outputs", () => {
             bucketName: "assets",
             driver: "cloudflare-r2",
           },
+          assetsAlias: {
+            binding: "ASSETS",
+            bucketName: "assets",
+            driver: "cloudflare-r2",
+          },
           default: {
             binding: "DEFAULT",
             driver: "cloudflare-r2",
