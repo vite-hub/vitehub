@@ -83,6 +83,7 @@ export interface BlobStorage {
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
   serve(event: H3Event, pathname: string): Promise<ReadableStream>
+  store(name: BlobStoreName): BlobStorage
 }
 
 export interface CloudflareR2BlobStoreConfig {
@@ -278,11 +279,19 @@ export type ResolvedBlobStoreConfig =
   | ResolvedFsBlobStoreConfig
   | ResolvedVercelBlobStoreConfig
 
+export type BlobStoreName = "default" | (string & {})
+
+export interface BlobStoresConfig {
+  stores: Record<string, BlobStoreConfig>
+}
+
 export type BlobModuleOptions =
   | false
+  | BlobStoresConfig
   | ({ driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName">>)
   | BlobStoreConfig
 
 export interface ResolvedBlobModuleOptions {
   store: ResolvedBlobStoreConfig
+  stores?: Record<string, ResolvedBlobStoreConfig>
 }

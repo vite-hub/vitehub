@@ -73,6 +73,47 @@ describe("blob config", () => {
     expect(() => normalizeBlobOptions("blob" as never)).toThrow("`blob` must be a plain object.")
   })
 
+  it("normalizes named stores with a required default store", () => {
+    expect(normalizeBlobOptions({
+      stores: {
+        assets: {
+          base: ".data/assets",
+          driver: "fs",
+        },
+        default: {
+          base: ".data/blob",
+          driver: "fs",
+        },
+      },
+    })).toEqual({
+      store: {
+        base: ".data/blob",
+        driver: "fs",
+      },
+      stores: {
+        assets: {
+          base: ".data/assets",
+          driver: "fs",
+        },
+        default: {
+          base: ".data/blob",
+          driver: "fs",
+        },
+      },
+    })
+  })
+
+  it("rejects named stores without a default store", () => {
+    expect(() => normalizeBlobOptions({
+      stores: {
+        assets: {
+          base: ".data/assets",
+          driver: "fs",
+        },
+      },
+    })).toThrow("`blob.stores.default` is required when using named Blob stores.")
+  })
+
   it("rehydrates the Vercel token at runtime", () => {
     expect(resolveRuntimeVercelBlobStore({
       access: "public",

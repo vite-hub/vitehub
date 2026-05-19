@@ -9,6 +9,7 @@ import type {
   FsLiteKVStoreConfig,
   KVModuleOptions,
   KVStoreConfig,
+  KVStoresConfig,
   ResolvedCloudflareKVStoreConfig,
   ResolvedFsLiteKVStoreConfig,
   ResolvedKVModuleOptions,
@@ -42,6 +43,14 @@ function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string |
   }
 }
 
+function createResolvedConfig(store: ResolvedKVModuleOptions["store"], stores?: Record<string, ResolvedKVModuleOptions["store"]>): ResolvedKVModuleOptions {
+  return stores ? { store, stores: { default: store, ...stores } } : { store }
+}
+
+function hasStoresConfig(options: KVModuleOptions | undefined): options is KVStoresConfig {
+  return !!options && "stores" in options && isPlainObject((options as { stores?: unknown }).stores)
+}
+
 export function normalizeKVOptions(
   options: KVModuleOptions | undefined,
   input: KVResolutionInput = {},
@@ -56,11 +65,20 @@ export function normalizeKVOptions(
   const hosting = input.hosting || ""
   const explicit = options as KVStoreConfig | undefined
 
-  if (explicit?.driver) return { store: resolveExplicitStore(explicit, env) }
-  if (hasUpstashEnv(env)) return { store: resolveUpstashStore() }
-  if (hosting.includes("vercel")) return { store: resolveUpstashStore() }
-  if (hosting.includes("cloudflare")) return { store: resolveCloudflareStore({}, env) }
-  return { store: resolveFsLiteStore() }
+  if (hasStoresConfig(options)) {
+    const resolvedStores = Object.fromEntries(
+      Object.entries(options.stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
+    )
+    const defaultStore = resolvedStores.default
+    if (!defaultStore) throw new TypeError("`kv.stores.default` is required when using named KV stores.")
+    return createResolvedConfig(defaultStore, resolvedStores)
+  }
+
+  if (explicit?.driver) return createResolvedConfig(resolveExplicitStore(explicit, env))
+  if (hasUpstashEnv(env)) return createResolvedConfig(resolveUpstashStore())
+  if (hosting.includes("vercel")) return createResolvedConfig(resolveUpstashStore())
+  if (hosting.includes("cloudflare")) return createResolvedConfig(resolveCloudflareStore({}, env))
+  return createResolvedConfig(resolveFsLiteStore())
 }
 
 export function warnVercelKVFallback(

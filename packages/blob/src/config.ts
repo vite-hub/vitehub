@@ -6,6 +6,7 @@ import { isPlainObject } from "@vitehub/internal/object"
 import type {
   BlobModuleOptions,
   BlobStoreConfig,
+  BlobStoresConfig,
   CloudflareR2BlobStoreConfig,
   FsBlobStoreConfig,
   ResolvedBlobModuleOptions,
@@ -83,6 +84,14 @@ function resolveExplicitStore(
   }
 }
 
+function createResolvedConfig(store: ResolvedBlobModuleOptions["store"], stores?: Record<string, ResolvedBlobModuleOptions["store"]>): ResolvedBlobModuleOptions {
+  return stores ? { store, stores: { default: store, ...stores } } : { store }
+}
+
+function hasStoresConfig(options: BlobModuleOptions | undefined): options is BlobStoresConfig {
+  return !!options && "stores" in options && isPlainObject((options as { stores?: unknown }).stores)
+}
+
 export function hasVercelBlobEnv(env: Record<string, string | undefined>): boolean {
   return Boolean(readEnv(env, "BLOB_READ_WRITE_TOKEN"))
 }
@@ -104,23 +113,32 @@ export function normalizeBlobOptions(
   const explicit = options as BlobStoreConfig | undefined
   const implicitCloudflare = options as Partial<CloudflareR2BlobStoreConfig> | undefined
 
+  if (hasStoresConfig(options)) {
+    const resolvedStores = Object.fromEntries(
+      Object.entries(options.stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
+    )
+    const defaultStore = resolvedStores.default
+    if (!defaultStore) throw new TypeError("`blob.stores.default` is required when using named Blob stores.")
+    return createResolvedConfig(defaultStore, resolvedStores)
+  }
+
   if (explicit?.driver) {
-    return { store: resolveExplicitStore(explicit, env) }
+    return createResolvedConfig(resolveExplicitStore(explicit, env))
   }
 
   if (hosting.includes("cloudflare")) {
-    return { store: resolveCloudflareStore(implicitCloudflare, env) }
+    return createResolvedConfig(resolveCloudflareStore(implicitCloudflare, env))
   }
 
   if (hasVercelBlobEnv(env)) {
-    return { store: resolveVercelStore() }
+    return createResolvedConfig(resolveVercelStore())
   }
 
   if (hosting.includes("vercel")) {
-    return { store: resolveVercelStore() }
+    return createResolvedConfig(resolveVercelStore())
   }
 
-  return { store: resolveFsStore() }
+  return createResolvedConfig(resolveFsStore())
 }
 
 export function warnVercelBlobFallback(

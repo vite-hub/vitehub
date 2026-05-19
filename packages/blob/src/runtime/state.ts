@@ -13,7 +13,7 @@ import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"
 
 let runtimeConfig: false | ResolvedBlobModuleOptions | undefined
 let runtimeConfigPromise: Promise<false | ResolvedBlobModuleOptions> | undefined
-let runtimeStorage: BlobStorage | undefined
+const runtimeStorages = new Map<string, BlobStorage>()
 
 export {
   clearActiveCloudflareEnv,
@@ -50,7 +50,11 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
 }
 
 export function getBlobRuntimeStorage(): BlobStorage | undefined {
-  return runtimeStorage
+  return getNamedBlobRuntimeStorage("default")
+}
+
+export function getNamedBlobRuntimeStorage(name: string): BlobStorage | undefined {
+  return runtimeStorages.get(name)
 }
 
 export function setBlobRuntimeConfig(config: false | ResolvedBlobModuleOptions | undefined): void {
@@ -59,5 +63,10 @@ export function setBlobRuntimeConfig(config: false | ResolvedBlobModuleOptions |
 }
 
 export function setBlobRuntimeStorage(storage: BlobStorage | undefined): void {
-  runtimeStorage = storage
+  setNamedBlobRuntimeStorage("default", storage)
+}
+
+export function setNamedBlobRuntimeStorage(name: string, storage: BlobStorage | undefined): void {
+  if (storage) runtimeStorages.set(name, storage)
+  else runtimeStorages.delete(name)
 }
