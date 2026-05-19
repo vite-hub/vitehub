@@ -1,6 +1,8 @@
-import { del, get, head, list, put } from "@vercel/blob"
+import { importOptionalPeer } from "../internal/optional-peer.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
+
+type VercelBlobModule = typeof import("@vercel/blob")
 
 function isNotFound(error: unknown): boolean {
   return error instanceof Error && /not found/i.test(error.message)
@@ -8,6 +10,10 @@ function isNotFound(error: unknown): boolean {
 
 function commandOptions(options: ResolvedVercelBlobStoreConfig) {
   return { token: options.token }
+}
+
+async function loadVercelBlob(options: ResolvedVercelBlobStoreConfig): Promise<VercelBlobModule> {
+  return await importOptionalPeer<VercelBlobModule>("@vercel/blob", options.driver)
 }
 
 function mapBlob(blob: {
@@ -36,6 +42,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
     name: "vercel-blob",
     options,
     async delete(pathnames) {
+      const { del } = await loadVercelBlob(options)
       await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => del(pathname, commandOptions(options))))
     },
     async get(pathname) {
@@ -43,6 +50,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
       return bytes ? new Blob([bytes]) : null
     },
     async getArrayBuffer(pathname) {
+      const { get } = await loadVercelBlob(options)
       const result = await get(pathname, {
         access: options.access || "public",
         ...commandOptions(options),
@@ -50,6 +58,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
       return result?.stream ? await new Response(result.stream).arrayBuffer() : null
     },
     async head(pathname) {
+      const { head } = await loadVercelBlob(options)
       try {
         return mapBlob(await head(pathname, commandOptions(options)))
       }
@@ -59,6 +68,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
       }
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
+      const { list } = await loadVercelBlob(options)
       const result = await list({
         cursor: listOptions.cursor,
         limit: listOptions.limit ?? 1000,
@@ -74,6 +84,7 @@ export function createDriver(options: ResolvedVercelBlobStoreConfig): BlobDriver
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
+      const { put } = await loadVercelBlob(options)
       return mapBlob(await put(pathname, body as Parameters<typeof put>[1], {
         access: putOptions.access || options.access || "public",
         addRandomSuffix: false,
