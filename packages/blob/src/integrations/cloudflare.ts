@@ -14,7 +14,7 @@ export function configureCloudflareR2(
     target.cloudflare.wrangler ||= {}
     const buckets = (target.cloudflare.wrangler.r2_buckets ||= [])
 
-    if (buckets.some(b => b.binding === binding || b.bucket_name === bucketName)) continue
+    if (buckets.some(b => b.binding === binding)) continue
     buckets.push({ binding, bucket_name: bucketName })
   }
 }
