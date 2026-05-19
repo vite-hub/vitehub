@@ -154,10 +154,19 @@ export type {
 } from "@vitehub/messages"
 
 const syntheticWorkspaceRun = Symbol("vitehub.syntheticWorkspaceRun")
+const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
 const defaultWorkspaceName = "workspace"
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
+type BaseAgentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown> =
+  (context: AgentRuntimeContext<TRuntimeConfig>) => Promise<AgentAdapter<CALL_OPTIONS>>
+type AgentDefinitionWithBaseResolve<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
+  [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
+}
 
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -481,8 +490,21 @@ function defineBaseAgent<
   const { capabilities, chat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
+  const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
+    const resolvedAdapter = "model" in options
+      ? await resolveProviderAdapter((options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { provider: AgentModelProvider }).provider, options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>)
+      : undefined
+    if (!resolvedAdapter) {
+      throw new Error("[vitehub] Agent model and provider are required unless the agent defines a custom run() handler.")
+    }
+    const resolvedContext = createResolvedRuntimeContext(context)
+    return typeof resolvedAdapter === "function"
+      ? await (resolvedAdapter as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
+      : resolvedAdapter
+  }
 
   return {
+    [baseAgentResolve]: resolveBaseAgent,
     chat,
     description,
     hooks,
@@ -491,16 +513,8 @@ function defineBaseAgent<
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
-      const resolvedAdapter = "model" in options
-        ? await resolveProviderAdapter((options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { provider: AgentModelProvider }).provider, options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>)
-        : undefined
-      if (!resolvedAdapter) {
-        throw new Error("[vitehub] Agent model and provider are required unless the agent defines a custom run() handler.")
-      }
+      const adapterInstance = await resolveBaseAgent(context)
       const resolvedContext = createResolvedRuntimeContext(context)
-      const adapterInstance = typeof resolvedAdapter === "function"
-        ? await (resolvedAdapter as AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS>)(resolvedContext)
-        : resolvedAdapter
       const resolvedCapabilities = normalizedCapabilities.length && !workspace
         ? await resolveAgentCapabilities({ capabilities: normalizedCapabilities }, resolvedContext, {})
         : undefined
@@ -514,7 +528,7 @@ function defineBaseAgent<
         ? { ...adapterInstance, tools: capabilityTools }
         : adapterInstance
     },
-  }
+  } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>
 }
 
 export function workflow(name?: string): AgentWorkflowRuntimeBinding {
@@ -1026,7 +1040,7 @@ function createWorkspaceAgentDefinition<
 
   if (!definition.run) {
     const run: NonNullable<AgentDefinition<TRuntimeConfig>["run"]> = async (context) => {
-      const adapter = await definition.resolve(context)
+      const adapter = await resolveAgentForRun<TRuntimeConfig, unknown>(definition, context)
       const result = await adapter.generate(await createAdapterRunContext(definition as never, adapter, context as never, context.input))
       return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
         ? (result as { text: string }).text
@@ -1073,6 +1087,20 @@ export async function resolveAgent<TContext extends AgentRuntimeContext>(
   }
 
   throw new TypeError("[vitehub] Invalid agent definition.")
+}
+
+async function resolveAgentForRun<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+): Promise<AgentAdapter<CALL_OPTIONS>> {
+  if (hasAgentDefinition(agent)) {
+    const resolver = (agent as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>)[baseAgentResolve]
+    if (resolver) return await resolver(context)
+  }
+  return await resolveAgent(agent, context) as AgentAdapter<CALL_OPTIONS>
 }
 
 export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>(
@@ -1327,11 +1355,11 @@ export async function runAgent<
     }
   }
 
-  const resolved = await resolveAgent(agent, context)
+  const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
   try {
-    const result = await resolved.generate(adapterContext)
+    const result = await resolved.generate(adapterContext as never)
     if (result instanceof Response) return adapterContext.hasCapabilityCleanup ? await withResponseCleanup(result, adapterContext.close) : result
     if (isAsyncIterable(result)) return adapterContext.hasCapabilityCleanup ? withCapabilityCleanup(result, adapterContext.close) : result
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
@@ -1378,13 +1406,13 @@ export async function streamAgent<
     }
   }
 
-  const resolved = await resolveAgent(agent, context)
+  const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
   try {
     const result = resolved.stream
-      ? await resolved.stream(adapterContext)
-      : await resolved.generate(adapterContext)
+      ? await resolved.stream(adapterContext as never)
+      : await resolved.generate(adapterContext as never)
     if (result instanceof Response) return adapterContext.hasCapabilityCleanup ? await withResponseCleanup(result, adapterContext.close) : result
     if (isAsyncIterable(result)) return adapterContext.hasCapabilityCleanup ? withCapabilityCleanup(result, adapterContext.close) : result
     const events = streamTextResultToEvents(await applyOutputRenderers(result, adapterContext.outputRenderers))

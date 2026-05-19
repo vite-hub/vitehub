@@ -134,4 +134,35 @@ describe("agent capability runtime", () => {
     await expect((response as Response).text()).resolves.toBe("ok")
     expect(order).toEqual(["close"])
   })
+
+  it("runs model-backed capability lifecycle once per agent run", async () => {
+    vi.doMock("ai", () => ({
+      ToolLoopAgent: class {
+        async generate() {
+          return { text: "ok" }
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const order: string[] = []
+      const agent = defineAgent({
+        capabilities: [{
+          close: () => { order.push("close") },
+          configure: () => { order.push("configure") },
+          id: "tracked",
+        }],
+        model: {} as never,
+        provider: "ai-sdk",
+      })
+
+      await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({ text: "ok" })
+      expect(order).toEqual(["configure", "close"])
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
 })
