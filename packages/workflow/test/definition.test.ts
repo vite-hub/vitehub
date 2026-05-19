@@ -199,16 +199,19 @@ describe("workflow definitions", () => {
     tempDirs.push(rootDir)
     await mkdir(join(rootDir, "server", "workflows", "chat"), { recursive: true })
     const file = join(rootDir, "server", "workflows", "chat", "index.ts")
+    const step = join(rootDir, "server", "workflows", "chat", "01.reply.ts")
     await writeFile(file, [
       `import { createWorkflow } from "@vitehub/workflow"`,
       `export const chat = createWorkflow({ name: "server/workflows/chat", handler: async () => "ok" })`,
     ].join("\n"), "utf8")
+    await writeFile(step, "export default null\n", "utf8")
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({
         handler: file,
         name: "server/workflows/chat",
         source: "inline",
+        steps: [step],
       }),
     ])
   })
