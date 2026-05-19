@@ -278,6 +278,29 @@ describe("workflow runtime", () => {
     await expect(runWorkflow("duplicate", {})).rejects.toThrow(/Duplicate workflow name "duplicate"/)
   })
 
+  it("prefers inline definitions registered while loading discovered entries", async () => {
+    const discovered = vi.fn(async () => "discovered")
+    const inline = vi.fn(async () => "inline")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      mixed: async () => {
+        createWorkflow("mixed", inline)
+        return { default: { handler: discovered } }
+      },
+    })
+
+    const firstRun = await runWorkflow("mixed", undefined, { id: "first" })
+    const secondRun = await runWorkflow("mixed", undefined, { id: "second" })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("mixed", firstRun.id)).resolves.toMatchObject({ result: "inline" })
+      await expect(getWorkflowRun("mixed", secondRun.id)).resolves.toMatchObject({ result: "inline" })
+    })
+    expect(inline).toHaveBeenCalledTimes(2)
+    expect(discovered).not.toHaveBeenCalled()
+  })
+
   it("wraps Cloudflare workflow handlers with provider steps", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
     const step = { do: stepDo } as WorkflowProviderStep
@@ -340,7 +363,7 @@ describe("workflow runtime", () => {
       registry: {
         pipeline: async () => {
           createWorkflow("pipeline", async ({ payload, steps }) => await steps!.first(payload))
-          const definition = getInlineWorkflowDefinitions().get("pipeline")!
+          const definition = takeInlineWorkflowDefinition("pipeline")!
           const steps = [{ name: "01.first.ts", run: async (input: unknown) => `${input}-step` }]
           return {
             ...definition,

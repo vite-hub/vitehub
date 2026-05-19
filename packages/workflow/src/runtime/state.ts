@@ -9,6 +9,7 @@ let runtimeConfig: false | ResolvedWorkflowOptions | undefined
 let runtimeRegistry: WorkflowDefinitionRegistry | undefined
 const inlineRegistry = new Map<string, WorkflowDefinition>()
 const loadingRegistryEntries = new Map<string, Promise<WorkflowDefinition | undefined>>()
+const loadedRegistryEntries = new Map<string, WorkflowDefinition | undefined>()
 let fallbackEvent: unknown
 const eventStorage = new AsyncLocalStorage<unknown>()
 const loadingRegistryStorage = new AsyncLocalStorage<Set<string>>()
@@ -46,6 +47,7 @@ export function getWorkflowRuntimeConfig(): false | ResolvedWorkflowOptions | un
 
 export function setWorkflowRuntimeRegistry(registry: WorkflowDefinitionRegistry | undefined): void {
   runtimeRegistry = registry
+  loadedRegistryEntries.clear()
 }
 
 export function getWorkflowRuntimeRegistry(): WorkflowDefinitionRegistry | undefined {
@@ -95,11 +97,14 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
   const inlineDefinition = inlineRegistry.get(name)
   const entry = runtimeRegistry?.[name]
 
-  if (inlineDefinition && entry) {
-    throw new Error(`Duplicate workflow name "${name}" from inline and discovered definitions.`)
+  if (entry && loadedRegistryEntries.has(name)) {
+    return loadedRegistryEntries.get(name)
   }
 
   if (inlineDefinition) {
+    if (entry) {
+      throw new Error(`Duplicate workflow name "${name}" from inline and discovered definitions.`)
+    }
     return inlineDefinition
   }
 
@@ -118,15 +123,20 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
   const loadingEntry = Promise.resolve().then(() => loadingRegistryStorage.run(nextActiveLoads, async () => {
     const loaded = await entry()
     const registeredInlineDefinition = inlineRegistry.get(name)
-    if (!loaded || typeof loaded !== "object") {
+    if (registeredInlineDefinition) {
       return registeredInlineDefinition
     }
+    if (!loaded || typeof loaded !== "object") {
+      return undefined
+    }
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
-    return definition && typeof definition.handler === "function" ? definition : registeredInlineDefinition
+    return definition && typeof definition.handler === "function" ? definition : undefined
   }))
   loadingRegistryEntries.set(name, loadingEntry)
   try {
-    return await loadingEntry
+    const loaded = await loadingEntry
+    loadedRegistryEntries.set(name, loaded)
+    return loaded
   }
   finally {
     loadingRegistryEntries.delete(name)
@@ -167,6 +177,7 @@ export function resetWorkflowRuntime(): void {
   runtimeRegistry = undefined
   inlineRegistry.clear()
   loadingRegistryEntries.clear()
+  loadedRegistryEntries.clear()
   fallbackEvent = undefined
   runs.clear()
 }
