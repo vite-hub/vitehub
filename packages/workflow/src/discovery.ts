@@ -327,6 +327,22 @@ function discoverInlineWorkflowDefinitions(options: { rootDir: string, scanDirs?
   return sortDefinitions(definitions)
 }
 
+function mergeInlineWorkflowFolderSteps(
+  inlineDefinitions: DiscoveredWorkflowDefinition[],
+  folderDefinitions: DiscoveredWorkflowDefinition[],
+) {
+  const stepsByHandler = new Map(
+    folderDefinitions
+      .filter(definition => definition.steps?.length)
+      .map(definition => [normalize(definition.handler), definition.steps!]),
+  )
+
+  return inlineDefinitions.map((definition) => {
+    const steps = stepsByHandler.get(normalize(definition.handler))
+    return steps ? { ...definition, steps } : definition
+  })
+}
+
 export function discoverWorkflowDefinitions(options:
   | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
   | { mode: "nitro-server-workflows", scanDirs: string[] }
@@ -341,13 +357,20 @@ export function discoverWorkflowDefinitions(options:
 
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
   const serverScanDirs = roots.map(root => resolve(root, "server"))
+  const inlineDefinitions = discoverInlineWorkflowDefinitions(options)
+  const inlineHandlers = new Set(inlineDefinitions.map(definition => normalize(definition.handler)))
+  const preferInlineHandler = (definition: { handler: string }) => !inlineHandlers.has(normalize(definition.handler))
+  const folderDefinitions = discoverWorkflowFolders(serverScanDirs, "nitro-server-workflows")
+
   return mergeDefinitions(
     "workflow",
-    discoverInlineWorkflowDefinitions(options),
+    mergeInlineWorkflowFolderSteps(inlineDefinitions, folderDefinitions),
     discoverDefinitions("workflow", [
-      createSuffixDefinitionSource("vite-suffix", roots, workflowSuffixPattern, normalizeSuffixWorkflowName),
-    ]),
-    discoverFlatServerWorkflowDefinitions(serverScanDirs, "nitro-server-workflows"),
-    discoverWorkflowFolders(serverScanDirs, "nitro-server-workflows"),
+      createSuffixDefinitionSource<DiscoveredWorkflowDefinition>("vite-suffix", roots, workflowSuffixPattern, normalizeSuffixWorkflowName, {
+        createDefinition: ({ file, name }) => ({ handler: file, name, source: "vite-suffix" }),
+      }),
+    ]).filter(preferInlineHandler),
+    discoverFlatServerWorkflowDefinitions(serverScanDirs, "nitro-server-workflows").filter(preferInlineHandler),
+    folderDefinitions.filter(preferInlineHandler),
   )
 }
