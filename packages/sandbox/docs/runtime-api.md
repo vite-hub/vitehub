@@ -28,6 +28,8 @@ Vite config imports the plugin from `@vitehub/sandbox/vite`:
 ```ts
 import { hubSandbox } from '@vitehub/sandbox/vite'
 ```
+
+`hubSandbox(options?)` accepts the same integration options as `vite.config.sandbox`. When both are present, `vite.config.sandbox` takes precedence.
 ::
 
 ::fw{id="nitro:dev nitro:build"}

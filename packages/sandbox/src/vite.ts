@@ -1,14 +1,24 @@
-import type { NitroModule } from 'nitro/types'
 import type { Plugin } from 'vite'
+import type { NitroModule } from 'nitro/types'
 import { createNoExternalMerger, isServerEnvironment } from '@vitehub/internal/build/vite'
+
 import { createFeatureVitePlugin } from './internal/shared/vite'
-export { createViteHubDefinitionAutoImportsPlugin } from './internal/shared/vitehub-auto-imports'
 import { sandboxFeatureEngine, type SandboxPublicOptions } from './integration'
 
-export type SandboxVitePlugin = Plugin & { nitro?: NitroModule }
+export { createViteHubDefinitionAutoImportsPlugin } from './internal/shared/vitehub-auto-imports'
 
-export function hubSandbox(): SandboxVitePlugin {
-  const plugin = createFeatureVitePlugin(sandboxFeatureEngine) as SandboxVitePlugin
+export type SandboxVitePlugin = Plugin & { nitro: NitroModule }
+
+export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
+  const plugin = createFeatureVitePlugin({
+    ...sandboxFeatureEngine,
+    readPublicOptions(source) {
+      const configOptions = sandboxFeatureEngine.readPublicOptions(source)
+      return source.kind === 'vite' && typeof configOptions === 'undefined'
+        ? options
+        : configOptions
+    },
+  }) as SandboxVitePlugin
   const configEnvironment = plugin.configEnvironment
   const mergeNoExternal = createNoExternalMerger('@vitehub/sandbox')
   return {
