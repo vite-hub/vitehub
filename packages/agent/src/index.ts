@@ -514,19 +514,7 @@ function defineBaseAgent<
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
       const adapterInstance = await resolveBaseAgent(context)
-      const resolvedContext = createResolvedRuntimeContext(context)
-      const resolvedCapabilities = normalizedCapabilities.length && !workspace
-        ? await resolveAgentCapabilities({ capabilities: normalizedCapabilities }, resolvedContext, {})
-        : undefined
-      const transformedTools = resolvedCapabilities
-        ? await applyCapabilityToolTransforms(resolvedCapabilities.tools, resolvedCapabilities.toolTransforms)
-        : undefined
-      const capabilityTools = Object.keys(transformedTools || {}).length
-        ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
-        : undefined
-      return capabilityTools
-        ? { ...adapterInstance, tools: capabilityTools }
-        : adapterInstance
+      return adapterInstance
     },
   } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>
 }
@@ -1261,7 +1249,7 @@ async function createRunContext<
     : definition.capabilities?.length
       ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
       : undefined
-  const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never)
+  const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never, workspaceMode)
   const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
   const tools = Object.keys(transformedTools || {}).length
     ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
@@ -1305,7 +1293,7 @@ async function createAdapterRunContext<
     : definition?.capabilities?.length
       ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
       : undefined
-  const capabilities = await resolveAgentCapabilities(capabilityOptions, runtime, input, workspace as never)
+  const capabilities = await resolveAgentCapabilities(capabilityOptions, runtime, input, workspace as never, workspaceMode)
   const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
   const tools = Object.keys(transformedTools || {}).length
     ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)

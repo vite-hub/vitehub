@@ -158,6 +158,7 @@ export async function resolveAgentCapabilities<
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput,
   workspace?: ReadonlyWorkspaceFacade<Name>,
+  workspaceMode: AgentCapabilityMode = "read",
 ): Promise<ResolvedAgentCapabilities> {
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let currentInput = input
@@ -187,7 +188,7 @@ export async function resolveAgentCapabilities<
 
   try {
     for (const capability of capabilities) {
-      await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace)
+      await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
       const capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> = {
         ...runtime,
         capability,
@@ -287,6 +288,7 @@ function isToolSet(value: unknown): value is AgentToolSet {
 export async function validateCapabilityRuntimeRequirement<Name extends WorkspaceName>(
   capability: AgentCapabilityDefinition,
   workspace?: ReadonlyWorkspaceFacade<Name>,
+  workspaceMode: AgentCapabilityMode = "read",
 ): Promise<void> {
   for (const requirement of capability.requires || []) {
     if (!requirement.workspace) continue
@@ -294,6 +296,9 @@ export async function validateCapabilityRuntimeRequirement<Name extends Workspac
       throw new Error(`[vitehub] ${capability.id}() requires an explicit workspace.`)
     }
     if (!workspace) continue
+    if (requirement.workspace.mode === "write" && workspaceMode !== "write") {
+      throw new Error(`[vitehub] ${capability.id}() requires workspace.mode: "write".`)
+    }
     for (const path of requirement.workspace.paths || []) {
       if (!await workspace.fs.exists(path as never)) {
         throw new Error(`[vitehub] ${capability.id}() requires workspace path ${path}.`)
@@ -398,9 +403,36 @@ export function withResponseCleanup(response: Response, close: () => Promise<voi
   if (!response.body) {
     return close().then(() => response)
   }
-  return new Response(response.body.pipeThrough(new TransformStream({
-    async flush() {
-      await close()
+  const reader = response.body.getReader()
+  let closed = false
+  async function closeOnce() {
+    if (closed) return
+    closed = true
+    await close()
+  }
+  return new Response(new ReadableStream({
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      }
+      finally {
+        await closeOnce()
+      }
     },
-  })), response)
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (result.done) {
+          controller.close()
+          await closeOnce()
+          return
+        }
+        controller.enqueue(result.value)
+      }
+      catch (error) {
+        await closeOnce()
+        throw error
+      }
+    },
+  }), response)
 }
