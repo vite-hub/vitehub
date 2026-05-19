@@ -15,15 +15,15 @@ export { createCloudflareQueueConfig, type CloudflareQueueConfig, type Cloudflar
 
 const mergeNoExternal = createNoExternalMerger(queuePackageName)
 
-export function hubQueue(): QueueVitePlugin {
+export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let resolved: ResolvedConfig | undefined
-  let queue: QueueModuleOptions | undefined
+  let queue: QueueModuleOptions | undefined = options
 
   return {
     name: "@vitehub/queue/vite",
     nitro: queueNitroModule,
     config(config) {
-      queue = config.queue
+      queue = config.queue ?? queue
     },
     configResolved(config) {
       resolved = config

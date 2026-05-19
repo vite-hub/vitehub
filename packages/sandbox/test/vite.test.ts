@@ -56,6 +56,52 @@ describe("hubSandbox", () => {
     expect(configResult).toEqual({})
   })
 
+  it("accepts direct integration options", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+
+    await configHook({
+      root: rootDir,
+    }, {
+      command: "serve",
+      mode: "development",
+    })
+
+    const resolvedId = await resolveId("virtual:vitehub/sandbox")
+    const code = await load(resolvedId as string)
+
+    expect(code).toContain('"provider": "vercel"')
+  })
+
+  it("lets Vite config override direct integration options", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "cloudflare" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+
+    await configHook({
+      root: rootDir,
+      sandbox: {
+        provider: "vercel",
+      },
+    }, {
+      command: "serve",
+      mode: "development",
+    })
+
+    const resolvedId = await resolveId("virtual:vitehub/sandbox")
+    const code = await load(resolvedId as string)
+
+    expect(code).toContain('"provider": "vercel"')
+    expect(code).not.toContain('"provider": "cloudflare"')
+  })
+
   it("adds server-environment markers through the Environment API", async () => {
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox()

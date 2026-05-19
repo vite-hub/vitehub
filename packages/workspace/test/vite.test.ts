@@ -157,4 +157,24 @@ describe("hubWorkspace", () => {
     await expect(readFile(registryId, "utf8")).resolves.not.toContain('"notes"')
     expect(registry).toEqual({})
   })
+
+  it("lets Vite config override direct integration options", async () => {
+    const root = await createViteAssetRoot()
+
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: ["docs"] })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string, workspace?: { assets?: boolean | string[] } }) => Promise<void>
+    const buildStart = plugin.buildStart as () => Promise<void>
+    const resolveId = plugin.resolveId as (id: string) => string | undefined
+
+    await configResolved({ command: "build", root, workspace: { assets: false } })
+    await buildStart()
+
+    const registryId = resolveId("#vitehub-workspace-assets-registry")!
+    const registry = (await import(`${pathToFileURL(registryId).href}?t=${Date.now()}`)).default
+
+    await expect(readFile(registryId, "utf8")).resolves.not.toContain('"docs"')
+    await expect(readFile(registryId, "utf8")).resolves.not.toContain('"notes"')
+    expect(registry).toEqual({})
+  })
 })
