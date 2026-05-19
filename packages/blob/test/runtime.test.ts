@@ -352,36 +352,6 @@ describe("blob runtime", () => {
     })
   })
 
-  it("accepts legacy provider cursors for folded Vercel listings", async () => {
-    setBlobRuntimeConfig({
-      store: {
-        access: "public",
-        driver: "vercel-blob",
-        token: "default-token",
-      },
-    })
-    ;(vercelBlobMock.list as any).mockResolvedValue({
-      blobs: [
-        {
-          contentType: "text/plain",
-          pathname: "a/legacy.txt",
-          size: 6,
-          uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
-        },
-      ],
-      hasMore: false,
-    })
-
-    const list = await blob.list({ cursor: "legacy-provider-cursor", folded: true, prefix: "a/" })
-
-    expect(vercelBlobMock.list).toHaveBeenCalledWith(expect.objectContaining({ cursor: "legacy-provider-cursor" }))
-    expect(list).toMatchObject({
-      blobs: [{ pathname: "a/legacy.txt" }],
-      folders: [],
-      hasMore: false,
-    })
-  })
-
   it("selects named stores from runtime config", async () => {
     setBlobRuntimeConfig({
       store: {

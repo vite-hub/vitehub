@@ -28,15 +28,10 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     return { index }
   }
 
-  try {
-    const parsed = JSON.parse(decoded) as Partial<FoldedCursor>
-    return {
-      index: typeof parsed.index === "number" && Number.isFinite(parsed.index) ? parsed.index : 0,
-      providerCursor: parsed.providerCursor,
-    }
-  }
-  catch {
-    return { index: 0, providerCursor: cursor }
+  const parsed = JSON.parse(decoded) as Partial<FoldedCursor>
+  return {
+    index: typeof parsed.index === "number" && Number.isFinite(parsed.index) ? parsed.index : 0,
+    providerCursor: parsed.providerCursor,
   }
 }
 
