@@ -50,7 +50,6 @@ function sourceConfigFingerprint(source: ResolvedWorkspaceSource) {
     key: source.key,
     materialize: source.materialize,
     mountPath: source.mountPath,
-    name: source.source.name,
     source: source.source.fingerprint,
   }
 }

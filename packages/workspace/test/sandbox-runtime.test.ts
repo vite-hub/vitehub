@@ -210,7 +210,6 @@ describe("sandbox workspace runtime", () => {
         store: { provider: "memory" },
         sources: {
           docs: {
-            name: "docs",
             materialize: "lazy",
             async getKeys() {
               return ["README.md"]
@@ -356,7 +355,6 @@ describe("sandbox workspace runtime", () => {
         store: { provider: "memory" },
         sources: {
           docs: {
-            name: "docs",
             materialize: "lazy",
             async getKeys() {
               return ["README.md"]

@@ -34,7 +34,6 @@ describe("lazy sources", () => {
       name: "source-view",
       sources: {
         docs: source.custom({
-          name: "docs",
           materialize: "lazy" as const,
           async getKeys() {
             return ["foo.md"]
@@ -59,9 +58,8 @@ describe("lazy sources", () => {
   it("normalizes keyed source mounts and cache defaults", () => {
     const resolved = normalizeWorkspaceSources({
       docs: source.custom({
-          name: "docs",
-          materialize: "lazy",
-          cache: { maxAge: 3600 },
+        materialize: "lazy",
+        cache: { maxAge: 3600 },
         async getKeys() {
           return []
         },
@@ -70,7 +68,6 @@ describe("lazy sources", () => {
         },
       }),
       skills: source.custom({
-        name: "skills",
         async getKeys() {
           return []
         },
@@ -137,7 +134,6 @@ describe("lazy sources", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.custom({
-          name: "docs",
           materialize: "lazy",
           async getKeys() {
             return ["foo.md", "nested/bar.md"]
@@ -216,7 +212,6 @@ describe("lazy sources", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.custom({
-          name: "docs",
           materialize: "lazy",
           async getKeys() {
             return ["foo.md"]
@@ -249,7 +244,6 @@ describe("lazy sources", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.custom({
-          name: "docs",
           materialize: "lazy",
           async getKeys() {
             return ["foo.md"]
@@ -284,7 +278,6 @@ describe("lazy sources", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.custom({
-          name: "docs",
           materialize: "lazy",
           async getKeys() {
             return ["foo.md", "bar.md"]
@@ -319,7 +312,6 @@ describe("lazy sources", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.custom({
-          name: "docs",
           cache: { maxAge: 3600 },
           materialize: "lazy",
           async getKeys() {

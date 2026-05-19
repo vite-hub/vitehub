@@ -32,7 +32,7 @@ export function files(options: FilesLoaderOptions = {}): WorkspaceLoader {
           const path = normalizeWorkspacePath(item.path || rawPath)
           const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
           const digest = ctx.generateDigest({ content, metadata: item.metadata, mediaType: item.mediaType })
-          const metaKey = `loader:files:${source.name}:${path}:digest`
+          const metaKey = `loader:files:${source.key}:${path}:digest`
           const previousDigest = await ctx.store.getMeta?.(metaKey)
 
           if (previousDigest === digest) continue
