@@ -1,6 +1,10 @@
 import type { WritableWorkspaceFacade } from "@vitehub/workspace"
-import type { KVStorage } from "@vitehub/kv"
 import type { Lock, QueueEntry, StateAdapter } from "chat"
+
+interface ChatKVStorage {
+  get(key: string, options?: unknown): Promise<unknown>
+  set<T = unknown>(key: string, value: T, options?: unknown): Promise<unknown>
+}
 
 interface StoredEntry {
   expiresAt?: number
@@ -248,12 +252,12 @@ export function createWorkspaceChatStateAdapter(workspace: WritableWorkspaceFaca
   }
 }
 
-export function createKVChatStateAdapter(storage: KVStorage, options: { prefix?: string } = {}): StateAdapter {
+export function createKVChatStateAdapter(storage: ChatKVStorage, options: { prefix?: string } = {}): StateAdapter {
   const key = `${options.prefix || "vitehub:chat:state"}:state`
   let mutationQueue: Promise<unknown> = Promise.resolve()
 
   async function load(): Promise<StoredState> {
-    return await storage.get<StoredState>(key) || emptyState()
+    return (await storage.get(key) as StoredState | null) || emptyState()
   }
 
   async function save(state: StoredState): Promise<void> {

@@ -23,6 +23,9 @@
       "@vitehub/internal/*": [
         "packages/internal/src/*"
       ],
+      "@vitehub/kv": [
+        "packages/kv/src/index.ts"
+      ],
       "@vitehub/runtime": [
         "packages/runtime/src/index.ts"
       ],
