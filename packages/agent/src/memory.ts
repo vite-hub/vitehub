@@ -159,6 +159,7 @@ export interface WorkspaceJsonlMemoryStoreOptions {
   path?: string
 }
 
+type JsonSchema = Record<string, unknown>
 type MemoryEvent = MemoryUpsertEvent | MemorySupersedeEvent | MemoryDeleteEvent
 
 interface MemoryUpsertEvent extends Omit<MemoryRecord, "status"> {
@@ -192,6 +193,59 @@ interface MemoryDeleteEvent {
 function createTool<TInput = unknown, TOutput = unknown>(tool: AgentToolDefinition<TInput, TOutput>): AgentToolDefinition {
   return tool as AgentToolDefinition
 }
+
+function jsonObjectSchema(properties: Record<string, JsonSchema>, required: string[] = []): JsonSchema {
+  return {
+    additionalProperties: false,
+    properties,
+    ...(required.length ? { required } : {}),
+    type: "object",
+  }
+}
+
+const storePropertySchema: JsonSchema = {
+  description: "Memory store name. Omit only when the capability has one store or an `agent` store.",
+  type: "string",
+}
+
+const stringArraySchema: JsonSchema = {
+  items: { type: "string" },
+  type: "array",
+}
+
+const memorySearchInputSchema = jsonObjectSchema({
+  after: { description: "Include records updated at or after this ISO timestamp.", type: "string" },
+  before: { description: "Include records updated at or before this ISO timestamp.", type: "string" },
+  kinds: stringArraySchema,
+  limit: { minimum: 1, type: "number" },
+  query: { type: "string" },
+  store: storePropertySchema,
+  tags: stringArraySchema,
+}, ["query"])
+
+const memoryReadInputSchema = jsonObjectSchema({
+  id: { type: "string" },
+  store: storePropertySchema,
+}, ["id"])
+
+const memoryRememberInputSchema = jsonObjectSchema({
+  confidence: { maximum: 1, minimum: 0, type: "number" },
+  content: { type: "string" },
+  kind: { type: "string" },
+  metadata: { additionalProperties: true, type: "object" },
+  pinned: { type: "boolean" },
+  provenance: { additionalProperties: true, type: "object" },
+  store: storePropertySchema,
+  supersedes: stringArraySchema,
+  tags: stringArraySchema,
+  title: { type: "string" },
+}, ["content", "kind"])
+
+const memoryDeleteInputSchema = jsonObjectSchema({
+  id: { type: "string" },
+  reason: { type: "string" },
+  store: storePropertySchema,
+}, ["id"])
 
 function createMemoryId(prefix = "mem") {
   return `${prefix}_${globalThis.crypto?.randomUUID?.().replace(/-/g, "") || Math.random().toString(36).slice(2)}`
@@ -326,7 +380,7 @@ function filterMemoryRecords(records: MemoryRecord[], request: Omit<MemorySearch
 }
 
 export function workspaceJsonlMemoryStore(options: WorkspaceJsonlMemoryStoreOptions = {}): MemoryStoreFactory {
-  const path = options.path || ".vitehub/memory/agent.jsonl"
+  const path = options.path || ".vitehub/memory.jsonl"
   return {
     kind: "workspace-jsonl",
     create(context) {
@@ -427,10 +481,7 @@ function resolveMemoryScope(options: MemoryStoreOptions, context: AgentCapabilit
   if (!scope || !Object.values(scope).some(Boolean)) {
     throw new Error("[vitehub:agent] memory() stores require an explicit scope.")
   }
-  return normalizeMemoryScope({
-    thread: context.run?.threadId,
-    ...scope,
-  })
+  return normalizeMemoryScope(scope)
 }
 
 function assertMemoryKind(options: MemoryStoreOptions, kind: MemoryKind) {
@@ -481,11 +532,23 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
           scope: resolveMemoryScope(storeOptions, context),
         })
       }
+      const defaultStoreName = resolved.has("agent")
+        ? "agent"
+        : resolved.size === 1
+          ? [...resolved.keys()][0]
+          : undefined
       const getStore = (name?: string) => {
-        const storeName = name || "agent"
+        const storeName = name || defaultStoreName
+        if (!storeName) throw new Error("[vitehub:agent] Multiple memory stores are configured; pass `store` explicitly.")
         const store = resolved.get(storeName)
         if (!store) throw new Error(`[vitehub:agent] Unknown memory store "${storeName}".`)
         return { storeName, ...store }
+      }
+      const readSearchAllowed = (options: MemoryStoreOptions) => options.read?.tools?.search !== false
+      const readOneAllowed = (options: MemoryStoreOptions) => options.read?.tools?.read !== false
+      const assertReadAllowed = (selected: ReturnType<typeof getStore>, tool: "read" | "search") => {
+        const allowed = tool === "search" ? readSearchAllowed(selected.options) : readOneAllowed(selected.options)
+        if (!allowed) throw new Error(`[vitehub:agent] Memory store "${selected.storeName}" does not allow ${tool}.`)
       }
       const assertWriteAllowed = (selected: ReturnType<typeof getStore>) => {
         if (selected.options.write?.mode !== "tool") {
@@ -498,23 +561,27 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
         return selected.options.write?.policy || "require-approval"
       }
       const tools: AgentToolSet = {}
-      if ([...resolved.values()].some(store => store.options.read?.tools?.search !== false)) {
+      if ([...resolved.values()].some(store => readSearchAllowed(store.options))) {
         tools.memory_search = createTool({
           description: "Search durable scoped memory records.",
           execute: ({ after, before, kinds, limit, query, store, tags }: MemorySearchRequest & { store?: string }) => {
             const selected = getStore(store)
+            assertReadAllowed(selected, "search")
             return selected.adapter.search({ after, before, kinds, limit, query, scope: selected.scope, store: selected.storeName, tags })
           },
+          inputSchema: memorySearchInputSchema,
           name: "memory_search",
         })
       }
-      if ([...resolved.values()].some(store => store.options.read?.tools?.read !== false)) {
+      if ([...resolved.values()].some(store => readOneAllowed(store.options))) {
         tools.memory_read = createTool({
           description: "Read one durable memory record by id.",
           execute: ({ id, store }: { id: string, store?: string }) => {
             const selected = getStore(store)
+            assertReadAllowed(selected, "read")
             return selected.adapter.read({ id, scope: selected.scope, store: selected.storeName })
           },
+          inputSchema: memoryReadInputSchema,
           name: "memory_read",
         })
       }
@@ -545,6 +612,7 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
               title,
             })
           },
+          inputSchema: memoryRememberInputSchema,
           name: "memory_remember",
           policy: writePolicy,
         })
@@ -555,6 +623,7 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
             assertWriteAllowed(selected)
             return selected.adapter.delete({ id, reason, scope: selected.scope, store: selected.storeName })
           },
+          inputSchema: memoryDeleteInputSchema,
           name: "memory_delete",
           policy: writePolicy,
         })

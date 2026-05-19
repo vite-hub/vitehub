@@ -163,6 +163,157 @@ describe("agent memory capability", () => {
     expect(readonly.delete).not.toHaveBeenCalled()
   })
 
+  it("enforces per-store read permissions for selected stores", async () => {
+    const readable: MemoryStoreAdapter = {
+      append: vi.fn(),
+      delete: vi.fn(),
+      export: vi.fn(async () => ({ items: [] })),
+      read: vi.fn(async () => ({ item: null })),
+      search: vi.fn(async () => ({ items: [] })),
+    }
+    const hidden: MemoryStoreAdapter = {
+      append: vi.fn(),
+      delete: vi.fn(),
+      export: vi.fn(async () => ({ items: [] })),
+      read: vi.fn(),
+      search: vi.fn(),
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { memory } = await import("../src/capabilities.ts")
+    let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
+    const agent = defineAgent({
+      async run(context) {
+        capturedTools = context.tools as typeof capturedTools
+        return { text: Object.keys(context.tools || {}).sort().join(",") }
+      },
+      capabilities: [
+        memory({
+          stores: {
+            agent: {
+              adapter: readable,
+              scope: { agent: "support" },
+            },
+            hidden: {
+              adapter: hidden,
+              read: { tools: { read: false, search: false } },
+              scope: { agent: "support" },
+            },
+          },
+        }),
+      ],
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      text: "memory_read,memory_search",
+    })
+    await expect(Promise.resolve().then(() => capturedTools.memory_search!.execute({ query: "anything", store: "hidden" }))).rejects.toThrow("does not allow search")
+    await expect(Promise.resolve().then(() => capturedTools.memory_read!.execute({ id: "mem_1", store: "hidden" }))).rejects.toThrow("does not allow read")
+    expect(hidden.search).not.toHaveBeenCalled()
+    expect(hidden.read).not.toHaveBeenCalled()
+  })
+
+  it("uses the sole configured memory store as the default when no agent store exists", async () => {
+    const adapter: MemoryStoreAdapter = {
+      append: vi.fn(async request => ({ action: "created" as const, item: memoryRecord({ ...request, id: "mem_1" }) })),
+      delete: vi.fn(async request => ({ deletedId: request.id, ok: true as const, tombstoneId: "mem_del_1" })),
+      export: vi.fn(async () => ({ items: [] })),
+      read: vi.fn(),
+      search: vi.fn(async () => ({ items: [] })),
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { memory } = await import("../src/capabilities.ts")
+    let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
+    const agent = defineAgent({
+      async run(context) {
+        capturedTools = context.tools as typeof capturedTools
+        return { text: "ok" }
+      },
+      capabilities: [
+        memory({
+          stores: {
+            project: {
+              adapter,
+              scope: { project: "vitehub" },
+              write: { mode: "tool", policy: "allow" },
+            },
+          },
+        }),
+      ],
+    })
+
+    await runAgent(agent, runtime(), {})
+    await capturedTools.memory_search!.execute({ query: "anything" })
+    await capturedTools.memory_remember!.execute({ content: "Remember this.", kind: "semantic" })
+    expect(adapter.search).toHaveBeenCalledWith(expect.objectContaining({ store: "project" }))
+    expect(adapter.append).toHaveBeenCalledWith(expect.objectContaining({ store: "project" }))
+  })
+
+  it("requires an explicit store when multiple stores are configured without an agent default", async () => {
+    const adapter: MemoryStoreAdapter = {
+      append: vi.fn(),
+      delete: vi.fn(),
+      export: vi.fn(async () => ({ items: [] })),
+      read: vi.fn(),
+      search: vi.fn(),
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { memory } = await import("../src/capabilities.ts")
+    let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
+    const agent = defineAgent({
+      async run(context) {
+        capturedTools = context.tools as typeof capturedTools
+        return { text: "ok" }
+      },
+      capabilities: [
+        memory({
+          stores: {
+            project: { adapter, scope: { project: "vitehub" } },
+            user: { adapter, scope: { user: "u_1" } },
+          },
+        }),
+      ],
+    })
+
+    await runAgent(agent, runtime(), {})
+    await expect(Promise.resolve().then(() => capturedTools.memory_search!.execute({ query: "anything" }))).rejects.toThrow("pass `store` explicitly")
+  })
+
+  it("adds input schemas to memory tools", async () => {
+    const adapter: MemoryStoreAdapter = {
+      append: vi.fn(),
+      delete: vi.fn(),
+      export: vi.fn(async () => ({ items: [] })),
+      read: vi.fn(),
+      search: vi.fn(),
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { memory } = await import("../src/capabilities.ts")
+    let capturedTools: Record<string, { inputSchema?: unknown }> = {}
+    const agent = defineAgent({
+      async run(context) {
+        capturedTools = context.tools as typeof capturedTools
+        return { text: "ok" }
+      },
+      capabilities: [
+        memory({
+          stores: {
+            agent: {
+              adapter,
+              scope: { agent: "support" },
+              write: { mode: "tool", policy: "allow" },
+            },
+          },
+        }),
+      ],
+    })
+
+    await runAgent(agent, runtime(), {})
+    expect(capturedTools.memory_search?.inputSchema).toMatchObject({ required: ["query"], type: "object" })
+    expect(capturedTools.memory_read?.inputSchema).toMatchObject({ required: ["id"], type: "object" })
+    expect(capturedTools.memory_remember?.inputSchema).toMatchObject({ required: ["content", "kind"], type: "object" })
+    expect(capturedTools.memory_delete?.inputSchema).toMatchObject({ required: ["id"], type: "object" })
+  })
+
   it("does not expose memory write tools unless at least one store opts in", async () => {
     const adapter: MemoryStoreAdapter = {
       append: vi.fn(),
@@ -221,6 +372,103 @@ describe("agent memory capability", () => {
     await adapter.delete({ id: created.item.id, scope: { agent: "support" }, store: "agent" })
     await expect(adapter.read({ id: created.item.id, scope: { agent: "support" }, store: "agent" })).resolves.toEqual({ item: null })
     expect(files.get(".vitehub/memory/test.jsonl")?.trim().split("\n")).toHaveLength(2)
+  })
+
+  it("uses a workspace-level JSONL path by default", async () => {
+    const files = new Map<string, string>()
+    const { workspaceJsonlMemoryStore } = await import("../src/capabilities.ts")
+    const adapter = await workspaceJsonlMemoryStore().create({
+      workspace: {
+        fs: {
+          appendFile: async (path: string, content: string) => files.set(path, `${files.get(path) || ""}${content}`),
+          mkdir: vi.fn(),
+          readFile: async (path: string) => files.get(path) || "",
+          writeFile: vi.fn(),
+        },
+      },
+    } as never)
+
+    await adapter.append({
+      content: "Default memory file.",
+      kind: "semantic",
+      scope: { agent: "support" },
+      store: "agent",
+    })
+
+    expect(files.has(".vitehub/memory.jsonl")).toBe(true)
+  })
+
+  it("does not add thread scope unless configured", async () => {
+    const adapter: MemoryStoreAdapter = {
+      append: vi.fn(async request => ({ action: "created" as const, item: memoryRecord({ ...request, id: "mem_1" }) })),
+      delete: vi.fn(),
+      export: vi.fn(async () => ({ items: [] })),
+      read: vi.fn(),
+      search: vi.fn(),
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { memory } = await import("../src/capabilities.ts")
+    let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
+    const agent = defineAgent({
+      async run(context) {
+        capturedTools = context.tools as typeof capturedTools
+        return { text: "ok" }
+      },
+      capabilities: [
+        memory({
+          stores: {
+            agent: {
+              adapter,
+              scope: { agent: "support" },
+              write: { mode: "tool", policy: "allow" },
+            },
+          },
+        }),
+      ],
+    })
+
+    await runAgent(agent, { ...runtime(), run: { runId: "run_1", threadId: "thread_1" } }, {})
+    await capturedTools.memory_remember!.execute({ content: "Remember this.", kind: "semantic" })
+    expect(adapter.append).toHaveBeenCalledWith(expect.objectContaining({
+      provenance: expect.objectContaining({ threadId: "thread_1" }),
+      scope: { agent: "support" },
+    }))
+  })
+
+  it("supports explicit dynamic thread scoping", async () => {
+    const adapter: MemoryStoreAdapter = {
+      append: vi.fn(async request => ({ action: "created" as const, item: memoryRecord({ ...request, id: "mem_1" }) })),
+      delete: vi.fn(),
+      export: vi.fn(async () => ({ items: [] })),
+      read: vi.fn(),
+      search: vi.fn(),
+    }
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { memory } = await import("../src/capabilities.ts")
+    let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
+    const agent = defineAgent({
+      async run(context) {
+        capturedTools = context.tools as typeof capturedTools
+        return { text: "ok" }
+      },
+      capabilities: [
+        memory({
+          stores: {
+            agent: {
+              adapter,
+              scope: context => ({ agent: "support", thread: context.run?.threadId }),
+              write: { mode: "tool", policy: "allow" },
+            },
+          },
+        }),
+      ],
+    })
+
+    await runAgent(agent, { ...runtime(), run: { runId: "run_1", threadId: "thread_1" } }, {})
+    await capturedTools.memory_remember!.execute({ content: "Remember this.", kind: "semantic" })
+    expect(adapter.append).toHaveBeenCalledWith(expect.objectContaining({
+      scope: { agent: "support", thread: "thread_1" },
+    }))
   })
 
   it("supersedes old workspace JSONL memory records", async () => {
