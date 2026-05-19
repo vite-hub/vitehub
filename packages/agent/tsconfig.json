@@ -23,6 +23,12 @@
       "@vitehub/internal/*": [
         "packages/internal/src/*"
       ],
+      "@vitehub/agent": [
+        "packages/agent/src/index.ts"
+      ],
+      "@vitehub/agent/*": [
+        "packages/agent/src/*"
+      ],
       "@vitehub/messages": [
         "packages/messages/src/index.ts"
       ],
