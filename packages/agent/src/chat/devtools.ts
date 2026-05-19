@@ -488,12 +488,8 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     return getMessages(chatFromThreadId(adapterName, threadId)).find(message => message.id === id)
   }
 
-  function latestAssistantMessage(threadId: string): ChatDevtoolsMessage | undefined {
-    return getMessages(chatFromThreadId(adapterName, threadId)).findLast(message => message.role === "assistant")
-  }
-
   function ensureTypingMessage(threadId: string): ChatDevtoolsMessage {
-    const id = typingMessageIds.get(threadId) || latestAssistantMessage(threadId)?.id
+    const id = typingMessageIds.get(threadId)
     const existing = id ? findMessage(threadId, id) : undefined
     if (existing) {
       existing.loading = true

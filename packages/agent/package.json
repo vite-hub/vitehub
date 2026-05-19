@@ -68,7 +68,6 @@
     "test": "pnpm --filter @vitehub/agent... build && vitest run"
   },
   "dependencies": {
-    "@vitehub/devtools": "workspace:*",
     "@vitehub/runtime": "workspace:*",
     "@vitehub/workflow": "workspace:*",
     "@vitehub/workspace": "workspace:*",
@@ -104,6 +103,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@vitehub/devtools": "workspace:*",
     "@vitehub/internal": "workspace:*",
     "@tanstack/ai": "0.16.0",
     "ai": "^6.0.172",
