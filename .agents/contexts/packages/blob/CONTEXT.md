@@ -26,6 +26,7 @@ _Avoid_: Blob Driver Module, Blob Store, ViteHub provider
 - The **Blob Package** preserves Default Blob Store ergonomics.
 - The **Blob Driver Boundary** hides provider-specific bucket, token, and binding details.
 - Each **Blob Driver Module** owns the provider dependency needed by that driver.
+- Generated Provider Outputs import selected provider modules instead of package-level provider switches.
 - A **Blob Driver Module** can be a thin wrapper around a **Blob Provider SDK Adapter**.
 - One **Blob Provider SDK Adapter** can support multiple **Blob Driver Modules**.
 - Known providers should have provider-specific **Blob Driver Modules**, even when those modules are thin wrappers.

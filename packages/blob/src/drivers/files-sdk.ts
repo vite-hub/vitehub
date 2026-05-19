@@ -1,10 +1,15 @@
 import { toArray } from "@vitehub/internal/arrays"
-import { Files } from "files-sdk"
+import { importOptionalPeer } from "../internal/optional-peer.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedBlobStoreConfig } from "../types.ts"
-import type { Adapter, StoredFile, UploadResult } from "files-sdk"
+import type { Adapter, Files, StoredFile, UploadResult } from "files-sdk"
 
+type FilesCtor = typeof import("files-sdk").Files
 type FilesInstance = Files<Adapter>
+
+async function loadFiles(): Promise<FilesCtor> {
+  return (await importOptionalPeer<typeof import("files-sdk")>("files-sdk", "files")).Files
+}
 
 function isNotFound(error: unknown): boolean {
   const value = error as { code?: unknown, message?: unknown }
@@ -52,6 +57,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
   let filesPromise: Promise<FilesInstance> | undefined
 
   async function createFiles(putOptions?: BlobPutOptions) {
+    const Files = await loadFiles()
     return new Files({ adapter: await (putOptions ? createAdapter(options, putOptions) : createAdapter(options)) }) as FilesInstance
   }
 

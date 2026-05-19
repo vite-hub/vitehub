@@ -33,7 +33,7 @@ The deployment artifact generated for a hosting provider.
 _Avoid_: Bundle, build output, adapter output
 
 **Driver Reachability**:
-Whether a Provider Output can import and execute a Blob Store's driver.
+Whether a Provider Output can import and execute a Blob Store's driver at runtime.
 _Avoid_: Bundling, externalization, tree-shaking
 
 ## Relationships
@@ -43,7 +43,8 @@ _Avoid_: Bundling, externalization, tree-shaking
 - Single-store Blob configuration is normalized to the **Default Blob Store**.
 - Named Blob configuration declares a map of **Blob Stores**.
 - Runtime code selects non-default stores through **Blob Store Selection**.
-- A **Provider Output** should make only selected Blob Store drivers reachable.
+- A **Provider Output** should make only selected Blob Store drivers reachable at runtime.
+- **Driver Reachability** does not claim that a shared SDK has no install-time dependencies for other providers.
 - A **Runtime-Native Blob Store** depends on the hosting runtime, not a provider SDK.
 - An **SDK-Backed Blob Store** depends on a provider SDK being reachable at runtime.
 - Workspace Stores can use **Blob Stores** for persistence.

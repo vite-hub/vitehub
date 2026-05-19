@@ -1,8 +1,9 @@
-import { s3 } from "files-sdk/s3"
+import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { createFilesSdkDriver } from "./files-sdk.ts"
 
 import type { BlobDriverAdapter, S3BlobStoreConfig } from "../types.ts"
 
 export function createDriver(options: S3BlobStoreConfig): BlobDriverAdapter<S3BlobStoreConfig> {
-  return createFilesSdkDriver(options, s3)
+  return createFilesSdkDriver(options, async (options) =>
+    (await importOptionalPeer<typeof import("files-sdk/s3")>("files-sdk/s3", options.driver, "files-sdk")).s3(options))
 }

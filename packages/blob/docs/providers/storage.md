@@ -16,6 +16,8 @@ Non-first-class providers are powered by `files-sdk`. Install it when using the 
 pnpm add @vitehub/blob files-sdk
 ```
 
+ViteHub generates provider-specific runtime imports so only the selected driver is reachable from the deployment bundle. Installing `files-sdk` may still install dependencies for providers you are not using.
+
 ## Object Storage
 
 ```ts [vite.config.ts]
