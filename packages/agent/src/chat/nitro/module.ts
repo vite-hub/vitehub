@@ -382,6 +382,11 @@ function installDevInitializerAlias(nitro: Nitro, devInitializerFile: string | u
   nitro.options.alias["@vitehub/agent/chat/runtime/nitro-dev-initialize"] = devInitializerFile || resolveRuntimeEntry("../runtime/nitro-dev-initialize", "@vitehub/agent/chat/runtime/nitro-dev-initialize")
 }
 
+function installChatRegistryAlias(nitro: Nitro, registryFile: string | undefined): void {
+  nitro.options.alias ||= {}
+  nitro.options.alias["#vitehub/agent/chat/registry"] = registryFile || resolveRuntimeEntry("../../runtime/empty-registry", "@vitehub/agent/runtime/empty-registry")
+}
+
 function installNitroPlugin(nitro: Nitro): void {
   nitro.options.plugins ||= []
   const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/agent/chat/runtime/nitro-plugin")
@@ -491,6 +496,7 @@ const chatNitroModule: NitroModule = {
     }
 
     let runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
+    installChatRegistryAlias(nitro, runtimeFiles.registryFile)
     installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
     if (resolved) {
       installRoute(nitro, resolved, runtimeFiles.routeFile)
@@ -500,6 +506,7 @@ const chatNitroModule: NitroModule = {
 
     nitro.hooks.hook("build:before", async () => {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
+      installChatRegistryAlias(nitro, runtimeFiles.registryFile)
       installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
       if (resolved) {
         installRoute(nitro, resolved, runtimeFiles.routeFile)
@@ -509,6 +516,7 @@ const chatNitroModule: NitroModule = {
     })
     nitro.hooks.hook("dev:reload", async () => {
       runtimeFiles = await writeNitroChatRuntimeFiles(nitro, resolved)
+      installChatRegistryAlias(nitro, runtimeFiles.registryFile)
       installDevInitializerAlias(nitro, runtimeFiles.devInitializerFile)
       if (resolved) {
         installRoute(nitro, resolved, runtimeFiles.routeFile)

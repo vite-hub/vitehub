@@ -8,6 +8,9 @@
       "#vitehub/agent/registry": [
         "packages/agent/src/runtime/empty-registry.ts"
       ],
+      "#vitehub/agent/chat/registry": [
+        "packages/agent/src/runtime/empty-registry.ts"
+      ],
       "#vitehub-sandbox-provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],

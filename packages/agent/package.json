@@ -54,6 +54,10 @@
     "#vitehub/agent/registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "default": "./dist/runtime/empty-registry.js"
+    },
+    "#vitehub/agent/chat/registry": {
+      "types": "./dist/runtime/empty-registry.d.ts",
+      "default": "./dist/runtime/empty-registry.js"
     }
   },
   "files": [
