@@ -20,6 +20,7 @@
   "dependencies": {
     "@nuxt/content": "catalog:",
     "@vueuse/core": "catalog:",
+    "@vitehub/agent": "workspace:*",
     "@vitejs/devtools-kit": "catalog:",
     "docus": "catalog:",
     "h3": "catalog:h3v1",

@@ -7,13 +7,13 @@ export default defineNuxtConfig({
     enabled: false,
   },
   app: {
-    baseURL: "/__vitehub/chat-devtools/",
+    baseURL: "/__vitehub/agent/chat-devtools/",
   },
   css: ["~/assets/css/main.css"],
   compatibilityDate: "2026-05-05",
   nitro: {
     output: {
-      publicDir: resolve(__dirname, "../../../chat/dist/devtools-client"),
+      publicDir: resolve(__dirname, "../../../agent/devtools-client"),
     },
   },
 })

@@ -1,8 +1,13 @@
+export const chatDevtoolsPanelId = "@vitehub/agent/chat"
+export const chatDevtoolsTitle = "ViteHub Chat"
+export const chatDevtoolsRoute = "/__vitehub/agent/chat-devtools/"
 export const chatDevtoolsBridgeRoute = "/__vitehub/agent/chat/devtools"
 export const chatDevtoolsGetStateRpc = "@vitehub/agent/chat:get-state"
 export const chatDevtoolsSendRpc = "@vitehub/agent/chat:send"
 export const chatDevtoolsClearRpc = "@vitehub/agent/chat:clear"
 export const chatDevtoolsStreamChannel = "@vitehub/agent/chat:stream"
+export const chatDevtoolsUrlEnv = "VITEHUB_CHAT_DEVTOOLS_URL"
+export const chatDevtoolsAdapterName = "devtools"
 
 export type ChatDevtoolsMessageRole = "user" | "assistant"
 export type ChatDevtoolsToolStatus = "running" | "completed" | "error"
@@ -41,6 +46,12 @@ export interface ChatDevtoolsToolDefinition {
   status?: "available" | "disabled"
 }
 
+export interface ChatDevtoolsMetadata {
+  files?: ChatDevtoolsFileTreeItem[]
+  instructions?: string[]
+  tools?: ChatDevtoolsToolDefinition[]
+}
+
 export interface ChatDevtoolsMessage {
   createdAt: string
   id: string
@@ -61,6 +72,15 @@ export interface ChatDevtoolsStateResult {
   instructions?: string[]
   selected: string
   tools?: ChatDevtoolsToolDefinition[]
+}
+
+export interface ChatDevtoolsSendInput {
+  chat?: string
+  text: string
+}
+
+export interface ChatDevtoolsClearInput {
+  chat?: string
 }
 
 export interface ChatDevtoolsSendResult extends ChatDevtoolsStateResult {

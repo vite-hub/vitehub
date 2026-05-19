@@ -29,8 +29,10 @@
     "./capability-runtime": "./dist/capability-runtime.js",
     "./chat": "./dist/chat/index.js",
     "./chat/cloudflare": "./dist/chat/cloudflare.js",
+    "./chat/devtools": "./dist/chat/devtools.js",
     "./chat/nitro": "./dist/chat/nitro.js",
     "./chat/runtime/agent-chat": "./dist/chat/runtime/agent-chat.js",
+    "./chat/runtime/chat-devtools-handler": "./dist/chat/runtime/chat-devtools-handler.js",
     "./chat/runtime/memory-state": "./dist/chat/runtime/memory-state.js",
     "./chat/runtime/nitro-dev-initialize": "./dist/chat/runtime/nitro-dev-initialize.js",
     "./chat/runtime/nitro-plugin": "./dist/chat/runtime/nitro-plugin.js",
@@ -55,6 +57,7 @@
     }
   },
   "files": [
+    "devtools-client",
     "dist",
     "package.json"
   ],
@@ -65,9 +68,11 @@
     "test": "pnpm --filter @vitehub/agent... build && vitest run"
   },
   "dependencies": {
+    "@vitehub/devtools": "workspace:*",
     "@vitehub/runtime": "workspace:*",
     "@vitehub/workflow": "workspace:*",
     "@vitehub/workspace": "workspace:*",
+    "@vitejs/devtools-kit": "catalog:",
     "@vercel/functions": "catalog:",
     "chat": "catalog:",
     "h3": "catalog:",

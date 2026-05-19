@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef } from "vue"
+
 const chatDevtoolsClearRpc = "@vitehub/agent/chat:clear"
 const chatDevtoolsGetStateRpc = "@vitehub/agent/chat:get-state"
 const chatDevtoolsSendRpc = "@vitehub/agent/chat:send"
@@ -7,13 +8,15 @@ const chatDevtoolsSendRpc = "@vitehub/agent/chat:send"
 type ChatDevtoolsMessage = {
   createdAt: string
   id: string
-  loading?: boolean
   role: "user" | "assistant"
   text: string
 }
 
 type ChatDevtoolsStateResult = {
-  chats: Array<{ messages: ChatDevtoolsMessage[], name: string }>
+  chats: Array<{
+    messages: ChatDevtoolsMessage[]
+    name: string
+  }>
   selected: string
 }
 
