@@ -20,6 +20,22 @@ _Avoid_: Singleton, unnamed Blob, global Blob
 The act of choosing a Blob Store by name from the Blob primitive.
 _Avoid_: Adapter selection, bucket binding
 
+**Runtime-Native Blob Store**:
+A Blob Store backed by storage that the hosting runtime exposes directly.
+_Avoid_: Bundled store, SDK-free driver
+
+**SDK-Backed Blob Store**:
+A Blob Store backed by a provider SDK that must be available to runtime code.
+_Avoid_: Bundled store, npm store
+
+**Provider Output**:
+The deployment artifact generated for a hosting provider.
+_Avoid_: Bundle, build output, adapter output
+
+**Driver Reachability**:
+Whether a Provider Output can import and execute a Blob Store's driver.
+_Avoid_: Bundling, externalization, tree-shaking
+
 ## Relationships
 
 - **Blob** can expose one or more **Blob Stores**.
@@ -27,6 +43,9 @@ _Avoid_: Adapter selection, bucket binding
 - Single-store Blob configuration is normalized to the **Default Blob Store**.
 - Named Blob configuration declares a map of **Blob Stores**.
 - Runtime code selects non-default stores through **Blob Store Selection**.
+- A **Provider Output** should make only selected Blob Store drivers reachable.
+- A **Runtime-Native Blob Store** depends on the hosting runtime, not a provider SDK.
+- An **SDK-Backed Blob Store** depends on a provider SDK being reachable at runtime.
 - Workspace Stores can use **Blob Stores** for persistence.
 - Workspace adds file-tree behavior and worktree-oriented DX on top of stored files.
 
@@ -39,3 +58,4 @@ _Avoid_: Adapter selection, bucket binding
 
 - Blob was described through Agent access - resolved: Blob is the storage primitive; Workspace is one consumer that adds file-tree behavior.
 - "bucket" was considered for multiple Blob backends - resolved: use **Blob Store** publicly because buckets and bindings are backend details.
+- "bundling" was used for provider dependency behavior - resolved: use **Driver Reachability** for whether a **Provider Output** can import a selected Blob Store driver.
