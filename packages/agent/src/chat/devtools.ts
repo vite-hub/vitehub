@@ -163,10 +163,7 @@ export const chatDevtoolsPanelPluginName = "@vitehub/agent/chat/devtools-panel"
 const defaultOutputPreviewLength = 4_000
 
 function resolveChatDevtoolsClientDist(): string {
-  const clientPath = import.meta.url.endsWith(".ts")
-    ? "../../devtools-client"
-    : "../devtools-client"
-  return new URL(clientPath, import.meta.url).pathname
+  return new URL("../../devtools-client", import.meta.url).pathname
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
