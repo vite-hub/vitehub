@@ -7,7 +7,7 @@ import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
-import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
 
 const openWorkflowMock = vi.hoisted(() => {
   const runs = new Map<string, any>()
@@ -475,6 +475,32 @@ describe("workflow runtime", () => {
     await createOpenWorkflowWorker()
 
     expect(openWorkflowMock.definitions.has("inline-worker")).toBe(true)
+  })
+
+  it("registers wrapped inline folder workflows in OpenWorkflow workers", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    setWorkflowRuntimeRegistry({
+      pipeline: async () => {
+        createWorkflow("pipeline", async ({ payload, steps }) => await steps!.first(payload))
+        const definition = takeInlineWorkflowDefinition("pipeline")!
+        const steps = [{ name: "01.first.ts", run: async (input: unknown) => `${input}-step` }]
+        return {
+          ...definition,
+          options: { ...definition.options, rootStep: false },
+          handler: async context => await definition.handler({
+            ...context,
+            steps: createWorkflowSteps(context, steps),
+          }),
+        }
+      },
+    })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("pipeline")).toBe(true)
   })
 
   it("rejects duplicate inline and discovered OpenWorkflow worker definitions", async () => {

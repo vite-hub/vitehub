@@ -113,8 +113,8 @@ describe("createRuntimeRegistryContents", () => {
       steps: ["/root/server/workflows/chat/01.reply.ts"],
     }])
 
-    expect(contents).toContain('import { getInlineWorkflowDefinitions } from "@vitehub/workflow/runtime/state"')
-    expect(contents).toContain('getInlineWorkflowDefinitions().get("server/workflows/chat")')
+    expect(contents).toContain('import { takeInlineWorkflowDefinition } from "@vitehub/workflow/runtime/state"')
+    expect(contents).toContain('takeInlineWorkflowDefinition("server/workflows/chat")')
   })
 })
 

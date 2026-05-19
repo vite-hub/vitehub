@@ -56,6 +56,12 @@ export function getInlineWorkflowDefinitions(): ReadonlyMap<string, WorkflowDefi
   return inlineRegistry
 }
 
+export function takeInlineWorkflowDefinition(name: string): WorkflowDefinition | undefined {
+  const definition = inlineRegistry.get(name)
+  inlineRegistry.delete(name)
+  return definition
+}
+
 export function registerInlineWorkflowDefinition(name: string, definition: WorkflowDefinition): void {
   if (!name || typeof name !== "string") {
     throw new TypeError("`createWorkflow()` requires a workflow name.")

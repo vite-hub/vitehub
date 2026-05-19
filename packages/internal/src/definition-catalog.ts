@@ -283,7 +283,7 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
   const runtimeImport = needsWorkflowRuntime
     ? [
         `import { createWorkflowSteps } from "@vitehub/workflow/runtime/execute"`,
-        `import { getInlineWorkflowDefinitions } from "@vitehub/workflow/runtime/state"`,
+        `import { takeInlineWorkflowDefinition } from "@vitehub/workflow/runtime/state"`,
       ]
     : []
   const imports = definitions.map((definition) => {
@@ -300,7 +300,7 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
     const hasIndex = /\.(?:c|m)?[jt]s$/i.test(definition.handler)
     const indexImport = hasIndex ? `const index = await ${createImportExpression(registryFile, definition.handler)}` : ""
     const handler = hasIndex
-      ? `index.default?.handler ? index.default : getInlineWorkflowDefinitions().get(${JSON.stringify(definition.name)}) || { handler: index.default }`
+      ? `index.default?.handler ? index.default : takeInlineWorkflowDefinition(${JSON.stringify(definition.name)}) || { handler: index.default }`
       : "{ handler: async (context) => { let value = context.payload; for (const step of Object.values(context.steps || {})) value = await step(value); return value } }"
 
     return [
