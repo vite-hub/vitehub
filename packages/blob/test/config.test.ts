@@ -145,6 +145,28 @@ describe("blob config", () => {
     )
   })
 
+  it("warns when a named Vercel store uses fs", () => {
+    const logger = {
+      error: vi.fn(),
+    }
+
+    warnVercelBlobFallback({ logger }, normalizeBlobOptions({
+      stores: {
+        assets: {
+          base: ".data/assets",
+          driver: "fs",
+        },
+        default: {
+          driver: "vercel-blob",
+        },
+      },
+    }), "vercel")
+
+    expect(logger.error).toHaveBeenCalledWith(
+      "Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.",
+    )
+  })
+
   it("does not require a logger for the Vercel fs fallback warning", () => {
     expect(() => warnVercelBlobFallback({}, {
       store: {

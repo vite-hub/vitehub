@@ -86,7 +86,9 @@ export function warnVercelKVFallback(
   config: ResolvedKVModuleOptions | undefined,
   hosting?: string,
 ): void {
-  if (!config || !hosting?.includes("vercel") || config.store.driver !== "fs-lite") return
+  if (!config || !hosting?.includes("vercel")) return
+  const stores = Object.values(config.stores || { default: config.store })
+  if (!stores.some(store => store.driver === "fs-lite")) return
   target.logger.error(
     "Vercel hosting requires Upstash-backed KV. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN`.",
   )

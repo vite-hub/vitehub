@@ -214,4 +214,26 @@ describe("warnVercelKVFallback", () => {
       "Vercel hosting requires Upstash-backed KV. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN`.",
     )
   })
+
+  it("reports named fs-lite stores on Vercel hosting", () => {
+    const error = vi.fn()
+
+    warnVercelKVFallback({
+      logger: { error },
+    }, normalizeKVOptions({
+      stores: {
+        chat: {
+          base: ".data/chat",
+          driver: "fs-lite",
+        },
+        default: {
+          driver: "upstash",
+        },
+      },
+    }), "vercel")
+
+    expect(error).toHaveBeenCalledWith(
+      "Vercel hosting requires Upstash-backed KV. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN`.",
+    )
+  })
 })
