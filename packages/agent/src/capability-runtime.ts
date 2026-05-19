@@ -369,7 +369,10 @@ export async function applyCapabilityToolTransforms(
   return current
 }
 
-export async function applyOutputRenderers(result: unknown, renderers: ResolvedAgentOutputRenderer[] = []) {
+export async function applyOutputRenderers(
+  result: unknown,
+  renderers: ResolvedAgentOutputRenderer[] = [],
+): Promise<unknown> {
   let current = result
   for (const renderer of renderers) {
     current = await renderer(current)
