@@ -33,6 +33,7 @@ describe("types", () => {
   it("returns a Vite plugin with an attached Nitro module", () => {
     const plugin = hubSandbox()
 
-    expectTypeOf(plugin).toMatchTypeOf<{ nitro?: { name?: string } }>()
+    expectTypeOf(hubSandbox({ provider: "cloudflare" })).toMatchTypeOf<typeof plugin>()
+    expectTypeOf(plugin).toMatchTypeOf<{ nitro: { name?: string } }>()
   })
 })

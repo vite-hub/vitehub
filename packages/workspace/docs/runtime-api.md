@@ -12,6 +12,16 @@ Most application code imports from `@vitehub/workspace`:
 import { defineWorkspace, useWorkspace } from '@vitehub/workspace'
 ```
 
+## Integration API
+
+Vite config imports the plugin from `@vitehub/workspace/vite`:
+
+```ts
+import { hubWorkspace } from '@vitehub/workspace/vite'
+```
+
+`hubWorkspace(options?)` accepts the same integration options as `vite.config.workspace`. When both are present, `vite.config.workspace` takes precedence.
+
 The workspace handle is file-tree oriented:
 
 ```ts
