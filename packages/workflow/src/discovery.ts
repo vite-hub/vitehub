@@ -354,6 +354,6 @@ export function discoverWorkflowDefinitions(options:
       }),
     ]).filter(preferInlineHandler),
     discoverFlatServerWorkflowDefinitions(serverScanDirs, "nitro-server-workflows").filter(preferInlineHandler),
-    discoverWorkflowFolders(serverScanDirs, "nitro-server-workflows"),
+    discoverWorkflowFolders(serverScanDirs, "nitro-server-workflows").filter(preferInlineHandler),
   )
 }

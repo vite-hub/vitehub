@@ -193,4 +193,23 @@ describe("workflow definitions", () => {
       }),
     ])
   })
+
+  it("prefers inline metadata over folder discovery for the same handler", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-folder-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server", "workflows", "chat"), { recursive: true })
+    const file = join(rootDir, "server", "workflows", "chat", "index.ts")
+    await writeFile(file, [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `export const chat = createWorkflow({ name: "server/workflows/chat", handler: async () => "ok" })`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({
+        handler: file,
+        name: "server/workflows/chat",
+        source: "inline",
+      }),
+    ])
+  })
 })
