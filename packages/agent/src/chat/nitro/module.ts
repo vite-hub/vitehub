@@ -53,7 +53,7 @@ function createCloudflareChatExportsRollupPlugin(className: string): RollupPlugi
       }
     },
     renderChunk(code, chunk) {
-      if (!chunk.isEntry || chunk.fileName !== "index.mjs") {
+      if (!chunk.isEntry) {
         return null
       }
 
@@ -266,14 +266,14 @@ function createChatImportLines(file: string, definition: DiscoveredChatDefinitio
   }
   if (definition.exportName) {
     return [
-      ...(definition.workspace ? [`import { withWorkspaceAgentDefaults } from "../index.ts"`] : []),
+      ...(definition.workspace ? [`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`] : []),
       `import { createChatFromAgent } from "@vitehub/agent/chat/runtime/agent-chat"`,
       `import { ${definition.exportName} as agent } from ${importPath}`,
       `const chat = createChatFromAgent(${agentExpression("agent", definition)}, ${JSON.stringify(definition.name)})`,
     ]
   }
   return [
-    ...(definition.workspace ? [`import { withWorkspaceAgentDefaults } from "../index.ts"`] : []),
+    ...(definition.workspace ? [`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`] : []),
     `import { createChatFromAgent } from "@vitehub/agent/chat/runtime/agent-chat"`,
     `import agent from ${importPath}`,
     `const chat = createChatFromAgent(${agentExpression("agent", definition)}, ${JSON.stringify(definition.name)})`,
@@ -300,7 +300,7 @@ function createNitroChatRegistryContents(file: string, definitions: DiscoveredCh
   })
   const usesWorkspaceDefaults = definitions.some(definition => definition.workspace)
   return [
-    ...(usesWorkspaceDefaults ? [`import { withWorkspaceAgentDefaults } from "../index.ts"`] : []),
+    ...(usesWorkspaceDefaults ? [`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`] : []),
     `import { createChatFromAgent } from "@vitehub/agent/chat/runtime/agent-chat"`,
     "",
     "const registry = {",

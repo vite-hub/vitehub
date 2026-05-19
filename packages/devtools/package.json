@@ -9,6 +9,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./chat-shared": "./src/chat-shared.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
