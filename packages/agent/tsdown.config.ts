@@ -16,6 +16,7 @@ export default defineConfig({
     "src/chat/cloudflare.ts",
     "src/chat/devtools.ts",
     "src/chat/nitro.ts",
+    "src/chat/presets.ts",
     "src/chat/runtime/agent-chat.ts",
     "src/chat/runtime/chat-devtools-handler.ts",
     "src/chat/runtime/cloudflare-workers-dev.ts",

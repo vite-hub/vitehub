@@ -1,6 +1,6 @@
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
-import { chatDevToolsPanel } from "./devtools.ts"
+import { chatDevTools, chatDevToolsPanel } from "./devtools.ts"
 import chatNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
@@ -17,12 +17,28 @@ function isChatDevtoolsEnabled(chat: ChatModuleOptions | false | undefined): boo
   return chat !== false && chat?.dev !== false && chat?.dev?.devtools !== false
 }
 
+function getChatDevtoolsOptions(chat: ChatModuleOptions | false | undefined): false | { url?: string } | undefined {
+  return chat && chat.dev !== false && typeof chat.dev?.devtools === "object"
+    ? chat.dev.devtools
+    : undefined
+}
+
 export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
   let chat: ChatModuleOptions | false | undefined = options
 
   return {
     name: "@vitehub/agent/chat/vite",
-    nitro: chatNitroModule,
+    nitro: {
+      name: "@vitehub/agent/chat/vite",
+      async setup(nitro) {
+        await chatNitroModule.setup?.(nitro)
+        const resolvedChat = (nitro.options as typeof nitro.options & { chat?: false | ChatModuleOptions }).chat ?? chat
+        if (!isChatDevtoolsEnabled(resolvedChat)) {
+          return
+        }
+        await chatDevTools({ devtools: getChatDevtoolsOptions(resolvedChat) }).nitro.setup?.(nitro)
+      },
+    },
     config(config, env) {
       chat = config.chat ?? chat
       const nextConfig: UserConfig = {}
@@ -50,10 +66,7 @@ export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
           return
         }
 
-        const devtools = chat && chat.dev !== false && typeof chat.dev?.devtools === "object"
-          ? chat.dev.devtools
-          : undefined
-        chatDevToolsPanel({ devtools }).devtools?.setup?.(ctx)
+        chatDevToolsPanel({ devtools: getChatDevtoolsOptions(chat) }).devtools?.setup?.(ctx)
       },
     },
     configEnvironment(name, config) {

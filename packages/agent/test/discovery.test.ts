@@ -171,4 +171,45 @@ describe("agent chat discovery", () => {
 
     await expect(readFile(routeFile, "utf8")).resolves.toContain('from "@vitehub/agent"')
   })
+
+  it("registers the chat devtools bridge through hubChat by default", async () => {
+    const root = await createTempRoot("vitehub-agent-chat-devtools-")
+    const buildDir = ".nitro"
+    const plugin = (await import("../src/chat/vite.ts")).hubChat()
+    const hooks: Array<() => Promise<void> | void> = []
+    const nitro = {
+      hooks: {
+        hook(_name: string, handler: () => Promise<void> | void) {
+          hooks.push(handler)
+        },
+      },
+      options: {
+        buildDir,
+        dev: true,
+        handlers: [],
+        imports: {},
+        rootDir: root,
+        runtimeConfig: {},
+        scanDirs: [join(root, "server")],
+      },
+    }
+
+    await plugin.nitro.setup?.(nitro as never)
+
+    expect(nitro.options.handlers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: "POST",
+        route: "/__vitehub/agent/chat/devtools",
+      }),
+    ]))
+    expect(hooks.length).toBeGreaterThan(0)
+  })
+
+  it("exports chat presets from the agent package build", async () => {
+    const packageJson = JSON.parse(await readFile(join(import.meta.dirname, "../package.json"), "utf8"))
+    const tsdownConfig = await readFile(join(import.meta.dirname, "../tsdown.config.ts"), "utf8")
+
+    expect(packageJson.exports["./chat/presets"]).toBe("./dist/chat/presets.js")
+    expect(tsdownConfig).toContain('"src/chat/presets.ts"')
+  })
 })

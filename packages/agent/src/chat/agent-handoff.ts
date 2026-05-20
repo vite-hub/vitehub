@@ -1,5 +1,6 @@
 import { getAgentFromRegistry, streamAgent } from "../index.ts"
 import { createMessage } from "../messages.ts"
+import { chatDevtoolsAdapterName, createChatDevtoolsStepReporter } from "./devtools.ts"
 
 import type {
   ChatAgentBindingOptions,
@@ -123,7 +124,7 @@ export function toViteHubMessages(messages: ChatSdkMessage[]): Message[] {
 
 function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
   context: ResolvedChatRuntimeContext<TRuntimeConfig>,
-  _thread?: Thread,
+  thread?: Thread,
   run?: AgentRunMetadata,
 ): ChatAgentRuntimeContext<TRuntimeConfig> {
   const runtime = context.runtime === "cloudflare"
@@ -143,6 +144,12 @@ function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(
     runtimeConfig: context.runtimeConfig,
     vercel: context.vercel,
     waitUntil: context.waitUntil,
+  }
+
+  if (isDevtoolsThread(thread)) {
+    agentContext.devtools = {
+      reportToolStep: createChatDevtoolsStepReporter(thread),
+    }
   }
 
   return agentContext
@@ -175,6 +182,14 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
     && typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === "function"
 }
 
+function isDevtoolsThread(thread: unknown): thread is Thread & { adapter?: { name?: string }, startTyping: (text?: string) => Promise<unknown> } {
+  return !!thread
+    && typeof thread === "object"
+    && "startTyping" in thread
+    && typeof (thread as { startTyping?: unknown }).startTyping === "function"
+    && (thread as { adapter?: { name?: string } }).adapter?.name === chatDevtoolsAdapterName
+}
+
 async function collectStreamText(stream: AsyncIterable<unknown>): Promise<string> {
   let text = ""
   for await (const event of stream) {
@@ -202,6 +217,7 @@ function createDefaultAgentInput(args: ChatAgentHookArgs, platform?: string): Ag
       },
     },
     messages: args.history,
+    ...(platform === "devtools" ? { timeout: 90_000 } : {}),
   }
 }
 

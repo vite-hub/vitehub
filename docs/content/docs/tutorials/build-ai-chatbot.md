@@ -244,7 +244,6 @@ The same `server/chat.ts` and `server/agents/support/chat/config.ts` ship to eve
   title: Cloudflare
   description: Run Chat webhooks on Workers and persist threads with Durable Objects.
   icon: i-simple-icons-cloudflare
-  to: ../chat/providers/cloudflare
   ---
   :::
   :::u-page-card
@@ -252,7 +251,6 @@ The same `server/chat.ts` and `server/agents/support/chat/config.ts` ship to eve
   title: Vercel
   description: Run the same Chat definition through Vercel Functions with one config switch.
   icon: i-simple-icons-vercel
-  to: ../chat/providers/vercel
   ---
   :::
   :::u-page-card
@@ -288,8 +286,5 @@ The provider, the model, and the runtime are interchangeable. The thing that mak
 
 Resources:
 
-- [Chat overview](../chat)
 - [Agent overview](../agent)
 - [Workspace overview](../workspace)
-- [Chat on Cloudflare](../chat/providers/cloudflare)
-- [Chat on Vercel](../chat/providers/vercel)
