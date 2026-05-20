@@ -111,6 +111,9 @@ describe("hubSandbox", () => {
       define: {
         __VITEHUB_ENVIRONMENT_SANDBOX__: "\"rsc\"",
       },
+      resolve: {
+        noExternal: ["@vitehub/sandbox"],
+      },
     })
     expect(configEnvironment("client", { consumer: "client" })).toBeUndefined()
   })
