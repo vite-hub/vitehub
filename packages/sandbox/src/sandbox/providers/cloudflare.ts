@@ -8,7 +8,7 @@ export async function createCloudflareSandboxClient(provider: CloudflareSandboxP
     throw new SandboxError('Cloudflare sandbox requires a Durable Objects binding namespace.')
 
   const id = provider.sandboxId ?? `cloudflare-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const getSandbox = provider.getSandbox ?? ((ns, sandboxId, opts) => getCloudflareSandbox(ns, sandboxId, opts) as unknown as CloudflareSandboxStub)
+  const getSandbox = provider.getSandbox ?? ((ns, sandboxId, opts) => getCloudflareSandbox(ns as never, sandboxId, opts) as unknown as CloudflareSandboxStub)
   const stub = getSandbox(provider.namespace, id, provider.cloudflare)
   return new CloudflareSandboxAdapter(id, stub)
 }

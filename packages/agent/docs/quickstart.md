@@ -100,10 +100,10 @@ export default defineAgent({
 
 ### Call it from Chat
 
-`@vitehub/chat` can route direct messages to a discovered agent by name.
+`@vitehub/agent/chat` can route direct messages to a discovered agent by name.
 
 ```ts [server/chat.ts]
-import { defineChat } from '@vitehub/chat'
+import { defineChat } from '@vitehub/agent/chat'
 
 export default defineChat({
   adapters,

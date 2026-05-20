@@ -1,4 +1,3 @@
-import { fileURLToPath } from "node:url";
 import { defineNuxtConfig } from "nuxt/config";
 
 export default defineNuxtConfig({
@@ -20,9 +19,6 @@ export default defineNuxtConfig({
   css: ["~/assets/main.css"],
   devtools: {
     enabled: false,
-  },
-  alias: {
-    "@vitehub/chat/devtools": fileURLToPath(new URL("../packages/chat/src/devtools-shared.ts", import.meta.url)),
   },
   nitro: {
     prerender: {

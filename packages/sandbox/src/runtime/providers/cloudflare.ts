@@ -1,7 +1,7 @@
 import { getSandbox as getCloudflareSandbox } from '@cloudflare/sandbox'
 import type { CloudflareSandboxDefinitionProviderOptions, SandboxDefinitionOptions } from '../../module-types'
 import { getCloudflareEnv } from '../../internal/shared/provider-detection'
-import type { DurableObjectNamespaceLike } from '../../sandbox/types'
+import type { CloudflareSandboxOptions, CloudflareSandboxStub, DurableObjectNamespaceLike } from '../../sandbox/types'
 
 type SandboxOptions = {
   local: SandboxDefinitionOptions
@@ -33,6 +33,7 @@ export async function resolveSandboxProvider(options: SandboxOptions, context: {
       keepAlive: options.provider.keepAlive,
       normalizeId: options.provider.normalizeId,
     },
-    getSandbox: getCloudflareSandbox,
+    getSandbox: (ns: DurableObjectNamespaceLike, sandboxId: string, opts?: CloudflareSandboxOptions) =>
+      getCloudflareSandbox(ns as never, sandboxId, opts) as unknown as CloudflareSandboxStub,
   }
 }
