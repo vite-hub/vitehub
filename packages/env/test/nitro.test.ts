@@ -2,7 +2,7 @@ import { execFile } from "node:child_process"
 import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { promisify } from "node:util"
+import { inspect, promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -84,6 +84,7 @@ describe("Nitro module", () => {
           telegram: {
             apiBaseUrl: env({ optional: true }),
             botToken: env({ secret: true }),
+            optionalBotToken: env({ optional: true, secret: true }),
           },
           vertex: {
             model: env({ default: "gemini-3.1-pro-preview-customtools" }),
@@ -121,7 +122,8 @@ describe("Nitro module", () => {
     expect(types).toContain("\"appType\": \"SingleTenant\"")
     expect(types).toContain("\"telegram\": {")
     expect(types).toContain("\"apiBaseUrl\": string | undefined")
-    expect(types).toContain("\"botToken\": string")
+    expect(types).toContain("\"botToken\": SecretEnv<string>")
+    expect(types).toContain("\"optionalBotToken\": SecretEnv<string> | undefined")
     expect(types).toContain("\"vertex\": {")
     expect(types).toContain("\"model\": string")
     expect(types).toContain("useServerEnv(event?: unknown): ServerEnv")
@@ -138,8 +140,10 @@ describe("Nitro module", () => {
     expect(integrationTypes).toContain("declare module \"@vitehub/agent\"")
     expect(integrationTypes).toContain("export interface AgentRuntimeConfig")
     expect(integrationTypes).not.toContain("declare module \"@vitehub/agent/workspace\"")
-    expect(types).toContain("\"botToken\": string")
-    expect(integrationTypes).toContain("\"botToken\": string")
+    expect(types).toContain("export class SecretEnv<T = string>")
+    expect(types).toContain("\"botToken\": SecretEnv<string>")
+    expect(integrationTypes).toContain("import type { SecretEnv } from \"#vitehub/env/server\"")
+    expect(integrationTypes).toContain("\"botToken\": SecretEnv<string>")
     expect(integrationTypes).not.toContain("NitroChatRuntimeConfig")
     expect(integrationTypes).toContain("export {}")
     expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env.d.ts"))
@@ -243,26 +247,31 @@ describe("Nitro module", () => {
       "import { defineChat } from '@vitehub/agent/chat'",
       "import { defineAgent } from '@vitehub/agent'",
       "import type { AgentAdapterMetadataContext } from '@vitehub/agent'",
+      "import type { SecretEnv } from '#vitehub/env/server'",
       "",
       "defineChat({",
       "  adapters({ runtimeConfig }) {",
       "    const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",
-      "    const appId: string = runtimeConfig.teams.appId",
+      "    const appId: SecretEnv = runtimeConfig.teams.appId",
+      "    const appIdValue: string = runtimeConfig.teams.appId.unseal()",
       "    const model: string = runtimeConfig.vertex.model",
       "    void apiUrl",
       "    void appId",
+      "    void appIdValue",
       "    void model",
       "    return {}",
       "  },",
       "  state: {} as never,",
       "})",
       "",
-      "defineAgent<{ vertex: { model: string }, teams: { apiUrl: string | undefined, appId: string } }>({",
+      "defineAgent({",
       "  workspace: {},",
-      "  model({ runtimeConfig }: AgentAdapterMetadataContext<{ vertex: { model: string }, teams: { apiUrl: string | undefined, appId: string } }>) {",
+      "  model({ runtimeConfig }: AgentAdapterMetadataContext) {",
       "    const model: string = runtimeConfig.vertex.model",
       "    const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",
+      "    const appId: string = runtimeConfig.teams.appId.unseal()",
       "    void apiUrl",
+      "    void appId",
       "    return model as never",
       "  },",
       "  provider: 'ai-sdk',",
@@ -325,20 +334,24 @@ describe("Nitro module", () => {
 
     await writeFile(join(root, "typecheck.ts"), [
       "import { useServerEnv } from '#vitehub/env/server'",
-      "import type { ServerEnv } from '#vitehub/env/server'",
+      "import type { SecretEnv, ServerEnv } from '#vitehub/env/server'",
       "",
       "function createAgent(config: ServerEnv) {",
-      "  const apiKey: string = config.vertex.apiKey",
+      "  const apiKey: SecretEnv = config.vertex.apiKey",
+      "  const unsealedApiKey: string = config.vertex.apiKey.unseal()",
       "  const model: string = config.vertex.model",
       "  void apiKey",
+      "  void unsealedApiKey",
       "  void model",
       "}",
       "",
       "function createTelegramAdapter(config: ServerEnv) {",
       "  const apiBaseUrl: string | undefined = config.telegram.apiBaseUrl",
-      "  const botToken: string = config.telegram.botToken",
+      "  const botToken: SecretEnv = config.telegram.botToken",
+      "  const unsealedBotToken: string = config.telegram.botToken.unseal()",
       "  void apiBaseUrl",
       "  void botToken",
+      "  void unsealedBotToken",
       "}",
       "",
       "const config: ServerEnv = useServerEnv()",
@@ -448,6 +461,11 @@ describe("Nitro module", () => {
           secret: true,
           source: { kind: "env", label: "env:TELEGRAM_BOT_TOKEN", name: "TELEGRAM_BOT_TOKEN", serializable: true },
         },
+        optionalBotToken: {
+          required: false,
+          secret: true,
+          source: { kind: "env", label: "env:TELEGRAM_OPTIONAL_BOT_TOKEN", name: "TELEGRAM_OPTIONAL_BOT_TOKEN", serializable: true },
+        },
       },
       vertex: {
         model: {
@@ -462,13 +480,18 @@ describe("Nitro module", () => {
     const config = useServerEnv(undefined) as {
       public: { apiBase: string }
       teams: { appType: "SingleTenant" }
-      telegram: { apiBaseUrl?: string, botToken: string }
+      telegram: { apiBaseUrl?: string, botToken: { unseal: () => string }, optionalBotToken?: { unseal: () => string } }
       vertex: { model: string }
     }
 
     expect(config.teams.appType).toBe("SingleTenant")
-    expect(config.telegram.botToken).toBe("telegram-secret")
+    expect(config.telegram.botToken.unseal()).toBe("telegram-secret")
+    expect(String(config.telegram.botToken)).toBe("<redacted>")
+    expect(`${config.telegram.botToken}`).toBe("<redacted>")
+    expect(JSON.stringify({ token: config.telegram.botToken })).toBe("{\"token\":\"<redacted>\"}")
+    expect(inspect(config.telegram.botToken)).toBe("<redacted>")
     expect(config.telegram.apiBaseUrl).toBeUndefined()
+    expect(config.telegram.optionalBotToken).toBeUndefined()
     expect(config.public.apiBase).toBe("https://api.example.com")
     expect(config.vertex.model).toBe("gemini-3.1-pro-preview-customtools")
 
@@ -478,10 +501,11 @@ describe("Nitro module", () => {
       chat: { enabled: true },
       public: { apiBase: "https://api.example.com", existing: "keep" },
       teams: { appType: "SingleTenant" },
-      telegram: { botToken: "telegram-secret" },
       vertex: { model: "gemini-3.1-pro-preview-customtools" },
     })
+    expect(((runtimeConfig.telegram as { botToken: { unseal: () => string } }).botToken).unseal()).toBe("telegram-secret")
     expect((runtimeConfig.telegram as { apiBaseUrl?: string }).apiBaseUrl).toBeUndefined()
+    expect((runtimeConfig.telegram as { optionalBotToken?: unknown }).optionalBotToken).toBeUndefined()
   })
 
   it("throws when required Server Env values are missing", async () => {

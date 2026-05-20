@@ -5,7 +5,7 @@ export default defineEventHandler((event) => {
 
   return {
     appName: config.app.name,
-    hasAuthToken: Boolean(config.auth.token),
+    hasAuthToken: Boolean(config.auth.token.unseal()),
     optionalApiBase: config.optionalApiBase,
   }
 })

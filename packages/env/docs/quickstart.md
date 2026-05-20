@@ -103,7 +103,7 @@ export default defineEventHandler((event) => {
   const env = useServerEnv(event)
 
   return {
-    hasAuthToken: Boolean(env.auth.token),
+    hasAuthToken: Boolean(env.auth.token.unseal()),
   }
 })
 ```

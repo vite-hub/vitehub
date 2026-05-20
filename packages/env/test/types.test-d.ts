@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { Plugin } from "vite"
 import type { NitroModule } from "nitro/types"
 
-import { env, type EnvVariableDeclaration } from "../src/index.ts"
+import { env, SecretEnv, type EnvVariableDeclaration } from "../src/index.ts"
 import { envNitro } from "../src/nitro.ts"
 import { envVite } from "../src/vite.ts"
 
@@ -13,6 +13,7 @@ describe("types", () => {
     expectTypeOf(env.gitCommit({ short: true }).label).toMatchTypeOf<string>()
     expectTypeOf(env({ secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
     expectTypeOf(env.variable({ secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(new SecretEnv("secret").unseal()).toEqualTypeOf<string>()
     // @ts-expect-error string shorthands were intentionally removed
     env("SECRET")
   })

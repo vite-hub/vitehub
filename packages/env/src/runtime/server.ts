@@ -1,7 +1,11 @@
 import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
 import { useRuntimeConfig } from "nitro/runtime-config"
 
+import { SecretEnv } from "../secret.ts"
+
 import type { EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvRuntimeSchema, ServerEnv } from "../types.ts"
+
+export { SecretEnv } from "../secret.ts"
 
 let registry: EnvRuntimeRegistry = {}
 
@@ -60,7 +64,8 @@ function resolveRuntimeValues(declarations: EnvRuntimeRegistry, env: Record<stri
       values[key] = undefined
       continue
     }
-    values[key] = parseRuntimeValue(declaration.schema, rawValue, `${path}.${key}`)
+    const value = parseRuntimeValue(declaration.schema, rawValue, `${path}.${key}`)
+    values[key] = declaration.secret ? new SecretEnv(value) : value
   }
   return values
 }
@@ -114,5 +119,9 @@ function isLiteralEntry(value: EnvRuntimeRegistryValue): value is EnvRuntimeLite
 }
 
 function isPlainRuntimeObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false
+  }
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === null || prototype === Object.prototype
 }

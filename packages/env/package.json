@@ -47,6 +47,10 @@
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js"
     },
+    "./secret": {
+      "types": "./dist/secret.d.ts",
+      "import": "./dist/secret.js"
+    },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
       "import": "./dist/virtual.js"
