@@ -47,7 +47,7 @@ describe("hubSandbox", () => {
       mode: "development",
     })
 
-    const resolvedId = await resolveId("virtual:vitehub/sandbox")
+    const resolvedId = await resolveId("#vitehub/sandbox")
     const code = await load(resolvedId as string)
 
     expect(plugin.nitro?.name).toBe("@vitehub/sandbox")
@@ -71,7 +71,7 @@ describe("hubSandbox", () => {
       mode: "development",
     })
 
-    const resolvedId = await resolveId("virtual:vitehub/sandbox")
+    const resolvedId = await resolveId("#vitehub/sandbox")
     const code = await load(resolvedId as string)
 
     expect(code).toContain('"provider": "vercel"')
@@ -95,7 +95,7 @@ describe("hubSandbox", () => {
       mode: "development",
     })
 
-    const resolvedId = await resolveId("virtual:vitehub/sandbox")
+    const resolvedId = await resolveId("#vitehub/sandbox")
     const code = await load(resolvedId as string)
 
     expect(code).toContain('"provider": "vercel"')
@@ -126,7 +126,7 @@ describe("hubSandbox", () => {
     }, {})
 
     expect(plan.aliases).toContainEqual(expect.objectContaining({
-      key: "virtual:vitehub-sandbox-provider-loader",
+      key: "#vitehub-sandbox-provider-loader",
       value: expect.stringContaining("runtime/provider-loader"),
     }))
   })
@@ -141,7 +141,7 @@ describe("hubSandbox", () => {
     })
 
     expect(plan.aliases).toContainEqual(expect.objectContaining({
-      key: "virtual:vitehub-sandbox-provider-loader",
+      key: "#vitehub-sandbox-provider-loader",
       artifactKey: "sandbox-provider-loader",
     }))
     expect(plan.artifacts).toContainEqual(expect.objectContaining({
@@ -159,7 +159,7 @@ describe("hubSandbox", () => {
     })
 
     expect(plan.aliases).toContainEqual(expect.objectContaining({
-      key: "virtual:vitehub-sandbox-provider-loader",
+      key: "#vitehub-sandbox-provider-loader",
       artifactKey: "sandbox-provider-loader",
     }))
     expect(plan.artifacts).toContainEqual(expect.objectContaining({

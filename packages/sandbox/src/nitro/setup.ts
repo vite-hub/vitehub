@@ -28,10 +28,7 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
 
 export function createSandboxProviderLoaderAliases(nitro: Nitro, provider: 'cloudflare' | 'vercel' | undefined, deps: Record<string, string>) {
   const providerLoaderTarget = resolveSandboxProviderLoaderTarget(provider, deps)
-  const keys = [
-    'virtual:vitehub-sandbox-provider-loader',
-    '#vitehub-sandbox-provider-loader',
-  ]
+  const keys = ['#vitehub-sandbox-provider-loader']
 
   if (!providerLoaderTarget) {
     const providerLoaderPath = resolveRuntimeEntry('../runtime/provider-loader', '@vitehub/sandbox/runtime/provider-loader')
@@ -53,7 +50,6 @@ export function addSandboxAliases(nitro: Nitro, aliases: Array<{ key: string, va
   nitro.options.alias ||= {}
   nitro.options.alias['@vitehub/sandbox'] = resolveRuntimeEntry('../index', '@vitehub/sandbox')
   nitro.options.alias['@vitehub/sandbox/runtime/state'] = resolveRuntimeEntry('../runtime/state', '@vitehub/sandbox/runtime/state')
-  nitro.options.alias['virtual:vitehub-sandbox-registry'] = resolveRuntimeEntry('../runtime/empty-registry', '@vitehub/sandbox/runtime/empty-registry')
   nitro.options.alias['#vitehub-sandbox-registry'] = resolveRuntimeEntry('../runtime/empty-registry', '@vitehub/sandbox/runtime/empty-registry')
 
   for (const alias of aliases)

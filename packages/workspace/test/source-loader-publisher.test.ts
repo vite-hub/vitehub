@@ -632,7 +632,7 @@ describe("sources, loaders, and publishers", () => {
     expect(customWrites).toBe(3)
     expect(await workspace.fs.glob("**/*")).toHaveLength(3)
     expect(await readFile(join(root, "manifest.json"), "utf8")).toContain('"docs/one.md"')
-    expect(await readFile(join(root, "workspace.d.ts"), "utf8")).toContain('virtual:vitehub/workspaces/sources')
+    expect(await readFile(join(root, "workspace.d.ts"), "utf8")).toContain('#vitehub/workspaces/sources')
   })
 
   it("ignores .git and node_modules when discovering glob sources", async () => {

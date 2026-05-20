@@ -27,7 +27,7 @@ describe("workspace types", () => {
       runtime: "sandbox",
       sources: { docs: source.markdown({ path: "README.md" }) },
       loaders: [loader.files()],
-      publish: [publish.virtualModule({ id: "virtual:vitehub/workspaces/typed" })],
+      publish: [publish.virtualModule({ id: "#vitehub/workspaces/typed" })],
       rules: {
         "/**": { write: false },
         "/generated/**": {

@@ -10,8 +10,8 @@ import { dbPackageName, generateProviderOutputs } from "./internal/vite-build.ts
 
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
-export const DB_VIRTUAL_SCHEMA_ID = "virtual:@vitehub/db/schema"
-export const DB_VIRTUAL_DATABASES_ID = "virtual:@vitehub/db/databases"
+export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/db/schema"
+export const DB_VIRTUAL_DATABASES_ID = "#vitehub/db/databases"
 export const DB_VITE_PLUGIN_NAME = "@vitehub/db/vite"
 
 const RESOLVED_DB_VIRTUAL_SCHEMA_ID = `\0${DB_VIRTUAL_SCHEMA_ID}`

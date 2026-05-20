@@ -1,6 +1,6 @@
 import type { NitroModule } from "nitro/types"
 import type { UserConfig } from "vite"
-import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "virtual:@vitehub/blob/config"
+import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#vitehub/blob/config"
 
 import { describe, expectTypeOf, it } from "vitest"
 
@@ -50,7 +50,7 @@ describe("types", () => {
     expectTypeOf(plugin.nitro).toMatchTypeOf<NitroModule>()
   })
 
-  it("exposes the Vite virtual module config types", () => {
+  it("exposes the generated config import types", () => {
     expectTypeOf(virtualHosting).toMatchTypeOf<string | undefined>()
     expectTypeOf(virtualBlob).toMatchTypeOf<false | ResolvedBlobModuleOptions>()
     expectTypeOf(virtualConfig.blob).toMatchTypeOf<false | ResolvedBlobModuleOptions>()

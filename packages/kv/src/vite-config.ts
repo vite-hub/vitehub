@@ -5,7 +5,7 @@ import type { KVResolutionInput } from "./config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
 
 export const KV_VITE_PLUGIN_NAME = "@vitehub/kv/vite"
-export const KV_VIRTUAL_CONFIG_ID = "virtual:@vitehub/kv/config"
+export const KV_VIRTUAL_CONFIG_ID = "#vitehub/kv/config"
 
 export interface KVViteRuntimeConfig {
   hosting?: string

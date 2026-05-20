@@ -83,10 +83,10 @@ describe("hubWorkspace", () => {
     })
     await expect(readFile(join(root, "src", "vitehub-workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
 
-    const rootId = resolveId("virtual:vitehub/workspaces")!
+    const rootId = resolveId("#vitehub/workspaces")!
     expect(load(rootId)).toContain('"docs"')
     expect(load(rootId)).not.toContain('"ignored"')
-    const docsId = resolveId("virtual:vitehub/workspaces/docs")!
+    const docsId = resolveId("#vitehub/workspaces/docs")!
     expect(load(docsId)).toContain('"entries":[]')
     const registryId = resolveId("#vitehub-workspace-registry")!
     expect(load(registryId)).toContain('"docs": async () => import(')

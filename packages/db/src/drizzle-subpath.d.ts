@@ -1,7 +1,7 @@
 /// <reference path="./virtual-module.d.ts" />
 
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
-import schema from "virtual:@vitehub/db/schema"
+import schema from "#vitehub/db/schema"
 
 type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<"async", unknown, TSchema>
 
@@ -10,7 +10,7 @@ export interface RuntimeDatabaseEntry<TSchema extends Record<string, unknown>> {
   schema: TSchema
 }
 
-export * from "virtual:@vitehub/db/schema"
+export * from "#vitehub/db/schema"
 export { schema }
 
 export declare const databases: Record<string, RuntimeDatabaseEntry<Record<string, unknown>>> & {

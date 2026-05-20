@@ -54,10 +54,7 @@ export function resolveSandboxProviderLoaderTarget(
 }
 
 function createSandboxProviderLoaderAliases(defaultProviderName: keyof typeof sandboxClientExportByProvider | undefined): Array<{ key: string, value?: string, artifactKey?: string }> {
-  const keys = [
-    'virtual:vitehub-sandbox-provider-loader',
-    '#vitehub-sandbox-provider-loader',
-  ]
+  const keys = ['#vitehub-sandbox-provider-loader']
 
   if (defaultProviderName)
     return keys.map(key => ({ key, artifactKey: 'sandbox-provider-loader' }))
@@ -232,7 +229,6 @@ export async function createSandboxFeaturePlan(
   return {
     manifest,
     aliases: [
-      { key: 'virtual:vitehub-sandbox-registry', artifactKey: 'sandbox-registry' },
       { key: '#vitehub-sandbox-registry', artifactKey: 'sandbox-registry' },
       ...createSandboxProviderLoaderAliases(providerLoaderTarget),
     ],

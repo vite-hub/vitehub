@@ -276,7 +276,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
       conditions: ["workerd", "worker", "browser", "default"],
       external: [
         "node:async_hooks",
-        "virtual:@vitehub/blob/config",
+        "#vitehub/blob/config",
       ],
       format: "esm",
       platform: "neutral",
@@ -312,7 +312,7 @@ function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDe
         "files-sdk/supabase",
         "files-sdk/uploadthing",
         "files-sdk/vercel-blob",
-        "virtual:@vitehub/blob/config",
+        "#vitehub/blob/config",
       ],
       format: "esm",
       platform: "node",
