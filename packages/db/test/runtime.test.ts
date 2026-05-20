@@ -43,7 +43,7 @@ function createFakeD1Binding() {
   }
 }
 
-;(vi.mock as any)("virtual:@vitehub/db/schema", () => ({
+;(vi.mock as any)("#vitehub/db/schema", () => ({
   ...defaultSchema,
   default: defaultSchema,
 }), { virtual: true })
@@ -96,7 +96,7 @@ let runtimeDatabaseEntriesFactory: () => Record<string, unknown> = createRuntime
 
 beforeEach(() => {
   runtimeDatabaseEntriesFactory = createRuntimeDatabaseEntries
-  ;(vi.doMock as any)("virtual:@vitehub/db/databases", () => ({
+  ;(vi.doMock as any)("#vitehub/db/databases", () => ({
     default: runtimeDatabaseEntriesFactory(),
   }), { virtual: true })
 })

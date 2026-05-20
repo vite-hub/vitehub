@@ -1,5 +1,5 @@
 import type { UserConfig } from "vite"
-import virtualConfig, { hosting as virtualHosting, kv as virtualKV } from "virtual:@vitehub/kv/config"
+import virtualConfig, { hosting as virtualHosting, kv as virtualKV } from "#vitehub/kv/config"
 
 import { describe, expectTypeOf, it } from "vitest"
 
@@ -51,7 +51,7 @@ describe("types", () => {
     expectTypeOf(plugin.nitro).toMatchTypeOf<{ name?: string }>()
   })
 
-  it("exposes the Vite virtual module config types", () => {
+  it("exposes the generated config import types", () => {
     expectTypeOf(virtualHosting).toMatchTypeOf<string | undefined>()
     expectTypeOf(virtualKV).toMatchTypeOf<false | ResolvedKVModuleOptions>()
     expectTypeOf(virtualConfig.kv).toMatchTypeOf<false | ResolvedKVModuleOptions>()

@@ -8,6 +8,7 @@ export default defineConfig({
   ],
   deps: {
     alwaysBundle: [/^@vitehub\/internal/],
+    neverBundle: ["#vitehub/db/schema", "#vitehub/db/databases"],
   },
   dts: true,
   entry: [

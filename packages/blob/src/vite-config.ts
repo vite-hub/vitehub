@@ -5,7 +5,7 @@ import type { BlobResolutionInput } from "./config.ts"
 import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "./types.ts"
 
 export const BLOB_VITE_PLUGIN_NAME = "@vitehub/blob/vite"
-export const BLOB_VIRTUAL_CONFIG_ID = "virtual:@vitehub/blob/config"
+export const BLOB_VIRTUAL_CONFIG_ID = "#vitehub/blob/config"
 
 export interface BlobViteRuntimeConfig {
   blob: false | ResolvedBlobModuleOptions

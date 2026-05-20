@@ -29,7 +29,7 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
   }
 
   runtimeConfigPromise ||= (async () => {
-    const virtualConfigId = "virtual:@vitehub/blob/config"
+    const virtualConfigId = "#vitehub/blob/config"
     try {
       const module = await import(
         /* @vite-ignore */

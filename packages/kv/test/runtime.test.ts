@@ -228,7 +228,7 @@ describe("kv runtime", () => {
     })
   })
 
-  it("falls back to env config when the hosted virtual module cannot load", async () => {
+  it("falls back to env config when the hosted config import cannot load", async () => {
     shouldThrowUseStorage = true
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"

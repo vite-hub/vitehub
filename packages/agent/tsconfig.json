@@ -70,12 +70,6 @@
       ],
       "@vitehub/workflow/runtime/state": [
         "packages/workflow/src/runtime/state.ts"
-      ],
-      "virtual:vitehub-sandbox-provider-loader": [
-        "packages/sandbox/src/runtime/provider-loader.ts"
-      ],
-      "virtual:vitehub-sandbox-registry": [
-        "packages/sandbox/src/runtime/empty-registry.ts"
       ]
     },
     "rootDir": "..",

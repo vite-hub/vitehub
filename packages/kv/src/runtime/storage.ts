@@ -24,11 +24,12 @@ function shouldFallbackHostedConfigImport(error: unknown) {
   const code = (error as NodeJS.ErrnoException | undefined)?.code
   return code === "MODULE_NOT_FOUND"
     || code === "ERR_MODULE_NOT_FOUND"
+    || code === "ERR_PACKAGE_IMPORT_NOT_DEFINED"
     || code === "ERR_UNSUPPORTED_ESM_URL_SCHEME"
 }
 
 async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | undefined> {
-  const virtualConfigId = "virtual:@vitehub/kv/config"
+  const virtualConfigId = "#vitehub/kv/config"
 
   try {
     const module = await import(

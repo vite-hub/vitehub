@@ -288,16 +288,16 @@ blob: {
 }
 ```
 
-## Vite Virtual Config
+## Vite Config Import
 
 ::fw{id="vite:dev vite:build"}
-Vite server code can read the resolved config from the virtual module:
+Vite server code can read the resolved config from the stable import path:
 
 ```ts
-import config, { blob, hosting } from 'virtual:@vitehub/blob/config'
+import config, { blob, hosting } from '#vitehub/blob/config'
 ```
 
-The virtual module exposes:
+The generated config surface exposes:
 
 | Export | Type |
 | --- | --- |

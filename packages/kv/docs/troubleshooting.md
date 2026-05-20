@@ -116,9 +116,9 @@ kv: {
 
 **Verify:** Write a test value and inspect the configured directory.
 
-## TypeScript Cannot Find `virtual:@vitehub/kv/config`
+## TypeScript Cannot Find `#vitehub/kv/config`
 
-**Cause:** The virtual module ambient types are not included.
+**Cause:** The generated config ambient types are not included.
 
 **Fix:** Add the package type entry:
 
