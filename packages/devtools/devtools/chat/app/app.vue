@@ -232,7 +232,10 @@ function activeLoadingMessageId(chatName: string | undefined, rawMessages: ChatD
   const userIndex = rawMessages.findLastIndex(message => message.role === "user" && message.text === active.text)
   if (userIndex < 0) return undefined
 
-  return rawMessages.slice(userIndex + 1).find(message => message.role === "assistant")?.id
+  return rawMessages.slice(userIndex + 1).find(message =>
+    message.role === "assistant"
+    && (message.loading || isGenericAssistantText(message.text)),
+  )?.id
 }
 
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
@@ -265,15 +268,21 @@ function hasCurrentUserMessage(next: ChatDevtoolsStateResult, chatName: string |
 }
 
 function toChatMessage(message: ChatDevtoolsMessage, forceLoading = false): ChatMessage {
-  const loading = forceLoading || Boolean(message.loading) || (message.role === "assistant" && message.text.trim() === "Thinking..." && !(message.tools || []).length)
+  const genericAssistantText = message.role === "assistant" && isGenericAssistantText(message.text)
+  const loading = forceLoading || Boolean(message.loading) || (genericAssistantText && !(message.tools || []).length)
   return {
-    content: loading ? undefined : message.text || undefined,
+    content: loading || genericAssistantText ? undefined : message.text || undefined,
     id: message.id,
     loading,
-    loadingText: loading ? message.text || "Thinking..." : undefined,
+    loadingText: loading ? (genericAssistantText ? undefined : message.text) || "Thinking..." : undefined,
     role: message.role === "assistant" ? "assistant" : "user",
     parts: (message.tools || []).filter(tool => !isConversationalEchoTool(tool)).map(tool => ({ type: "tool", tool })),
   }
+}
+
+function isGenericAssistantText(text: string): boolean {
+  const normalized = text.trim()
+  return !normalized || normalized === "..." || normalized === "Thinking..."
 }
 
 function commandFromTool(tool: ChatDevtoolsTool) {

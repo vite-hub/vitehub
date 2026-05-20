@@ -32,6 +32,7 @@ export default defineConfig({
     "src/cloudflare.ts",
     "src/nitro.ts",
     "src/runtime/empty-registry.ts",
+    "src/runtime/chat-devtools-handler.ts",
     "src/runtime/nitro-runtime-config.ts",
     "src/tanstack-ai.ts",
     "src/test.ts",

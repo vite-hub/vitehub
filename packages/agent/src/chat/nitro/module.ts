@@ -298,13 +298,25 @@ function createNitroChatRegistryContents(file: string, definitions: DiscoveredCh
     }
     return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return { default: createChatFromAgent(${agentExpression("mod.default", definition)}, ${JSON.stringify(definition.name)}) } },`
   })
+  const metadataEntries = definitions.map((definition) => {
+    if (!isAgentChatDefinition(definition)) return undefined
+    const importPath = JSON.stringify(createImportPath(file, definition.handler))
+    if (definition.exportName) {
+      return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return resolveAgentDevtoolsMetadata(${agentExpression(`mod[${JSON.stringify(definition.exportName)}]`, definition)}) },`
+    }
+    return `  ${JSON.stringify(definition.name)}: async () => { const mod = await import(${importPath}); return resolveAgentDevtoolsMetadata(${agentExpression("mod.default", definition)}) },`
+  }).filter((entry): entry is string => typeof entry === "string")
   const usesWorkspaceDefaults = definitions.some(definition => definition.workspace)
   return [
     ...(usesWorkspaceDefaults ? [`import { withWorkspaceAgentDefaults } from "@vitehub/agent"`] : []),
+    ...(metadataEntries.length ? [`import { resolveAgentDevtoolsMetadata } from "@vitehub/agent"`] : []),
     `import { createChatFromAgent } from "@vitehub/agent/chat/runtime/agent-chat"`,
     "",
     "const registry = {",
     ...entries,
+    "}",
+    "export const metadata = {",
+    ...metadataEntries,
     "}",
     "export default registry",
     "",
@@ -334,7 +346,7 @@ async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | Resolve
   }
 
   let registryFile: string | undefined
-  if (definitions.length && (definitions.length > 1 || hasChatParam)) {
+  if (definitions.length) {
     registryFile = createNitroChatRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
     await writeFileIfChanged(registryFile, createNitroChatRegistryContents(registryFile, definitions))
   }

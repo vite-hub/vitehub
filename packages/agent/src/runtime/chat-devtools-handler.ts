@@ -1,5 +1,5 @@
 import chatRegistry, { metadata as chatMetadata } from "#vitehub/agent/chat/registry"
-import { defineChatDevtoolsRegistryHandler } from "../nitro/devtools.ts"
+import { defineChatDevtoolsRegistryHandler } from "../chat/nitro/devtools.ts"
 
 import type { EventHandler } from "h3"
 

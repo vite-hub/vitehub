@@ -163,7 +163,7 @@ export const chatDevtoolsPanelPluginName = "@vitehub/agent/chat/devtools-panel"
 const defaultOutputPreviewLength = 4_000
 
 function resolveChatDevtoolsClientDist(): string {
-  return new URL("../../devtools-client", import.meta.url).pathname
+  return new URL("../devtools-client", import.meta.url).pathname
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -219,6 +219,11 @@ function isConversationalEchoTool(tool: Pick<ChatDevtoolsTool, "input" | "name" 
     && !!command
     && /^echo(?:\s|$)/.test(command)
     && isUnsupportedShellOutput(tool.output)
+}
+
+function isGenericTypingText(text: string): boolean {
+  const normalized = text.trim()
+  return !normalized || normalized === "..." || normalized === "Thinking..."
 }
 
 function toolName(tool: { name?: unknown, toolName?: unknown }): string {
@@ -488,6 +493,11 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     return getMessages(chatFromThreadId(adapterName, threadId)).find(message => message.id === id)
   }
 
+  function findLatestMessage(threadId: string): ChatDevtoolsMessage | undefined {
+    const messages = getMessages(chatFromThreadId(adapterName, threadId))
+    return messages[messages.length - 1]
+  }
+
   function ensureTypingMessage(threadId: string): ChatDevtoolsMessage {
     const id = typingMessageIds.get(threadId)
     const existing = id ? findMessage(threadId, id) : undefined
@@ -509,12 +519,17 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     if (!tool) return false
     if (isConversationalEchoTool(tool)) return true
 
-    const message = ensureTypingMessage(threadId)
+    const typingMessageId = typingMessageIds.get(threadId)
+    const latestMessage = findLatestMessage(threadId)
+    const message = typingMessageId || latestMessage?.role === "user"
+      ? ensureTypingMessage(threadId)
+      : latestMessage || ensureTypingMessage(threadId)
     const tools = message.tools ||= []
-    const existing = tools.find(item => item.id === tool.id)
     const next = { ...tool, updatedAt: new Date().toISOString() }
+    const existing = tools.find(item => item.id === tool.id)
     if (existing) Object.assign(existing, next)
     else tools.push(next)
+    message.loading = tools.some(item => item.status === "running")
     return true
   }
 
@@ -625,7 +640,12 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     renderFormatted: content => toPlainText(content),
     startTyping: async (threadId, status) => {
       if (!status || !recordToolStatus(threadId, status)) {
-        ensureTypingMessage(threadId).text = status || ""
+        const message = ensureTypingMessage(threadId)
+        const nextText = status || ""
+        if (message.text && !isGenericTypingText(message.text) && isGenericTypingText(nextText)) {
+          return
+        }
+        message.text = nextText
       }
     },
   }
