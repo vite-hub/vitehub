@@ -1,4 +1,4 @@
-import { getMessageText } from "@vitehub/messages"
+import { getMessageText } from "./messages.ts"
 import { applyCapabilityInstructionSlots } from "./capability-runtime.ts"
 import {
   applyAgentToolPolicies,
@@ -17,7 +17,7 @@ import type {
   AgentToolResolverWithWorkspace,
   MaybePromise,
 } from "./types.ts"
-import type { Message } from "@vitehub/messages"
+import type { Message } from "./messages.ts"
 import type { WorkspaceName } from "@vitehub/workspace"
 
 export interface TanStackAiAdapterOptions<

@@ -10,12 +10,10 @@ describe("workspace inventory", () => {
     expect(listWorkspacePackageNames(repoRoot)).toEqual([
       "agent",
       "blob",
-      "chat",
       "ci",
       "db",
       "env",
       "kv",
-      "messages",
       "queue",
       "runtime",
       "sandbox",

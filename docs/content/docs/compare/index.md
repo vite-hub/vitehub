@@ -98,7 +98,6 @@ Choose the primitive for the runtime behavior you need. Provider setup comes aft
   title: Chat
   description: Connect Chat SDK adapters, webhook routes, state, and optional agent handoff.
   icon: i-lucide-message-circle
-  to: ../chat
   ---
   :::
   :::u-page-card
@@ -106,7 +105,6 @@ Choose the primitive for the runtime behavior you need. Provider setup comes aft
   title: Messages
   description: Share serializable message and stream-event state between chat, agent, and interfaces.
   icon: i-lucide-messages-square
-  to: ../messages
   ---
   :::
 ::
@@ -159,7 +157,6 @@ Choose the primitive for the runtime behavior you need. Provider setup comes aft
   title: Chat
   description: Connect Chat SDK adapters, webhook routes, state, and optional agent handoff.
   icon: i-lucide-message-circle
-  to: ../chat
   ---
   :::
   :::u-page-card
@@ -167,7 +164,6 @@ Choose the primitive for the runtime behavior you need. Provider setup comes aft
   title: Messages
   description: Share serializable message and stream-event state between chat, agent, and interfaces.
   icon: i-lucide-messages-square
-  to: ../messages
   ---
   :::
 ::

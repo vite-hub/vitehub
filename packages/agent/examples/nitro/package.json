@@ -6,7 +6,6 @@
   },
   "dependencies": {
     "@vitehub/agent": "workspace:*",
-    "@vitehub/messages": "workspace:*",
     "nitro": "catalog:"
   }
 }

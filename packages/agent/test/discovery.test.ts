@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { discoverAgentDefinitions } from "../src/discovery.ts"
+import { discoverChatDefinitions } from "../src/chat/discovery.ts"
 
 async function createTempRoot(prefix: string) {
   return await mkdtemp(join(tmpdir(), prefix))
@@ -118,5 +119,97 @@ describe("agent Nitro runtime files", () => {
     await expect(readFile(registryFile, "utf8")).resolves.toContain("server/agents/docs/config.ts")
     await expect(readFile(routeFile, "utf8")).resolves.toContain("./nitro-registry.ts")
     expect(hooks).toHaveLength(2)
+  })
+})
+
+describe("agent chat discovery", () => {
+  it("discovers agents that expose chat only through capabilities", async () => {
+    const root = await createTempRoot("vitehub-agent-chat-capability-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), [
+      "import { chat, defineAgent } from '@vitehub/agent'",
+      "export default defineAgent({",
+      "  capabilities: [chat({ events: ['directMessage'] })],",
+      "  provider: 'ai-sdk',",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverChatDefinitions({
+      mode: "nitro-server-chats",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({
+        name: "support",
+        source: "nitro-server-agent-chat",
+      }),
+    ])
+  })
+
+  it("generates package imports for workspace chat agents", async () => {
+    const root = await createTempRoot("vitehub-agent-chat-runtime-")
+    const buildDir = ".nitro"
+    await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, capabilities: [chat({ events: ['directMessage'] })], model })", "utf8")
+
+    const module = (await import("../src/chat/nitro/module.ts")).default
+    await module.setup({
+      hooks: {
+        hook() {},
+      },
+      options: {
+        buildDir,
+        chat: { webhook: true },
+        handlers: [],
+        imports: {},
+        rootDir: root,
+        runtimeConfig: {},
+        scanDirs: [join(root, "server")],
+      },
+    } as never)
+
+    const routeFile = join(root, buildDir, ".vitehub", "nitro-runtime", "chat", "webhook-handler.ts")
+
+    await expect(readFile(routeFile, "utf8")).resolves.toContain('from "@vitehub/agent"')
+  })
+
+  it("registers the chat devtools bridge through hubChat by default", async () => {
+    const root = await createTempRoot("vitehub-agent-chat-devtools-")
+    const buildDir = ".nitro"
+    const plugin = (await import("../src/chat/vite.ts")).hubChat()
+    const hooks: Array<() => Promise<void> | void> = []
+    const nitro = {
+      hooks: {
+        hook(_name: string, handler: () => Promise<void> | void) {
+          hooks.push(handler)
+        },
+      },
+      options: {
+        buildDir,
+        dev: true,
+        handlers: [],
+        imports: {},
+        rootDir: root,
+        runtimeConfig: {},
+        scanDirs: [join(root, "server")],
+      },
+    }
+
+    await plugin.nitro.setup?.(nitro as never)
+
+    expect(nitro.options.handlers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: "POST",
+        route: "/__vitehub/agent/chat/devtools",
+      }),
+    ]))
+    expect(hooks.length).toBeGreaterThan(0)
+  })
+
+  it("exports chat presets from the agent package build", async () => {
+    const packageJson = JSON.parse(await readFile(join(import.meta.dirname, "../package.json"), "utf8"))
+    const tsdownConfig = await readFile(join(import.meta.dirname, "../tsdown.config.ts"), "utf8")
+
+    expect(packageJson.exports["./chat/presets"]).toBe("./dist/chat/presets.js")
+    expect(tsdownConfig).toContain('"src/chat/presets.ts"')
   })
 })
