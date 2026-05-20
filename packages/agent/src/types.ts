@@ -89,6 +89,9 @@ export interface AgentRunContext<
 > extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
   adapter?: AgentAdapter<CALL_OPTIONS>
   input: AgentRunInput<CALL_OPTIONS>
+  messages: Message[]
+  prompt?: string
+  tools?: AgentToolSet
 }
 
 export type AgentRunHandler<
@@ -133,17 +136,78 @@ export type AgentCapabilityToolResolver<
   | Record<string, unknown>
   | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<Record<string, unknown> | undefined>)
 
+export type AgentCapabilityPhase = "configure" | "prepare" | "bind" | "input" | "resolve" | "output" | "close"
+export type AgentCapabilityHookName = `capability:${AgentCapabilityPhase}` | `capability:${AgentCapabilityPhase}:after`
+
+export interface AgentInstructionBlock {
+  id: string
+  instructions: string
+}
+
+export type AgentToolTransform = (tools: AgentToolSet | undefined) => MaybePromise<AgentToolSet | undefined>
+export type AgentOutputRenderer = (
+  result: unknown,
+  context: AgentCapabilityRuntimeContext,
+) => MaybePromise<unknown>
+
+export interface AgentCapabilityStateRequirement {
+  name: string
+  optional?: boolean
+}
+
+export type AgentCapabilityHooks<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = Partial<Record<AgentCapabilityHookName, (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>>>
+
+export interface AgentCapabilityRuntimeContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends AgentCapabilityContext<TRuntimeConfig, Name> {
+  capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
+  instructions: {
+    add: (instructions: AgentAdapterInstructionsValue | false | undefined, options?: { id?: string }) => void
+  }
+  input: {
+    get: () => AgentRunInput
+    messages: () => Message[]
+    set: (input: AgentRunInput) => void
+    setMessages: (messages: Message[]) => void
+  }
+  output: {
+    render: (renderer: AgentOutputRenderer) => void
+  }
+  state: {
+    require: (name: string, options?: { optional?: boolean }) => void
+  }
+  tools: {
+    add: (tools: AgentToolSet | undefined) => void
+    transform: (transform: AgentToolTransform) => void
+  }
+}
+
 export interface AgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   description?: string
+  hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
-  instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
+  input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  instructions?:
+    | AgentAdapterInstructions<TRuntimeConfig, Name>
+    | false
+    | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentAdapterInstructionsValue | false | undefined>)
   metadata?: Record<string, unknown>
   mode?: AgentCapabilityMode
   name?: string
+  output?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  prepare?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   requires?: AgentCapabilityRequirement[]
+  resolve?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   tools?: AgentCapabilityToolResolver<TRuntimeConfig, Name>
 }
 
@@ -195,7 +259,7 @@ type AgentSettingsBase<
 > = {
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig>
+  hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   capabilities?: AgentCapabilitiesList<TRuntimeConfig>
@@ -228,7 +292,7 @@ export interface AgentDefinition<
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig>
+  hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
@@ -455,10 +519,14 @@ export interface AgentAdapterRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  capabilityInstructions?: AgentInstructionBlock[]
+  close?: () => Promise<void>
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
+  hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string
   messages: Message[]
+  outputRenderers?: Array<(result: unknown) => MaybePromise<unknown>>
   prompt?: string
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
   tools?: AgentToolSet
