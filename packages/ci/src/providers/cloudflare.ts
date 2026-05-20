@@ -8,7 +8,7 @@ import {
   normalizeCloudflareStatus,
   normalizeKnownTrigger,
 } from "../normalize.ts"
-import type { CIContext, CIProvider, CIRun, CIRunQuery } from "../types.ts"
+import type { CIContext, CILogPage, CILogQuery, CIProvider, CIRun, CIRunQuery } from "../types.ts"
 
 interface CloudflareEnvelope<T> {
   success?: boolean

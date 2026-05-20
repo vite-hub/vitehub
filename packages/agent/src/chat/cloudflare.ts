@@ -181,6 +181,9 @@ export function defineCloudflareChatHandler(
       const bot = await resolveChat(chat, runtimeContext)
       const handler = getWebhook(bot, platform)
       if (!handler) {
+        if (processing === "inline") {
+          await flushWaitUntilTasks(pendingTasks)
+        }
         return new Response(`Unknown chat platform: ${platform}`, { status: 404 })
       }
 
