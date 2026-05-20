@@ -1,5 +1,9 @@
 # Context Map
 
+## Guide
+
+- [Domain Docs](./domain.md) - explains how agents should consume this repo's domain documentation.
+
 ## Contexts
 
 - [Framework Integrations](./contexts/framework-integrations/CONTEXT.md) - names Vite, Nitro, discovery, runtime registry, and option lifecycle boundaries.
@@ -29,3 +33,7 @@
 - **Workspace -> Blob**: Workspace Stores can use Blob Stores for persistence while Workspace owns file-tree behavior.
 - **Agents -> KV**: Agent-owned runtime behavior can use KV Stores internally when configured by ViteHub primitives.
 - **Packages -> Domain Contexts**: Package contexts define ownership boundaries; domain contexts define shared vocabulary.
+
+## Maintenance
+
+When adding a new context glossary under `contexts/`, add it to this map.
