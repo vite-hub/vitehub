@@ -251,7 +251,7 @@ function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: st
       }
       if (path === "env.public" || path.startsWith("env.public.")) {
         if (value.secret) {
-          throw new EnvError(`${valuePath} cannot be marked secret because public runtime config is exposed to the client.`)
+          throw new EnvError(`${valuePath} cannot be marked secret because public Runtime Env transport is exposed to the client.`)
         }
       }
       continue

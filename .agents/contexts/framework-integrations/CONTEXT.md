@@ -52,6 +52,10 @@ _Avoid_: Invocation option, runtime helper option
 A runtime API used by application code to call, inspect, or use a configured ViteHub primitive.
 _Avoid_: Composable, Vite plugin, Nitro module
 
+**ViteHub Import Path**:
+A stable app-code import path owned by ViteHub rather than by one framework integration mechanism.
+_Avoid_: Public virtual module, generated file path, provider import
+
 ## Relationships
 
 - A **Definition** can become a **Discovered Definition**.
@@ -63,14 +67,20 @@ _Avoid_: Composable, Vite plugin, Nitro module
 - **Invocation Options** are supplied to Runtime Helpers.
 - **Provider Selection** belongs in Integration Options when it changes generated output, bindings, imports, or deployment behavior.
 - Options should live as late as possible unless static analysis, type generation, provider binding, generated files, or deployment output require earlier placement.
+- Application code should import generated or integration-backed ViteHub surfaces through **ViteHub Import Paths**.
+- Framework-specific virtual modules and generated file paths are integration details unless an ADR explicitly makes them public.
 
 ## Example Dialogue
 
 > **Dev:** "Should the sandbox provider be passed to every sandbox run?"
 > **Domain expert:** "No. **Provider Selection** changes generated provider wiring, so it belongs in **Integration Options**. A stable sandbox id can be an **Invocation Option**."
+>
+> **Dev:** "Should docs tell users to import a Vite virtual module directly?"
+> **Domain expert:** "No. Prefer a **ViteHub Import Path** and let the integration resolve it."
 
 ## Flagged Ambiguities
 
 - "composable" was used for runtime calls - resolved: use **Runtime Helper** unless referring to a Nuxt or Vue composable.
 - Vite and Nitro behavior were considered part of Definitions - resolved: Definitions stay portable; framework-specific behavior belongs to **Vite Integration** or **Nitro Integration**.
 - Provider fields were considered runtime-call options - resolved: use **Provider Selection** for provider choices that affect generated output or deployment binding.
+- Virtual module ids were used as app-facing import paths - resolved: app-facing generated surfaces should use **ViteHub Import Paths** unless intentionally documented otherwise.

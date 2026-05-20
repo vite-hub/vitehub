@@ -1,5 +1,5 @@
 import { H3 } from "h3"
-import buildConfig from "virtual:@vitehub/env/build"
+import { usePublicEnv } from "#vitehub/env/public"
 
 declare const __VITEHUB_PLAYGROUND_ENV__: string
 
@@ -7,7 +7,7 @@ const app = new H3()
 
 app.get("/", () => ({
   define: __VITEHUB_PLAYGROUND_ENV__,
-  env: buildConfig.public,
+  env: usePublicEnv(),
   ok: true,
 }))
 

@@ -9,8 +9,8 @@ frameworks: [vite, nitro]
 
 This guide shows the two Env paths:
 
-- Vite build values exposed through `virtual:@vitehub/env/build`
-- Nitro runtime values exposed through `#vitehub/env/server`
+- Public Env values exposed through `#vitehub/env/public`
+- Server Env values exposed through `#vitehub/env/server`
 
 ::code-collapse
 
@@ -20,8 +20,8 @@ Set up @vitehub/env in this app.
 - Install @vitehub/env
 - Register envVite() or envNitro()
 - Declare a public build value
-- Declare a server-only runtime secret
-- Read the generated build or runtime config from app code
+- Declare a server-only Runtime Env secret
+- Read generated Public Env and Server Env from app code
 
 Docs: /docs/vite/env/quickstart or /docs/nitro/env/quickstart
 ```
@@ -79,29 +79,31 @@ export default defineNitroConfig({
 ```
 ::
 
-### Read the config
+### Read Env values
 
 ::fw{id="vite:dev vite:build"}
-Read public build config from the virtual module:
+Read Public Env from the ViteHub public env import path:
 
 ```ts [src/main.ts]
-import buildConfig from 'virtual:@vitehub/env/build'
+import { usePublicEnv } from '#vitehub/env/public'
 
-document.querySelector('#app')!.textContent = buildConfig.public.appName
+const publicEnv = usePublicEnv()
+
+document.querySelector('#app')!.textContent = publicEnv.appName
 ```
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Read runtime config from the Nitro server helper:
+Read Server Env from the Nitro server helper:
 
 ```ts [server/api/config.get.ts]
-import { useSafeRuntimeConfig } from '#vitehub/env/server'
+import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler((event) => {
-  const config = useSafeRuntimeConfig(event)
+  const env = useServerEnv(event)
 
   return {
-    hasAuthToken: Boolean(config.auth.token),
+    hasAuthToken: Boolean(env.auth.token),
   }
 })
 ```

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 describe("Nitro runtime config", () => {
-  it("applies ViteHub env values to agent runtime config", async () => {
+  it("applies ViteHub Runtime Env values to agent runtimeConfig", async () => {
     vi.resetModules()
     vi.doMock("nitro/runtime-config", () => ({
       useRuntimeConfig: vi.fn(() => ({ agent: false })),
@@ -13,7 +13,7 @@ describe("Nitro runtime config", () => {
       runtimeConfig.vertex = { apiKey: "secret" }
       return runtimeConfig
     })
-    globalThis.__vitehubApplyEnvRuntimeConfig = apply
+    globalThis.__vitehubApplyRuntimeEnvToRuntimeConfig = apply
 
     const { getAgentRuntimeConfig } = await import("../src/runtime/nitro-runtime-config.ts")
 
@@ -23,7 +23,7 @@ describe("Nitro runtime config", () => {
     })
     expect(apply).toHaveBeenCalledOnce()
 
-    delete globalThis.__vitehubApplyEnvRuntimeConfig
+    delete globalThis.__vitehubApplyRuntimeEnvToRuntimeConfig
     vi.doUnmock("nitro/runtime-config")
   })
 })

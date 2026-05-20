@@ -1,9 +1,7 @@
-declare module "virtual:@vitehub/env/build" {
-  export const buildConfig: {
-    public: Record<string, unknown>
-  }
-  export function useSafeBuildConfig(): typeof buildConfig
-  export default buildConfig
+declare module "#vitehub/env/public" {
+  export interface PublicEnv extends Record<string, unknown> {}
+  export const publicEnv: PublicEnv
+  export function usePublicEnv(): PublicEnv
 }
 
 export {}

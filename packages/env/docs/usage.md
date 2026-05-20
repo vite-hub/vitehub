@@ -124,14 +124,16 @@ env: {
 
 Runtime registries currently support the built-in string validation shape. Use custom runtime schema validation in application code after reading the value.
 
-## Read Vite build config
+## Read Public Env
 
-Use `env.public` for values available through `virtual:@vitehub/env/build`.
+Use `env.public` for values available through `#vitehub/env/public`.
 
 ```ts
-import buildConfig from 'virtual:@vitehub/env/build'
+import { usePublicEnv } from '#vitehub/env/public'
 
-console.log(buildConfig.public.appName)
+const publicEnv = usePublicEnv()
+
+console.log(publicEnv.appName)
 ```
 
 Use `env.define` for compile-time replacements.
@@ -140,32 +142,32 @@ Use `env.define` for compile-time replacements.
 console.log(__APP_VERSION__)
 ```
 
-## Read Nitro runtime config
+## Read Server Env
 
-Use `useSafeRuntimeConfig()` in server code.
+Use `useServerEnv()` in server code.
 
 ```ts
-import { useSafeRuntimeConfig } from '#vitehub/env/server'
+import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler((event) => {
-  const config = useSafeRuntimeConfig(event)
+  const config = useServerEnv(event)
   return {
     appName: config.app.name,
   }
 })
 ```
 
-When application helpers need an explicit config type, import the generated type from the same module instead of declaring your own runtime config interface.
+When application helpers need an explicit Server Env type, import the generated type from the same module instead of declaring your own interface.
 
 ```ts
-import type { RuntimeEnvConfig } from '#vitehub/env/server'
+import type { ServerEnv } from '#vitehub/env/server'
 
-export function createAgent(config: RuntimeEnvConfig) {
+export function createAgent(config: ServerEnv) {
   return createVertex({ apiKey: config.vertex.apiKey })(config.vertex.model)
 }
 ```
 
-The Nitro module also augments Nitro runtime config and ViteHub Chat runtime config types with the generated shape.
+The Nitro module also augments Nitro runtime config and ViteHub Chat runtime config types with the generated Server Env shape.
 
 ## Enable diagnostics
 

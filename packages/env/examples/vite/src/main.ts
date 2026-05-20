@@ -1,7 +1,8 @@
-import buildConfig from 'virtual:@vitehub/env/build'
+import { usePublicEnv } from '#vitehub/env/public'
 
 const app = document.querySelector<HTMLDivElement>('#app')
+const publicEnv = usePublicEnv()
 
 if (app) {
-  app.textContent = `${buildConfig.public.appName} ${__APP_VERSION__}`
+  app.textContent = `${publicEnv.appName} ${__APP_VERSION__}`
 }

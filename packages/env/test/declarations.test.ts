@@ -156,7 +156,7 @@ describe("env declarations", () => {
     } as never, "nitro")).toThrow("serializable literal")
   })
 
-  it("rejects secret Nitro public runtime declarations", () => {
+  it("rejects secret Nitro public Runtime Env declarations", () => {
     expect(() => validateEnvConfigShape({
       public: {
         apiBase: env({ secret: true }),

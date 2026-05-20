@@ -51,7 +51,7 @@ describe("Vite plugin", () => {
         __SENTRY_DEBUG__: JSON.stringify(true),
       },
     })
-    expect(plugin.api.getBuildConfig()).toEqual({
+    expect(plugin.api.getPublicEnv()).toEqual({
       appName: "Quiver",
     })
 
@@ -61,12 +61,21 @@ describe("Vite plugin", () => {
       root,
     } as never)
 
-    await expect(readFile(join(root, ".vitehub/env/vite.d.ts"), "utf8")).resolves.toContain("appName")
+    const types = await readFile(join(root, ".vitehub/env/vite.d.ts"), "utf8")
+    expect(types).toContain("declare module \"#vitehub/env/public\"")
+    expect(types).toContain("export interface PublicEnv")
+    expect(types).toContain("\"appName\": string")
+    expect(types).toContain("usePublicEnv(): PublicEnv")
+    expect(types).not.toContain("buildConfig")
+    expect(types).not.toContain("useSafeBuildConfig")
+    expect(types).not.toContain("virtual:@vitehub/env/build")
 
     const loadHook = plugin.load as (id: string) => string | undefined
-    const loaded = loadHook("\0virtual:@vitehub/env/build")
+    const loaded = loadHook("\0#vitehub/env/public")
     expect(loaded).toContain("Quiver")
-    expect(loaded).toContain("useSafeBuildConfig")
+    expect(loaded).toContain("usePublicEnv")
+    expect(loaded).not.toContain("buildConfig")
+    expect(loaded).not.toContain("useSafeBuildConfig")
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
@@ -87,7 +96,7 @@ describe("Vite plugin", () => {
       root,
     }, { command: "build", mode: "production" })
 
-    expect(plugin.api.getBuildConfig()).toEqual({
+    expect(plugin.api.getPublicEnv()).toEqual({
       appName: "Quiver",
     })
   })

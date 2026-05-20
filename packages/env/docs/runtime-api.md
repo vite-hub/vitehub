@@ -1,6 +1,6 @@
 ---
 title: Env runtime API
-description: Reference for Env exports, declaration options, sources, virtual modules, diagnostics, and runtime helpers.
+description: Reference for Env exports, declaration options, sources, generated import paths, diagnostics, and runtime helpers.
 navigation.title: Runtime API
 navigation.order: 90
 icon: i-lucide-braces
@@ -39,7 +39,13 @@ export default defineNitroConfig({
 Server code imports the generated helper from `#vitehub/env/server`:
 
 ```ts
-import { useSafeRuntimeConfig } from '#vitehub/env/server'
+import { useServerEnv } from '#vitehub/env/server'
+```
+
+Browser-safe code imports the generated helper from `#vitehub/env/public`:
+
+```ts
+import { usePublicEnv } from '#vitehub/env/public'
 ```
 ::
 
@@ -101,7 +107,7 @@ interface EnvIntegrationOptions {
 }
 ```
 
-`envVite()` reads Vite env files with `loadEnv(mode, root, '')`, resolves `env.public` and `env.define`, writes `.vitehub/env/vite.d.ts`, and serves `virtual:@vitehub/env/build`.
+`envVite()` reads Vite env files with `loadEnv(mode, root, '')`, resolves `env.public` and `env.define`, writes `.vitehub/env/vite.d.ts`, and serves `#vitehub/env/public`.
 
 ## Nitro module
 
@@ -113,28 +119,26 @@ The Nitro module reads nested `env` declarations, writes a runtime registry unde
 
 On Cloudflare presets, required secret declarations are appended to `nitro.options.cloudflare.wrangler.secrets.required`.
 
-## Virtual modules
+## Generated import paths
 
-### `virtual:@vitehub/env/build`
+### `#vitehub/env/public`
 
 ```ts
-export const buildConfig: {
-  public: Record<string, unknown>
-}
+export interface PublicEnv {}
 
-export function useSafeBuildConfig(): typeof buildConfig
-export default buildConfig
+export const publicEnv: PublicEnv
+export function usePublicEnv(): PublicEnv
 ```
 
 ### `#vitehub/env/server`
 
 ```ts
-export interface SafeRuntimeConfig {}
+export interface ServerEnv {}
 
-export function useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig
+export function useServerEnv(event?: unknown): ServerEnv
 ```
 
-The exact `SafeRuntimeConfig` fields are generated from Nitro `env` declarations.
+The exact `ServerEnv` fields are generated from Nitro `env` declarations.
 
 ## Validation
 

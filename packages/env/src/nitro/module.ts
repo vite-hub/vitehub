@@ -27,13 +27,13 @@ function createPluginContents(file: string, registryFile: string): string {
   return [
     `import registry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import { useRuntimeConfig } from "nitro/runtime-config"`,
-    `import { applyEnvRegistryToRuntimeConfig, setEnvRegistry } from ${JSON.stringify(createImportPath(file, resolveEntry("../runtime/server", "@vitehub/env/runtime/server")))}`,
+    `import { applyRuntimeEnvToRuntimeConfig, setEnvRegistry } from ${JSON.stringify(createImportPath(file, resolveEntry("../runtime/server", "@vitehub/env/runtime/server")))}`,
     "",
     "export default function vitehubEnvPlugin(nitroApp) {",
     "  setEnvRegistry(registry)",
-    "  globalThis.__vitehubApplyEnvRuntimeConfig = (runtimeConfig, event) => applyEnvRegistryToRuntimeConfig(runtimeConfig, event)",
+    "  globalThis.__vitehubApplyRuntimeEnvToRuntimeConfig = (runtimeConfig, event) => applyRuntimeEnvToRuntimeConfig(runtimeConfig, event)",
     "  nitroApp?.hooks?.hook?.(\"request\", (event) => {",
-    "    applyEnvRegistryToRuntimeConfig(useRuntimeConfig(), event)",
+    "    applyRuntimeEnvToRuntimeConfig(useRuntimeConfig(), event)",
     "  })",
     "}",
     "",
@@ -63,12 +63,10 @@ function createNitroServerTypes(registry: EnvRuntimeRegistry): string {
   const fields = createTypeFields(registry, 4)
   return [
     "declare module \"#vitehub/env/server\" {",
-    "  export interface SafeRuntimeConfig {",
+    "  export interface ServerEnv {",
     ...fields,
     "  }",
-    "  export type RuntimeEnvConfig = SafeRuntimeConfig",
-    "  export type ViteHubEnvConfig = SafeRuntimeConfig",
-    "  export function useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig",
+    "  export function useServerEnv(event?: unknown): ServerEnv",
     "}",
     "",
   ].join("\n")

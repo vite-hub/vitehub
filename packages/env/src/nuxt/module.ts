@@ -58,7 +58,7 @@ const envNuxtModule: NuxtModule<EnvIntegrationOptions, EnvIntegrationOptions, fa
 
     addServerImports({
       from: "#vitehub/env/server",
-      name: "useSafeRuntimeConfig",
+      name: "useServerEnv",
     })
   },
 })
