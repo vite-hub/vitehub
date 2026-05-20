@@ -424,7 +424,7 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
     const { adapter, chat } = getSingletonDevtoolsAdapter()
     const action = typeof input.action === "string" ? normalizeChatDevtoolsAction(input.action) : "get-state"
     if (action === "get-state") {
-      return adapter.getDevtoolsState()
+      return adapter.getDevtoolsState(input.chat)
     }
 
     if (action === "clear") {

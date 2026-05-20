@@ -1,8 +1,8 @@
-import agentRegistry from "#vitehub/agent/registry"
+import chatRegistry from "#vitehub/agent/chat/registry"
 import { defineChatDevtoolsRegistryHandler } from "../nitro/devtools.ts"
 
 import type { EventHandler } from "h3"
 
-const handler: EventHandler = defineChatDevtoolsRegistryHandler(agentRegistry as never)
+const handler: EventHandler = defineChatDevtoolsRegistryHandler(chatRegistry as never)
 
 export default handler

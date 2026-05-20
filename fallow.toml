@@ -1,3 +1,7 @@
+ignorePatterns = [
+  "packages/agent/devtools-client/**",
+]
+
 dynamicallyLoaded = [
   ".github/scripts/*.mjs",
   "docs/content.config.ts",
@@ -5,6 +9,7 @@ dynamicallyLoaded = [
   "packages/devtools/devtools/chat/app/app.vue",
   "packages/devtools/devtools/chat/app/assets/css/main.css",
   "packages/devtools/devtools/chat/nuxt.config.ts",
+  "packages/agent/devtools-client/**",
   "packages/kv/examples/**/nitro.config.ts",
   "packages/kv/examples/**/server/**",
   "packages/kv/test/helpers/*.ts",
@@ -116,3 +121,7 @@ rules = { "unused-class-members" = "off" }
 [[overrides]]
 files = ["packages/workspace/src/stores/memory-fs.ts"]
 rules = { "unused-class-members" = "off" }
+
+[[overrides]]
+files = ["packages/agent/devtools-client/**"]
+rules = { "unused-files" = "off", "unresolved-imports" = "off", "circular-deps" = "off" }

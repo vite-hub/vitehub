@@ -185,6 +185,9 @@ importers:
       '@nuxt/content':
         specifier: 'catalog:'
         version: 3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.3.1(typescript@6.0.2))
+      '@vitehub/agent':
+        specifier: workspace:*
+        version: link:../packages/agent
       '@vitejs/devtools-kit':
         specifier: 'catalog:'
         version: https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
