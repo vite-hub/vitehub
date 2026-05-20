@@ -281,7 +281,10 @@ function createImportExpression(registryFile: string, file: string): string {
 export function createRuntimeRegistryContents(registryFile: string, definitions: Array<Pick<DiscoveredDefinition, "handler" | "name"> & { steps?: string[] }>): string {
   const needsWorkflowRuntime = definitions.some(definition => definition.steps?.length)
   const runtimeImport = needsWorkflowRuntime
-    ? [`import { createWorkflowSteps } from "@vitehub/workflow/runtime/execute"`]
+    ? [
+        `import { createWorkflowSteps } from "@vitehub/workflow/runtime/execute"`,
+        `import { takeInlineWorkflowDefinition } from "@vitehub/workflow/runtime/state"`,
+      ]
     : []
   const imports = definitions.map((definition) => {
     if (!definition.steps?.length) {
@@ -297,15 +300,17 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
     const hasIndex = /\.(?:c|m)?[jt]s$/i.test(definition.handler)
     const indexImport = hasIndex ? `const index = await ${createImportExpression(registryFile, definition.handler)}` : ""
     const handler = hasIndex
-      ? "index.default?.handler ? index.default : { handler: index.default }"
+      ? `index.default?.handler ? index.default : takeInlineWorkflowDefinition(${JSON.stringify(definition.name)}) || { handler: index.default }`
       : "{ handler: async (context) => { let value = context.payload; for (const step of Object.values(context.steps || {})) value = await step(value); return value } }"
 
     return [
       `  ${JSON.stringify(definition.name)}: async () => {`,
+      `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
+      "    if (cached) return cached",
       indexImport ? `    ${indexImport}` : "",
       `    const steps = [${stepImports.join(", ")}]`,
       `    const definition = ${handler}`,
-      "    return {",
+      "    const entry = {",
       "      ...definition,",
       "      options: { ...definition.options, rootStep: false },",
       "      handler: async (context) => {",
@@ -313,6 +318,8 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
       "        return await definition.handler({ ...context, steps: workflowSteps })",
       "      },",
       "    }",
+      `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
+      "    return entry",
       "  },",
     ].filter(Boolean).join("\n")
   })
@@ -320,6 +327,7 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
   return [
     ...runtimeImport,
     runtimeImport.length ? "" : "",
+    ...(needsWorkflowRuntime ? ["const registryEntryCache = new Map()", ""] : []),
     "const registry = {",
     ...imports,
     "}",

@@ -118,5 +118,8 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>): BlobStorage {
         },
       })
     },
+    store() {
+      throw new Error("Named Blob stores are only available from the @vitehub/blob runtime export.")
+    },
   }
 }

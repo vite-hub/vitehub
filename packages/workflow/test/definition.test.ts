@@ -182,14 +182,36 @@ describe("workflow definitions", () => {
     const file = join(rootDir, "server", "chat.workflow.ts")
     await writeFile(file, [
       `import { createWorkflow } from "@vitehub/workflow"`,
-      `export const chat = createWorkflow({ name: "server/chat", handler: async () => "ok" })`,
+      `export const chat = createWorkflow({ name: "server/workflows/chat", handler: async () => "ok" })`,
     ].join("\n"), "utf8")
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({
         handler: file,
-        name: "server/chat",
+        name: "server/workflows/chat",
         source: "inline",
+      }),
+    ])
+  })
+
+  it("prefers inline metadata over folder discovery for the same handler", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-folder-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server", "workflows", "chat"), { recursive: true })
+    const file = join(rootDir, "server", "workflows", "chat", "index.ts")
+    const step = join(rootDir, "server", "workflows", "chat", "01.reply.ts")
+    await writeFile(file, [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `export const chat = createWorkflow({ name: "server/workflows/chat", handler: async () => "ok" })`,
+    ].join("\n"), "utf8")
+    await writeFile(step, "export default null\n", "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({
+        handler: file,
+        name: "server/workflows/chat",
+        source: "inline",
+        steps: [step],
       }),
     ])
   })

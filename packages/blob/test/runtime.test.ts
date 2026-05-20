@@ -81,49 +81,90 @@ const filesSdkMock = vi.hoisted(() => ({
     ],
   })),
   s3: vi.fn(() => ({ provider: "s3" })),
-}))
-
-vi.mock("@vercel/blob", () => ({
-  del: async (pathname: string, options: { token?: string } = {}) => {
-    await (vercelBlobMock.del as any)(pathname, { token: options.token })
-  },
-  get: async (pathname: string, options: { access?: "private" | "public", token?: string } = {}) => {
-    return await (vercelBlobMock.get as any)(pathname, {
-      access: options.access,
-      token: options.token,
-    })
-  },
-  head: async (pathname: string, options: { token?: string } = {}) => {
-    const result = await (vercelBlobMock.head as any)(pathname, { token: options.token })
-    return {
-      contentType: "text/plain",
-      etag: "\"etag\"",
-      pathname: result.pathname,
-      size: result.size,
-      uploadedAt: result.uploadedAt,
-      url: result.url,
-    }
-  },
-  list: async () => await (vercelBlobMock.list as any)(),
-  put: async (pathname: string, body: Blob | Uint8Array | string, options: { access?: "private" | "public", contentType?: string, token?: string } = {}) => {
-    return await (vercelBlobMock.put as any)(pathname, body, {
-      access: options.access,
-      contentType: options.contentType,
-      token: options.token,
-    })
-  },
+  vercelBlob: vi.fn((options: unknown) => ({ options, provider: "vercel-blob" })),
 }))
 
 vi.mock("files-sdk", () => ({
   Files: class {
+    adapter: { options?: { access?: "private" | "public", token?: string }, provider?: string }
+
+    constructor(options: { adapter?: { options?: { access?: "private" | "public", token?: string }, provider?: string } } = {}) {
+      this.adapter = options.adapter || {}
+    }
+
+    async delete(pathname: string) {
+      if (this.adapter.provider === "vercel-blob") {
+        await (vercelBlobMock.del as any)(pathname, { token: this.adapter.options?.token })
+      }
+    }
+
+    async download(pathname: string) {
+      const result = await (vercelBlobMock.get as any)(pathname, {
+        access: this.adapter.options?.access,
+        token: this.adapter.options?.token,
+      })
+      return new Response(result.stream, {
+        headers: { "content-type": result.blob?.contentType || "text/plain" },
+      })
+    }
+
+    async head(pathname: string) {
+      const result = await (vercelBlobMock.head as any)(pathname, { token: this.adapter.options?.token })
+      return {
+        etag: "\"etag\"",
+        key: result.pathname,
+        lastModified: result.uploadedAt,
+        size: result.size,
+        type: "text/plain",
+      }
+    }
+
     async list(options?: unknown) {
+      if (this.adapter.provider === "vercel-blob") {
+        const result = await (vercelBlobMock.list as any)(options)
+        return {
+          cursor: result.cursor,
+          items: result.blobs.map((blob: any) => ({
+            etag: blob.etag,
+            key: blob.pathname,
+            lastModified: blob.uploadedAt,
+            size: blob.size,
+            type: blob.contentType,
+          })),
+        }
+      }
       return await filesSdkMock.list(options)
+    }
+
+    async upload(pathname: string, body: Blob | Uint8Array | string, options: { contentType?: string } = {}) {
+      const result = await (vercelBlobMock.put as any)(pathname, body, {
+        access: this.adapter.options?.access,
+        contentType: options.contentType,
+        token: this.adapter.options?.token,
+      })
+      return {
+        contentType: result.contentType,
+        key: result.pathname,
+        lastModified: result.uploadedAt,
+        size: result.size,
+      }
+    }
+
+    async url(pathname: string) {
+      if (this.adapter.provider !== "vercel-blob") {
+        throw new Error("URL not available")
+      }
+      return `https://blob.example/${pathname}`
     }
   },
 }))
 
 vi.mock("files-sdk/s3", () => ({
   s3: filesSdkMock.s3,
+}))
+
+vi.mock("files-sdk/vercel-blob", () => ({
+  vercelBlob: filesSdkMock.vercelBlob,
 }))
 
 afterEach(() => {
@@ -138,6 +179,7 @@ afterEach(() => {
   vercelBlobMock.put.mockClear()
   filesSdkMock.list.mockClear()
   filesSdkMock.s3.mockClear()
+  filesSdkMock.vercelBlob.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
   vi.restoreAllMocks()
 })
@@ -244,10 +286,118 @@ describe("blob runtime", () => {
     const result = await blob.put("notes/hello.txt", "hello")
 
     expect(result.pathname).toBe("notes/hello.txt")
+    expect(result.url).toBe("https://blob.example/notes/hello.txt")
     expect(vercelBlobMock.put).toHaveBeenCalledWith("notes/hello.txt", "hello", expect.objectContaining({
       access: "public",
       token: "secret-token",
     }))
+  })
+
+  it("preserves provider cursors for folded Vercel listings", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "default-token",
+      },
+    })
+    ;(vercelBlobMock.list as any).mockImplementation(async (options: { cursor?: string } = {}) => {
+      if (options.cursor === "page-2") {
+        return {
+          blobs: [
+            {
+              contentType: "text/plain",
+              pathname: "a/z-last.txt",
+              size: 4,
+              uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+            },
+          ],
+        }
+      }
+      return {
+        blobs: [
+          {
+            contentType: "text/plain",
+            pathname: "a/nested/one.txt",
+            size: 3,
+            uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+          {
+            contentType: "text/plain",
+            pathname: "a/root.txt",
+            size: 4,
+            uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ],
+        cursor: "page-2",
+      }
+    })
+
+    const firstPage = await blob.list({ folded: true, limit: 1, prefix: "a/" })
+
+    expect(firstPage).toMatchObject({
+      blobs: [{ pathname: "a/root.txt" }],
+      folders: ["a/nested/"],
+      hasMore: true,
+    })
+    expect(firstPage.cursor).toBeDefined()
+
+    const secondPage = await blob.list({ cursor: firstPage.cursor, folded: true, limit: 1, prefix: "a/" })
+
+    expect(vercelBlobMock.list).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "page-2" }))
+    expect(secondPage).toMatchObject({
+      blobs: [{ pathname: "a/z-last.txt" }],
+      folders: [],
+      hasMore: false,
+    })
+  })
+
+  it("selects named stores from runtime config", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "default-token",
+      },
+      stores: {
+        assets: {
+          access: "public",
+          driver: "vercel-blob",
+          token: "assets-token",
+        },
+        default: {
+          access: "public",
+          driver: "vercel-blob",
+          token: "default-token",
+        },
+      },
+    })
+
+    await blob.store("assets").put("notes/assets.txt", "value")
+
+    expect(vercelBlobMock.put).toHaveBeenCalledWith("notes/assets.txt", "value", expect.objectContaining({
+      access: "public",
+      token: "assets-token",
+    }))
+  })
+
+  it("rejects missing named stores at runtime", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        access: "public",
+        driver: "vercel-blob",
+        token: "default-token",
+      },
+      stores: {
+        default: {
+          access: "public",
+          driver: "vercel-blob",
+          token: "default-token",
+        },
+      },
+    })
+
+    await expect(blob.store("missing").get("notes/missing.txt")).rejects.toThrow("Unknown Blob store \"missing\".")
   })
 
   it("uses the active Cloudflare binding", async () => {
@@ -297,7 +447,7 @@ describe("blob runtime", () => {
     expect(list.folders).toEqual(["images/", "notes/"])
   })
 
-  it("loads non-core drivers through the anchored files driver import", async () => {
+  it("loads non-core drivers through provider-specific driver imports", async () => {
     setBlobRuntimeConfig({
       store: {
         bucket: "assets",

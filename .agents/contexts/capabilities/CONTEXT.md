@@ -20,10 +20,17 @@ _Avoid_: Random hook, raw setup
 A primitive, workspace mode, or workspace path that a Capability needs before it can be applied to an Agent.
 _Avoid_: Capability dependency, plugin dependency
 
+**Chat Capability**:
+A Capability that gives an Agent chat-oriented runtime behavior, including Chat History for the current stack.
+_Avoid_: Chat History Capability, Agent Memory
+
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
 - Official helpers such as `skills()`, `mcp()`, `bash()`, `sandbox()`, `kv()`, `blob()`, and `db()` create **Capability Definitions**.
+- A **Chat Capability** owns Chat History behavior for the current stack.
+- Chat History is not a standalone **Capability** in the current stack.
+- Agent Memory is a separate Capability concern from the **Chat Capability**.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
 - A **Capability Definition** can contribute instructions, tools, policy, and metadata.
 - A **Capability** can declare **Capability Requirements**.
@@ -40,3 +47,5 @@ _Avoid_: Capability dependency, plugin dependency
 - "plugin" was used to mean both framework plugins and user-shareable ViteHub abilities - resolved: use **Capability** for the agent ability concept.
 - Tool-first surfaces were considered the primary model - resolved: tools are one contribution of a **Capability Definition**.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
+- Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
+- Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.

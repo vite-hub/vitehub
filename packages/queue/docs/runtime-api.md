@@ -28,6 +28,8 @@ Vite config imports the plugin from `@vitehub/queue/vite`:
 ```ts
 import { hubQueue } from '@vitehub/queue/vite'
 ```
+
+`hubQueue(options?)` accepts the same integration options as `vite.config.queue`. When both are present, `vite.config.queue` takes precedence.
 ::
 
 ::fw{id="nitro:dev nitro:build"}

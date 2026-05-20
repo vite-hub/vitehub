@@ -145,6 +145,18 @@ return await blob.serve(event, 'avatars/user-1.png')
 
 Missing pathnames throw an H3 `404` error with `File not found`.
 
+### `blob.store(name)`
+
+Selects a named Blob Store from runtime config and returns the same Blob API for that store.
+
+```ts
+const assets = blob.store('assets')
+
+await assets.put('logo.png', file, {
+  contentType: 'image/png',
+})
+```
+
 ## Validation API
 
 ### `ensureBlob(blob, options)`
@@ -250,6 +262,7 @@ Blob accepts:
 | Shape | Description |
 | --- | --- |
 | `false` | Disable Blob runtime setup. |
+| `{ stores: { default: BlobStoreConfig, ... } }` | Configure multiple named Blob Stores. |
 | `{ driver: 'fs', base? }` | Local filesystem storage. Defaults to `.data/blob`. |
 | `{ driver: 'cloudflare-r2', binding?, bucketName? }` | Cloudflare R2 storage. `binding` defaults to `BLOB`. |
 | `{ driver: 'vercel-blob', access?, token? }` | Vercel Blob storage. `access` defaults to `public`. |
@@ -263,6 +276,17 @@ Blob accepts:
 | `{ driver: 'google-drive' | 'onedrive' | 'dropbox' | 'box', ... }` | Drive-backed providers. |
 
 On Cloudflare hosting, you can omit `driver` and pass `binding` or `bucketName`. Blob resolves those as Cloudflare R2 options.
+
+Use `stores.default` when configuring multiple stores:
+
+```ts
+blob: {
+  stores: {
+    default: { driver: 'fs', base: '.data/blob' },
+    assets: { driver: 'fs', base: '.data/assets' },
+  },
+}
+```
 
 ## Vite Virtual Config
 

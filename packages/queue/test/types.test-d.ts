@@ -8,6 +8,7 @@ import { hubQueue } from "../src/vite.ts"
 
 it("returns a vite plugin", () => {
   expectTypeOf(hubQueue()).toMatchTypeOf<Plugin>()
+  expectTypeOf(hubQueue({ provider: "cloudflare" })).toMatchTypeOf<Plugin>()
 })
 
 it("exposes a Nitro module surface", () => {

@@ -120,7 +120,6 @@ export default {
   store: { provider: "memory" },
   sources: {
     files: {
-      name: "inline",
       async getKeys() {
         return ["selected.txt"]
       },
@@ -146,7 +145,6 @@ export default {
   store: { provider: "memory" },
   sources: {
     files: {
-      name: "inline",
       async getKeys() {
         return ["skipped.txt"]
       },
@@ -204,7 +202,6 @@ export default {
   store: { provider: "memory" },
   sources: {
     files: {
-      name: "inline",
       async getKeys() {
         return ["one.txt"]
       },
@@ -220,7 +217,6 @@ export default {
   store: { provider: "memory" },
   sources: {
     files: {
-      name: "inline",
       async getKeys() {
         return ["two.txt"]
       },
@@ -268,7 +264,6 @@ export default {
   store: { provider: "memory" },
   sources: {
     files: {
-      name: "inline",
       async getKeys() {
         return ["README.md"]
       },

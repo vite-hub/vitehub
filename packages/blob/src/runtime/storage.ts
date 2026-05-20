@@ -1,40 +1,40 @@
 import { createBlobStorage } from "../storage.ts"
 import { resolveRuntimeVercelBlobStore } from "../config.ts"
 
-import { getBlobRuntimeConfig, getBlobRuntimeStorage, setBlobRuntimeStorage } from "./state.ts"
+import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeStorage } from "./state.ts"
 
-import type { BlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
+import type { BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
+
+const driverModules = {
+  akamai: "akamai",
+  azure: "azure",
+  box: "box",
+  "cloudflare-r2": "cloudflare",
+  "digitalocean-spaces": "digitalocean-spaces",
+  dropbox: "dropbox",
+  fs: "fs",
+  gcs: "gcs",
+  "google-drive": "google-drive",
+  hetzner: "hetzner",
+  minio: "minio",
+  "netlify-blobs": "netlify-blobs",
+  onedrive: "onedrive",
+  s3: "s3",
+  storj: "storj",
+  supabase: "supabase",
+  uploadthing: "uploadthing",
+  "vercel-blob": "vercel",
+} satisfies Record<ResolvedBlobStoreConfig["driver"], string>
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   const isSourceRuntime = typeof import.meta !== "undefined"
     && typeof import.meta.url === "string"
     && import.meta.url.endsWith(".ts")
 
-  switch (config.driver) {
-    case "cloudflare-r2": {
-      const module = (isSourceRuntime
-        ? await import("../drivers/cloudflare.ts")
-        : await import("../drivers/cloudflare.js")) as { createDriver: (options: typeof config) => any }
-      return module.createDriver(config)
-    }
-    case "fs": {
-      const module = (isSourceRuntime
-        ? await import("../drivers/fs.ts")
-        : await import("../drivers/fs.js")) as { createDriver: (options: typeof config) => any }
-      return module.createDriver(config)
-    }
-    case "vercel-blob": {
-      const module = (isSourceRuntime
-        ? await import("../drivers/vercel.ts")
-        : await import("../drivers/vercel.js")) as { createDriver: (options: typeof config) => any }
-      return module.createDriver(config)
-    }
-    default: {
-      const modulePath = new URL(isSourceRuntime ? "../drivers/files.ts" : "../drivers/files.js", import.meta.url).href
-      const module = await import(modulePath) as { createDriver: (options: typeof config) => any }
-      return module.createDriver(config)
-    }
-  }
+  const moduleName = driverModules[config.driver]
+  const modulePath = new URL(isSourceRuntime ? `../drivers/${moduleName}.ts` : `../drivers/${moduleName}.js`, import.meta.url).href
+  const module = await import(modulePath) as { createDriver: (options: typeof config) => any }
+  return module.createDriver(config)
 }
 
 async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions): Promise<BlobStorage> {
@@ -48,8 +48,8 @@ async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions): P
   return createBlobStorage(driver)
 }
 
-async function resolveStorage() {
-  const existing = getBlobRuntimeStorage()
+async function resolveStorage(name = "default") {
+  const existing = getNamedBlobRuntimeStorage(name)
   if (existing) {
     return existing
   }
@@ -59,16 +59,24 @@ async function resolveStorage() {
     throw new Error("Blob runtime is disabled.")
   }
 
-  const storage = await createConfiguredBlobStorage(config)
-  setBlobRuntimeStorage(storage)
+  const stores = config.stores || { default: config.store }
+  const store = stores[name]
+  if (!store) throw new Error(`Unknown Blob store "${name}".`)
+  const storage = await createConfiguredBlobStorage({ store, stores: { default: store, [name]: store } })
+  setNamedBlobRuntimeStorage(name, storage)
   return storage
 }
 
-export const blob: BlobStorage = {
-  async del(pathnames) { await (await resolveStorage()).del(pathnames) },
-  async get(pathname) { return (await resolveStorage()).get(pathname) },
-  async head(pathname) { return (await resolveStorage()).head(pathname) },
-  async list(options) { return (await resolveStorage()).list(options) },
-  async put(pathname, body, options) { return (await resolveStorage()).put(pathname, body, options) },
-  async serve(event, pathname) { return (await resolveStorage()).serve(event, pathname) },
+function createRuntimeBlobStorage(name = "default"): BlobStorage {
+  return {
+    async del(pathnames) { await (await resolveStorage(name)).del(pathnames) },
+    async get(pathname) { return (await resolveStorage(name)).get(pathname) },
+    async head(pathname) { return (await resolveStorage(name)).head(pathname) },
+    async list(options) { return (await resolveStorage(name)).list(options) },
+    async put(pathname, body, options) { return (await resolveStorage(name)).put(pathname, body, options) },
+    async serve(event, pathname) { return (await resolveStorage(name)).serve(event, pathname) },
+    store(storeName: BlobStoreName) { return createRuntimeBlobStorage(storeName) },
+  }
 }
+
+export const blob: BlobStorage = createRuntimeBlobStorage()

@@ -323,9 +323,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
-      '@vercel/blob':
-        specifier: 'catalog:'
-        version: 2.3.3
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal

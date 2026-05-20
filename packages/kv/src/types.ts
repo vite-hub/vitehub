@@ -37,10 +37,17 @@ export type ResolvedKVStoreConfig =
   | ResolvedUpstashKVStoreConfig
   | ResolvedFsLiteKVStoreConfig
 
-export type KVModuleOptions = KVStoreConfig | false
+export type KVStoreName = "default" | (string & {})
+
+export interface KVStoresConfig {
+  stores: Record<string, KVStoreConfig>
+}
+
+export type KVModuleOptions = KVStoreConfig | KVStoresConfig | false
 
 export interface ResolvedKVModuleOptions {
   store: ResolvedKVStoreConfig
+  stores?: Record<string, ResolvedKVStoreConfig>
 }
 
 export interface KVStorage {
@@ -50,4 +57,5 @@ export interface KVStorage {
   has(key: string, options?: unknown): Promise<boolean>
   keys(base?: string, options?: unknown): Promise<string[]>
   set<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
+  store(name: KVStoreName): KVStorage
 }

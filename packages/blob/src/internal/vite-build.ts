@@ -8,7 +8,7 @@ import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../config.ts"
 
-import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../types.ts"
+import type { BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 
 export const blobPackageName = "@vitehub/blob"
@@ -62,15 +62,49 @@ interface CloudflareBlobConfig {
   r2_buckets?: Array<{ binding: string, bucket_name: string }>
 }
 
-function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | undefined) {
-  if (!config || config.store.driver !== "cloudflare-r2" || !config.store.bucketName) {
+const driverModules = {
+  akamai: "drivers/akamai",
+  azure: "drivers/azure",
+  box: "drivers/box",
+  "cloudflare-r2": "drivers/cloudflare",
+  "digitalocean-spaces": "drivers/digitalocean-spaces",
+  dropbox: "drivers/dropbox",
+  fs: "drivers/fs",
+  gcs: "drivers/gcs",
+  "google-drive": "drivers/google-drive",
+  hetzner: "drivers/hetzner",
+  minio: "drivers/minio",
+  "netlify-blobs": "drivers/netlify-blobs",
+  onedrive: "drivers/onedrive",
+  s3: "drivers/s3",
+  storj: "drivers/storj",
+  supabase: "drivers/supabase",
+  uploadthing: "drivers/uploadthing",
+  "vercel-blob": "drivers/vercel",
+} satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
+
+function isCloudflareR2StoreWithBucket(store: ResolvedBlobModuleOptions["store"]): store is ResolvedCloudflareR2BlobStoreConfig & { bucketName: string } {
+  return store.driver === "cloudflare-r2" && Boolean(store.bucketName)
+}
+
+function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | undefined): Array<{ binding: string, bucket_name: string }> | undefined {
+  if (!config) {
     return undefined
   }
 
-  return [{
-    binding: config.store.binding,
-    bucket_name: config.store.bucketName,
-  }]
+  const bindingsByBinding = new Map<string, { binding: string, bucket_name: string }>()
+  for (const store of Object.values(config.stores || { default: config.store })) {
+    if (!isCloudflareR2StoreWithBucket(store) || bindingsByBinding.has(store.binding)) {
+      continue
+    }
+    bindingsByBinding.set(store.binding, {
+      binding: store.binding,
+      bucket_name: store.bucketName,
+    })
+  }
+  const bindings = [...bindingsByBinding.values()]
+
+  return bindings.length > 0 ? bindings : undefined
 }
 
 function resolveBlobConfig(
@@ -92,7 +126,7 @@ function renderProviderEntry(
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/state")))}`,
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
   ]
-  const driverModule = blobConfig ? `drivers/${blobConfig.store.driver === "cloudflare-r2" ? "cloudflare" : blobConfig.store.driver === "fs" ? "fs" : blobConfig.store.driver === "vercel-blob" ? "vercel" : "files"}` : undefined
+  const driverModule = blobConfig ? driverModules[blobConfig.store.driver] : undefined
   if (driverModule) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("storage")))}`)
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(driverModule)))}`)
@@ -126,33 +160,65 @@ function renderProviderEntry(
 }
 
 function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions) {
+  const stores = blobConfig ? Object.values(blobConfig.stores || { default: blobConfig.store }) : []
+  const selectedDriverModules = [...new Set(stores.map(store => driverModules[store.driver]))]
+  const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
-  const driverModule = blobConfig ? `drivers/${blobConfig.store.driver === "cloudflare-r2" ? "cloudflare" : blobConfig.store.driver === "fs" ? "fs" : blobConfig.store.driver === "vercel-blob" ? "vercel" : "files"}` : undefined
-  if (driverModule) {
+  if (selectedDriverModules.length > 0) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(driverModule)))}`)
   }
-  if (blobConfig && blobConfig.store.driver === "vercel-blob") {
+  for (const driverModule of selectedDriverModules) {
+    const driverImport = driverImports[driverModule]
+    imports.push(`import { createDriver as ${driverImport} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(driverModule)))}`)
+  }
+  if (stores.some(store => store.driver === "vercel-blob")) {
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
   }
 
-  const storageExpression = !blobConfig
-    ? undefined
-    : blobConfig.store.driver === "vercel-blob"
-      ? "createBlobStorage(createDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env)))"
-      : "createBlobStorage(createDriver(blobConfig.store))"
+  const createDriverCases = [
+    ...Object.entries(driverModules).map(([driver, driverModule]) => {
+      const driverImport = driverImports[driverModule]
+      if (!driverImport) return undefined
+      const storeExpression = driver === "vercel-blob" ? "resolveRuntimeVercelBlobStore(store, process.env)" : "store"
+      return `    case ${JSON.stringify(driver)}: return ${driverImport}(${storeExpression})`
+    }),
+  ].filter(Boolean)
 
   return [
     ...imports,
     "",
     `const blobConfig = ${JSON.stringify(blobConfig, null, 2)}`,
     "setBlobRuntimeConfig(blobConfig)",
-    ...(storageExpression
+    ...(blobConfig
       ? [
-          `export const blob = ${storageExpression}`,
+          "const blobStorages = new Map()",
+          "",
+          "function createBlobDriver(store) {",
+          "  switch (store.driver) {",
+          ...createDriverCases,
+          "  }",
+          "}",
+          "",
+          "function resolveBlobStoreConfig(name) {",
+          "  const stores = blobConfig.stores || { default: blobConfig.store }",
+          "  const store = stores[name]",
+          "  if (!store) throw new Error(`Unknown Blob store \"${name}\".`)",
+          "  return store",
+          "}",
+          "",
+          "function createGeneratedBlobStorage(name = \"default\") {",
+          "  const existing = blobStorages.get(name)",
+          "  if (existing) return existing",
+          "  const storage = createBlobStorage(createBlobDriver(resolveBlobStoreConfig(name)))",
+          "  const runtimeStorage = { ...storage, store: storeName => createGeneratedBlobStorage(storeName) }",
+          "  blobStorages.set(name, runtimeStorage)",
+          "  return runtimeStorage",
+          "}",
+          "",
+          "export const blob = createGeneratedBlobStorage()",
           "setBlobRuntimeStorage(blob)",
         ]
       : [
@@ -209,26 +275,6 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
       },
       conditions: ["workerd", "worker", "browser", "default"],
       external: [
-        "@vercel/blob",
-        "files-sdk",
-        "files-sdk/akamai",
-        "files-sdk/azure",
-        "files-sdk/box",
-        "files-sdk/digitalocean-spaces",
-        "files-sdk/dropbox",
-        "files-sdk/fs",
-        "files-sdk/gcs",
-        "files-sdk/google-drive",
-        "files-sdk/hetzner",
-        "files-sdk/minio",
-        "files-sdk/netlify-blobs",
-        "files-sdk/onedrive",
-        "files-sdk/r2",
-        "files-sdk/s3",
-        "files-sdk/storj",
-        "files-sdk/supabase",
-        "files-sdk/uploadthing",
-        "files-sdk/vercel-blob",
         "node:async_hooks",
         "virtual:@vitehub/blob/config",
       ],
@@ -247,7 +293,6 @@ function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDe
         "@vitehub/blob": artifacts.runtimeModuleFiles.vercel,
       },
       external: [
-        "@vercel/blob",
         "files-sdk",
         "files-sdk/akamai",
         "files-sdk/azure",

@@ -50,35 +50,36 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock("@vercel/blob", () => ({
-  del: async (pathname: string, options: { token?: string } = {}) => {
-    await (vercelBlobMock.del as any)(pathname, { token: options.token })
-  },
-  get: async (pathname: string, options: { access?: "private" | "public", token?: string } = {}) => {
-    return await (vercelBlobMock.get as any)(pathname, {
-      access: options.access,
-      token: options.token,
-    })
-  },
-  head: async (pathname: string, options: { token?: string } = {}) => {
-    const result = await (vercelBlobMock.head as any)(pathname, { token: options.token })
-    return {
-      contentType: "text/plain",
-      etag: "\"etag\"",
-      pathname: result.pathname,
-      size: result.size,
-      uploadedAt: result.uploadedAt,
-      url: result.url,
+vi.mock("files-sdk", () => ({
+  Files: class {
+    adapter: { options?: { access?: "private" | "public", token?: string }, provider?: string }
+
+    constructor(options: { adapter?: { options?: { access?: "private" | "public", token?: string }, provider?: string } } = {}) {
+      this.adapter = options.adapter || {}
+    }
+
+    async upload(pathname: string, body: Blob | Uint8Array | string, options: { contentType?: string } = {}) {
+      const result = await (vercelBlobMock.put as any)(pathname, body, {
+        access: this.adapter.options?.access,
+        contentType: options.contentType,
+        token: this.adapter.options?.token,
+      })
+      return {
+        contentType: result.contentType,
+        key: result.pathname,
+        lastModified: result.uploadedAt,
+        size: result.size,
+      }
+    }
+
+    async url(pathname: string) {
+      return `https://blob.example/${pathname}`
     }
   },
-  list: async () => await (vercelBlobMock.list as any)(),
-  put: async (pathname: string, body: Blob | Uint8Array | string, options: { access?: "private" | "public", contentType?: string, token?: string } = {}) => {
-    return await (vercelBlobMock.put as any)(pathname, body, {
-      access: options.access,
-      contentType: options.contentType,
-      token: options.token,
-    })
-  },
+}))
+
+vi.mock("files-sdk/vercel-blob", () => ({
+  vercelBlob: (options: unknown) => ({ options, provider: "vercel-blob" }),
 }))
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -168,6 +169,46 @@ describe("Vite provider outputs", () => {
     expect(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")).not.toContain("\"r2_buckets\"")
   })
 
+  it("emits Cloudflare bucket bindings for named R2 stores", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-named-r2-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: {
+        stores: {
+          assets: {
+            binding: "ASSETS",
+            bucketName: "assets",
+            driver: "cloudflare-r2",
+          },
+          assetsAlias: {
+            binding: "ASSETS",
+            bucketName: "assets",
+            driver: "cloudflare-r2",
+          },
+          default: {
+            binding: "DEFAULT",
+            driver: "cloudflare-r2",
+          },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const wranglerConfig = JSON.parse(await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "wrangler.json"), "utf8")) as {
+      r2_buckets?: Array<{ binding: string, bucket_name: string }>
+    }
+    expect(wranglerConfig.r2_buckets).toEqual([
+      {
+        binding: "ASSETS",
+        bucket_name: "assets",
+      },
+    ])
+  })
+
   it("rehydrates masked Vercel tokens from generated runtime output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
@@ -185,6 +226,9 @@ describe("Vite provider outputs", () => {
     const runtimeModule = await import(runtimeModulePath) as {
       blob: {
         put: (pathname: string, body: string) => Promise<unknown>
+        store: (name: string) => {
+          put: (pathname: string, body: string) => Promise<unknown>
+        }
       }
     }
 
@@ -199,7 +243,59 @@ describe("Vite provider outputs", () => {
     )
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
     expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore")
-    expect(runtimeContents).toContain("createDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env))")
+    expect(runtimeContents).toContain("createDriver0(resolveRuntimeVercelBlobStore(store, process.env))")
+    expect(vercelServerContents).not.toContain("from \"@vercel/blob\"")
+    expect(vercelServerContents).not.toContain("from '@vercel/blob'")
+  })
+
+  it("selects named stores from generated runtime output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-named-runtime-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: {
+        stores: {
+          assets: {
+            access: "public",
+            driver: "vercel-blob",
+            token: "assets-token",
+          },
+          default: {
+            access: "public",
+            driver: "vercel-blob",
+            token: "default-token",
+          },
+        },
+      },
+      clientOutDir: "dist",
+      rootDir,
+    })
+
+    const runtimeModulePath = `${pathToFileURL(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs")).href}?t=${Date.now()}`
+    const runtimeModule = await import(runtimeModulePath) as {
+      blob: {
+        store: (name: string) => {
+          put: (pathname: string, body: string) => Promise<unknown>
+        }
+      }
+    }
+
+    await runtimeModule.blob.store("assets").put("notes/assets.txt", "hello")
+
+    expect(vercelBlobMock.put).toHaveBeenCalledWith(
+      "notes/assets.txt",
+      "hello",
+      expect.objectContaining({
+        token: "assets-token",
+      }),
+    )
+
+    const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    expect(runtimeContents).toContain("store: storeName => createGeneratedBlobStorage(storeName)")
+    expect(runtimeContents).toContain("export const blob = createGeneratedBlobStorage()")
   })
 })
