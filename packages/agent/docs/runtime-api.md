@@ -13,19 +13,21 @@ Use this page for exact names and shapes. For setup, start with [Quickstart](./q
 
 ```ts
 import {
-  bash,
-  blob,
-  db,
   defineAgent,
   defineCapability,
   getAgent,
-  kv,
-  mcp,
   runAgent,
-  sandbox,
-  skills,
   streamAgent,
 } from '@vitehub/agent'
+import {
+  bash,
+  blob,
+  db,
+  kv,
+  mcp,
+  sandbox,
+  skills,
+} from '@vitehub/agent/capabilities'
 ```
 
 ::fw{id="vite:dev vite:build"}

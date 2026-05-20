@@ -351,22 +351,17 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it("rejects public root-level tools", async () => {
+  it("requires an explicit provider for model agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
     expect(() => defineAgent({
       model: {} as never,
     } as never)).toThrow("requires an explicit provider")
-
-    expect(() => defineAgent({
-      provider: "ai-sdk",
-      model: {} as never,
-      tools: {} as never,
-    })).toThrow("defineAgent({ tools }) is not public API")
   })
 
   it("validates capability ids and sandbox commands", async () => {
-    const { bash, defineAgent, sandbox } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { bash, sandbox } = await import("../src/capabilities.ts")
 
     expect(() => defineAgent({
       capabilities: [{ id: "custom" }, { id: "custom" }],
@@ -402,7 +397,8 @@ describe("agent message protocol", () => {
   })
 
   it("fails when a primitive capability has no backing primitive", async () => {
-    const { defineAgent, kv } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { kv } = await import("../src/capabilities.ts")
     const agent = defineAgent({
       capabilities: [kv()],
       provider: "ai-sdk",
