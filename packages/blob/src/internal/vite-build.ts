@@ -62,6 +62,27 @@ interface CloudflareBlobConfig {
   r2_buckets?: Array<{ binding: string, bucket_name: string }>
 }
 
+const driverModules = {
+  akamai: "drivers/akamai",
+  azure: "drivers/azure",
+  box: "drivers/box",
+  "cloudflare-r2": "drivers/cloudflare",
+  "digitalocean-spaces": "drivers/digitalocean-spaces",
+  dropbox: "drivers/dropbox",
+  fs: "drivers/fs",
+  gcs: "drivers/gcs",
+  "google-drive": "drivers/google-drive",
+  hetzner: "drivers/hetzner",
+  minio: "drivers/minio",
+  "netlify-blobs": "drivers/netlify-blobs",
+  onedrive: "drivers/onedrive",
+  s3: "drivers/s3",
+  storj: "drivers/storj",
+  supabase: "drivers/supabase",
+  uploadthing: "drivers/uploadthing",
+  "vercel-blob": "drivers/vercel",
+} satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
+
 function isCloudflareR2StoreWithBucket(store: ResolvedBlobModuleOptions["store"]): store is ResolvedCloudflareR2BlobStoreConfig & { bucketName: string } {
   return store.driver === "cloudflare-r2" && Boolean(store.bucketName)
 }
@@ -105,7 +126,7 @@ function renderProviderEntry(
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("runtime/state")))}`,
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
   ]
-  const driverModule = blobConfig ? `drivers/${blobConfig.store.driver === "cloudflare-r2" ? "cloudflare" : blobConfig.store.driver === "fs" ? "fs" : blobConfig.store.driver === "vercel-blob" ? "vercel" : "files"}` : undefined
+  const driverModule = blobConfig ? driverModules[blobConfig.store.driver] : undefined
   if (driverModule) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("storage")))}`)
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(driverModule)))}`)
@@ -140,33 +161,30 @@ function renderProviderEntry(
 
 function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobModuleOptions) {
   const stores = blobConfig ? Object.values(blobConfig.stores || { default: blobConfig.store }) : []
-  const driverModules = [...new Set(stores.map(store => store.driver === "cloudflare-r2" ? "cloudflare" : store.driver === "fs" ? "fs" : store.driver === "vercel-blob" ? "vercel" : "files"))]
-  const driverImports = {
-    cloudflare: "createCloudflareDriver",
-    files: "createFilesDriver",
-    fs: "createFsDriver",
-    vercel: "createVercelDriver",
-  } as const
+  const selectedDriverModules = [...new Set(stores.map(store => driverModules[store.driver]))]
+  const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
-  if (driverModules.length > 0) {
+  if (selectedDriverModules.length > 0) {
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
   }
-  for (const driverModule of driverModules) {
-    const driverImport = driverImports[driverModule as keyof typeof driverImports]
-    imports.push(`import { createDriver as ${driverImport} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(`drivers/${driverModule}`)))}`)
+  for (const driverModule of selectedDriverModules) {
+    const driverImport = driverImports[driverModule]
+    imports.push(`import { createDriver as ${driverImport} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(driverModule)))}`)
   }
   if (stores.some(store => store.driver === "vercel-blob")) {
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
   }
 
   const createDriverCases = [
-    driverModules.includes("cloudflare") ? `    case "cloudflare-r2": return createCloudflareDriver(store)` : undefined,
-    driverModules.includes("fs") ? `    case "fs": return createFsDriver(store)` : undefined,
-    driverModules.includes("vercel") ? `    case "vercel-blob": return createVercelDriver(resolveRuntimeVercelBlobStore(store, process.env))` : undefined,
-    driverModules.includes("files") ? `    default: return createFilesDriver(store)` : undefined,
+    ...Object.entries(driverModules).map(([driver, driverModule]) => {
+      const driverImport = driverImports[driverModule]
+      if (!driverImport) return undefined
+      const storeExpression = driver === "vercel-blob" ? "resolveRuntimeVercelBlobStore(store, process.env)" : "store"
+      return `    case ${JSON.stringify(driver)}: return ${driverImport}(${storeExpression})`
+    }),
   ].filter(Boolean)
 
   return [
@@ -257,26 +275,6 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
       },
       conditions: ["workerd", "worker", "browser", "default"],
       external: [
-        "@vercel/blob",
-        "files-sdk",
-        "files-sdk/akamai",
-        "files-sdk/azure",
-        "files-sdk/box",
-        "files-sdk/digitalocean-spaces",
-        "files-sdk/dropbox",
-        "files-sdk/fs",
-        "files-sdk/gcs",
-        "files-sdk/google-drive",
-        "files-sdk/hetzner",
-        "files-sdk/minio",
-        "files-sdk/netlify-blobs",
-        "files-sdk/onedrive",
-        "files-sdk/r2",
-        "files-sdk/s3",
-        "files-sdk/storj",
-        "files-sdk/supabase",
-        "files-sdk/uploadthing",
-        "files-sdk/vercel-blob",
         "node:async_hooks",
         "virtual:@vitehub/blob/config",
       ],
@@ -295,7 +293,6 @@ function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDe
         "@vitehub/blob": artifacts.runtimeModuleFiles.vercel,
       },
       external: [
-        "@vercel/blob",
         "files-sdk",
         "files-sdk/akamai",
         "files-sdk/azure",

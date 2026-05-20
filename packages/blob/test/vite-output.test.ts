@@ -50,35 +50,36 @@ const vercelBlobMock = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock("@vercel/blob", () => ({
-  del: async (pathname: string, options: { token?: string } = {}) => {
-    await (vercelBlobMock.del as any)(pathname, { token: options.token })
-  },
-  get: async (pathname: string, options: { access?: "private" | "public", token?: string } = {}) => {
-    return await (vercelBlobMock.get as any)(pathname, {
-      access: options.access,
-      token: options.token,
-    })
-  },
-  head: async (pathname: string, options: { token?: string } = {}) => {
-    const result = await (vercelBlobMock.head as any)(pathname, { token: options.token })
-    return {
-      contentType: "text/plain",
-      etag: "\"etag\"",
-      pathname: result.pathname,
-      size: result.size,
-      uploadedAt: result.uploadedAt,
-      url: result.url,
+vi.mock("files-sdk", () => ({
+  Files: class {
+    adapter: { options?: { access?: "private" | "public", token?: string }, provider?: string }
+
+    constructor(options: { adapter?: { options?: { access?: "private" | "public", token?: string }, provider?: string } } = {}) {
+      this.adapter = options.adapter || {}
+    }
+
+    async upload(pathname: string, body: Blob | Uint8Array | string, options: { contentType?: string } = {}) {
+      const result = await (vercelBlobMock.put as any)(pathname, body, {
+        access: this.adapter.options?.access,
+        contentType: options.contentType,
+        token: this.adapter.options?.token,
+      })
+      return {
+        contentType: result.contentType,
+        key: result.pathname,
+        lastModified: result.uploadedAt,
+        size: result.size,
+      }
+    }
+
+    async url(pathname: string) {
+      return `https://blob.example/${pathname}`
     }
   },
-  list: async () => await (vercelBlobMock.list as any)(),
-  put: async (pathname: string, body: Blob | Uint8Array | string, options: { access?: "private" | "public", contentType?: string, token?: string } = {}) => {
-    return await (vercelBlobMock.put as any)(pathname, body, {
-      access: options.access,
-      contentType: options.contentType,
-      token: options.token,
-    })
-  },
+}))
+
+vi.mock("files-sdk/vercel-blob", () => ({
+  vercelBlob: (options: unknown) => ({ options, provider: "vercel-blob" }),
 }))
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -242,8 +243,11 @@ describe("Vite provider outputs", () => {
     )
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
     expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore")
-    expect(runtimeContents).toContain("createVercelDriver(resolveRuntimeVercelBlobStore(store, process.env))")
+    expect(runtimeContents).toContain("createDriver0(resolveRuntimeVercelBlobStore(store, process.env))")
+    expect(vercelServerContents).not.toContain("from \"@vercel/blob\"")
+    expect(vercelServerContents).not.toContain("from '@vercel/blob'")
   })
 
   it("selects named stores from generated runtime output", async () => {

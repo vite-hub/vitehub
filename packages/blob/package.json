@@ -25,9 +25,25 @@
   "exports": {
     ".": "./dist/index.js",
     "./config": "./dist/config.js",
+    "./drivers/akamai": "./dist/drivers/akamai.js",
+    "./drivers/azure": "./dist/drivers/azure.js",
+    "./drivers/box": "./dist/drivers/box.js",
     "./drivers/cloudflare": "./dist/drivers/cloudflare.js",
+    "./drivers/digitalocean-spaces": "./dist/drivers/digitalocean-spaces.js",
+    "./drivers/dropbox": "./dist/drivers/dropbox.js",
     "./drivers/files": "./dist/drivers/files.js",
+    "./drivers/files-sdk": "./dist/drivers/files-sdk.js",
     "./drivers/fs": "./dist/drivers/fs.js",
+    "./drivers/gcs": "./dist/drivers/gcs.js",
+    "./drivers/google-drive": "./dist/drivers/google-drive.js",
+    "./drivers/hetzner": "./dist/drivers/hetzner.js",
+    "./drivers/minio": "./dist/drivers/minio.js",
+    "./drivers/netlify-blobs": "./dist/drivers/netlify-blobs.js",
+    "./drivers/onedrive": "./dist/drivers/onedrive.js",
+    "./drivers/s3": "./dist/drivers/s3.js",
+    "./drivers/storj": "./dist/drivers/storj.js",
+    "./drivers/supabase": "./dist/drivers/supabase.js",
+    "./drivers/uploadthing": "./dist/drivers/uploadthing.js",
     "./drivers/vercel": "./dist/drivers/vercel.js",
     "./ensure": "./dist/ensure.js",
     "./nitro": "./dist/nitro.js",
@@ -60,15 +76,11 @@
     "pathe": "catalog:"
   },
   "peerDependencies": {
-    "@vercel/blob": "catalog:",
     "files-sdk": "catalog:",
     "nitro": "^3.0.0-0",
     "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
-    "@vercel/blob": {
-      "optional": true
-    },
     "files-sdk": {
       "optional": true
     },
@@ -81,7 +93,6 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "@vercel/blob": "catalog:",
     "@vitehub/internal": "workspace:*",
     "files-sdk": "catalog:",
     "nitro": "catalog:",
