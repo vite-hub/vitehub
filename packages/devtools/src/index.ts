@@ -19,6 +19,8 @@ export interface RegisteredViteHubDevtoolsPanel {
   url: string
 }
 
+const registeredPanels = new WeakMap<ViteDevToolsNodeContext, Map<string, RegisteredViteHubDevtoolsPanel>>()
+
 export function isAbsoluteHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value)
 }
@@ -37,6 +39,12 @@ export function registerViteHubDevtoolsPanel(
 
   const url = resolveViteHubDevtoolsUrl(options.route, options.url)
   const remote = isAbsoluteHttpUrl(url)
+  const registryKey = `${options.id}:${url}`
+  const ctxPanels = registeredPanels.get(ctx)
+  const registered = ctxPanels?.get(registryKey)
+  if (registered) {
+    return registered
+  }
 
   if (!remote) {
     if (!existsSync(options.distDir)) {
@@ -60,5 +68,13 @@ export function registerViteHubDevtoolsPanel(
   }
   ctx.docks.register(defineDockEntry(entry as never) as never)
 
-  return { remote, url }
+  const result = { remote, url }
+  if (ctxPanels) {
+    ctxPanels.set(registryKey, result)
+  }
+  else {
+    registeredPanels.set(ctx, new Map([[registryKey, result]]))
+  }
+
+  return result
 }

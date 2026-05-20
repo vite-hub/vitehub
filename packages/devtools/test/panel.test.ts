@@ -76,6 +76,24 @@ describe("registerViteHubDevtoolsPanel", () => {
     }))
   })
 
+  it("returns the existing registration for duplicate panels in the same context", () => {
+    const ctx = createContext()
+    const options = {
+      distDir: "/tmp/client",
+      icon: "i-lucide-message-square",
+      id: "@vitehub/test",
+      route: "/__vitehub/test/",
+      title: "ViteHub Test",
+    } as const
+
+    const first = registerViteHubDevtoolsPanel(ctx as never, options)
+    const second = registerViteHubDevtoolsPanel(ctx as never, options)
+
+    expect(second).toEqual(first)
+    expect(ctx.views.hostStatic).toHaveBeenCalledTimes(1)
+    expect(ctx.docks.register).toHaveBeenCalledTimes(1)
+  })
+
   it("hosts local static assets at a non-HTTP URL override", () => {
     const ctx = createContext()
 

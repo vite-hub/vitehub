@@ -8,6 +8,9 @@
       "#vitehub/agent/registry": [
         "packages/agent/src/runtime/empty-registry.ts"
       ],
+      "#vitehub/agent/chat/registry": [
+        "packages/agent/src/runtime/empty-registry.ts"
+      ],
       "#vitehub-sandbox-provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],
@@ -29,8 +32,11 @@
       "@vitehub/agent/*": [
         "packages/agent/src/*"
       ],
-      "@vitehub/messages": [
-        "packages/messages/src/index.ts"
+      "@vitehub/agent/chat": [
+        "packages/agent/src/chat/index.ts"
+      ],
+      "@vitehub/agent/chat/runtime/nitro-dev-initialize": [
+        "packages/agent/src/chat/runtime/nitro-dev-initialize.ts"
       ],
       "@vitehub/runtime": [
         "packages/runtime/src/index.ts"
@@ -58,6 +64,12 @@
       ],
       "@vitehub/workspace/*": [
         "packages/workspace/src/*"
+      ],
+      "@vitehub/workflow": [
+        "packages/workflow/src/index.ts"
+      ],
+      "@vitehub/workflow/runtime/state": [
+        "packages/workflow/src/runtime/state.ts"
       ],
       "virtual:vitehub-sandbox-provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"

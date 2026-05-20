@@ -1,3 +1,7 @@
+ignorePatterns = [
+  "packages/agent/devtools-client/**",
+]
+
 dynamicallyLoaded = [
   ".github/scripts/*.mjs",
   "docs/content.config.ts",
@@ -5,6 +9,7 @@ dynamicallyLoaded = [
   "packages/devtools/devtools/chat/app/app.vue",
   "packages/devtools/devtools/chat/app/assets/css/main.css",
   "packages/devtools/devtools/chat/nuxt.config.ts",
+  "packages/agent/devtools-client/**",
   "packages/kv/examples/**/nitro.config.ts",
   "packages/kv/examples/**/server/**",
   "packages/kv/test/helpers/*.ts",
@@ -31,17 +36,17 @@ dynamicallyLoaded = [
   "packages/blob/examples/**/nitro.config.ts",
   "packages/blob/examples/**/server/**",
   "packages/blob/examples/**/src/server.ts",
-  "packages/chat/examples/**/nitro.config.ts",
-  "packages/chat/examples/**/server/**",
-  "packages/chat/examples/**/src/server.ts",
-  "packages/chat/examples/**/src/**/*.chat.ts",
+  "packages/agent/examples/**/nitro.config.ts",
+  "packages/agent/examples/**/server/**",
+  "packages/agent/examples/**/src/server.ts",
+  "packages/agent/examples/**/src/**/*.chat.ts",
   "packages/agent/test/**/*.test-d.ts",
   "packages/agent/examples/**/nitro.config.ts",
   "packages/agent/examples/**/server/**",
   "packages/agent/examples/**/src/server.ts",
   "packages/agent/examples/**/src/**/*.agent.ts",
   "packages/devtools/devtools/**",
-  "packages/chat/test/**/*.test-d.ts",
+  "packages/agent/test/**/*.test-d.ts",
   "packages/sandbox/test/**/*.test-d.ts",
   "packages/unsource/test/**/*.test-d.ts",
   "packages/sandbox/examples/**/nitro.config.ts",
@@ -98,7 +103,6 @@ ignoreDependencies = [
 
 publicPackages = [
   "@vitehub/agent",
-  "@vitehub/chat",
   "@vitehub/sandbox",
   "@vitehub/workspace",
 ]
@@ -117,3 +121,7 @@ rules = { "unused-class-members" = "off" }
 [[overrides]]
 files = ["packages/workspace/src/stores/memory-fs.ts"]
 rules = { "unused-class-members" = "off" }
+
+[[overrides]]
+files = ["packages/agent/devtools-client/**"]
+rules = { "unused-files" = "off", "unresolved-imports" = "off", "circular-deps" = "off" }

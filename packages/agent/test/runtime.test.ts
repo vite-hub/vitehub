@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createMessage } from "@vitehub/messages"
+import { createMessage } from "@vitehub/agent"
 
 describe("agent message protocol", () => {
   it("converts ViteHub messages to model messages internally", async () => {
@@ -149,6 +149,55 @@ describe("agent message protocol", () => {
       { text: "generated string", type: "text-delta" },
       { type: "finish" },
     ])
+  })
+
+  it("creates a new DevTools assistant placeholder for each turn", async () => {
+    const { createDevtoolsAdapter } = await import("../src/chat/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const first = adapter.createDevtoolsMessage("first")
+
+    await adapter.startTyping(first.threadId, "thinking")
+    await adapter.postMessage(first.threadId, "first response")
+    const second = adapter.createDevtoolsMessage("second")
+    await adapter.startTyping(second.threadId, "thinking again")
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages.map(message => ({
+      loading: message.loading,
+      role: message.role,
+      text: message.text,
+    }))).toEqual([
+      { loading: undefined, role: "user", text: "first" },
+      { loading: false, role: "assistant", text: "first response" },
+      { loading: undefined, role: "user", text: "second" },
+      { loading: true, role: "assistant", text: "thinking again" },
+    ])
+  })
+
+  it("converts Nitro request-like events to Fetch Request objects", async () => {
+    const { toFetchRequest } = await import("../src/chat/nitro/handler.ts")
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("hello"))
+        controller.close()
+      },
+    })
+
+    const request = toFetchRequest({
+      req: {
+        body,
+        headers: {
+          host: "example.test",
+          "x-forwarded-proto": "https",
+        },
+        method: "POST",
+        url: "/chat",
+      },
+    } as never)
+
+    expect(request).toBeInstanceOf(Request)
+    expect(request.method).toBe("POST")
+    expect(request.url).toBe("https://example.test/chat")
+    expect(await request.text()).toBe("hello")
   })
 
   it("preserves falsy streamed tool inputs and outputs", async () => {

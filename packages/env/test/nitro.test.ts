@@ -131,11 +131,11 @@ describe("Nitro module", () => {
     expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
     expect(types).not.toContain("declare module \"nitro/types\"")
     expect(types).not.toContain("export {}")
-    expect(integrationTypes).not.toContain("import \"@vitehub/chat\"")
+    expect(integrationTypes).not.toContain("import \"@vitehub/agent/chat\"")
     expect(integrationTypes).toContain("import \"nitro/types\"")
     expect(integrationTypes).toContain("declare module \"nitro/types\"")
     expect(integrationTypes).toContain("export interface NitroRuntimeConfig")
-    expect(integrationTypes).toContain("declare module \"@vitehub/chat\"")
+    expect(integrationTypes).toContain("declare module \"@vitehub/agent/chat\"")
     expect(integrationTypes).toContain("export interface ChatRuntimeConfig")
     expect(integrationTypes).toContain("declare module \"@vitehub/agent\"")
     expect(integrationTypes).toContain("export interface AgentRuntimeConfig")
@@ -221,7 +221,7 @@ describe("Nitro module", () => {
     await typesHook?.({ tsConfig: { include: [] } })
 
     await writeFile(join(root, "stubs.d.ts"), [
-      "declare module '@vitehub/chat' {",
+      "declare module '@vitehub/agent/chat' {",
       "  export interface ChatRuntimeConfig {}",
       "  export function defineChat(config: {",
       "    adapters(context: { runtimeConfig: ChatRuntimeConfig }): Record<string, unknown>",
@@ -244,7 +244,7 @@ describe("Nitro module", () => {
     ].join("\n"), "utf8")
 
     await writeFile(join(root, "typecheck.ts"), [
-      "import { defineChat } from '@vitehub/chat'",
+      "import { defineChat } from '@vitehub/agent/chat'",
       "import { defineAgent } from '@vitehub/agent'",
       "import type { AgentAdapterMetadataContext } from '@vitehub/agent'",
       "import type { SecretEnv } from '#vitehub/env/server'",
@@ -284,12 +284,14 @@ describe("Nitro module", () => {
         allowImportingTsExtensions: true,
         baseUrl: root,
         ignoreDeprecations: "6.0",
-        module: "NodeNext",
-        moduleResolution: "NodeNext",
+        module: "ESNext",
+        moduleResolution: "Bundler",
         noEmit: true,
         skipLibCheck: true,
         strict: true,
         target: "ES2023",
+        typeRoots: [join(import.meta.dirname, "../../../node_modules/@types")],
+        types: ["node"],
       },
       files: [
         join(root, ".nitro/types/vitehub-env.d.ts"),
