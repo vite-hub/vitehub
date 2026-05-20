@@ -34,9 +34,6 @@
       ],
       "@vitehub/unsource": [
         "packages/unsource/src/index.ts"
-      ],
-      "@vitehub/unshell": [
-        "packages/unshell/src/index.ts"
       ]
     },
     "rootDir": "..",

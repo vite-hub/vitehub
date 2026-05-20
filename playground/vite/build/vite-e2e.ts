@@ -300,7 +300,7 @@ function renderWorkspaceRuntimeModule(file: string) {
   ].join("\n")
 }
 
-function renderWorkspaceUnshellRuntimeModule() {
+function renderWorkspaceShellRuntimeModule() {
   return [
     "export const workspaceMountPoint = '/workspace'",
     "export function cleanWorkspaceMutationPath(path) { return path }",
@@ -421,12 +421,11 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   if (typeof options.workspace !== "undefined") {
     const workspaceRuntimeFile = resolve(generatedDir, "workspace-runtime.mjs")
-    const workspaceUnshellRuntimeFile = resolve(generatedDir, "workspace-unshell-runtime.mjs")
+    const workspaceShellRuntimeFile = resolve(generatedDir, "workspace-shell-runtime.mjs")
     alias["@vitehub/workspace/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
     alias["@vitehub/workspace"] = workspaceRuntimeFile
-    alias["@vitehub/shell/workspace"] = workspaceUnshellRuntimeFile
-    alias["@vitehub/shell"] = workspaceUnshellRuntimeFile
-    alias["@vitehub/unshell"] = workspaceUnshellRuntimeFile
+    alias["@vitehub/shell/workspace"] = workspaceShellRuntimeFile
+    alias["@vitehub/shell"] = workspaceShellRuntimeFile
     alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
     for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
@@ -434,7 +433,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     }
     runtimeWrites.push(
       writeFile(workspaceRuntimeFile, renderWorkspaceRuntimeModule(workspaceRuntimeFile), "utf8"),
-      writeFile(workspaceUnshellRuntimeFile, renderWorkspaceUnshellRuntimeModule(), "utf8"),
+      writeFile(workspaceShellRuntimeFile, renderWorkspaceShellRuntimeModule(), "utf8"),
     )
   }
 

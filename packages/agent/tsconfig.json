@@ -56,9 +56,6 @@
       "@vitehub/unsource": [
         "packages/unsource/src/index.ts"
       ],
-      "@vitehub/unshell": [
-        "packages/unshell/src/index.ts"
-      ],
       "@vitehub/workspace": [
         "packages/workspace/src/index.ts"
       ],
