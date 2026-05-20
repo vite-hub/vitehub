@@ -1,6 +1,6 @@
 export const chatDevtoolsPanelId = "@vitehub/agent/chat"
 export const chatDevtoolsTitle = "ViteHub Chat"
-export const chatDevtoolsRoute = "/__vitehub/chat-devtools/"
+export const chatDevtoolsRoute = "/__vitehub/agent/chat-devtools/"
 export const chatDevtoolsBridgeRoute = "/__vitehub/agent/chat/devtools"
 export const chatDevtoolsGetStateRpc = "@vitehub/agent/chat:get-state"
 export const chatDevtoolsSendRpc = "@vitehub/agent/chat:send"
