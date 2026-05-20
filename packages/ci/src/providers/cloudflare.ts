@@ -8,7 +8,7 @@ import {
   normalizeCloudflareStatus,
   normalizeKnownTrigger,
 } from "../normalize.ts"
-import type { CIContext, CILogPage, CILogQuery, CIProvider, CIRun, CIRunQuery } from "../types.ts"
+import type { CIContext, CIProvider, CIRun, CIRunQuery } from "../types.ts"
 
 interface CloudflareEnvelope<T> {
   success?: boolean
@@ -37,10 +37,6 @@ interface CloudflareTriggerMetadata {
   provider_account_name?: string
   provider_type?: string
   repo_name?: string
-}
-
-interface CloudflareLatestResult {
-  builds?: CloudflareBuild[] | Record<string, CloudflareBuild>
 }
 
 interface CloudflareWorkerScript {
@@ -125,13 +121,6 @@ async function resolveCloudflareProjectIDs(
   return (envelope.result ?? [])
     .map((worker) => worker.id)
     .filter((id): id is string => typeof id === "string" && id.length > 0)
-}
-
-function readCloudflareBuilds(envelope: CloudflareEnvelope<CloudflareLatestResult>, provider: string): CloudflareBuild[] {
-  const builds = envelope.result?.builds
-  if (Array.isArray(builds)) return builds
-  if (builds && typeof builds === "object") return Object.values(builds)
-  throw new CIMalformedResponseError("Cloudflare builds response did not include builds.", { provider })
 }
 
 function compareRunsNewestFirst(a: CIRun, b: CIRun): number {

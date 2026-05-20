@@ -3,7 +3,6 @@ import { getMessageText } from "./messages.ts"
 import {
   ApprovalRequiredError,
   resolveRuntimeContext,
-  resolveRuntimeValue,
 } from "@vitehub/runtime"
 
 import {
@@ -20,7 +19,6 @@ import {
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 import {
   applyAgentToolPolicies,
-  reportWorkspaceMaterialization,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
 
@@ -53,7 +51,6 @@ import type {
   AgentToolSet,
   AgentChatAgentHooks,
   MaybePromise,
-  MaybeResolvable,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
@@ -175,13 +172,6 @@ type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
 
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
-
-async function resolveValue<T, TContext extends AgentRuntimeContext>(
-  value: MaybeResolvable<T, TContext>,
-  context: TContext,
-): Promise<T> {
-  return await resolveRuntimeValue(value, context)
-}
 
 function hasAgentMethods(value: unknown): value is AgentAdapter {
   return typeof value === "object"
@@ -638,7 +628,7 @@ function workspaceModeFromOptions<Name extends WorkspaceName>(
 
 export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
+  _Name extends WorkspaceName = WorkspaceName,
 > = AgentSettings<TRuntimeConfig> & {
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
@@ -686,86 +676,6 @@ function isWorkspaceAgentOptions(value: unknown): value is WorkspaceAgentOptions
         && (value as { workspace?: unknown }).workspace !== null))
 }
 
-function getPromptText(input: AgentRunInput) {
-  if (typeof input.prompt === "string") return input.prompt
-
-  const messages = input.messages || (Array.isArray(input.prompt) ? input.prompt : [])
-  const latestUserMessage = [...messages].reverse().find(message => message.role === "user")
-
-  if (!latestUserMessage) return ""
-  return getMessageText(latestUserMessage)
-}
-
-function createShellMetadataTool(): AgentDevtoolsToolDefinition {
-  return {
-    category: "workspace",
-    commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
-    description: "Run a workspace shell command. Use narrow paths; root-wide rg/grep searches are rejected.",
-    icon: "i-lucide-terminal",
-    name: "shell",
-    preset: "vitehub-workspace",
-    status: "available",
-  }
-}
-
-function createMaterializeMetadataTool(): AgentDevtoolsToolDefinition {
-  return {
-    category: "workspace",
-    description: "Materialize lazy workspace source files before inspection.",
-    icon: "i-lucide-database-zap",
-    name: "materialize_sources",
-    preset: "vitehub-workspace",
-    status: "available",
-  }
-}
-
-function createWorkspaceMutationTool(name: string, description: string): AgentDevtoolsToolDefinition {
-  return {
-    category: "workspace",
-    description,
-    icon: "i-lucide-file-pen-line",
-    name,
-    preset: "vitehub-workspace",
-    status: "available",
-  }
-}
-
-function createMetadataToolSet() {
-  const materialize = createMaterializeMetadataTool()
-  const shell = createShellMetadataTool()
-  const writeTools = {
-    appendFile: createWorkspaceMutationTool("appendFile", "Append text to a workspace file."),
-    copyPath: createWorkspaceMutationTool("copyPath", "Copy a workspace file or directory."),
-    deletePath: createWorkspaceMutationTool("deletePath", "Delete a workspace file or directory."),
-    makeDir: createWorkspaceMutationTool("makeDir", "Create a workspace directory."),
-    movePath: createWorkspaceMutationTool("movePath", "Move a workspace file or directory."),
-    writeFile: createWorkspaceMutationTool("writeFile", "Write a text file to the workspace."),
-  } satisfies Record<string, AgentDevtoolsToolDefinition>
-
-  return {
-    default: () => ({ materialize_sources: materialize, shell }),
-    inspect: () => ({ materialize_sources: materialize, shell }),
-    none: () => ({}),
-    readonly: () => ({ materialize_sources: materialize, shell }),
-    write: () => ({ materialize_sources: materialize, shell, ...writeTools }),
-  }
-}
-
-function toolDefinitionFromEntry(name: string, tool: unknown): AgentDevtoolsToolDefinition {
-  const description = typeof tool === "object" && tool !== null && "description" in tool && typeof (tool as { description?: unknown }).description === "string"
-    ? (tool as { description: string }).description
-    : undefined
-  return {
-    category: "workspace",
-    ...(name === "shell" ? { commands: createShellMetadataTool().commands } : {}),
-    description,
-    icon: name === "shell" ? "i-lucide-terminal" : name === "materialize_sources" ? "i-lucide-database-zap" : "i-lucide-wrench",
-    name,
-    preset: "vitehub-workspace",
-    status: "available",
-  }
-}
-
 function sourceMountPath(key: string, source: NonNullable<WorkspaceAgentWorkspaceOptions["sources"]>[string]) {
   if (typeof source.mount === "string") return source.mount
   if (typeof source.mount === "object" && typeof source.mount.path === "string") return source.mount.path
@@ -776,14 +686,6 @@ function sourceMaterialize(key: string, source: NonNullable<WorkspaceAgentWorksp
   if (typeof source.mount === "object" && source.mount.materialize) return source.mount.materialize
   if (source.materialize) return source.materialize
   return source.cache ? "lazy" : "build"
-}
-
-function hasLazyWorkspaceSources<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(options: WorkspaceAgentOptions<TRuntimeConfig, Name>) {
-  const workspace = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
-  return Object.entries(workspace.sources || {}).some(([sourceName, source]) => sourceMaterialize(sourceName, source) === "lazy")
 }
 
 function workspaceMetadataFiles<Name extends WorkspaceName>(
@@ -1160,12 +1062,6 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
   return agent
 }
 
-function getRunMessages(input: AgentRunInput): Message[] {
-  if (input.messages) return input.messages
-  if (Array.isArray(input.prompt)) return input.prompt
-  return []
-}
-
 function toAgentRunResult(value: unknown): AgentRunResult {
   if (typeof value !== "object" || value === null) {
     return { raw: value, text: typeof value === "string" ? value : undefined }
@@ -1183,10 +1079,6 @@ function toAgentRunResult(value: unknown): AgentRunResult {
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
-}
-
-function isTransportReadyResult(value: unknown): value is Response | AsyncIterable<StreamEvent> {
-  return value instanceof Response || isAsyncIterable(value)
 }
 
 function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(

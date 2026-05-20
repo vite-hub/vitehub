@@ -8,7 +8,7 @@ import { createMemoryChatStateAdapter } from "../runtime/memory-state.ts"
 import { getChatRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 import { toFetchRequest } from "./handler.ts"
 
-import type { Adapter, AdapterPostableMessage, Chat as ChatInstance, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
+import type { Adapter, Chat as ChatInstance, Message as ChatMessage, RawMessage } from "chat"
 import type { EventHandler, H3Event } from "h3"
 import type { ChatDevtoolsAdapter, ChatDevtoolsConversation, ChatDevtoolsMessage, ChatDevtoolsMetadata, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
 import type { ChatInput } from "../types.ts"
@@ -111,25 +111,6 @@ function createChatDevtoolsMessage(role: ChatDevtoolsMessage["role"], text: stri
   }
 }
 
-function renderPostableText(message: AdapterPostableMessage): string {
-  if (typeof message === "string") {
-    return message
-  }
-  if ("markdown" in message && typeof message.markdown === "string") {
-    return message.markdown
-  }
-  if ("raw" in message && typeof message.raw === "string") {
-    return message.raw
-  }
-  if ("ast" in message) {
-    return toPlainText(message.ast as FormattedContent)
-  }
-  if ("card" in message) {
-    return "[card]"
-  }
-  return JSON.stringify(message)
-}
-
 function createSdkMessage(session: ChatDevtoolsSession, text: string): ChatMessage {
   return new Message({
     id: `devtools-message-${Date.now()}`,
@@ -204,7 +185,7 @@ function createSessionDevtoolsAdapter(session: ChatDevtoolsSession, onChange?: (
   }
 }
 
-function createRuntimeContext(event: H3Event, session: ChatDevtoolsSession): NitroChatRuntimeContext {
+function createRuntimeContext(event: H3Event): NitroChatRuntimeContext {
   const runtimeConfig = getChatRuntimeConfig(event) as NitroChatRuntimeConfig
   return {
     cloudflare: getCloudflareRuntime(event, runtimeConfig),
@@ -272,7 +253,7 @@ async function resolveDevtoolsChat(event: H3Event, state: ChatDevtoolsHandlerSta
 
   const chat = resolveRegistryModule(await loader())
   const adapter = createSessionDevtoolsAdapter(session)
-  const bot = await resolveChat(chat, createRuntimeContext(event, session), {
+  const bot = await resolveChat(chat, createRuntimeContext(event), {
     adapters: { [chatDevtoolsAdapterName]: adapter },
     inferredName: session.name,
     state: session.state,

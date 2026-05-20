@@ -356,8 +356,8 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
   const tools = await applyCapabilityToolTransforms({
-    ...(context.tools || {}),
-    ...(adapterTools || {}),
+    ...context.tools,
+    ...adapterTools,
   }, [])
   const toolSet = tools || {}
   const {
@@ -374,7 +374,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   return {
     agent: new ToolLoopAgent({
       ...withRunCallbacks(settings, context),
-      ...(passthrough || {}),
+      ...passthrough,
       instructions,
       model: instrumentedModel as never,
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? stepCountIs(stepLimit ?? 20)) as never,

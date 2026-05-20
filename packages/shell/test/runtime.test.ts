@@ -90,10 +90,17 @@ class MemoryWorkspace implements WritableShellWorkspace {
       if (options?.force) return
       throw new Error(`[vitehub] Workspace path does not exist: ${path}.`)
     }
-    if (!options?.recursive && [...this.#nodes.keys()].some(key => key.startsWith(`${path}/`))) {
+    let hasChild = false
+    for (const key of this.#nodes.keys()) {
+      if (key.startsWith(`${path}/`)) {
+        hasChild = true
+        break
+      }
+    }
+    if (!options?.recursive && hasChild) {
       throw new Error(`[vitehub] Workspace directory is not empty: ${path}.`)
     }
-    for (const key of [...this.#nodes.keys()]) {
+    for (const key of this.#nodes.keys()) {
       if (key === path || key.startsWith(`${path}/`)) this.#nodes.delete(key)
     }
   }
@@ -410,8 +417,8 @@ describe("@vitehub/shell cloudflare runtime", () => {
   it("delegates to the cloudflare sandbox client", async () => {
     const sandbox = {
       exec: vi.fn(async (_command: string, _args?: string[], options?: Record<string, unknown>) => {
-        options?.onStdout && (options.onStdout as (data: string) => void)("out")
-        options?.onStderr && (options.onStderr as (data: string) => void)("err")
+        if (options?.onStdout) (options.onStdout as (data: string) => void)("out")
+        if (options?.onStderr) (options.onStderr as (data: string) => void)("err")
         return {
           exitCode: 0,
           ok: true,

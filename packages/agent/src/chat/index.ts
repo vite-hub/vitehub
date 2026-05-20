@@ -392,7 +392,7 @@ function resolveChatHooks<
 >(
   options: DefineChatOptions<TRuntimeConfig, TWorkflow>,
 ): ChatEventHooks<TRuntimeConfig, TWorkflow> {
-  const resolved = { ...(options.hooks || {}) } as Record<string, unknown>
+  const resolved = { ...options.hooks } as Record<string, unknown>
 
   for (const name of chatHookNames) {
     const hook = options[name]

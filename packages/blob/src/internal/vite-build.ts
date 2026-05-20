@@ -178,14 +178,12 @@ function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobM
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
   }
 
-  const createDriverCases = [
-    ...Object.entries(driverModules).map(([driver, driverModule]) => {
+  const createDriverCases = Object.entries(driverModules).map(([driver, driverModule]) => {
       const driverImport = driverImports[driverModule]
       if (!driverImport) return undefined
       const storeExpression = driver === "vercel-blob" ? "resolveRuntimeVercelBlobStore(store, process.env)" : "store"
       return `    case ${JSON.stringify(driver)}: return ${driverImport}(${storeExpression})`
-    }),
-  ].filter(Boolean)
+    }).filter(Boolean)
 
   return [
     ...imports,

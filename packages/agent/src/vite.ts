@@ -4,7 +4,7 @@ import { chatDevTools } from "./chat/devtools.ts"
 import agentNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
-import type { Plugin, UserConfig } from "vite"
+import type { Plugin } from "vite"
 import type { ChatDevToolsOptions, ChatDevToolsPlugin } from "./chat/devtools.ts"
 import type { AgentModuleOptions } from "./types.ts"
 

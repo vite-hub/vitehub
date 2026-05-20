@@ -94,10 +94,14 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       if (options.force) return
       throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
     }
-    if (node.type === "directory" && !options.recursive && [...this.#nodes.keys()].some(key => key.startsWith(`${normalized}/`))) {
-      throw new WorkspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
+    if (node.type === "directory" && !options.recursive) {
+      for (const key of this.#nodes.keys()) {
+        if (key.startsWith(`${normalized}/`)) {
+          throw new WorkspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
+        }
+      }
     }
-    for (const key of [...this.#nodes.keys()]) {
+    for (const key of this.#nodes.keys()) {
       if (key === normalized || key.startsWith(`${normalized}/`)) this.#nodes.delete(key)
     }
   }

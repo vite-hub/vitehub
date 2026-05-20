@@ -723,9 +723,6 @@ async function writeChatDevtoolsStream(
 
 export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlugin {
   const route = options.route || chatDevtoolsBridgeRoute
-  const devtoolsUrl = options.devtools && typeof options.devtools === "object"
-    ? options.devtools.url
-    : process.env[chatDevtoolsUrlEnv]
 
   const nitroModule: NitroModule = {
     name: "@vitehub/agent/chat/devtools",

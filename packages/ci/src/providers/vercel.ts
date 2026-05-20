@@ -8,7 +8,7 @@ import {
   normalizeVercelOutcome,
   normalizeVercelStatus,
 } from "../normalize.ts"
-import type { CIContext, CILogPage, CILogQuery, CIProvider, CIRun, CIRunQuery } from "../types.ts"
+import type { CIContext, CIProvider, CIRun } from "../types.ts"
 
 interface VercelDeployment {
   uid?: string

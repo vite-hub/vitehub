@@ -90,7 +90,7 @@ describe("agent capability runtime", () => {
           },
           resolve(context) {
             context.tools.add({ original: { name: "original" } })
-            context.tools.transform(tools => ({ ...(tools || {}), added: { name: "added" } }))
+            context.tools.transform(tools => ({ ...tools, added: { name: "added" } }))
           },
         }),
       ],

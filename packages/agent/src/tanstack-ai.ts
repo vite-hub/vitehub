@@ -15,7 +15,6 @@ import type {
   AgentRuntimeConfig,
   AgentToolSet,
   AgentToolResolverWithWorkspace,
-  MaybePromise,
 } from "./types.ts"
 import type { Message } from "./messages.ts"
 import type { WorkspaceName } from "@vitehub/workspace"
@@ -113,7 +112,7 @@ async function createChatOptions(options: TanStackAiAdapterOptions, context: Age
   } = options
   return {
     ...rest,
-    ...(passthrough || {}),
+    ...passthrough,
     adapter,
     agentLoopStrategy: options.agentLoopStrategy,
     messages: context.messages.length ? toTanStackAiMessages(context.messages) : context.prompt ? [{ content: context.prompt, role: "user" as const }] : [],

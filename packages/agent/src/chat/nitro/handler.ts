@@ -190,45 +190,27 @@ export function defineChatWebhookHandler(
       waitUntil,
     }
 
-    let caughtError: unknown
     try {
-      try {
-        try {
-          await hooks.callHook("request", context)
-          const bot = await resolveChat(chat, context, { inferredName: options.inferredName })
-          await hooks.callHook("resolved", { ...context, bot })
+      await hooks.callHook("request", context)
+      const bot = await resolveChat(chat, context, { inferredName: options.inferredName })
+      await hooks.callHook("resolved", { ...context, bot })
 
-          const handler = getChatWebhook(bot, platform)
-          if (!handler) {
-            throw createError({
-              statusCode: 404,
-              statusMessage: `Unknown chat platform: ${platform}`,
-            })
-          }
+      const handler = getChatWebhook(bot, platform)
+      if (!handler) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: `Unknown chat platform: ${platform}`,
+        })
+      }
 
-          await hooks.callHook("webhook", { ...context, bot })
-          return await handler(context.request!, { waitUntil })
-        }
-        catch (error) {
-          caughtError = error
-          throw error
-        }
+      await hooks.callHook("webhook", { ...context, bot })
+      const response = await handler(context.request!, { waitUntil })
+      if (processing === "inline") {
+        await flushWaitUntilTasks(pendingTasks)
       }
-      finally {
-        if (processing === "inline") {
-          try {
-            await flushWaitUntilTasks(pendingTasks)
-          }
-          catch (error) {
-            if (!caughtError) {
-              throw error
-            }
-          }
-        }
-      }
+      return response
     }
     catch (error) {
-      caughtError = error
       try {
         await hooks.callHook("error", error, context)
       }

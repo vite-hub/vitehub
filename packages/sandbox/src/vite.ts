@@ -31,7 +31,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
         return result
       }
       return {
-        ...(result || {}),
+        ...result,
         resolve: {
           ...(typeof result === 'object' && result && 'resolve' in result ? result.resolve : {}),
           noExternal: mergeNoExternal(config.resolve?.noExternal),
