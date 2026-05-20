@@ -42,7 +42,8 @@ Install the packages that own the chat flow:
 
 ::code-tree-intersection{default}
 ```bash [Terminal]
-pnpm add @vitehub/chat @vitehub/agent @vitehub/workspace @vitehub/messages ai
+pnpm add @vitehub/agent @vitehub/workspace ai
+pnpm add -D @vitejs/devtools
 ```
 ::
 
@@ -52,7 +53,7 @@ Register the integration so ViteHub discovers `server/chat.ts` and your agents. 
 ::code-tree-intersection
 ```ts [vite.config.ts]
 import { hubAgent } from '@vitehub/agent/vite'
-import { hubChat } from '@vitehub/chat/vite'
+import { hubChat } from '@vitehub/agent/chat/vite'
 import { hubWorkspace } from '@vitehub/workspace/vite'
 import { DevTools } from '@vitejs/devtools'
 import { nitro } from 'nitro/vite'
@@ -82,7 +83,7 @@ export default defineNitroConfig({
   modules: [
     '@vitehub/workspace/nitro',
     '@vitehub/agent/nitro',
-    '@vitehub/chat/nitro',
+    '@vitehub/agent/chat/nitro',
   ],
 })
 ```
@@ -97,16 +98,15 @@ The fastest way to feel the loop is to skip the model entirely. Create `server/c
 
 ::code-tree-intersection
 ```ts [server/chat.ts]
-import { defineChat } from '@vitehub/chat'
-import { createDevtoolsAdapter } from '@vitehub/chat/devtools'
-import { createMemoryChatStateAdapter } from '@vitehub/chat/runtime/memory-state'
-import { getMessageText } from '@vitehub/messages'
+import { defineChat } from '@vitehub/agent/chat'
+import { createMemoryChatStateAdapter } from '@vitehub/agent/chat/runtime/memory-state'
+import { getMessageText } from '@vitehub/agent'
+
+const adapters = {}
 
 export default defineChat({
   userName: 'Support Bot',
-  adapters: {
-    devtools: createDevtoolsAdapter(),
-  },
+  adapters,
   state: createMemoryChatStateAdapter(),
   onDirectMessage: async ({ message, thread }) => {
     const text = getMessageText(message)
@@ -116,18 +116,18 @@ export default defineChat({
 ```
 ::
 
-No model. No sources. No provider keys. Just a thread that posts a string. ViteHub still runs the full pipeline—routing, state, devtools instrumentation—around this dummy reply.
+No model. No sources. No provider keys. Just a thread that posts a string. ViteHub still runs the full pipeline around this dummy reply.
 
-## Step 2 — Inspect with DevTools
+## Step 2 — Send a message
 
-You don't need a Telegram bot token or a Slack workspace to try this. ViteHub Chat ships a DevTools panel that talks to the same `server/chat.ts` your real provider will eventually hit.
+Send a direct message through your configured adapter. The same `server/chat.ts` will handle real provider events once you attach one.
 
 ::fw{id="vite:dev vite:build"}
 Vite picks up the panel through the `DevTools()` plugin you registered above. Start the dev server.
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Nitro mounts the panel automatically when `@vitehub/chat/nitro` is registered. Run the dev server and open the URL it prints.
+Nitro mounts the chat webhook automatically when `@vitehub/agent/chat/nitro` is registered. Run the dev server and open the URL it prints.
 ::
 
 ::code-tree-intersection
@@ -162,15 +162,14 @@ ViteHub discovers this file as the `support/chat` agent. Now hand the chat over 
 
 ::code-tree-intersection
 ```ts [server/chat.ts]
-import { defineChat } from '@vitehub/chat'
-import { createDevtoolsAdapter } from '@vitehub/chat/devtools'
-import { createMemoryChatStateAdapter } from '@vitehub/chat/runtime/memory-state'
+import { defineChat } from '@vitehub/agent/chat'
+import { createMemoryChatStateAdapter } from '@vitehub/agent/chat/runtime/memory-state'
+
+const adapters = {}
 
 export default defineChat({
   userName: 'Support Bot',
-  adapters: {
-    devtools: createDevtoolsAdapter(),
-  },
+  adapters,
   state: createMemoryChatStateAdapter(),
   agent: {
     name: 'support/chat',
@@ -245,7 +244,6 @@ The same `server/chat.ts` and `server/agents/support/chat/config.ts` ship to eve
   title: Cloudflare
   description: Run Chat webhooks on Workers and persist threads with Durable Objects.
   icon: i-simple-icons-cloudflare
-  to: ../chat/providers/cloudflare
   ---
   :::
   :::u-page-card
@@ -253,7 +251,6 @@ The same `server/chat.ts` and `server/agents/support/chat/config.ts` ship to eve
   title: Vercel
   description: Run the same Chat definition through Vercel Functions with one config switch.
   icon: i-simple-icons-vercel
-  to: ../chat/providers/vercel
   ---
   :::
   :::u-page-card
@@ -289,8 +286,5 @@ The provider, the model, and the runtime are interchangeable. The thing that mak
 
 Resources:
 
-- [Chat overview](../chat)
 - [Agent overview](../agent)
 - [Workspace overview](../workspace)
-- [Chat on Cloudflare](../chat/providers/cloudflare)
-- [Chat on Vercel](../chat/providers/vercel)

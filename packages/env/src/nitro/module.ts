@@ -85,7 +85,7 @@ function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
     "  }",
     "}",
     "",
-    "declare module \"@vitehub/chat\" {",
+    "declare module \"@vitehub/agent/chat\" {",
     "  export interface ChatRuntimeConfig {",
     ...fields,
     "  }",

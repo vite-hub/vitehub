@@ -1,5 +1,5 @@
 import { H3, readBody } from "h3"
-import { createMessage } from "@vitehub/messages"
+import { createMessage } from "@vitehub/agent"
 import { runAgent } from "@vitehub/agent"
 import supportAgent from "./support.agent"
 

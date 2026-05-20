@@ -122,7 +122,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.chat) {
-    const { hubChat } = await import("@vitehub/chat/vite")
+    const { hubChat } = await import("@vitehub/agent/chat/vite")
     return {
       ...baseConfig,
       chat: {

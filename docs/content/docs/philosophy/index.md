@@ -51,7 +51,7 @@ HTTP routes, webhooks, and queue consumers follow the same rule: validate input,
 
 ## State stays portable
 
-`@vitehub/messages` is the message and stream-event format shared by Chat and Agent. Persist it as structured data. Convert provider-specific objects at the edge.
+Agent owns the message and stream-event format shared by chat-oriented Agent behavior. Persist it as structured data. Convert provider-specific objects at the edge.
 
 Portable state should avoid runtime-only values, provider SDK objects, functions, symbols, `undefined`, and un-serialized dates.
 

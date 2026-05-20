@@ -138,19 +138,6 @@ describe("showcase examples", () => {
     expect(agent?.frameworks.nuxt).toBeFalsy();
   });
 
-  it("loads a runnable Chat Nitro showcase definition", () => {
-    const chat = getShowcaseExamples().find(example => example.docsPath === "chat");
-    expect(chat).toBeTruthy();
-
-    expect(getShowcasePhasePaths(chat!, "nitro", "dev")).toEqual({
-      configure: "vite.config.ts",
-      define: "server/agents/triage.ts",
-    });
-    const defineFile = getShowcaseFiles(chat!, "nitro", "dev").find(file => file.path === "server/agents/triage.ts");
-    expect(defineFile?.code).toContain("createDevtoolsAdapter");
-    expect(defineFile?.code).toContain("createMemoryChatStateAdapter");
-  });
-
   it("returns queue phase paths for supported frameworks", () => {
     const queue = getShowcaseExamples().find(example => example.docsPath === "queue");
     expect(queue).toBeTruthy();

@@ -13,7 +13,6 @@
     "@vercel/sandbox": "catalog:",
     "@vitehub/agent": "workspace:*",
     "@vitehub/blob": "workspace:*",
-    "@vitehub/chat": "workspace:*",
     "@vitehub/env": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
