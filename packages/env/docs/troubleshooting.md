@@ -1,13 +1,13 @@
 ---
 title: Env troubleshooting
-description: Fix missing env values, invalid schemas, generated type issues, and runtime config mismatches.
+description: Fix missing env values, invalid schemas, generated type issues, and Runtime Env mismatches.
 navigation.title: Troubleshooting
 navigation.order: 100
 icon: i-lucide-circle-alert
 frameworks: [vite, nitro]
 ---
 
-Use this page when Env declarations are present but generated config or validation is not behaving as expected.
+Use this page when Env declarations are present but generated Env access or validation is not behaving as expected.
 
 ## A required value is missing
 
@@ -44,7 +44,7 @@ env: {
 
 ## Generated Vite types are missing
 
-Symptom: TypeScript cannot find `virtual:@vitehub/env/build`.
+Symptom: TypeScript cannot find `#vitehub/env/public`.
 
 Cause: Vite has not run `configResolved` yet, so `.vitehub/env/vite.d.ts` has not been written.
 
@@ -52,7 +52,7 @@ Fix: start the dev server or run a Vite build once. Confirm the project includes
 
 ## Generated Nitro types are missing
 
-Symptom: TypeScript cannot find `#vitehub/env/server` or the generated runtime config fields.
+Symptom: TypeScript cannot find `#vitehub/env/server` or the generated Server Env fields.
 
 Cause: Nitro type generation has not run.
 

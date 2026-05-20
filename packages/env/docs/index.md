@@ -66,15 +66,15 @@ Environment values have different safety rules depending on when and where they 
   :::card
   ---
   icon: i-lucide-file-code-2
-  title: Build config
+  title: Public Env
   ---
-  Expose public Vite build values through `virtual:@vitehub/env/build`.
+  Expose browser-safe values through `#vitehub/env/public`.
   :::
 
   :::card
   ---
   icon: i-lucide-server
-  title: Runtime config
+  title: Server Env
   ---
   Resolve Nitro server values through `#vitehub/env/server`.
   :::
@@ -91,11 +91,11 @@ Environment values have different safety rules depending on when and where they 
 ## Two configuration paths
 
 ::fw{id="vite:dev vite:build"}
-Vite handles build-time values. Use `env.public` for values read from `virtual:@vitehub/env/build`, and `env.define` for compile-time replacements.
+Vite handles build-time values. Use `env.public` for values read from `#vitehub/env/public`, and `env.define` for compile-time replacements.
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Nitro handles server runtime values. Use nested `env` declarations, then read the resolved object with `useSafeRuntimeConfig()`.
+Nitro handles server Runtime Env values. Use nested `env` declarations, then read the resolved object with `useServerEnv()`.
 ::
 
 ## Source model
@@ -134,7 +134,7 @@ Start with [Quickstart](./quickstart) for a Vite public build value and a Nitro 
   :::u-page-card
   ---
   title: Runtime API
-  description: Review exports, declaration shapes, virtual modules, and runtime helpers.
+  description: Review exports, declaration shapes, generated import paths, and runtime helpers.
   to: ./runtime-api
   ---
   :::

@@ -139,8 +139,5 @@ export interface EnvRuntimeRegistry {
   [key: string]: EnvRuntimeRegistryValue
 }
 
-export type SafeRuntimeConfig = Record<string, unknown>
-
-export interface SafeBuildConfig {
-  public: Record<string, unknown>
-}
+export type ServerEnv = Record<string, unknown>
+export type PublicEnv = Record<string, unknown>

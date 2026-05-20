@@ -19,6 +19,6 @@ export type {
   EnvVariableOptions,
   EnvViteConfigOptions,
   EnvViteUserConfig,
-  SafeBuildConfig,
-  SafeRuntimeConfig,
+  PublicEnv,
+  ServerEnv,
 } from "./types.ts"

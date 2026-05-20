@@ -113,7 +113,7 @@ describe("Nitro module", () => {
     await typesHook?.({ tsConfig })
     const types = await readFile(join(root, ".nitro/types/vitehub-env.d.ts"), "utf8")
     const integrationTypes = await readFile(join(root, ".nitro/types/vitehub-env-integrations.d.ts"), "utf8")
-    expect(types).toContain("export interface SafeRuntimeConfig")
+    expect(types).toContain("export interface ServerEnv")
     expect(types).toContain("\"databaseUrl\": string")
     expect(types).toContain("\"optionalApiBase\": string | undefined")
     expect(types).toContain("\"public\": {")
@@ -126,9 +126,9 @@ describe("Nitro module", () => {
     expect(types).toContain("\"optionalBotToken\": SecretEnv<string> | undefined")
     expect(types).toContain("\"vertex\": {")
     expect(types).toContain("\"model\": string")
-    expect(types).toContain("export type RuntimeEnvConfig = SafeRuntimeConfig")
-    expect(types).toContain("export type ViteHubEnvConfig = SafeRuntimeConfig")
-    expect(types).toContain("useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig")
+    expect(types).toContain("useServerEnv(event?: unknown): ServerEnv")
+    expect(types).not.toContain("RuntimeEnv")
+    expect(types).not.toContain("useRuntimeEnv")
     expect(types).not.toContain("declare module \"nitro/types\"")
     expect(types).not.toContain("export {}")
     expect(integrationTypes).not.toContain("import \"@vitehub/agent/chat\"")
@@ -196,7 +196,7 @@ describe("Nitro module", () => {
     })
   })
 
-  it("types defineChat and workspace defineAgent runtime config from generated env declarations", async () => {
+  it("types defineChat and workspace defineAgent runtimeConfig from generated Server Env declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-chat-types-"))
     const nitro: NitroStub = {
       hooks: { hook: vi.fn() },
@@ -284,8 +284,8 @@ describe("Nitro module", () => {
         allowImportingTsExtensions: true,
         baseUrl: root,
         ignoreDeprecations: "6.0",
-        module: "ESNext",
-        moduleResolution: "Bundler",
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
         noEmit: true,
         skipLibCheck: true,
         strict: true,
@@ -307,7 +307,7 @@ describe("Nitro module", () => {
     })
   }, 60_000)
 
-  it("exports generated runtime config types for application code", async () => {
+  it("exports generated Server Env types for application code", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-runtime-types-"))
     const nitro: NitroStub = {
       hooks: { hook: vi.fn() },
@@ -333,10 +333,10 @@ describe("Nitro module", () => {
     await typesHook?.({ tsConfig: { include: [] } })
 
     await writeFile(join(root, "typecheck.ts"), [
-      "import { useSafeRuntimeConfig } from '#vitehub/env/server'",
-      "import type { RuntimeEnvConfig, SafeRuntimeConfig, SecretEnv, ViteHubEnvConfig } from '#vitehub/env/server'",
+      "import { useServerEnv } from '#vitehub/env/server'",
+      "import type { SecretEnv, ServerEnv } from '#vitehub/env/server'",
       "",
-      "function createAgent(config: RuntimeEnvConfig) {",
+      "function createAgent(config: ServerEnv) {",
       "  const apiKey: SecretEnv = config.vertex.apiKey",
       "  const unsealedApiKey: string = config.vertex.apiKey.unseal()",
       "  const model: string = config.vertex.model",
@@ -345,7 +345,7 @@ describe("Nitro module", () => {
       "  void model",
       "}",
       "",
-      "function createTelegramAdapter(config: ViteHubEnvConfig) {",
+      "function createTelegramAdapter(config: ServerEnv) {",
       "  const apiBaseUrl: string | undefined = config.telegram.apiBaseUrl",
       "  const botToken: SecretEnv = config.telegram.botToken",
       "  const unsealedBotToken: string = config.telegram.botToken.unseal()",
@@ -354,7 +354,7 @@ describe("Nitro module", () => {
       "  void unsealedBotToken",
       "}",
       "",
-      "const config: SafeRuntimeConfig = useSafeRuntimeConfig()",
+      "const config: ServerEnv = useServerEnv()",
       "createAgent(config)",
       "createTelegramAdapter(config)",
       "",
@@ -431,8 +431,8 @@ describe("Nitro module", () => {
     )
   })
 
-  it("resolves nested runtime config objects", async () => {
-    const { applyEnvRegistryToRuntimeConfig, setEnvRegistry, useSafeRuntimeConfig } = await import("../src/runtime/server.ts")
+  it("resolves nested Server Env objects through the Nitro runtime config transport", async () => {
+    const { applyRuntimeEnvToRuntimeConfig, setEnvRegistry, useServerEnv } = await import("../src/runtime/server.ts")
     process.env.PUBLIC_API_BASE = "https://api.example.com"
     process.env.TELEGRAM_BOT_TOKEN = "telegram-secret"
 
@@ -477,7 +477,7 @@ describe("Nitro module", () => {
       },
     })
 
-    const config = useSafeRuntimeConfig(undefined) as {
+    const config = useServerEnv(undefined) as {
       public: { apiBase: string }
       teams: { appType: "SingleTenant" }
       telegram: { apiBaseUrl?: string, botToken: { unseal: () => string }, optionalBotToken?: { unseal: () => string } }
@@ -496,7 +496,7 @@ describe("Nitro module", () => {
     expect(config.vertex.model).toBe("gemini-3.1-pro-preview-customtools")
 
     const runtimeConfig = { chat: { enabled: true }, public: { existing: "keep" } } as Record<string, unknown>
-    applyEnvRegistryToRuntimeConfig(runtimeConfig)
+    applyRuntimeEnvToRuntimeConfig(runtimeConfig)
     expect(runtimeConfig).toMatchObject({
       chat: { enabled: true },
       public: { apiBase: "https://api.example.com", existing: "keep" },
@@ -508,8 +508,8 @@ describe("Nitro module", () => {
     expect((runtimeConfig.telegram as { optionalBotToken?: unknown }).optionalBotToken).toBeUndefined()
   })
 
-  it("throws when required runtime config values are missing", async () => {
-    const { applyEnvRegistryToRuntimeConfig, setEnvRegistry } = await import("../src/runtime/server.ts")
+  it("throws when required Server Env values are missing", async () => {
+    const { applyRuntimeEnvToRuntimeConfig, setEnvRegistry } = await import("../src/runtime/server.ts")
 
     setEnvRegistry({
       telegram: {
@@ -521,11 +521,11 @@ describe("Nitro module", () => {
       },
     })
 
-    expect(() => applyEnvRegistryToRuntimeConfig({})).toThrow("Missing runtime env value env.telegram.botToken")
+    expect(() => applyRuntimeEnvToRuntimeConfig({})).toThrow("Missing runtime env value env.telegram.botToken")
   })
 
   it("validates serialized runtime registry defaults", async () => {
-    const { applyEnvRegistryToRuntimeConfig, setEnvRegistry } = await import("../src/runtime/server.ts")
+    const { applyRuntimeEnvToRuntimeConfig, setEnvRegistry } = await import("../src/runtime/server.ts")
 
     setEnvRegistry({
       vertex: {
@@ -539,7 +539,7 @@ describe("Nitro module", () => {
       },
     })
 
-    expect(() => applyEnvRegistryToRuntimeConfig({})).toThrow("Invalid env.vertex.model: Expected string")
+    expect(() => applyRuntimeEnvToRuntimeConfig({})).toThrow("Invalid env.vertex.model: Expected string")
   })
 
   it("rejects custom Nitro runtime schemas because generated registries cannot preserve them", async () => {

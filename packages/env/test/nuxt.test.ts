@@ -277,7 +277,7 @@ describe("Nuxt module", () => {
     )
   })
 
-  it("registers useSafeRuntimeConfig as a server import", async () => {
+  it("registers useServerEnv as a server import", async () => {
     const module = (await import("../src/nuxt/module.ts")).default as (
       inlineOptions: unknown,
       nuxt: unknown,
@@ -288,7 +288,7 @@ describe("Nuxt module", () => {
 
     expect(addServerImports).toHaveBeenCalledWith({
       from: "#vitehub/env/server",
-      name: "useSafeRuntimeConfig",
+      name: "useServerEnv",
     })
   })
 })

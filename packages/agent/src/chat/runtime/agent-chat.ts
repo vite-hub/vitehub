@@ -55,16 +55,16 @@ function runtimeContext<TRuntimeConfig extends ChatRuntimeConfig>(options: Pick<
     : getCloudflareEnvFromEvent(getWorkflowRuntimeEvent())
   const event = hasRuntimeEnvValues(env) ? { env } : undefined
   const runtimeConfig = (useRuntimeConfig as unknown as (event?: unknown) => Record<string, unknown>)(event)
-  const applyEnvRuntimeConfig = (globalThis as {
-    __vitehubApplyEnvRuntimeConfig?: (runtimeConfig: Record<string, unknown>, event?: unknown) => Record<string, unknown>
-  }).__vitehubApplyEnvRuntimeConfig
+  const applyRuntimeEnv = (globalThis as {
+    __vitehubApplyRuntimeEnvToRuntimeConfig?: (runtimeConfig: Record<string, unknown>, event?: unknown) => Record<string, unknown>
+  }).__vitehubApplyRuntimeEnvToRuntimeConfig
 
   return {
     cloudflare: cloudflare || { env: env || {} },
     dev: options.dev,
     memo: createMemo(),
     runtime: "nitro",
-    runtimeConfig: (applyEnvRuntimeConfig?.(runtimeConfig, event) || runtimeConfig) as TRuntimeConfig,
+    runtimeConfig: (applyRuntimeEnv?.(runtimeConfig, event) || runtimeConfig) as TRuntimeConfig,
     waitUntil: () => {},
   } as ResolvedChatRuntimeContext<TRuntimeConfig>
 }

@@ -1,7 +1,7 @@
-import { useSafeRuntimeConfig } from '#vitehub/env/server'
+import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler((event) => {
-  const config = useSafeRuntimeConfig(event)
+  const config = useServerEnv(event)
 
   return {
     appName: config.app.name,
