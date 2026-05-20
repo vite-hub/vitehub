@@ -14,6 +14,7 @@ import { defineWorkspace, loader, publish, registerWorkspace, useWorkspace } fro
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { useRegisteredWorkspace } from "../src/registry.ts"
 import * as source from "../src/source.ts"
+import { createLocalWorkspaceStore } from "../src/stores/local.ts"
 import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
 import type { Workspace, WorkspaceDefinition } from "../src/types.ts"
 
@@ -546,6 +547,26 @@ describe("sources, loaders, and publishers", () => {
       sources: {},
     }, store)
     await expect(store.list("", { recursive: true })).resolves.toEqual([])
+  })
+
+  it("purges stale local build source files after store restarts", async () => {
+    const root = await createRoot()
+    const storeRoot = join(root, ".vitehub", "workspaces", "docs")
+    const docsSource = source.file({ content: "# Docs\n", path: "README.md", workspacePath: "README.md", mount: "docs" })
+    const definition: WorkspaceDefinition = {
+      name: "stale-local-build-sources",
+      sources: { docs: docsSource },
+    }
+
+    await syncWorkspaceDefinition(definition, createLocalWorkspaceStore(storeRoot))
+    await expect(createLocalWorkspaceStore(storeRoot).readFile("docs/README.md")).resolves.toMatchObject({ path: "docs/README.md" })
+
+    await syncWorkspaceDefinition({
+      name: "stale-local-build-sources",
+      sources: {},
+    }, createLocalWorkspaceStore(storeRoot))
+
+    await expect(createLocalWorkspaceStore(storeRoot).readFile("docs/README.md")).resolves.toBeUndefined()
   })
 
   it("filters synced explicit workspace assets by configured assets", async () => {
