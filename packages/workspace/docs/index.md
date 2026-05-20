@@ -42,7 +42,7 @@ import * as workspaceSource from '@vitehub/workspace/source'
 export default defineWorkspace({
   sources: {
     docs: workspaceSource.glob({
-      cwd: process.cwd(),
+      cwd: '.',
       include: ['README.md', 'docs/**/*.md'],
     }),
     instructions: source.file({
@@ -56,6 +56,7 @@ export default defineWorkspace({
 In Nitro, place the same definition at `server/workspaces/docs.ts`.
 Source entries are named origins. The source key becomes the default workspace mount path, so the example above exposes files at `docs/**` and `instructions/**`.
 For inline files, use `workspacePath` and `content`. For file-backed sources, use `path` for the source file and `workspacePath` for its path inside the mounted source.
+Directory workspaces and colocated agent workspaces do not ingest sibling files automatically; declare every file origin through `sources`.
 
 Workspace rules are path-scoped write policy, similar in shape to Nitro route rules:
 
@@ -213,7 +214,7 @@ The agent never receives a real filesystem mount. It only sees workspace tools s
 
 Source-backed paths are read-only in this release. Write generated or editable files to normal workspace paths such as `artifacts/**` or `generated/**`.
 
-Nitro supports both flat workspace files like `server/workspaces/docs.ts` and directory workspaces like `server/workspaces/docs/config.ts`. Duplicate workspace names across those shapes are invalid.
+Nitro supports both flat workspace files like `server/workspaces/docs.ts` and directory workspaces like `server/workspaces/docs/config.ts`. Agents can also declare colocated workspaces through `server/agents/docs/config.ts`, but sibling files still require explicit Sources. Duplicate workspace names across those shapes are invalid.
 
 ## Hosted Providers
 

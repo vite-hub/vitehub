@@ -1,16 +1,18 @@
 import { glob as tinyglobby } from "tinyglobby"
 
 import { UnsourceError } from "../core/errors.ts"
-import { matchesAny, normalizeSourcePath } from "../core/path.ts"
+import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceContext, SourceItem } from "../core/types.ts"
 
 export interface GlobSourceOptions {
   cwd?: string
+  dot?: boolean
+  followSymlinks?: boolean
   include: string | string[]
-  exclude?: string | string[]
+  ignore?: string | string[]
   keyCache?: boolean
-  root?: string
+  prefix?: string
 }
 
 export function glob<const TKey extends string = string>(options: GlobSourceOptions): Source<TKey> {
@@ -18,22 +20,22 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
   let latest: { key: string, keys: TKey[] } | undefined
 
   async function getContextKey(ctx: SourceContext) {
-    const { resolve } = await import("node:path")
-    return resolve(ctx.rootDir, options.cwd || ".")
+    return resolveCwd(ctx.rootDir, options.cwd)
   }
 
   async function loadKeys(ctx: SourceContext) {
-    const { resolve } = await import("node:path")
-    const cwd = resolve(ctx.rootDir, options.cwd || ".")
+    const cwd = await resolveCwd(ctx.rootDir, options.cwd)
+    const ignore = normalizePatterns(options.ignore)
     const files = await tinyglobby(options.include, {
       cwd,
-      dot: true,
-      ignore: ["**/.git/**", "**/node_modules/**", ...(Array.isArray(options.exclude) ? options.exclude : options.exclude ? [options.exclude] : [])],
+      dot: options.dot ?? false,
+      followSymbolicLinks: options.followSymlinks ?? false,
+      ignore: ["**/.git/**", "**/node_modules/**", ...ignore],
       onlyFiles: true,
     })
     return files
       .map(file => normalizeSourcePath(file))
-      .filter(file => matchesAny(file, options.include) && !(options.exclude && matchesAny(file, options.exclude)))
+      .filter(file => matchesAny(file, options.include) && !matchesAny(file, ignore))
       .sort((left, right) => left.localeCompare(right)) as TKey[]
   }
 
@@ -82,7 +84,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       await assertKey(key, ctx)
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
-      const cwd = resolve(ctx.rootDir, options.cwd || ".")
+      const cwd = await resolveCwd(ctx.rootDir, options.cwd)
       const info = await stat(resolve(cwd, key))
       return {
         digest: `${info.size}:${info.mtimeMs}`,
@@ -92,17 +94,32 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       await assertKey(key, ctx)
       const { readFile, stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
-      const cwd = resolve(ctx.rootDir, options.cwd || ".")
-      const root = normalizeSourcePath(options.root || "")
+      const cwd = await resolveCwd(ctx.rootDir, options.cwd)
+      const prefix = normalizeSafeSourcePath(options.prefix || "", { allowEmpty: true })
       const bytes = await readFile(resolve(cwd, key))
       const info = await stat(resolve(cwd, key))
       return {
         key,
-        path: normalizeSourcePath(root ? `${root}/${key}` : key),
+        path: normalizeSourcePath(prefix ? `${prefix}/${key}` : key),
         content: new Uint8Array(bytes),
         metadata: { mtime: info.mtimeMs },
       }
     },
   }
   return source
+}
+
+function normalizePatterns(patterns: string | string[] | undefined): string[] {
+  return Array.isArray(patterns) ? patterns : patterns ? [patterns] : []
+}
+
+async function resolveCwd(rootDir: string, cwd = "."): Promise<string> {
+  const { isAbsolute, relative, resolve, sep } = await import("node:path")
+  const resolvedRoot = resolve(rootDir)
+  const resolvedCwd = isAbsolute(cwd) ? resolve(cwd) : resolve(resolvedRoot, cwd)
+  const rel = relative(resolvedRoot, resolvedCwd)
+  if (rel.startsWith("..") || rel === ".." || rel.includes(`..${sep}`)) {
+    throw new UnsourceError(`[vitehub] source.glob cwd escapes the source root: ${JSON.stringify(cwd)}.`)
+  }
+  return resolvedCwd
 }

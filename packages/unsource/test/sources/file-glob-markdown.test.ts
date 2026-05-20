@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -51,5 +51,42 @@ describe("@vitehub/unsource local file sources", () => {
       .rejects.toThrow("source.file could not find")
     await expect(useSource("docs", { rootDir: root }).read("../package.json" as any))
       .rejects.toThrow("source.glob could not find")
+  })
+
+  it("uses ignore, dot, prefix, and cwd boundary options for glob providers", async () => {
+    const root = await createRoot()
+    const outside = await createRoot()
+    await mkdir(join(root, "workspace", "drafts"), { recursive: true })
+    await writeFile(join(root, "workspace", "README.md"), "# Docs\n")
+    await writeFile(join(root, "workspace", ".secret.md"), "# Secret\n")
+    await writeFile(join(root, "workspace", "drafts", "skip.md"), "# Skip\n")
+    await writeFile(join(outside, "outside.md"), "# Outside\n")
+    await symlink(join(outside, "outside.md"), join(root, "workspace", "linked.md"))
+
+    const docs = glob({
+      cwd: "workspace",
+      dot: true,
+      ignore: "drafts/**",
+      include: "**/*.md",
+      prefix: "content",
+    })
+
+    await expect(docs.getKeys({ rootDir: root })).resolves.toEqual([
+      ".secret.md",
+      "README.md",
+    ])
+    await expect(docs.getItem("README.md", { rootDir: root })).resolves.toMatchObject({
+      path: "content/README.md",
+    })
+    await expect(glob({ cwd: "workspace", include: "**/*.md" }).getKeys({ rootDir: root })).resolves.toEqual([
+      "drafts/skip.md",
+      "README.md",
+    ])
+    await expect(glob({ cwd: resolve(root, "workspace"), include: "**/*.md" }).getKeys({ rootDir: root })).resolves.toEqual([
+      "drafts/skip.md",
+      "README.md",
+    ])
+    await expect(glob({ cwd: outside, include: "**/*.md" }).getKeys({ rootDir: root }))
+      .rejects.toThrow("source.glob cwd escapes the source root")
   })
 })

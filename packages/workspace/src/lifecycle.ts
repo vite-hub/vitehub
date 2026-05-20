@@ -1,42 +1,9 @@
-import { readFile, stat } from "node:fs/promises"
-import { relative, resolve } from "node:path"
-
-import { listMatchingFiles } from "@vitehub/internal/definition-catalog"
-
 import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./path.ts"
 import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./source-config.ts"
 import { createWorkspaceStoreFromProvider } from "./store-provider.ts"
-import { hasWorkspaceDirectoryConfig, isWorkspaceAssetFile } from "./workspace-config.ts"
 
-import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceSourceItem, WorkspaceStore } from "./types.ts"
-
-function workspaceDirectory(rootDir: string, name: string) {
-  return resolve(rootDir, "server", "workspaces", ...name.split("/"))
-}
-
-function createImplicitWorkspaceDirectorySource(definition: WorkspaceDefinition): WorkspaceLoaderSource | undefined {
-  const rootDir = definition.rootDir || process.cwd()
-  const directory = workspaceDirectory(rootDir, definition.name)
-  if (!hasWorkspaceDirectoryConfig(directory)) return
-
-  return {
-    key: "directoryAssets",
-    async getKeys() {
-      return listMatchingFiles(directory, isWorkspaceAssetFile).map(file => normalizeWorkspacePath(relative(directory, file))).sort()
-    },
-    async getItem(key: string): Promise<WorkspaceSourceItem> {
-      const target = resolve(directory, key)
-      const [bytes, info] = await Promise.all([readFile(target), stat(target)])
-      return {
-        key,
-        path: key,
-        content: new Uint8Array(bytes),
-        metadata: { mtime: info.mtimeMs },
-      }
-    },
-  }
-}
+import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceStore } from "./types.ts"
 
 export function createWorkspaceStore(definition: WorkspaceDefinition): WorkspaceStore {
   return createWorkspaceStoreFromProvider(definition)
@@ -44,7 +11,6 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
 
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore): Promise<void> {
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
-  const implicitDirectorySource = createImplicitWorkspaceDirectorySource(definition)
   const ctxSource = createSourceContext(definition)
   const normalizedSources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "build")
@@ -52,7 +18,7 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
   const ctx: LoaderContext = {
     workspace: definition.name,
     rootDir: ctxSource.rootDir,
-    sources: implicitDirectorySource ? [implicitDirectorySource, ...normalizedSources] : normalizedSources,
+    sources: normalizedSources,
     store,
     parseData: async input => input.data,
     generateDigest: input => JSON.stringify(input),

@@ -460,7 +460,7 @@ describe("sources, loaders, and publishers", () => {
     await expect(workspace.fs.readFile("docs/models/marts/orders.sql")).resolves.toBe("select 1\n")
   })
 
-  it("initializes directory workspace assets for Nitro dev", async () => {
+  it("initializes empty workspace assets before explicit source sync", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "workspaces", "docs")
     await mkdir(directory, { recursive: true })
@@ -477,15 +477,24 @@ describe("sources, loaders, and publishers", () => {
     }], root)
 
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
-    await expect(registry.docs.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
-    await expect(registry.docs.glob("**/*.md")).resolves.toHaveLength(2)
+    expect(registry.docs).toBeUndefined()
   })
 
-  it("keeps one asset bundle when directory workspaces are synced on build", async () => {
+  it("syncs explicit directory workspace sources on build", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "workspaces", "docs")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, "config.mjs"), "export default {}\n")
+    await writeFile(join(directory, "config.mjs"), [
+      "export default {",
+      "  sources: {",
+      "    instructions: {",
+      "      async getKeys() { return ['AGENTS.md'] },",
+      "      async getItem(key) { return { key, path: key, content: '# Instructions\\n' } },",
+      "    },",
+      "  },",
+      "}",
+      "",
+    ].join("\n"))
     await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
     const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
 
@@ -502,19 +511,37 @@ describe("sources, loaders, and publishers", () => {
 
     const contents = await readFile(registryFile, "utf8")
     expect(contents.match(/"docs": createWorkspaceAssets/g)).toHaveLength(1)
-    expect(contents.match(/"AGENTS.md"/g)).toHaveLength(1)
+    expect(contents.match(/"instructions\/AGENTS.md"/g)).toHaveLength(1)
   })
 
-  it("filters directory workspace assets by configured assets", async () => {
+  it("filters synced explicit workspace assets by configured assets", async () => {
     const root = await createRoot()
     const selectedDirectory = join(root, "server", "workspaces", "selected")
     const skippedDirectory = join(root, "server", "workspaces", "skipped")
     await mkdir(selectedDirectory, { recursive: true })
     await mkdir(skippedDirectory, { recursive: true })
-    await writeFile(join(selectedDirectory, "config.mjs"), "export default {}\n")
-    await writeFile(join(selectedDirectory, "AGENTS.md"), "# Selected\n")
-    await writeFile(join(skippedDirectory, "config.mjs"), "export default {}\n")
-    await writeFile(join(skippedDirectory, "AGENTS.md"), "# Skipped\n")
+    await writeFile(join(selectedDirectory, "config.mjs"), [
+      "export default {",
+      "  sources: {",
+      "    instructions: {",
+      "      async getKeys() { return ['AGENTS.md'] },",
+      "      async getItem(key) { return { key, path: key, content: '# Selected\\n' } },",
+      "    },",
+      "  },",
+      "}",
+      "",
+    ].join("\n"))
+    await writeFile(join(skippedDirectory, "config.mjs"), [
+      "export default {",
+      "  sources: {",
+      "    instructions: {",
+      "      async getKeys() { return ['AGENTS.md'] },",
+      "      async getItem(key) { return { key, path: key, content: '# Skipped\\n' } },",
+      "    },",
+      "  },",
+      "}",
+      "",
+    ].join("\n"))
     const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
 
     await syncWorkspaceBuildAssets([{
@@ -534,7 +561,7 @@ describe("sources, loaders, and publishers", () => {
     }, registryFile)
 
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
-    await expect(registry.selected.readFile("AGENTS.md")).resolves.toBe("# Selected\n")
+    await expect(registry.selected.readFile("instructions/AGENTS.md")).resolves.toBe("# Selected\n")
     expect(registry.skipped).toBeUndefined()
   })
 
@@ -573,7 +600,7 @@ describe("sources, loaders, and publishers", () => {
 
     expect(fetch).not.toHaveBeenCalled()
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
-    await expect(registry.docs.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
+    await expect(registry.docs.readFile("AGENTS.md")).rejects.toThrow("Workspace file does not exist")
   })
 
   it("reports inaccessible GitHub repositories with a source-specific error", async () => {
@@ -635,17 +662,28 @@ describe("sources, loaders, and publishers", () => {
     expect(await readFile(join(root, "workspace.d.ts"), "utf8")).toContain('virtual:vitehub/workspaces/sources')
   })
 
-  it("ignores .git and node_modules when discovering glob sources", async () => {
+  it("ignores hidden files, .git, and node_modules when discovering glob sources by default", async () => {
     const root = await createRoot()
     await mkdir(join(root, "node_modules/pkg"), { recursive: true })
     await mkdir(join(root, ".git/hooks"), { recursive: true })
     await writeFile(join(root, "visible.md"), "# Visible\n")
+    await writeFile(join(root, ".hidden.md"), "# Hidden\n")
     await writeFile(join(root, "node_modules/pkg/hidden.md"), "# Hidden\n")
     await writeFile(join(root, ".git/hooks/pre-commit"), "hook\n")
 
     const keys = await source.glob({ cwd: ".", include: "**/*" }).getKeys({ rootDir: root, workspace: "glob-source" })
 
     expect(keys).toEqual(["visible.md"])
+  })
+
+  it("can include hidden glob source files explicitly", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, "visible.md"), "# Visible\n")
+    await writeFile(join(root, ".hidden.md"), "# Hidden\n")
+
+    const keys = await source.glob({ cwd: ".", dot: true, include: "**/*" }).getKeys({ rootDir: root, workspace: "glob-source" })
+
+    expect(keys).toEqual([".hidden.md", "visible.md"])
   })
 
   it("writes lazy workspace asset modules for text and binary files", async () => {

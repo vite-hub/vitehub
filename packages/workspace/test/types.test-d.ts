@@ -58,6 +58,14 @@ describe("workspace types", () => {
       include: "**/*.md",
       exclude: "docs/drafts/**",
     })
+    source.glob({
+      cwd: "docs",
+      dot: true,
+      followSymlinks: false,
+      ignore: "drafts/**",
+      include: "**/*.md",
+      prefix: "content",
+    })
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
       name: "typed",
