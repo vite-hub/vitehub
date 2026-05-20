@@ -11,9 +11,11 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { collectWorkspaceAssetBundle, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build-integration.ts"
 import { defineWorkspace, loader, publish, registerWorkspace, useWorkspace } from "../src/index.ts"
+import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { useRegisteredWorkspace } from "../src/registry.ts"
 import * as source from "../src/source.ts"
-import type { Workspace } from "../src/types.ts"
+import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
+import type { Workspace, WorkspaceDefinition } from "../src/types.ts"
 
 const tempDirs: string[] = []
 
@@ -512,6 +514,38 @@ describe("sources, loaders, and publishers", () => {
     const contents = await readFile(registryFile, "utf8")
     expect(contents.match(/"docs": createWorkspaceAssets/g)).toHaveLength(1)
     expect(contents.match(/"instructions\/AGENTS.md"/g)).toHaveLength(1)
+  })
+
+  it("purges stale build source files when source maps change", async () => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["README.md", "stale.md"]
+    const docsSource = source.custom({
+      async getKeys() {
+        return keys
+      },
+      async getItem(key) {
+        return { key, path: key, content: `# ${key}\n` }
+      },
+      mount: "docs",
+    })
+    const definition: WorkspaceDefinition = {
+      name: "stale-build-sources",
+      sources: { docs: docsSource },
+    }
+
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile("docs/stale.md")).resolves.toMatchObject({ content: "# stale.md\n" })
+
+    keys = ["README.md"]
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile("docs/README.md")).resolves.toMatchObject({ content: "# README.md\n" })
+    await expect(store.readFile("docs/stale.md")).resolves.toBeUndefined()
+
+    await syncWorkspaceDefinition({
+      name: "stale-build-sources",
+      sources: {},
+    }, store)
+    await expect(store.list("", { recursive: true })).resolves.toEqual([])
   })
 
   it("filters synced explicit workspace assets by configured assets", async () => {

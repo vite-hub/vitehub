@@ -5,6 +5,13 @@ import { createWorkspaceStoreFromProvider } from "./store-provider.ts"
 
 import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceStore } from "./types.ts"
 
+const buildSourcesMetaKey = "workspace:build-sources"
+
+interface SyncedBuildSource {
+  key: string
+  mountPath: string
+}
+
 export function createWorkspaceStore(definition: WorkspaceDefinition): WorkspaceStore {
   return createWorkspaceStoreFromProvider(definition)
 }
@@ -12,9 +19,10 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore): Promise<void> {
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
   const ctxSource = createSourceContext(definition)
-  const normalizedSources = normalizeWorkspaceSources(definition.sources)
+  const buildSources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "build")
-    .map(source => createMountedBuildSource(source))
+  await reconcileBuildSourceMounts(store, buildSources)
+  const normalizedSources = buildSources.map(source => createMountedBuildSource(source))
   const ctx: LoaderContext = {
     workspace: definition.name,
     rootDir: ctxSource.rootDir,
@@ -36,6 +44,37 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
       rootDir: definition.rootDir || process.cwd(),
     })
   }
+}
+
+async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]) {
+  const previousSources = await readSyncedBuildSources(store)
+  const resetPaths = [...new Set([
+    ...previousSources.map(source => source.mountPath),
+    ...currentSources.map(source => source.mountPath),
+  ])]
+
+  for (const mountPath of resetPaths.sort((a, b) => b.length - a.length)) {
+    await store.rm(mountPath, { recursive: true, force: true })
+  }
+
+  for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].sort((a, b) => a.length - b.length)) {
+    await store.mkdir(mountPath, { recursive: true })
+  }
+
+  await store.setMeta?.(buildSourcesMetaKey, currentSources.map(({ key, mountPath }) => ({ key, mountPath })))
+}
+
+async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuildSource[]> {
+  const value = await store.getMeta?.(buildSourcesMetaKey)
+  if (!Array.isArray(value)) return []
+  return value.filter(isSyncedBuildSource)
+}
+
+function isSyncedBuildSource(value: unknown): value is SyncedBuildSource {
+  return !!value
+    && typeof value === "object"
+    && typeof (value as SyncedBuildSource).key === "string"
+    && typeof (value as SyncedBuildSource).mountPath === "string"
 }
 
 function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceLoaderSource {

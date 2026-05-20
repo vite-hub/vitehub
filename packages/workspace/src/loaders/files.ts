@@ -35,7 +35,7 @@ export function files(options: FilesLoaderOptions = {}): WorkspaceLoader {
           const metaKey = `loader:files:${source.key}:${path}:digest`
           const previousDigest = await ctx.store.getMeta?.(metaKey)
 
-          if (previousDigest === digest) continue
+          if (previousDigest === digest && await ctx.store.stat(path)) continue
 
           await ctx.store.writeFile(path, {
             path,
