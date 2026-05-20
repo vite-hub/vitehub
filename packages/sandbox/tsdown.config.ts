@@ -4,8 +4,8 @@ export default defineConfig({
   clean: true,
   deps: {
     neverBundle: [
-      "virtual:vitehub-sandbox-provider-loader",
-      "virtual:vitehub-sandbox-registry",
+      "#vitehub-sandbox-provider-loader",
+      "#vitehub-sandbox-registry",
     ],
     onlyBundle: false,
     skipNodeModulesBundle: true,

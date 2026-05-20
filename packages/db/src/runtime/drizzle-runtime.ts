@@ -4,7 +4,7 @@ import { dirname } from "node:path"
 import { createClient } from "@libsql/client"
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
 
-import databaseEntries from "virtual:@vitehub/db/databases"
+import databaseEntries from "#vitehub/db/databases"
 
 import {
   createDrizzleSqliteAdapter,

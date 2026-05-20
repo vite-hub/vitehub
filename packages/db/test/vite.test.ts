@@ -81,7 +81,7 @@ describe("hubDb", () => {
     expect(plugin.api.getConfig()?.databases.default.connection?.url).toBe("file:.data/top-level.db")
   })
 
-  it("exposes default schema and named databases through Vite virtual modules", async () => {
+  it("exposes default schema and named databases through stable ViteHub import paths", async () => {
     const rootDir = await createTempProject()
     await writeFile(join(rootDir, "src/db/schema.ts"), "export const notes = true\n")
     await writeFile(join(rootDir, "src/db/analytics/schema.ts"), "export const analytics = true\n")

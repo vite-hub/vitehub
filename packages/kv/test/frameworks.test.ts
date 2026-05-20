@@ -143,7 +143,7 @@ describe("hubKv", () => {
     })
   })
 
-  it("exposes resolved config through a Vite virtual module", async () => {
+  it("exposes resolved config through a stable ViteHub import path", async () => {
     const { KV_VIRTUAL_CONFIG_ID, hubKv } = await import("../src/vite.ts")
     const plugin = hubKv({ driver: "fs-lite", base: ".virtual/kv" })
     const resolveId = plugin.resolveId as unknown as (id: string) => string | undefined | Promise<string | undefined>

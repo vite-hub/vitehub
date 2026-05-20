@@ -59,10 +59,10 @@
       "@vitehub/workspace/*": [
         "packages/workspace/src/*"
       ],
-      "virtual:vitehub-sandbox-provider-loader": [
+      "#vitehub-sandbox-provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],
-      "virtual:vitehub-sandbox-registry": [
+      "#vitehub-sandbox-registry": [
         "packages/sandbox/src/runtime/empty-registry.ts"
       ]
     },

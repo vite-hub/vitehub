@@ -13,7 +13,7 @@ export function types(options: TypesPublisherOptions = {}): WorkspacePublisher {
     async publish(ctx) {
       const path = resolve(ctx.rootDir, options.path || `.vitehub/workspaces/${ctx.workspace.name}.d.ts`)
       await mkdir(dirname(path), { recursive: true })
-      await writeFile(path, `declare module "virtual:vitehub/workspaces/${ctx.workspace.name}" {\n  const manifest: { name: ${JSON.stringify(ctx.workspace.name)}, entries: Array<{ path: string, type: "file" | "directory" }> }\n  export default manifest\n}\n`)
+      await writeFile(path, `declare module "#vitehub/workspaces/${ctx.workspace.name}" {\n  const manifest: { name: ${JSON.stringify(ctx.workspace.name)}, entries: Array<{ path: string, type: "file" | "directory" }> }\n  export default manifest\n}\n`)
     },
   }
 }

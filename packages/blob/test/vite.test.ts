@@ -39,7 +39,7 @@ describe("hubBlob", () => {
     })
   })
 
-  it("exposes resolved config through a Vite virtual module", async () => {
+  it("exposes resolved config through a stable ViteHub import path", async () => {
     const plugin = hubBlob({ driver: "fs", base: ".virtual/blob" })
     const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
     const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>

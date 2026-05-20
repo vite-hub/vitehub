@@ -116,7 +116,7 @@ Explicit config always wins. That means you can force `fs-lite` locally, force C
 ## Framework Support
 
 ::fw{id="vite:dev vite:build"}
-Vite registers `hubKv()` and exposes resolved config through `virtual:@vitehub/kv/config`.
+Vite registers `hubKv()` and exposes resolved config through `#vitehub/kv/config`.
 
 Use this path when Vite owns the app setup. Runtime access to `kv` still depends on a Nitro-compatible server runtime.
 ::
@@ -174,7 +174,7 @@ Start with [Quickstart](./quickstart) for a complete local setup. Use the [primi
   :::u-page-card
   ---
   title: Runtime API
-  description: Review exports, config shapes, methods, and virtual modules.
+  description: Review exports, config shapes, methods, and generated config imports.
   to: ./runtime-api
   ---
   :::

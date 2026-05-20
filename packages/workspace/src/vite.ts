@@ -14,8 +14,8 @@ import type { WorkspaceBuildState } from "./build-integration.ts"
 import type { WorkspaceModuleOptions } from "./types.ts"
 
 const WORKSPACE_PACKAGE_NAME = "@vitehub/workspace"
-const WORKSPACES_ID = "virtual:vitehub/workspaces"
-const WORKSPACE_PREFIX = "virtual:vitehub/workspaces/"
+const WORKSPACES_ID = "#vitehub/workspaces"
+const WORKSPACE_PREFIX = "#vitehub/workspaces/"
 const WORKSPACE_ASSETS_REGISTRY_ID = "#vitehub-workspace-assets-registry"
 const WORKSPACE_REGISTRY_ID = "#vitehub-workspace-registry"
 const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`

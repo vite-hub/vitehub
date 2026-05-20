@@ -16,7 +16,7 @@ export type ResolvedFeatureViteState<TConfig> = FeatureViteState<TConfig> & {
 }
 
 export function createStateModuleId(feature: string) {
-  return `virtual:vitehub/${feature}`
+  return `#vitehub/${feature}`
 }
 
 export function createResolvedVirtualModuleId(feature: string, key: string) {

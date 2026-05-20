@@ -465,9 +465,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
       writeFile(sandboxProviderLoaderFile, renderSandboxProviderLoaderModule(sandboxProviderLoaderFile, sandboxProvider), "utf8"),
     ])
 
-    alias["virtual:vitehub-sandbox-registry"] = sandboxRegistryFile
     alias["#vitehub-sandbox-registry"] = sandboxRegistryFile
-    alias["virtual:vitehub-sandbox-provider-loader"] = sandboxProviderLoaderFile
     alias["#vitehub-sandbox-provider-loader"] = sandboxProviderLoaderFile
 
     if (sandboxProvider === "cloudflare") {
@@ -528,8 +526,8 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   if (artifacts.workflowRegistryFile) {
     imports.push(`import workflowRegistry from ${JSON.stringify(createImportPath(file, artifacts.workflowRegistryFile))}`)
   }
-  if (artifacts.alias["virtual:vitehub-sandbox-registry"]) {
-    imports.push(`import sandboxRegistry from ${JSON.stringify(createImportPath(file, artifacts.alias["virtual:vitehub-sandbox-registry"]))}`)
+  if (artifacts.alias["#vitehub-sandbox-registry"]) {
+    imports.push(`import sandboxRegistry from ${JSON.stringify(createImportPath(file, artifacts.alias["#vitehub-sandbox-registry"]))}`)
   }
   if (artifacts.workspaceRegistryFile) {
     imports.push(`import workspaceRegistry from ${JSON.stringify(createImportPath(file, artifacts.workspaceRegistryFile))}`)
@@ -567,7 +565,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `setWorkflowRuntimeRegistry(${artifacts.workflowRegistryFile ? "workflowRegistry" : "undefined"})`,
     "setBlobRuntimeConfig(blobConfig)",
     "setSandboxRuntimeConfig(sandboxConfig)",
-    `setSandboxRuntimeRegistry(${artifacts.alias["virtual:vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
+    `setSandboxRuntimeRegistry(${artifacts.alias["#vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",
     ...(workspaceProvider === "cloudflare-artifacts"
       ? [
@@ -655,8 +653,8 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   if (artifacts.workflowRegistryFile) {
     imports.push(`import workflowRegistry from ${JSON.stringify(createImportPath(file, artifacts.workflowRegistryFile))}`)
   }
-  if (artifacts.alias["virtual:vitehub-sandbox-registry"]) {
-    imports.push(`import sandboxRegistry from ${JSON.stringify(createImportPath(file, artifacts.alias["virtual:vitehub-sandbox-registry"]))}`)
+  if (artifacts.alias["#vitehub-sandbox-registry"]) {
+    imports.push(`import sandboxRegistry from ${JSON.stringify(createImportPath(file, artifacts.alias["#vitehub-sandbox-registry"]))}`)
   }
   if (artifacts.workspaceRegistryFile) {
     imports.push(`import workspaceRegistry from ${JSON.stringify(createImportPath(file, artifacts.workspaceRegistryFile))}`)
@@ -677,7 +675,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `setWorkflowRuntimeRegistry(${artifacts.workflowRegistryFile ? "workflowRegistry" : "undefined"})`,
     "setBlobRuntimeConfig(blobConfig)",
     "setSandboxRuntimeConfig(sandboxConfig)",
-    `setSandboxRuntimeRegistry(${artifacts.alias["virtual:vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
+    `setSandboxRuntimeRegistry(${artifacts.alias["#vitehub-sandbox-registry"] ? "sandboxRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",
     ...(workspaceProvider === "vercel-blob"
       ? [

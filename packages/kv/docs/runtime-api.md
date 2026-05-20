@@ -219,15 +219,15 @@ const config = plugin.api.getConfig()
 
 Top-level Vite config `kv` overrides inline plugin options.
 
-## Vite Virtual Config
+## Vite Config Import
 
-Vite code can import the resolved setup config from `virtual:@vitehub/kv/config`:
+Vite code can import the resolved setup config from the stable import path:
 
 ```ts
-import config, { hosting, kv } from 'virtual:@vitehub/kv/config'
+import config, { hosting, kv } from '#vitehub/kv/config'
 ```
 
-If TypeScript cannot find the virtual module, add the package's ambient type entry:
+If TypeScript cannot find the generated config surface, add the package's ambient type entry:
 
 ```json [tsconfig.json]
 {
