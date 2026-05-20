@@ -148,7 +148,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       if (error.code === "ENOENT" && options.force) return
       throw error
     })
-    for (const key of [...this.#files.keys()]) {
+    for (const key of this.#files.keys()) {
       if (key === normalized || key.startsWith(`${normalized}/`)) this.#files.delete(key)
     }
   }

@@ -40,6 +40,10 @@ _Avoid_: Private build value, hidden config, masked diagnostic
 An explicit operation on a Secret Env that reads its underlying value.
 _Avoid_: Reveal, unmask, unwrap, decrypt
 
+**Outbound Secret Redaction**:
+Best-effort replacement of known Secret Env underlying values before ordinary Nitro text or JSON responses leave the server.
+_Avoid_: Leak prevention, DLP, log scanning
+
 ## Relationships
 
 - The **Env Package** owns **Env Declarations**.
@@ -52,8 +56,10 @@ _Avoid_: Reveal, unmask, unwrap, decrypt
 - A **Secret Env** is a Runtime Env value.
 - A **Secret Env** is not interchangeable with its underlying value.
 - A **Secret Unseal** can read the underlying value from a **Secret Env**.
+- **Outbound Secret Redaction** depends on known **Secret Env** values.
 - An **Env Source** can provide an Env Declaration value.
 - Generated env access should preserve the difference between Build Env and Runtime Env.
+- Runtime config is integration language, not the primary **Env Package** concept.
 
 ## Example Dialogue
 
@@ -65,6 +71,9 @@ _Avoid_: Reveal, unmask, unwrap, decrypt
 >
 > **Dev:** "Can I pass a Secret Env directly to a third-party SDK?"
 > **Domain expert:** "Only if the SDK accepts the redacted wrapper. Most SDK calls need a **Secret Unseal** at the last responsible moment."
+>
+> **Dev:** "Does Env prevent every possible secret leak?"
+> **Domain expert:** "No. **Secret Env** provides default redaction and type friction; **Outbound Secret Redaction** is best-effort for normal Nitro responses."
 
 ## Flagged Ambiguities
 
@@ -74,3 +83,5 @@ _Avoid_: Reveal, unmask, unwrap, decrypt
 - Secret handling was considered provider-specific - resolved: **Secret Env** is ViteHub language for Runtime Env values that redact by default.
 - Secret handling was considered only a diagnostics concern - resolved: diagnostics masking is one consequence of **Secret Env**, not the definition.
 - Secret Env compatibility with strings was considered - resolved: **Secret Env** is not assignable to its underlying value until a **Secret Unseal**.
+- Response scanning was considered a hard guarantee - resolved: **Outbound Secret Redaction** is best-effort and must not be described as general leak prevention.
+- Runtime Env and runtime config were considered interchangeable - resolved: **Runtime Env** is the Env Package concept; runtime config is integration-specific language.

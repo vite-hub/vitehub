@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
-const workspacePackages = ["runtime", "shell", "unshell", "unsource", "sandbox", "workspace", "agent", "blob", "db", "env", "kv", "queue", "workflow"] as const
+const workspacePackages = ["runtime", "shell", "unsource", "sandbox", "workspace", "agent", "blob", "db", "env", "kv", "queue", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
 

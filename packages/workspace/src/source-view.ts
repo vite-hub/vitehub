@@ -1,5 +1,5 @@
 import { WorkspaceError } from "./errors.ts"
-import { decodeFile, matchesAny, normalizeWorkspacePath } from "./path.ts"
+import { decodeFile, normalizeWorkspacePath } from "./path.ts"
 import { createWorkspaceWritePolicy } from "./rules.ts"
 import { createSourceContext, normalizeWorkspaceSources } from "./source-config.ts"
 import {
@@ -116,10 +116,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
       else if (!path && !result.has(source.mountPath)) {
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
-      }
-      else if (path === source.mountPath && !result.has(source.mountPath)) {
-        const stat = await store.stat(source.mountPath)
-        if (stat) result.set(source.mountPath, stat)
       }
     }
 

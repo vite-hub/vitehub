@@ -151,7 +151,7 @@ describe("env declarations", () => {
     }, "nitro")).toThrow("serializable literal")
     expect(() => validateEnvConfigShape({
       teams: {
-        labels: [, "primary"],
+        labels: [undefined, "primary"],
       },
     } as never, "nitro")).toThrow("serializable literal")
   })

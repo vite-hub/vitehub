@@ -39,10 +39,6 @@ interface CloudflareTriggerMetadata {
   repo_name?: string
 }
 
-interface CloudflareLatestResult {
-  builds?: CloudflareBuild[] | Record<string, CloudflareBuild>
-}
-
 interface CloudflareWorkerScript {
   id?: string
 }
@@ -125,13 +121,6 @@ async function resolveCloudflareProjectIDs(
   return (envelope.result ?? [])
     .map((worker) => worker.id)
     .filter((id): id is string => typeof id === "string" && id.length > 0)
-}
-
-function readCloudflareBuilds(envelope: CloudflareEnvelope<CloudflareLatestResult>, provider: string): CloudflareBuild[] {
-  const builds = envelope.result?.builds
-  if (Array.isArray(builds)) return builds
-  if (builds && typeof builds === "object") return Object.values(builds)
-  throw new CIMalformedResponseError("Cloudflare builds response did not include builds.", { provider })
 }
 
 function compareRunsNewestFirst(a: CIRun, b: CIRun): number {

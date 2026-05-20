@@ -1,4 +1,4 @@
-/// <reference path="./virtual-module.d.ts" />
+import "./virtual-module.d.ts"
 
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 import schema from "#vitehub/db/schema"

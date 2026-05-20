@@ -255,7 +255,6 @@ export type AgentModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig 
 
 type AgentSettingsBase<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
 > = {
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
@@ -274,13 +273,13 @@ type AgentSettingsBase<
 export type AgentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS> & (
+> = AgentSettingsBase<TRuntimeConfig> & (
   | {
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
-    model: NonNullable<AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS>["model"]>
-    provider: NonNullable<AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS>["provider"]>
+    model: NonNullable<AgentSettingsBase<TRuntimeConfig>["model"]>
+    provider: NonNullable<AgentSettingsBase<TRuntimeConfig>["provider"]>
     run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )

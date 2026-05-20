@@ -326,9 +326,10 @@ describe("defineAgent workspace option", () => {
       run: { runId: "run_123" },
     } as never)
 
-    await (agentSettings.at(-1)?.onStepFinish as (step: unknown) => Promise<void>)({ stepNumber: 1 })
-    await (agentSettings.at(-1)?.experimental_onToolCallStart as (event: unknown) => Promise<void>)({ toolName: "shell" })
-    await (agentSettings.at(-1)?.experimental_onToolCallFinish as (event: unknown) => Promise<void>)({ durationMs: 12, toolName: "shell" })
+    const settings = agentSettings.at(-1)!
+    await (settings.onStepFinish as (step: unknown) => Promise<void>)({ stepNumber: 1 })
+    await (settings.experimental_onToolCallStart as (event: unknown) => Promise<void>)({ toolName: "shell" })
+    await (settings.experimental_onToolCallFinish as (event: unknown) => Promise<void>)({ durationMs: 12, toolName: "shell" })
 
     expect(onStepFinish).toHaveBeenCalledWith({ stepNumber: 1 })
     expect(onRunStepFinish).toHaveBeenCalledWith({ stepNumber: 1 }, expect.objectContaining({

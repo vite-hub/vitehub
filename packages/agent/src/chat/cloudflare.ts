@@ -177,33 +177,30 @@ export function defineCloudflareChatHandler(
       waitUntil,
     })
 
-    let caughtError: unknown
     try {
-      try {
-        const bot = await resolveChat(chat, runtimeContext)
-        const handler = getWebhook(bot, platform)
-        if (!handler) {
-          return new Response(`Unknown chat platform: ${platform}`, { status: 404 })
+      const bot = await resolveChat(chat, runtimeContext)
+      const handler = getWebhook(bot, platform)
+      if (!handler) {
+        if (processing === "inline") {
+          await flushWaitUntilTasks(pendingTasks)
         }
+        return new Response(`Unknown chat platform: ${platform}`, { status: 404 })
+      }
 
-        return await handler(request, { waitUntil }) as Response
+      const response = await handler(request, { waitUntil }) as Response
+      if (processing === "inline") {
+        await flushWaitUntilTasks(pendingTasks)
       }
-      catch (error) {
-        caughtError = error
-        throw error
-      }
+      return response
     }
-    finally {
+    catch (error) {
       if (processing === "inline") {
         try {
           await flushWaitUntilTasks(pendingTasks)
         }
-        catch (error) {
-          if (!caughtError) {
-            throw error
-          }
-        }
+        catch {}
       }
+      throw error
     }
   }
 }
