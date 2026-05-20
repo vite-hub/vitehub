@@ -62,6 +62,7 @@ describe("@vitehub/unsource local file sources", () => {
     await writeFile(join(root, "workspace", "drafts", "skip.md"), "# Skip\n")
     await writeFile(join(outside, "outside.md"), "# Outside\n")
     await symlink(join(outside, "outside.md"), join(root, "workspace", "linked.md"))
+    await symlink(outside, join(root, "workspace", "outside"))
 
     const docs = glob({
       cwd: "workspace",
@@ -87,6 +88,8 @@ describe("@vitehub/unsource local file sources", () => {
       "README.md",
     ])
     await expect(glob({ cwd: outside, include: "**/*.md" }).getKeys({ rootDir: root }))
+      .rejects.toThrow("source.glob cwd escapes the source root")
+    await expect(glob({ cwd: "workspace/outside", include: "**/*.md" }).getKeys({ rootDir: root }))
       .rejects.toThrow("source.glob cwd escapes the source root")
   })
 })

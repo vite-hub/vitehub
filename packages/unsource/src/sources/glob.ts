@@ -114,11 +114,13 @@ function normalizePatterns(patterns: string | string[] | undefined): string[] {
 }
 
 async function resolveCwd(rootDir: string, cwd = "."): Promise<string> {
-  const { isAbsolute, relative, resolve, sep } = await import("node:path")
-  const resolvedRoot = resolve(rootDir)
-  const resolvedCwd = isAbsolute(cwd) ? resolve(cwd) : resolve(resolvedRoot, cwd)
+  const { realpath } = await import("node:fs/promises")
+  const { isAbsolute, relative, resolve } = await import("node:path")
+  const resolvedRoot = await realpath(resolve(rootDir))
+  const resolvedCwdPath = isAbsolute(cwd) ? resolve(cwd) : resolve(resolvedRoot, cwd)
+  const resolvedCwd = await realpath(resolvedCwdPath)
   const rel = relative(resolvedRoot, resolvedCwd)
-  if (rel.startsWith("..") || rel === ".." || rel.includes(`..${sep}`)) {
+  if (rel && (rel.startsWith("..") || isAbsolute(rel))) {
     throw new UnsourceError(`[vitehub] source.glob cwd escapes the source root: ${JSON.stringify(cwd)}.`)
   }
   return resolvedCwd
