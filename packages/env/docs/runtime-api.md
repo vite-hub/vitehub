@@ -72,7 +72,7 @@ interface EnvVariableOptions {
 | `optional` | `false` | Makes the value optional. Cannot be combined with `required`. |
 | `default` | none | Fallback value used when the source is missing. |
 | `schema` | string schema | Sync validator for the resolved value. |
-| `secret` | `false` | Masks diagnostics and marks required Cloudflare secrets for Nitro. |
+| `secret` | `false` | Masks diagnostics, marks required Cloudflare secrets for Nitro, and resolves runtime values as `SecretEnv`. |
 | `source` | inferred env var | Explicit source for the value. |
 | `type` | inferred | Type name emitted into generated declaration files. |
 
@@ -129,12 +129,29 @@ export default buildConfig
 ### `#vitehub/env/server`
 
 ```ts
+export class SecretEnv<T = string> {
+  constructor(value: T)
+  unseal(): T
+  toString(): string
+  toJSON(): string
+  [Symbol.toPrimitive](): string
+}
+
 export interface SafeRuntimeConfig {}
 
 export function useSafeRuntimeConfig(event?: unknown): SafeRuntimeConfig
 ```
 
 The exact `SafeRuntimeConfig` fields are generated from Nitro `env` declarations.
+
+Runtime declarations with `secret: true` generate `SecretEnv<string>` fields. Optional missing secrets stay `undefined`; present secrets must be unsealed explicitly:
+
+```ts
+const config = useSafeRuntimeConfig(event)
+const token = config.auth.token.unseal()
+```
+
+`SecretEnv` redacts through `String(secret)`, template literals, `JSON.stringify()`, and Node inspect output.
 
 ## Validation
 

@@ -63,6 +63,13 @@ function createNitroServerTypes(registry: EnvRuntimeRegistry): string {
   const fields = createTypeFields(registry, 4)
   return [
     "declare module \"#vitehub/env/server\" {",
+    "  export class SecretEnv<T = string> {",
+    "    constructor(value: T)",
+    "    unseal(): T",
+    "    toString(): string",
+    "    toJSON(): string",
+    "    [Symbol.toPrimitive](): string",
+    "  }",
     "  export interface SafeRuntimeConfig {",
     ...fields,
     "  }",
@@ -77,6 +84,7 @@ function createNitroServerTypes(registry: EnvRuntimeRegistry): string {
 function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
   const fields = createTypeFields(registry, 4)
   return [
+    "import type { SecretEnv } from \"#vitehub/env/server\"",
     "import \"nitro/types\"",
     "",
     "declare module \"nitro/types\" {",
@@ -120,6 +128,11 @@ function createTypeFields(registry: EnvRuntimeRegistry, indent: number): string[
 }
 
 function resolveTypeName(entry: EnvRegistryEntry): string {
+  if (entry.secret) {
+    const valueType = entry.type ?? "string"
+    const typeName = `SecretEnv<${valueType}>`
+    return entry.required || typeof entry.default !== "undefined" ? typeName : `${typeName} | undefined`
+  }
   if (entry.type) {
     return entry.type
   }
