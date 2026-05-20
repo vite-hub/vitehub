@@ -1,5 +1,6 @@
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
+import { chatDevToolsPanel } from "./devtools.ts"
 import chatNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
@@ -11,6 +12,10 @@ export type ChatVitePlugin = Plugin & { nitro: NitroModule }
 const chatPackageName = "@vitehub/agent/chat"
 const mergeNoExternal = createNoExternalMerger(chatPackageName)
 const cloudflareWorkersDevAlias = new URL("./runtime/cloudflare-workers-dev.js", import.meta.url).pathname
+
+function isChatDevtoolsEnabled(chat: ChatModuleOptions | false | undefined): boolean {
+  return chat !== false && chat?.dev !== false && chat?.dev?.devtools !== false
+}
 
 export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
   let chat: ChatModuleOptions | false | undefined = options
@@ -38,6 +43,18 @@ export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
     },
     configResolved(config) {
       chat = config.chat ?? chat
+    },
+    devtools: {
+      setup(ctx) {
+        if (!isChatDevtoolsEnabled(chat)) {
+          return
+        }
+
+        const devtools = chat && chat.dev !== false && typeof chat.dev?.devtools === "object"
+          ? chat.dev.devtools
+          : undefined
+        chatDevToolsPanel({ devtools }).devtools?.setup?.(ctx)
+      },
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

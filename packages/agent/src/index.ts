@@ -13,6 +13,7 @@ import {
   normalizeCapabilities,
   normalizeMode,
   resolveAgentCapabilities,
+  resolveAgentStaticCapabilities,
   withCapabilityCleanup,
   withResponseCleanup,
 } from "./capability-runtime.ts"
@@ -235,6 +236,15 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): ResolvedAgentRuntimeContext<TRuntimeConfig> {
   return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
+}
+
+function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<void>): (...args: TArgs) => Promise<void> {
+  let called = false
+  return async (...args) => {
+    if (called) return
+    called = true
+    await callback(...args)
+  }
 }
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
@@ -545,7 +555,7 @@ function defineBaseAgent<
       const adapterInstance = await resolveBaseAgent(context)
       const resolvedContext = createResolvedRuntimeContext(context)
       const resolvedCapabilities = normalizedCapabilities.length && !workspace
-        ? await resolveAgentCapabilities({ capabilities: normalizedCapabilities }, resolvedContext, {})
+        ? await resolveAgentStaticCapabilities({ capabilities: normalizedCapabilities }, resolvedContext)
         : undefined
       const transformedTools = resolvedCapabilities
         ? await applyCapabilityToolTransforms(resolvedCapabilities.tools, resolvedCapabilities.toolTransforms)
@@ -1290,7 +1300,7 @@ async function createRunContext<
     : definition.capabilities?.length
       ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
       : undefined
-  const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never)
+  const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never, workspaceMode)
   const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
   const tools = Object.keys(transformedTools || {}).length
     ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
@@ -1334,7 +1344,7 @@ async function createAdapterRunContext<
     : definition?.capabilities?.length
       ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
       : undefined
-  const capabilities = await resolveAgentCapabilities(capabilityOptions, runtime, input, workspace as never)
+  const capabilities = await resolveAgentCapabilities(capabilityOptions, runtime, input, workspace as never, workspaceMode)
   const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
   const tools = Object.keys(transformedTools || {}).length
     ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
@@ -1365,6 +1375,7 @@ export async function runAgent<
 ): Promise<Response | AgentRunResult | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createRunContext(agent, context, input)
+    runContext.close = once(runContext.close)
     try {
       const result = await agent.run(runContext)
       if (result instanceof Response) return runContext.hasCapabilityCleanup ? await withResponseCleanup(result, runContext.close) : result
@@ -1387,6 +1398,7 @@ export async function runAgent<
   const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
+  adapterContext.close = once(adapterContext.close)
   try {
     const result = await resolved.generate(adapterContext as never)
     if (result instanceof Response) return adapterContext.hasCapabilityCleanup ? await withResponseCleanup(result, adapterContext.close) : result
@@ -1416,6 +1428,7 @@ export async function streamAgent<
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createRunContext(agent, context, input)
+    runContext.close = once(runContext.close)
     try {
       const result = await agent.run(runContext)
       if (result instanceof Response) return runContext.hasCapabilityCleanup ? await withResponseCleanup(result, runContext.close) : result
@@ -1438,6 +1451,7 @@ export async function streamAgent<
   const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
+  adapterContext.close = once(adapterContext.close)
   try {
     const result = resolved.stream
       ? await resolved.stream(adapterContext as never)

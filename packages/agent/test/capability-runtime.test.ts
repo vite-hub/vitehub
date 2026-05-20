@@ -100,6 +100,7 @@ describe("agent capability runtime", () => {
       expect.objectContaining({ text: "rewritten" }),
     ])
     expect(applyCapabilityInstructionSlots("Base\n{{ skills }}", resolved.capabilityInstructions)).toBe("Base\nSkill instructions.")
+    expect(applyCapabilityInstructionSlots("Base {{ user_name }}\n{{ skills }}", resolved.capabilityInstructions)).toBe("Base {{ user_name }}\nSkill instructions.")
     await expect(applyCapabilityToolTransforms(resolved.tools, resolved.toolTransforms)).resolves.toEqual({
       added: { name: "added" },
       original: { name: "original" },
@@ -135,6 +136,38 @@ describe("agent capability runtime", () => {
     expect(order).toEqual(["close"])
   })
 
+  it("closes Response outputs when the body is canceled", async () => {
+    const { withResponseCleanup } = await import("../src/capability-runtime.ts")
+    const order: string[] = []
+
+    const response = await withResponseCleanup(new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("partial"))
+      },
+    })), async () => { order.push("close") }) as Response
+
+    await response.body?.cancel()
+    expect(order).toEqual(["close"])
+  })
+
+  it("rejects write workspace requirements when the run workspace is read-only", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const workspace = {
+      fs: {
+        exists: vi.fn(async () => true),
+      },
+    }
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "writer",
+          requires: [{ workspace: { mode: "write", required: true } }],
+        }),
+      ],
+    }, runtime(), {}, workspace as never, "read")).rejects.toThrow("requires workspace.mode: \"write\"")
+  })
+
   it("runs model-backed capability lifecycle once per agent run", async () => {
     vi.doMock("ai", () => ({
       ToolLoopAgent: class {
@@ -160,6 +193,72 @@ describe("agent capability runtime", () => {
 
       await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({ text: "ok" })
       expect(order).toEqual(["configure", "close"])
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("does not close model-backed capability contexts twice when cleanup fails", async () => {
+    vi.doMock("ai", () => ({
+      ToolLoopAgent: class {
+        async generate() {
+          return { text: "ok" }
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const close = vi.fn(() => {
+        throw new Error("cleanup failed")
+      })
+      const agent = defineAgent({
+        capabilities: [{
+          close,
+          id: "tracked",
+        }],
+        model: {} as never,
+        provider: "ai-sdk",
+      })
+
+      await expect(runAgent(agent, runtime(), {})).rejects.toThrow("cleanup failed")
+      expect(close).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("does not run invocation-scoped capability phases during agent resolution", async () => {
+    vi.doMock("ai", () => ({
+      ToolLoopAgent: class {
+        async generate() {
+          return { text: "ok" }
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { defineAgent, resolveAgent, runAgent } = await import("../src/index.ts")
+      const order: string[] = []
+      const agent = defineAgent({
+        capabilities: [{
+          id: "tracked",
+          input: () => { order.push("input") },
+          resolve: () => { order.push("resolve") },
+        }],
+        model: {} as never,
+        provider: "ai-sdk",
+      })
+
+      await resolveAgent(agent, runtime())
+      expect(order).toEqual([])
+
+      await runAgent(agent, runtime(), { messages: [createMessage({ role: "user", text: "hello" })] })
+      expect(order).toEqual(["input", "resolve"])
     }
     finally {
       vi.doUnmock("ai")

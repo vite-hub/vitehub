@@ -10,6 +10,7 @@ export default defineConfig({
   dts: true,
   entry: [
     "src/ai-sdk.ts",
+    "src/capabilities.ts",
     "src/capability-runtime.ts",
     "src/chat/index.ts",
     "src/chat/cloudflare.ts",
@@ -17,6 +18,7 @@ export default defineConfig({
     "src/chat/nitro.ts",
     "src/chat/runtime/agent-chat.ts",
     "src/chat/runtime/chat-devtools-handler.ts",
+    "src/chat/runtime/cloudflare-workers-dev.ts",
     "src/chat/runtime/memory-state.ts",
     "src/chat/runtime/nitro-dev-initialize.ts",
     "src/chat/runtime/nitro-runtime-config.ts",
@@ -24,6 +26,7 @@ export default defineConfig({
     "src/chat/vercel.ts",
     "src/chat/vite.ts",
     "src/index.ts",
+    "src/memory.ts",
     "src/messages.ts",
     "src/cloudflare.ts",
     "src/nitro.ts",

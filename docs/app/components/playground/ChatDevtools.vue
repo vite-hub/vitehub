@@ -8,6 +8,7 @@ const chatDevtoolsSendRpc = "@vitehub/agent/chat:send"
 type ChatDevtoolsMessage = {
   createdAt: string
   id: string
+  loading?: boolean
   role: "user" | "assistant"
   text: string
 }

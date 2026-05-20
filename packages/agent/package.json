@@ -26,6 +26,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./ai-sdk": "./dist/ai-sdk.js",
+    "./capabilities": "./dist/capabilities.js",
     "./capability-runtime": "./dist/capability-runtime.js",
     "./chat": "./dist/chat/index.js",
     "./chat/cloudflare": "./dist/chat/cloudflare.js",
@@ -33,6 +34,7 @@
     "./chat/nitro": "./dist/chat/nitro.js",
     "./chat/runtime/agent-chat": "./dist/chat/runtime/agent-chat.js",
     "./chat/runtime/chat-devtools-handler": "./dist/chat/runtime/chat-devtools-handler.js",
+    "./chat/runtime/cloudflare-workers-dev": "./dist/chat/runtime/cloudflare-workers-dev.js",
     "./chat/runtime/memory-state": "./dist/chat/runtime/memory-state.js",
     "./chat/runtime/nitro-dev-initialize": "./dist/chat/runtime/nitro-dev-initialize.js",
     "./chat/runtime/nitro-plugin": "./dist/chat/runtime/nitro-plugin.js",
@@ -40,6 +42,7 @@
     "./chat/vercel": "./dist/chat/vercel.js",
     "./chat/vite": "./dist/chat/vite.js",
     "./cloudflare": "./dist/cloudflare.js",
+    "./memory": "./dist/memory.js",
     "./messages": "./dist/messages.js",
     "./nitro": "./dist/nitro.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",

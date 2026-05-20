@@ -2,6 +2,7 @@ import { resolveRuntimeValue } from "@vitehub/runtime"
 
 import type {
   AgentAdapterInstructionsValue,
+  AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityHookName,
   AgentCapabilityHooks,
@@ -41,6 +42,11 @@ export interface ResolvedAgentCapabilities {
   input: AgentRunInput
   messages: Message[]
   registries: AgentCapabilityRegistries
+  toolTransforms: AgentToolTransform[]
+  tools?: AgentToolSet
+}
+
+export interface ResolvedAgentStaticCapabilities {
   toolTransforms: AgentToolTransform[]
   tools?: AgentToolSet
 }
@@ -158,6 +164,7 @@ export async function resolveAgentCapabilities<
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput,
   workspace?: ReadonlyWorkspaceFacade<Name>,
+  workspaceMode: AgentCapabilityMode = "read",
 ): Promise<ResolvedAgentCapabilities> {
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let currentInput = input
@@ -187,7 +194,7 @@ export async function resolveAgentCapabilities<
 
   try {
     for (const capability of capabilities) {
-      await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace)
+      await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
       const capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> = {
         ...runtime,
         capability,
@@ -225,7 +232,7 @@ export async function resolveAgentCapabilities<
         tools: {
           add(value) {
             if (!value) return
-            tools = { ...(tools || {}), ...value }
+            tools = { ...tools, ...value }
           },
           transform(transform) {
             toolTransforms.push(transform)
@@ -254,7 +261,7 @@ export async function resolveAgentCapabilities<
       }
       if (capability.tools) {
         const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext) as unknown
-        if (isToolSet(resolved)) tools = { ...(tools || {}), ...resolved }
+        if (isToolSet(resolved)) tools = { ...tools, ...resolved }
       }
     }
   }
@@ -280,6 +287,39 @@ export async function resolveAgentCapabilities<
   }
 }
 
+export async function resolveAgentStaticCapabilities<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: AgentCapabilityOptions<TRuntimeConfig, Name> | undefined,
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  workspace?: ReadonlyWorkspaceFacade<Name>,
+  workspaceMode: AgentCapabilityMode = "read",
+): Promise<ResolvedAgentStaticCapabilities> {
+  const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+  let tools: AgentToolSet | undefined
+  const toolTransforms: AgentToolTransform[] = []
+
+  for (const capability of capabilities) {
+    await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
+    if (!capability.tools) continue
+
+    const capabilityContext = {
+      ...runtime,
+      fs: workspace?.fs,
+      mode: capability.mode,
+      workspace,
+    } as unknown as AgentCapabilityContext<TRuntimeConfig, Name>
+    const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext as never) as unknown
+    if (isToolSet(resolved)) tools = { ...tools, ...resolved }
+  }
+
+  return {
+    toolTransforms,
+    tools,
+  }
+}
+
 function isToolSet(value: unknown): value is AgentToolSet {
   return typeof value === "object" && value !== null
 }
@@ -287,6 +327,7 @@ function isToolSet(value: unknown): value is AgentToolSet {
 export async function validateCapabilityRuntimeRequirement<Name extends WorkspaceName>(
   capability: AgentCapabilityDefinition,
   workspace?: ReadonlyWorkspaceFacade<Name>,
+  workspaceMode: AgentCapabilityMode = "read",
 ): Promise<void> {
   for (const requirement of capability.requires || []) {
     if (!requirement.workspace) continue
@@ -294,38 +335,15 @@ export async function validateCapabilityRuntimeRequirement<Name extends Workspac
       throw new Error(`[vitehub] ${capability.id}() requires an explicit workspace.`)
     }
     if (!workspace) continue
+    if (requirement.workspace.mode === "write" && workspaceMode !== "write") {
+      throw new Error(`[vitehub] ${capability.id}() requires workspace.mode: "write".`)
+    }
     for (const path of requirement.workspace.paths || []) {
       if (!await workspace.fs.exists(path as never)) {
         throw new Error(`[vitehub] ${capability.id}() requires workspace path ${path}.`)
       }
     }
   }
-}
-
-function levenshtein(left: string, right: string) {
-  const costs = Array.from({ length: right.length + 1 }, (_, index) => index)
-  for (let i = 1; i <= left.length; i++) {
-    let prev = i
-    for (let j = 1; j <= right.length; j++) {
-      const next = left[i - 1] === right[j - 1]
-        ? costs[j - 1]
-        : Math.min(costs[j - 1], prev, costs[j]) + 1
-      costs[j - 1] = prev
-      prev = next
-    }
-    costs[right.length] = prev
-  }
-  return costs[right.length]
-}
-
-function suggestSlot(slot: string, ids: string[]) {
-  const matches = ids
-    .map(id => ({ distance: levenshtein(slot, id), id }))
-    .filter(match => match.distance <= Math.max(2, Math.floor(slot.length / 2)))
-    .sort((left, right) => left.distance - right.distance)
-    .slice(0, 3)
-    .map(match => match.id)
-  return matches.length ? ` Did you mean ${matches.map(id => `{{ ${id} }}`).join(", ")}?` : ""
 }
 
 export function applyCapabilityInstructionSlots(instructions: string, blocks: AgentInstructionBlock[] = []): string {
@@ -340,7 +358,7 @@ export function applyCapabilityInstructionSlots(instructions: string, blocks: Ag
       return remaining.splice(0).map(block => block.instructions).join("\n\n")
     }
     if (!known.has(slot)) {
-      throw new Error(`[vitehub] Unknown capability instruction slot "${slot}".${suggestSlot(slot, ["capabilities", ...known])}`)
+      return match
     }
     if (used.has(slot)) {
       throw new Error(`[vitehub] Duplicate capability instruction slot "${slot}". Use {{ capabilities }} for repeated catch-all insertion.`)
@@ -398,9 +416,36 @@ export function withResponseCleanup(response: Response, close: () => Promise<voi
   if (!response.body) {
     return close().then(() => response)
   }
-  return new Response(response.body.pipeThrough(new TransformStream({
-    async flush() {
-      await close()
+  const reader = response.body.getReader()
+  let closed = false
+  async function closeOnce() {
+    if (closed) return
+    closed = true
+    await close()
+  }
+  return new Response(new ReadableStream({
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      }
+      finally {
+        await closeOnce()
+      }
     },
-  })), response)
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (result.done) {
+          controller.close()
+          await closeOnce()
+          return
+        }
+        controller.enqueue(result.value)
+      }
+      catch (error) {
+        await closeOnce()
+        throw error
+      }
+    },
+  }), response)
 }
