@@ -155,13 +155,27 @@ export default defineEventHandler((event) => {
 })
 ```
 
+Secret runtime declarations resolve to `SecretEnv` objects. They redact through string coercion and JSON serialization; call `.unseal()` only at the boundary that needs the raw value.
+
+```ts
+import { useSafeRuntimeConfig } from '#vitehub/env/server'
+
+export default defineEventHandler((event) => {
+  const config = useSafeRuntimeConfig(event)
+
+  return createAuthClient({
+    token: config.auth.token.unseal(),
+  })
+})
+```
+
 When application helpers need an explicit config type, import the generated type from the same module instead of declaring your own runtime config interface.
 
 ```ts
 import type { RuntimeEnvConfig } from '#vitehub/env/server'
 
 export function createAgent(config: RuntimeEnvConfig) {
-  return createVertex({ apiKey: config.vertex.apiKey })(config.vertex.model)
+  return createVertex({ apiKey: config.vertex.apiKey.unseal() })(config.vertex.model)
 }
 ```
 

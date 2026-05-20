@@ -17,6 +17,7 @@ export default defineConfig({
     "src/nuxt.ts",
     "src/runtime/server.ts",
     "src/schema.ts",
+    "src/secret.ts",
     "src/virtual.ts",
     "src/vite.ts",
   ],

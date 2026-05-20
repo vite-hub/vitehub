@@ -101,7 +101,7 @@ export default defineEventHandler((event) => {
   const config = useSafeRuntimeConfig(event)
 
   return {
-    hasAuthToken: Boolean(config.auth.token),
+    hasAuthToken: Boolean(config.auth.token.unseal()),
   }
 })
 ```
