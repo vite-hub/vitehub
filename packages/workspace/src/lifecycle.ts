@@ -1,41 +1,15 @@
-import { readFile, stat } from "node:fs/promises"
-import { relative, resolve } from "node:path"
-
-import { listMatchingFiles } from "@vitehub/internal/definition-catalog"
-
 import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./path.ts"
 import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./source-config.ts"
 import { createWorkspaceStoreFromProvider } from "./store-provider.ts"
-import { hasWorkspaceDirectoryConfig, isWorkspaceAssetFile } from "./workspace-config.ts"
 
-import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceSourceItem, WorkspaceStore } from "./types.ts"
+import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceStore } from "./types.ts"
 
-function workspaceDirectory(rootDir: string, name: string) {
-  return resolve(rootDir, "server", "workspaces", ...name.split("/"))
-}
+const buildSourcesMetaKey = "workspace:build-sources"
 
-function createImplicitWorkspaceDirectorySource(definition: WorkspaceDefinition): WorkspaceLoaderSource | undefined {
-  const rootDir = definition.rootDir || process.cwd()
-  const directory = workspaceDirectory(rootDir, definition.name)
-  if (!hasWorkspaceDirectoryConfig(directory)) return
-
-  return {
-    key: "directoryAssets",
-    async getKeys() {
-      return listMatchingFiles(directory, isWorkspaceAssetFile).map(file => normalizeWorkspacePath(relative(directory, file))).sort()
-    },
-    async getItem(key: string): Promise<WorkspaceSourceItem> {
-      const target = resolve(directory, key)
-      const [bytes, info] = await Promise.all([readFile(target), stat(target)])
-      return {
-        key,
-        path: key,
-        content: new Uint8Array(bytes),
-        metadata: { mtime: info.mtimeMs },
-      }
-    },
-  }
+interface SyncedBuildSource {
+  key: string
+  mountPath: string
 }
 
 export function createWorkspaceStore(definition: WorkspaceDefinition): WorkspaceStore {
@@ -44,15 +18,15 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
 
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore): Promise<void> {
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
-  const implicitDirectorySource = createImplicitWorkspaceDirectorySource(definition)
   const ctxSource = createSourceContext(definition)
-  const normalizedSources = normalizeWorkspaceSources(definition.sources)
+  const buildSources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "build")
-    .map(source => createMountedBuildSource(source))
+  await reconcileBuildSourceMounts(store, buildSources)
+  const normalizedSources = buildSources.map(source => createMountedBuildSource(source))
   const ctx: LoaderContext = {
     workspace: definition.name,
     rootDir: ctxSource.rootDir,
-    sources: implicitDirectorySource ? [implicitDirectorySource, ...normalizedSources] : normalizedSources,
+    sources: normalizedSources,
     store,
     parseData: async input => input.data,
     generateDigest: input => JSON.stringify(input),
@@ -70,6 +44,37 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
       rootDir: definition.rootDir || process.cwd(),
     })
   }
+}
+
+async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]) {
+  const previousSources = await readSyncedBuildSources(store)
+  const resetPaths = [...new Set([
+    ...previousSources.map(source => source.mountPath),
+    ...currentSources.map(source => source.mountPath),
+  ])]
+
+  for (const mountPath of resetPaths.sort((a, b) => b.length - a.length)) {
+    await store.rm(mountPath, { recursive: true, force: true })
+  }
+
+  for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].sort((a, b) => a.length - b.length)) {
+    await store.mkdir(mountPath, { recursive: true })
+  }
+
+  await store.setMeta?.(buildSourcesMetaKey, currentSources.map(({ key, mountPath }) => ({ key, mountPath })))
+}
+
+async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuildSource[]> {
+  const value = await store.getMeta?.(buildSourcesMetaKey)
+  if (!Array.isArray(value)) return []
+  return value.filter(isSyncedBuildSource)
+}
+
+function isSyncedBuildSource(value: unknown): value is SyncedBuildSource {
+  return !!value
+    && typeof value === "object"
+    && typeof (value as SyncedBuildSource).key === "string"
+    && typeof (value as SyncedBuildSource).mountPath === "string"
 }
 
 function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceLoaderSource {

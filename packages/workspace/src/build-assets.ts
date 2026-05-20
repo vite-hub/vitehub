@@ -1,11 +1,9 @@
 import { createHash } from "node:crypto"
-import { existsSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, join, relative, resolve } from "node:path"
+import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
-import { listMatchingFiles } from "@vitehub/internal/definition-catalog"
 import { resolveRuntimeEntry } from "@vitehub/internal/nitro"
 import { createJiti } from "jiti"
 
@@ -13,7 +11,6 @@ import { syncWorkspaceDefinition } from "./lifecycle.ts"
 import { normalizeSafeWorkspacePath } from "./path.ts"
 import { createMemoryWorkspaceStore } from "./stores/memory.ts"
 import { createWorkspace } from "./workspace.ts"
-import { isWorkspaceAssetFile, workspaceConfigFileNames } from "./workspace-config.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
 import type { ResolvedWorkspaceModuleOptions, Workspace, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "./types.ts"
@@ -135,28 +132,6 @@ export async function syncDiscoveredWorkspaceAssetBundles(
     bundles.push(await collectWorkspaceStoreAssetBundle(definition.name, store))
   }
 
-  return bundles
-}
-
-export async function collectDirectoryWorkspaceAssetBundles(
-  definitions: DiscoveredWorkspaceDefinition[],
-  rootDir: string,
-): Promise<WorkspaceAssetBundle[]> {
-  const bundles: WorkspaceAssetBundle[] = []
-  for (const definition of definitions) {
-    const directory = definition.path ? dirname(definition.path) : resolve(rootDir, "server", "workspaces", ...definition.name.split("/"))
-    if (!workspaceConfigFileNames.some(file => existsSync(resolve(directory, file)))) continue
-
-    const files = await Promise.all(listMatchingFiles(directory, isWorkspaceAssetFile).map(async (file) => {
-      const path = normalizeSafeWorkspacePath(relative(directory, file))
-      return {
-        content: await readFile(file),
-        path,
-      }
-    }))
-    files.sort((a, b) => a.path.localeCompare(b.path))
-    bundles.push({ files, name: definition.name })
-  }
   return bundles
 }
 

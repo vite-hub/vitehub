@@ -201,7 +201,7 @@ export default defineAgent({
   workspace: {
     sources: {
       docs: source.glob({
-        cwd: process.cwd(),
+        cwd: '.',
         include: ['README.md', 'docs/**/*.md'],
       }),
       knowledgeBase: source.github({

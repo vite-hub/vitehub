@@ -11,6 +11,10 @@ A named persistent file tree that agents and server code can inspect, mutate whe
 The configured backing store used to persist a Workspace file tree.
 _Avoid_: Blob Store, Source, Chat State
 
+**Colocated Workspace Definition**:
+A Workspace Definition declared inline with the consumer that primarily uses it.
+_Avoid_: Agent Workspace, Capability Workspace
+
 **Source**:
 A named origin that contributes read-only files or items into a Workspace.
 _Avoid_: Input, files, context, resource, mount
@@ -42,6 +46,7 @@ _Avoid_: Capability, source, loader
 ## Relationships
 
 - A **Workspace** has one **Workspace Store**.
+- A **Colocated Workspace Definition** still defines a **Workspace**.
 - A **Workspace Store** can be backed by a Blob Store.
 - A **Workspace** has zero or more **Sources**.
 - A **Workspace** declares Sources through one **Source Map**.
@@ -63,3 +68,5 @@ _Avoid_: Capability, source, loader
 - "source" can mean source code, provenance, or data connector - resolved: in Workspace, **Source** means a named origin that contributes files or items.
 - "mount" was considered as the name for `workspace.sources` - resolved: **Mount** is only the placement of a Source inside the Workspace.
 - `workspace.sources` was considered as an array for simple one-off Sources - resolved: use a **Source Map** so every Source has stable identity.
+- Agent `workspace: { ... }` shorthand was considered as Agent-owned configuration - resolved: treat it as a **Colocated Workspace Definition**.
+- Sibling files next to a **Colocated Workspace Definition** were considered for automatic ingestion - resolved: require explicit **Sources** instead.

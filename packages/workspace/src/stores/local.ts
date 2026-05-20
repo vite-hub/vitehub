@@ -53,8 +53,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
   #files = new Map<string, Pick<WorkspaceFile, "mediaType" | "metadata">>()
   #meta = new Map<string, unknown>()
+  #metaLoaded = false
+  #metaPath: string
 
-  constructor(public root: string) {}
+  constructor(public root: string) {
+    this.#metaPath = `${root}.meta.json`
+  }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const { readFile } = await import("node:fs/promises")
@@ -175,11 +179,14 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async getMeta(key: string): Promise<unknown> {
+    await this.#loadMeta()
     return this.#meta.get(key)
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
+    await this.#loadMeta()
     this.#meta.set(key, value)
+    await this.#writeMeta()
   }
 
   async #createSnapshot(name?: string): Promise<WorkspaceSnapshot> {
@@ -197,6 +204,27 @@ class LocalWorkspaceStore implements WorkspaceStore {
       createdAt: new Date().toISOString(),
       entries,
     }
+  }
+
+  async #loadMeta() {
+    if (this.#metaLoaded) return
+    this.#metaLoaded = true
+    const { readFile } = await import("node:fs/promises")
+    const content = await readFile(this.#metaPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (!content) return
+    const value = JSON.parse(content) as unknown
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    this.#meta = new Map(Object.entries(value))
+  }
+
+  async #writeMeta() {
+    const { dirname } = await import("node:path")
+    const { mkdir, writeFile } = await import("node:fs/promises")
+    await mkdir(dirname(this.#metaPath), { recursive: true })
+    await writeFile(this.#metaPath, JSON.stringify(Object.fromEntries(this.#meta), null, 2))
   }
 }
 
