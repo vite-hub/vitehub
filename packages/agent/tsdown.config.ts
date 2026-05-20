@@ -4,7 +4,7 @@ export default defineConfig({
   clean: true,
   deps: {
     alwaysBundle: [/^@vitehub\/(devtools|internal)/],
-    neverBundle: ["#vitehub/agent/registry"],
+    neverBundle: ["#vitehub/agent/registry", "#vitehub/agent/chat/registry"],
     onlyBundle: false,
   },
   dts: true,
