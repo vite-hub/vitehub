@@ -10,8 +10,10 @@ export default defineConfig({
   dts: true,
   entry: [
     "src/ai-sdk.ts",
+    "src/capabilities.ts",
     "src/capability-runtime.ts",
     "src/index.ts",
+    "src/memory.ts",
     "src/cloudflare.ts",
     "src/nitro.ts",
     "src/runtime/empty-registry.ts",

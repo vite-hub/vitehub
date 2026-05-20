@@ -235,3 +235,50 @@ Workspace sources do not imply model tools. Replace older workspace agents that 
 ```
 
 Use `bash({ mode: 'write' })` only with `workspace.mode: 'write'`. Raw tools should be wrapped in inline or factory capabilities instead of `defineAgent({ tools })`.
+
+## Use durable memory
+
+Memory stores expose scoped records through model tools. Configure at least one explicit scope value so records do not bleed across tenants, projects, users, or agents.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vitehub/agent'
+import { memory, workspaceJsonlMemoryStore } from '@vitehub/agent/capabilities'
+
+export default defineAgent({
+  capabilities: [
+    memory({
+      stores: {
+        agent: {
+          adapter: workspaceJsonlMemoryStore(),
+          read: {
+            preload: [{ kind: 'procedural', pinned: true }],
+          },
+          scope: { agent: 'support' },
+          write: { mode: 'tool', policy: 'require-approval' },
+        },
+      },
+    }),
+  ],
+  model,
+  provider: 'ai-sdk',
+})
+```
+
+The default JSONL file is `.vitehub/memory.jsonl`. Pass `workspaceJsonlMemoryStore({ path })` to choose another workspace path.
+
+When tools omit `store`, memory uses the `agent` store if it exists, or the only configured store. If multiple non-`agent` stores are configured, tool calls must pass `store` explicitly.
+
+Read permissions are enforced per selected store. A store with `read.tools.search: false` or `read.tools.read: false` cannot be reached through that tool even when another store exposes it.
+
+Thread IDs are recorded in memory provenance for writes, but they are not added to the record scope automatically. Add thread scoping explicitly when records should be isolated per chat thread:
+
+```ts
+memory({
+  stores: {
+    agent: {
+      adapter: workspaceJsonlMemoryStore(),
+      scope: context => ({ agent: 'support', thread: context.run?.threadId }),
+    },
+  },
+})
+```

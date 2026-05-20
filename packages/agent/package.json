@@ -26,8 +26,10 @@
   "exports": {
     ".": "./dist/index.js",
     "./ai-sdk": "./dist/ai-sdk.js",
+    "./capabilities": "./dist/capabilities.js",
     "./capability-runtime": "./dist/capability-runtime.js",
     "./cloudflare": "./dist/cloudflare.js",
+    "./memory": "./dist/memory.js",
     "./nitro": "./dist/nitro.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-runtime-config": "./dist/runtime/nitro-runtime-config.js",
