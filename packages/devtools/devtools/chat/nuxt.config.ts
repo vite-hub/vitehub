@@ -13,7 +13,7 @@ export default defineNuxtConfig({
   compatibilityDate: "2026-05-05",
   nitro: {
     output: {
-      publicDir: resolve(__dirname, "../../../chat/dist/devtools-client"),
+      publicDir: resolve(__dirname, "../../../agent/devtools-client"),
     },
   },
 })
