@@ -126,7 +126,7 @@ function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
 
 function stringifyToolOutput(output: unknown): string {
   try {
-    return JSON.stringify(output)
+    return JSON.stringify(output) ?? String(output)
   }
   catch {
     return String(output)
@@ -195,7 +195,7 @@ export function createAgentTestRunner<
           reportToolStep(step) {
             toolSteps.push(step)
             if (process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS) {
-              console.error("[vitehub-agent-test:tool]", JSON.stringify(step))
+              console.error("[vitehub-agent-test:tool]", stringifyToolOutput(step))
             }
             workspaceInspectionGuardrails += countWorkspaceInspectionGuardrails(step)
             if (workspaceInspectionGuardrails >= 4) {
