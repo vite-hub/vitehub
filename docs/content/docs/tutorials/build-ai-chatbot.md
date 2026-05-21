@@ -147,7 +147,7 @@ Time to swap the dummy reply for a real model. ViteHub agents live in `server/ag
 ::code-tree-intersection
 ```ts [server/agents/support/chat/config.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { bash, defineAgent } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
 
 export default defineAgent({
   description: 'Answer support chat messages.',
@@ -193,7 +193,8 @@ Models guess. Tools inspect. Add a Workspace to your agent so it can search, lis
 ::code-tree-intersection
 ```ts [server/agents/support/chat/config.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { bash, defineAgent } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
+import { bash } from '@vitehub/agent/capabilities'
 import * as source from '@vitehub/workspace/source'
 
 export default defineAgent({

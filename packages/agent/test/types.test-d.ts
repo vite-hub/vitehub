@@ -1,12 +1,15 @@
 import { describe, it } from "vitest"
 
-import { bash, defineAgent, sandbox, skills } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { bash, db, kv, sandbox, skills } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
-  it("accepts capabilities and rejects root tools", () => {
+  it("accepts capabilities from the capabilities entry", () => {
     defineAgent({
       capabilities: [
         bash(),
+        db(),
+        kv(),
         skills(),
         sandbox({ commands: ["node"] }),
         {
@@ -25,13 +28,6 @@ describe("agent public types", () => {
     // @ts-expect-error model agents must select an explicit provider
     defineAgent({
       model: {} as never,
-    })
-
-    defineAgent({
-      provider: "ai-sdk",
-      model: {} as never,
-      // @ts-expect-error root-level tools are not public API
-      tools: {},
     })
 
     defineAgent({

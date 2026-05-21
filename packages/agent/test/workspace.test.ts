@@ -64,7 +64,8 @@ describe("defineAgent workspace option", () => {
   })
 
   it("fails when a capability-required workspace path is missing", async () => {
-    const { defineAgent, skills } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
 
     const agent = defineAgent({
       capabilities: [skills({ path: "agent-skills/support" })],
@@ -95,7 +96,8 @@ describe("defineAgent workspace option", () => {
   })
 
   it("accepts skills() when SKILL.md exists", async () => {
-    const { defineAgent, skills } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
     exists.mockResolvedValue(true)
 
     const agent = defineAgent({

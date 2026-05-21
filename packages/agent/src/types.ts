@@ -265,7 +265,6 @@ type AgentSettingsBase<
   model?: AgentModelResolver<TRuntimeConfig>
   provider?: AgentModelProvider
   runtime?: AgentRuntimeBinding
-  tools?: never
   workspace?: WorkspaceAgentWorkspaceConfig
   [key: string]: unknown
 }
