@@ -1,3 +1,6 @@
+import { createRequire } from "node:module"
+import { join } from "node:path"
+
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
 import { chatDevTools, chatDevToolsPanel } from "./devtools.ts"
@@ -12,6 +15,7 @@ export type ChatVitePlugin = Plugin & { nitro: NitroModule }
 const chatPackageName = "@vitehub/agent/chat"
 const mergeNoExternal = createNoExternalMerger(chatPackageName)
 const cloudflareWorkersDevAlias = new URL("./runtime/cloudflare-workers-dev.js", import.meta.url).pathname
+const agentRequire = createRequire(import.meta.url)
 
 function isChatDevtoolsEnabled(chat: ChatModuleOptions | false | undefined): boolean {
   return chat !== false && chat?.dev !== false && chat?.dev?.devtools !== false
@@ -21,6 +25,33 @@ function getChatDevtoolsOptions(chat: ChatModuleOptions | false | undefined): fa
   return chat && chat.dev !== false && typeof chat.dev?.devtools === "object"
     ? chat.dev.devtools
     : undefined
+}
+
+function hasAlias(config: UserConfig, name: string): boolean {
+  const alias = config.resolve?.alias
+  if (!alias) {
+    return false
+  }
+
+  if (Array.isArray(alias)) {
+    return alias.some(entry => entry.find === name)
+  }
+
+  return name in alias
+}
+
+function resolveAppPackage(packageName: string, root: string | undefined): string | undefined {
+  try {
+    const base = root ? join(root, "package.json") : join(process.cwd(), "package.json")
+    return createRequire(base).resolve(packageName)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function resolveDevtoolsVueAlias(config: UserConfig): string {
+  return resolveAppPackage("vue", config.root) ?? agentRequire.resolve("vue")
 }
 
 export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
@@ -44,10 +75,15 @@ export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
       const nextConfig: UserConfig = {}
 
       if (env.command === "serve") {
+        const alias: Record<string, string> = {
+          "cloudflare:workers": cloudflareWorkersDevAlias,
+        }
+        if (isChatDevtoolsEnabled(chat) && !hasAlias(config, "vue")) {
+          alias.vue = resolveDevtoolsVueAlias(config)
+        }
+
         nextConfig.resolve = {
-          alias: {
-            "cloudflare:workers": cloudflareWorkersDevAlias,
-          },
+          alias,
         }
       }
 

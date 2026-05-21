@@ -7,8 +7,24 @@ import { describe, expect, it } from "vitest"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
 import { discoverChatDefinitions } from "../src/chat/discovery.ts"
 
+import type { ConfigPluginContext } from "vite"
+
 async function createTempRoot(prefix: string) {
   return await mkdtemp(join(tmpdir(), prefix))
+}
+
+async function resolveChatViteConfig(input: Record<string, unknown> = {}) {
+  const plugin = (await import("../src/chat/vite.ts")).hubChat()
+  if (typeof plugin.config !== "function") {
+    throw new TypeError("hubChat config hook is not callable")
+  }
+
+  return await plugin.config.call({} as ConfigPluginContext, input, {
+    command: "serve",
+    isPreview: false,
+    isSsrBuild: false,
+    mode: "development",
+  }) as { resolve?: { alias?: Record<string, string> } }
 }
 
 describe("agent discovery", () => {
@@ -203,6 +219,26 @@ describe("agent chat discovery", () => {
       }),
     ]))
     expect(hooks.length).toBeGreaterThan(0)
+  })
+
+  it("aliases Vue for the embedded chat devtools client during dev", async () => {
+    const config = await resolveChatViteConfig()
+
+    expect(config.resolve?.alias?.vue).toMatch(/vue/)
+    expect(config.resolve?.alias?.["cloudflare:workers"]).toContain("cloudflare-workers-dev")
+  })
+
+  it("keeps an app-owned Vue alias for the chat devtools client", async () => {
+    const config = await resolveChatViteConfig({
+      resolve: {
+        alias: {
+          vue: "/app/vue.js",
+        },
+      },
+    })
+
+    expect(config.resolve?.alias?.vue).toBeUndefined()
+    expect(config.resolve?.alias?.["cloudflare:workers"]).toContain("cloudflare-workers-dev")
   })
 
   it("exports chat presets from the agent package build", async () => {
