@@ -40,7 +40,7 @@ export async function runWorkspaceInspectionCommand(
   const timeout = options.timeout || 30_000
   const preflight = preflightWorkspaceInspectionCommand(command, options.broadSearchPaths)
   if (preflight) return preflight
-  const missingPath = await preflightMissingWorkspacePath(command, options.fs)
+  const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd)
   if (missingPath) return missingPath
   const runtime = createJustBashRuntime({
     commands: options.commands,
@@ -76,17 +76,18 @@ function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: 
   }
 }
 
-async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem): Promise<ShellRuntimeExecResult | undefined> {
+async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint): Promise<ShellRuntimeExecResult | undefined> {
   try {
     for (const segment of splitShellSegments(command)) {
       for (const path of shellPathArguments(parseShellWords(segment))) {
         if (!isConcreteWorkspacePath(path)) continue
-        if (await fs.exists(path)) continue
+        const resolvedPath = resolveWorkspaceShellPath(cwd, path)
+        if (await fs.exists(resolvedPath)) continue
         return {
           exitCode: 0,
           stderr: "",
           stdout: [
-            `[vitehub] Workspace path is not mounted: ${path}`,
+            `[vitehub] Workspace path is not mounted: ${resolvedPath}`,
             "The agent cannot inspect files outside the configured workspace sources.",
             "If this path should exist, update the Agent workspace source configuration or materialize the correct mounted source.",
             "Otherwise answer that the requested evidence is unavailable in the current workspace.",
@@ -189,7 +190,7 @@ function fileCommandPathArguments(words: string[]) {
     }
     if (isShellOperator(arg)) break
     if (arg.startsWith("-")) {
-      if (takesOptionValue(arg)) index += 1
+      if (takesFileCommandOptionValue(arg)) index += 1
       continue
     }
     paths.push(arg)
@@ -209,6 +210,14 @@ function isConcreteWorkspacePath(path: string) {
     && !path.includes("[")
 }
 
+function resolveWorkspaceShellPath(cwd: string, path: string) {
+  if (path.startsWith("/") || path.startsWith("./") || path.startsWith("../")) {
+    return cleanWorkspaceShellPath(path)
+  }
+  const normalizedCwd = cleanWorkspaceShellPath(cwd)
+  return cleanWorkspaceShellPath(normalizedCwd ? posix.join(normalizedCwd, path) : path)
+}
+
 function commandPathArguments(words: string[]) {
   const args = words.slice(1)
   const paths: string[] = []
@@ -219,6 +228,7 @@ function commandPathArguments(words: string[]) {
       paths.push(...args.slice(index + 1))
       break
     }
+    if (isShellOperator(arg)) break
     if (arg.startsWith("-")) {
       if (takesOptionValue(arg)) index += 1
       continue
@@ -241,7 +251,6 @@ function takesOptionValue(arg: string) {
     "-f",
     "-g",
     "-m",
-    "-n",
     "--after-context",
     "--before-context",
     "--context",
@@ -249,6 +258,10 @@ function takesOptionValue(arg: string) {
     "--max-count",
     "--regexp",
   ].includes(arg)
+}
+
+function takesFileCommandOptionValue(arg: string) {
+  return arg === "-n" || takesOptionValue(arg)
 }
 
 function splitShellSegments(command: string) {

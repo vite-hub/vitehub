@@ -339,6 +339,15 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "models/orders.sql:1:select * from orders\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "rg -n orders models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/orders.sql:1:select * from orders\n",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "grep -ri customer models | head -n 1", {
       commands: ["grep", "head"],
       cwd: workspaceMountPoint,
@@ -385,6 +394,24 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: expect.stringContaining("Workspace path is not mounted: missing/README.md"),
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md", {
+      commands: ["cat"],
+      cwd: "/workspace/models",
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("Workspace path is not mounted: models/README.md"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat orders.sql", {
+      commands: ["cat"],
+      cwd: "/workspace/models",
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "select * from orders\n",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "cd /workspace && rg orders models", {
       commands: ["cd", "rg"],
       cwd: workspaceMountPoint,
@@ -392,6 +419,15 @@ describe("@vitehub/shell just-bash runtime", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: "models/orders.sql:1:select * from orders\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg customers models && wc -l models/customers.sql", {
+      commands: ["rg", "wc"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/customers.sql:1:select * from customers\n1 models/customers.sql\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "pwd && ls models", {
