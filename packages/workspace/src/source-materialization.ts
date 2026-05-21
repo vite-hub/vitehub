@@ -139,13 +139,15 @@ export async function materializeWorkspaceSources(
       const items = source.source.getItems
         ? await source.source.getItems(ctx)
         : await Promise.all((await source.source.getKeys(ctx)).map(async key => await source.source.getItem(key, ctx)))
-      await store.rm(source.mountPath, { recursive: true, force: true })
-      await store.mkdir(source.mountPath, { recursive: true })
+      if (source.mountPath) {
+        await store.rm(source.mountPath, { recursive: true, force: true })
+        await store.mkdir(source.mountPath, { recursive: true })
+      }
 
       let sourceFiles = 0
       let sourceBytes = 0
       let commit: string | undefined
-      const directorySet = new Set<string>([source.mountPath])
+      const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
       for (const item of items) {
         const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
         const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)

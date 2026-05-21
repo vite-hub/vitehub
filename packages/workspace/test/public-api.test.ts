@@ -56,6 +56,27 @@ describe("workspace public API", () => {
     expect(await workspace.fs.glob("**/*.md")).toHaveLength(3)
   })
 
+  it("mounts inline files at the workspace root", async () => {
+    registerWorkspace("root-file", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        instructions: source.file({
+          mount: "",
+          workspacePath: "AGENTS.md",
+          content: "# Instructions\n",
+        }),
+      },
+    }))
+
+    const workspace = useWorkspace("root-file", { allowWrite: true })
+
+    expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Instructions\n")
+    expect(await workspace.fs.list()).toEqual([
+      expect.objectContaining({ path: "AGENTS.md", type: "file" }),
+    ])
+    await expect(workspace.fs.exists("instructions/AGENTS.md")).resolves.toBe(false)
+  })
+
   it("enforces workspace rules before writes reach the store", async () => {
     registerWorkspace("rules", defineWorkspace({
       store: { provider: "memory" },

@@ -53,11 +53,11 @@ async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources:
     ...currentSources.map(source => source.mountPath),
   ])]
 
-  for (const mountPath of resetPaths.sort((a, b) => b.length - a.length)) {
+  for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     await store.rm(mountPath, { recursive: true, force: true })
   }
 
-  for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].sort((a, b) => a.length - b.length)) {
+  for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].filter(Boolean).sort((a, b) => a.length - b.length)) {
     await store.mkdir(mountPath, { recursive: true })
   }
 

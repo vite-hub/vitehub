@@ -29,7 +29,11 @@ async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
     const absolute = `${current}/${dirent.name}`
     const path = normalizeWorkspacePath(relative(root, absolute))
     const { stat, readFile } = await import("node:fs/promises")
-    const info = await stat(absolute)
+    const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (!info) continue
     if (dirent.isDirectory()) {
       entries.push({ path, type: "directory", mtime: info.mtimeMs })
       entries.push(...await walk(root, absolute))
