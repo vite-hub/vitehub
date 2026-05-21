@@ -84,7 +84,7 @@ describe("agent public types", () => {
     }
 
     const agent = defineAgent<TestRuntimeConfig>({
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: ({ runtimeConfig }: AgentAdapterMetadataContext<TestRuntimeConfig>) => {
         runtimeConfig.service.token.toUpperCase()
         return {} as never
@@ -108,7 +108,7 @@ describe("agent public types", () => {
     defineEval<TestRuntimeConfig>({
       // @ts-expect-error eval agent runtime config must match the eval runtime config
       agent: defineAgent<{ other: string }>({
-        provider: "ai-sdk",
+        adapter: "ai-sdk",
         model: {} as never,
         workspace: { mode: "read" },
       }),

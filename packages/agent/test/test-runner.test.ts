@@ -130,7 +130,7 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
@@ -168,7 +168,7 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
@@ -202,7 +202,7 @@ describe("agent test runner", () => {
     try {
       const runner = createAgentTestRunner(defineAgent({
         workspace: {},
-        provider: "ai-sdk",
+        adapter: "ai-sdk",
         model: {} as never,
         capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
       }), {
