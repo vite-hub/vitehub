@@ -742,7 +742,7 @@ function sourceMountPaths(options: WorkspaceAgentOptions<AgentRuntimeConfig, Wor
 
 function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry) {
   const path = entry.path === "instructions/AGENTS.md" ? "AGENTS.md" : entry.path
-  if (path === "instructions" || path.startsWith("instructions/")) return
+  if (path === "instructions") return
   const kind = entry.type
   const parts = path.split("/").filter(Boolean)
   let current = root

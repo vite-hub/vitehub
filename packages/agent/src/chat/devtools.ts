@@ -163,7 +163,7 @@ export const chatDevtoolsPanelPluginName = "@vitehub/agent/chat/devtools-panel"
 const defaultOutputPreviewLength = 4_000
 
 function resolveChatDevtoolsClientDist(): string {
-  return new URL("../devtools-client", import.meta.url).pathname
+  return new URL("../../devtools-client", import.meta.url).pathname
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -529,7 +529,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     const existing = tools.find(item => item.id === tool.id)
     if (existing) Object.assign(existing, next)
     else tools.push(next)
-    message.loading = tools.some(item => item.status === "running")
+    message.loading = typingMessageIds.get(threadId) === message.id || tools.some(item => item.status === "running")
     return true
   }
 

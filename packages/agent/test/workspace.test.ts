@@ -662,7 +662,7 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("flattens virtual workspace instructions to AGENTS.md at the DevTools root", async () => {
+  it("flattens virtual workspace AGENTS.md while keeping sibling instruction files", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     list.mockResolvedValue([
       { path: "forecasting-engine", type: "directory" },
@@ -690,9 +690,14 @@ describe("defineAgent workspace option", () => {
       expect.objectContaining({ kind: "directory", path: "forecasting-engine" }),
       expect.objectContaining({ kind: "directory", path: "ingestion" }),
     ]))
-    expect(metadata.files).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "instructions" }),
-      expect.objectContaining({ path: "instructions/private.md" }),
+    expect(metadata.files).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "directory",
+        path: "instructions",
+        children: expect.arrayContaining([
+          expect.objectContaining({ kind: "file", path: "instructions/private.md" }),
+        ]),
+      }),
     ]))
   })
 

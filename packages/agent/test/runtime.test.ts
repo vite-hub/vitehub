@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createMessage } from "@vitehub/agent"
 
+import type { ChatInput } from "../src/chat/types.ts"
+
 describe("agent message protocol", () => {
   it("converts ViteHub messages to model messages internally", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
@@ -237,6 +239,28 @@ describe("agent message protocol", () => {
       },
     ])
 
+    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
+      id: "tool-1",
+      input: { command: "find . -maxdepth 3 -name \"*user*\"" },
+      name: "shell",
+      output: "users.ts",
+      status: "completed",
+    }))
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages[1]).toMatchObject({
+      loading: true,
+      role: "assistant",
+      text: "Looking through the workspace...",
+      tools: [
+        {
+          id: "tool-1",
+          name: "shell",
+          output: "users.ts",
+          status: "completed",
+        },
+      ],
+    })
+
     await adapter.postMessage(message.threadId, "I found the user tables.")
 
     expect(adapter.getDevtoolsState().chats[0]?.messages[1]).toMatchObject({
@@ -247,7 +271,7 @@ describe("agent message protocol", () => {
         {
           id: "tool-1",
           name: "shell",
-          status: "running",
+          status: "completed",
         },
       ],
     })
@@ -304,6 +328,50 @@ describe("agent message protocol", () => {
       },
     ])
     expect(messages?.[1]?.tools).toBeUndefined()
+  })
+
+  it("registers the packaged DevTools client directory", async () => {
+    const registerViteHubDevtoolsPanel = vi.fn()
+    vi.resetModules()
+    vi.doMock("@vitehub/devtools", () => ({ registerViteHubDevtoolsPanel }))
+    const { chatDevToolsPanel } = await import("../src/chat/devtools.ts")
+
+    chatDevToolsPanel().devtools!.setup({
+      rpc: {
+        register: vi.fn(),
+      },
+    } as never)
+
+    expect(registerViteHubDevtoolsPanel).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      distDir: expect.stringMatching(/packages\/agent\/devtools-client$/),
+    }))
+    vi.doUnmock("@vitehub/devtools")
+    vi.resetModules()
+  })
+
+  it("resolves registry metadata for chats with reserved metadata names", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    const handler = defineChatDevtoolsRegistryHandler({
+      files: async () => ({} as ChatInput),
+    }, {
+      metadata: {
+        files: async () => ({
+          tools: [{ name: "reserved-chat-tool" }],
+        }),
+      },
+    })
+    app.use(handler)
+
+    const response = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "get-state", chat: "files" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    const state = await response.json() as { tools?: Array<{ name: string }> }
+
+    expect(state.tools).toEqual([{ name: "reserved-chat-tool" }])
   })
 
   it("converts Nitro request-like events to Fetch Request objects", async () => {

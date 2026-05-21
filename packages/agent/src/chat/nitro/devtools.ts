@@ -233,7 +233,9 @@ async function resolveDevtoolsMetadata(metadata: ChatDevtoolsMetadata | ChatDevt
 
 async function metadataForChat(metadata: ChatDevtoolsMetadataInput | undefined, selected: string | undefined): Promise<Required<ChatDevtoolsMetadata>> {
   if (!metadata) return normalizeDevtoolsMetadata(undefined)
-  if ("files" in metadata || "instructions" in metadata || "tools" in metadata) {
+  if (Array.isArray((metadata as ChatDevtoolsMetadata).files)
+    || Array.isArray((metadata as ChatDevtoolsMetadata).instructions)
+    || Array.isArray((metadata as ChatDevtoolsMetadata).tools)) {
     return normalizeDevtoolsMetadata(metadata as ChatDevtoolsMetadata)
   }
   if (typeof metadata === "function") {
