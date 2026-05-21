@@ -51,6 +51,14 @@ export function normalizeWorkspaceSource(key: string, source: WorkspaceSource): 
   }
 }
 
+export function sourceMountContainsPath(source: Pick<ResolvedWorkspaceSource, "mountPath">, workspacePath: string): boolean {
+  return workspacePath === source.mountPath || !!source.mountPath && workspacePath.startsWith(`${source.mountPath}/`)
+}
+
+export function sourceMountIntersectsPath(source: Pick<ResolvedWorkspaceSource, "mountPath">, workspacePath: string): boolean {
+  return !workspacePath || !source.mountPath || sourceMountContainsPath(source, workspacePath) || source.mountPath.startsWith(`${workspacePath}/`)
+}
+
 function normalizeSourceMount(source: WorkspaceSource) {
   if (typeof source.mount === "string") {
     return { path: source.mount }

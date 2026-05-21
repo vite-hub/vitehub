@@ -56,6 +56,9 @@ async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources:
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     await store.rm(mountPath, { recursive: true, force: true })
   }
+  for (const source of [...previousSources, ...currentSources].filter(source => !source.mountPath)) {
+    await removeRootBuildSourceFiles(store, source)
+  }
 
   for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].filter(Boolean).sort((a, b) => a.length - b.length)) {
     await store.mkdir(mountPath, { recursive: true })
@@ -68,6 +71,15 @@ async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuil
   const value = await store.getMeta?.(buildSourcesMetaKey)
   if (!Array.isArray(value)) return []
   return value.filter(isSyncedBuildSource)
+}
+
+async function removeRootBuildSourceFiles(store: WorkspaceStore, source: SyncedBuildSource) {
+  const entries = await store.list("", { recursive: true })
+  await Promise.all(entries.map(async (entry) => {
+    if (entry.type !== "file") return
+    const file = await store.readFile(entry.path)
+    if (file?.metadata?.source === source.key) await store.rm(entry.path, { force: true })
+  }))
 }
 
 function isSyncedBuildSource(value: unknown): value is SyncedBuildSource {
@@ -87,7 +99,7 @@ function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceLoa
     async getItem(key, ctx) {
       const item = await source.source.getItem(key, ctx)
       const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)
-      return { ...item, path }
+      return { ...item, path, metadata: { ...item.metadata, source: source.key } }
     },
   }
 }

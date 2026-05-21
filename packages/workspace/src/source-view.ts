@@ -1,7 +1,7 @@
 import { WorkspaceError } from "./errors.ts"
 import { decodeFile, matchesAny, normalizeWorkspacePath } from "./path.ts"
 import { createWorkspaceWritePolicy } from "./rules.ts"
-import { createSourceContext, normalizeWorkspaceSources } from "./source-config.ts"
+import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./source-config.ts"
 import {
   hasCurrentSourceSnapshot,
   materializeWorkspaceSources,
@@ -49,16 +49,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const materializeBySource = new Map<string, Promise<void>>()
 
   function isLazySourcePath(path: string) {
-    return sources.some(source => path === source.mountPath || path.startsWith(`${source.mountPath}/`))
+    return sources.some(source => sourceMountContainsPath(source, path))
   }
 
   function getLazySourcesForPath(path: string) {
-    return sources.filter((source) => {
-      if (!path) return true
-      return path === source.mountPath
-        || path.startsWith(`${source.mountPath}/`)
-        || source.mountPath.startsWith(`${path}/`)
-    })
+    return sources.filter(source => sourceMountIntersectsPath(source, path))
   }
 
   async function ensurePrepared(sourceKey: string) {
@@ -96,21 +91,21 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of getLazySourcesForPath(path)) {
       await ensurePrepared(source.key)
       if (!path && options.recursive && !await hasCurrentSourceSnapshot(store, source)) {
-        if ([...result.keys()].some(key => key.startsWith(`${source.mountPath}/`))) {
+        if ([...result.keys()].some(key => sourceMountContainsPath(source, key))) {
           const allowed = await currentSourceTreePaths(source, sourceContext)
           for (const key of result.keys()) {
-            if ((key === source.mountPath || key.startsWith(`${source.mountPath}/`)) && !allowed.has(key)) result.delete(key)
+            if (sourceMountContainsPath(source, key) && !allowed.has(key)) result.delete(key)
           }
           result.set(source.mountPath, { path: source.mountPath, type: "directory" })
           continue
         }
         for (const key of result.keys()) {
-          if (key === source.mountPath || key.startsWith(`${source.mountPath}/`)) result.delete(key)
+          if (sourceMountContainsPath(source, key)) result.delete(key)
         }
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
         continue
       }
-      if (path === source.mountPath || path.startsWith(`${source.mountPath}/`)) {
+      if (sourceMountContainsPath(source, path) || !source.mountPath && path) {
         await ensureMaterialized(source.key)
         for (const entry of await store.list(path, options)) result.set(entry.path, entry)
       }
@@ -179,6 +174,37 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return await store.stat(path)
   }
 
+  async function materializeRootSourceForPath(path: string) {
+    for (const source of sources.filter(source => !source.mountPath)) {
+      await ensurePrepared(source.key)
+      await ensureMaterialized(source.key)
+      const file = await store.readFile(path)
+      if (file?.metadata?.source === source.key) return source
+    }
+  }
+
+  async function isSourceBackedStorePath(path: string) {
+    const file = await store.readFile(path)
+    if (typeof file?.metadata?.source === "string" && sources.some(source => source.key === file.metadata?.source)) return true
+    const stat = await store.stat(path)
+    if (stat?.type !== "directory") return false
+    const entries = await store.list(path, { recursive: true })
+    for (const entry of entries) {
+      if (entry.type !== "file") continue
+      const child = await store.readFile(entry.path)
+      if (typeof child?.metadata?.source === "string" && sources.some(source => source.key === child.metadata?.source)) return true
+    }
+    return false
+  }
+
+  async function assertWritableResolvedStorePath(path: string, workspacePath: string, type: "source" | "store") {
+    assertWritableStorePath(path, workspacePath, type)
+    await materializeRootSourceForPath(workspacePath)
+    if (await isSourceBackedStorePath(workspacePath)) {
+      throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+    }
+  }
+
   return {
     async readFile(path, options) {
       const resolution = resolveWorkspacePath(definition, path)
@@ -187,13 +213,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await ensureMaterialized(resolution.sourceKey)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
+      await materializeRootSourceForPath(resolution.workspacePath)
       const file = await store.readFile(resolution.workspacePath)
       if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, options)
     },
     async writeFile(path, content, options) {
       const resolution = resolveWorkspacePath(definition, path)
-      assertWritableStorePath(path, resolution.workspacePath, resolution.type)
+      await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
       const input = await writePolicy.before({
         content,
         mediaType: options?.mediaType,
@@ -238,7 +265,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         return result
       }
-      const result = await store.stat(resolution.workspacePath)
+      let result = await store.stat(resolution.workspacePath)
+      if (!result) {
+        await materializeRootSourceForPath(resolution.workspacePath)
+        result = await store.stat(resolution.workspacePath)
+      }
       if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
       return result
     },
@@ -252,11 +283,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await ensureMaterialized(resolution.sourceKey)
         return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, sourceContext))
       }
+      if (await store.stat(resolution.workspacePath)) return true
+      await materializeRootSourceForPath(resolution.workspacePath)
       return Boolean(await store.stat(resolution.workspacePath))
     },
     async mkdir(path, options) {
       const resolution = resolveWorkspacePath(definition, path)
-      assertWritableStorePath(path, resolution.workspacePath, resolution.type)
+      await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
       const input = await writePolicy.before({
         operation: "mkdir",
         path: resolution.workspacePath,
@@ -274,7 +307,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     },
     async rm(path, options) {
       const resolution = resolveWorkspacePath(definition, path)
-      assertWritableStorePath(path, resolution.workspacePath, resolution.type)
+      await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
       const input = await writePolicy.before({
         operation: "rm",
         path: resolution.workspacePath,
