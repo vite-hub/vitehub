@@ -172,9 +172,12 @@ function shellPathArguments(words: string[]) {
 
 function findPathArguments(words: string[]) {
   const paths: string[] = []
+  let collectingPaths = true
   for (const arg of words.slice(1)) {
     if (isShellOperator(arg)) break
+    if (collectingPaths && isFindLeadingOption(arg)) continue
     if (arg.startsWith("-")) break
+    collectingPaths = false
     paths.push(arg)
   }
   return paths
@@ -199,7 +202,15 @@ function fileCommandPathArguments(words: string[]) {
 }
 
 function isShellOperator(arg: string) {
-  return arg === "&&" || arg === "||"
+  return arg === "&&" || arg === "||" || isRedirectOperator(arg)
+}
+
+function isRedirectOperator(arg: string) {
+  return /^(?:\d*)[<>]+&?\d*$/.test(arg)
+}
+
+function isFindLeadingOption(arg: string) {
+  return arg === "-H" || arg === "-L" || arg === "-P"
 }
 
 function isConcreteWorkspacePath(path: string) {

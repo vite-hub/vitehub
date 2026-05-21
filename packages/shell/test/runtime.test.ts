@@ -375,6 +375,25 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: " Docs\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "rg orders models > search.txt", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs: createWritableWorkspaceFs(workspace),
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "",
+    })
+    await expect(workspace.readFile("search.txt")).resolves.toBe("models/orders.sql:1:select * from orders\n")
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find -L models -name '*.sql'", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 1,
+      stdout: "",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "grep -ri customer . | grep -v orders | head -n 1", {
       commands: ["grep", "head"],
       cwd: workspaceMountPoint,
