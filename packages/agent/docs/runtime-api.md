@@ -32,6 +32,8 @@ import {
 } from '@vitehub/agent/capabilities'
 ```
 
+In Nitro, the module auto-imports `defineAgent` for discovered agent definitions. Capability factories such as `bash()` stay explicit imports because they expose model-facing tools.
+
 ::fw{id="vite:dev vite:build"}
 ```ts
 import { hubAgent } from '@vitehub/agent/vite'

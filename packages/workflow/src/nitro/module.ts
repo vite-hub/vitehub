@@ -12,7 +12,7 @@ import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions } from "../types.ts"
 
-const WORKFLOW_NITRO_IMPORTS_PRESET = { from: "@vitehub/workflow", imports: ["createWorkflow", "deferWorkflow", "defineWorkflow", "getWorkflowRun", "runWorkflow"] }
+const WORKFLOW_NITRO_IMPORTS_PRESET = { from: "@vitehub/workflow", imports: ["defineWorkflow", "getWorkflowRun"] }
 const WORKFLOW_VITE_PLUGIN_NAME = "@vitehub/workflow/vite"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
