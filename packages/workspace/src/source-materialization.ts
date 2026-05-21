@@ -2,7 +2,7 @@ import { posix } from "node:path"
 
 import { WorkspaceError } from "./errors.ts"
 import { decodeFile, normalizeWorkspacePath, sha256 } from "./path.ts"
-import { createSourceContext, normalizeWorkspaceSources } from "./source-config.ts"
+import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./source-config.ts"
 import { searchText } from "./search.ts"
 import type { ResolvedWorkspaceSource } from "./source-config.ts"
 import type { ResolvedSourcePath } from "./source-resolver.ts"
@@ -92,7 +92,34 @@ function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, option
   if (options?.sources?.length && !options.sources.includes(source.key)) return false
   const requested = normalizeWorkspacePath(options?.path || "")
   if (!requested) return true
-  return requested === source.mountPath || requested.startsWith(`${source.mountPath}/`) || source.mountPath.startsWith(`${requested}/`)
+  return sourceMountIntersectsPath(source, requested)
+}
+
+function parentDirectoryPaths(path: string) {
+  const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
+  const paths: string[] = []
+  for (let index = 1; index < parts.length; index++) paths.push(parts.slice(0, index).join("/"))
+  return paths
+}
+
+async function removeStaleMaterializedSourceFiles(store: WorkspaceStore, source: ResolvedWorkspaceSource, nextPaths: Set<string>) {
+  const entries = await store.list(source.mountPath, { recursive: true })
+  const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
+  const staleDirectories = new Set<string>()
+  await Promise.all(entries.map(async (entry) => {
+    if (nextPaths.has(entry.path) || entry.type !== "file") return
+    const file = await store.readFile(entry.path)
+    if (file?.metadata?.source === source.key) {
+      for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
+      await store.rm(entry.path, { force: true })
+    }
+  }))
+  for (const entry of entries.filter(entry => entry.type === "directory" && staleDirectories.has(entry.path) && !nextDirectories.has(entry.path)).sort((a, b) => b.path.length - a.path.length)) {
+    try {
+      await store.rm(entry.path, { force: true })
+    }
+    catch {}
+  }
 }
 
 export async function materializeWorkspaceSources(
@@ -139,16 +166,20 @@ export async function materializeWorkspaceSources(
       const items = source.source.getItems
         ? await source.source.getItems(ctx)
         : await Promise.all((await source.source.getKeys(ctx)).map(async key => await source.source.getItem(key, ctx)))
-      await store.rm(source.mountPath, { recursive: true, force: true })
-      await store.mkdir(source.mountPath, { recursive: true })
+      if (source.mountPath) {
+        await store.rm(source.mountPath, { recursive: true, force: true })
+        await store.mkdir(source.mountPath, { recursive: true })
+      }
 
       let sourceFiles = 0
       let sourceBytes = 0
       let commit: string | undefined
-      const directorySet = new Set<string>([source.mountPath])
+      const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
+      const nextPaths = new Set<string>()
       for (const item of items) {
         const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
         const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)
+        nextPaths.add(path)
         const parts = path.split("/")
         for (let index = 1; index < parts.length; index++) directorySet.add(parts.slice(0, index).join("/"))
         const metadata = item.metadata || {}
@@ -165,6 +196,7 @@ export async function materializeWorkspaceSources(
         sourceFiles++
         sourceBytes += contentSize(content)
       }
+      if (!source.mountPath) await removeStaleMaterializedSourceFiles(store, source, nextPaths)
 
       const ready: SourceSnapshotMetadata = {
         configHash,
@@ -455,7 +487,7 @@ function isCacheFresh(metadata: LazyMaterializedMetadata, cache: ResolvedSourceP
 
 function normalizeSourcePath(source: ResolvedWorkspaceSource, workspacePath: string) {
   if (workspacePath === source.mountPath) return ""
-  return workspacePath.startsWith(`${source.mountPath}/`)
+  return source.mountPath && workspacePath.startsWith(`${source.mountPath}/`)
     ? normalizeWorkspacePath(workspacePath.slice(source.mountPath.length + 1))
     : normalizeWorkspacePath(workspacePath)
 }
@@ -471,7 +503,7 @@ function readDigest(meta: Record<string, unknown> | undefined) {
 function toSourceSearchPaths(source: ResolvedWorkspaceSource, paths: string[] | undefined) {
   if (!paths?.length) return undefined
   return paths
-    .filter(path => path === source.mountPath || path.startsWith(`${source.mountPath}/`))
+    .filter(path => sourceMountContainsPath(source, path))
     .map(path => normalizeSourcePath(source, path))
 }
 

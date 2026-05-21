@@ -549,6 +549,33 @@ describe("sources, loaders, and publishers", () => {
     await expect(store.list("", { recursive: true })).resolves.toEqual([])
   })
 
+  it("purges stale root-mounted build source files when source maps change", async () => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["AGENTS.md", "stale.md"]
+    const rootSource = source.custom({
+      async getKeys() {
+        return keys
+      },
+      async getItem(key) {
+        return { key, path: key, content: `# ${key}\n` }
+      },
+      mount: "",
+    })
+    const definition: WorkspaceDefinition = {
+      name: "stale-root-build-sources",
+      sources: { rootFiles: rootSource },
+    }
+
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile("stale.md")).resolves.toMatchObject({ content: "# stale.md\n" })
+
+    keys = ["AGENTS.md"]
+    await syncWorkspaceDefinition(definition, store)
+
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "# AGENTS.md\n" })
+    await expect(store.readFile("stale.md")).resolves.toBeUndefined()
+  })
+
   it("purges stale local build source files after store restarts", async () => {
     const root = await createRoot()
     const storeRoot = join(root, ".vitehub", "workspaces", "docs")

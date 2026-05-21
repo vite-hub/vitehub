@@ -1,5 +1,5 @@
 import { normalizeSafeWorkspacePath, normalizeWorkspacePath } from "./path.ts"
-import { normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./source-config.ts"
+import { normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./source-config.ts"
 
 import type { WorkspaceDefinition, WorkspaceSearchQuery } from "./types.ts"
 
@@ -31,8 +31,8 @@ export function resolveWorkspacePath(definition: WorkspaceDefinition, path: stri
     if (workspacePath === source.mountPath) {
       return createSourceResolution(source, workspacePath, "")
     }
-    if (workspacePath.startsWith(`${source.mountPath}/`)) {
-      return createSourceResolution(source, workspacePath, workspacePath.slice(source.mountPath.length + 1))
+    if (sourceMountContainsPath(source, workspacePath)) {
+      return createSourceResolution(source, workspacePath, source.mountPath ? workspacePath.slice(source.mountPath.length + 1) : workspacePath)
     }
   }
 
