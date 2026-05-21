@@ -27,6 +27,12 @@ interface NitroStub {
     }
     env?: unknown
     handlers?: Array<{ handler: string, route: string }>
+    imports?: false | {
+      presets?: Array<{ from: string, imports: string[] }>
+    }
+    _config?: {
+      imports?: false
+    }
     plugins?: string[]
     preset?: string
     rootDir: string
@@ -159,6 +165,32 @@ describe("Nitro module", () => {
     expect(registry).toContain("\"required\": false")
     expect(registry).not.toContain("aaaaaaaa")
     expect(registry).not.toContain("telegram-secret")
+  })
+
+  it("registers useServerEnv as a Nitro server import", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-imports-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          authSecret: env({ secret: true }),
+        },
+        rootDir: root,
+      },
+    }
+
+    await envNitro().setup(nitro as never)
+
+    expect(nitro.options.imports).toMatchObject({
+      presets: [
+        {
+          from: "#vitehub/env/server",
+          imports: ["useServerEnv"],
+        },
+      ],
+    })
   })
 
   it("describes OpenWorkflow env aliases with the active source", async () => {

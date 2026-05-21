@@ -22,6 +22,8 @@ import {
 } from '@vitehub/workflow'
 ```
 
+In Nitro, the module auto-imports `defineWorkflow` for discovered workflow definitions and `getWorkflowRun` for read-oriented server code. Invocation helpers such as `runWorkflow`, `deferWorkflow`, and `createWorkflow` stay explicit imports because they start or construct workflow behavior.
+
 Vite config imports the plugin from `@vitehub/workflow/vite`:
 
 ```ts

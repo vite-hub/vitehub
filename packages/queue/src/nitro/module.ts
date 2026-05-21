@@ -28,7 +28,7 @@ function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[])
   }
 }
 
-const QUEUE_NITRO_IMPORTS_PRESET = { from: "@vitehub/queue", imports: ["defineQueue", "deferQueue", "getQueue", "runQueue"] }
+const QUEUE_NITRO_IMPORTS_PRESET = { from: "@vitehub/queue", imports: ["defineQueue", "getQueue"] }
 const QUEUE_VITE_PLUGIN_NAME = "@vitehub/queue/vite"
 
 function createNitroQueueRegistryPath(rootDir: string, buildDir: string) {
