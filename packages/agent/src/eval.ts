@@ -22,6 +22,8 @@ import {
   type AgentTestRunResult,
 } from "./test.ts"
 import type { WorkspaceName } from "@vitehub/workspace"
+import type { Evalite } from "evalite"
+import type { AgentModuleOptions } from "./types.ts"
 
 export interface AgentScore {
   metadata?: unknown
@@ -79,6 +81,26 @@ export interface AgentEvalDefinition<
 
 type AgentEvalAgent<TRuntimeConfig extends AgentRuntimeConfig> = AgentInput<AgentRuntimeContext<TRuntimeConfig>>
 
+export type AgentEvaliteConfig = Pick<
+  Evalite.Config,
+  | "cache"
+  | "forceRerunTriggers"
+  | "hideTable"
+  | "maxConcurrency"
+  | "scoreThreshold"
+  | "server"
+  | "setupFiles"
+  | "testTimeout"
+  | "trialCount"
+>
+
+export type AgentEvaliteConfigSource =
+  | AgentModuleOptions
+  | false
+  | {
+    agent?: AgentModuleOptions | false
+  }
+
 interface NormalizedEvalScenario<CALL_OPTIONS> extends AgentEvalScenario<CALL_OPTIONS> {
   scorers: AgentScorer[]
 }
@@ -93,6 +115,18 @@ interface AgentObservationWithScores extends AgentObservation {
 }
 
 const baselineVariant: AgentEvalVariant = { name: "baseline" }
+
+function isViteOrNitroConfigSource(source: AgentEvaliteConfigSource): source is { agent?: AgentModuleOptions | false } {
+  return typeof source === "object" && source !== null && "agent" in source
+}
+
+export function defineAgentEvaliteConfig(source: AgentEvaliteConfigSource): AgentEvaliteConfig {
+  const agent = isViteOrNitroConfigSource(source) ? source.agent : source
+  if (!agent) return {}
+  return {
+    ...agent.eval,
+  }
+}
 
 function isWorkspaceAgentDefinition(value: unknown): value is WorkspaceAgentDefinition {
   return typeof value === "object"

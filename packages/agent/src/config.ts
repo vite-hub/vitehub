@@ -8,6 +8,7 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
   }
 
   return {
+    eval: options?.eval || {},
     execution: options?.execution || "inline",
     imports: options?.imports !== false,
     integrations: {
