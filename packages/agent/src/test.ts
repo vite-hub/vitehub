@@ -112,6 +112,18 @@ function createWaitUntil(): AgentWaitUntil {
   }
 }
 
+function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
+  return (step.toolResults || []).filter((result) => {
+    const output = typeof result.output === "string"
+      ? result.output
+      : JSON.stringify(result.output)
+    return output.includes("Workspace search is too broad")
+      || output.includes("Workspace path is not mounted")
+      || output.includes("Search returned no matches")
+      || output.includes("Workspace shell command timed out")
+  }).length
+}
+
 function textFromRaw(value: unknown): string {
   if (typeof value === "string") {
     return value
@@ -168,10 +180,18 @@ export function createAgentTestRunner<
   return {
     async run(input) {
       const toolSteps: AgentToolStep[] = []
+      let workspaceInspectionGuardrails = 0
       const context = createAgentRuntimeContext({
         devtools: {
           reportToolStep(step) {
             toolSteps.push(step)
+            if (process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS) {
+              console.error("[vitehub-agent-test:tool]", JSON.stringify(step))
+            }
+            workspaceInspectionGuardrails += countWorkspaceInspectionGuardrails(step)
+            if (workspaceInspectionGuardrails >= 4) {
+              throw new Error("[vitehub] Agent stopped after repeated workspace inspection guardrails. The requested evidence appears unavailable in the mounted workspace sources.")
+            }
           },
         },
         request: options.request,
