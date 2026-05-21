@@ -333,22 +333,7 @@ export interface AgentProvidersOptions {
   state?: AgentStateProviderOptions
 }
 
-export interface AgentEvalRunnerOptions {
-  cache?: boolean
-  forceRerunTriggers?: string[]
-  hideTable?: boolean
-  maxConcurrency?: number
-  scoreThreshold?: number
-  server?: {
-    port?: number
-  }
-  setupFiles?: string[]
-  testTimeout?: number
-  trialCount?: number
-}
-
 export interface AgentModuleOptions {
-  eval?: AgentEvalRunnerOptions
   execution?: AgentExecution
   imports?: boolean
   integrations?: AgentIntegrationsOptions
@@ -358,7 +343,6 @@ export interface AgentModuleOptions {
 }
 
 export interface ResolvedAgentModuleOptions {
-  eval: AgentEvalRunnerOptions
   execution: AgentExecution
   imports: boolean
   integrations: Required<AgentIntegrationsOptions>

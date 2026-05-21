@@ -239,17 +239,6 @@ interface AgentRuntimeContext {
 
 ```ts
 interface AgentModuleOptions {
-  eval?: {
-    cache?: boolean
-    forceRerunTriggers?: string[]
-    hideTable?: boolean
-    maxConcurrency?: number
-    scoreThreshold?: number
-    server?: { port?: number }
-    setupFiles?: string[]
-    testTimeout?: number
-    trialCount?: number
-  }
   route?: boolean | string
   runtime?: 'auto' | 'nitro' | 'vercel' | 'cloudflare-agents'
   execution?: 'inline' | 'workflow' | 'sandbox'
@@ -265,8 +254,6 @@ interface AgentModuleOptions {
   }
 }
 ```
-
-Use `defineAgentEvaliteConfig()` from `@vitehub/agent/eval` inside `evalite.config.ts` to reuse `agent.eval` from a Vite or Nitro config object.
 
 ## Tool policy
 

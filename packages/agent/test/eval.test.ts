@@ -67,27 +67,6 @@ describe("agent eval", () => {
     })).toThrow("[vitehub] defineEval({ scenarios }) requires at least one scenario.")
   })
 
-  it("derives Evalite config from agent module options", async () => {
-    const { defineAgentEvaliteConfig } = await import("../src/eval.ts")
-
-    expect(defineAgentEvaliteConfig({
-      agent: {
-        eval: {
-          forceRerunTriggers: ["server/agents/support/**"],
-          maxConcurrency: 1,
-          testTimeout: 300000,
-        },
-      },
-    })).toEqual({
-      forceRerunTriggers: ["server/agents/support/**"],
-      maxConcurrency: 1,
-      testTimeout: 300000,
-    })
-
-    expect(defineAgentEvaliteConfig(false)).toEqual({})
-    expect(defineAgentEvaliteConfig({ agent: false })).toEqual({})
-  })
-
   it("uses an implicit baseline when variants are omitted", async () => {
     const { defineEval, textContains } = await import("../src/eval.ts")
 

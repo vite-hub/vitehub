@@ -118,35 +118,6 @@ export default defineEval({
 
 V1 variants only change `name`, `model`, and replacement `instructions`. Capability, workspace, custom `run`, and provider changes should use another Agent Definition.
 
-Configure Evalite runner options in the ViteHub Agent module, then bridge them from Evalite's config entrypoint:
-
-```ts [vite.config.ts]
-import { hubAgent } from '@vitehub/agent/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  agent: {
-    eval: {
-      forceRerunTriggers: ['server/agents/support/**'],
-      maxConcurrency: 1,
-      testTimeout: 300000,
-    },
-  },
-  plugins: [
-    hubAgent(),
-  ],
-})
-```
-
-```ts [evalite.config.ts]
-import { defineAgentEvaliteConfig } from '@vitehub/agent/eval'
-import viteConfig from './vite.config'
-
-export default defineAgentEvaliteConfig(viteConfig)
-```
-
-For Nitro-only projects, put the same `eval` block under `agent` in `defineNitroConfig()`, then pass the Nitro config object to `defineAgentEvaliteConfig()`.
-
 ## Expose an HTTP route
 
 Routes are disabled by default. Enable them when another server needs to call an agent over HTTP.
