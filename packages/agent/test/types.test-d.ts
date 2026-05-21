@@ -20,21 +20,28 @@ describe("agent public types", () => {
           },
         },
       ],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       workspace: { mode: "read" },
     })
 
-    // @ts-expect-error model agents must select an explicit provider
+    // @ts-expect-error model agents must select an explicit adapter
     defineAgent({
       model: {} as never,
     })
 
     defineAgent({
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       // @ts-expect-error workspace mode must be read or write
       workspace: { mode: "mutable" },
+    })
+
+    defineAgent({
+      adapter: "ai-sdk",
+      model: {} as never,
+      // @ts-expect-error adapter settings belong under adapterOptions
+      temperature: 0.2,
     })
   })
 })

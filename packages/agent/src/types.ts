@@ -256,6 +256,8 @@ export type AgentModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig 
 type AgentSettingsBase<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > = {
+  adapter?: AgentModelAdapter
+  adapterOptions?: Record<string, unknown>
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig>
@@ -263,10 +265,8 @@ type AgentSettingsBase<
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   capabilities?: AgentCapabilitiesList<TRuntimeConfig>
   model?: AgentModelResolver<TRuntimeConfig>
-  provider?: AgentModelProvider
   runtime?: AgentRuntimeBinding
   workspace?: WorkspaceAgentWorkspaceConfig
-  [key: string]: unknown
 }
 
 export type AgentSettings<
@@ -278,7 +278,7 @@ export type AgentSettings<
   }
   | {
     model: NonNullable<AgentSettingsBase<TRuntimeConfig>["model"]>
-    provider: NonNullable<AgentSettingsBase<TRuntimeConfig>["provider"]>
+    adapter: NonNullable<AgentSettingsBase<TRuntimeConfig>["adapter"]>
     run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )
@@ -307,7 +307,7 @@ export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = Agen
 export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
-export type AgentModelProvider = "ai-sdk" | "tanstack-ai" | (string & {})
+export type AgentModelAdapter = "ai-sdk" | "tanstack-ai" | (string & {})
 
 export interface AgentStateProviderOptions {
   provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
