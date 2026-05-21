@@ -50,8 +50,11 @@ describe("workspace types", () => {
       workspacePath: "AGENTS.md",
       content: "# Instructions\n",
     })
+    source.file("AGENTS.md")
     // @ts-expect-error inline file content requires a workspacePath
     source.file({ content: "# Missing path\n" })
+    // @ts-expect-error inline content cannot use a local file path
+    source.file({ path: "AGENTS.md", content: "# Instructions\n" })
     source.github({
       repo: "acme/app",
       root: "docs",

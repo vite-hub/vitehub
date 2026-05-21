@@ -579,7 +579,7 @@ describe("sources, loaders, and publishers", () => {
   it("purges stale local build source files after store restarts", async () => {
     const root = await createRoot()
     const storeRoot = join(root, ".vitehub", "workspaces", "docs")
-    const docsSource = source.file({ content: "# Docs\n", path: "README.md", workspacePath: "README.md", mount: "docs" })
+    const docsSource = source.file({ content: "# Docs\n", workspacePath: "README.md", mount: "docs" })
     const definition: WorkspaceDefinition = {
       name: "stale-local-build-sources",
       sources: { docs: docsSource },
@@ -709,7 +709,7 @@ describe("sources, loaders, and publishers", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.glob({ cwd: ".", include: ["**/*.md"] }),
-        files: source.file({ path: "two.md", workspacePath: "two.md", content: "# Two\n" }),
+        files: source.file({ workspacePath: "two.md", content: "# Two\n" }),
         custom: source.custom({
           async getKeys() {
             return ["custom.json"]
@@ -775,8 +775,8 @@ describe("sources, loaders, and publishers", () => {
       rootDir: root,
       store: { provider: "memory" },
       sources: {
-        docs: source.file({ content: "hello\n", path: "README.md", workspacePath: "README.md" }),
-        data: source.file({ content: new Uint8Array([1, 2, 3]), path: "data.bin", workspacePath: "data.bin" }),
+        docs: source.file({ content: "hello\n", workspacePath: "README.md" }),
+        data: source.file({ content: new Uint8Array([1, 2, 3]), workspacePath: "data.bin" }),
       },
     }))
 
@@ -787,11 +787,11 @@ describe("sources, loaders, and publishers", () => {
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
 
     await expect(registry["asset-bundle"].list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "docs/README.md", type: "file" }),
-      expect.objectContaining({ path: "data/data.bin", type: "file" }),
+      expect.objectContaining({ path: "README.md", type: "file" }),
+      expect.objectContaining({ path: "data.bin", type: "file" }),
     ]))
-    await expect(registry["asset-bundle"].readFile("docs/README.md")).resolves.toBe("hello\n")
-    await expect(registry["asset-bundle"].readFile("data/data.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+    await expect(registry["asset-bundle"].readFile("README.md")).resolves.toBe("hello\n")
+    await expect(registry["asset-bundle"].readFile("data.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
     await expect(registry["asset-bundle"].exists("../escape.txt")).resolves.toBe(false)
   })
 

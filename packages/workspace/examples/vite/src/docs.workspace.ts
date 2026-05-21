@@ -7,7 +7,6 @@ export default defineWorkspace({
   },
   sources: {
     docs: source.file({
-      path: "README.md",
       workspacePath: "README.md",
       content: "# Workspace example\n",
     }),

@@ -89,7 +89,8 @@ describe("hubWorkspace", () => {
     const docsId = resolveId("#vitehub/workspaces/docs")!
     expect(load(docsId)).toContain('"entries":[]')
     const registryId = resolveId("#vitehub-workspace-registry")!
-    expect(load(registryId)).toContain('"docs": async () => import(')
+    expect(load(registryId)).toContain('"docs": async () => {')
+    expect(load(registryId)).toContain("sourceRootDir")
   })
 
   it("emits build-time workspace assets for Vite builds", async () => {

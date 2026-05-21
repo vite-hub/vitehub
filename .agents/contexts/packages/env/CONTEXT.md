@@ -24,6 +24,10 @@ _Avoid_: Public build value, compile-time define, runtime config
 The public server-code access surface for Runtime Env.
 _Avoid_: Safe runtime config, app config
 
+**Generated Server Env Type**:
+The build-generated TypeScript shape of Server Env declarations, including required, optional, and Secret Env fields.
+_Avoid_: Handwritten runtime config, adapter config type
+
 **Public Env**:
 Build Env values intentionally exposed to browser-safe application code.
 _Avoid_: Runtime public config, client secret, public runtime env
@@ -51,6 +55,7 @@ _Avoid_: Leak prevention, DLP, log scanning
 - **Runtime Env** belongs to Nitro integration.
 - **Runtime Env** is the Env Package's primary language for server runtime values; Nitro runtime config is currently a transport for those values, not the public Env API name.
 - **Server Env** is the public API naming pattern for server-code access to **Runtime Env**.
+- **Generated Server Env Type** is the preferred source for Agent Runtime Config types when an app uses Env Package declarations.
 - **Public Env** is the public API naming pattern for build-time public values.
 - Generated env access should use stable `#vitehub/env/*` import paths instead of exposing integration-specific virtual module names.
 - A **Secret Env** is a Runtime Env value.
@@ -85,3 +90,4 @@ _Avoid_: Leak prevention, DLP, log scanning
 - Secret Env compatibility with strings was considered - resolved: **Secret Env** is not assignable to its underlying value until a **Secret Unseal**.
 - Response scanning was considered a hard guarantee - resolved: **Outbound Secret Redaction** is best-effort and must not be described as general leak prevention.
 - Runtime Env and runtime config were considered interchangeable - resolved: **Runtime Env** is the Env Package concept; runtime config is integration-specific language.
+- Agent Runtime Config was considered a hand-authored mirror of Env declarations - resolved: use the **Generated Server Env Type** as the source of truth when `@vitehub/env` is present.
