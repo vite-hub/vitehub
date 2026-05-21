@@ -118,6 +118,12 @@ describe("agent eval", () => {
     expect(score.score).toBe(1)
   })
 
+  it("normalizes the source-mapped eval file path on Windows", async () => {
+    const { sourceMappedEvalFile } = await import("../src/eval.ts")
+
+    expect(sourceMappedEvalFile("C:\\repo\\packages\\agent\\dist\\eval.js")).toBe("C:\\repo\\packages\\agent\\src\\eval.ts")
+  })
+
   it("uses exact variants when variants are provided", async () => {
     const { defineEval } = await import("../src/eval.ts")
 

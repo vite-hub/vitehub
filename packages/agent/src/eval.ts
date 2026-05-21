@@ -149,7 +149,7 @@ function getCallerFile(): string | undefined {
   const stack = new Error().stack
   if (!stack) return
   const current = fileURLToPath(import.meta.url)
-  const sourceMappedCurrent = current.replace(/\/dist\/eval\.js$/, "/src/eval.ts")
+  const sourceMappedCurrent = sourceMappedEvalFile(current)
   for (const line of stack.split("\n")) {
     if (line.includes("getCallerFile") || line.includes("defineEval")) continue
     const match = line.match(/\(?((?:file:\/\/)?.+?\.(?:c|m)?[jt]s)(?::\d+:\d+)?\)?$/)
@@ -158,6 +158,10 @@ function getCallerFile(): string | undefined {
     const file = stackPath.startsWith("file://") ? fileURLToPath(stackPath) : stackPath
     if (file !== current && file !== sourceMappedCurrent) return file
   }
+}
+
+export function sourceMappedEvalFile(current: string): string {
+  return current.replace(/([/\\])dist[/\\]eval\.js$/, "$1src$1eval.ts")
 }
 
 async function resolveSiblingAgent<TRuntimeConfig extends AgentRuntimeConfig>(

@@ -115,7 +115,7 @@ describe("agent test runner", () => {
   })
 
   it("stops test runs after repeated workspace inspection guardrails", async () => {
-    const execute = vi.fn(async () => "Workspace search is too broad for this agent tool.")
+    const execute = vi.fn(async () => "Workspace root search is too broad. Use a narrow mounted source or subdirectory path instead.")
     inspectTools.mockReturnValueOnce({
       shell: { execute },
     })

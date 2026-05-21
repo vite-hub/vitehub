@@ -118,6 +118,7 @@ function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
       ? result.output
       : stringifyToolOutput(result.output)
     return output.includes("Workspace search is too broad")
+      || output.includes("Workspace root search is too broad")
       || output.includes("Workspace path is not mounted")
       || output.includes("Search returned no matches")
       || output.includes("Workspace shell command timed out")
