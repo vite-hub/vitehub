@@ -16,6 +16,7 @@ describe("usage telemetry", () => {
   it("normalizes usage and attaches a priced usage record", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
 
     const agent = defineAgent({
       capabilities: [
@@ -28,6 +29,9 @@ describe("usage telemetry", () => {
           }),
         }),
       ],
+      hooks: {
+        "agent:finish": finish,
+      },
       run: () => ({
         finishReason: "stop",
         response: {
@@ -43,7 +47,9 @@ describe("usage telemetry", () => {
       }),
     })
 
-    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+    const result = await runAgent(agent, runtime(), {})
+
+    expect(result).toMatchObject({
       finishReason: "stop",
       text: "ok",
       usage: {
@@ -78,11 +84,15 @@ describe("usage telemetry", () => {
         },
       },
     })
+    expect(finish).toHaveBeenCalledTimes(1)
+    const usageRecord = (result as { usageRecord?: unknown }).usageRecord
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(usageRecord)
   })
 
   it("does not fail the invocation when pricing fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
 
     const agent = defineAgent({
       capabilities: [
@@ -92,6 +102,9 @@ describe("usage telemetry", () => {
           },
         }),
       ],
+      hooks: {
+        "agent:finish": finish,
+      },
       run: () => ({
         text: "ok",
         usage: {
@@ -116,6 +129,32 @@ describe("usage telemetry", () => {
         },
       },
     })
+    expect(finish.mock.calls[0]![0].extensions.has("usage-telemetry")).toBe(true)
+  })
+
+  it("does not add a usage telemetry extension when no usage record is produced", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry(),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({
+        text: "ok",
+      }),
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      text: "ok",
+    })
+    expect(finish).toHaveBeenCalledTimes(1)
+    expect(finish.mock.calls[0]![0].extensions.has("usage-telemetry")).toBe(false)
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toBeUndefined()
   })
 
   it("loads Vercel AI Gateway pricing from the models endpoint", async () => {

@@ -56,6 +56,145 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("runs agent finish hooks for custom object results after extensions are resolved", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        {
+          id: "first",
+          output(context) {
+            context.extensions.provide("agent:finish", (event: { result?: unknown }) => `${(event.result as { text: string }).text}:first`)
+          },
+        },
+        {
+          id: "second",
+          output(context) {
+            context.extensions.provide("agent:finish", "second-value")
+          },
+        },
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "ok" }),
+    })
+    const input = { prompt: "hello" }
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, input)).resolves.toMatchObject({ text: "ok" })
+
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      input,
+      invocation: expect.objectContaining({
+        durationMs: expect.any(Number),
+        run: { runId: "run-1" },
+      }),
+      result: { text: "ok" },
+      runtime: expect.objectContaining({ runtime: "unknown" }),
+    }))
+    const event = finish.mock.calls[0]![0]
+    expect(event.extensions.has("first")).toBe(true)
+    expect(event.extensions.get("first")).toBe("ok:first")
+    expect(event.extensions.get("second")).toBe("second-value")
+    expect(event.extensions.has("missing")).toBe(false)
+  })
+
+  it("runs agent finish hooks for model-backed object results", async () => {
+    vi.doMock("ai", () => ({
+      ToolLoopAgent: class {
+        async generate() {
+          return { finishReason: "stop", text: "ok" }
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const finish = vi.fn()
+      const agent = defineAgent({
+        hooks: {
+          "agent:finish": finish,
+        },
+        model: {} as never,
+        provider: "ai-sdk",
+      })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {})).resolves.toMatchObject({ finishReason: "stop", text: "ok" })
+
+      expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+        result: expect.objectContaining({ finishReason: "stop", text: "ok" }),
+      }))
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("runs agent finish hooks after generated streams are consumed", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const order: string[] = []
+    const agent = defineAgent({
+      hooks: {
+        "agent:finish": () => { order.push("finish") },
+      },
+      run: () => (async function* () {
+        yield "hello"
+        order.push("stream:done")
+      })(),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    expect(order).toEqual([])
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(order).toEqual(["stream:done", "finish"])
+  })
+
+  it("runs agent finish hooks after Response bodies are read", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => new Response("ok"),
+    })
+
+    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
+    expect(finish).not.toHaveBeenCalled()
+    await expect(response.text()).resolves.toBe("ok")
+    expect(finish).toHaveBeenCalledTimes(1)
+  })
+
+  it("runs agent finish hooks when Response bodies are canceled", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("partial"))
+        },
+      })),
+    })
+
+    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
+    await response.body?.cancel()
+    expect(finish).toHaveBeenCalledTimes(1)
+  })
+
   it("returns generated Response results unchanged", async () => {
     const { runAgent } = await import("../src/index.ts")
     const response = Response.json({ ok: true })

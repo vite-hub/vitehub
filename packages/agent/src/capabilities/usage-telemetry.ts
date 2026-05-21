@@ -2,6 +2,7 @@ import { defineCapability } from "../capability-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
+  AgentFinishEvent,
   AgentRunMetadata,
   AgentUsage,
   AgentUsageCost,
@@ -179,6 +180,9 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
     id: "usage-telemetry",
     name: "Usage Telemetry",
     output(context) {
+      context.extensions.provide("agent:finish", (event: AgentFinishEvent) => isRecord(event.result)
+        ? event.result.usageRecord
+        : undefined)
       context.output.render(async (result) => {
         if (!isRecord(result)) return result
         const usageRecord = await createAgentUsageRecord(result, options, context.run)

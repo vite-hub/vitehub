@@ -8,6 +8,8 @@ import type {
   AgentCapabilityHooks,
   AgentCapabilityMode,
   AgentCapabilityRuntimeContext,
+  AgentFinishEvent,
+  AgentFinishExtensionProvider,
   AgentInstructionBlock,
   AgentOutputRenderer,
   AgentRunInput,
@@ -22,7 +24,13 @@ import type { ReadonlyWorkspaceFacade, WorkspaceName } from "@vitehub/workspace"
 
 type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
 
+export interface ResolvedAgentFinishExtensionProvider {
+  id: string
+  resolve: AgentFinishExtensionProvider
+}
+
 export interface AgentCapabilityRegistries {
+  finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   outputRenderers: ResolvedAgentOutputRenderer[]
   stateRequirements: Array<{ name: string, optional?: boolean }>
 }
@@ -174,6 +182,7 @@ export async function resolveAgentCapabilities<
   const closeCallbacks: Array<() => MaybePromise<void>> = []
   const toolTransforms: AgentToolTransform[] = []
   const registries: AgentCapabilityRegistries = {
+    finishExtensionProviders: [],
     outputRenderers: [],
     stateRequirements: [],
   }
@@ -220,6 +229,17 @@ export async function resolveAgentCapabilities<
         output: {
           render(renderer: AgentOutputRenderer) {
             registries.outputRenderers.push(result => renderer(result, capabilityContext))
+          },
+        },
+        extensions: {
+          provide(hook, value) {
+            if (hook !== "agent:finish") return
+            registries.finishExtensionProviders.push({
+              id: capability.id,
+              resolve: typeof value === "function"
+                ? value as AgentFinishExtensionProvider
+                : () => value,
+            })
           },
         },
         state: {
@@ -396,6 +416,29 @@ export async function applyOutputRenderers(
     current = await renderer(current)
   }
   return current
+}
+
+export async function createAgentInvocationExtensions(
+  event: Omit<AgentFinishEvent, "extensions">,
+  providers: ResolvedAgentFinishExtensionProvider[] = [],
+): Promise<AgentFinishEvent["extensions"]> {
+  const values = new Map<string, unknown>()
+  const extensions: AgentFinishEvent["extensions"] = {
+    get<T = unknown>(capabilityId: string): T | undefined {
+      return values.get(capabilityId) as T | undefined
+    },
+    has(capabilityId: string): boolean {
+      return values.has(capabilityId)
+    },
+  }
+  const finishEvent = { ...event, extensions } as AgentFinishEvent
+  for (const provider of providers) {
+    const value = await provider.resolve(finishEvent)
+    if (value !== undefined) {
+      values.set(provider.id, value)
+    }
+  }
+  return extensions
 }
 
 export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(

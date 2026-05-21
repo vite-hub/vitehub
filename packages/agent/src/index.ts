@@ -8,14 +8,15 @@ import {
 import {
   applyCapabilityToolTransforms,
   applyOutputRenderers,
+  createAgentInvocationExtensions,
   defineCapability,
   normalizeCapabilities,
   normalizeMode,
   resolveAgentCapabilities,
   resolveAgentStaticCapabilities,
-  withCapabilityCleanup,
   withResponseCleanup,
 } from "./capability-runtime.ts"
+import type { ResolvedAgentFinishExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 import {
   applyAgentToolPolicies,
@@ -28,13 +29,17 @@ import type {
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentCapabilitiesList,
+  AgentCapabilityHooks,
+  AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityInput,
   AgentCapabilityMode,
   AgentDefinition,
+  AgentFinishEvent,
   AgentChatOptions,
   AgentInput,
   AgentModelAdapter,
+  AgentInvocationHooks,
   AgentRegistry,
   AgentRegistryModule,
   AgentRequestBody,
@@ -90,10 +95,14 @@ export type {
   AgentRequestBody,
   AgentDefinition,
   AgentExecution,
+  AgentFinishEvent,
+  AgentFinishHook,
   AgentHandlerOptions,
   AgentInput,
   AgentInstructionBlock,
   AgentIntegrationOption,
+  AgentInvocationExtensions,
+  AgentInvocationHooks,
   AgentIntegrationsOptions,
   AgentModelInput,
   AgentModelInstrumentation,
@@ -371,13 +380,13 @@ function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
-  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> },
+  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS> },
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   if ("model" in (options as Record<string, unknown>) && !("adapter" in (options as Record<string, unknown>))) {
     throw new Error("[vitehub] defineAgent({ model }) requires an explicit adapter, for example adapter: \"ai-sdk\".")
   }
 
-  const { capabilities, chat: legacyChat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
+  const { capabilities, chat: legacyChat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS> }
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities) || legacyChat
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
@@ -494,7 +503,7 @@ export type WorkspaceAgentOptions<
 > = AgentSettings<TRuntimeConfig> & {
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig>
+  hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
   workspace: WorkspaceAgentWorkspaceConfig
@@ -525,7 +534,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
   >(
-    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> },
+    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS> },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -939,7 +948,7 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 
 function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-): agent is AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & { run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> } {
+): agent is AgentDefinition<TRuntimeConfig, any> & { run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> } {
   return hasAgentDefinition(agent)
     && typeof agent.run === "function"
     && !(syntheticWorkspaceRun in agent.run)
@@ -1028,9 +1037,14 @@ async function createRunContext<
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
   close: () => Promise<void>
+  finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
+  finishHook?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> extends infer TEvent ? (event: TEvent) => MaybePromise<void> : never
   hasCapabilityCleanup: boolean
   outputRenderers: Array<(result: unknown) => MaybePromise<unknown>>
+  runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
+  startedAt: number
 }> {
+  const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
   const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
@@ -1057,11 +1071,15 @@ async function createRunContext<
   return {
     ...resolvedContext,
     close: capabilities.close,
+    finishExtensionProviders: capabilities.registries.finishExtensionProviders,
+    finishHook: definition.hooks?.["agent:finish"] as never,
     hasCapabilityCleanup: capabilities.hasCloseCallbacks,
     input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
     messages: capabilities.messages,
     outputRenderers: capabilities.registries.outputRenderers,
     prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
+    runtimeContext: resolvedContext,
+    startedAt,
     tools,
   }
 }
@@ -1075,6 +1093,7 @@ async function createAdapterRunContext<
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
 ) {
+  const startedAt = Date.now()
   const runtime = createResolvedRuntimeContext(context)
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
   const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
@@ -1101,6 +1120,8 @@ async function createAdapterRunContext<
     capabilityInstructions: capabilities.capabilityInstructions,
     close: capabilities.close,
     devtools: context.devtools,
+    finishExtensionProviders: capabilities.registries.finishExtensionProviders,
+    finishHook: definition?.hooks?.["agent:finish"] as never,
     hasCapabilityCleanup: capabilities.hasCloseCallbacks,
     input: capabilities.input,
     instructions: undefined,
@@ -1108,9 +1129,77 @@ async function createAdapterRunContext<
     outputRenderers: capabilities.registries.outputRenderers,
     prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
     runtime,
+    runtimeContext: runtime,
+    startedAt,
     tools,
     workspace,
   }
+}
+
+type InvocationRunContext<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+> = {
+  close: () => Promise<void>
+  finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
+  finishHook?: (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
+  input: AgentRunInput<CALL_OPTIONS>
+  runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
+  run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
+  startedAt: number
+}
+
+function hasFinishWork<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
+  return Boolean(context.finishHook || context.finishExtensionProviders.length)
+}
+
+async function finishAgentInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  result?: unknown,
+  error?: unknown,
+): Promise<void> {
+  await context.close()
+  if (!hasFinishWork(context)) return
+
+  const eventBase = {
+    ...(error !== undefined ? { error } : {}),
+    input: context.input,
+    invocation: {
+      durationMs: Date.now() - context.startedAt,
+      ...(context.run ? { run: context.run } : {}),
+    },
+    ...(result !== undefined ? { result } : {}),
+    runtime: context.runtimeContext,
+  } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+  const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
+  await context.finishHook?.({ ...eventBase, extensions })
+}
+
+function withFinishCleanup<T extends AsyncIterable<unknown>>(
+  stream: T,
+  finish: (error?: unknown) => Promise<void>,
+): AsyncIterable<unknown> {
+  return (async function* () {
+    let error: unknown
+    let failed = false
+    try {
+      yield* stream
+    }
+    catch (caught) {
+      failed = true
+      error = caught
+      throw caught
+    }
+    finally {
+      await finish(failed ? error : undefined)
+    }
+  })()
 }
 
 export async function runAgent<
@@ -1124,20 +1213,21 @@ export async function runAgent<
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createRunContext(agent, context, input)
     runContext.close = once(runContext.close)
+    const shouldWrapOutput = runContext.hasCapabilityCleanup || hasFinishWork(runContext)
     try {
       const result = await agent.run(runContext)
-      if (result instanceof Response) return runContext.hasCapabilityCleanup ? await withResponseCleanup(result, runContext.close) : result
-      if (isAsyncIterable(result)) return runContext.hasCapabilityCleanup ? withCapabilityCleanup(result, runContext.close) : result
+      if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, () => finishAgentInvocation(runContext, result)) : result
+      if (isAsyncIterable(result)) return shouldWrapOutput ? withFinishCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
-      await runContext.close()
+      await finishAgentInvocation(runContext, rendered)
       return rendered
     }
     catch (error) {
       try {
-        await runContext.close()
+        await finishAgentInvocation(runContext, undefined, error)
       }
-      catch (closeError) {
-        throw new AggregateError([error, closeError], "[vitehub] Agent run failed and capability cleanup also failed.")
+      catch (finishError) {
+        throw new AggregateError([error, finishError], "[vitehub] Agent run failed and finish lifecycle also failed.")
       }
       throw error
     }
@@ -1147,20 +1237,22 @@ export async function runAgent<
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
   adapterContext.close = once(adapterContext.close)
+  const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
   try {
     const result = await resolved.generate(adapterContext as never)
-    if (result instanceof Response) return adapterContext.hasCapabilityCleanup ? await withResponseCleanup(result, adapterContext.close) : result
-    if (isAsyncIterable(result)) return adapterContext.hasCapabilityCleanup ? withCapabilityCleanup(result, adapterContext.close) : result
+    if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, () => finishAgentInvocation(adapterContext, result)) : result
+    if (isAsyncIterable(result)) return shouldWrapOutput ? withFinishCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
-    await adapterContext.close()
-    return toAgentRunResult(rendered)
+    const runResult = toAgentRunResult(rendered)
+    await finishAgentInvocation(adapterContext, runResult)
+    return runResult
   }
   catch (error) {
     try {
-      await adapterContext.close()
+      await finishAgentInvocation(adapterContext, undefined, error)
     }
-    catch (closeError) {
-      throw new AggregateError([error, closeError], "[vitehub] Agent run failed and capability cleanup also failed.")
+    catch (finishError) {
+      throw new AggregateError([error, finishError], "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
     throw error
   }
@@ -1177,20 +1269,21 @@ export async function streamAgent<
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createRunContext(agent, context, input)
     runContext.close = once(runContext.close)
+    const shouldWrapOutput = runContext.hasCapabilityCleanup || hasFinishWork(runContext)
     try {
       const result = await agent.run(runContext)
-      if (result instanceof Response) return runContext.hasCapabilityCleanup ? await withResponseCleanup(result, runContext.close) : result
-      if (isAsyncIterable(result)) return runContext.hasCapabilityCleanup ? withCapabilityCleanup(result, runContext.close) : result
+      if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, () => finishAgentInvocation(runContext, result)) : result
+      if (isAsyncIterable(result)) return shouldWrapOutput ? withFinishCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
-      await runContext.close()
+      await finishAgentInvocation(runContext, rendered)
       return rendered
     }
     catch (error) {
       try {
-        await runContext.close()
+        await finishAgentInvocation(runContext, undefined, error)
       }
-      catch (closeError) {
-        throw new AggregateError([error, closeError], "[vitehub] Agent run failed and capability cleanup also failed.")
+      catch (finishError) {
+        throw new AggregateError([error, finishError], "[vitehub] Agent run failed and finish lifecycle also failed.")
       }
       throw error
     }
@@ -1200,21 +1293,22 @@ export async function streamAgent<
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
   adapterContext.close = once(adapterContext.close)
+  const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
   try {
     const result = resolved.stream
       ? await resolved.stream(adapterContext as never)
       : await resolved.generate(adapterContext as never)
-    if (result instanceof Response) return adapterContext.hasCapabilityCleanup ? await withResponseCleanup(result, adapterContext.close) : result
-    if (isAsyncIterable(result)) return adapterContext.hasCapabilityCleanup ? withCapabilityCleanup(result, adapterContext.close) : result
+    if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, () => finishAgentInvocation(adapterContext, result)) : result
+    if (isAsyncIterable(result)) return shouldWrapOutput ? withFinishCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
     const events = streamTextResultToEvents(await applyOutputRenderers(result, adapterContext.outputRenderers))
-    return adapterContext.hasCapabilityCleanup ? withCapabilityCleanup(events, adapterContext.close) : events
+    return shouldWrapOutput ? withFinishCleanup(events, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : events
   }
   catch (error) {
     try {
-      await adapterContext.close()
+      await finishAgentInvocation(adapterContext, undefined, error)
     }
-    catch (closeError) {
-      throw new AggregateError([error, closeError], "[vitehub] Agent stream failed and capability cleanup also failed.")
+    catch (finishError) {
+      throw new AggregateError([error, finishError], "[vitehub] Agent stream failed and finish lifecycle also failed.")
     }
     throw error
   }
