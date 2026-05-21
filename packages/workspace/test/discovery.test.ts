@@ -66,6 +66,16 @@ describe("discoverNitroWorkspaceDefinitions", () => {
     expect(contents).toContain("const mod = await import(")
   })
 
+  it("preserves explicit sourceRootDir values in workspace modules", async () => {
+    const root = await createRoot()
+    const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
+    await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default { sourceRootDir: '/custom/docs' }\n", "utf8")
+
+    const contents = createWorkspaceRegistryContents(registryFile, discoverNitroWorkspaceDefinitions(root))
+
+    expect(contents).toContain("sourceRootDir: mod.default.sourceRootDir ||")
+  })
+
   it("discovers workspace definitions colocated with directory agents", async () => {
     const root = await createRoot()
     await mkdir(join(root, "server", "agents", "docs", "workspace"), { recursive: true })

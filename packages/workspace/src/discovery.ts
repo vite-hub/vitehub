@@ -153,7 +153,7 @@ export function createWorkspaceRegistryContents(registryFile: string, definition
       `  ${JSON.stringify(definition.name)}: async () => {`,
       `    const mod = await ${importExpression(definition.handler)}`,
       definition.sourceRootDir
-        ? `    return { ...mod, default: { ...mod.default, sourceRootDir: ${JSON.stringify(definition.sourceRootDir)} } }`
+        ? `    return { ...mod, default: { ...mod.default, sourceRootDir: mod.default.sourceRootDir || ${JSON.stringify(definition.sourceRootDir)} } }`
         : "    return mod",
       "  },",
     ].join("\n")),
@@ -170,7 +170,7 @@ export function createWorkspaceVirtualRegistryContents(definitions: DiscoveredWo
       `  ${JSON.stringify(definition.name)}: async () => {`,
       `    const mod = await import(${JSON.stringify(pathToFileURL(definition.path).href)})`,
       definition.sourceRootDir
-        ? `    return { ...mod, default: { ...mod.default, sourceRootDir: ${JSON.stringify(definition.sourceRootDir)} } }`
+        ? `    return { ...mod, default: { ...mod.default, sourceRootDir: mod.default.sourceRootDir || ${JSON.stringify(definition.sourceRootDir)} } }`
         : "    return mod",
       "  },",
     ].join("\n")),
