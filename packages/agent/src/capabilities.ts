@@ -2,6 +2,12 @@ export {
   memory,
   workspaceJsonlMemoryStore,
 } from "./memory.ts"
+export {
+  normalizeAgentUsage,
+  staticModelPricing,
+  usageTelemetry,
+  vercelAiGatewayPricing,
+} from "./usage-telemetry.ts"
 
 export type {
   MemoryAppendRequest,
@@ -21,3 +27,10 @@ export type {
   MemoryStoreOptions,
   WorkspaceJsonlMemoryStoreOptions,
 } from "./memory.ts"
+export type {
+  AgentUsagePricing,
+  AgentUsagePricingContext,
+  StaticModelPrice,
+  UsageTelemetryOptions,
+  VercelAiGatewayPricingOptions,
+} from "./usage-telemetry.ts"

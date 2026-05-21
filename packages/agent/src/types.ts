@@ -80,6 +80,7 @@ export interface AgentRunResult {
   raw?: unknown
   text?: string
   usage?: unknown
+  usageRecord?: AgentUsageRecord
   warnings?: unknown
 }
 
@@ -502,7 +503,45 @@ export interface AgentAdapterResult {
   raw?: unknown
   text?: string
   usage?: unknown
+  usageRecord?: AgentUsageRecord
   warnings?: unknown
+}
+
+export interface AgentUsage {
+  inputTokenDetails?: Record<string, number>
+  inputTokens?: number
+  outputTokenDetails?: Record<string, number>
+  outputTokens?: number
+  raw?: unknown
+  totalTokens?: number
+}
+
+export interface AgentUsageCost {
+  amount: string
+  currency: "USD" | (string & {})
+  estimated: boolean
+  source: "custom" | "estimated" | "provider" | "vercel-ai-gateway" | (string & {})
+}
+
+export interface AgentUsageRecord {
+  cost?: AgentUsageCost
+  latency?: {
+    durationMs?: number
+    timeToFirstTokenMs?: number
+    tokensPerSecond?: number
+  }
+  model?: {
+    id?: string
+    provider?: string
+  }
+  raw?: unknown
+  response?: {
+    finishReason?: unknown
+    id?: string
+    timestamp?: Date | string
+  }
+  run?: Partial<AgentRunMetadata>
+  usage?: AgentUsage
 }
 
 export interface AgentAdapterMetadataContext<

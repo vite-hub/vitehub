@@ -46,6 +46,8 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentSettings,
+  AgentUsageCost,
+  AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
   AgentToolSet,
@@ -117,6 +119,9 @@ export type {
   AgentRuntimeContext,
   AgentRuntimeHooks,
   AgentRuntimeName,
+  AgentUsage,
+  AgentUsageCost,
+  AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   AgentSandboxProviderOptions,
   AgentSchedulerProviderOptions,
@@ -484,6 +489,20 @@ export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
     },
   })
 }
+
+export {
+  normalizeAgentUsage,
+  staticModelPricing,
+  usageTelemetry,
+  vercelAiGatewayPricing,
+} from "./usage-telemetry.ts"
+export type {
+  AgentUsagePricing,
+  AgentUsagePricingContext,
+  StaticModelPrice,
+  UsageTelemetryOptions,
+  VercelAiGatewayPricingOptions,
+} from "./usage-telemetry.ts"
 
 async function resolveProviderAdapter<
   TRuntimeConfig extends AgentRuntimeConfig,
@@ -1073,6 +1092,7 @@ function toAgentRunResult(value: unknown): AgentRunResult {
     raw: value,
     text: typeof result.text === "string" ? result.text : undefined,
     usage: result.usage,
+    usageRecord: result.usageRecord as AgentUsageRecord | undefined,
     warnings: result.warnings,
   }
 }
