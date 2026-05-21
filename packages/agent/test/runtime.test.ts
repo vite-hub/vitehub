@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createMessage } from "@vitehub/agent"
 
+import type { ChatInput } from "../src/chat/types.ts"
+
 describe("agent message protocol", () => {
   it("converts ViteHub messages to model messages internally", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
@@ -171,6 +173,205 @@ describe("agent message protocol", () => {
       { loading: undefined, role: "user", text: "second" },
       { loading: true, role: "assistant", text: "thinking again" },
     ])
+  })
+
+  it("attaches late DevTools tool updates to the assistant response", async () => {
+    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/chat/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const message = adapter.createDevtoolsMessage("list files")
+
+    await adapter.startTyping(message.threadId, "thinking")
+    await adapter.postMessage(message.threadId, "I checked the workspace.")
+    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
+      id: "tool-1",
+      input: { command: "ls" },
+      name: "shell",
+      output: "README.md",
+      status: "completed",
+    }))
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toMatchObject([
+      { role: "user", text: "list files" },
+      {
+        loading: false,
+        role: "assistant",
+        text: "I checked the workspace.",
+        tools: [
+          {
+            id: "tool-1",
+            input: { command: "ls" },
+            name: "shell",
+            output: "README.md",
+            status: "completed",
+          },
+        ],
+      },
+    ])
+  })
+
+  it("keeps DevTools fallback text while tools stream", async () => {
+    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/chat/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const message = adapter.createDevtoolsMessage("list users")
+
+    await adapter.startTyping(message.threadId, "Looking through the workspace...")
+    await adapter.startTyping(message.threadId, "...")
+    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
+      id: "tool-1",
+      input: { command: "find . -maxdepth 3 -name \"*user*\"" },
+      name: "shell",
+      status: "running",
+    }))
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages).toMatchObject([
+      { role: "user", text: "list users" },
+      {
+        loading: true,
+        role: "assistant",
+        text: "Looking through the workspace...",
+        tools: [
+          {
+            id: "tool-1",
+            name: "shell",
+            status: "running",
+          },
+        ],
+      },
+    ])
+
+    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
+      id: "tool-1",
+      input: { command: "find . -maxdepth 3 -name \"*user*\"" },
+      name: "shell",
+      output: "users.ts",
+      status: "completed",
+    }))
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages[1]).toMatchObject({
+      loading: true,
+      role: "assistant",
+      text: "Looking through the workspace...",
+      tools: [
+        {
+          id: "tool-1",
+          name: "shell",
+          output: "users.ts",
+          status: "completed",
+        },
+      ],
+    })
+
+    await adapter.postMessage(message.threadId, "I found the user tables.")
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages[1]).toMatchObject({
+      loading: false,
+      role: "assistant",
+      text: "I found the user tables.",
+      tools: [
+        {
+          id: "tool-1",
+          name: "shell",
+          status: "completed",
+        },
+      ],
+    })
+  })
+
+  it("keeps separate no-input DevTools tool calls", async () => {
+    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/chat/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const message = adapter.createDevtoolsMessage("run checks")
+
+    await adapter.startTyping(message.threadId, "thinking")
+    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
+      id: "tool-1",
+      name: "check",
+      output: "first",
+      status: "completed",
+    }))
+    await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
+      id: "tool-2",
+      name: "check",
+      output: "second",
+      status: "completed",
+    }))
+
+    expect(adapter.getDevtoolsState().chats[0]?.messages[1]?.tools).toMatchObject([
+      { id: "tool-1", name: "check", output: "first" },
+      { id: "tool-2", name: "check", output: "second" },
+    ])
+  })
+
+  it("creates a fresh assistant entry for tool-first DevTools turns", async () => {
+    const { createChatDevtoolsToolStatus, createDevtoolsAdapter } = await import("../src/chat/devtools.ts")
+    const adapter = createDevtoolsAdapter()
+    const first = adapter.createDevtoolsMessage("first")
+
+    await adapter.startTyping(first.threadId, "thinking")
+    await adapter.postMessage(first.threadId, "first response")
+    const second = adapter.createDevtoolsMessage("second")
+    await adapter.startTyping(second.threadId, createChatDevtoolsToolStatus({
+      id: "tool-1",
+      name: "lookup",
+      status: "running",
+    }))
+
+    const messages = adapter.getDevtoolsState().chats[0]?.messages
+    expect(messages).toMatchObject([
+      { role: "user", text: "first" },
+      { role: "assistant", text: "first response" },
+      { role: "user", text: "second" },
+      {
+        loading: true,
+        role: "assistant",
+        tools: [{ id: "tool-1", name: "lookup", status: "running" }],
+      },
+    ])
+    expect(messages?.[1]?.tools).toBeUndefined()
+  })
+
+  it("registers the packaged DevTools client directory", async () => {
+    const registerViteHubDevtoolsPanel = vi.fn()
+    vi.resetModules()
+    vi.doMock("@vitehub/devtools", () => ({ registerViteHubDevtoolsPanel }))
+    const { chatDevToolsPanel } = await import("../src/chat/devtools.ts")
+
+    chatDevToolsPanel().devtools!.setup({
+      rpc: {
+        register: vi.fn(),
+      },
+    } as never)
+
+    expect(registerViteHubDevtoolsPanel).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      distDir: expect.stringMatching(/packages\/agent\/devtools-client$/),
+    }))
+    vi.doUnmock("@vitehub/devtools")
+    vi.resetModules()
+  })
+
+  it("resolves registry metadata for chats with reserved metadata names", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    const handler = defineChatDevtoolsRegistryHandler({
+      files: async () => ({} as ChatInput),
+    }, {
+      metadata: {
+        files: async () => ({
+          tools: [{ name: "reserved-chat-tool" }],
+        }),
+      },
+    })
+    app.use(handler)
+
+    const response = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "get-state", chat: "files" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    const state = await response.json() as { tools?: Array<{ name: string }> }
+
+    expect(state.tools).toEqual([{ name: "reserved-chat-tool" }])
   })
 
   it("converts Nitro request-like events to Fetch Request objects", async () => {
@@ -351,22 +552,17 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it("rejects public root-level tools", async () => {
+  it("requires an explicit provider for model agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
     expect(() => defineAgent({
       model: {} as never,
     } as never)).toThrow("requires an explicit provider")
-
-    expect(() => defineAgent({
-      provider: "ai-sdk",
-      model: {} as never,
-      tools: {} as never,
-    })).toThrow("defineAgent({ tools }) is not public API")
   })
 
   it("validates capability ids and sandbox commands", async () => {
-    const { bash, defineAgent, sandbox } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { bash, sandbox } = await import("../src/capabilities.ts")
 
     expect(() => defineAgent({
       capabilities: [{ id: "custom" }, { id: "custom" }],
@@ -402,7 +598,8 @@ describe("agent message protocol", () => {
   })
 
   it("fails when a primitive capability has no backing primitive", async () => {
-    const { defineAgent, kv } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { kv } = await import("../src/capabilities.ts")
     const agent = defineAgent({
       capabilities: [kv()],
       provider: "ai-sdk",

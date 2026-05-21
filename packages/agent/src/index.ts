@@ -28,7 +28,6 @@ import type {
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentCapabilitiesList,
-  AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityInput,
   AgentCapabilityMode,
@@ -244,82 +243,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
+export { bash, blob, db, kv, mcp, sandbox, skills } from "./capabilities.ts"
 export * from "./messages.ts"
-
-function primitiveHandle(context: AgentCapabilityContext, name: string): unknown {
-  const handle = context.capabilities?.[name] as { value?: unknown } | unknown
-  return typeof handle === "object" && handle !== null && "value" in handle
-    ? (handle as { value?: unknown }).value
-    : handle
-}
-
-function requirePrimitive(context: AgentCapabilityContext, name: string): unknown {
-  const handle = primitiveHandle(context, name)
-  if (!handle) throw new Error(`[vitehub] Capability "${name}" requires the ${name} primitive to be configured.`)
-  return handle
-}
-
-function defineInternalTool<TInput = unknown, TOutput = unknown>(
-  tool: AgentToolDefinition<TInput, TOutput>,
-): AgentToolDefinition<TInput, TOutput> {
-  if (!tool || typeof tool !== "object") {
-    throw new TypeError("[vitehub] tool definitions must be objects.")
-  }
-  if (!tool.name || typeof tool.name !== "string") {
-    throw new TypeError("[vitehub] tool definitions require a tool name.")
-  }
-  return tool
-}
-
-function primitiveMethodTool(primitive: "blob" | "db" | "kv", method: string, handle: unknown): AgentToolDefinition {
-  return defineInternalTool({
-    description: `Call ${primitive}.${method}.`,
-    name: `${primitive}_${method}`,
-    async execute(input) {
-      const primitiveHandle = handle as Record<string, unknown>
-      const fn = primitiveHandle[method]
-      if (typeof fn !== "function") throw new Error(`[vitehub] ${primitive} primitive does not expose ${method}().`)
-      const args = Array.isArray(input) ? input : [input]
-      return await fn.apply(primitiveHandle, args)
-    },
-  })
-}
-
-function primitiveTools(primitive: "blob" | "db" | "kv", mode: AgentCapabilityMode): AgentCapabilityDefinition["tools"] {
-  return (context) => {
-    const handle = requirePrimitive(context as never, primitive)
-    if (primitive === "kv") {
-      return {
-        kv_get: primitiveMethodTool("kv", "get", handle),
-        kv_keys: primitiveMethodTool("kv", "keys", handle),
-        ...(mode === "write"
-          ? {
-              kv_del: primitiveMethodTool("kv", "del", handle),
-              kv_set: primitiveMethodTool("kv", "set", handle),
-            }
-          : {}),
-      }
-    }
-    if (primitive === "blob") {
-      return {
-        blob_get: primitiveMethodTool("blob", "get", handle),
-        blob_head: primitiveMethodTool("blob", "head", handle),
-        blob_list: primitiveMethodTool("blob", "list", handle),
-        ...(mode === "write"
-          ? {
-              blob_del: primitiveMethodTool("blob", "del", handle),
-              blob_put: primitiveMethodTool("blob", "put", handle),
-            }
-          : {}),
-      }
-    }
-    return {
-      db_query: primitiveMethodTool("db", "query", handle),
-      db_schema: primitiveMethodTool("db", "schema", handle),
-      ...(mode === "write" ? { db_execute: primitiveMethodTool("db", "execute", handle) } : {}),
-    }
-  }
-}
 
 function validateSandboxCommands(commands: unknown): string[] {
   if (!Array.isArray(commands) || !commands.length) {
@@ -390,83 +315,6 @@ function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtools
     : undefined
 }
 
-export function bash(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
-  const mode = normalizeMode(options.mode, "Bash")
-  return defineCapability({
-    id: "bash",
-    mode,
-    name: "Bash",
-    requires: [{ primitive: "workspace", workspace: { mode, required: true } }],
-    tools: ({ workspace }) => (mode === "write" && "write" in workspace.tools
-      ? (workspace.tools as unknown as { write: () => AgentToolSet }).write()
-      : workspace.tools.inspect()) as AgentToolSet,
-  })
-}
-
-export function sandbox(options: { commands: string[] }): AgentCapabilityDefinition {
-  const commands = validateSandboxCommands(options?.commands)
-  return defineCapability({
-    id: "sandbox",
-    metadata: { commands },
-    name: "Sandbox",
-    requires: [{ primitive: "workspace", workspace: { required: true } }, { primitive: "sandbox" }],
-    tools: (context) => {
-      const handle = requirePrimitive(context as never, "sandbox") as {
-        exec?: (command: string, args?: string[], options?: unknown) => MaybePromise<unknown>
-      }
-      return {
-        sandbox_exec: defineInternalTool({
-          description: `Run one allowed executable in an isolated sandbox. Allowed commands: ${commands.join(", ")}.`,
-          name: "sandbox_exec",
-          async execute(input) {
-            const value = input as { args?: string[], command?: string, cwd?: string, env?: Record<string, string>, timeout?: number }
-            if (!value || typeof value.command !== "string") throw new TypeError("[vitehub] sandbox_exec requires a command.")
-            if (!commands.includes(value.command)) throw new Error(`[vitehub] Sandbox command "${value.command}" is not allowed.`)
-            if (!handle.exec) throw new Error("[vitehub] Sandbox primitive does not expose exec().")
-            return await handle.exec(value.command, value.args || [], { cwd: value.cwd, env: value.env, timeout: value.timeout })
-          },
-        }),
-      }
-    },
-  })
-}
-
-export function kv(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
-  const mode = normalizeMode(options.mode, "KV")
-  return defineCapability({ id: "kv", mode, name: "KV", requires: [{ primitive: "kv" }], tools: primitiveTools("kv", mode) })
-}
-
-export function blob(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
-  const mode = normalizeMode(options.mode, "Blob")
-  return defineCapability({ id: "blob", mode, name: "Blob", requires: [{ primitive: "blob" }], tools: primitiveTools("blob", mode) })
-}
-
-export function db(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
-  const mode = normalizeMode(options.mode, "DB")
-  return defineCapability({ id: "db", mode, name: "DB", requires: [{ primitive: "db" }], tools: primitiveTools("db", mode) })
-}
-
-export function skills(options: { path?: string } = {}): AgentCapabilityDefinition {
-  const path = options.path || "skills"
-  const skillPath = path.replace(/\/+$/, "").endsWith("/SKILL.md")
-    ? path.replace(/\/+$/, "")
-    : `${path.replace(/\/+$/, "")}/SKILL.md`
-  return defineCapability({
-    id: "skills",
-    metadata: { path: path.replace(/\/+$/, ""), skillPath },
-    name: "Skills",
-    requires: [{ primitive: "workspace", workspace: { mode: "read", paths: [skillPath], required: true } }],
-  })
-}
-
-export function mcp(options: { servers?: Record<string, unknown> } = {}): AgentCapabilityDefinition {
-  return defineCapability({
-    id: "mcp",
-    metadata: { servers: options.servers || {} },
-    name: "MCP",
-  })
-}
-
 function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
   capabilities: NormalizedCapability[],
 ): AgentChatOptions<TRuntimeConfig> | undefined {
@@ -526,10 +374,6 @@ function defineBaseAgent<
 >(
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> },
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
-  if ("tools" in (options as Record<string, unknown>)) {
-    throw new Error("[vitehub] defineAgent({ tools }) is not public API. Expose raw tools through defineAgent({ capabilities: [...] }) instead.")
-  }
-
   if ("model" in (options as Record<string, unknown>) && !("provider" in (options as Record<string, unknown>))) {
     throw new Error("[vitehub] defineAgent({ model }) requires an explicit provider, for example provider: \"ai-sdk\".")
   }
@@ -709,29 +553,22 @@ function sourceMaterialize(key: string, source: NonNullable<WorkspaceAgentWorksp
 
 function workspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
-  defaults: WorkspaceAgentDefaults<Name>,
+  _defaults: WorkspaceAgentDefaults<Name>,
 ): AgentDevtoolsFileTreeItem[] {
-  const workspaceName = workspaceNameFromOptions(options, defaults)
   const sources = workspaceDefinitionFromOptions(options).sources || {}
-  const children = Object.entries(sources).sort(([left], [right]) => left.localeCompare(right)).map(([sourceName, source]) => {
+  return Object.entries(sources).sort(([left], [right]) => left.localeCompare(right)).map(([sourceName, source]) => {
     const materialize = sourceMaterialize(sourceName, source)
+    const mountPath = sourceMountPath(sourceName, source)
     return {
       kind: "directory" as const,
-      label: sourceName,
+      label: mountPath.split("/").filter(Boolean).at(-1) || sourceName,
       materialize,
       materialized: materialize === "build",
-      path: `${workspaceName}/${sourceMountPath(sourceName, source)}`,
+      path: mountPath,
       source: sourceName,
       status: materialize === "build" ? "ready" as const : "lazy" as const,
     }
   })
-
-  return [{
-    children,
-    kind: "directory",
-    label: workspaceName,
-    path: workspaceName,
-  }]
 }
 
 function getNodeBuiltin<T>(name: string): T | undefined {
@@ -767,7 +604,8 @@ function sourceMountPaths(options: WorkspaceAgentOptions<AgentRuntimeConfig, Wor
 }
 
 function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry) {
-  const path = entry.path
+  const path = entry.path === "instructions/AGENTS.md" ? "AGENTS.md" : entry.path
+  if (path === "instructions") return
   const kind = entry.type
   const parts = path.split("/").filter(Boolean)
   let current = root
@@ -812,7 +650,7 @@ function markSourceTreeMetadata(
   for (const [sourceName, source] of Object.entries(sources)) {
     const mountPath = sourceMountPath(sourceName, source)
     const materialize = sourceMaterialize(sourceName, source)
-    const mountedRoot = `${root.path}/${mountPath}`.replace(/\/+/g, "/")
+    const mountedRoot = [root.path, mountPath].filter(Boolean).join("/")
     const pending = [...(root.children || [])]
     while (pending.length) {
       const item = pending.shift()!
@@ -849,15 +687,14 @@ function clearReadyMaterializationHints(item: AgentDevtoolsFileTreeItem) {
 
 async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
-  defaults: WorkspaceAgentDefaults<Name>,
+  _defaults: WorkspaceAgentDefaults<Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
 ): Promise<AgentDevtoolsFileTreeItem[]> {
-  const workspaceName = workspaceNameFromOptions(options, defaults)
   const root: AgentDevtoolsFileTreeItem = {
     children: [],
     kind: "directory",
-    label: workspaceName,
-    path: workspaceName,
+    label: "",
+    path: "",
   }
   const entries = await workspace.fs.list("", { recursive: true })
   for (const entry of entries) {
@@ -867,7 +704,7 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   propagateMaterializedDirectories(root)
   clearReadyMaterializationHints(root)
   sortFileTree(root)
-  return [root]
+  return root.children || []
 }
 
 function workspaceMetadataTools<Name extends WorkspaceName>(

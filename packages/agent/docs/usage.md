@@ -197,7 +197,8 @@ Use `defineAgent()` with a `workspace` option from a colocated agent config when
 Add `bash()` when the model should inspect the mounted files:
 
 ```ts [server/agents/data-sources/config.ts]
-import { bash, defineAgent } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
+import { bash } from '@vitehub/agent/capabilities'
 import * as source from '@vitehub/workspace/source'
 
 export default defineAgent({
@@ -254,7 +255,8 @@ export default defineAgent({
 Workspace sources do not imply model tools. Replace older workspace agents that relied on root or adapter-level tools with explicit capabilities:
 
 ```diff
- import { bash, defineAgent } from '@vitehub/agent'
+ import { defineAgent } from '@vitehub/agent'
++import { bash } from '@vitehub/agent/capabilities'
 
  export default defineAgent({
    workspace: { sources },
@@ -266,7 +268,7 @@ Workspace sources do not imply model tools. Replace older workspace agents that 
  })
 ```
 
-Use `bash({ mode: 'write' })` only with `workspace.mode: 'write'`. Raw tools should be wrapped in inline or factory capabilities instead of `defineAgent({ tools })`.
+Use `bash({ mode: 'write' })` only with `workspace.mode: 'write'`. Raw tools should be wrapped in inline or factory capabilities.
 
 ## Use durable memory
 

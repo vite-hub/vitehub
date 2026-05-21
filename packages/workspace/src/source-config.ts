@@ -39,15 +39,24 @@ export function normalizeWorkspaceSources(sources: WorkspaceDefinition["sources"
 export function normalizeWorkspaceSource(key: string, source: WorkspaceSource): ResolvedWorkspaceSource {
   const mount = normalizeSourceMount(source)
   const cache = mount.cache ?? normalizeSourceCache(source) ?? false
+  const mountPath = typeof mount.path === "string" ? mount.path : key
   return {
     key,
     source,
-    mountPath: normalizeSafeWorkspacePath(mount.path || key),
+    mountPath: normalizeSafeWorkspacePath(mountPath, { allowEmpty: true }),
     materialize: mount.materialize || source.materialize || (cache ? "lazy" : "build"),
     cache,
     validate: mount.validate ?? source.validate ?? false,
     readonly: true,
   }
+}
+
+export function sourceMountContainsPath(source: Pick<ResolvedWorkspaceSource, "mountPath">, workspacePath: string): boolean {
+  return workspacePath === source.mountPath || !!source.mountPath && workspacePath.startsWith(`${source.mountPath}/`)
+}
+
+export function sourceMountIntersectsPath(source: Pick<ResolvedWorkspaceSource, "mountPath">, workspacePath: string): boolean {
+  return !workspacePath || !source.mountPath || sourceMountContainsPath(source, workspacePath) || source.mountPath.startsWith(`${workspacePath}/`)
 }
 
 function normalizeSourceMount(source: WorkspaceSource) {
