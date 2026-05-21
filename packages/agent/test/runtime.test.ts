@@ -121,6 +121,13 @@ describe("agent message protocol", () => {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const finish = vi.fn()
       const agent = defineAgent({
+        capabilities: [{
+          id: "finish-metadata",
+          output(context) {
+            context.output.render(result => ({ ...result as Record<string, unknown>, finishMetadata: { id: "rendered-1" } }))
+            context.extensions.provide("agent:finish", event => (event.result as { finishMetadata?: unknown }).finishMetadata)
+          },
+        }],
         hooks: {
           "agent:finish": finish,
         },
@@ -135,8 +142,12 @@ describe("agent message protocol", () => {
       }, {})).resolves.toMatchObject({ finishReason: "stop", text: "ok" })
 
       expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-        result: expect.objectContaining({ finishReason: "stop", text: "ok" }),
+        extensions: expect.objectContaining({
+          get: expect.any(Function),
+        }),
+        result: expect.objectContaining({ finishMetadata: { id: "rendered-1" }, finishReason: "stop", text: "ok" }),
       }))
+      expect(finish.mock.calls[0]![0].extensions.get("finish-metadata")).toEqual({ id: "rendered-1" })
     }
     finally {
       vi.doUnmock("ai")

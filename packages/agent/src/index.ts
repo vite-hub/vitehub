@@ -1244,7 +1244,7 @@ export async function runAgent<
     if (isAsyncIterable(result)) return shouldWrapOutput ? withFinishCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
     const runResult = toAgentRunResult(rendered)
-    await finishAgentInvocation(adapterContext, runResult)
+    await finishAgentInvocation(adapterContext, rendered)
     return runResult
   }
   catch (error) {
