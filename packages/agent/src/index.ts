@@ -34,7 +34,7 @@ import type {
   AgentDefinition,
   AgentChatOptions,
   AgentInput,
-  AgentModelProvider,
+  AgentModelAdapter,
   AgentRegistry,
   AgentRegistryModule,
   AgentRequestBody,
@@ -49,7 +49,6 @@ import type {
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
-  AgentToolSet,
   AgentChatAgentHooks,
   MaybePromise,
   ResolvedAgentRuntimeContext,
@@ -99,7 +98,7 @@ export type {
   AgentModelInput,
   AgentModelInstrumentation,
   AgentModelInstrumentationContext,
-  AgentModelProvider,
+  AgentModelAdapter,
   AgentModelResolver,
   AgentModuleOptions,
   AgentProvidersOptions,
@@ -352,20 +351,20 @@ export type {
   VercelAiGatewayPricingOptions,
 } from "./capabilities/usage-telemetry.ts"
 
-async function resolveProviderAdapter<
+async function resolveModelAdapter<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
-  provider: AgentModelProvider,
+  adapter: AgentModelAdapter,
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<AgentAdapter<CALL_OPTIONS>> {
-  if (provider === "ai-sdk") {
-    return (await import("./ai-sdk.ts")).createAiSdkProviderAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
+  if (adapter === "ai-sdk") {
+    return (await import("./ai-sdk.ts")).createAiSdkAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
   }
-  if (provider === "tanstack-ai") {
-    return (await import("./tanstack-ai.ts")).createTanStackAiProviderAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
+  if (adapter === "tanstack-ai") {
+    return (await import("./tanstack-ai.ts")).createTanStackAiAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
   }
-  throw new Error(`[vitehub] Unsupported agent model provider "${provider}".`)
+  throw new Error(`[vitehub] Unsupported agent model adapter "${adapter}".`)
 }
 
 function defineBaseAgent<
@@ -374,8 +373,8 @@ function defineBaseAgent<
 >(
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> },
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
-  if ("model" in (options as Record<string, unknown>) && !("provider" in (options as Record<string, unknown>))) {
-    throw new Error("[vitehub] defineAgent({ model }) requires an explicit provider, for example provider: \"ai-sdk\".")
+  if ("model" in (options as Record<string, unknown>) && !("adapter" in (options as Record<string, unknown>))) {
+    throw new Error("[vitehub] defineAgent({ model }) requires an explicit adapter, for example adapter: \"ai-sdk\".")
   }
 
   const { capabilities, chat: legacyChat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> }
@@ -384,10 +383,10 @@ function defineBaseAgent<
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = "model" in options
-      ? await resolveProviderAdapter((options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { provider: AgentModelProvider }).provider, options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>)
+      ? await resolveModelAdapter((options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { adapter: AgentModelAdapter }).adapter, options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>)
       : undefined
     if (!resolvedAdapter) {
-      throw new Error("[vitehub] Agent model and provider are required unless the agent defines a custom run() handler.")
+      throw new Error("[vitehub] Agent model and adapter are required unless the agent defines a custom run() handler.")
     }
     const resolvedContext = createResolvedRuntimeContext(context)
     return typeof resolvedAdapter === "function"

@@ -56,13 +56,14 @@ defineAgent({
   capabilities?: AgentCapabilityDefinition[]
   instructions?: AgentAdapterInstructions
   model?: unknown
-  provider?: 'ai-sdk' | 'tanstack-ai' | string
+  adapter?: 'ai-sdk' | 'tanstack-ai' | string
+  adapterOptions?: Record<string, unknown>
   run?: AgentRunHandler
   workspace?: string | ({ mode?: 'read' | 'write' } & WorkspaceAgentWorkspaceOptions)
 })
 ```
 
-Capabilities are the public model-facing extension surface. `provider` explicitly selects the model runtime; ViteHub does not infer it from installed packages or model object shape.
+Capabilities are the public model-facing extension surface. `adapter` explicitly selects the model adapter; ViteHub does not infer it from installed packages or model object shape.
 
 ```ts
 defineAgent({
@@ -75,8 +76,8 @@ defineAgent({
   ],
   instructions: 'Use workspace sources.',
   model,
-  provider: 'ai-sdk',
-  options: {
+  adapter: 'ai-sdk',
+  adapterOptions: {
     providerOptions: {
       openai: { reasoningEffort: 'medium' },
     },
@@ -84,7 +85,7 @@ defineAgent({
 })
 ```
 
-Provider option objects forward unknown fields to the underlying library so new provider options are not blocked on ViteHub releases.
+Adapter options forward settings to the selected model adapter. For AI SDK adapters, `providerOptions` remains the place for model-provider-specific options.
 
 Workspace agents do not attach workspace tools automatically. The `workspace` option defines the explicit primary filesystem boundary; capabilities decide what the model can use at runtime.
 
@@ -96,7 +97,7 @@ defineAgent({
   ],
   instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
   model,
-  provider: 'ai-sdk',
+  adapter: 'ai-sdk',
 })
 ```
 
@@ -116,7 +117,7 @@ defineAgent({
     }),
   ],
   model,
-  provider: 'ai-sdk',
+  adapter: 'ai-sdk',
 })
 ```
 

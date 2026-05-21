@@ -9,8 +9,16 @@ A named server-side actor that receives inputs, runs model-backed behavior, and 
 _Avoid_: Bot, chat definition, workflow
 
 **Agent Definition**:
-The code declaration that names an Agent and configures its model, workspace, instructions, and Capabilities.
+The code declaration that names an Agent and configures its model, model adapter, workspace, instructions, and Capabilities.
 _Avoid_: Chat definition, server route
+
+**Agent Model Adapter**:
+The selected integration layer that turns an Agent Definition's model configuration into model execution.
+_Avoid_: LLM provider, provider
+
+**Agent Adapter Options**:
+Adapter-owned model execution settings passed through the selected Agent Model Adapter.
+_Avoid_: Top-level Agent Definition fields, passthrough, provider options
 
 **Agent Invocation**:
 One runtime request to an Agent.
@@ -39,6 +47,8 @@ _Avoid_: Production state provider, durable coordination
 ## Relationships
 
 - An **Agent Definition** declares one **Agent**.
+- An **Agent Definition** selects one **Agent Model Adapter** when it uses a model.
+- **Agent Adapter Options** belong to the selected **Agent Model Adapter**.
 - An **Agent** receives zero or more **Agent Invocations**.
 - An **Agent** can attach zero or more Capabilities.
 - Tools are contributed by Capabilities, not by top-level Agent Definition fields.
