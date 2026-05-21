@@ -50,6 +50,9 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
 export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
 
+export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig">
+
 export interface AgentRunInput<CALL_OPTIONS = unknown> {
   abortSignal?: AbortSignal
   context?: Record<string, unknown>
@@ -70,7 +73,7 @@ export interface AgentRunMetadata {
 export interface AgentRunCallbackContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
+> extends AgentCallbackContext<TRuntimeConfig> {
   input: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
 }
@@ -87,7 +90,7 @@ export interface AgentRunResult {
 export interface AgentRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
+> extends AgentCallbackContext<TRuntimeConfig> {
   adapter?: AgentAdapter<CALL_OPTIONS>
   input: AgentRunInput<CALL_OPTIONS>
   messages: Message[]
@@ -102,7 +105,7 @@ export type AgentRunHandler<
 
 export type AgentToolResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-> = MaybeResolvable<AgentToolSet | undefined, ResolvedAgentRuntimeContext<TRuntimeConfig>>
+> = MaybeResolvable<AgentToolSet | undefined, AgentCallbackContext<TRuntimeConfig>>
 
 export type AgentToolResolverWithWorkspace<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -246,7 +249,7 @@ export type AgentModelResolver<
 > = MaybeResolvable<AgentModelInput, AgentAdapterMetadataContext<TRuntimeConfig, Name>>
 
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
-  extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
+  extends AgentCallbackContext<TRuntimeConfig> {
   model: AgentModelInput
   run?: AgentRunMetadata
 }
@@ -402,7 +405,6 @@ export interface AgentChatAgentBindingOptions {
 }
 
 export interface AgentChatAgentHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
-  runtimeConfig: TRuntimeConfig
   thread: { post: (message: unknown) => MaybePromise<unknown> }
 }
 
@@ -415,7 +417,6 @@ export interface AgentChatAgentHooks<TRuntimeConfig extends AgentRuntimeConfig =
 }
 
 export interface AgentChatEventHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
-  runtimeConfig: TRuntimeConfig
 }
 
 export interface AgentChatEventHooks<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
@@ -423,7 +424,7 @@ export interface AgentChatEventHooks<TRuntimeConfig extends AgentRuntimeConfig =
 }
 
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  adapters?: MaybeResolvable<Record<string, unknown>, ResolvedAgentRuntimeContext<TRuntimeConfig>>
+  adapters?: MaybeResolvable<Record<string, unknown>, AgentCallbackContext<TRuntimeConfig>>
   agent?: never
   event?: AgentChatAgentBindingOptions["event"]
   execution?: never
@@ -546,7 +547,7 @@ export interface AgentUsageRecord {
 export interface AgentAdapterMetadataContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> extends ResolvedAgentRuntimeContext<TRuntimeConfig> {
+> extends AgentCallbackContext<TRuntimeConfig> {
   fs: ReadonlyWorkspaceFacade<Name>["fs"]
   workspace: ReadonlyWorkspaceFacade<Name>
 }

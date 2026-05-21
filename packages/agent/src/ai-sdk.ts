@@ -343,14 +343,15 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
 
 async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRunContext) {
   const { ToolLoopAgent, stepCountIs } = await import("ai")
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
-    ...context.runtime,
+    ...runtime,
     fs: context.workspace?.fs,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const model = await resolveValue(options.model as never, metadataContext)
   const instrumentedModel = options.instrumentModel
-    ? await options.instrumentModel({ ...context.runtime, model, run: context.runtime.run })
+    ? await options.instrumentModel({ ...runtime, model, run: context.runtime.run })
     : model
   const instructions = context.instructions
     ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)

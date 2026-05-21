@@ -232,6 +232,13 @@ function createResolvedRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>
   return resolveRuntimeContext(context) as ResolvedAgentRuntimeContext<TRuntimeConfig>
 }
 
+function createAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentRuntimeContext<TRuntimeConfig>,
+) {
+  const { runtimeConfig: _runtimeConfig, ...callbackContext } = createResolvedRuntimeContext(context)
+  return callbackContext
+}
+
 function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<void>): (...args: TArgs) => Promise<void> {
   let called = false
   return async (...args) => {
@@ -1033,6 +1040,7 @@ async function createRunContext<
   outputRenderers: Array<(result: unknown) => MaybePromise<unknown>>
 }> {
   const resolvedContext = createResolvedRuntimeContext(context)
+  const callbackContext = createAgentCallbackContext(context)
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
   const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
   const workspaceName = workspaceOptions
@@ -1056,7 +1064,7 @@ async function createRunContext<
     : undefined
 
   return {
-    ...resolvedContext,
+    ...callbackContext,
     close: capabilities.close,
     hasCapabilityCleanup: capabilities.hasCloseCallbacks,
     input: capabilities.input as AgentRunInput<CALL_OPTIONS>,

@@ -96,8 +96,9 @@ async function resolveTools(options: TanStackAiAdapterOptions, context: AgentAda
 }
 
 async function createChatOptions(options: TanStackAiAdapterOptions, context: AgentAdapterRunContext, stream: boolean) {
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
-    ...context.runtime,
+    ...runtime,
     fs: context.workspace?.fs,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext

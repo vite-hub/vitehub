@@ -9,6 +9,7 @@ import type {
   ChatActionHookInput,
   ChatAgentBinding,
   ChatAgentBindingOptions,
+  ChatCallbackContext,
   ChatDefinition,
   ChatDirectMessageHook,
   ChatEventHook,
@@ -104,7 +105,7 @@ async function resolveValue<T, TContext extends ChatRuntimeContext>(
 
 async function resolveAdapters<TRuntimeConfig extends ChatRuntimeConfig>(
   adapters: DefineChatOptions<TRuntimeConfig, ChatWorkflowHandle<any, any> | undefined>["adapters"],
-  context: ResolvedChatRuntimeContext<TRuntimeConfig>,
+  context: ChatCallbackContext<TRuntimeConfig>,
 ): Promise<Record<string, Adapter>> {
   if (typeof adapters === "function" || isResolvable(adapters as MaybeResolvable<Record<string, Adapter>, typeof context>)) {
     return await resolveValue(adapters as MaybeResolvable<Record<string, Adapter>, typeof context>, context)
@@ -122,7 +123,6 @@ function createMessageHook<
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
 >(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig,
   hook: ChatMessageHook<TRuntimeConfig, TWorkflow>,
   workflow: TWorkflow,
 ) {
@@ -130,7 +130,6 @@ function createMessageHook<
     bot,
     context: context as never,
     message: message as Message,
-    runtimeConfig,
     thread: wrapDevtoolsThread(thread) as never,
     workflow,
   })
@@ -141,7 +140,6 @@ function createDirectMessageHook<
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
 >(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig,
   hook: ChatDirectMessageHook<TRuntimeConfig, TWorkflow>,
   workflow: TWorkflow,
 ) {
@@ -150,7 +148,6 @@ function createDirectMessageHook<
     channel: channel as never,
     context: context as never,
     message: message as Message,
-    runtimeConfig,
     thread: wrapDevtoolsThread(thread) as never,
     workflow,
   })
@@ -200,20 +197,25 @@ function wrapDevtoolsThread(thread: unknown): unknown {
   })
 }
 
+function createChatCallbackContext<TRuntimeConfig extends ChatRuntimeConfig>(
+  context: ResolvedChatRuntimeContext<TRuntimeConfig>,
+) {
+  const { runtimeConfig: _runtimeConfig, ...callbackContext } = context
+  return callbackContext
+}
+
 function createEventHook<
   TEvent,
   TRuntimeConfig extends ChatRuntimeConfig,
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
 >(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig,
   hook: ChatEventHook<TEvent, TRuntimeConfig, TWorkflow>,
   workflow: TWorkflow,
 ) {
   return (event: TEvent) => hook({
     bot,
     event,
-    runtimeConfig,
     workflow,
   })
 }
@@ -223,13 +225,12 @@ function registerNewMessageHooks<
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
 >(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig,
   input: ChatNewMessageHook<TRuntimeConfig, TWorkflow> | Array<ChatNewMessageHook<TRuntimeConfig, TWorkflow>> | undefined,
   workflow: TWorkflow,
 ) {
   const hooks = input ? Array.isArray(input) ? input : [input] : []
   for (const hook of hooks) {
-    bot.onNewMessage(hook.pattern, createMessageHook(bot, runtimeConfig, hook.handler, workflow) as never)
+    bot.onNewMessage(hook.pattern, createMessageHook(bot, hook.handler, workflow) as never)
   }
 }
 
@@ -238,28 +239,27 @@ function registerReactionHooks<
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
 >(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig,
   input: ChatReactionHookInput<TRuntimeConfig, TWorkflow> | undefined,
   workflow: TWorkflow,
 ) {
   if (!input) return
 
   if (typeof input === "function") {
-    bot.onReaction(createEventHook(bot, runtimeConfig, input as ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
+    bot.onReaction(createEventHook(bot, input as ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     return
   }
 
   if ("emoji" in input && "handler" in input) {
-    bot.onReaction(input.emoji as never, createEventHook(bot, runtimeConfig, input.handler, workflow) as never)
+    bot.onReaction(input.emoji as never, createEventHook(bot, input.handler, workflow) as never)
     return
   }
 
   for (const [emoji, hook] of Object.entries(input)) {
     if (emoji === "$all") {
-      bot.onReaction(createEventHook(bot, runtimeConfig, hook as ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
+      bot.onReaction(createEventHook(bot, hook as ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
     else {
-      bot.onReaction([emoji] as never, createEventHook(bot, runtimeConfig, hook as ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
+      bot.onReaction([emoji] as never, createEventHook(bot, hook as ChatEventHook<ReactionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
   }
 }
@@ -269,23 +269,22 @@ function registerActionHooks<
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
 >(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig,
   input: ChatActionHookInput<TRuntimeConfig, TWorkflow> | undefined,
   workflow: TWorkflow,
 ) {
   if (!input) return
 
   if (typeof input === "function") {
-    bot.onAction(createEventHook(bot, runtimeConfig, input as ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
+    bot.onAction(createEventHook(bot, input as ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     return
   }
 
   for (const [actionId, hook] of Object.entries(input)) {
     if (actionId === "$all") {
-      bot.onAction(createEventHook(bot, runtimeConfig, hook as ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
+      bot.onAction(createEventHook(bot, hook as ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
     else {
-      bot.onAction(actionId, createEventHook(bot, runtimeConfig, hook as ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
+      bot.onAction(actionId, createEventHook(bot, hook as ChatEventHook<ActionEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
   }
 }
@@ -295,23 +294,22 @@ function registerModalSubmitHooks<
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
 >(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig,
   input: ChatModalSubmitHookInput<TRuntimeConfig, TWorkflow> | undefined,
   workflow: TWorkflow,
 ) {
   if (!input) return
 
   if (typeof input === "function") {
-    bot.onModalSubmit(createEventHook(bot, runtimeConfig, input as ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
+    bot.onModalSubmit(createEventHook(bot, input as ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     return
   }
 
   for (const [callbackId, hook] of Object.entries(input)) {
     if (callbackId === "$all") {
-      bot.onModalSubmit(createEventHook(bot, runtimeConfig, hook as ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
+      bot.onModalSubmit(createEventHook(bot, hook as ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
     else {
-      bot.onModalSubmit(callbackId, createEventHook(bot, runtimeConfig, hook as ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
+      bot.onModalSubmit(callbackId, createEventHook(bot, hook as ChatEventHook<ModalSubmitEvent, TRuntimeConfig, TWorkflow>, workflow) as never)
     }
   }
 }
@@ -321,26 +319,25 @@ function registerChatHooks<
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
 >(
   bot: Chat,
-  runtimeConfig: TRuntimeConfig,
   hooks: ChatEventHooks<TRuntimeConfig, TWorkflow> | undefined,
   workflow: TWorkflow,
 ) {
   if (!hooks) return
 
   if (hooks.onNewMention) {
-    bot.onNewMention(createMessageHook(bot, runtimeConfig, hooks.onNewMention, workflow) as never)
+    bot.onNewMention(createMessageHook(bot, hooks.onNewMention, workflow) as never)
   }
   if (hooks.onSubscribedMessage) {
-    bot.onSubscribedMessage(createMessageHook(bot, runtimeConfig, hooks.onSubscribedMessage, workflow) as never)
+    bot.onSubscribedMessage(createMessageHook(bot, hooks.onSubscribedMessage, workflow) as never)
   }
   if (hooks.onDirectMessage) {
-    bot.onDirectMessage(createDirectMessageHook(bot, runtimeConfig, hooks.onDirectMessage, workflow) as never)
+    bot.onDirectMessage(createDirectMessageHook(bot, hooks.onDirectMessage, workflow) as never)
   }
 
-  registerNewMessageHooks(bot, runtimeConfig, hooks.onNewMessage, workflow)
-  registerReactionHooks(bot, runtimeConfig, hooks.onReaction, workflow)
-  registerActionHooks(bot, runtimeConfig, hooks.onAction, workflow)
-  registerModalSubmitHooks(bot, runtimeConfig, hooks.onModalSubmit, workflow)
+  registerNewMessageHooks(bot, hooks.onNewMessage, workflow)
+  registerReactionHooks(bot, hooks.onReaction, workflow)
+  registerActionHooks(bot, hooks.onAction, workflow)
+  registerModalSubmitHooks(bot, hooks.onModalSubmit, workflow)
 }
 
 function registerAgentBinding<
@@ -370,7 +367,6 @@ function registerAgentBinding<
 
   bot.onDirectMessage(createDirectMessageHook(
     bot,
-    runtimeContext.runtimeConfig,
     createAgentDirectMessageHook(bot, runtimeContext, resolved, workflow, options),
     workflow,
   ) as never)
@@ -417,9 +413,9 @@ async function createChat<
   resolveOptions: ResolveChatOptions = {},
 ) {
   const resolvedContext = resolveRuntimeContext(context) as ResolvedChatRuntimeContext<TRuntimeConfig>
-  const runtimeConfig = resolvedContext.runtimeConfig
-  const adapters = resolveOptions.adapters || await resolveAdapters(options.adapters, resolvedContext)
-  const state = resolveOptions.state || await resolveValue(options.state, context)
+  const callbackContext = createChatCallbackContext(resolvedContext)
+  const adapters = resolveOptions.adapters || await resolveAdapters(options.adapters, callbackContext)
+  const state = resolveOptions.state || await resolveValue(options.state, callbackContext)
   const {
     adapters: _adapters,
     agent: _agent,
@@ -455,11 +451,11 @@ async function createChat<
   })
 
   const hooks = resolveChatHooks(options)
-  registerChatHooks(bot, runtimeConfig, hooks, workflow as TWorkflow)
+  registerChatHooks(bot, hooks, workflow as TWorkflow)
   registerAgentBinding(bot, resolvedContext, hooks, options.agent, workflow as TWorkflow, {
     fallbackStreamingPlaceholderText,
   })
-  await setup?.(bot, resolvedContext)
+  await setup?.(bot, callbackContext)
   return bot
 }
 

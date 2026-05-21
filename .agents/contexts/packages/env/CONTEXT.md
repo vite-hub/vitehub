@@ -53,6 +53,7 @@ _Avoid_: Leak prevention, DLP, log scanning
 - **Server Env** is the public API naming pattern for server-code access to **Runtime Env**.
 - **Public Env** is the public API naming pattern for build-time public values.
 - Generated env access should use stable `#vitehub/env/*` import paths instead of exposing integration-specific virtual module names.
+- Agent and Chat callbacks should use **Server Env** for app-owned Runtime Env instead of receiving those values through callback runtime config.
 - A **Secret Env** is a Runtime Env value.
 - A **Secret Env** is not interchangeable with its underlying value.
 - A **Secret Unseal** can read the underlying value from a **Secret Env**.
@@ -85,3 +86,4 @@ _Avoid_: Leak prevention, DLP, log scanning
 - Secret Env compatibility with strings was considered - resolved: **Secret Env** is not assignable to its underlying value until a **Secret Unseal**.
 - Response scanning was considered a hard guarantee - resolved: **Outbound Secret Redaction** is best-effort and must not be described as general leak prevention.
 - Runtime Env and runtime config were considered interchangeable - resolved: **Runtime Env** is the Env Package concept; runtime config is integration-specific language.
+- Agent and Chat callback runtime config was considered an app-facing Server Env access path - resolved: use **Server Env** through `useServerEnv()` for app-owned Runtime Env.

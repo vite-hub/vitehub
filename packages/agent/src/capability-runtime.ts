@@ -2,6 +2,7 @@ import { resolveRuntimeValue } from "@vitehub/runtime"
 
 import type {
   AgentAdapterInstructionsValue,
+  AgentCallbackContext,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityHookName,
@@ -140,6 +141,13 @@ function addInstructionBlock(
   }
 }
 
+function toAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
+  runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+): AgentCallbackContext<TRuntimeConfig> {
+  const { runtimeConfig: _runtimeConfig, ...context } = runtime
+  return context
+}
+
 async function resolveInstructionValue<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -166,6 +174,7 @@ export async function resolveAgentCapabilities<
   workspace?: ReadonlyWorkspaceFacade<Name>,
   workspaceMode: AgentCapabilityMode = "read",
 ): Promise<ResolvedAgentCapabilities> {
+  const runtimeContext = toAgentCallbackContext(runtime)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let currentInput = input
   let messages = getRunMessages(currentInput)
@@ -196,7 +205,7 @@ export async function resolveAgentCapabilities<
     for (const capability of capabilities) {
       await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
       const capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> = {
-        ...runtime,
+        ...runtimeContext,
         capability,
         fs: workspace?.fs,
         mode: capability.mode,
@@ -296,6 +305,7 @@ export async function resolveAgentStaticCapabilities<
   workspace?: ReadonlyWorkspaceFacade<Name>,
   workspaceMode: AgentCapabilityMode = "read",
 ): Promise<ResolvedAgentStaticCapabilities> {
+  const runtimeContext = toAgentCallbackContext(runtime)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let tools: AgentToolSet | undefined
   const toolTransforms: AgentToolTransform[] = []
@@ -305,7 +315,7 @@ export async function resolveAgentStaticCapabilities<
     if (!capability.tools) continue
 
     const capabilityContext = {
-      ...runtime,
+      ...runtimeContext,
       fs: workspace?.fs,
       mode: capability.mode,
       workspace,
