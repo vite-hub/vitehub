@@ -173,6 +173,7 @@ async function runShellCommand(
   options: { commands: string[], cwd: string, maxOutputLength: number },
 ): Promise<WorkspaceShellResult> {
   return await runWorkspaceInspectionCommand(input, command, {
+    broadSearchPaths: ["forecasting-engine", "ingestion"],
     commands: options.commands,
     cwd: options.cwd,
     fs: createReadonlyWorkspaceFs(input),

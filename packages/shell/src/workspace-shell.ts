@@ -10,6 +10,7 @@ import type {
 } from "./types.ts"
 
 interface WorkspaceInspectionCommandOptions {
+  broadSearchPaths?: string[]
   commands?: string[]
   cwd?: string
   fs: WorkspaceShellFileSystem
@@ -37,8 +38,10 @@ export async function runWorkspaceInspectionCommand(
 ): Promise<ShellRuntimeExecResult> {
   const maxOutputLength = options.maxOutputLength || 30_000
   const timeout = options.timeout || 30_000
-  const preflight = preflightWorkspaceInspectionCommand(command)
+  const preflight = preflightWorkspaceInspectionCommand(command, options.broadSearchPaths)
   if (preflight) return preflight
+  const missingPath = await preflightMissingWorkspacePath(command, options.fs)
+  if (missingPath) return missingPath
   const runtime = createJustBashRuntime({
     commands: options.commands,
     cwd: options.cwd || workspaceMountPoint,
@@ -52,23 +55,42 @@ export async function runWorkspaceInspectionCommand(
       stdout: "",
     }), timeout)),
   ])
+  const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths)
 
   return {
     exitCode: result.exitCode,
     stderr: applyOutputLimit(result.stderr, maxOutputLength),
-    stdout: applyOutputLimit(result.stdout, maxOutputLength),
+    stdout: applyOutputLimit(noMatchFeedback || result.stdout, maxOutputLength),
   }
 }
 
-function preflightWorkspaceInspectionCommand(command: string): ShellRuntimeExecResult | undefined {
+function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: string[] = []): ShellRuntimeExecResult | undefined {
   try {
     for (const segment of splitShellSegments(command)) {
       const words = parseShellWords(segment)
-      if (isBroadWorkspaceSearch(words)) {
+      if (isBroadWorkspaceSearch(words, broadSearchPaths)) return broadWorkspaceSearchFeedback()
+    }
+  }
+  catch {
+    return undefined
+  }
+}
+
+async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem): Promise<ShellRuntimeExecResult | undefined> {
+  try {
+    for (const segment of splitShellSegments(command)) {
+      for (const path of shellPathArguments(parseShellWords(segment))) {
+        if (!isConcreteWorkspacePath(path)) continue
+        if (await fs.exists(path)) continue
         return {
-          exitCode: 126,
-          stderr: "[vitehub] Workspace root search is too broad. Use a narrow mounted source or subdirectory path instead.\n",
-          stdout: "",
+          exitCode: 0,
+          stderr: "",
+          stdout: [
+            `[vitehub] Workspace path is not mounted: ${path}`,
+            "The agent cannot inspect files outside the configured workspace sources.",
+            "If this path should exist, update the Agent workspace source configuration or materialize the correct mounted source.",
+            "Otherwise answer that the requested evidence is unavailable in the current workspace.",
+          ].join("\n") + "\n",
         }
       }
     }
@@ -78,12 +100,113 @@ function preflightWorkspaceInspectionCommand(command: string): ShellRuntimeExecR
   }
 }
 
-function isBroadWorkspaceSearch(words: string[]) {
+function isBroadWorkspaceSearch(words: string[], broadSearchPaths: string[] = []) {
   const name = words[0]
-  if (name !== "rg") return false
+  if (name === "rg" || name === "grep") {
+    const paths = commandPathArguments(words)
+    return paths.length === 0 || paths.length > 4 || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths))
+  }
+  if (name === "find") {
+    const paths = findPathArguments(words)
+    return paths.length === 0 || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths))
+  }
+  return false
+}
 
-  const paths = commandPathArguments(words)
-  return paths.length === 0 || paths.some(path => path === "." || path === "./" || path === "/" || path === workspaceMountPoint)
+function broadWorkspaceSearchFeedback(): ShellRuntimeExecResult {
+  return {
+    exitCode: 0,
+    stderr: "",
+    stdout: [
+      "[vitehub] Workspace search is too broad for this agent tool.",
+      "Use one specific mounted subdirectory or file path.",
+      "If the requested evidence is not in the mounted workspace paths, answer that it is unavailable instead of trying broader searches.",
+    ].join("\n") + "\n",
+  }
+}
+
+function isBroadWorkspacePath(path: string, broadSearchPaths: string[] = []) {
+  const normalized = cleanWorkspaceShellPath(path) || "."
+  return normalized === "." || broadSearchPaths.includes(normalized)
+}
+
+function searchNoMatchFeedback(command: string, result: ShellRuntimeExecResult, broadSearchPaths: string[] = []) {
+  if (result.exitCode !== 1 || result.stderr || result.stdout) return ""
+  try {
+    for (const segment of splitShellSegments(command)) {
+      const words = parseShellWords(segment)
+      if (words[0] !== "rg" && words[0] !== "grep") continue
+      const paths = commandPathArguments(words)
+      if (!paths.some(path => isBroadWorkspacePath(path, broadSearchPaths))) continue
+      return [
+        "[vitehub] Search returned no matches in the mounted workspace source.",
+        "If the expected file is outside this mounted source, tell the user the evidence is unavailable in the current workspace instead of continuing broad searches.",
+        "Use a more specific mounted subdirectory only if the user request can be answered from the listed workspace paths.",
+      ].join("\n") + "\n"
+    }
+  }
+  catch {
+    return ""
+  }
+  return ""
+}
+
+function shellPathArguments(words: string[]) {
+  switch (words[0]) {
+    case "rg":
+    case "grep":
+      return commandPathArguments(words)
+    case "find":
+      return findPathArguments(words)
+    case "cat":
+    case "head":
+    case "tail":
+    case "wc":
+    case "ls":
+      return fileCommandPathArguments(words)
+    default:
+      return []
+  }
+}
+
+function findPathArguments(words: string[]) {
+  const paths: string[] = []
+  for (const arg of words.slice(1)) {
+    if (isShellOperator(arg)) break
+    if (arg.startsWith("-")) break
+    paths.push(arg)
+  }
+  return paths
+}
+
+function fileCommandPathArguments(words: string[]) {
+  const paths: string[] = []
+  for (let index = 1; index < words.length; index++) {
+    const arg = words[index]!
+    if (arg === "--") {
+      paths.push(...words.slice(index + 1))
+      break
+    }
+    if (isShellOperator(arg)) break
+    if (arg.startsWith("-")) {
+      if (takesOptionValue(arg)) index += 1
+      continue
+    }
+    paths.push(arg)
+  }
+  return paths
+}
+
+function isShellOperator(arg: string) {
+  return arg === "&&" || arg === "||"
+}
+
+function isConcreteWorkspacePath(path: string) {
+  return Boolean(path)
+    && cleanWorkspaceShellPath(path) !== ""
+    && !path.includes("*")
+    && !path.includes("?")
+    && !path.includes("[")
 }
 
 function commandPathArguments(words: string[]) {
@@ -118,6 +241,7 @@ function takesOptionValue(arg: string) {
     "-f",
     "-g",
     "-m",
+    "-n",
     "--after-context",
     "--before-context",
     "--context",

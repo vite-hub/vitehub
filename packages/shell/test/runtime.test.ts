@@ -175,8 +175,9 @@ describe("@vitehub/shell just-bash runtime", () => {
       cwd: workspaceMountPoint,
       fs,
     })).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: "[vitehub] Workspace root search is too broad. Use a narrow mounted source or subdirectory path instead.\n",
+      exitCode: 0,
+      stderr: "",
+      stdout: expect.stringContaining("Workspace search is too broad"),
     })
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models", {
       commands: ["rg"],
@@ -299,7 +300,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "./models/customers.sql\n./models/orders.sql\n",
+      stdout: expect.stringContaining("Workspace search is too broad"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "find . -maxdepth 1", {
@@ -308,7 +309,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: ".\n./models\n./README.md\n",
+      stdout: expect.stringContaining("Workspace search is too broad"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "find . -maxdepth 2 -name '*customer*'", {
@@ -317,7 +318,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "./models/customers.sql\n",
+      stdout: expect.stringContaining("Workspace search is too broad"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "wc -l", {
@@ -353,7 +354,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "models/customers.sql:select * from customers\n",
+      stdout: expect.stringContaining("Workspace search is too broad"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "rg customer|orders models", {
@@ -361,8 +362,27 @@ describe("@vitehub/shell just-bash runtime", () => {
       cwd: workspaceMountPoint,
       fs,
     })).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: expect.stringContaining("Workspace root search is too broad"),
+      exitCode: 0,
+      stdout: expect.stringContaining("Workspace search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg customer forecasting-engine", {
+      broadSearchPaths: ["forecasting-engine", "ingestion"],
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("Workspace search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat missing/README.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("Workspace path is not mounted: missing/README.md"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cd /workspace && rg orders models", {
