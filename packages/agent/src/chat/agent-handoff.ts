@@ -322,9 +322,12 @@ export function createAgentDirectMessageHook<
         : createDefaultAgentInput(baseArgs, runtimeContext.platform)
       input = await binding.hooks?.beforeRun?.({ ...baseArgs, input }) || input
       const placeholderText = await resolvePlaceholder(options.fallbackStreamingPlaceholderText, baseArgs)
-      const placeholder = placeholderText
+      const placeholder = placeholderText && !isDevtoolsThread(thread)
         ? await thread.post(placeholderText).catch(() => undefined) as SentMessage | undefined
         : undefined
+      if (placeholderText && isDevtoolsThread(thread)) {
+        await thread.startTyping(placeholderText)
+      }
       if (binding.execution === "workflow" && !runtimeContext.dev) {
         if (!workflow?.run) {
           throw new Error("Chat agent execution \"workflow\" requires defineChat({ workflow }).")

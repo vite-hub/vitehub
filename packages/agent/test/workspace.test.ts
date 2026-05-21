@@ -562,18 +562,13 @@ describe("defineAgent workspace option", () => {
 
     expect(createAgentDevtoolsMetadata(agent)).toEqual({
       files: [{
-        children: [{
-          kind: "directory",
-          label: "docs",
-          materialize: "build",
-          materialized: true,
-          path: "support/docs",
-          source: "docs",
-          status: "ready",
-        }],
         kind: "directory",
-        label: "support",
-        path: "support",
+        label: "docs",
+        materialize: "build",
+        materialized: true,
+        path: "docs",
+        source: "docs",
+        status: "ready",
       }],
       instructions: ["Answer from the workspace."],
       tools: expect.arrayContaining([
@@ -617,10 +612,9 @@ describe("defineAgent workspace option", () => {
 
     expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
       files: [{
-        children: [{ kind: "file", label: "AGENTS.md", path: "support/AGENTS.md" }],
-        kind: "directory",
-        label: "support",
-        path: "support",
+        kind: "file",
+        label: "AGENTS.md",
+        path: "AGENTS.md",
       }],
       instructions: ["# Workspace instructions"],
     })
@@ -649,27 +643,64 @@ describe("defineAgent workspace option", () => {
       files: [{
         children: [{
           children: [{
-            children: [{
-              kind: "file",
-              materialize: "lazy",
-              materialized: false,
-              path: "support/docs/guides/start.md",
-              source: "docs",
-            }],
-            kind: "directory",
+            kind: "file",
             materialize: "lazy",
             materialized: false,
-            path: "support/docs/guides",
+            path: "docs/guides/start.md",
             source: "docs",
           }],
           kind: "directory",
-          materialized: true,
-          path: "support/docs",
+          materialize: "lazy",
+          materialized: false,
+          path: "docs/guides",
           source: "docs",
-          status: "ready",
         }],
+        kind: "directory",
+        materialized: true,
+        path: "docs",
+        source: "docs",
+        status: "ready",
       }],
     })
+  })
+
+  it("flattens virtual workspace AGENTS.md while keeping sibling instruction files", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    list.mockResolvedValue([
+      { path: "forecasting-engine", type: "directory" },
+      { path: "ingestion", type: "directory" },
+      { path: "instructions", type: "directory" },
+      { path: "instructions/AGENTS.md", type: "file" },
+      { path: "instructions/private.md", type: "file" },
+    ])
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          "forecasting-engine": { name: "forecasting-engine" } as never,
+          ingestion: { name: "ingestion" } as never,
+        },
+      },
+      instructions: "Answer from the workspace.",
+      provider: "ai-sdk",
+      model: {} as never,
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentDevtoolsMetadata(agent)
+    expect(metadata.files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "file", label: "AGENTS.md", path: "AGENTS.md" }),
+      expect.objectContaining({ kind: "directory", path: "forecasting-engine" }),
+      expect.objectContaining({ kind: "directory", path: "ingestion" }),
+    ]))
+    expect(metadata.files).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "directory",
+        path: "instructions",
+        children: expect.arrayContaining([
+          expect.objectContaining({ kind: "file", path: "instructions/private.md" }),
+        ]),
+      }),
+    ]))
   })
 
   it("marks listed lazy source files as materialized when stored metadata is present", async () => {
@@ -693,14 +724,13 @@ describe("defineAgent workspace option", () => {
       files: [{
         children: [{
           children: [{
-            children: [{
-              kind: "file",
-              materialized: true,
-              materializedAt: "2024-03-09T16:00:00.000Z",
-              path: "support/docs/guides/start.md",
-              source: "docs",
-            }],
+            kind: "file",
+            materialized: true,
+            materializedAt: "2024-03-09T16:00:00.000Z",
+            path: "docs/guides/start.md",
+            source: "docs",
           }],
+          path: "docs/guides",
         }],
       }],
     })
