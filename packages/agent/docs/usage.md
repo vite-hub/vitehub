@@ -87,6 +87,21 @@ export default defineEval({
 Evaluation-level scorers are invariants. Scenario-level scorers add case-specific expectations. If `variants` is omitted, ViteHub runs the Agent Definition as the baseline.
 When `agent` is omitted, `defineEval()` imports the sibling Agent Definition by stripping `.eval` from the current file name. Pass `agent` explicitly when a test harness or unusual layout should target a different Agent Definition.
 
+Agent Eval receives Runtime Config directly. ViteHub Env can help construct those values, but it is not required; pass the same config shape your Agent Definition expects when you use another env loader or secret manager:
+
+```ts
+export default defineEval({
+  agent: support,
+  runtimeConfig: {
+    vertex: {
+      apiKey: process.env.VERTEX_API_KEY,
+      model: 'gemini-2.5-flash',
+    },
+  },
+  scenarios,
+})
+```
+
 Use variants when comparing model or instruction changes:
 
 ```ts

@@ -180,6 +180,8 @@ usageTelemetry({
 
 ## Agent evaluations
 
+Agent evaluations use the Agent Definition's Runtime Config type. `@vitehub/agent/eval` does not depend on `@vitehub/env`; ViteHub Env is one optional producer of values passed through `runtimeConfig`.
+
 ```ts
 defineEval({
   agent?: AgentInput | (() => MaybePromise<AgentInput>)
