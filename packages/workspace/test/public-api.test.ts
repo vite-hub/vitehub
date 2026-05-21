@@ -76,6 +76,24 @@ describe("workspace public API", () => {
     await expect(workspace.fs.exists("instructions/AGENTS.md")).resolves.toBe(false)
   })
 
+  it("keeps inline files root mounted when mount options omit a path", async () => {
+    registerWorkspace("root-file-mount-options", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        instructions: source.file({
+          mount: { materialize: "lazy" },
+          workspacePath: "AGENTS.md",
+          content: "# Instructions\n",
+        }),
+      },
+    }))
+
+    const workspace = useWorkspace("root-file-mount-options", { allowWrite: true })
+
+    expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Instructions\n")
+    await expect(workspace.fs.exists("instructions/AGENTS.md")).resolves.toBe(false)
+  })
+
   it("reads local file sources from the workspace source root", async () => {
     const root = await createRoot()
     const sourceRoot = join(root, "server", "agents", "docs", "workspace")

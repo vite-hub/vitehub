@@ -9,12 +9,15 @@ export type FileSourceInput<TKey extends string = string> = FileSourceOptions<TK
 
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): WorkspaceSource {
   const options = typeof input === "string" ? { path: input } as FileSourceOptions<TKey> : input
+  const mount = typeof options.mount === "object" && options.mount && !("path" in options.mount)
+    ? { ...options.mount, path: "" }
+    : options.mount ?? ""
   const source = createFileSource(options)
   return {
     ...source,
     cache: options.cache,
     materialize: options.materialize,
-    mount: options.mount ?? "",
+    mount,
     validate: options.validate,
   }
 }
