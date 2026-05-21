@@ -110,6 +110,9 @@ describe("agent message protocol", () => {
         async generate() {
           return { finishReason: "stop", text: "ok" }
         }
+        async stream() {
+          return await this.generate()
+        }
       },
       stepCountIs: () => () => false,
     }))
@@ -133,6 +136,53 @@ describe("agent message protocol", () => {
 
       expect(finish).toHaveBeenCalledWith(expect.objectContaining({
         result: expect.objectContaining({ finishReason: "stop", text: "ok" }),
+      }))
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("runs stream finish hooks with rendered model-backed object results", async () => {
+    vi.doMock("ai", () => ({
+      ToolLoopAgent: class {
+        async generate() {
+          return { finishReason: "stop", text: "ok" }
+        }
+        async stream() {
+          return await this.generate()
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { defineAgent, streamAgent } = await import("../src/index.ts")
+      const finish = vi.fn()
+      const agent = defineAgent({
+        capabilities: [{
+          id: "usage",
+          output(context) {
+            context.output.render(result => ({ ...result as Record<string, unknown>, usageRecord: { id: "usage-1" } }))
+          },
+        }],
+        hooks: {
+          "agent:finish": finish,
+        },
+        model: {} as never,
+        provider: "ai-sdk",
+      })
+
+      const stream = await streamAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {})
+
+      for await (const _event of stream as AsyncIterable<unknown>) {}
+
+      expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+        result: expect.objectContaining({ usageRecord: { id: "usage-1" } }),
       }))
     }
     finally {
