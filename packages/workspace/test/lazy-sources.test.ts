@@ -231,6 +231,140 @@ describe("lazy sources", () => {
     await expect(workspace.readFile("artifacts/result.md")).resolves.toBe("ok")
   })
 
+  it("materializes root-mounted lazy source paths before reads and keeps them read-only", async () => {
+    registerWorkspace("lazy-root-files", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        rootFiles: source.custom({
+          materialize: "lazy",
+          mount: "",
+          async getKeys() {
+            return ["AGENTS.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Instructions\n" }
+          },
+        }),
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("lazy-root-files")
+    await workspace.sync()
+
+    await expect(workspace.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
+    await expect(workspace.writeFile("AGENTS.md", "nope")).rejects.toThrow("read-only")
+    await expect(workspace.rm("AGENTS.md")).rejects.toThrow("read-only")
+    await expect(workspace.mkdir("AGENTS.md")).rejects.toThrow("read-only")
+    await expect(workspace.writeFile("generated/result.md", "ok")).resolves.toBeUndefined()
+    await expect(workspace.readFile("generated/result.md")).resolves.toBe("ok")
+  })
+
+  it("rejects root-mounted lazy source mutations before materialization", async () => {
+    registerWorkspace("lazy-root-prewrite", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        rootFiles: source.custom({
+          materialize: "lazy",
+          mount: "",
+          async getKeys() {
+            return ["AGENTS.md", "docs/guide.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("lazy-root-prewrite")
+    await workspace.sync()
+
+    await expect(workspace.writeFile("AGENTS.md", "shadow")).rejects.toThrow("read-only")
+    await expect(workspace.rm("docs")).rejects.toThrow("read-only")
+    await expect(workspace.mkdir("docs")).rejects.toThrow("read-only")
+    await expect(workspace.writeFile("generated/result.md", "ok")).resolves.toBeUndefined()
+  })
+
+  it("materializes root-mounted lazy sources before returning existing store files", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("AGENTS.md", { path: "AGENTS.md", content: "stale\n" })
+    const view = createWorkspaceSourceView({
+      name: "lazy-root-shadow",
+      sources: {
+        rootFiles: source.custom({
+          materialize: "lazy",
+          mount: "",
+          async getKeys() {
+            return ["AGENTS.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Source\n" }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.readFile("AGENTS.md")).resolves.toBe("# Source\n")
+  })
+
+  it("removes stale root-mounted lazy source files on refresh", async () => {
+    let keys = ["AGENTS.md", "nested/stale.md"]
+    registerWorkspace("lazy-root-refresh", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        rootFiles: source.custom({
+          materialize: "lazy",
+          mount: "",
+          async getKeys() {
+            return keys
+          },
+          async getItem(key) {
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("lazy-root-refresh")
+    await workspace.sync()
+    await workspace.mkdir("generated")
+    await workspace.materializeSources?.()
+    await expect(workspace.readFile("nested/stale.md")).resolves.toBe("# nested/stale.md\n")
+
+    keys = ["AGENTS.md"]
+    await workspace.materializeSources?.()
+
+    await expect(workspace.exists("nested/stale.md")).resolves.toBe(false)
+    await expect(workspace.exists("nested")).resolves.toBe(false)
+    await expect(workspace.exists("generated")).resolves.toBe(true)
+    await expect(workspace.readFile("AGENTS.md")).resolves.toBe("# AGENTS.md\n")
+  })
+
+  it("materializes root-mounted lazy sources for scoped paths", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
+    registerWorkspace("lazy-root-scoped", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        rootFiles: source.custom({
+          materialize: "lazy",
+          mount: "",
+          async getKeys() {
+            return ["docs/guide.md"]
+          },
+          getItem,
+        }),
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("lazy-root-scoped")
+    await workspace.sync()
+
+    await expect(workspace.list("docs")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/guide.md", type: "file" }),
+    ])
+    expect(getItem).toHaveBeenCalledTimes(1)
+  })
+
   it("searches materialized source snapshots", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: "hello\n" }))
     const search = vi.fn(async () => [{

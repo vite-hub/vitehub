@@ -45,6 +45,8 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentSettings,
+  AgentUsageCost,
+  AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
   AgentChatAgentHooks,
@@ -115,6 +117,9 @@ export type {
   AgentRuntimeContext,
   AgentRuntimeHooks,
   AgentRuntimeName,
+  AgentUsage,
+  AgentUsageCost,
+  AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   AgentSandboxProviderOptions,
   AgentSchedulerProviderOptions,
@@ -332,6 +337,20 @@ export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
   })
 }
 
+export {
+  normalizeAgentUsage,
+  staticModelPricing,
+  usageTelemetry,
+  vercelAiGatewayPricing,
+} from "./usage-telemetry.ts"
+export type {
+  AgentUsagePricing,
+  AgentUsagePricingContext,
+  StaticModelPrice,
+  UsageTelemetryOptions,
+  VercelAiGatewayPricingOptions,
+} from "./usage-telemetry.ts"
+
 async function resolveModelAdapter<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -533,29 +552,22 @@ function sourceMaterialize(key: string, source: NonNullable<WorkspaceAgentWorksp
 
 function workspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
-  defaults: WorkspaceAgentDefaults<Name>,
+  _defaults: WorkspaceAgentDefaults<Name>,
 ): AgentDevtoolsFileTreeItem[] {
-  const workspaceName = workspaceNameFromOptions(options, defaults)
   const sources = workspaceDefinitionFromOptions(options).sources || {}
-  const children = Object.entries(sources).sort(([left], [right]) => left.localeCompare(right)).map(([sourceName, source]) => {
+  return Object.entries(sources).sort(([left], [right]) => left.localeCompare(right)).map(([sourceName, source]) => {
     const materialize = sourceMaterialize(sourceName, source)
+    const mountPath = sourceMountPath(sourceName, source)
     return {
       kind: "directory" as const,
-      label: sourceName,
+      label: mountPath.split("/").filter(Boolean).at(-1) || sourceName,
       materialize,
       materialized: materialize === "build",
-      path: `${workspaceName}/${sourceMountPath(sourceName, source)}`,
+      path: mountPath,
       source: sourceName,
       status: materialize === "build" ? "ready" as const : "lazy" as const,
     }
   })
-
-  return [{
-    children,
-    kind: "directory",
-    label: workspaceName,
-    path: workspaceName,
-  }]
 }
 
 function getNodeBuiltin<T>(name: string): T | undefined {
@@ -591,7 +603,8 @@ function sourceMountPaths(options: WorkspaceAgentOptions<AgentRuntimeConfig, Wor
 }
 
 function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry) {
-  const path = entry.path
+  const path = entry.path === "instructions/AGENTS.md" ? "AGENTS.md" : entry.path
+  if (path === "instructions") return
   const kind = entry.type
   const parts = path.split("/").filter(Boolean)
   let current = root
@@ -636,7 +649,7 @@ function markSourceTreeMetadata(
   for (const [sourceName, source] of Object.entries(sources)) {
     const mountPath = sourceMountPath(sourceName, source)
     const materialize = sourceMaterialize(sourceName, source)
-    const mountedRoot = `${root.path}/${mountPath}`.replace(/\/+/g, "/")
+    const mountedRoot = [root.path, mountPath].filter(Boolean).join("/")
     const pending = [...(root.children || [])]
     while (pending.length) {
       const item = pending.shift()!
@@ -673,15 +686,14 @@ function clearReadyMaterializationHints(item: AgentDevtoolsFileTreeItem) {
 
 async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
-  defaults: WorkspaceAgentDefaults<Name>,
+  _defaults: WorkspaceAgentDefaults<Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
 ): Promise<AgentDevtoolsFileTreeItem[]> {
-  const workspaceName = workspaceNameFromOptions(options, defaults)
   const root: AgentDevtoolsFileTreeItem = {
     children: [],
     kind: "directory",
-    label: workspaceName,
-    path: workspaceName,
+    label: "",
+    path: "",
   }
   const entries = await workspace.fs.list("", { recursive: true })
   for (const entry of entries) {
@@ -691,7 +703,7 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   propagateMaterializedDirectories(root)
   clearReadyMaterializationHints(root)
   sortFileTree(root)
-  return [root]
+  return root.children || []
 }
 
 function workspaceMetadataTools<Name extends WorkspaceName>(
@@ -916,6 +928,7 @@ function toAgentRunResult(value: unknown): AgentRunResult {
     raw: value,
     text: typeof result.text === "string" ? result.text : undefined,
     usage: result.usage,
+    usageRecord: result.usageRecord as AgentUsageRecord | undefined,
     warnings: result.warnings,
   }
 }

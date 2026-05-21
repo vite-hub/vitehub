@@ -78,6 +78,38 @@ export default defineNitroConfig({
 
 Pass a route string when `/agents/[agent]` does not fit your app.
 
+## Track model usage
+
+Use `usageTelemetry()` when a finished agent result should include normalized model usage and an accounting record.
+
+```ts [server/agents/triager.ts]
+import { defineAgent, usageTelemetry, vercelAiGatewayPricing } from '@vitehub/agent'
+
+export default defineAgent({
+  capabilities: [
+    usageTelemetry({
+      pricing: vercelAiGatewayPricing(),
+    }),
+  ],
+  instructions: 'Triage support requests.',
+  model,
+  provider: 'ai-sdk',
+})
+```
+
+`result.usage` stays compact and model-focused. When `usageTelemetry()` is attached, `result.usageRecord` includes the normalized usage plus model, response, run, latency, and optional cost fields when they are available.
+
+```ts
+const result = await runAgent(agent, context, {
+  prompt: 'Summarize the ticket.',
+})
+
+result.usage
+result.usageRecord?.cost
+```
+
+The v1 capability does not define export callbacks or persistence hooks. Future lifecycle hooks can consume the same usage record.
+
 ## Customize a run
 
 Use `run` when the default model call is not the right shape.

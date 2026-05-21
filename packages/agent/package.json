@@ -46,6 +46,7 @@
     "./memory": "./dist/memory.js",
     "./messages": "./dist/messages.js",
     "./nitro": "./dist/nitro.js",
+    "./runtime/chat-devtools-handler": "./dist/runtime/chat-devtools-handler.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-runtime-config": "./dist/runtime/nitro-runtime-config.js",
     "./tanstack-ai": "./dist/tanstack-ai.js",

@@ -58,6 +58,7 @@ function toJsonSafeResult(value: unknown) {
     raw: result.raw,
     text: result.text,
     usage: result.usage,
+    usageRecord: result.usageRecord,
     warnings: result.warnings,
   }
 }
