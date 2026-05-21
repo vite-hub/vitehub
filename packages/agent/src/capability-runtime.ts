@@ -455,16 +455,16 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   })()
 }
 
-export function withResponseCleanup(response: Response, close: () => Promise<void>): Response | Promise<Response> {
+export function withResponseCleanup(response: Response, close: (error?: unknown) => Promise<void>): Response | Promise<Response> {
   if (!response.body) {
     return close().then(() => response)
   }
   const reader = response.body.getReader()
   let closed = false
-  async function closeOnce() {
+  async function closeOnce(error?: unknown) {
     if (closed) return
     closed = true
-    await close()
+    await close(error)
   }
   return new Response(new ReadableStream({
     async cancel(reason) {
@@ -486,7 +486,7 @@ export function withResponseCleanup(response: Response, close: () => Promise<voi
         controller.enqueue(result.value)
       }
       catch (error) {
-        await closeOnce()
+        await closeOnce(error)
         throw error
       }
     },

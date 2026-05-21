@@ -226,6 +226,29 @@ describe("agent message protocol", () => {
     expect(finish).toHaveBeenCalledTimes(1)
   })
 
+  it("runs agent finish hooks with Response body read errors", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const error = new Error("upstream failed")
+    const agent = defineAgent({
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => new Response(new ReadableStream({
+        pull() {
+          throw error
+        },
+      })),
+    })
+
+    const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
+    await expect(response.text()).rejects.toThrow("upstream failed")
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      error,
+    }))
+    expect(finish.mock.calls[0]![0]).not.toHaveProperty("result")
+  })
+
   it("runs agent finish hooks when Response bodies are canceled", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
