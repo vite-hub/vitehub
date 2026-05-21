@@ -125,14 +125,14 @@ describe("agent message protocol", () => {
           id: "finish-metadata",
           output(context) {
             context.output.render(result => ({ ...result as Record<string, unknown>, finishMetadata: { id: "rendered-1" } }))
-            context.extensions.provide("agent:finish", event => (event.result as { finishMetadata?: unknown }).finishMetadata)
+            context.extensions.provide("agent:finish", (event: { result?: unknown }) => (event.result as { finishMetadata?: unknown }).finishMetadata)
           },
         }],
         hooks: {
           "agent:finish": finish,
         },
+        adapter: "ai-sdk",
         model: {} as never,
-        provider: "ai-sdk",
       })
 
       await expect(runAgent(agent, {
@@ -180,8 +180,8 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
+        adapter: "ai-sdk",
         model: {} as never,
-        provider: "ai-sdk",
       })
 
       const stream = await streamAgent(agent, {
