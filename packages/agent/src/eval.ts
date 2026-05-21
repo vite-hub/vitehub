@@ -8,6 +8,7 @@ import {
   type AgentInput,
   type AgentModelInput,
   type AgentRunInput,
+  type AgentRuntimeContext,
   type AgentRuntimeConfig,
   type AgentRuntimeName,
   type AgentToolStep,
@@ -64,7 +65,7 @@ export interface AgentEvalDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = never,
 > {
-  agent?: AgentInput | (() => MaybePromise<AgentInput>)
+  agent?: AgentEvalAgent<TRuntimeConfig> | (() => MaybePromise<AgentEvalAgent<TRuntimeConfig>>)
   name?: string
   request?: Request
   runtime?: AgentRuntimeName
@@ -75,6 +76,8 @@ export interface AgentEvalDefinition<
   waitUntil?: AgentWaitUntil
   workspace?: WorkspaceName
 }
+
+type AgentEvalAgent<TRuntimeConfig extends AgentRuntimeConfig> = AgentInput<AgentRuntimeContext<TRuntimeConfig>>
 
 interface NormalizedEvalScenario<CALL_OPTIONS> extends AgentEvalScenario<CALL_OPTIONS> {
   scorers: AgentScorer[]
@@ -119,32 +122,40 @@ function getCallerFile(): string | undefined {
   }
 }
 
-async function resolveSiblingAgent(caller: string | undefined): Promise<AgentInput> {
+async function resolveSiblingAgent<TRuntimeConfig extends AgentRuntimeConfig>(
+  caller: string | undefined,
+): Promise<AgentEvalAgent<TRuntimeConfig>> {
   if (!caller) {
     throw new Error("[vitehub] defineEval() could not infer the sibling Agent Definition. Pass agent explicitly.")
   }
 
   const extension = extname(caller)
   const sibling = caller.slice(0, -extension.length).replace(/\.eval$/, "") + extension
-  const module = await import(pathToFileURL(sibling).href) as { default?: AgentInput }
+  const module = await import(pathToFileURL(sibling).href) as { default?: AgentEvalAgent<TRuntimeConfig> }
   if (!module.default) {
     throw new Error(`[vitehub] defineEval() expected ${sibling} to default export an Agent Definition.`)
   }
   return module.default
 }
 
-async function resolveEvalAgent(agent: AgentEvalDefinition["agent"], caller: string | undefined): Promise<AgentInput> {
+async function resolveEvalAgent<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentEvalDefinition<TRuntimeConfig>["agent"],
+  caller: string | undefined,
+): Promise<AgentEvalAgent<TRuntimeConfig>> {
   if (!agent) return await resolveSiblingAgent(caller)
   return typeof agent === "function" ? await agent() : agent
 }
 
-function applyVariant(agent: AgentInput, variant: AgentEvalVariant): AgentInput {
+function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentEvalAgent<TRuntimeConfig>,
+  variant: AgentEvalVariant,
+): AgentEvalAgent<TRuntimeConfig> {
   if (!isVariantOverride(variant)) return agent
   if (!isWorkspaceAgentDefinition(agent)) {
     throw new Error("[vitehub] Agent Evaluation variants with model or instructions require an inspectable defineAgent({ workspace }) Agent Definition.")
   }
 
-  const options = agent.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions
+  const options = agent.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig>
   return defineAgent({
     ...options,
     ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),

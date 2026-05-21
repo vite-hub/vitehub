@@ -1,6 +1,6 @@
 import { describe, it } from "vitest"
 
-import { defineAgent } from "../src/index.ts"
+import { defineAgent, type AgentAdapterMetadataContext } from "../src/index.ts"
 import { bash, db, kv, sandbox, skills } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 
@@ -74,5 +74,53 @@ describe("agent public types", () => {
     }
 
     scorer.score(observation)
+  })
+
+  it("preserves agent eval runtime config types", () => {
+    interface TestRuntimeConfig {
+      service: {
+        token: string
+      }
+    }
+
+    const agent = defineAgent<TestRuntimeConfig>({
+      provider: "ai-sdk",
+      model: ({ runtimeConfig }: AgentAdapterMetadataContext<TestRuntimeConfig>) => {
+        runtimeConfig.service.token.toUpperCase()
+        return {} as never
+      },
+      workspace: { mode: "read" },
+    })
+
+    defineEval<TestRuntimeConfig>({
+      agent,
+      runtimeConfig: {
+        service: {
+          token: "secret",
+        },
+      },
+      scenarios: [{
+        input: { prompt: "hello" },
+        name: "hello",
+      }],
+    })
+
+    defineEval<TestRuntimeConfig>({
+      // @ts-expect-error eval agent runtime config must match the eval runtime config
+      agent: defineAgent<{ other: string }>({
+        provider: "ai-sdk",
+        model: {} as never,
+        workspace: { mode: "read" },
+      }),
+      runtimeConfig: {
+        service: {
+          token: "secret",
+        },
+      },
+      scenarios: [{
+        input: { prompt: "hello" },
+        name: "hello",
+      }],
+    })
   })
 })
