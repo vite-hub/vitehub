@@ -343,14 +343,14 @@ export {
   staticModelPricing,
   usageTelemetry,
   vercelAiGatewayPricing,
-} from "./usage-telemetry.ts"
+} from "./capabilities/usage-telemetry.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,
   StaticModelPrice,
   UsageTelemetryOptions,
   VercelAiGatewayPricingOptions,
-} from "./usage-telemetry.ts"
+} from "./capabilities/usage-telemetry.ts"
 
 async function resolveProviderAdapter<
   TRuntimeConfig extends AgentRuntimeConfig,

@@ -1,4 +1,4 @@
-import { defineCapability } from "./capability-runtime.ts"
+import { defineCapability } from "../capability-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -7,7 +7,7 @@ import type {
   AgentUsageCost,
   AgentUsageRecord,
   MaybePromise,
-} from "./types.ts"
+} from "../types.ts"
 
 export interface AgentUsagePricingContext {
   model?: AgentUsageRecord["model"]
