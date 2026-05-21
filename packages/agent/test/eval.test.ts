@@ -62,7 +62,7 @@ describe("agent eval", () => {
     const { defineEval } = await import("../src/eval.ts")
 
     expect(() => defineEval({
-      agent: { generate: vi.fn(), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
       scenarios: [],
     })).toThrow("[vitehub] defineEval({ scenarios }) requires at least one scenario.")
   })
@@ -71,7 +71,7 @@ describe("agent eval", () => {
     const { defineEval, textContains } = await import("../src/eval.ts")
 
     defineEval({
-      agent: { generate: vi.fn(), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
       name: "support",
       scenarios: [{
         input: { prompt: "hello" },
@@ -185,6 +185,21 @@ describe("agent eval", () => {
       .toThrow("Agent Evaluation variants with model or instructions require an inspectable defineAgent({ workspace }) Agent Definition.")
   })
 
+  it("ignores undefined variant override fields", async () => {
+    const { defineEval } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      name: "support",
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      variants: [{ instructions: undefined, name: "baseline" }],
+    })
+
+    await expect(evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input))
+      .resolves
+      .toMatchObject({ text: "ok" })
+  })
+
   it("scores text containment, source leaks, tool calls, and token budget", async () => {
     const {
       callsTool,
@@ -203,6 +218,11 @@ describe("agent eval", () => {
     }
 
     expect(await textContains("billing").score(observation)).toMatchObject({ score: 1, passed: true })
+    const globalPattern = /billing/g
+    const regexScorer = textContains(globalPattern)
+    expect(await regexScorer.score(observation)).toMatchObject({ score: 1, passed: true })
+    expect(await regexScorer.score(observation)).toMatchObject({ score: 1, passed: true })
+    expect(globalPattern.lastIndex).toBe(0)
     expect(await doesNotLeakSource().score({ ...observation, text: "export const token = 'x'" })).toMatchObject({ score: 0, passed: false })
     expect(await callsTool("classifyTicket").score(observation)).toMatchObject({ score: 1, passed: true })
     expect(await doesNotCallTool("refund").score(observation)).toMatchObject({ score: 1, passed: true })

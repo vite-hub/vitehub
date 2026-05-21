@@ -116,12 +116,21 @@ function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
   return (step.toolResults || []).filter((result) => {
     const output = typeof result.output === "string"
       ? result.output
-      : JSON.stringify(result.output)
+      : stringifyToolOutput(result.output)
     return output.includes("Workspace search is too broad")
       || output.includes("Workspace path is not mounted")
       || output.includes("Search returned no matches")
       || output.includes("Workspace shell command timed out")
   }).length
+}
+
+function stringifyToolOutput(output: unknown): string {
+  try {
+    return JSON.stringify(output)
+  }
+  catch {
+    return String(output)
+  }
 }
 
 function textFromRaw(value: unknown): string {

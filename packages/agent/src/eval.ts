@@ -102,7 +102,7 @@ function isWorkspaceAgentDefinition(value: unknown): value is WorkspaceAgentDefi
 }
 
 function isVariantOverride(variant: AgentEvalVariant): boolean {
-  return "instructions" in variant || "model" in variant
+  return variant.instructions !== undefined || variant.model !== undefined
 }
 
 function resolveEvalNameFromFile(caller: string): string {
@@ -115,7 +115,7 @@ function getCallerFile(): string | undefined {
   if (!stack) return
   const current = fileURLToPath(import.meta.url)
   for (const line of stack.split("\n")) {
-    const match = line.match(/\(?((?:file:\/\/)?[^()\s]+?\.(?:c|m)?[jt]s)(?::\d+:\d+)?\)?$/)
+    const match = line.match(/\(?((?:file:\/\/)?.+?\.(?:c|m)?[jt]s)(?::\d+:\d+)?\)?$/)
     if (!match?.[1]) continue
     const file = match[1].startsWith("file://") ? fileURLToPath(match[1]) : match[1]
     if (file !== current) return file
@@ -290,12 +290,14 @@ export function defineEval<
 }
 
 export function textContains(expected: string | RegExp): AgentScorer {
+  const pattern = typeof expected === "string" ? undefined : new RegExp(expected.source, expected.flags)
   return {
     name: "textContains",
     score(observation) {
       const matched = typeof expected === "string"
         ? observation.text.includes(expected)
-        : expected.test(observation.text)
+        : pattern!.test(observation.text)
+      if (pattern) pattern.lastIndex = 0
       return {
         passed: matched,
         reason: matched ? "Output contained the expected text." : "Output did not contain the expected text.",
