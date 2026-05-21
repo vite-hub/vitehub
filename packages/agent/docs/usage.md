@@ -52,15 +52,13 @@ Agent evaluations are powered by Evalite, but the public API stays ViteHub-speci
 server/agents/support.ts
 server/agents/support.eval.ts
 server/agents/docs/config.ts
-server/agents/docs/config.eval.ts
+server/agents/docs/eval.ts
 ```
 
 ```ts [server/agents/support.eval.ts]
 import { defineEval, doesNotLeakSource, textContains } from '@vitehub/agent/eval'
-import support from './support'
 
 export default defineEval({
-  agent: support,
   scenarios: [
     {
       name: 'answers billing questions',
@@ -85,7 +83,7 @@ export default defineEval({
 ```
 
 Evaluation-level scorers are invariants. Scenario-level scorers add case-specific expectations. If `variants` is omitted, ViteHub runs the Agent Definition as the baseline.
-When `agent` is omitted, `defineEval()` imports the sibling Agent Definition by stripping `.eval` from the current file name. Pass `agent` explicitly when a test harness or unusual layout should target a different Agent Definition.
+When `agent` is omitted, `defineEval()` imports the Agent Definition by convention. `support.eval.ts` resolves to sibling `support.ts`; folder-level `eval.ts` resolves to sibling `config.ts` and uses the folder name as the evaluation name. Pass `agent` explicitly when a test harness or unusual layout should target a different Agent Definition.
 
 Agent Eval receives Runtime Config directly. ViteHub Env can help construct those values, but it is not required; pass the same config shape your Agent Definition expects when you use another env loader or secret manager:
 

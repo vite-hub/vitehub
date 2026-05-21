@@ -1,4 +1,4 @@
-import { basename, extname } from "node:path"
+import { basename, dirname, extname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { evalite } from "evalite"
@@ -107,6 +107,7 @@ function isVariantOverride(variant: AgentEvalVariant): boolean {
 
 function resolveEvalNameFromFile(caller: string): string {
   const base = basename(caller, extname(caller))
+  if (base === "eval") return basename(dirname(caller))
   return base.endsWith(".eval") ? base.slice(0, -".eval".length) : base
 }
 
@@ -114,11 +115,14 @@ function getCallerFile(): string | undefined {
   const stack = new Error().stack
   if (!stack) return
   const current = fileURLToPath(import.meta.url)
+  const sourceMappedCurrent = current.replace(/\/dist\/eval\.js$/, "/src/eval.ts")
   for (const line of stack.split("\n")) {
+    if (line.includes("getCallerFile") || line.includes("defineEval")) continue
     const match = line.match(/\(?((?:file:\/\/)?.+?\.(?:c|m)?[jt]s)(?::\d+:\d+)?\)?$/)
     if (!match?.[1]) continue
-    const file = match[1].startsWith("file://") ? fileURLToPath(match[1]) : match[1]
-    if (file !== current) return file
+    const stackPath = match[1].replace(/^\s*at\s+/, "")
+    const file = stackPath.startsWith("file://") ? fileURLToPath(stackPath) : stackPath
+    if (file !== current && file !== sourceMappedCurrent) return file
   }
 }
 
@@ -130,7 +134,10 @@ async function resolveSiblingAgent<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 
   const extension = extname(caller)
-  const sibling = caller.slice(0, -extension.length).replace(/\.eval$/, "") + extension
+  const base = basename(caller, extension)
+  const sibling = base === "eval"
+    ? join(dirname(caller), `config${extension}`)
+    : caller.slice(0, -extension.length).replace(/\.eval$/, "") + extension
   const module = await import(pathToFileURL(sibling).href) as { default?: AgentEvalAgent<TRuntimeConfig> }
   if (!module.default) {
     throw new Error(`[vitehub] defineEval() expected ${sibling} to default export an Agent Definition.`)

@@ -218,6 +218,8 @@ interface AgentScore {
 
 Built-in scorers are `textContains()`, `doesNotLeakSource()`, `callsTool()`, `doesNotCallTool()`, and `staysUnderTokenBudget()`.
 
+When `agent` is omitted, `defineEval()` imports the Agent Definition by convention. `name.eval.ts` resolves to sibling `name.ts`; folder-level `eval.ts` resolves to sibling `config.ts`.
+
 ## Runtime context
 
 ```ts
