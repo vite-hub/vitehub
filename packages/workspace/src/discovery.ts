@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { readFileSync, readdirSync, statSync } from "node:fs"
 import { basename, dirname, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -68,7 +68,13 @@ function collectDirectoriesWithConfig(root: string): Set<string> {
 function resolveWorkspaceSourceRoot(file: string) {
   const directory = dirname(file)
   const workspaceDirectory = resolve(directory, "workspace")
-  return existsSync(workspaceDirectory) ? workspaceDirectory : directory
+  try {
+    return statSync(workspaceDirectory).isDirectory() ? workspaceDirectory : directory
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return directory
+    throw error
+  }
 }
 
 function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
@@ -153,7 +159,7 @@ export function createWorkspaceRegistryContents(registryFile: string, definition
       `  ${JSON.stringify(definition.name)}: async () => {`,
       `    const mod = await ${importExpression(definition.handler)}`,
       definition.sourceRootDir
-        ? `    return { ...mod, default: { ...mod.default, sourceRootDir: mod.default.sourceRootDir || ${JSON.stringify(definition.sourceRootDir)} } }`
+        ? `    return { ...mod, default: { ...mod.default, sourceRootDir: mod.default.sourceRootDir ?? ${JSON.stringify(definition.sourceRootDir)} } }`
         : "    return mod",
       "  },",
     ].join("\n")),
@@ -170,7 +176,7 @@ export function createWorkspaceVirtualRegistryContents(definitions: DiscoveredWo
       `  ${JSON.stringify(definition.name)}: async () => {`,
       `    const mod = await import(${JSON.stringify(pathToFileURL(definition.path).href)})`,
       definition.sourceRootDir
-        ? `    return { ...mod, default: { ...mod.default, sourceRootDir: mod.default.sourceRootDir || ${JSON.stringify(definition.sourceRootDir)} } }`
+        ? `    return { ...mod, default: { ...mod.default, sourceRootDir: mod.default.sourceRootDir ?? ${JSON.stringify(definition.sourceRootDir)} } }`
         : "    return mod",
       "  },",
     ].join("\n")),

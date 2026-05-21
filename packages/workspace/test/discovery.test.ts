@@ -73,7 +73,23 @@ describe("discoverNitroWorkspaceDefinitions", () => {
 
     const contents = createWorkspaceRegistryContents(registryFile, discoverNitroWorkspaceDefinitions(root))
 
-    expect(contents).toContain("sourceRootDir: mod.default.sourceRootDir ||")
+    expect(contents).toContain("sourceRootDir: mod.default.sourceRootDir ??")
+  })
+
+  it("uses config directory when sibling workspace path is not a directory", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "workspaces", "docs")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, "config.ts"), "export default {}\n", "utf8")
+    await writeFile(join(directory, "workspace"), "not a directory\n", "utf8")
+
+    expect(discoverNitroWorkspaceDefinitions(root)).toEqual([
+      expect.objectContaining({
+        handler: join(directory, "config.ts"),
+        name: "docs",
+        sourceRootDir: directory,
+      }),
+    ])
   })
 
   it("discovers workspace definitions colocated with directory agents", async () => {
