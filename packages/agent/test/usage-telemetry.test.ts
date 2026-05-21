@@ -1,0 +1,157 @@
+import { describe, expect, it, vi } from "vitest"
+
+const runtime = () => ({
+  memo: vi.fn(),
+  run: {
+    messageId: "message-1",
+    runId: "run-1",
+    threadId: "thread-1",
+  },
+  runtime: "unknown" as const,
+  runtimeConfig: {},
+  waitUntil: vi.fn(),
+})
+
+describe("usage telemetry", () => {
+  it("normalizes usage and attaches a priced usage record", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({
+          pricing: staticModelPricing({
+            "openai/gpt-test": {
+              input: "0.00000010",
+              output: "0.00000020",
+            },
+          }),
+        }),
+      ],
+      run: () => ({
+        finishReason: "stop",
+        response: {
+          id: "response-1",
+          modelId: "openai/gpt-test",
+          timestamp: "2026-05-21T00:00:00.000Z",
+        },
+        text: "ok",
+        totalUsage: {
+          inputTokens: 10,
+          outputTokens: 5,
+        },
+      }),
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      },
+      usageRecord: {
+        cost: {
+          amount: "0.000002",
+          currency: "USD",
+          estimated: true,
+          source: "custom",
+        },
+        model: {
+          id: "openai/gpt-test",
+        },
+        response: {
+          finishReason: "stop",
+          id: "response-1",
+          timestamp: "2026-05-21T00:00:00.000Z",
+        },
+        run: {
+          messageId: "message-1",
+          runId: "run-1",
+          threadId: "thread-1",
+        },
+        usage: {
+          inputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 15,
+        },
+      },
+    })
+  })
+
+  it("does not fail the invocation when pricing fails", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({
+          pricing: () => {
+            throw new Error("pricing unavailable")
+          },
+        }),
+      ],
+      run: () => ({
+        text: "ok",
+        usage: {
+          input_tokens: 1,
+          output_tokens: 2,
+        },
+      }),
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      text: "ok",
+      usage: {
+        inputTokens: 1,
+        outputTokens: 2,
+        totalTokens: 3,
+      },
+      usageRecord: {
+        usage: {
+          inputTokens: 1,
+          outputTokens: 2,
+          totalTokens: 3,
+        },
+      },
+    })
+  })
+
+  it("loads Vercel AI Gateway pricing from the models endpoint", async () => {
+    const { vercelAiGatewayPricing } = await import("../src/capabilities.ts")
+    const fetch = vi.fn(async () => Response.json({
+      data: [
+        {
+          id: "openai/gpt-test",
+          pricing: {
+            input: "0.00000010",
+            output: "0.00000020",
+          },
+        },
+      ],
+    }))
+    const pricing = vercelAiGatewayPricing({ fetch })
+
+    await expect(pricing({
+      model: { id: "openai/gpt-test" },
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+      },
+    })).resolves.toEqual({
+      amount: "0.000002",
+      currency: "USD",
+      estimated: true,
+      source: "vercel-ai-gateway",
+    })
+    await expect(pricing({
+      model: { id: "openai/gpt-test" },
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+      },
+    })).resolves.toMatchObject({ amount: "0.0000003" })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+})

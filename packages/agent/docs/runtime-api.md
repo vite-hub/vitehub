@@ -18,6 +18,8 @@ import {
   getAgent,
   runAgent,
   streamAgent,
+  usageTelemetry,
+  vercelAiGatewayPricing,
 } from '@vitehub/agent'
 import {
   bash,
@@ -126,6 +128,44 @@ interface AgentRunInput {
 ```
 
 `Message` comes from `@vitehub/agent` and is re-exported by `@vitehub/agent`.
+
+## Agent usage telemetry
+
+```ts
+usageTelemetry({
+  includeRaw?: boolean
+  pricing?: AgentUsagePricing
+})
+```
+
+```ts
+interface AgentUsage {
+  inputTokens?: number
+  outputTokens?: number
+  totalTokens?: number
+  inputTokenDetails?: Record<string, number>
+  outputTokenDetails?: Record<string, number>
+  raw?: unknown
+}
+
+interface AgentUsageRecord {
+  usage?: AgentUsage
+  model?: { id?: string; provider?: string }
+  response?: { id?: string; timestamp?: Date | string; finishReason?: unknown }
+  latency?: { durationMs?: number; timeToFirstTokenMs?: number; tokensPerSecond?: number }
+  cost?: AgentUsageCost
+  run?: Partial<AgentRunMetadata>
+  raw?: unknown
+}
+```
+
+`usageTelemetry()` uses the Capability output phase. It normalizes finished object results only; streamed `Response` and async iterable results are returned unchanged.
+
+```ts
+usageTelemetry({
+  pricing: vercelAiGatewayPricing(),
+})
+```
 
 ## Runtime context
 
