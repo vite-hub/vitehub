@@ -30,6 +30,14 @@ import {
   sandbox,
   skills,
 } from '@vitehub/agent/capabilities'
+import {
+  callsTool,
+  defineEval,
+  doesNotCallTool,
+  doesNotLeakSource,
+  staysUnderTokenBudget,
+  textContains,
+} from '@vitehub/agent/eval'
 ```
 
 In Nitro, the module auto-imports `defineAgent` for discovered agent definitions. Capability factories such as `bash()` stay explicit imports because they expose model-facing tools.
@@ -169,6 +177,44 @@ usageTelemetry({
   pricing: vercelAiGatewayPricing(),
 })
 ```
+
+## Agent evaluations
+
+```ts
+defineEval({
+  agent?: AgentInput | (() => MaybePromise<AgentInput>)
+  name?: string
+  runtimeConfig?: AgentRuntimeConfig | (() => MaybePromise<AgentRuntimeConfig>)
+  scenarios: AgentEvalScenario[]
+  scorers?: AgentScorer[]
+  variants?: AgentEvalVariant[]
+  workspace?: string
+})
+```
+
+```ts
+interface AgentEvalScenario {
+  name: string
+  input: AgentRunInput
+  metadata?: unknown
+  scorers?: AgentScorer[]
+}
+
+interface AgentEvalVariant {
+  name: string
+  instructions?: string | string[]
+  model?: unknown
+}
+
+interface AgentScore {
+  score: number
+  passed?: boolean
+  reason?: string
+  metadata?: unknown
+}
+```
+
+Built-in scorers are `textContains()`, `doesNotLeakSource()`, `callsTool()`, `doesNotCallTool()`, and `staysUnderTokenBudget()`.
 
 ## Runtime context
 
