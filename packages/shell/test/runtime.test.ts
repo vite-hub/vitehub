@@ -357,6 +357,24 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "models/customers.sql:select * from customers\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "head -c 6 README.md", {
+      commands: ["head"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "tail -c 6 README.md", {
+      commands: ["tail"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: " Docs\n",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "grep -ri customer . | grep -v orders | head -n 1", {
       commands: ["grep", "head"],
       cwd: workspaceMountPoint,

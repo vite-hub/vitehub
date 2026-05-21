@@ -261,7 +261,7 @@ function takesOptionValue(arg: string) {
 }
 
 function takesFileCommandOptionValue(arg: string) {
-  return arg === "-n" || takesOptionValue(arg)
+  return arg === "-c" || arg === "-n" || arg === "--bytes" || takesOptionValue(arg)
 }
 
 function splitShellSegments(command: string) {
