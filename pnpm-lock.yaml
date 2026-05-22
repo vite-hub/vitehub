@@ -228,6 +228,9 @@ importers:
       '@vitehub/workspace':
         specifier: workspace:*
         version: link:../workspace
+      '@vitejs/devtools-kit':
+        specifier: 'catalog:'
+        version: 0.2.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(crossws@0.4.5(srvx@0.11.15))(typescript@6.0.2)(vite@8.0.8)
       agents:
         specifier: ^0.12.3
         version: 0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@6.0.174(zod@4.4.1))(react@19.2.6)(rolldown@1.0.0-rc.16)(vite@8.0.8)(zod@4.4.1)
@@ -256,9 +259,6 @@ importers:
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
-      '@vitejs/devtools-kit':
-        specifier: 'catalog:'
-        version: 0.2.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(crossws@0.4.5(srvx@0.11.15))(typescript@6.0.2)(vite@8.0.8)
       ai:
         specifier: ^6.0.172
         version: 6.0.174(zod@4.4.1)
@@ -889,6 +889,9 @@ importers:
       ocache:
         specifier: ^0.1.4
         version: 0.1.4
+      pathe:
+        specifier: 'catalog:'
+        version: 2.0.3
       picomatch:
         specifier: ^4.0.4
         version: 4.0.4
@@ -4926,9 +4929,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@rolldown/debug@1.0.0-rc.18':
-    resolution: {integrity: sha512-TpVI38fXLiuQhkfQaj4Lh0bFzj9tsaPR5vtK3r+ouWgWhNCsr5tjyKvhGmtcp+PoS7l5gad5il6F4prYatLPQA==}
-
   '@rolldown/debug@1.0.2':
     resolution: {integrity: sha512-W3V3SWZVRdEWWb8u4Ppci2sQlzj0S0rh/U8BaUmbrzHZ58jz1+UPLxwCZqSqB6UkbbcE1nMu/rXlSXTQ2tszSw==}
 
@@ -6139,11 +6139,6 @@ packages:
 
   '@upstash/redis@1.37.0':
     resolution: {integrity: sha512-LqOJ3+XWPLSZ2rGSed5DYG3ixybxb8EhZu3yQqF7MdZX1wLBG/FRcI6xcUZXHy/SS7mmXWyadrud0HJHkOc+uw==}
-
-  '@valibot/to-json-schema@1.6.0':
-    resolution: {integrity: sha512-d6rYyK5KVa2XdqamWgZ4/Nr+cXhxjy7lmpe6Iajw15J/jmU+gyxl2IEd1Otg1d7Rl3gOQL5reulnSypzBtYy1A==}
-    peerDependencies:
-      valibot: ^1.3.0
 
   '@valibot/to-json-schema@1.7.0':
     resolution: {integrity: sha512-Y3pPVibbIOHzohrlxSINvO7w/bvXkoYS3BQHoImV9ynE+bXKf171bdMucPurV2zp7gdmt0L1HCcNAsbo7cFRQw==}
@@ -11922,11 +11917,6 @@ packages:
     peerDependencies:
       typescript: '>=5.0.0'
 
-  vue-virtual-scroller@3.0.2:
-    resolution: {integrity: sha512-zneKxsBecfFBpH2NAk8zF0IWBRSYRaXnXK/dPQ/AnXE9xlbRyW6sSO9EUb5L5cSFz2Dpfb2giN30/y+/Xvu5PQ==}
-    peerDependencies:
-      vue: ^3.3.0
-
   vue-virtual-scroller@3.0.4:
     resolution: {integrity: sha512-3qh3c9VUVysuXynaa4fVZ3ncx3VgD7EPRiQcj+jUVZl5u/TTkD3c27XvSEu3JGJfsJt/vVTVziZ3djiiHtW4cQ==}
     peerDependencies:
@@ -16148,9 +16138,6 @@ snapshots:
   '@rolldown/binding-win32-x64-msvc@1.0.0-rc.16':
     optional: true
 
-  '@rolldown/debug@1.0.0-rc.18':
-    optional: true
-
   '@rolldown/debug@1.0.2': {}
 
   '@rolldown/plugin-babel@0.2.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(rolldown@1.0.0-rc.16)(vite@8.0.8)':
@@ -17374,11 +17361,6 @@ snapshots:
     dependencies:
       uncrypto: 0.1.3
 
-  '@valibot/to-json-schema@1.6.0(valibot@1.3.1(typescript@6.0.2))':
-    dependencies:
-      valibot: 1.3.1(typescript@6.0.2)
-    optional: true
-
   '@valibot/to-json-schema@1.7.0(valibot@1.4.0(typescript@6.0.2))':
     dependencies:
       valibot: 1.4.0(typescript@6.0.2)
@@ -17498,7 +17480,7 @@ snapshots:
     dependencies:
       '@floating-ui/dom': 1.7.6
       '@pnpm/read-project-manifest': 1001.2.6(@pnpm/logger@1001.0.1)
-      '@rolldown/debug': 1.0.0-rc.18
+      '@rolldown/debug': 1.0.2
       '@vitejs/devtools-kit': 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
       ansis: 4.2.0
       birpc: 4.0.0
@@ -17514,15 +17496,15 @@ snapshots:
       ohash: 2.0.11
       p-limit: 7.3.0
       pathe: 2.0.3
-      publint: 0.3.18
+      publint: 0.3.21
       sirv: 3.0.2
       split2: 4.2.0
       structured-clone-es: 2.0.0
       tinyglobby: 0.2.16
       unconfig: 7.5.0
       unstorage: 1.17.5(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.10.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.2.2))
-      vue-virtual-scroller: 3.0.2(vue@3.5.34(typescript@6.0.2))
-      ws: 8.20.0
+      vue-virtual-scroller: 3.0.4(vue@3.5.34(typescript@6.0.2))
+      ws: 8.20.1
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -17558,7 +17540,7 @@ snapshots:
     dependencies:
       '@floating-ui/dom': 1.7.6
       '@pnpm/read-project-manifest': 1001.2.6(@pnpm/logger@1001.0.1)
-      '@rolldown/debug': 1.0.0-rc.18
+      '@rolldown/debug': 1.0.2
       '@vitejs/devtools-kit': 0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)
       ansis: 4.2.0
       birpc: 4.0.0
@@ -17574,15 +17556,15 @@ snapshots:
       ohash: 2.0.11
       p-limit: 7.3.0
       pathe: 2.0.3
-      publint: 0.3.18
+      publint: 0.3.21
       sirv: 3.0.2
       split2: 4.2.0
       structured-clone-es: 2.0.0
       tinyglobby: 0.2.16
       unconfig: 7.5.0
       unstorage: 1.17.5(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.10.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.2.2))
-      vue-virtual-scroller: 3.0.2(vue@3.5.34(typescript@6.0.2))
-      ws: 8.20.0
+      vue-virtual-scroller: 3.0.4(vue@3.5.34(typescript@6.0.2))
+      ws: 8.20.1
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -17687,7 +17669,7 @@ snapshots:
       tinyexec: 1.1.2
       vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
       vue: 3.5.34(typescript@6.0.2)
-      ws: 8.20.0
+      ws: 8.20.1
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -17736,7 +17718,7 @@ snapshots:
       tinyexec: 1.1.2
       vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
       vue: 3.5.34(typescript@6.0.2)
-      ws: 8.20.0
+      ws: 8.20.1
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -19288,7 +19270,7 @@ snapshots:
 
   devframe@0.1.19(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2):
     dependencies:
-      '@valibot/to-json-schema': 1.6.0(valibot@1.3.1(typescript@6.0.2))
+      '@valibot/to-json-schema': 1.7.0(valibot@1.4.0(typescript@6.0.2))
       ansis: 4.2.0
       birpc: 4.0.0
       cac: 7.0.0
@@ -19298,8 +19280,8 @@ snapshots:
       pathe: 2.0.3
       sirv: 3.0.2
       structured-clone-es: 2.0.0
-      valibot: 1.3.1(typescript@6.0.2)
-      ws: 8.20.0
+      valibot: 1.4.0(typescript@6.0.2)
+      ws: 8.20.1
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1)
       '@nuxt/kit': 4.4.2(magicast@0.5.2)
@@ -25344,11 +25326,6 @@ snapshots:
       '@volar/typescript': 2.4.28
       '@vue/language-core': 3.2.6
       typescript: 6.0.2
-
-  vue-virtual-scroller@3.0.2(vue@3.5.34(typescript@6.0.2)):
-    dependencies:
-      vue: 3.5.34(typescript@6.0.2)
-    optional: true
 
   vue-virtual-scroller@3.0.4(vue@3.5.34(typescript@6.0.2)):
     dependencies:

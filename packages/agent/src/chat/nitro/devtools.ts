@@ -400,6 +400,22 @@ function getSingletonDevtoolsAdapter(): { adapter: ChatDevtoolsAdapter, chat: Ch
   return { adapter, chat }
 }
 
+function parseChatDevtoolsBridgeBody(rawBody: ChatDevtoolsBridgeBody | string | undefined): ChatDevtoolsBridgeBody | undefined {
+  if (typeof rawBody !== "string") {
+    return rawBody
+  }
+
+  try {
+    return JSON.parse(rawBody) as ChatDevtoolsBridgeBody
+  }
+  catch {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "Malformed chat devtools payload.",
+    })
+  }
+}
+
 export function defineChatDevtoolsSingletonHandler(): EventHandler {
   return defineEventHandler(async (event) => {
     const body = await readBody<ChatDevtoolsBridgeBody>(event)
@@ -470,8 +486,7 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
 
   return defineEventHandler(async (event) => {
     setHeader(event, "access-control-allow-origin", "*")
-    const rawBody = await readBody<ChatDevtoolsBridgeBody | string>(event)
-    const body = typeof rawBody === "string" ? JSON.parse(rawBody) as ChatDevtoolsBridgeBody : rawBody
+    const body = parseChatDevtoolsBridgeBody(await readBody<ChatDevtoolsBridgeBody | string>(event))
     if (!body || typeof body.action !== "string") {
       throw createError({
         statusCode: 400,

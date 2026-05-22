@@ -66,7 +66,7 @@ export default defineAgent({
   description: 'Triage support requests and prepare a queue handoff.',
   instructions: 'Classify support requests and prepare queue handoff.',
   model: gateway('openai/gpt-5.1-mini'),
-  provider: 'ai-sdk',
+  adapter: 'ai-sdk',
 })
 ```
 ::
@@ -93,7 +93,7 @@ export default defineAgent({
   description: 'Triage support requests and prepare a queue handoff.',
   instructions: 'Classify support requests and prepare queue handoff.',
   model: gateway('openai/gpt-5.1-mini'),
-  provider: 'ai-sdk',
+  adapter: 'ai-sdk',
 })
 ```
 ::

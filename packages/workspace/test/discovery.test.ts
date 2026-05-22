@@ -61,14 +61,40 @@ describe("discoverNitroWorkspaceDefinitions", () => {
     const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
     await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default {}\n", "utf8")
 
-    expect(createWorkspaceRegistryContents(registryFile, discoverNitroWorkspaceDefinitions(root))).toContain(
-      '"docs": async () => import(',
-    )
+    const contents = createWorkspaceRegistryContents(registryFile, discoverNitroWorkspaceDefinitions(root))
+    expect(contents).toContain('"docs": async () => {')
+    expect(contents).toContain("const mod = await import(")
+  })
+
+  it("preserves explicit sourceRootDir values in workspace modules", async () => {
+    const root = await createRoot()
+    const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
+    await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default { sourceRootDir: '/custom/docs' }\n", "utf8")
+
+    const contents = createWorkspaceRegistryContents(registryFile, discoverNitroWorkspaceDefinitions(root))
+
+    expect(contents).toContain("sourceRootDir: mod.default.sourceRootDir ??")
+  })
+
+  it("uses config directory when sibling workspace path is not a directory", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "workspaces", "docs")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, "config.ts"), "export default {}\n", "utf8")
+    await writeFile(join(directory, "workspace"), "not a directory\n", "utf8")
+
+    expect(discoverNitroWorkspaceDefinitions(root)).toEqual([
+      expect.objectContaining({
+        handler: join(directory, "config.ts"),
+        name: "docs",
+        sourceRootDir: directory,
+      }),
+    ])
   })
 
   it("discovers workspace definitions colocated with directory agents", async () => {
     const root = await createRoot()
-    await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
+    await mkdir(join(root, "server", "agents", "docs", "workspace"), { recursive: true })
     await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })\n", "utf8")
 
     expect(discoverNitroWorkspaceDefinitions(root)).toEqual([
@@ -76,6 +102,7 @@ describe("discoverNitroWorkspaceDefinitions", () => {
         handler: join(root, "server", "agents", "docs", "config.ts"),
         name: "docs",
         source: "nitro-server-agent-workspaces",
+        sourceRootDir: join(root, "server", "agents", "docs", "workspace"),
       }),
     ])
   })

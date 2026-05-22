@@ -290,7 +290,7 @@ export function createAgentDirectMessageHook<
   options: { fallbackStreamingPlaceholderText?: ChatStreamingPlaceholder<TRuntimeConfig> } = {},
 ): ChatDirectMessageHook<TRuntimeConfig, TWorkflow> {
   return async (args) => {
-    const { channel, context, message, runtimeConfig, thread } = args
+    const { channel, context, message, thread } = args
     const historyOptions = normalizeAgentHistory(binding.history)
     const sourceMessages = historyOptions.enabled
       ? await collectThreadMessages(thread, message, historyOptions.maxMessages)
@@ -310,7 +310,6 @@ export function createAgentDirectMessageHook<
       history,
       message,
       run,
-      runtimeConfig,
       thread,
       workflow,
     } satisfies ChatAgentHookArgs<TRuntimeConfig, TWorkflow>

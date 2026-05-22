@@ -59,6 +59,9 @@ export interface ChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = C
 export type ResolvedChatRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
   ChatRuntimeContext<TRuntimeConfig> & { runtimeConfig: TRuntimeConfig }
 
+export type ChatCallbackContext<TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig> =
+  Omit<ResolvedChatRuntimeContext<TRuntimeConfig>, "runtimeConfig">
+
 export type AdapterInput<TContext extends ChatRuntimeContext<any> = ChatRuntimeContext> =
   | MaybeResolvable<Record<string, Adapter>, TContext>
   | Record<string, MaybeResolvable<Adapter, TContext>>
@@ -86,7 +89,6 @@ export interface ChatHookArgs<
   context?: MessageContext
   event?: unknown
   message?: Message
-  runtimeConfig: TRuntimeConfig
   thread?: Thread
   workflow: TWorkflow
 }
@@ -267,7 +269,7 @@ export interface DefineChatOptions<
   TRuntimeConfig extends ChatRuntimeConfig = ChatRuntimeConfig,
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined = ChatWorkflowHandle<any, any> | undefined,
 > extends ChatConfigPassthrough, ChatEventHooks<TRuntimeConfig, TWorkflow> {
-  adapters: AdapterInput<ResolvedChatRuntimeContext<TRuntimeConfig>>
+  adapters: AdapterInput<ChatCallbackContext<TRuntimeConfig>>
   agent?: ChatAgentBinding<TRuntimeConfig, TWorkflow>
   concurrency?: ConcurrencyStrategy | ConcurrencyConfig
   fallbackStreamingPlaceholderText?: ChatStreamingPlaceholder<TRuntimeConfig>
@@ -276,8 +278,8 @@ export interface DefineChatOptions<
   lockScope?: LockScope | ((context: LockScopeContext) => LockScope | Promise<LockScope>)
   logger?: Logger | LogLevel
   onLockConflict?: ChatConfig["onLockConflict"]
-  setup?: (bot: Chat, context: ResolvedChatRuntimeContext<TRuntimeConfig>) => MaybePromise<void>
-  state: MaybeResolvable<StateAdapter, ChatRuntimeContext<TRuntimeConfig>>
+  setup?: (bot: Chat, context: ChatCallbackContext<TRuntimeConfig>) => MaybePromise<void>
+  state: MaybeResolvable<StateAdapter, ChatCallbackContext<TRuntimeConfig>>
   userName?: ChatConfig["userName"]
   workflow?: TWorkflow
 }

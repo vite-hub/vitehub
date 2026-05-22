@@ -23,12 +23,14 @@ export interface TanStackAiAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  adapterOptions?: TanStackAiAdapterExecutionOptions
+  instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
+  tools?: AgentToolResolverWithWorkspace<TRuntimeConfig, Name>
+}
+
+export interface TanStackAiAdapterExecutionOptions extends Record<string, unknown> {
   adapter: unknown
   agentLoopStrategy?: unknown
-  instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
-  options?: Record<string, unknown>
-  tools?: AgentToolResolverWithWorkspace<TRuntimeConfig, Name>
-  [key: string]: unknown
 }
 
 type TanStackMessage = {
@@ -96,25 +98,21 @@ async function resolveTools(options: TanStackAiAdapterOptions, context: AgentAda
 }
 
 async function createChatOptions(options: TanStackAiAdapterOptions, context: AgentAdapterRunContext, stream: boolean) {
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
-    ...context.runtime,
+    ...runtime,
     fs: context.workspace?.fs,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const instructions = context.instructions
     ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)
   const {
-    adapter,
     instructions: _instructions,
-    options: passthrough,
     tools: _tools,
-    ...rest
+    adapterOptions,
   } = options
   return {
-    ...rest,
-    ...passthrough,
-    adapter,
-    agentLoopStrategy: options.agentLoopStrategy,
+    ...adapterOptions,
     messages: context.messages.length ? toTanStackAiMessages(context.messages) : context.prompt ? [{ content: context.prompt, role: "user" as const }] : [],
     stream,
     systemPrompts: instructions ? [instructions] : undefined,
@@ -128,7 +126,7 @@ function toResult(value: unknown): AgentAdapterResult {
     : { raw: value, text: typeof (value as { text?: unknown })?.text === "string" ? (value as { text: string }).text : undefined }
 }
 
-export function createTanStackAiProviderAdapter(options: TanStackAiAdapterOptions): AgentAdapter {
+export function createTanStackAiAdapter(options: TanStackAiAdapterOptions): AgentAdapter {
   return {
     async generate(context) {
       const { chat } = await import("@tanstack/ai")

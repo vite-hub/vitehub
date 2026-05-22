@@ -80,6 +80,7 @@
     "@vitehub/workflow": "workspace:*",
     "@vitehub/workspace": "workspace:*",
     "@vercel/functions": "catalog:",
+    "@vitejs/devtools-kit": "catalog:",
     "chat": "catalog:",
     "chat-state-cloudflare-do": "^0.2.0",
     "h3": "catalog:",
@@ -89,7 +90,6 @@
     "agents": "^0.12.3",
     "@tanstack/ai": "0.16.0",
     "ai": "^6.0.0",
-    "@vitejs/devtools-kit": ">=0.2.0",
     "nitro": "^3.0.0-0",
     "vite": ">=8.0.0"
   },
@@ -101,9 +101,6 @@
       "optional": true
     },
     "ai": {
-      "optional": true
-    },
-    "@vitejs/devtools-kit": {
       "optional": true
     },
     "nitro": {

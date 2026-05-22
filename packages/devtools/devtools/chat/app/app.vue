@@ -1052,7 +1052,11 @@ async function readRpcStream(streamId: string, input: { chat?: string, text: str
   if (!reader) {
     const timeout = setTimeout(() => abortController.abort(), 60_000)
     try {
-      return await pollFinalRpcState(input, abortController.signal)
+      const completed = await pollFinalRpcState(input, abortController.signal)
+      if (!completed) {
+        throw new Error("Chat DevTools RPC polling timed out.")
+      }
+      return completed
     }
     finally {
       clearTimeout(timeout)

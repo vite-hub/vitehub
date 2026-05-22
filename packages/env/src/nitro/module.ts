@@ -2,7 +2,7 @@ import { resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
 import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { assertNoVitePluginInNitro, resolveRuntimeEntry } from "@vitehub/internal/nitro"
+import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry } from "@vitehub/internal/nitro"
 
 import { formatDiagnostics } from "../core/diagnostics.ts"
 import { env } from "../core/declarations.ts"
@@ -14,6 +14,7 @@ import type { Nitro, NitroModule } from "nitro/types"
 export { env }
 
 const ENV_VITE_PLUGIN_NAME = "@vitehub/env/vite"
+const ENV_NITRO_IMPORTS_PRESET = { from: "#vitehub/env/server", imports: ["useServerEnv"] }
 
 function resolveEntry(srcRelative: string, packageSubpath: string): string {
   return resolveRuntimeEntry(srcRelative, packageSubpath, import.meta.url)
@@ -87,18 +88,6 @@ function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
     "",
     "declare module \"nitro/types\" {",
     "  export interface NitroRuntimeConfig {",
-    ...fields,
-    "  }",
-    "}",
-    "",
-    "declare module \"@vitehub/agent/chat\" {",
-    "  export interface ChatRuntimeConfig {",
-    ...fields,
-    "  }",
-    "}",
-    "",
-    "declare module \"@vitehub/agent\" {",
-    "  export interface AgentRuntimeConfig {",
     ...fields,
     "  }",
     "}",
@@ -183,6 +172,11 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
       nitro.options.plugins ||= []
       if (!nitro.options.plugins.includes(pluginFile)) {
         nitro.options.plugins.push(pluginFile)
+      }
+
+      const importsExplicitlyDisabled = nitro.options._config?.imports === false
+      if (!importsExplicitlyDisabled) {
+        nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, ENV_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
       }
 
       await installNitroTypes(nitro, registry)

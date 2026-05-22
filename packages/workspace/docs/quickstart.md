@@ -41,10 +41,7 @@ export default defineWorkspace({
     root: '.vitehub/workspaces/docs',
   },
   sources: {
-    docs: source.file({
-      path: 'README.md',
-      workspacePath: 'README.md',
-    }),
+    docs: source.file('README.md'),
   },
 })
 ```

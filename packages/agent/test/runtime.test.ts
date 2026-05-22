@@ -380,6 +380,23 @@ describe("agent message protocol", () => {
     expect(state.tools).toEqual([{ name: "reserved-chat-tool" }])
   })
 
+  it("returns a bad request for malformed text chat devtools payloads", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    app.use(defineChatDevtoolsRegistryHandler({
+      support: async () => ({} as ChatInput),
+    }))
+
+    const response = await toWebHandler(app)(new Request("http://example.test", {
+      body: "not json",
+      headers: { "content-type": "text/plain" },
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(400)
+  })
+
   it("converts Nitro request-like events to Fetch Request objects", async () => {
     const { toFetchRequest } = await import("../src/chat/nitro/handler.ts")
     const body = new ReadableStream({
@@ -481,7 +498,7 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
 
     const agent = defineAgent({
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{
         id: "inspect",
@@ -509,7 +526,7 @@ describe("agent message protocol", () => {
     const execute = vi.fn()
 
     const agent = defineAgent({
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{
         id: "refund-tools",
@@ -533,7 +550,7 @@ describe("agent message protocol", () => {
     const execute = vi.fn()
 
     const agent = defineAgent({
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{
         id: "refund-tools",
@@ -558,12 +575,12 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it("requires an explicit provider for model agents", async () => {
+  it("requires an explicit adapter for model agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
     expect(() => defineAgent({
       model: {} as never,
-    } as never)).toThrow("requires an explicit provider")
+    } as never)).toThrow("requires an explicit adapter")
   })
 
   it("validates capability ids and sandbox commands", async () => {
@@ -572,32 +589,32 @@ describe("agent message protocol", () => {
 
     expect(() => defineAgent({
       capabilities: [{ id: "custom" }, { id: "custom" }],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     })).toThrow("Duplicate capability id")
 
     expect(() => defineAgent({
       capabilities: [{} as never],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     })).toThrow("require a non-empty string id")
 
     expect(() => defineAgent({
       capabilities: [sandbox({ commands: ["pnpm test"] })],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })).toThrow("executable names only")
 
     expect(() => defineAgent({
       capabilities: [bash()],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     })).toThrow("requires an explicit workspace")
 
     expect(() => defineAgent({
       capabilities: [bash({ mode: "write" })],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       workspace: { mode: "read" },
     })).toThrow("requires workspace.mode")
@@ -608,7 +625,7 @@ describe("agent message protocol", () => {
     const { kv } = await import("../src/capabilities.ts")
     const agent = defineAgent({
       capabilities: [kv()],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     })
 

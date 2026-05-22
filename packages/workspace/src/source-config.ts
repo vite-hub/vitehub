@@ -24,6 +24,7 @@ export interface ResolvedWorkspaceSource {
 export function createSourceContext(definition: WorkspaceDefinition): SourceContext {
   return {
     rootDir: definition.rootDir || process.cwd(),
+    sourceRootDir: definition.sourceRootDir,
     workspace: definition.name,
   }
 }

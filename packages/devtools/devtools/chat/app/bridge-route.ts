@@ -11,7 +11,7 @@ export function resolveChatBridgeRoute(input: ChatBridgeRouteInput = {}): string
   if (input.remoteOrigin) {
     return new URL(chatDevtoolsBridgeRoute, input.remoteOrigin).toString()
   }
-  if (input.pathname?.startsWith("/chat/")) {
+  if (input.pathname === "/chat" || input.pathname?.startsWith("/chat/")) {
     return `/chat${chatDevtoolsBridgeRoute}`
   }
   if (input.ancestorOrigin) {

@@ -16,6 +16,12 @@ describe("resolveChatBridgeRoute", () => {
     })).toBe("/chat/__vitehub/agent/chat/devtools")
   })
 
+  it("keeps the standalone demo bridge at the chat base path without a trailing slash", () => {
+    expect(resolveChatBridgeRoute({
+      pathname: "/chat",
+    })).toBe("/chat/__vitehub/agent/chat/devtools")
+  })
+
   it("falls back to iframe ancestry outside the standalone chat path", () => {
     expect(resolveChatBridgeRoute({
       ancestorOrigin: "http://127.0.0.1:3000",

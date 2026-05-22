@@ -373,7 +373,7 @@ async function writeNitroChatRuntimeFiles(nitro: Nitro, options: false | Resolve
   }
 
   let devtoolsFile: string | undefined
-  if (registryFile && options.devtools !== false) {
+  if (registryFile && options.devtools !== false && nitro.options.dev) {
     devtoolsFile = createNitroChatDevtoolsPath(nitro.options.rootDir, nitro.options.buildDir)
     await writeFileIfChanged(devtoolsFile, createNitroChatDevtoolsContents(devtoolsFile, registryFile))
   }
@@ -471,7 +471,7 @@ function installDevtoolsRoute(nitro: Nitro, devtoolsFile: string | undefined): v
 
   nitro.options.handlers ||= []
   const route = "/__vitehub/agent/chat/devtools"
-  const existing = nitro.options.handlers.some(handler => handler.route === route && handler.method === "POST" && handler.handler === devtoolsFile)
+  const existing = nitro.options.handlers.some(handler => handler.route === route && handler.method === "POST")
   if (!existing) {
     nitro.options.handlers.push({
       handler: devtoolsFile,

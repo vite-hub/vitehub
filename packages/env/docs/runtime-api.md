@@ -42,6 +42,8 @@ Server code imports the generated helper from `#vitehub/env/server`:
 import { useServerEnv } from '#vitehub/env/server'
 ```
 
+The Nitro module also auto-imports `useServerEnv` for server code unless Nitro imports are disabled.
+
 Browser-safe code imports the generated helper from `#vitehub/env/public`:
 
 ```ts

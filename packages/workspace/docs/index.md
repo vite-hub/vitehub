@@ -45,17 +45,16 @@ export default defineWorkspace({
       cwd: '.',
       include: ['README.md', 'docs/**/*.md'],
     }),
-    instructions: source.file({
-      workspacePath: 'AGENTS.md',
-      content: '# Instructions\nUse the workspace files as context.\n',
-    }),
+    instructions: source.file('AGENTS.md'),
   },
 })
 ```
 
 In Nitro, place the same definition at `server/workspaces/docs.ts`.
-Source entries are named origins. The source key becomes the default workspace mount path, so the example above exposes files at `docs/**` and `instructions/**`.
-For inline files, use `workspacePath` and `content`. For file-backed sources, use `path` for the source file and `workspacePath` for its path inside the mounted source.
+Source entries are named origins. Tree sources use the source key as the default workspace mount path, so the example above exposes the glob source at `docs/**`.
+Single-file sources mount at the workspace root by default, so `source.file('AGENTS.md')` exposes `AGENTS.md`, not `instructions/AGENTS.md`.
+For colocated workspace definitions, local file paths are relative to the adjacent `workspace/` directory when it exists, otherwise the definition directory.
+For inline files, use `workspacePath` and `content`. For file-backed sources, use `path` for the source file; `workspacePath` overrides its path inside the mounted source.
 Directory workspaces and colocated agent workspaces do not ingest sibling files automatically; declare every file origin through `sources`.
 
 Workspace rules are path-scoped write policy, similar in shape to Nitro route rules:
