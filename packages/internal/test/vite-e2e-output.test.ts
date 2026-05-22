@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
 const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
-const workspacePackages = ["runtime", "shell", "unsource", "sandbox", "workspace", "agent", "blob", "db", "env", "kv", "queue", "workflow"] as const
+const workspacePackages = ["runtime", "shell", "unsource", "sandbox", "workspace", "agent", "blob", "db", "devtools", "env", "kv", "queue", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
 
