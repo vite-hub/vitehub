@@ -886,6 +886,9 @@ importers:
       ocache:
         specifier: ^0.1.4
         version: 0.1.4
+      pathe:
+        specifier: 'catalog:'
+        version: 2.0.3
       picomatch:
         specifier: ^4.0.4
         version: 4.0.4
