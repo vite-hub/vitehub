@@ -208,6 +208,34 @@ describe("agent test runner", () => {
       .resolves.toMatchObject({ text: "done" })
   })
 
+  it("does not stop workspace runs for non-inspection tool misses", async () => {
+    const agent = {
+      generate: vi.fn(async () => ({ finishReason: "stop", text: "done" })),
+      stream: vi.fn(),
+      tools: {
+        search: {
+          execute: vi.fn(async (_input: unknown) => "Search returned no matches"),
+        },
+      },
+      version: "agent-v1",
+    }
+    agent.generate.mockImplementationOnce(async function (this: typeof agent) {
+      for (let index = 0; index < 4; index++) {
+        await this.tools.search.execute({})
+      }
+      return { finishReason: "stop", text: "done" }
+    })
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(agent as never, {
+      runtimeConfig: {},
+      workspace: "docs",
+    })
+
+    await expect(runner.run({ prompt: "Find evidence" }))
+      .resolves.toMatchObject({ text: "done" })
+  })
+
   it("does not let debug tool logging fail test runs", async () => {
     const previousDebug = process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS
     process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS = "1"

@@ -114,6 +114,9 @@ function createWaitUntil(): AgentWaitUntil {
 
 function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
   return (step.toolResults || []).filter((result) => {
+    if (result.toolName !== "shell" && result.toolName !== "materialize_sources") {
+      return false
+    }
     const output = typeof result.output === "string"
       ? result.output
       : stringifyToolOutput(result.output)
