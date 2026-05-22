@@ -11,6 +11,7 @@ import { generateProviderOutputs } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
+const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -108,7 +109,7 @@ describe("Vite provider outputs", () => {
   it("builds the playground and emits cloudflare and vercel outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-queue-vite-playground-")
 
-    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+    await execFileAsync(viteBin, ["build"], {
       cwd: rootDir,
       env: process.env,
     })

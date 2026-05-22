@@ -78,6 +78,29 @@ describe("hubDevtools", () => {
     expect(rpcDefinition.setup().handler()).toEqual([feature])
   })
 
+  it("shares discovery state across duplicated module instances", async () => {
+    const shellPath = "../src/index.ts?hub-devtools-shell"
+    const featurePath = "../src/index.ts?hub-devtools-feature"
+    const shellModule = await import(shellPath)
+    const featureModule = await import(featurePath)
+    const ctx = createContext()
+    const feature = {
+      bridge: "/__vitehub/test/devtools",
+      icon: "i-lucide-message-square",
+      id: "test.feature",
+      packageName: "@vitehub/test",
+      title: "Test",
+    }
+
+    shellModule.hubDevtools().devtools?.setup?.(ctx as never)
+    featureModule.registerViteHubDevtoolsFeature(ctx as never, feature)
+    await Promise.resolve()
+
+    const rpcDefinition = ctx.rpc.register.mock.calls[0]?.[0] as { setup: () => { handler: () => unknown } }
+    expect(rpcDefinition.setup().handler()).toEqual([feature])
+    expect(ctx.messages.add).not.toHaveBeenCalled()
+  })
+
   it("returns registered feature metadata through the discovery registry", () => {
     const ctx = createContext()
     const feature = {

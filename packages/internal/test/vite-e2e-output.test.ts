@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
+const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
 const workspacePackages = ["runtime", "shell", "unsource", "sandbox", "workspace", "agent", "blob", "db", "env", "kv", "queue", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
@@ -74,7 +75,7 @@ describe("unified vite e2e hosted outputs", () => {
   it("keeps the cloudflare artifact provider-pure and preserves hosted bindings", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-")
 
-    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+    await execFileAsync(viteBin, ["build"], {
       cwd: rootDir,
       env: {
         ...process.env,
@@ -139,7 +140,7 @@ describe("unified vite e2e hosted outputs", () => {
   it("keeps the vercel artifact unified while preserving queue server outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-vercel-")
 
-    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+    await execFileAsync(viteBin, ["build"], {
       cwd: rootDir,
       env: {
         ...process.env,
@@ -184,7 +185,7 @@ describe("unified vite e2e hosted outputs", () => {
   it("builds the env and chat playground modes", async () => {
     const envRoot = await createPlaygroundCopy("vitehub-internal-vite-env-")
 
-    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+    await execFileAsync(viteBin, ["build"], {
       cwd: envRoot,
       env: {
         ...process.env,
@@ -199,7 +200,7 @@ describe("unified vite e2e hosted outputs", () => {
 
     const chatRoot = await createPlaygroundCopy("vitehub-internal-vite-chat-")
 
-    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+    await execFileAsync(viteBin, ["build"], {
       cwd: chatRoot,
       env: {
         ...process.env,

@@ -22,16 +22,30 @@ export const viteHubDevtoolsTitle = "ViteHub"
 export const viteHubDevtoolsDefaultUrl = "https://devtools.vitehub.dev/"
 export const viteHubDevtoolsGetFeaturesRpc = "@vitehub/devtools:get-features"
 
-const registeredShellPanels = new WeakSet<ViteDevToolsNodeContext>()
-const registeredFeatures = new WeakMap<ViteDevToolsNodeContext, Map<string, ViteHubDevtoolsFeature>>()
-const registeredShells = new WeakSet<ViteDevToolsNodeContext>()
-const missingShellWarnings = new WeakMap<ViteDevToolsNodeContext, Set<string>>()
+interface ViteHubDevtoolsRegistry {
+  missingShellWarnings: Set<string>
+  registeredFeatures: Map<string, ViteHubDevtoolsFeature>
+  registeredShellPanel: boolean
+  registeredShell: boolean
+}
+
+const registryKey = Symbol.for("@vitehub/devtools:registry")
+
+function getRegistry(ctx: ViteDevToolsNodeContext): ViteHubDevtoolsRegistry {
+  return (ctx as ViteDevToolsNodeContext & { [registryKey]?: ViteHubDevtoolsRegistry })[registryKey] ??= {
+    missingShellWarnings: new Set(),
+    registeredFeatures: new Map(),
+    registeredShell: false,
+    registeredShellPanel: false,
+  }
+}
 
 function registerHostedViteHubDevtoolsShell(
   ctx: ViteDevToolsNodeContext,
   options: Required<Pick<HubDevtoolsOptions, "icon" | "title">>,
 ): void {
-  if (registeredShellPanels.has(ctx)) {
+  const registry = getRegistry(ctx)
+  if (registry.registeredShellPanel) {
     return
   }
 
@@ -44,22 +58,21 @@ function registerHostedViteHubDevtoolsShell(
     remote: true,
   }
   ctx.docks.register(defineDockEntry(entry as never) as never)
-  registeredShellPanels.add(ctx)
+  registry.registeredShellPanel = true
 }
 
 function warnIfDevtoolsShellMissing(ctx: ViteDevToolsNodeContext, feature: ViteHubDevtoolsFeature): void {
   queueMicrotask(() => {
-    if (registeredShells.has(ctx)) {
+    const registry = getRegistry(ctx)
+    if (registry.registeredShell) {
       return
     }
 
-    const warnedFeatures = missingShellWarnings.get(ctx) ?? new Set<string>()
-    if (warnedFeatures.has(feature.id)) {
+    if (registry.missingShellWarnings.has(feature.id)) {
       return
     }
 
-    warnedFeatures.add(feature.id)
-    missingShellWarnings.set(ctx, warnedFeatures)
+    registry.missingShellWarnings.add(feature.id)
     ctx.messages.add({
       level: "warn",
       message: `${feature.title} DevTools feature is enabled, but the ViteHub DevTools Integration is not installed. Add hubDevtools() from @vitehub/devtools to your Vite plugins.`,
@@ -71,25 +84,19 @@ export function registerViteHubDevtoolsFeature(
   ctx: ViteDevToolsNodeContext,
   feature: ViteHubDevtoolsFeature,
 ): ViteHubDevtoolsFeature {
-  const ctxFeatures = registeredFeatures.get(ctx)
-  const registered = ctxFeatures?.get(feature.id)
+  const registry = getRegistry(ctx)
+  const registered = registry.registeredFeatures.get(feature.id)
   if (registered) {
     return registered
   }
 
-  if (ctxFeatures) {
-    ctxFeatures.set(feature.id, feature)
-  }
-  else {
-    registeredFeatures.set(ctx, new Map([[feature.id, feature]]))
-  }
-
+  registry.registeredFeatures.set(feature.id, feature)
   warnIfDevtoolsShellMissing(ctx, feature)
   return feature
 }
 
 export function listViteHubDevtoolsFeatures(ctx: ViteDevToolsNodeContext): ViteHubDevtoolsFeature[] {
-  return [...(registeredFeatures.get(ctx)?.values() ?? [])]
+  return [...getRegistry(ctx).registeredFeatures.values()]
 }
 
 export function hubDevtools(options: HubDevtoolsOptions = {}): Plugin {
@@ -101,7 +108,7 @@ export function hubDevtools(options: HubDevtoolsOptions = {}): Plugin {
           return
         }
 
-        registeredShells.add(ctx)
+        getRegistry(ctx).registeredShell = true
         registerHostedViteHubDevtoolsShell(ctx, {
           icon: options.icon || "ph:toolbox-duotone",
           title: options.title || viteHubDevtoolsTitle,
