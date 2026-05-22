@@ -195,6 +195,8 @@ const workspaceNitroModule: NitroModule = {
 
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/workspace/internal/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/internal/runtime/state")
+    nitro.options.alias["@vitehub/workspace/loader"] = resolveRuntimeEntry("../loader", "@vitehub/workspace/loader")
+    nitro.options.alias["@vitehub/workspace/test"] = resolveRuntimeEntry("../test", "@vitehub/workspace/test")
     nitro.options.alias["@vitehub/workspace"] = resolveRuntimeEntry("../index", "@vitehub/workspace")
     nitro.options.alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     nitro.options.alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
