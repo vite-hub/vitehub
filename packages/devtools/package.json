@@ -33,6 +33,7 @@
     "tailwindcss": "^4.1.18",
     "tsdown": "^0.21.8",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:",
     "vue-tsc": "catalog:"
   }
