@@ -14,6 +14,7 @@ import {
   normalizeMode,
   resolveAgentCapabilities,
   resolveAgentStaticCapabilities,
+  withCapabilityCleanup,
   withResponseCleanup,
 } from "./capability-runtime.ts"
 import type { ResolvedAgentFinishExtensionProvider } from "./capability-runtime.ts"
@@ -1181,27 +1182,6 @@ async function finishAgentInvocation<
   await context.finishHook?.({ ...eventBase, extensions })
 }
 
-function withFinishCleanup<T extends AsyncIterable<unknown>>(
-  stream: T,
-  finish: (error?: unknown) => Promise<void>,
-): AsyncIterable<unknown> {
-  return (async function* () {
-    let error: unknown
-    let failed = false
-    try {
-      yield* stream
-    }
-    catch (caught) {
-      failed = true
-      error = caught
-      throw caught
-    }
-    finally {
-      await finish(failed ? error : undefined)
-    }
-  })()
-}
-
 export async function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1217,7 +1197,7 @@ export async function runAgent<
     try {
       const result = await agent.run(runContext)
       if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
-      if (isAsyncIterable(result)) return shouldWrapOutput ? withFinishCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
+      if (isAsyncIterable(result)) return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       await finishAgentInvocation(runContext, rendered)
       return rendered
@@ -1241,7 +1221,7 @@ export async function runAgent<
   try {
     const result = await resolved.generate(adapterContext as never)
     if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
-    if (isAsyncIterable(result)) return shouldWrapOutput ? withFinishCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
+    if (isAsyncIterable(result)) return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
     const runResult = toAgentRunResult(rendered)
     await finishAgentInvocation(adapterContext, rendered)
@@ -1273,7 +1253,7 @@ export async function streamAgent<
     try {
       const result = await agent.run(runContext)
       if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
-      if (isAsyncIterable(result)) return shouldWrapOutput ? withFinishCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
+      if (isAsyncIterable(result)) return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       await finishAgentInvocation(runContext, rendered)
       return rendered
@@ -1299,10 +1279,10 @@ export async function streamAgent<
       ? await resolved.stream(adapterContext as never)
       : await resolved.generate(adapterContext as never)
     if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
-    if (isAsyncIterable(result)) return shouldWrapOutput ? withFinishCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
+    if (isAsyncIterable(result)) return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
     const events = streamTextResultToEvents(rendered)
-    return shouldWrapOutput ? withFinishCleanup(events, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error)) : events
+    return shouldWrapOutput ? withCapabilityCleanup(events, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error)) : events
   }
   catch (error) {
     try {

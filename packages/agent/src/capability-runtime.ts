@@ -443,14 +443,21 @@ export async function createAgentInvocationExtensions(
 
 export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   stream: T,
-  close: () => Promise<void>,
+  close: (error?: unknown) => Promise<void>,
 ): AsyncIterable<unknown> {
   return (async function* () {
+    let error: unknown
+    let failed = false
     try {
       yield* stream
     }
+    catch (caught) {
+      failed = true
+      error = caught
+      throw caught
+    }
     finally {
-      await close()
+      await close(failed ? error : undefined)
     }
   })()
 }
