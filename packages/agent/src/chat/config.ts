@@ -56,6 +56,7 @@ export function normalizeChatOptions(options: ChatModuleOptions | false | undefi
   const durableObjectState = options?.cloudflare?.durableObjectState
   const resolved: ResolvedChatModuleOptions = {
     dev: normalizeDevOptions(options?.dev),
+    devtools: options?.devtools,
     imports: options?.imports !== false,
     provider: options?.provider || "auto",
     webhook: normalizeWebhookOptions(options?.webhook),

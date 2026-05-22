@@ -245,6 +245,7 @@ export interface WorkspaceStore {
 
 export interface SourceContext {
   rootDir: string
+  sourceRootDir?: string
   workspace: string
 }
 
@@ -364,6 +365,7 @@ export type WorkspaceStoreOptions =
 export interface WorkspaceDefinition {
   name: string
   rootDir?: string
+  sourceRootDir?: string
   runtime?: "sandbox"
   store?: WorkspaceStoreOptions
   sources?: Record<string, WorkspaceSource>

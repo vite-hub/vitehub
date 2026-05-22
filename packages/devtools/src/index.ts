@@ -1,80 +1,144 @@
-import { existsSync } from "node:fs"
-
-import { defineDockEntry } from "@vitejs/devtools-kit"
+import { defineDockEntry, defineRpcFunction } from "@vitejs/devtools-kit"
 
 import type { DevToolsDockEntry, DevToolsViewIframe, ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
+import type { Plugin } from "vite"
 
-export interface ViteHubDevtoolsPanelOptions {
-  distDir: string
-  enabled?: boolean
-  icon: DevToolsDockEntry["icon"]
+export interface ViteHubDevtoolsFeature {
+  bridge: string
+  icon?: DevToolsDockEntry["icon"]
   id: string
-  route: string
+  packageName: string
   title: string
-  url?: string
 }
 
-export interface RegisteredViteHubDevtoolsPanel {
-  remote: boolean
-  url: string
+export interface HubDevtoolsOptions {
+  enabled?: boolean
+  icon?: DevToolsDockEntry["icon"]
+  title?: string
 }
 
-const registeredPanels = new WeakMap<ViteDevToolsNodeContext, Map<string, RegisteredViteHubDevtoolsPanel>>()
+export const viteHubDevtoolsPanelId = "@vitehub/devtools"
+export const viteHubDevtoolsTitle = "ViteHub"
+export const viteHubDevtoolsDefaultUrl = "https://devtools.vitehub.dev/"
+const viteHubDevtoolsUrlEnv = "VITEHUB_DEVTOOLS_URL"
+export const viteHubDevtoolsGetFeaturesRpc = "@vitehub/devtools:get-features"
 
-export function isAbsoluteHttpUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value)
+interface ViteHubDevtoolsRegistry {
+  missingShellWarnings: Set<string>
+  registeredFeatures: Map<string, ViteHubDevtoolsFeature>
+  registeredShellPanel: boolean
+  registeredShellRpc: boolean
+  registeredShell: boolean
 }
 
-export function resolveViteHubDevtoolsUrl(defaultRoute: string, override?: string): string {
-  return override?.trim() || defaultRoute
+const registryKey = Symbol.for("@vitehub/devtools:registry")
+
+function getRegistry(ctx: ViteDevToolsNodeContext): ViteHubDevtoolsRegistry {
+  return (ctx as ViteDevToolsNodeContext & { [registryKey]?: ViteHubDevtoolsRegistry })[registryKey] ??= {
+    missingShellWarnings: new Set(),
+    registeredFeatures: new Map(),
+    registeredShell: false,
+    registeredShellPanel: false,
+    registeredShellRpc: false,
+  }
 }
 
-export function registerViteHubDevtoolsPanel(
+function registerHostedViteHubDevtoolsShell(
   ctx: ViteDevToolsNodeContext,
-  options: ViteHubDevtoolsPanelOptions,
-): RegisteredViteHubDevtoolsPanel | undefined {
-  if (options.enabled === false) {
+  options: Required<Pick<HubDevtoolsOptions, "icon" | "title">>,
+): void {
+  const registry = getRegistry(ctx)
+  if (registry.registeredShellPanel) {
     return
   }
 
-  const url = resolveViteHubDevtoolsUrl(options.route, options.url)
-  const remote = isAbsoluteHttpUrl(url)
-  const registryKey = `${options.id}:${url}`
-  const ctxPanels = registeredPanels.get(ctx)
-  const registered = ctxPanels?.get(registryKey)
+  const entry: DevToolsViewIframe = {
+    id: viteHubDevtoolsPanelId,
+    title: options.title,
+    icon: options.icon,
+    type: "iframe",
+    url: process.env[viteHubDevtoolsUrlEnv] || viteHubDevtoolsDefaultUrl,
+    remote: true,
+  }
+  ctx.docks.register(defineDockEntry(entry as never) as never)
+  registry.registeredShellPanel = true
+}
+
+function warnIfDevtoolsShellMissing(ctx: ViteDevToolsNodeContext, feature: ViteHubDevtoolsFeature): void {
+  queueMicrotask(() => {
+    const registry = getRegistry(ctx)
+    if (registry.registeredShell) {
+      return
+    }
+
+    if (registry.missingShellWarnings.has(feature.id)) {
+      return
+    }
+
+    registry.missingShellWarnings.add(feature.id)
+    ctx.messages.add({
+      level: "warn",
+      message: `${feature.title} DevTools feature is enabled, but the ViteHub DevTools Integration is not installed. Add hubDevtools() from @vitehub/devtools to your Vite plugins.`,
+    })
+  })
+}
+
+function registerViteHubDevtoolsDiscoveryRpc(ctx: ViteDevToolsNodeContext): void {
+  const registry = getRegistry(ctx)
+  if (registry.registeredShellRpc) {
+    return
+  }
+
+  ctx.rpc.register(defineRpcFunction({
+    name: viteHubDevtoolsGetFeaturesRpc,
+    type: "query",
+    setup: () => ({ handler: () => listViteHubDevtoolsFeatures(ctx) }),
+  }) as never)
+  registry.registeredShellRpc = true
+}
+
+export function registerViteHubDevtoolsFeature(
+  ctx: ViteDevToolsNodeContext,
+  feature: ViteHubDevtoolsFeature,
+): ViteHubDevtoolsFeature {
+  const registry = getRegistry(ctx)
+  const registered = registry.registeredFeatures.get(feature.id)
   if (registered) {
     return registered
   }
 
-  if (!remote) {
-    if (!existsSync(options.distDir)) {
-      ctx.messages.add({
-        level: "warn",
-        message: `${options.title} DevTools client is not built. Build its client assets before opening this panel.`,
-      })
-      return
-    }
+  registry.registeredFeatures.set(feature.id, feature)
+  warnIfDevtoolsShellMissing(ctx, feature)
+  return feature
+}
 
-    ctx.views.hostStatic(url, options.distDir)
-  }
+export function listViteHubDevtoolsFeatures(ctx: ViteDevToolsNodeContext): ViteHubDevtoolsFeature[] {
+  return [...getRegistry(ctx).registeredFeatures.values()]
+}
 
-  const entry: DevToolsViewIframe = {
-    id: options.id,
-    title: options.title,
-    icon: options.icon,
-    type: "iframe",
-    url,
-    ...(remote ? { remote: true } : {}),
-  }
-  ctx.docks.register(defineDockEntry(entry as never) as never)
+export function hubDevtools(options: HubDevtoolsOptions = {}): Plugin {
+  return {
+    name: "@vitehub/devtools/vite",
+    devtools: {
+      setup(ctx) {
+        if (options.enabled === false) {
+          return
+        }
 
-  const result = { remote, url }
-  if (ctxPanels) {
-    ctxPanels.set(registryKey, result)
-  }
-  else {
-    registeredPanels.set(ctx, new Map([[registryKey, result]]))
-  }
+        getRegistry(ctx).registeredShell = true
+        registerHostedViteHubDevtoolsShell(ctx, {
+          icon: options.icon || "ph:toolbox-duotone",
+          title: options.title || viteHubDevtoolsTitle,
+        })
 
-  return result
+        registerViteHubDevtoolsDiscoveryRpc(ctx)
+      },
+    },
+  }
+}
+
+declare module "@vitejs/devtools-kit" {
+  interface DevToolsRpcServerFunctions {
+    [viteHubDevtoolsGetFeaturesRpc]: () => ViteHubDevtoolsFeature[]
+  }
 }

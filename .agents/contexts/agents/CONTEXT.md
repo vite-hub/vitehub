@@ -36,6 +36,10 @@ _Avoid_: Chat state, workflow state
 Ordered conversational messages for one chat interaction with an Agent.
 _Avoid_: Agent Memory, Agent Run State
 
+**Chat History Window**:
+The bounded number of prior Chat History messages included in an Agent Invocation.
+_Avoid_: memory size, transcript limit, context length
+
 **Agent Memory**:
 Durable knowledge or preferences an Agent can carry across Agent Invocations when explicitly configured.
 _Avoid_: Chat History, better chat state
@@ -48,6 +52,10 @@ _Avoid_: Public lock API, Capability
 An in-memory or local provider used only for single-process Agent development.
 _Avoid_: Production state provider, durable coordination
 
+**Mock Agent Adapter**:
+A deterministic Agent Adapter that exercises Agent Invocation behavior without calling a paid model provider.
+_Avoid_: Fake agent, dummy model, test bot
+
 ## Relationships
 
 - An **Agent Definition** declares one **Agent**.
@@ -57,16 +65,25 @@ _Avoid_: Production state provider, durable coordination
 - An **Agent Eval** runs an **Agent Definition** to create scored **Agent Invocations**.
 - An **Agent** can attach zero or more Capabilities.
 - Tools are contributed by Capabilities, not by top-level Agent Definition fields.
+- Workspace Tools are derived from an Agent's Colocated Workspace Definition.
 - An **Agent Invocation** can create or update **Agent Run State**.
 - **Chat History** is conversation-scoped and is not **Agent Memory**.
+- A **Chat History Window** is configured by the Agent Definition when the application wants bounded Chat History.
+- The Chat Capability can require state for **Chat History** through the Agent State Provider.
+- Chat History is explicit application behavior and is not enabled by default.
 - **Agent Memory** can outlive one conversation.
 - A **Concurrent Invocation Guard** protects **Agent Run State**.
 - A **Development State Provider** is not acceptable for hosted production runtimes.
+- A **Mock Agent Adapter** can support playgrounds and end-to-end tests without creating provider cost.
+- Agent callbacks receive Agent-owned runtime metadata, not app-owned Runtime Env; server code reads app-owned Runtime Env through Server Env.
 
 ## Example Dialogue
 
 > **Dev:** "Should users configure `tools` directly on the Agent Definition?"
 > **Domain expert:** "No. Tools belong inside Capability definitions so validation, policy, and DevTools metadata stay attached to the Capability."
+>
+> **Dev:** "Should the playground call a real model provider just to test DevTools?"
+> **Domain expert:** "No. Use a **Mock Agent Adapter** when the goal is deterministic Agent behavior without token cost."
 
 ## Flagged Ambiguities
 
@@ -74,4 +91,8 @@ _Avoid_: Production state provider, durable coordination
 - Evalite-backed checks were considered generic tests - resolved: use **Agent Eval** when the check runs an Agent Definition and scores Agent Invocation output.
 - Chat runtime state was considered a public Chat option - resolved: use **Agent Run State** for Agent-owned runtime state.
 - Chat History and Agent Memory were considered interchangeable - resolved: Chat History is conversation-scoped message history; Agent Memory is durable knowledge or preferences across invocations.
+- Chat state was considered separate from Agent State Provider - resolved: Chat History state is satisfied through the Agent State Provider when available.
+- Chat History was considered an implicit Chat Capability default - resolved: keep Chat History opt-in, aligned with Chat SDK-style application control.
 - Local and hosted state providers were considered equivalent - resolved: hosted production runtimes require a durable provider and a **Concurrent Invocation Guard**.
+- Model-free playground behavior was described as a dummy Agent - resolved: use **Mock Agent Adapter** for deterministic, cost-free Agent Invocations.
+- Callback runtime config was considered an Agent app configuration surface - resolved: app-owned Runtime Env belongs to Server Env, not Agent callback context.

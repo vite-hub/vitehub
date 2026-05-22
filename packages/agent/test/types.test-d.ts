@@ -1,8 +1,9 @@
-import { describe, it } from "vitest"
+import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
 import { bash, db, kv, sandbox, skills } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
+import type { AgentUsageRecord } from "../src/index.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -29,6 +30,36 @@ describe("agent public types", () => {
     // @ts-expect-error model agents must select an explicit adapter
     defineAgent({
       model: {} as never,
+    })
+
+    defineAgent({
+      adapter: "ai-sdk",
+      model: {} as never,
+      hooks: {
+        "agent:finish"(event) {
+          expectTypeOf(event.extensions.get<AgentUsageRecord>("usage-telemetry")).toEqualTypeOf<AgentUsageRecord | undefined>()
+        },
+      },
+    })
+
+    defineAgent({
+      capabilities: [{
+        id: "finish-extension",
+        output(context) {
+          context.finish.provide("ok")
+          // @ts-expect-error finish extensions are registered through context.finish
+          context.extensions.provide("agent:finish", "ok")
+        },
+      }],
+      adapter: "ai-sdk",
+      model: {} as never,
+    })
+
+    defineAgent({
+      adapter: "ai-sdk",
+      model: {} as never,
+      // @ts-expect-error root-level tools are not public API
+      tools: {},
     })
 
     defineAgent({

@@ -62,6 +62,7 @@ export default defineNitroConfig({
 defineAgent({
   description?: string
   capabilities?: AgentCapabilityDefinition[]
+  hooks?: AgentInvocationHooks
   instructions?: AgentAdapterInstructions
   model?: unknown
   adapter?: 'ai-sdk' | 'tanstack-ai' | string
@@ -129,6 +130,54 @@ defineAgent({
 })
 ```
 
+## Agent invocation hooks
+
+Use `agent:finish` to observe a completed Agent Invocation. The hook runs after object results are rendered and after streamed or `Response` results are consumed or canceled.
+
+```ts
+defineAgent({
+  hooks: {
+    'agent:finish'(event) {
+      const usage = event.extensions.get<AgentUsageRecord>('usage-telemetry')
+    },
+  },
+  capabilities: [
+    usageTelemetry(),
+  ],
+  model,
+  provider: 'ai-sdk',
+})
+```
+
+```ts
+interface AgentFinishEvent {
+  input: AgentRunInput
+  result?: unknown
+  error?: unknown
+  runtime: ResolvedAgentRuntimeContext
+  invocation: {
+    durationMs: number
+    run?: AgentRunMetadata
+  }
+  extensions: {
+    get<T = unknown>(capabilityId: string): T | undefined
+  }
+}
+```
+
+Capabilities can expose optional data on finish events through extension keys that match their Capability ID. Return `undefined` to omit the extension value for that invocation.
+
+```ts
+defineCapability({
+  id: 'audit-log',
+  output(context) {
+    context.finish.provide(event => event.result)
+  },
+})
+```
+
+ViteHub-owned usage telemetry uses `usage-telemetry`.
+
 ## Run input
 
 ```ts
@@ -170,7 +219,7 @@ interface AgentUsageRecord {
 }
 ```
 
-`usageTelemetry()` uses the Capability output phase. It normalizes finished object results only; streamed `Response` and async iterable results are returned unchanged.
+`usageTelemetry()` uses the Capability output phase. It normalizes finished object results only; streamed `Response` and async iterable results are returned unchanged. When an Agent Finish Hook is configured, the same record is available through `event.extensions.get('usage-telemetry')`.
 
 ```ts
 usageTelemetry({
@@ -226,14 +275,13 @@ When `agent` is omitted, `defineEval()` imports the Agent Definition by conventi
 interface AgentRuntimeContext {
   request?: Request
   runtime: 'nitro' | 'vercel' | 'cloudflare-agents' | 'unknown'
-  runtimeConfig?: AgentRuntimeConfig
   waitUntil?: (promise: Promise<unknown>) => void
   capabilities?: AgentCapabilities
   memo: <T>(key: string, factory: () => T | Promise<T>) => T | Promise<T>
 }
 ```
 
-`run` receives a resolved context with `runtimeConfig` present.
+Agent callbacks receive runtime host metadata, but not raw runtime config. Use `useServerEnv()` from `#vitehub/env/server` for app-owned Runtime Env values.
 
 ## Module options
 

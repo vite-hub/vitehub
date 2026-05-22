@@ -12,6 +12,7 @@ describe("workspace inventory", () => {
       "blob",
       "ci",
       "db",
+      "devtools",
       "env",
       "kv",
       "queue",

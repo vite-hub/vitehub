@@ -1,17 +1,33 @@
 {
   "name": "@vitehub/devtools",
   "version": "0.0.0",
-  "description": "Private shared DevTools helpers and client builders for ViteHub packages.",
+  "description": "ViteHub DevTools integration contract and hosted shell helpers.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
-  "private": true,
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/devtools"
+  },
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "keywords": [
+    "vitehub",
+    "vite",
+    "devtools"
+  ],
   "sideEffects": false,
   "type": "module",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./chat-shared": "./src/chat-shared.ts",
+    ".": "./dist/index.js",
+    "./chat-shared": "./dist/chat-shared.js",
     "./package.json": "./package.json"
   },
+  "files": [
+    "dist",
+    "package.json"
+  ],
   "scripts": {
     "build": "pnpm build:code",
     "build:chat": "nuxi generate devtools/chat",
@@ -21,18 +37,22 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
-    "@vitejs/devtools-kit": "catalog:",
     "pathe": "catalog:"
+  },
+  "peerDependencies": {
+    "@vitejs/devtools-kit": ">=0.2.0"
   },
   "devDependencies": {
     "@comark/vue": "catalog:",
     "@iconify-json/lucide": "catalog:",
     "@nuxt/ui": "^4.6.1",
     "@types/node": "catalog:",
+    "@vitejs/devtools-kit": "catalog:",
     "nuxt": "catalog:",
     "tailwindcss": "^4.1.18",
     "tsdown": "^0.21.8",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:",
     "vue-tsc": "catalog:"
   }

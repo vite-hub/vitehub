@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -35,7 +35,6 @@ describe("workspace public API", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.file({
-          path: "README.md",
           workspacePath: "README.md",
           content: "# API\n",
         }),
@@ -49,9 +48,9 @@ describe("workspace public API", () => {
     const workspace = useWorkspace("api", { allowWrite: true })
     await workspace.fs.writeFile("generated/summary.md", "summary")
 
-    expect(await workspace.fs.readFile("docs/README.md")).toBe("# API\n")
-    expect(await workspace.fs.readFile("agents/AGENTS.md")).toBe("# Instructions\n")
-    await expect(workspace.fs.stat("agents/AGENTS.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
+    expect(await workspace.fs.readFile("README.md")).toBe("# API\n")
+    expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Instructions\n")
+    await expect(workspace.fs.stat("AGENTS.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
     expect(await workspace.fs.exists("generated/summary.md")).toBe(true)
     expect(await workspace.fs.glob("**/*.md")).toHaveLength(3)
   })
@@ -75,6 +74,50 @@ describe("workspace public API", () => {
       expect.objectContaining({ path: "AGENTS.md", type: "file" }),
     ])
     await expect(workspace.fs.exists("instructions/AGENTS.md")).resolves.toBe(false)
+  })
+
+  it("keeps inline files root mounted when mount options omit a path", async () => {
+    registerWorkspace("root-file-mount-options", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        instructions: source.file({
+          mount: { materialize: "lazy" },
+          workspacePath: "AGENTS.md",
+          content: "# Instructions\n",
+        }),
+      },
+    }))
+
+    const workspace = useWorkspace("root-file-mount-options", { allowWrite: true })
+
+    expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Instructions\n")
+    await expect(workspace.fs.exists("instructions/AGENTS.md")).resolves.toBe(false)
+  })
+
+  it("reads local file sources from the workspace source root", async () => {
+    const root = await createRoot()
+    const sourceRoot = join(root, "server", "agents", "docs", "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Agent\n")
+
+    registerWorkspace("source-root-file", defineWorkspace({
+      rootDir: sourceRoot,
+      store: { provider: "memory" },
+      sources: {
+        instructions: source.file("AGENTS.md"),
+      },
+    }))
+
+    const workspace = useWorkspace("source-root-file")
+
+    expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Agent\n")
+    await expect(workspace.fs.exists("instructions/AGENTS.md")).resolves.toBe(false)
+  })
+
+  it("rejects unsafe local file source paths", () => {
+    expect(() => source.file("/AGENTS.md")).toThrow()
+    expect(() => source.file("C:/Users/maxi/AGENTS.md")).toThrow()
+    expect(() => source.file("../AGENTS.md")).toThrow()
   })
 
   it("enforces workspace rules before writes reach the store", async () => {
@@ -249,7 +292,7 @@ describe("workspace public API", () => {
     })
 
     const first = useWorkspace("docs", { allowWrite: true })
-    expect(await first.fs.readFile("docs/README.md")).toBe("v1\n")
+    expect(await first.fs.readFile("README.md")).toBe("v1\n")
 
     setWorkspaceRegistry({
       docs: async () => ({ default: defineWorkspace({
@@ -264,6 +307,6 @@ describe("workspace public API", () => {
     })
 
     const second = useWorkspace("docs", { allowWrite: true })
-    expect(await second.fs.readFile("docs/README.md")).toBe("v2\n")
+    expect(await second.fs.readFile("README.md")).toBe("v2\n")
   })
 })
