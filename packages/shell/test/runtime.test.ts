@@ -14,6 +14,11 @@ import {
 import { createCloudflareShellProvider } from "../src/providers/cloudflare.ts"
 
 import type {
+  ShellExecutionProvider,
+  ShellProcess,
+  ShellRuntimeExecOptions,
+} from "../src/index.ts"
+import type {
   ReadonlyShellWorkspace,
   ShellContent,
   ShellEntry,
@@ -185,6 +190,59 @@ describe("@vitehub/shell just-bash runtime", () => {
     })
     await expect(session.startProcess("sleep 10")).rejects.toThrow("does not support long-running processes")
     await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+  })
+
+  it("unregisters stopped long-running processes from session state", async () => {
+    const provider: ShellExecutionProvider = {
+      boundary: {
+        cwd: true,
+        env: true,
+        filesystem: { writable: false },
+        network: false,
+        processes: {
+          background: true,
+          interactive: false,
+        },
+        streaming: false,
+        timeout: {
+          enforcedBy: "runtime",
+          supported: true,
+        },
+      },
+      async exec(command: string, _options?: ShellRuntimeExecOptions) {
+        return {
+          command,
+          event: "command_finished",
+          exitCode: 0,
+          stderr: "",
+          stdout: "",
+        }
+      },
+      async startProcess(command: string): Promise<ShellProcess> {
+        return {
+          command,
+          id: command,
+          async stop() {
+            return {
+              command,
+              event: "command_finished",
+              exitCode: 0,
+              stderr: "",
+              stdout: "",
+            }
+          },
+        }
+      },
+    }
+    const session = createShellRuntime({ provider }).createSession({ policy: { maxProcesses: 1 } })
+
+    const first = await session.startProcess("one")
+    expect(await session.listProcesses()).toHaveLength(1)
+    await expect(session.startProcess("two")).rejects.toThrow("process budget exhausted after 1 processes")
+
+    await expect(first.stop()).resolves.toMatchObject({ exitCode: 0 })
+    expect(await session.listProcesses()).toHaveLength(0)
+    await expect(session.startProcess("two")).resolves.toMatchObject({ id: "two" })
   })
 
   it("executes workspace inspection commands", async () => {

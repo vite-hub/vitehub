@@ -100,8 +100,19 @@ class RuntimeShellSession implements ShellSession {
       env: { ...this.env, ...options.env },
       timeout: options.timeout ?? this.policy.timeout,
     })
-    this.#processes.set(process.id, process)
-    return process
+    const trackedProcess: ShellProcess = {
+      ...process,
+      stop: async () => {
+        try {
+          return await process.stop()
+        }
+        finally {
+          this.#processes.delete(process.id)
+        }
+      },
+    }
+    this.#processes.set(process.id, trackedProcess)
+    return trackedProcess
   }
 
   async listProcesses() {
