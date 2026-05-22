@@ -20,6 +20,7 @@ export interface HubDevtoolsOptions {
 export const viteHubDevtoolsPanelId = "@vitehub/devtools"
 export const viteHubDevtoolsTitle = "ViteHub"
 export const viteHubDevtoolsDefaultUrl = "https://devtools.vitehub.dev/"
+const viteHubDevtoolsUrlEnv = "VITEHUB_DEVTOOLS_URL"
 export const viteHubDevtoolsGetFeaturesRpc = "@vitehub/devtools:get-features"
 
 interface ViteHubDevtoolsRegistry {
@@ -56,7 +57,7 @@ function registerHostedViteHubDevtoolsShell(
     title: options.title,
     icon: options.icon,
     type: "iframe",
-    url: viteHubDevtoolsDefaultUrl,
+    url: process.env[viteHubDevtoolsUrlEnv] || viteHubDevtoolsDefaultUrl,
     remote: true,
   }
   ctx.docks.register(defineDockEntry(entry as never) as never)

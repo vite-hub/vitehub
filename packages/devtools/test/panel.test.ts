@@ -11,6 +11,7 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  delete process.env.VITEHUB_DEVTOOLS_URL
 })
 
 function createContext() {
@@ -60,6 +61,21 @@ describe("hubDevtools", () => {
     expect(ctx.views.hostStatic).not.toHaveBeenCalled()
     expect(ctx.docks.register).toHaveBeenCalledTimes(1)
     expect(ctx.rpc.register).toHaveBeenCalledTimes(1)
+  })
+
+  it("allows an internal hosted shell URL override for local client development", () => {
+    const ctx = createContext()
+    process.env.VITEHUB_DEVTOOLS_URL = "http://127.0.0.1:3300/"
+
+    hubDevtools().devtools?.setup?.(ctx as never)
+
+    expect(ctx.views.hostStatic).not.toHaveBeenCalled()
+    expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
+      id: viteHubDevtoolsPanelId,
+      remote: true,
+      type: "iframe",
+      url: "http://127.0.0.1:3300/",
+    }))
   })
 
   it("returns registered feature metadata through the Discovery RPC", () => {
