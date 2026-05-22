@@ -720,6 +720,11 @@ async function writeChatDevtoolsStream(
           return
         }
         if (event.type === "done") {
+          const chat = "chat" in body && typeof body.chat === "string" ? body.chat : undefined
+          stream.write({
+            type: "state",
+            state: await postChatDevtoolsBridge(ctx, route, { action: "get-state", ...(chat ? { chat } : {}) }),
+          })
           stream.close()
           return
         }

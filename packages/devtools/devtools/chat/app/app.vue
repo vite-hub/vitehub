@@ -4,7 +4,6 @@ import { connectRemoteDevTools, getDevToolsRpcClient, parseRemoteConnection } fr
 
 import {
   chatDevtoolsClearRpc,
-  chatDevtoolsBridgeRoute,
   chatDevtoolsGetStateRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
@@ -16,6 +15,7 @@ import {
   type ChatDevtoolsTool,
   type ChatDevtoolsToolDefinition,
 } from "../../../../agent/src/chat/devtools-shared"
+import { resolveChatBridgeRoute } from "./bridge-route"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = {
@@ -632,20 +632,16 @@ function waitForFrame() {
 
 function localBridgeRoute() {
   const remoteConnection = parseRemoteConnection()
-  if (remoteConnection?.origin) {
-    return new URL(chatDevtoolsBridgeRoute, remoteConnection.origin).toString()
-  }
-  if (globalThis.location?.pathname.startsWith("/chat/")) {
-    return `/chat${chatDevtoolsBridgeRoute}`
-  }
-  const ancestorOrigin = globalThis.location?.ancestorOrigins?.[0]
-  if (ancestorOrigin) {
-    return new URL(chatDevtoolsBridgeRoute, ancestorOrigin).toString()
-  }
-  if (globalThis.document?.referrer) {
-    return new URL(chatDevtoolsBridgeRoute, globalThis.document.referrer).toString()
-  }
-  return chatDevtoolsBridgeRoute
+  return resolveChatBridgeRoute({
+    ancestorOrigin: globalThis.location?.ancestorOrigins?.[0],
+    pathname: globalThis.location?.pathname,
+    referrer: globalThis.document?.referrer,
+    remoteOrigin: remoteConnection?.origin,
+  })
+}
+
+function shouldPreferRpcBridge() {
+  return Boolean(parseRemoteConnection()?.origin)
 }
 
 async function runStandaloneSimulation(text: string) {
@@ -801,11 +797,13 @@ async function callBridgeState(body: Record<string, unknown>): Promise<ChatDevto
 }
 
 async function refresh() {
-  const bridgeState = await callBridgeState({ action: "get-state" })
-  if (bridgeState) {
-    applyState(bridgeState)
-    error.value = undefined
-    return
+  if (!shouldPreferRpcBridge()) {
+    const bridgeState = await callBridgeState({ action: "get-state" })
+    if (bridgeState) {
+      applyState(bridgeState)
+      error.value = undefined
+      return
+    }
   }
 
   try {
@@ -819,13 +817,17 @@ async function refresh() {
 }
 
 async function refreshFromBridge(chat?: string) {
+  if (shouldPreferRpcBridge()) {
+    await refresh()
+    return
+  }
+
   const bridgeState = await callBridgeState({ action: "get-state", ...(chat ? { chat } : {}) })
   if (bridgeState) {
     applyState(bridgeState)
     error.value = undefined
     return
   }
-
   await refresh()
 }
 
@@ -935,36 +937,54 @@ async function recoverBridgeState(input: { chat?: string, text: string }) {
 function watchBridgeState(input: { chat?: string, text: string }) {
   let stopped = false
 
+  const loadNextState = async () => {
+    const bridgeAbort = new AbortController()
+    const bridgeTimeout = setTimeout(() => bridgeAbort.abort(), 2_000)
+    try {
+      const response = await fetch(localBridgeRoute(), {
+        method: "POST",
+        headers: { "content-type": "text/plain" },
+        body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
+        signal: bridgeAbort.signal,
+      })
+      if (response.ok) return await response.json() as ChatDevtoolsStateResult
+    }
+    catch {
+      // Fall through to the RPC transport.
+    }
+    finally {
+      clearTimeout(bridgeTimeout)
+    }
+
+    try {
+      return await Promise.race([
+        callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc),
+        new Promise<undefined>(resolve => setTimeout(resolve, 2_000)),
+      ])
+    }
+    catch {
+      return undefined
+    }
+  }
+
   void (async () => {
     while (!stopped) {
       await new Promise(resolve => setTimeout(resolve, 700))
       if (stopped) break
 
-      try {
-        const response = await fetch(localBridgeRoute(), {
-          method: "POST",
-          headers: { "content-type": "text/plain" },
-          body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
-        })
-        if (!response.ok) continue
+      const next = await loadNextState()
+      if (!next || !hasCurrentUserMessage(next, input.chat, input.text)) continue
 
-        const next = await response.json() as ChatDevtoolsStateResult
-        if (!hasCurrentUserMessage(next, input.chat, input.text)) continue
+      applyState(next)
+      error.value = undefined
 
+      if (hasCompletedResponse(next, input.chat, input.text)) {
+        stopped = true
+        currentReader?.cancel()
+        status.value = "ready"
+        activeRequest.value = undefined
         applyState(next)
-        error.value = undefined
-
-        if (hasCompletedResponse(next, input.chat, input.text)) {
-          stopped = true
-          currentReader?.cancel()
-          status.value = "ready"
-          activeRequest.value = undefined
-          applyState(next)
-          break
-        }
-      }
-      catch {
-        // The active stream/RPC path still owns user-visible errors.
+        break
       }
     }
   })()
@@ -1057,14 +1077,21 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
 }
 
 async function readRpcStream(streamId: string, input: { chat?: string, text: string }) {
+  const abortController = new AbortController()
   const reader = (rpcClient as { streaming?: { subscribe: <T>(channel: string, id: string, options?: Record<string, unknown>) => AsyncIterable<T> & { cancel: () => unknown } } } | undefined)?.streaming?.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
     highWaterMark: 1024,
   })
   if (!reader) {
-    throw new Error("Chat DevTools streaming client is unavailable.")
+    const timeout = setTimeout(() => abortController.abort(), 60_000)
+    try {
+      return await pollFinalRpcState(input, abortController.signal)
+    }
+    finally {
+      clearTimeout(timeout)
+      abortController.abort()
+    }
   }
 
-  const abortController = new AbortController()
   currentReader = {
     cancel: () => {
       abortController.abort()
@@ -1118,11 +1145,13 @@ async function send() {
     stopBridgeWatch = watchBridgeState({ ...(chat ? { chat } : {}), text })
 
     const bridgeInput = { ...(chat ? { chat } : {}), text }
-    if (await readDirectBridgeStream(bridgeInput)) {
-      status.value = "ready"
-      activeRequest.value = undefined
-      await refreshFromBridge(chat)
-      return
+    if (!shouldPreferRpcBridge()) {
+      if (await readDirectBridgeStream(bridgeInput)) {
+        status.value = "ready"
+        activeRequest.value = undefined
+        await refreshFromBridge(chat)
+        return
+      }
     }
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
