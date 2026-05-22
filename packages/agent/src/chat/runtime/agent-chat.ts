@@ -110,7 +110,6 @@ function createChatAgentWorkflow<TRuntimeConfig extends ChatRuntimeConfig>(
       history: payload.history,
       message: payload.message,
       run: payload.run,
-      runtimeConfig: context.runtimeConfig,
       thread,
       workflow: handle,
     }

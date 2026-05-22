@@ -181,7 +181,7 @@ export function createAgent(config: ServerEnv) {
 }
 ```
 
-The Nitro module also augments Nitro runtime config and ViteHub Chat runtime config types with the generated Server Env shape.
+The Nitro module also augments Nitro runtime config as the framework transport. Application code should read these values through `useServerEnv()`.
 
 ## Enable diagnostics
 

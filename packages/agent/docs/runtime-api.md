@@ -176,14 +176,13 @@ usageTelemetry({
 interface AgentRuntimeContext {
   request?: Request
   runtime: 'nitro' | 'vercel' | 'cloudflare-agents' | 'unknown'
-  runtimeConfig?: AgentRuntimeConfig
   waitUntil?: (promise: Promise<unknown>) => void
   capabilities?: AgentCapabilities
   memo: <T>(key: string, factory: () => T | Promise<T>) => T | Promise<T>
 }
 ```
 
-`run` receives a resolved context with `runtimeConfig` present.
+Agent callbacks receive runtime host metadata, but not raw runtime config. Use `useServerEnv()` from `#vitehub/env/server` for app-owned Runtime Env values.
 
 ## Module options
 
