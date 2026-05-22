@@ -1189,6 +1189,9 @@ importers:
       '@vitehub/workspace':
         specifier: workspace:*
         version: link:../../packages/workspace
+      '@vitejs/devtools':
+        specifier: 0.1.19
+        version: 0.1.19(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@netlify/blobs@10.7.5)(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.2.2))(vite@8.0.8)
       chat:
         specifier: 'catalog:'
         version: 4.27.0
@@ -13501,8 +13504,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@gwhitney/detect-indent@7.0.1':
-    optional: true
+  '@gwhitney/detect-indent@7.0.1': {}
 
   '@hono/node-server@1.19.14(hono@4.12.12)':
     dependencies:
@@ -15798,30 +15800,25 @@ snapshots:
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
-  '@pnpm/constants@1001.3.1':
-    optional: true
+  '@pnpm/constants@1001.3.1': {}
 
   '@pnpm/core-loggers@1001.0.9(@pnpm/logger@1001.0.1)':
     dependencies:
       '@pnpm/logger': 1001.0.1
       '@pnpm/types': 1001.3.0
-    optional: true
 
   '@pnpm/error@1000.1.0':
     dependencies:
       '@pnpm/constants': 1001.3.1
-    optional: true
 
   '@pnpm/graceful-fs@1000.1.0':
     dependencies:
       graceful-fs: 4.2.11
-    optional: true
 
   '@pnpm/logger@1001.0.1':
     dependencies:
       bole: 5.0.29
       split2: 4.2.0
-    optional: true
 
   '@pnpm/manifest-utils@1002.0.5(@pnpm/logger@1001.0.1)':
     dependencies:
@@ -15831,7 +15828,6 @@ snapshots:
       '@pnpm/semver.peer-range': 1000.0.0
       '@pnpm/types': 1001.3.0
       semver: 7.7.4
-    optional: true
 
   '@pnpm/read-project-manifest@1001.2.6(@pnpm/logger@1001.0.1)':
     dependencies:
@@ -15849,20 +15845,16 @@ snapshots:
       parse-json: 5.2.0
       read-yaml-file: 2.1.0
       strip-bom: 4.0.0
-    optional: true
 
   '@pnpm/semver.peer-range@1000.0.0':
     dependencies:
       semver: 7.7.4
-    optional: true
 
   '@pnpm/text.comments-parser@1000.0.0':
     dependencies:
       strip-comments-strings: 1.2.0
-    optional: true
 
-  '@pnpm/types@1001.3.0':
-    optional: true
+  '@pnpm/types@1001.3.0': {}
 
   '@pnpm/write-project-manifest@1000.0.16':
     dependencies:
@@ -15871,7 +15863,6 @@ snapshots:
       json5: 2.2.3
       write-file-atomic: 5.0.1
       write-yaml-file: 5.0.0
-    optional: true
 
   '@polka/url@1.0.0-next.29': {}
 
@@ -16000,8 +15991,7 @@ snapshots:
   '@rolldown/binding-win32-x64-msvc@1.0.0-rc.16':
     optional: true
 
-  '@rolldown/debug@1.0.0-rc.18':
-    optional: true
+  '@rolldown/debug@1.0.0-rc.18': {}
 
   '@rolldown/plugin-babel@0.2.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(rolldown@1.0.0-rc.16)(vite@8.0.8)':
     dependencies:
@@ -17320,7 +17310,6 @@ snapshots:
       - launch-editor
       - typescript
       - utf-8-validate
-    optional: true
 
   '@vitejs/devtools-kit@https://pkg.pr.new/vitejs/devtools/@vitejs/devtools-kit@307(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@nuxt/kit@4.4.2(magicast@0.5.2))(launch-editor@2.13.2)(typescript@6.0.2)(vite@8.0.8)':
     dependencies:
@@ -17455,7 +17444,6 @@ snapshots:
       - utf-8-validate
       - vite
       - vue
-    optional: true
 
   '@vitejs/devtools@0.1.19(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(@netlify/blobs@10.7.5)(@nuxt/kit@4.4.2(magicast@0.5.2))(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.2.2))(vite@8.0.8)':
     dependencies:
@@ -17553,7 +17541,6 @@ snapshots:
       - typescript
       - uploadthing
       - utf-8-validate
-    optional: true
 
   '@vitejs/plugin-vue-jsx@5.1.5(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))(vue@3.5.34(typescript@6.0.2))':
     dependencies:
@@ -18492,7 +18479,6 @@ snapshots:
     dependencies:
       fast-safe-stringify: 2.1.1
       individual: 3.0.0
-    optional: true
 
   boolbase@1.0.0: {}
 
@@ -18929,13 +18915,11 @@ snapshots:
 
   culori@4.0.2: {}
 
-  d3-path@3.1.0:
-    optional: true
+  d3-path@3.1.0: {}
 
   d3-shape@3.2.0:
     dependencies:
       d3-path: 3.1.0
-    optional: true
 
   data-uri-to-buffer@4.0.1: {}
 
@@ -19066,8 +19050,7 @@ snapshots:
 
   diff@8.0.4: {}
 
-  diff@9.0.0:
-    optional: true
+  diff@9.0.0: {}
 
   docus@5.9.0(bca07c89e7d796993e5bf28214752776):
     dependencies:
@@ -19399,7 +19382,6 @@ snapshots:
   error-ex@1.3.4:
     dependencies:
       is-arrayish: 0.2.1
-    optional: true
 
   error-stack-parser-es@1.0.5: {}
 
@@ -20576,8 +20558,7 @@ snapshots:
 
   image-size@2.0.2: {}
 
-  immer@11.1.6:
-    optional: true
+  immer@11.1.6: {}
 
   import-in-the-middle@3.0.1:
     dependencies:
@@ -20600,8 +20581,7 @@ snapshots:
 
   indent-string@4.0.0: {}
 
-  individual@3.0.0:
-    optional: true
+  individual@3.0.0: {}
 
   inherits@2.0.4: {}
 
@@ -20687,8 +20667,7 @@ snapshots:
       is-alphabetical: 2.0.1
       is-decimal: 2.0.1
 
-  is-arrayish@0.2.1:
-    optional: true
+  is-arrayish@0.2.1: {}
 
   is-buffer@2.0.5: {}
 
@@ -20763,8 +20742,7 @@ snapshots:
 
   is-unicode-supported@2.1.0: {}
 
-  is-windows@1.0.2:
-    optional: true
+  is-windows@1.0.2: {}
 
   is-wsl@2.2.0:
     dependencies:
@@ -20842,8 +20820,7 @@ snapshots:
 
   json-buffer@3.0.1: {}
 
-  json-parse-even-better-errors@2.3.1:
-    optional: true
+  json-parse-even-better-errors@2.3.1: {}
 
   json-schema-to-typescript-lite@15.0.0:
     dependencies:
@@ -21031,8 +21008,7 @@ snapshots:
 
   lilconfig@3.1.3: {}
 
-  lines-and-columns@1.2.4:
-    optional: true
+  lines-and-columns@1.2.4: {}
 
   linkify-it@5.0.0:
     dependencies:
@@ -22886,7 +22862,6 @@ snapshots:
   p-limit@7.3.0:
     dependencies:
       yocto-queue: 1.2.2
-    optional: true
 
   p-locate@5.0.0:
     dependencies:
@@ -22942,7 +22917,6 @@ snapshots:
       error-ex: 1.3.4
       json-parse-even-better-errors: 2.3.1
       lines-and-columns: 1.2.4
-    optional: true
 
   parse-ms@4.0.0: {}
 
@@ -23448,7 +23422,6 @@ snapshots:
     dependencies:
       js-yaml: 4.1.1
       strip-bom: 4.0.0
-    optional: true
 
   readable-stream@2.3.8:
     dependencies:
@@ -24102,8 +24075,7 @@ snapshots:
 
   space-separated-tokens@2.0.2: {}
 
-  split2@4.2.0:
-    optional: true
+  split2@4.2.0: {}
 
   sprintf-js@1.1.3: {}
 
@@ -24179,11 +24151,9 @@ snapshots:
     dependencies:
       ansi-regex: 6.2.2
 
-  strip-bom@4.0.0:
-    optional: true
+  strip-bom@4.0.0: {}
 
-  strip-comments-strings@1.2.0:
-    optional: true
+  strip-comments-strings@1.2.0: {}
 
   strip-dirs@3.0.0:
     dependencies:
@@ -24526,7 +24496,6 @@ snapshots:
       jiti: 2.6.1
       quansync: 1.0.0
       unconfig-core: 7.5.0
-    optional: true
 
   uncrypto@0.1.3: {}
 
@@ -24744,7 +24713,6 @@ snapshots:
       db0: 0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))
       ioredis: 5.10.1
       uploadthing: 7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.2.2)
-    optional: true
 
   unstorage@2.0.0-alpha.7(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.13))(aws4fetch@1.0.20)(chokidar@5.0.0)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.10.1)(lru-cache@11.3.5)(ofetch@2.0.0-alpha.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.2.2)):
     optionalDependencies:
@@ -25128,7 +25096,6 @@ snapshots:
   vue-virtual-scroller@3.0.2(vue@3.5.34(typescript@6.0.2)):
     dependencies:
       vue: 3.5.34(typescript@6.0.2)
-    optional: true
 
   vue@3.5.34(typescript@6.0.2):
     dependencies:
@@ -25271,7 +25238,6 @@ snapshots:
     dependencies:
       js-yaml: 4.1.1
       write-file-atomic: 5.0.1
-    optional: true
 
   ws@8.18.0:
     optional: true

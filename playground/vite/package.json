@@ -10,6 +10,7 @@
     "@vercel/blob": "catalog:",
     "@vercel/queue": "catalog:",
     "@vercel/sandbox": "catalog:",
+    "@vitejs/devtools": "0.1.19",
     "@vitehub/agent": "workspace:*",
     "@vitehub/db": "workspace:*",
     "@vitehub/blob": "workspace:*",
