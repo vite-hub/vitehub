@@ -38,6 +38,9 @@
       "@vitehub/agent/chat/runtime/nitro-dev-initialize": [
         "packages/agent/src/chat/runtime/nitro-dev-initialize.ts"
       ],
+      "@vitehub/devtools": [
+        "packages/devtools/src/index.ts"
+      ],
       "@vitehub/runtime": [
         "packages/runtime/src/index.ts"
       ],

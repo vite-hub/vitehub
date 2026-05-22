@@ -37,14 +37,17 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
-    "@vitejs/devtools-kit": "catalog:",
     "pathe": "catalog:"
+  },
+  "peerDependencies": {
+    "@vitejs/devtools-kit": ">=0.1.19"
   },
   "devDependencies": {
     "@comark/vue": "catalog:",
     "@iconify-json/lucide": "catalog:",
     "@nuxt/ui": "^4.6.1",
     "@types/node": "catalog:",
+    "@vitejs/devtools-kit": "catalog:",
     "nuxt": "catalog:",
     "tailwindcss": "^4.1.18",
     "tsdown": "^0.21.8",
