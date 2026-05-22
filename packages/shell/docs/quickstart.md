@@ -46,16 +46,20 @@ const workspace = {
 
 ```ts
 import {
-  createReadonlyWorkspaceFs,
   createShellRuntime,
-  workspaceMountPoint,
 } from '@vitehub/shell'
+import { createJustBashProvider } from '@vitehub/shell/providers/just-bash'
+import {
+  createReadonlyWorkspaceFs,
+  workspaceMountPoint,
+} from '@vitehub/shell/workspace'
 
 const runtime = createShellRuntime({
-  commands: ['pwd', 'ls', 'cat', 'rg'],
-  cwd: workspaceMountPoint,
-  fs: createReadonlyWorkspaceFs(workspace),
-  provider: 'just-bash',
+  provider: createJustBashProvider({
+    commands: ['pwd', 'ls', 'cat', 'rg'],
+    cwd: workspaceMountPoint,
+    fs: createReadonlyWorkspaceFs(workspace),
+  }),
 })
 ```
 

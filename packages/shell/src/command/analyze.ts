@@ -1,4 +1,4 @@
-import type { ShellAnalyzeOptions, ShellAnalyzeResult } from "./types.ts"
+import type { ShellAnalyzeOptions, ShellAnalyzeResult } from "../runtime/types.ts"
 
 const defaultMaxInputBytes = 64 * 1024
 const defaultTimeoutMs = 100
