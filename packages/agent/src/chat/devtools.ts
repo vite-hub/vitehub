@@ -1,4 +1,4 @@
-import { registerViteHubDevtoolsPanel } from "@vitehub/devtools"
+import { registerViteHubDevtoolsFeature } from "@vitehub/devtools"
 import { defineRpcFunction } from "@vitejs/devtools-kit"
 import { Message, parseMarkdown, toPlainText } from "chat"
 
@@ -6,13 +6,11 @@ import {
   chatDevtoolsAdapterName,
   chatDevtoolsBridgeRoute,
   chatDevtoolsClearRpc,
+  chatDevtoolsFeatureId,
   chatDevtoolsGetStateRpc,
-  chatDevtoolsPanelId,
-  chatDevtoolsRoute,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   chatDevtoolsTitle,
-  chatDevtoolsUrlEnv,
 } from "./devtools-shared.js"
 
 import type { Adapter, AdapterPostableMessage, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
@@ -39,13 +37,12 @@ export {
   chatDevtoolsAdapterName,
   chatDevtoolsBridgeRoute,
   chatDevtoolsClearRpc,
+  chatDevtoolsFeatureId,
   chatDevtoolsGetStateRpc,
   chatDevtoolsPanelId,
-  chatDevtoolsRoute,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   chatDevtoolsTitle,
-  chatDevtoolsUrlEnv,
 } from "./devtools-shared.js"
 
 export type {
@@ -101,7 +98,7 @@ export interface ChatDevtoolsAdapterOptions {
 }
 
 export interface ChatDevToolsOptions {
-  devtools?: false | { url?: string }
+  devtools?: false
   route?: string
 }
 
@@ -161,10 +158,6 @@ interface ChatDevtoolsFullStreamToolPart {
 const chatDevtoolsToolStatusType = "vitehub.chat.devtools.tool"
 export const chatDevtoolsPanelPluginName = "@vitehub/agent/chat/devtools-panel"
 const defaultOutputPreviewLength = 4_000
-
-function resolveChatDevtoolsClientDist(): string {
-  return new URL("../../devtools-client", import.meta.url).pathname
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object"
@@ -772,9 +765,6 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
 
 export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToolsPanelPlugin {
   const route = options.route || chatDevtoolsBridgeRoute
-  const devtoolsUrl = options.devtools && typeof options.devtools === "object"
-    ? options.devtools.url
-    : process.env[chatDevtoolsUrlEnv]
 
   return {
     name: chatDevtoolsPanelPluginName,
@@ -788,13 +778,12 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
           closedStreamRetention: 30_000,
         })
 
-        registerViteHubDevtoolsPanel(ctx, {
-          distDir: resolveChatDevtoolsClientDist(),
+        registerViteHubDevtoolsFeature(ctx, {
+          bridge: route,
           icon: "ph:chat-circle-duotone",
-          id: chatDevtoolsPanelId,
-          route: chatDevtoolsRoute,
+          id: chatDevtoolsFeatureId,
+          packageName: "@vitehub/agent",
           title: chatDevtoolsTitle,
-          url: devtoolsUrl,
         })
 
         ctx.rpc.register(defineRpcFunction({

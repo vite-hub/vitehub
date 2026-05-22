@@ -330,20 +330,26 @@ describe("agent message protocol", () => {
     expect(messages?.[1]?.tools).toBeUndefined()
   })
 
-  it("registers the packaged DevTools client directory", async () => {
-    const registerViteHubDevtoolsPanel = vi.fn()
+  it("registers the Chat DevTools feature metadata", async () => {
+    const registerViteHubDevtoolsFeature = vi.fn()
     vi.resetModules()
-    vi.doMock("@vitehub/devtools", () => ({ registerViteHubDevtoolsPanel }))
+    vi.doMock("@vitehub/devtools", () => ({ registerViteHubDevtoolsFeature }))
     const { chatDevToolsPanel } = await import("../src/chat/devtools.ts")
 
     chatDevToolsPanel().devtools!.setup({
+      messages: {
+        add: vi.fn(),
+      },
       rpc: {
         register: vi.fn(),
       },
     } as never)
 
-    expect(registerViteHubDevtoolsPanel).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      distDir: expect.stringMatching(/packages\/agent\/devtools-client$/),
+    expect(registerViteHubDevtoolsFeature).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      bridge: "/__vitehub/agent/chat/devtools",
+      id: "agent.chat",
+      packageName: "@vitehub/agent",
+      title: "Chat",
     }))
     vi.doUnmock("@vitehub/devtools")
     vi.resetModules()

@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
+import { listViteHubDevtoolsFeatures } from "@vitehub/devtools"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
 import { discoverChatDefinitions } from "../src/chat/discovery.ts"
 
@@ -221,14 +222,32 @@ describe("agent chat discovery", () => {
     expect(hooks.length).toBeGreaterThan(0)
   })
 
-  it("aliases Vue for the embedded chat devtools client during dev", async () => {
-    const config = await resolveChatViteConfig()
+  it("registers the chat devtools feature through hubChat by default", async () => {
+    const plugin = (await import("../src/chat/vite.ts")).hubChat()
+    const ctx = {
+      messages: {
+        add: vi.fn(),
+      },
+      rpc: {
+        register: vi.fn(),
+      },
+    }
 
-    expect(config.resolve?.alias?.vue).toMatch(/vue/)
-    expect(config.resolve?.alias?.["cloudflare:workers"]).toContain("cloudflare-workers-dev")
+    await plugin.devtools?.setup?.(ctx as never)
+
+    expect(listViteHubDevtoolsFeatures(ctx as never)).toEqual([
+      {
+        bridge: "/__vitehub/agent/chat/devtools",
+        icon: "ph:chat-circle-duotone",
+        id: "agent.chat",
+        packageName: "@vitehub/agent",
+        title: "Chat",
+      },
+    ])
+    expect(ctx.rpc.register).toHaveBeenCalledTimes(3)
   })
 
-  it("keeps an app-owned Vue alias for the chat devtools client", async () => {
+  it("keeps the dev config scoped to runtime aliases", async () => {
     const config = await resolveChatViteConfig({
       resolve: {
         alias: {
@@ -239,6 +258,45 @@ describe("agent chat discovery", () => {
 
     expect(config.resolve?.alias?.vue).toBeUndefined()
     expect(config.resolve?.alias?.["cloudflare:workers"]).toContain("cloudflare-workers-dev")
+  })
+
+  it("skips chat devtools feature and bridge when package-local devtools are disabled", async () => {
+    const root = await createTempRoot("vitehub-agent-chat-devtools-disabled-")
+    const buildDir = ".nitro"
+    const plugin = (await import("../src/chat/vite.ts")).hubChat({ devtools: false })
+    const ctx = {
+      messages: {
+        add: vi.fn(),
+      },
+      rpc: {
+        register: vi.fn(),
+      },
+    }
+    const nitro = {
+      hooks: {
+        hook: vi.fn(),
+      },
+      options: {
+        buildDir,
+        dev: true,
+        handlers: [],
+        imports: {},
+        rootDir: root,
+        runtimeConfig: {},
+        scanDirs: [join(root, "server")],
+      },
+    }
+
+    await plugin.devtools?.setup?.(ctx as never)
+    await plugin.nitro.setup?.(nitro as never)
+
+    expect(listViteHubDevtoolsFeatures(ctx as never)).toEqual([])
+    expect(ctx.rpc.register).not.toHaveBeenCalled()
+    expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        route: "/__vitehub/agent/chat/devtools",
+      }),
+    ]))
   })
 
   it("exports chat presets from the agent package build", async () => {

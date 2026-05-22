@@ -66,7 +66,6 @@
     }
   },
   "files": [
-    "devtools-client",
     "dist",
     "package.json"
   ],
@@ -85,8 +84,7 @@
     "chat": "catalog:",
     "chat-state-cloudflare-do": "^0.2.0",
     "h3": "catalog:",
-    "hookable": "^6.1.1",
-    "vue": "^3.5.34"
+    "hookable": "^6.1.1"
   },
   "peerDependencies": {
     "agents": "^0.12.3",

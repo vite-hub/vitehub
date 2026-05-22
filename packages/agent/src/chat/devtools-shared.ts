@@ -1,12 +1,11 @@
-export const chatDevtoolsPanelId = "@vitehub/agent/chat"
-export const chatDevtoolsTitle = "ViteHub Chat"
-export const chatDevtoolsRoute = "/__vitehub/agent/chat-devtools/"
+export const chatDevtoolsFeatureId: "agent.chat" = "agent.chat"
+export const chatDevtoolsPanelId: "agent.chat" = chatDevtoolsFeatureId
+export const chatDevtoolsTitle = "Chat"
 export const chatDevtoolsBridgeRoute = "/__vitehub/agent/chat/devtools"
 export const chatDevtoolsGetStateRpc = "@vitehub/agent/chat:get-state"
 export const chatDevtoolsSendRpc = "@vitehub/agent/chat:send"
 export const chatDevtoolsClearRpc = "@vitehub/agent/chat:clear"
 export const chatDevtoolsStreamChannel = "@vitehub/agent/chat:stream"
-export const chatDevtoolsUrlEnv = "VITEHUB_CHAT_DEVTOOLS_URL"
 export const chatDevtoolsAdapterName = "devtools"
 
 export type ChatDevtoolsMessageRole = "user" | "assistant"

@@ -123,6 +123,7 @@ export default defineConfig(async () => {
 
   if (buildMode === VITEHUB_MODES.chat) {
     const { hubChat } = await import("@vitehub/agent/chat/vite")
+    const { hubDevtools } = await import("@vitehub/devtools")
     return {
       ...baseConfig,
       chat: {
@@ -131,7 +132,7 @@ export default defineConfig(async () => {
         provider: "nitro",
         webhook: false,
       },
-      plugins: [hubChat()],
+      plugins: [hubDevtools(), hubChat()],
     }
   }
 

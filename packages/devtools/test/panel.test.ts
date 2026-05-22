@@ -3,9 +3,15 @@ import { existsSync } from "node:fs"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  hubDevtools,
   isAbsoluteHttpUrl,
+  listViteHubDevtoolsFeatures,
+  registerViteHubDevtoolsFeature,
   registerViteHubDevtoolsPanel,
   resolveViteHubDevtoolsUrl,
+  viteHubDevtoolsDefaultUrl,
+  viteHubDevtoolsGetFeaturesRpc,
+  viteHubDevtoolsPanelId,
 } from "../src/index.ts"
 
 vi.mock("node:fs", () => ({
@@ -23,6 +29,9 @@ function createContext() {
     },
     messages: {
       add: vi.fn(),
+    },
+    rpc: {
+      register: vi.fn(),
     },
     views: {
       hostStatic: vi.fn(),
@@ -117,7 +126,6 @@ describe("registerViteHubDevtoolsPanel", () => {
     const ctx = createContext()
 
     const result = registerViteHubDevtoolsPanel(ctx as never, {
-      distDir: "/tmp/missing-client",
       icon: "i-lucide-message-square",
       id: "@vitehub/test",
       route: "/__vitehub/test/",
@@ -132,6 +140,25 @@ describe("registerViteHubDevtoolsPanel", () => {
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
       remote: true,
       url: "https://devtools.example.test/panel",
+    }))
+  })
+
+  it("requires distDir for local URLs", () => {
+    const ctx = createContext()
+
+    const result = registerViteHubDevtoolsPanel(ctx as never, {
+      icon: "i-lucide-message-square",
+      id: "@vitehub/test",
+      route: "/__vitehub/test/",
+      title: "ViteHub Test",
+    })
+
+    expect(result).toBeUndefined()
+    expect(ctx.views.hostStatic).not.toHaveBeenCalled()
+    expect(ctx.docks.register).not.toHaveBeenCalled()
+    expect(ctx.messages.add).toHaveBeenCalledWith(expect.objectContaining({
+      level: "warn",
+      message: expect.stringContaining("requires a local distDir"),
     }))
   })
 
@@ -169,6 +196,79 @@ describe("registerViteHubDevtoolsPanel", () => {
     expect(ctx.messages.add).toHaveBeenCalledWith(expect.objectContaining({
       level: "warn",
       message: expect.stringContaining("ViteHub Test DevTools client is not built"),
+    }))
+  })
+})
+
+describe("hubDevtools", () => {
+  it("registers the hosted ViteHub DevTools shell", () => {
+    const ctx = createContext()
+
+    hubDevtools().devtools?.setup?.(ctx as never)
+
+    expect(existsSync).not.toHaveBeenCalled()
+    expect(ctx.views.hostStatic).not.toHaveBeenCalled()
+    expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
+      id: viteHubDevtoolsPanelId,
+      remote: true,
+      title: "ViteHub",
+      type: "iframe",
+      url: viteHubDevtoolsDefaultUrl,
+    }))
+    expect(ctx.rpc.register).toHaveBeenCalledWith(expect.objectContaining({
+      name: viteHubDevtoolsGetFeaturesRpc,
+      type: "query",
+    }))
+  })
+
+  it("returns registered feature metadata through the discovery registry", () => {
+    const ctx = createContext()
+    const feature = {
+      bridge: "/__vitehub/test/devtools",
+      icon: "i-lucide-message-square",
+      id: "test.feature",
+      packageName: "@vitehub/test",
+      title: "Test",
+    }
+
+    registerViteHubDevtoolsFeature(ctx as never, feature)
+
+    expect(listViteHubDevtoolsFeatures(ctx as never)).toEqual([feature])
+  })
+
+  it("keeps duplicate feature registration idempotent", () => {
+    const ctx = createContext()
+    const feature = {
+      bridge: "/__vitehub/test/devtools",
+      id: "test.feature",
+      packageName: "@vitehub/test",
+      title: "Test",
+    }
+
+    const first = registerViteHubDevtoolsFeature(ctx as never, feature)
+    const second = registerViteHubDevtoolsFeature(ctx as never, {
+      ...feature,
+      title: "Changed",
+    })
+
+    expect(second).toBe(first)
+    expect(listViteHubDevtoolsFeatures(ctx as never)).toEqual([feature])
+  })
+
+  it("warns when a feature is enabled without the ViteHub DevTools Integration", async () => {
+    const ctx = createContext()
+
+    registerViteHubDevtoolsFeature(ctx as never, {
+      bridge: "/__vitehub/test/devtools",
+      id: "test.feature",
+      packageName: "@vitehub/test",
+      title: "Test",
+    })
+    await Promise.resolve()
+
+    expect(ctx.messages.add).toHaveBeenCalledWith(expect.objectContaining({
+      level: "warn",
+      message: expect.stringContaining("hubDevtools()"),
     }))
   })
 })

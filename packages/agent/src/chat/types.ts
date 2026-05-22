@@ -339,7 +339,6 @@ export interface ChatWebhookModuleOptions {
 }
 
 export interface ChatDevModuleOptions {
-  devtools?: false | { url?: string }
   initialize?: boolean
   localStateFallback?: boolean
 }
@@ -349,6 +348,7 @@ export interface ChatModuleOptions {
     durableObjectState?: boolean | ChatCloudflareDurableObjectModuleOptions
   }
   dev?: false | ChatDevModuleOptions
+  devtools?: false
   imports?: boolean
   provider?: "auto" | "cloudflare" | "nitro" | "vercel"
   webhook?: string | false | ChatWebhookModuleOptions
@@ -361,7 +361,8 @@ export interface ResolvedChatModuleOptions {
       name?: string
     }
   }
-  dev: false | Omit<Required<ChatDevModuleOptions>, "devtools"> & Pick<ChatDevModuleOptions, "devtools">
+  dev: false | Required<ChatDevModuleOptions>
+  devtools?: false
   imports: boolean
   provider: "auto" | "cloudflare" | "nitro" | "vercel"
   webhook: false | Required<ChatWebhookModuleOptions>
