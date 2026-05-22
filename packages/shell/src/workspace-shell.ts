@@ -79,14 +79,22 @@ function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: 
 async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint): Promise<ShellRuntimeExecResult | undefined> {
   try {
     let currentCwd = cwd
+    let skipNextSegment = false
     for (const segment of splitShellCommandSegments(command)) {
+      if (skipNextSegment) {
+        skipNextSegment = false
+        continue
+      }
       const words = parseShellWords(segment.command)
       if (words[0] === "cd") {
         const path = words[1] || workspaceMountPoint
         if (!isConcreteWorkspacePath(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
-        if (!(await fs.exists(resolvedPath))) return missingWorkspacePathFeedback(resolvedPath)
-        currentCwd = resolvedPath ? posix.join(workspaceMountPoint, resolvedPath) : workspaceMountPoint
+        const exists = await fs.exists(resolvedPath)
+        if (segment.separatorAfter === "&&" && !exists) skipNextSegment = true
+        if (segment.separatorAfter !== "||" && exists) {
+          currentCwd = resolvedPath ? posix.join(workspaceMountPoint, resolvedPath) : workspaceMountPoint
+        }
         continue
       }
       for (const path of shellPathArguments(words)) {
@@ -301,6 +309,8 @@ function takesSearchPatternOptionValue(arg: string) {
 
 function takesInlineSearchPatternOptionValue(arg: string) {
   return arg.startsWith("--regexp=")
+    || (arg.startsWith("-e") && arg !== "-e")
+    || (arg.startsWith("-f") && arg !== "-f")
 }
 
 function takesFileCommandOptionValue(arg: string) {
@@ -317,7 +327,7 @@ function pathArgumentsUntilShellBoundary(args: string[]) {
 }
 
 function splitShellCommandSegments(command: string) {
-  const segments: Array<{ command: string, followsPipe: boolean }> = []
+  const segments: Array<{ command: string, followsPipe: boolean, separatorAfter?: "&&" | "||" | "|" | ";" | "\n" }> = []
   let current = ""
   let quote: "'" | "\"" | undefined
   let escaped = false
@@ -346,21 +356,21 @@ function splitShellCommandSegments(command: string) {
     }
     const next = command[index + 1]
     if (char === "&" && next === "&") {
-      segments.push({ command: current, followsPipe })
+      segments.push({ command: current, followsPipe, separatorAfter: "&&" })
       current = ""
       followsPipe = false
       index += 1
       continue
     }
     if (char === "|" && next === "|") {
-      segments.push({ command: current, followsPipe })
+      segments.push({ command: current, followsPipe, separatorAfter: "||" })
       current = ""
       followsPipe = false
       index += 1
       continue
     }
     if (char === "|" || char === ";" || char === "\n") {
-      segments.push({ command: current, followsPipe })
+      segments.push({ command: current, followsPipe, separatorAfter: char })
       current = ""
       followsPipe = char === "|"
       continue
