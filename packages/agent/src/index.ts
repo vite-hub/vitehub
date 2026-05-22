@@ -1154,7 +1154,7 @@ function hasFinishWork<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
-  return Boolean(context.finishHook || context.finishExtensionProviders.length)
+  return Boolean(context.finishHook)
 }
 
 async function finishAgentInvocation<
@@ -1194,15 +1194,24 @@ export async function runAgent<
     const runContext = await createRunContext(agent, context, input)
     runContext.close = once(runContext.close)
     const shouldWrapOutput = runContext.hasCapabilityCleanup || hasFinishWork(runContext)
+    let finishLifecycleStarted = false
     try {
       const result = await agent.run(runContext)
-      if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
-      if (isAsyncIterable(result)) return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
+      if (result instanceof Response) {
+        finishLifecycleStarted = shouldWrapOutput
+        return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
+      }
+      if (isAsyncIterable(result)) {
+        finishLifecycleStarted = shouldWrapOutput
+        return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
+      }
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
+      finishLifecycleStarted = true
       await finishAgentInvocation(runContext, rendered)
       return rendered
     }
     catch (error) {
+      if (finishLifecycleStarted) throw error
       try {
         await finishAgentInvocation(runContext, undefined, error)
       }
@@ -1218,16 +1227,25 @@ export async function runAgent<
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
   adapterContext.close = once(adapterContext.close)
   const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
+  let finishLifecycleStarted = false
   try {
     const result = await resolved.generate(adapterContext as never)
-    if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
-    if (isAsyncIterable(result)) return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
+    if (result instanceof Response) {
+      finishLifecycleStarted = shouldWrapOutput
+      return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
+    }
+    if (isAsyncIterable(result)) {
+      finishLifecycleStarted = shouldWrapOutput
+      return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
+    }
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
     const runResult = toAgentRunResult(rendered)
+    finishLifecycleStarted = true
     await finishAgentInvocation(adapterContext, rendered)
     return runResult
   }
   catch (error) {
+    if (finishLifecycleStarted) throw error
     try {
       await finishAgentInvocation(adapterContext, undefined, error)
     }
@@ -1250,15 +1268,24 @@ export async function streamAgent<
     const runContext = await createRunContext(agent, context, input)
     runContext.close = once(runContext.close)
     const shouldWrapOutput = runContext.hasCapabilityCleanup || hasFinishWork(runContext)
+    let finishLifecycleStarted = false
     try {
       const result = await agent.run(runContext)
-      if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
-      if (isAsyncIterable(result)) return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
+      if (result instanceof Response) {
+        finishLifecycleStarted = shouldWrapOutput
+        return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
+      }
+      if (isAsyncIterable(result)) {
+        finishLifecycleStarted = shouldWrapOutput
+        return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
+      }
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
+      finishLifecycleStarted = true
       await finishAgentInvocation(runContext, rendered)
       return rendered
     }
     catch (error) {
+      if (finishLifecycleStarted) throw error
       try {
         await finishAgentInvocation(runContext, undefined, error)
       }
@@ -1274,17 +1301,26 @@ export async function streamAgent<
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
   adapterContext.close = once(adapterContext.close)
   const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
+  let finishLifecycleStarted = false
   try {
     const result = resolved.stream
       ? await resolved.stream(adapterContext as never)
       : await resolved.generate(adapterContext as never)
-    if (result instanceof Response) return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
-    if (isAsyncIterable(result)) return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
+    if (result instanceof Response) {
+      finishLifecycleStarted = shouldWrapOutput
+      return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
+    }
+    if (isAsyncIterable(result)) {
+      finishLifecycleStarted = shouldWrapOutput
+      return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
+    }
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
     const events = streamTextResultToEvents(rendered)
+    finishLifecycleStarted = shouldWrapOutput
     return shouldWrapOutput ? withCapabilityCleanup(events, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error)) : events
   }
   catch (error) {
+    if (finishLifecycleStarted) throw error
     try {
       await finishAgentInvocation(adapterContext, undefined, error)
     }

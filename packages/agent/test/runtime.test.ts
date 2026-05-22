@@ -104,6 +104,58 @@ describe("agent message protocol", () => {
     expect(event.extensions.has("missing")).toBe(false)
   })
 
+  it("skips finish extension providers when no finish hook is registered", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const extension = vi.fn(() => {
+      throw new Error("extension should not run")
+    })
+    const agent = defineAgent({
+      capabilities: [{
+        id: "unused",
+        output(context) {
+          context.extensions.provide("agent:finish", extension)
+        },
+      }],
+      run: () => ({ text: "ok" }),
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toMatchObject({ text: "ok" })
+    expect(extension).not.toHaveBeenCalled()
+  })
+
+  it("does not rerun finish lifecycle when a finish hook fails", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finishError = new Error("finish failed")
+    const extension = vi.fn(() => "extension-value")
+    const finish = vi.fn(() => {
+      throw finishError
+    })
+    const agent = defineAgent({
+      capabilities: [{
+        id: "finish-extension",
+        output(context) {
+          context.extensions.provide("agent:finish", extension)
+        },
+      }],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "ok" }),
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("finish failed")
+    expect(extension).toHaveBeenCalledTimes(1)
+    expect(finish).toHaveBeenCalledTimes(1)
+  })
+
   it("runs agent finish hooks for model-backed object results", async () => {
     vi.doMock("ai", () => ({
       ToolLoopAgent: class {
