@@ -11,7 +11,6 @@ import type { DiscoveredChatDefinition } from "./types.ts"
 
 const chatSuffixPattern = /\.chat\.(?:c|m)?[jt]s$/i
 const configPattern = /^config\.(?:c|m)?[jt]s$/i
-const defineAgentCall = String.raw`\bdefineAgent\s*(?:<[^>]+>)?\s*\(\s*\{`
 const sourceFileExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 
 function normalizeSuffixChatName(rootDir: string, file: string) {
@@ -26,8 +25,8 @@ function stripComments(source: string) {
 
 function hasDefineAgentChat(source: string): boolean {
   const stripped = stripComments(source)
-  return new RegExp(`${defineAgentCall}[\\s\\S]*?\\bchat\\s*:`).test(stripped)
-    || new RegExp(`${defineAgentCall}[\\s\\S]*?\\bcapabilities\\s*:\\s*\\[[\\s\\S]*?\\bchat\\s*\\(`).test(stripped)
+  return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bchat\s*:/.test(stripped)
+    || /\bdefineAgent\s*\(\s*\{[\s\S]*?\bcapabilities\s*:\s*\[[\s\S]*?\bchat\s*\(/.test(stripped)
 }
 
 function parseAgentName(source: string): string | undefined {
@@ -36,7 +35,7 @@ function parseAgentName(source: string): string | undefined {
 }
 
 function hasWorkspaceAgent(source: string): boolean {
-  return new RegExp(`${defineAgentCall}[\\s\\S]*?\\bworkspace\\s*:`).test(stripComments(source))
+  return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(source))
 }
 
 function discoverNamedAgentChatExports(file: string): DiscoveredChatDefinition[] {
@@ -44,7 +43,7 @@ function discoverNamedAgentChatExports(file: string): DiscoveredChatDefinition[]
   if (!hasDefineAgentChat(source)) return []
 
   const names = new Set<string>()
-  for (const match of stripComments(source).matchAll(new RegExp(String.raw`\bexport\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*${defineAgentCall}[\s\S]*?\bchat\s*:`, "g"))) {
+  for (const match of stripComments(source).matchAll(/\bexport\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*defineAgent\s*\(\s*\{[\s\S]*?\bchat\s*:/g)) {
     names.add(match[1]!)
   }
 
@@ -54,7 +53,7 @@ function discoverNamedAgentChatExports(file: string): DiscoveredChatDefinition[]
     name,
     source: "nitro-server-agent-chat",
   }))
-  if (new RegExp(String.raw`\bexport\s+default\s+${defineAgentCall}[\s\S]*?\bchat\s*:`).test(stripComments(source))) {
+  if (/\bexport\s+default\s+defineAgent\s*\(\s*\{[\s\S]*?\bchat\s*:/.test(stripComments(source))) {
     definitions.unshift({
       handler: file,
       name: "chat",

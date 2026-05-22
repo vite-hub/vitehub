@@ -75,64 +75,6 @@ describe("agent test runner", () => {
     })
   })
 
-  it("creates deterministic mock agent adapters for no-provider runs", async () => {
-    const { createMockAgentAdapter, runAgentForTest } = await import("../src/test.ts")
-    const agent = {
-      async resolve() {
-        return createMockAgentAdapter({
-          reply: "done",
-          tools: [{
-            id: "call-1",
-            input: { path: "README.md" },
-            name: "read_file",
-            output: "contents",
-          }],
-        })
-      },
-    }
-
-    await expect(runAgentForTest(agent as never, {
-      runtimeConfig: {},
-    }, {
-      prompt: "hello",
-    })).resolves.toMatchObject({
-      text: "done",
-      toolSteps: [
-        { toolCalls: [{ input: { path: "README.md" }, toolCallId: "call-1", toolName: "read_file" }] },
-        { toolResults: [{ output: "contents", toolCallId: "call-1", toolName: "read_file" }] },
-      ],
-    })
-  })
-
-  it("streams mock agent tool calls and final text deterministically", async () => {
-    const { streamAgent } = await import("../src/index.ts")
-    const { createAgentRuntimeContext, createMockAgentAdapter } = await import("../src/test.ts")
-    const agent = {
-      async resolve() {
-        return createMockAgentAdapter({
-          reply: context => `reply to ${context.prompt}`,
-          tools: [{ id: "call-1", input: { query: "docs" }, name: "search", output: { matches: 2 } }],
-        })
-      },
-    }
-    const context = createAgentRuntimeContext({
-      runtime: "unknown",
-      runtimeConfig: {},
-      waitUntil: vi.fn(),
-    })
-
-    const stream = await streamAgent(agent as never, context, { prompt: "hello" }) as AsyncIterable<unknown>
-    const events: unknown[] = []
-    for await (const event of stream) events.push(event)
-
-    expect(events).toEqual([
-      { id: "call-1", input: { query: "docs" }, name: "search", type: "tool-call" },
-      { id: "call-1", name: "search", output: { matches: 2 }, type: "tool-result" },
-      { text: "reply to hello", type: "text-delta" },
-      { reason: "stop", type: "finish" },
-    ])
-  })
-
   it("applies workspace defaults and collects workspace tool steps", async () => {
     const { registerWorkspace } = await import("@vitehub/workspace")
     const execute = vi.fn(async () => "workspace result")

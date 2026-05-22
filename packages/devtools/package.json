@@ -40,7 +40,7 @@
     "pathe": "catalog:"
   },
   "peerDependencies": {
-    "@vitejs/devtools-kit": ">=0.1.19"
+    "@vitejs/devtools-kit": ">=0.2.0"
   },
   "devDependencies": {
     "@comark/vue": "catalog:",

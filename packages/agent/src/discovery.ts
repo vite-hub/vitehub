@@ -12,7 +12,6 @@ import type { DiscoveredAgentDefinition } from "./types.ts"
 
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const configPattern = /^config\.(?:c|m)?[jt]s$/i
-const defineAgentCall = String.raw`\bdefineAgent\s*(?:<[^>]+>)?\s*\(\s*\{`
 const sourceFileExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 
 function normalizeSuffixAgentName(rootDir: string, file: string) {
@@ -72,7 +71,7 @@ function parseAgentName(source: string): string | undefined {
 }
 
 function isWorkspaceAgentConfig(source: string): boolean {
-  return new RegExp(`${defineAgentCall}[\\s\\S]*?\\bworkspace\\s*:`).test(stripComments(source))
+  return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(source))
 }
 
 function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefinition[] {

@@ -89,7 +89,7 @@
     "agents": "^0.12.3",
     "@tanstack/ai": "0.16.0",
     "ai": "^6.0.0",
-    "@vitejs/devtools-kit": ">=0.1.19",
+    "@vitejs/devtools-kit": ">=0.2.0",
     "nitro": "^3.0.0-0",
     "vite": ">=8.0.0"
   },

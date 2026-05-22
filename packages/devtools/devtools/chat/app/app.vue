@@ -111,7 +111,6 @@ const chatMessages = computed(() => messages.value as never)
 const pendingUserMessage = ref<ChatMessage | undefined>()
 const pendingAssistantMessage = ref<ChatMessage | undefined>()
 const pendingAssistantBaselineIds = ref<Set<string> | undefined>()
-const reasoningOpenState = ref(new Map<string, { open: boolean, userControlled: boolean }>())
 const expandedFilePaths = ref(new Set<string>())
 const selectedFilePath = ref<string | undefined>()
 const sidebarWidth = ref(340)
@@ -225,15 +224,6 @@ function applyState(next: ChatDevtoolsStateResult) {
   messages.value = nextMessages
   syncExpandedFiles(state.value.files || [])
 
-  const nextReasoningOpenState = new Map<string, { open: boolean, userControlled: boolean }>()
-  for (const message of nextMessages) {
-    const previous = reasoningOpenState.value.get(message.id)
-    const live = isLiveReasoning(message, message.parts)
-    nextReasoningOpenState.set(message.id, previous?.userControlled && !live
-      ? previous
-      : { open: live, userControlled: false })
-  }
-  reasoningOpenState.value = nextReasoningOpenState
 }
 
 function activeLoadingMessageId(chatName: string | undefined, rawMessages: ChatDevtoolsMessage[]) {
@@ -293,6 +283,14 @@ function toChatMessage(message: ChatDevtoolsMessage, forceLoading = false): Chat
   }
 }
 
+function renderedMessageContent(content: unknown, message: { content?: unknown }) {
+  return typeof content === "string" && content.trim()
+    ? content
+    : typeof message.content === "string" && message.content.trim()
+      ? message.content
+      : undefined
+}
+
 function isGenericAssistantText(text: string): boolean {
   const normalized = text.trim()
   return !normalized || normalized === "..." || normalized === "Thinking..."
@@ -327,27 +325,18 @@ function renderToolCommand(tool: ChatDevtoolsTool) {
   const input = tool.input && typeof tool.input === "object" ? tool.input as Record<string, unknown> : {}
   const command = commandFromTool(tool)
   if (tool.name === "materialize_sources") {
-    return `vitehub materialize ${typeof input.path === "string" && input.path ? input.path : "workspace"}`
-  }
-  if (tool.name === "shell" && command) {
-    return `$ ${command}`
-  }
-  if (tool.name === "read_file" && typeof input.path === "string") {
-    return `cat ${input.path}`
-  }
-  if (tool.name === "write_file" && typeof input.path === "string") {
-    return `cat > ${input.path}`
-  }
-  if (typeof input.path === "string") {
-    return `${tool.name.replaceAll("_", "-")} ${input.path}`
-  }
-  if (typeof input.query === "string") {
-    return `${tool.name.replaceAll("_", "-")} "${input.query}"`
+    return `Updating source metadata for ${typeof input.path === "string" && input.path ? input.path : "workspace"}`
   }
   if (command) {
-    return `$ ${command}`
+    return command
   }
-  return tool.text || tool.name.replaceAll("_", "-")
+  if (typeof input.path === "string") {
+    return `${tool.name} ${input.path}`
+  }
+  if (typeof input.query === "string") {
+    return `${tool.name} "${input.query}"`
+  }
+  return tool.text || tool.name
 }
 
 function toolIcon(tool: ChatDevtoolsTool) {
@@ -528,60 +517,39 @@ function hasRunningTool(parts: unknown) {
   return chatToolParts(parts).some(part => part.tool.status === "running")
 }
 
-function isLiveReasoning(message: unknown, parts: unknown) {
-  return isLoadingMessage(message) || hasRunningTool(parts)
-}
-
-function reasoningOpen(message: unknown, parts: unknown) {
-  const id = (message as ChatMessage | undefined)?.id
-  if (!id) return isLiveReasoning(message, parts)
-  const state = reasoningOpenState.value.get(id)
-  return state?.open ?? isLiveReasoning(message, parts)
-}
-
-function setReasoningOpen(message: unknown, open: boolean) {
-  const id = (message as ChatMessage | undefined)?.id
-  if (!id) return
-
-  const next = new Map(reasoningOpenState.value)
-  next.set(id, { open, userControlled: true })
-  reasoningOpenState.value = next
-}
-
-function toolsSummary(parts: unknown) {
-  const count = chatToolParts(parts).length
-  return count === 1 ? "Used 1 tool" : `Used ${count} tools`
-}
-
 function formatThoughtDuration(ms: number) {
-  const seconds = Math.max(1, Math.round(ms / 1_000))
-  if (seconds < 60) return `${seconds}s`
-
+  if (!Number.isFinite(ms) || ms <= 0) return undefined
+  const seconds = ms / 1000
+  if (seconds < 10) return `${seconds.toFixed(1)}s`
+  if (seconds < 60) return `${Math.round(seconds)}s`
   const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = seconds % 60
-  return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`
+  const remainder = Math.round(seconds % 60)
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`
 }
 
 function thoughtDuration(message: unknown, parts: unknown) {
-  const startedAt = Date.parse((message as ChatMessage | undefined)?.createdAt || "")
-  if (!Number.isFinite(startedAt)) return undefined
+  const createdAt = Date.parse((message as ChatMessage | undefined)?.createdAt || "")
+  if (!Number.isFinite(createdAt)) return undefined
 
   const toolTimes = chatToolParts(parts)
-    .map(part => Date.parse(part.tool.updatedAt || ""))
+    .map(part => Date.parse(part.tool.updatedAt))
     .filter(Number.isFinite)
-  const endedAt = isLiveReasoning(message, parts)
-    ? Date.now()
-    : Math.max(startedAt, ...toolTimes)
+  const endedAt = toolTimes.length ? Math.max(...toolTimes) : Date.now()
+  return formatThoughtDuration(endedAt - createdAt)
+}
 
-  return formatThoughtDuration(endedAt - startedAt)
+function toolsSummary(message: unknown, parts: unknown) {
+  const count = chatToolParts(parts).length
+  const tools = count === 1 ? "1 tool" : `${count} tools`
+  const duration = thoughtDuration(message, parts)
+  return duration ? `${tools} · thought for ${duration}` : tools
 }
 
 function reasoningLabel(message: unknown, parts: unknown) {
-  if (isLiveReasoning(message, parts)) {
+  if (isLoadingMessage(message) || hasRunningTool(parts)) {
     return loadingMessageText(message)
   }
-  const duration = thoughtDuration(message, parts)
-  return duration ? `Thought for ${duration}` : toolsSummary(parts)
+  return toolsSummary(message, parts)
 }
 
 function appendDummy(message: ChatDevtoolsMessage) {
@@ -768,11 +736,11 @@ async function runStandaloneSimulation(text: string) {
 
 async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
   if (!rpcClient) {
-    try {
-      rpcClient = await getDevToolsRpcClient()
-    }
-    catch {
+    if (parseRemoteConnection()) {
       rpcClient = await connectRemoteDevTools()
+    }
+    else {
+      rpcClient = await getDevToolsRpcClient()
     }
   }
   connected.value = true
@@ -1276,24 +1244,23 @@ onBeforeUnmount(() => stopSidebarResize?.())
               class="min-h-full px-3 py-2"
             >
               <template #content="{ content, message, parts }">
-                <div class="flex min-w-0 flex-col gap-2.5 text-sm/5">
+                <div class="flex min-w-0 flex-col gap-2 text-sm/5">
                   <UCollapsible
                     v-if="isLoadingMessage(message) || hasToolParts(parts)"
-                    :open="reasoningOpen(message, parts)"
+                    :default-open="isLoadingMessage(message) || hasRunningTool(parts)"
                     :unmount-on-hide="false"
                     :ui="{
                       root: 'min-w-0',
-                      content: 'overflow-visible',
+                      content: 'overflow-hidden',
                     }"
-                    @update:open="setReasoningOpen(message, $event)"
                   >
                     <button
                       type="button"
-                      class="group flex w-fit max-w-full min-w-0 items-center gap-1.5 rounded-md py-1 pr-1.5 text-xs text-muted/75 hover:text-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-muted"
+                      class="group flex w-full min-w-0 items-center gap-1.5 rounded-md text-xs text-muted transition-colors hover:text-default focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-muted"
                     >
                       <UIcon
                         name="i-lucide-chevron-right"
-                        class="size-3 shrink-0 opacity-45 transition-transform duration-200 group-hover:opacity-70 group-data-[state=open]:rotate-90"
+                        class="size-3.5 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-90"
                       />
                       <UChatShimmer
                         v-if="isLoadingMessage(message) || hasRunningTool(parts)"
@@ -1307,7 +1274,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
                     </button>
 
                     <template #content>
-                      <div class="flex min-w-0 flex-col gap-1.5 pb-1.5 pt-1 text-xs/5">
+                      <div class="flex min-w-0 flex-col gap-2 px-px pb-px pt-2 text-xs/5">
                         <UChatTool
                           v-for="part in chatToolParts(parts)"
                           :key="part.tool.id"
@@ -1317,13 +1284,13 @@ onBeforeUnmount(() => stopSidebarResize?.())
                           variant="card"
                           :default-open="false"
                           :ui="{
-                            root: 'min-w-0 rounded-md bg-elevated/20 shadow-none ring-1 ring-default/45',
-                            trigger: 'min-h-7 px-2.5 py-1 font-mono text-xs text-muted hover:bg-accented/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-muted',
-                            leading: 'size-3',
-                            leadingIcon: 'size-3 opacity-45',
+                            root: 'min-w-0 rounded-md',
+                            trigger: 'min-h-7 px-2 py-1 text-xs focus-visible:ring-1 focus-visible:ring-muted focus-visible:outline-none',
+                            leading: 'size-3.5',
+                            leadingIcon: 'size-3.5 opacity-70',
                             label: 'min-w-0 truncate',
-                            trailingIcon: 'size-3 opacity-45',
-                            body: 'border-t border-default/60 bg-default/60 px-2.5 py-2 font-mono text-xs/5',
+                            trailingIcon: 'size-3.5 opacity-70',
+                            body: 'p-2 text-xs/5',
                           }"
                         >
                           <template v-if="toolMetadataLabel(part.tool)" #actions>
@@ -1332,11 +1299,11 @@ onBeforeUnmount(() => stopSidebarResize?.())
                             </UBadge>
                           </template>
                           <Suspense v-if="hasToolOutput(part.tool)">
-                            <Comark class="space-y-1 text-muted [&_em]:text-dimmed [&_h3]:font-medium [&_h3]:text-toned [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-default [&_pre]:bg-elevated [&_pre]:p-2">
+                            <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
                               {{ renderToolOutput(part.tool) }}
                             </Comark>
                           </Suspense>
-                          <p v-else class="italic text-dimmed">
+                          <p v-else class="italic text-muted">
                             No output
                           </p>
                         </UChatTool>
@@ -1344,10 +1311,10 @@ onBeforeUnmount(() => stopSidebarResize?.())
                     </template>
                   </UCollapsible>
                   <Suspense
-                    v-if="content"
+                    v-if="renderedMessageContent(content, message)"
                   >
                     <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
-                      {{ content }}
+                      {{ renderedMessageContent(content, message) }}
                     </Comark>
                   </Suspense>
                 </div>

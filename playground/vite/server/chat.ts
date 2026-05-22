@@ -1,8 +1,69 @@
-import { createMockAgentAdapter } from "@vitehub/agent/test"
 import { defineChat } from "@vitehub/agent/chat"
 import { createMemoryChatStateAdapter } from "@vitehub/agent/chat/runtime/memory-state"
 
-const adapter = createMockAgentAdapter({
+import type { AgentAdapter, AgentAdapterResult, AgentAdapterRunContext, MaybePromise, StreamEvent } from "@vitehub/agent"
+
+interface MockAgentToolStep {
+  delay?: number
+  id?: string
+  input?: unknown
+  name: string
+  output?: unknown
+}
+
+interface MockAgentAdapterOptions {
+  delay?: number
+  name?: string
+  reply?: string | ((context: AgentAdapterRunContext) => MaybePromise<string | AgentAdapterResult>)
+  tools?: MockAgentToolStep[]
+}
+
+function wait(ms: number | undefined): Promise<void> {
+  return ms && ms > 0 ? new Promise(resolve => setTimeout(resolve, ms)) : Promise.resolve()
+}
+
+async function resolveMockReply(
+  context: AgentAdapterRunContext,
+  reply: MockAgentAdapterOptions["reply"],
+): Promise<AgentAdapterResult> {
+  const value = typeof reply === "function"
+    ? await reply(context)
+    : reply || "I inspected the deterministic playground context."
+  return typeof value === "string" ? { finishReason: "stop", text: value } : value
+}
+
+async function* streamMockAgent(
+  context: AgentAdapterRunContext,
+  options: MockAgentAdapterOptions,
+): AsyncIterable<StreamEvent> {
+  for (const tool of options.tools || []) {
+    const id = tool.id || tool.name
+    yield { id, input: tool.input, name: tool.name, type: "tool-call" }
+    await wait(tool.delay ?? options.delay)
+    yield { id, name: tool.name, output: tool.output, type: "tool-result" }
+  }
+
+  const result = await resolveMockReply(context, options.reply)
+  await wait(options.delay)
+  if (result.text) {
+    yield { text: result.text, type: "text-delta" }
+  }
+  yield { reason: typeof result.finishReason === "string" ? result.finishReason : "stop", type: "finish" }
+}
+
+function createPlaygroundMockAgentAdapter(options: MockAgentAdapterOptions = {}): AgentAdapter {
+  return {
+    name: options.name || "playground-mock",
+    async generate(context) {
+      return await resolveMockReply(context, options.reply)
+    },
+    async stream(context) {
+      return streamMockAgent(context, options)
+    },
+  }
+}
+
+const adapter = createPlaygroundMockAgentAdapter({
   delay: 650,
   name: "playground-mock",
   tools: [

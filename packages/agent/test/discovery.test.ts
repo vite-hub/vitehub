@@ -162,30 +162,6 @@ describe("agent chat discovery", () => {
     ])
   })
 
-  it("discovers typed agents that expose chat through capabilities", async () => {
-    const root = await createTempRoot("vitehub-agent-chat-typed-capability-")
-    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), [
-      "import { chat, defineAgent } from '@vitehub/agent'",
-      "export default defineAgent<{ vertex: { model: string } }>({",
-      "  workspace: {},",
-      "  capabilities: [chat({ events: ['directMessage'] })],",
-      "  provider: 'ai-sdk',",
-      "})",
-    ].join("\n"), "utf8")
-
-    expect(discoverChatDefinitions({
-      mode: "nitro-server-chats",
-      scanDirs: [join(root, "server")],
-    })).toEqual([
-      expect.objectContaining({
-        name: "support",
-        source: "nitro-server-agent-chat",
-        workspace: "support",
-      }),
-    ])
-  })
-
   it("generates package imports for workspace chat agents", async () => {
     const root = await createTempRoot("vitehub-agent-chat-runtime-")
     const buildDir = ".nitro"
@@ -252,7 +228,7 @@ describe("agent chat discovery", () => {
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support", "config.ts"), [
       "import { chat, defineAgent } from '@vitehub/agent'",
-      "export default defineAgent<{ vertex: { model: string } }>({",
+      "export default defineAgent({",
       "  workspace: {},",
       "  capabilities: [chat({ events: ['directMessage'] })],",
       "  provider: 'ai-sdk',",

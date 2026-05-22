@@ -32,15 +32,12 @@ function stripComments(source: string) {
     .replace(/(^|[^:])\/\/.*$/gm, "$1")
 }
 
-const defineAgentCall = String.raw`\bdefineAgent\s*(?:<[^>]+>)?\s*\(`
-const defineAgentObjectCall = String.raw`\bdefineAgent\s*(?:<[^>]+>)?\s*\(\s*\{`
-
 function isAgentConfig(file: string) {
-  return new RegExp(defineAgentCall).test(stripComments(readFileSync(file, "utf8")))
+  return /\bdefineAgent\s*\(/.test(stripComments(readFileSync(file, "utf8")))
 }
 
 function isWorkspaceAgentConfig(file: string) {
-  return new RegExp(`${defineAgentObjectCall}[\\s\\S]*?\\bworkspace\\s*:`).test(stripComments(readFileSync(file, "utf8")))
+  return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(readFileSync(file, "utf8")))
 }
 
 function collectDirectoriesWithConfig(root: string): Set<string> {

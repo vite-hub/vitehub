@@ -39,7 +39,6 @@ export {
   chatDevtoolsClearRpc,
   chatDevtoolsFeatureId,
   chatDevtoolsGetStateRpc,
-  chatDevtoolsPanelId,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   chatDevtoolsTitle,

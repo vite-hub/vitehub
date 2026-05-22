@@ -134,6 +134,11 @@ export default defineConfig(async () => {
         webhook: false,
       },
       plugins: [...await DevTools(), hubDevtools(), hubChat()],
+      server: {
+        proxy: {
+          "/__vitehub": process.env.VITEHUB_NITRO_DEV_ORIGIN || "http://127.0.0.1:3000",
+        },
+      },
     }
   }
 
