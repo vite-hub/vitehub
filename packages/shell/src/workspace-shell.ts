@@ -103,6 +103,7 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
         }
         continue
       }
+      if (segment.separatorAfter === "&&" || segment.separatorAfter === "||") return undefined
       for (const path of shellPathArguments(words)) {
         if (!isConcreteWorkspacePath(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
@@ -247,6 +248,8 @@ function isConcreteWorkspacePath(path: string) {
   return Boolean(path)
     && path !== "-"
     && cleanWorkspaceShellPath(path) !== ""
+    && !path.includes("$")
+    && !path.includes("`")
     && !path.includes("*")
     && !path.includes("?")
     && !path.includes("[")

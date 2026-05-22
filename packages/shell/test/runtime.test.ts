@@ -485,6 +485,24 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "models/customers.sql:1:select * from customers\n1 models/customers.sql\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "rg customers models || cat missing.sql", {
+      commands: ["cat", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/customers.sql:1:select * from customers\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg missing models && cat missing.sql", {
+      commands: ["cat", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 1,
+      stdout: "",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models || grep -v customer", {
       commands: ["grep", "rg"],
       cwd: workspaceMountPoint,
@@ -555,6 +573,24 @@ describe("@vitehub/shell just-bash runtime", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: "/workspace\ncustomers.sql\norders.sql\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "f=models/orders.sql; cat \"$f\"", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("select * from orders"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat \"$missing\"", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace path is not mounted"),
     })
   })
 
