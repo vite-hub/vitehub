@@ -80,6 +80,20 @@ describe("discoverNitroWorkspaceDefinitions", () => {
     ])
   })
 
+  it("discovers workspace definitions colocated with typed directory agents", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent<{ vertex: { model: string } }>({ workspace: {}, model })\n", "utf8")
+
+    expect(discoverNitroWorkspaceDefinitions(root)).toEqual([
+      expect.objectContaining({
+        handler: join(root, "server", "agents", "docs", "config.ts"),
+        name: "docs",
+        source: "nitro-server-agent-workspaces",
+      }),
+    ])
+  })
+
   it("rejects agent definitions inside workspace configs", async () => {
     const root = await createRoot()
     await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })

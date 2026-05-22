@@ -631,12 +631,12 @@ function waitForFrame() {
 }
 
 function localBridgeRoute() {
-  if (globalThis.location?.pathname.startsWith("/chat/")) {
-    return `/chat${chatDevtoolsBridgeRoute}`
-  }
   const remoteConnection = parseRemoteConnection()
   if (remoteConnection?.origin) {
     return new URL(chatDevtoolsBridgeRoute, remoteConnection.origin).toString()
+  }
+  if (globalThis.location?.pathname.startsWith("/chat/")) {
+    return `/chat${chatDevtoolsBridgeRoute}`
   }
   const ancestorOrigin = globalThis.location?.ancestorOrigins?.[0]
   if (ancestorOrigin) {
@@ -849,6 +849,9 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
         error.value = undefined
       }
       if (hasCompletedResponse(next, input.chat, input.text)) {
+        status.value = "ready"
+        activeRequest.value = undefined
+        applyState(next)
         return true
       }
     }
@@ -955,6 +958,8 @@ function watchBridgeState(input: { chat?: string, text: string }) {
           stopped = true
           currentReader?.cancel()
           status.value = "ready"
+          activeRequest.value = undefined
+          applyState(next)
           break
         }
       }
@@ -1035,10 +1040,15 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
   }
 
   try {
-    return await Promise.race([
+    const completed = await Promise.race([
       readStream(),
       pollFinalBridgeState(input, abortController.signal),
     ])
+    if (!completed || hasCompletedResponse(state.value, input.chat, input.text)) {
+      return completed
+    }
+
+    return await pollFinalBridgeState(input, abortController.signal)
   }
   finally {
     abortController.abort()
@@ -1109,9 +1119,9 @@ async function send() {
 
     const bridgeInput = { ...(chat ? { chat } : {}), text }
     if (await readDirectBridgeStream(bridgeInput)) {
-      await recoverBridgeState({ text })
-      chat = undefined
-      shouldRefreshFinalState = true
+      status.value = "ready"
+      activeRequest.value = undefined
+      await refreshFromBridge(chat)
       return
     }
 
