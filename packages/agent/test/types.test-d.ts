@@ -122,5 +122,41 @@ describe("agent public types", () => {
         name: "hello",
       }],
     })
+
+    defineEval<TestRuntimeConfig>({
+      agent,
+      runtimeConfig: {
+        service: {
+          token: "secret",
+        },
+      },
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      // @ts-expect-error eval definitions do not expose test runner request plumbing
+      request: new Request("https://example.com"),
+    })
+
+    defineEval<TestRuntimeConfig>({
+      agent,
+      runtimeConfig: {
+        service: {
+          token: "secret",
+        },
+      },
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      // @ts-expect-error eval definitions do not expose test runner runtime plumbing
+      runtime: "nitro",
+    })
+
+    defineEval<TestRuntimeConfig>({
+      agent,
+      runtimeConfig: {
+        service: {
+          token: "secret",
+        },
+      },
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      // @ts-expect-error eval definitions do not expose test runner waitUntil plumbing
+      waitUntil: () => {},
+    })
   })
 })

@@ -10,9 +10,7 @@ import {
   type AgentRunInput,
   type AgentRuntimeContext,
   type AgentRuntimeConfig,
-  type AgentRuntimeName,
   type AgentToolStep,
-  type AgentWaitUntil,
   type MaybePromise,
   type WorkspaceAgentDefinition,
   type WorkspaceAgentOptions,
@@ -67,13 +65,10 @@ export interface AgentEvalDefinition<
 > {
   agent?: AgentEvalAgent<TRuntimeConfig> | (() => MaybePromise<AgentEvalAgent<TRuntimeConfig>>)
   name?: string
-  request?: Request
-  runtime?: AgentRuntimeName
   runtimeConfig?: TRuntimeConfig | (() => MaybePromise<TRuntimeConfig>)
   scenarios: Array<AgentEvalScenario<CALL_OPTIONS>>
   scorers?: AgentScorer[]
   variants?: AgentEvalVariant[]
-  waitUntil?: AgentWaitUntil
   workspace?: WorkspaceName
 }
 
@@ -238,10 +233,7 @@ async function runScenario<
   const agent = applyVariant(await resolveEvalAgent(definition.agent, caller), input.variant)
   const runner = createAgentTestRunner<TRuntimeConfig, CALL_OPTIONS>(agent, {
     name: input.variant.name,
-    request: definition.request,
-    runtime: definition.runtime,
     runtimeConfig: definition.runtimeConfig || ({} as TRuntimeConfig),
-    waitUntil: definition.waitUntil,
     workspace: definition.workspace,
   })
   const result = await runner.run(input.scenario.input)

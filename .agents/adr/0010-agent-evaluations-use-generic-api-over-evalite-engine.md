@@ -1,6 +1,6 @@
 # Agent Evaluations Use Generic API Over Evalite Engine
 
-ViteHub Agent Evaluation uses a generic `@vitehub/agent/eval` API with `defineEval()` and sibling `*.eval.ts` files beside Agent Definitions. Evalite v1 beta is the first execution engine for local runs, watch mode, UI, CI, variants, traces, and scorer execution, but Evalite is not the domain model or public abstraction.
+ViteHub Agent Evaluation uses a generic `@vitehub/agent/eval` API with `defineEval()` and eval files colocated beside Agent Definitions. `*.eval.ts` resolves to a sibling Agent Definition with the same base name; folder-level `eval.ts` resolves to sibling `config.ts` and uses the folder name as the evaluation name. Evalite v1 beta is the first execution engine for local runs, watch mode, UI, CI, variants, traces, and scorer execution, but Evalite is not the domain model or public abstraction.
 
 ## Considered Options
 
@@ -12,6 +12,6 @@ ViteHub Agent Evaluation uses a generic `@vitehub/agent/eval` API with `defineEv
 
 ## Consequences
 
-An Agent Evaluation Definition is one default export from a sibling `*.eval.ts` file and targets the sibling Agent Definition by default. Evaluations are scenario-first, use global variants, and produce Agent Observations scored by rich Agent Scorers. V1 variants only change name, model, and replacement instructions; omitted variants run the Agent Definition as an implicit baseline.
+An Agent Evaluation Definition is one default export from a colocated eval file and targets the colocated Agent Definition by default. Evaluations are scenario-first, use global variants, and produce Agent Observations scored by rich Agent Scorers. V1 variants only change name, model, and replacement instructions; omitted variants run the Agent Definition as an implicit baseline.
 
 Arena, human review, deferred scoring, and other long-running feedback techniques are future extensions over Agent Observations rather than part of the v1 Evalite wrapper.
