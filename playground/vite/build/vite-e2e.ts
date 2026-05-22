@@ -295,6 +295,7 @@ function renderWorkspaceRuntimeModule(file: string) {
     `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/define.ts")))}`,
     `export * as loader from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/loaders/index.ts")))}`,
     `export { registerWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/registry.ts")))}`,
+    `export * as source from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/sources/index.ts")))}`,
     `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/use.ts")))}`,
     "",
   ].join("\n")
