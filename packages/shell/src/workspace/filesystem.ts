@@ -17,7 +17,7 @@ import type {
   ShellReadFileOptions,
   ShellStat,
   WritableShellWorkspace,
-} from "./workspace-types.ts"
+} from "./types.ts"
 
 export interface WorkspaceShellFileSystem extends IFileSystem {
   readonly writeFs: boolean

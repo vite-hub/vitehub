@@ -1,4 +1,4 @@
-import { analyzeShellCommand } from "./analyze.ts"
+import { analyzeShellCommand } from "../command/analyze.ts"
 
 import type {
   CreateShellRuntimeOptions,

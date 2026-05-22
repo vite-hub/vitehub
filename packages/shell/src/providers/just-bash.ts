@@ -1,13 +1,13 @@
 import type { CommandName } from "just-bash/browser"
 import type { IFileSystem } from "just-bash"
 
-import { analyzeShellCommand } from "../analyze.ts"
+import { analyzeShellCommand } from "../command/analyze.ts"
 
 import type {
   ShellBoundary,
   ShellExecutionProvider,
   ShellRuntimeExecOptions,
-} from "../types.ts"
+} from "../runtime/types.ts"
 
 export interface JustBashFileSystem extends IFileSystem {
   readonly writeFs: boolean

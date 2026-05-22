@@ -33,7 +33,7 @@
         "packages/shell/src/providers/just-bash.ts"
       ],
       "@vitehub/shell/workspace": [
-        "packages/shell/src/workspace.ts"
+        "packages/shell/src/workspace/index.ts"
       ],
       "@vitehub/unsource": [
         "packages/unsource/src/index.ts"

@@ -1,11 +1,11 @@
-import { analyzeShellCommand } from "../analyze.ts"
-import { parseShellCommand } from "../parse.ts"
+import { analyzeShellCommand } from "../command/analyze.ts"
+import { parseShellCommand } from "../command/parse.ts"
 
 import type {
   ShellBoundary,
   ShellExecutionProvider,
   ShellRuntimeExecOptions,
-} from "../types.ts"
+} from "../runtime/types.ts"
 
 export interface CloudflareShellClient {
   exec: (

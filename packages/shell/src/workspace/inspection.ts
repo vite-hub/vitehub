@@ -1,14 +1,10 @@
-import { posix } from "node:path"
+import { createJustBashProvider } from "../providers/just-bash.ts"
+import { createShellRuntime } from "../runtime/index.ts"
+import { workspaceMountPoint } from "./filesystem.ts"
 
-import { createJustBashProvider } from "./providers/just-bash.ts"
-import { createShellRuntime } from "./runtime.ts"
-import { workspaceMountPoint } from "./workspace-fs.ts"
-
-import type {
-  ShellObservation,
-} from "./types.ts"
-import type { WorkspaceShellFileSystem } from "./workspace-fs.ts"
-import type { SearchableShellWorkspace } from "./workspace-types.ts"
+import type { ShellObservation } from "../runtime/types.ts"
+import type { WorkspaceShellFileSystem } from "./filesystem.ts"
+import type { SearchableShellWorkspace } from "./types.ts"
 
 interface WorkspaceInspectionCommandOptions {
   broadSearchPaths?: string[]
@@ -17,18 +13,6 @@ interface WorkspaceInspectionCommandOptions {
   fs: WorkspaceShellFileSystem
   maxOutputLength?: number
   timeout?: number
-}
-
-export function cleanWorkspaceShellPath(path = "."): string {
-  const trimmed = path.trim() || "."
-  if (trimmed === "." || trimmed === "./" || trimmed === "/" || trimmed === workspaceMountPoint) return ""
-  return normalizeSafeShellPath(trimmed.replace(/^\/workspace(\/|$)/, ""))
-}
-
-export function cleanWorkspaceMutationPath(path: string): string {
-  const normalized = cleanWorkspaceShellPath(path)
-  if (!normalized) throw new Error("[vitehub] Workspace root is not a valid mutation target.")
-  return normalized
 }
 
 export async function runWorkspaceInspectionCommand(
@@ -211,13 +195,4 @@ function parseShellWords(command: string) {
   }
   if (current) words.push(current)
   return words
-}
-
-function normalizeSafeShellPath(path: string): string {
-  const normalized = posix.normalize(path.replace(/\\/g, "/")).replace(/^\//, "")
-  if (normalized === ".") return ""
-  if (normalized === ".." || normalized.startsWith("../")) {
-    throw new Error(`[vitehub] Workspace path escapes the workspace root: "${path}".`)
-  }
-  return normalized
 }

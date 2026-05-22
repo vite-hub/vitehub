@@ -1,7 +1,7 @@
-import { analyzeShellCommand } from "./analyze.ts"
-import { createShellRuntime } from "./runtime.ts"
+import { analyzeShellCommand } from "./command/analyze.ts"
+import { createShellRuntime } from "./runtime/index.ts"
 
-export type * from "./types.ts"
+export type * from "./runtime/types.ts"
 
 export {
   analyzeShellCommand,

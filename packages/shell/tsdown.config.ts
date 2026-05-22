@@ -3,7 +3,12 @@ import { defineConfig } from "tsdown"
 export default defineConfig({
   clean: true,
   dts: true,
-  entry: ["src/index.ts", "src/providers/cloudflare.ts", "src/providers/just-bash.ts", "src/workspace.ts"],
+  entry: [
+    "src/index.ts",
+    "src/providers/cloudflare.ts",
+    "src/providers/just-bash.ts",
+    { workspace: "src/workspace/index.ts" },
+  ],
   exports: {
     inlinedDependencies: false,
   },
