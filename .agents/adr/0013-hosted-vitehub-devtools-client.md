@@ -2,7 +2,7 @@
 
 ViteHub DevTools use a single hosted **ViteHub DevTools Client** as the public client delivery mode. The DevTools Package owns the **ViteHub DevTools Integration**, **DevTools Discovery Surface**, and shared registration helpers; feature packages own their **Package DevTools Integrations**, **DevTools Features**, **DevTools Bridges**, and package-local opt-outs.
 
-`@vitehub/devtools` is private for now. In this ADR, "public" describes the intended integration contract inside the monorepo, not npm publication or a stable external package release.
+`@vitehub/devtools` is publishable so external applications can install the ViteHub DevTools Integration and test package-owned DevTools Features through the hosted shell.
 
 Chat is the first **DevTools Feature**. It should register feature metadata and a bridge with DevTools discovery, not install a separate embedded client or force application bundling workarounds such as Vue aliasing.
 
