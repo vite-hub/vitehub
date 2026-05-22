@@ -241,7 +241,6 @@ describe("agent message protocol", () => {
 
     await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
       id: "tool-1",
-      input: { command: "find . -maxdepth 3 -name \"*user*\"" },
       name: "shell",
       output: "users.ts",
       status: "completed",
@@ -254,6 +253,7 @@ describe("agent message protocol", () => {
       tools: [
         {
           id: "tool-1",
+          input: { command: "find . -maxdepth 3 -name \"*user*\"" },
           name: "shell",
           output: "users.ts",
           status: "completed",

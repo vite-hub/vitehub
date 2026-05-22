@@ -26,6 +26,7 @@ interface ViteHubDevtoolsRegistry {
   missingShellWarnings: Set<string>
   registeredFeatures: Map<string, ViteHubDevtoolsFeature>
   registeredShellPanel: boolean
+  registeredShellRpc: boolean
   registeredShell: boolean
 }
 
@@ -37,6 +38,7 @@ function getRegistry(ctx: ViteDevToolsNodeContext): ViteHubDevtoolsRegistry {
     registeredFeatures: new Map(),
     registeredShell: false,
     registeredShellPanel: false,
+    registeredShellRpc: false,
   }
 }
 
@@ -80,6 +82,20 @@ function warnIfDevtoolsShellMissing(ctx: ViteDevToolsNodeContext, feature: ViteH
   })
 }
 
+function registerViteHubDevtoolsDiscoveryRpc(ctx: ViteDevToolsNodeContext): void {
+  const registry = getRegistry(ctx)
+  if (registry.registeredShellRpc) {
+    return
+  }
+
+  ctx.rpc.register(defineRpcFunction({
+    name: viteHubDevtoolsGetFeaturesRpc,
+    type: "query",
+    setup: () => ({ handler: () => listViteHubDevtoolsFeatures(ctx) }),
+  }) as never)
+  registry.registeredShellRpc = true
+}
+
 export function registerViteHubDevtoolsFeature(
   ctx: ViteDevToolsNodeContext,
   feature: ViteHubDevtoolsFeature,
@@ -114,11 +130,7 @@ export function hubDevtools(options: HubDevtoolsOptions = {}): Plugin {
           title: options.title || viteHubDevtoolsTitle,
         })
 
-        ctx.rpc.register(defineRpcFunction({
-          name: viteHubDevtoolsGetFeaturesRpc,
-          type: "query",
-          setup: () => ({ handler: () => listViteHubDevtoolsFeatures(ctx) }),
-        }) as never)
+        registerViteHubDevtoolsDiscoveryRpc(ctx)
       },
     },
   }

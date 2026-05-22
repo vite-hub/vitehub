@@ -59,6 +59,7 @@ describe("hubDevtools", () => {
 
     expect(ctx.views.hostStatic).not.toHaveBeenCalled()
     expect(ctx.docks.register).toHaveBeenCalledTimes(1)
+    expect(ctx.rpc.register).toHaveBeenCalledTimes(1)
   })
 
   it("returns registered feature metadata through the Discovery RPC", () => {

@@ -36,6 +36,10 @@ _Avoid_: Client routing, plugin install, sidebar item
 A package-owned Integration Option that disables one DevTools Feature while leaving the package integration active.
 _Avoid_: Remove plugin, hide route, disable client
 
+**DevTools Demo Agent**:
+A deterministic Agent used by a playground to exercise a DevTools Feature without external model providers.
+_Avoid_: Dummy bot, fake chat, mock page
+
 ## Relationships
 
 - The **ViteHub DevTools Client** contains zero or more **DevTools Features**.
@@ -55,6 +59,7 @@ _Avoid_: Remove plugin, hide route, disable client
 - A missing **ViteHub DevTools Integration** should warn during development when package-local DevTools features are enabled.
 - Hosted delivery is the default behavior for the **ViteHub DevTools Client**.
 - Embedded DevTools client delivery is not a public integration mode.
+- A **DevTools Demo Agent** may exercise **Chat History**, tool-call visibility, and bridge behavior without being a production **Agent**.
 
 ## Example Dialogue
 
@@ -75,6 +80,9 @@ _Avoid_: Remove plugin, hide route, disable client
 >
 > **Dev:** "Should the hosted client hardcode Chat, KV, and DB routes?"
 > **Domain expert:** "No. The hosted client reads registered features from the **DevTools Discovery Surface**."
+>
+> **Dev:** "Should the playground require a real model provider before Chat can be tested?"
+> **Domain expert:** "No. Use a **DevTools Demo Agent** when the goal is deterministic inspection of the DevTools Feature."
 
 ## Flagged Ambiguities
 
@@ -83,3 +91,4 @@ _Avoid_: Remove plugin, hide route, disable client
 - Embedded DevTools fallback was considered a user-facing option - resolved: local client delivery is an internal development workflow, not a public integration mode.
 - Global DevTools feature toggles were considered for the shell integration - resolved: **DevTools Opt-Out** stays package-local until global policy has a concrete need.
 - DevTools Feature Registration was considered as a client-rendering plugin contract - resolved: v1 registration only describes feature metadata and bridge location.
+- Playground Chat testing was described as a dummy chat page - resolved: use a **DevTools Demo Agent** that exercises the real **DevTools Feature** through the **DevTools Bridge**.

@@ -520,7 +520,13 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     const tools = message.tools ||= []
     const next = { ...tool, updatedAt: new Date().toISOString() }
     const existing = tools.find(item => item.id === tool.id)
-    if (existing) Object.assign(existing, next)
+    if (existing) {
+      Object.assign(existing, {
+        ...next,
+        input: next.input === undefined ? existing.input : next.input,
+        text: next.text === tool.name && existing.text !== existing.name ? existing.text : next.text,
+      })
+    }
     else tools.push(next)
     message.loading = typingMessageIds.get(threadId) === message.id || tools.some(item => item.status === "running")
     return true
