@@ -269,6 +269,10 @@ describe("agent eval", () => {
       usage: { inputTokens: 3, outputTokens: 2 },
       variant: "baseline",
     }
+    const erroredToolObservation = {
+      ...observation,
+      toolSteps: [{ toolErrors: [{ output: "network failed", toolName: "refund" }] }],
+    }
 
     expect(await textContains("billing").score(observation)).toMatchObject({ score: 1, passed: true })
     const globalPattern = /billing/g
@@ -278,6 +282,8 @@ describe("agent eval", () => {
     expect(globalPattern.lastIndex).toBe(0)
     expect(await doesNotLeakSource().score({ ...observation, text: "export const token = 'x'" })).toMatchObject({ score: 0, passed: false })
     expect(await callsTool("classifyTicket").score(observation)).toMatchObject({ score: 1, passed: true })
+    expect(await callsTool("refund").score(erroredToolObservation)).toMatchObject({ score: 1, passed: true })
+    expect(await doesNotCallTool("refund").score(erroredToolObservation)).toMatchObject({ score: 0, passed: false })
     expect(await doesNotCallTool("refund").score(observation)).toMatchObject({ score: 1, passed: true })
     expect(await staysUnderTokenBudget(10).score(observation)).toMatchObject({ score: 1, passed: true })
     expect(await staysUnderTokenBudget(4).score(observation)).toMatchObject({ score: 0.8, passed: false })

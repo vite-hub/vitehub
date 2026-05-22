@@ -333,6 +333,7 @@ export function doesNotLeakSource(): AgentScorer {
 
 function stepIncludesTool(step: AgentToolStep, name: string): boolean {
   return Boolean(step.toolCalls?.some(call => call.toolName === name)
+    || step.toolErrors?.some(error => error.toolName === name)
     || step.toolResults?.some(result => result.toolName === name))
 }
 
