@@ -133,6 +133,42 @@ describe("createWorkspaceTools", () => {
     })
   })
 
+  it("accepts shell timeout through workspace tools", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "README.md": "# Docs\n",
+    }), { timeout: 5 })
+
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
+  })
+
+  it("returns model-readable feedback when shell call budget is exhausted", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "README.md": "# Docs\n",
+    }), { maxShellCalls: 1 })
+
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(runShell(tools, "pwd")).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("command budget exhausted after 1 calls"),
+    })
+  })
+
+  it("uses broad search path hints in workspace shell feedback", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "models/orders.sql": "select * from orders\n",
+    }), { broadSearchPaths: ["models"] })
+
+    await expect(runShell(tools, "rg orders .")).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Try one of these paths: \"models\""),
+    })
+  })
+
   it("exposes source materialization as an opt-in tool", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",

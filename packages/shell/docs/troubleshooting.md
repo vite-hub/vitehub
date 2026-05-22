@@ -22,10 +22,14 @@ Cause: the command is not included in the `commands` exposed by the `just-bash` 
 Fix: add only the command you intend to expose.
 
 ```ts
+import { createShellRuntime } from '@vitehub/shell'
+import { createJustBashProvider } from '@vitehub/shell/providers/just-bash'
+
 createShellRuntime({
-  commands: ['pwd', 'ls', 'cat'],
-  fs,
-  provider: 'just-bash',
+  provider: createJustBashProvider({
+    commands: ['pwd', 'ls', 'cat'],
+    fs,
+  }),
 })
 ```
 

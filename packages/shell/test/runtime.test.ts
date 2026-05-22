@@ -2,13 +2,22 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   analyzeShellCommand,
-  createReadonlyWorkspaceFs,
   createShellRuntime,
+} from "../src/index.ts"
+import { createJustBashProvider } from "../src/providers/just-bash.ts"
+import {
+  createReadonlyWorkspaceFs,
   createWritableWorkspaceFs,
   runWorkspaceInspectionCommand,
   workspaceMountPoint,
-} from "../src/index.ts"
+} from "../src/workspace/index.ts"
+import { createCloudflareShellProvider } from "../src/providers/cloudflare.ts"
 
+import type {
+  ShellExecutionProvider,
+  ShellProcess,
+  ShellRuntimeExecOptions,
+} from "../src/index.ts"
 import type {
   ReadonlyShellWorkspace,
   ShellContent,
@@ -18,7 +27,10 @@ import type {
   ShellSearchQuery,
   ShellStat,
   WritableShellWorkspace,
-} from "../src/types.ts"
+} from "../src/workspace/index.ts"
+
+// @ts-expect-error workspace contracts belong to @vitehub/shell/workspace.
+import type { ReadonlyShellWorkspace as RootReadonlyShellWorkspace } from "../src/index.ts"
 
 type Node = {
   content?: ShellContent
@@ -134,14 +146,123 @@ class MemoryWorkspace implements WritableShellWorkspace {
 
 function createReadonlyRuntime(workspace: ReadonlyShellWorkspace) {
   return createShellRuntime({
-    commands: ["pwd", "ls", "find", "cat", "head", "tail", "wc", "rg"],
-    cwd: workspaceMountPoint,
-    fs: createReadonlyWorkspaceFs(workspace),
-    provider: "just-bash",
+    provider: createJustBashProvider({
+      commands: ["pwd", "ls", "find", "cat", "head", "tail", "wc", "rg"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    }),
   })
 }
 
 describe("@vitehub/shell just-bash runtime", () => {
+  it("exposes stable public package subpaths", async () => {
+    await expect(import("@vitehub/shell")).resolves.toMatchObject({
+      analyzeShellCommand: expect.any(Function),
+      createShellRuntime: expect.any(Function),
+    })
+    await expect(import("@vitehub/shell/workspace")).resolves.toMatchObject({
+      cleanWorkspaceShellPath: expect.any(Function),
+      createReadonlyWorkspaceFs: expect.any(Function),
+      runWorkspaceInspectionCommand: expect.any(Function),
+    })
+    await expect(import("@vitehub/shell/providers/just-bash")).resolves.toMatchObject({
+      createJustBashProvider: expect.any(Function),
+    })
+    await expect(import("@vitehub/shell/providers/cloudflare")).resolves.toMatchObject({
+      createCloudflareShellProvider: expect.any(Function),
+    })
+  })
+
+  it("creates stateful shell sessions with boundary metadata and one-shot exec sugar", async () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+    })
+    const runtime = createReadonlyRuntime(workspace)
+
+    expect(runtime.boundary).toMatchObject({
+      cwd: true,
+      filesystem: {
+        mountPoint: "/workspace",
+        writable: false,
+      },
+      processes: {
+        background: false,
+        interactive: false,
+      },
+    })
+    await expect(runtime.exec("pwd")).resolves.toMatchObject({
+      command: "pwd",
+      event: "command_finished",
+      stdout: "/workspace\n",
+    })
+
+    const session = runtime.createSession({ policy: { maxShellCalls: 1, maxOutputLength: 4 } })
+    await expect(session.exec("cat README.md", { cwd: workspaceMountPoint })).resolves.toMatchObject({
+      outputTruncated: true,
+      stdout: "# Do\n[output truncated to 4 characters]\n",
+    })
+    await expect(session.exec("pwd", { cwd: workspaceMountPoint })).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("command budget exhausted after 1 calls"),
+    })
+    await expect(session.startProcess("sleep 10")).rejects.toThrow("does not support long-running processes")
+    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+  })
+
+  it("unregisters stopped long-running processes from session state", async () => {
+    const provider: ShellExecutionProvider = {
+      boundary: {
+        cwd: true,
+        env: true,
+        filesystem: { writable: false },
+        network: false,
+        processes: {
+          background: true,
+          interactive: false,
+        },
+        streaming: false,
+        timeout: {
+          enforcedBy: "runtime",
+          supported: true,
+        },
+      },
+      async exec(command: string, _options?: ShellRuntimeExecOptions) {
+        return {
+          command,
+          event: "command_finished",
+          exitCode: 0,
+          stderr: "",
+          stdout: "",
+        }
+      },
+      async startProcess(command: string): Promise<ShellProcess> {
+        return {
+          command,
+          id: command,
+          async stop() {
+            return {
+              command,
+              event: "command_finished",
+              exitCode: 0,
+              stderr: "",
+              stdout: "",
+            }
+          },
+        }
+      },
+    }
+    const session = createShellRuntime({ provider }).createSession({ policy: { maxProcesses: 1 } })
+
+    const first = await session.startProcess("one")
+    expect(await session.listProcesses()).toHaveLength(1)
+    await expect(session.startProcess("two")).rejects.toThrow("process budget exhausted after 1 processes")
+
+    await expect(first.stop()).resolves.toMatchObject({ exitCode: 0 })
+    expect(await session.listProcesses()).toHaveLength(0)
+    await expect(session.startProcess("two")).resolves.toMatchObject({ id: "two" })
+  })
+
   it("executes workspace inspection commands", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
@@ -220,10 +341,11 @@ describe("@vitehub/shell just-bash runtime", () => {
       "README.md": "# Docs\n",
     })
     const runtime = createShellRuntime({
-      commands: ["cat", "echo", "grep", "head", "mkdir", "printf", "test", "tr"],
-      cwd: workspaceMountPoint,
-      fs: createWritableWorkspaceFs(workspace),
-      provider: "just-bash",
+      provider: createJustBashProvider({
+        commands: ["cat", "echo", "grep", "head", "mkdir", "printf", "test", "tr"],
+        cwd: workspaceMountPoint,
+        fs: createWritableWorkspaceFs(workspace),
+      }),
     })
 
     await expect(runtime.exec("echo hello | tr a-z A-Z")).resolves.toMatchObject({ exitCode: 0, stdout: "HELLO\n" })
@@ -442,8 +564,9 @@ describe("@vitehub/shell cloudflare runtime", () => {
     } as any
 
     const runtime = createShellRuntime({
-      provider: "cloudflare-shell",
-      sandbox,
+      provider: createCloudflareShellProvider({
+        sandbox,
+      }),
     })
     const onStdout = vi.fn()
     const onStderr = vi.fn()
@@ -457,7 +580,9 @@ describe("@vitehub/shell cloudflare runtime", () => {
       timeout: 100,
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
+      command,
+      event: "command_finished",
       exitCode: 0,
       stderr: "err",
       stdout: "out",

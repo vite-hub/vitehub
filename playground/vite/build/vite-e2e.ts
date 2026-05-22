@@ -424,6 +424,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     const workspaceShellRuntimeFile = resolve(generatedDir, "workspace-shell-runtime.mjs")
     alias["@vitehub/workspace/internal/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
     alias["@vitehub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
+    alias["@vitehub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
     alias["@vitehub/workspace/test"] = resolve(workspacePackageDir, "src/test.ts")
     alias["@vitehub/workspace"] = workspaceRuntimeFile
     alias["@vitehub/shell/workspace"] = workspaceShellRuntimeFile

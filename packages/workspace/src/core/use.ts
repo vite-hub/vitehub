@@ -42,8 +42,11 @@ export interface UseWorkspaceOptions {
 }
 
 export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
+  broadSearchPaths?: string[]
   cwd?: string
+  maxShellCalls?: number
   maxOutputLength?: number
+  timeout?: number
 }
 
 export interface WritableWorkspaceFacadeToolOptions extends WorkspaceFacadeToolOptions, WorkspaceWriteOperations {}
@@ -397,14 +400,20 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
   if (options?.mode === "write") {
     const workspace = createLazyWorkspace(name)
     const createTools = (opts?: WritableWorkspaceFacadeToolOptions) => createWorkspaceTools(workspace, {
+      broadSearchPaths: opts?.broadSearchPaths,
       cwd: opts?.cwd,
+      maxShellCalls: opts?.maxShellCalls,
       maxOutputLength: opts?.maxOutputLength,
       operations: toWriteOperations(opts),
+      timeout: opts?.timeout,
     })
     const createReadTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(createReadonlyFs(name, workspace), {
+      broadSearchPaths: opts?.broadSearchPaths,
       cwd: opts?.cwd,
+      maxShellCalls: opts?.maxShellCalls,
       maxOutputLength: opts?.maxOutputLength,
       operations: toReadOperations(opts),
+      timeout: opts?.timeout,
     })
     const tools = createDefaultToolSet<
       WritableWorkspaceFacadeToolOptions,
@@ -423,9 +432,12 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
 
   const fs = createReadonlyFs(name, createLazyWorkspace(name))
   const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
+    broadSearchPaths: opts?.broadSearchPaths,
     cwd: opts?.cwd,
+    maxShellCalls: opts?.maxShellCalls,
     maxOutputLength: opts?.maxOutputLength,
     operations: toReadOperations(opts),
+    timeout: opts?.timeout,
   })
   const tools = createDefaultToolSet<
     WorkspaceFacadeToolOptions,

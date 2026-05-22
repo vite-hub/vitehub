@@ -101,6 +101,7 @@ ignoreDependencies = [
 publicPackages = [
   "@vitehub/agent",
   "@vitehub/sandbox",
+  "@vitehub/shell",
   "@vitehub/workspace",
 ]
 
