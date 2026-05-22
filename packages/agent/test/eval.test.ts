@@ -115,6 +115,18 @@ describe("agent eval", () => {
     expect(score.score).toBe(1)
   })
 
+  it("infers sibling agents after top-level await in eval files", async () => {
+    await import("./fixtures/async-eval.eval.ts")
+
+    expect(evaliteCalls[0]?.name).toBe("async-eval")
+
+    const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
+
+    expect(output.text).toBe("async eval config")
+    expect(score.score).toBe(1)
+  })
+
   it("uses exact variants when variants are provided", async () => {
     const { defineEval } = await import("../src/eval.ts")
 

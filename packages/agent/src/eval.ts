@@ -122,7 +122,7 @@ function getCallerFile(): string | undefined {
 
 function parseStackFramePath(line: string): string | undefined {
   const match = line.match(/\(((?:file:\/\/)?[^()]+?\.(?:c|m)?[jt]s)(?::\d+:\d+)?\)$/)
-    || line.match(/^\s*at\s+((?:file:\/\/)?.+?\.(?:c|m)?[jt]s)(?::\d+:\d+)?$/)
+    || line.match(/^\s*at\s+(?:async\s+)?((?:file:\/\/)?.+?\.(?:c|m)?[jt]s)(?::\d+:\d+)?$/)
   return match?.[1]
 }
 
