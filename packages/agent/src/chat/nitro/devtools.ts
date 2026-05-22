@@ -1,5 +1,5 @@
 import { Chat, Message, parseMarkdown, toPlainText } from "chat"
-import { createError, defineEventHandler, readBody } from "h3"
+import { createError, defineEventHandler, readBody, setHeader } from "h3"
 
 import { chatDevtoolsAdapterName, createDevtoolsAdapter as createBaseDevtoolsAdapter } from "../devtools.ts"
 import { chatDevtoolsClearRpc, chatDevtoolsGetStateRpc, chatDevtoolsSendRpc } from "../devtools-shared.ts"
@@ -469,7 +469,9 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
   }
 
   return defineEventHandler(async (event) => {
-    const body = await readBody<ChatDevtoolsBridgeBody>(event)
+    setHeader(event, "access-control-allow-origin", "*")
+    const rawBody = await readBody<ChatDevtoolsBridgeBody | string>(event)
+    const body = typeof rawBody === "string" ? JSON.parse(rawBody) as ChatDevtoolsBridgeBody : rawBody
     if (!body || typeof body.action !== "string") {
       throw createError({
         statusCode: 400,

@@ -634,6 +634,13 @@ function localBridgeRoute() {
   if (globalThis.location?.pathname.startsWith("/chat/")) {
     return `/chat${chatDevtoolsBridgeRoute}`
   }
+  const ancestorOrigin = globalThis.location?.ancestorOrigins?.[0]
+  if (ancestorOrigin) {
+    return new URL(chatDevtoolsBridgeRoute, ancestorOrigin).toString()
+  }
+  if (globalThis.document?.referrer) {
+    return new URL(chatDevtoolsBridgeRoute, globalThis.document.referrer).toString()
+  }
   return chatDevtoolsBridgeRoute
 }
 
@@ -776,7 +783,7 @@ async function callBridgeState(body: Record<string, unknown>): Promise<ChatDevto
   try {
     const response = await fetch(localBridgeRoute(), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "text/plain" },
       body: JSON.stringify(body),
     })
     if (!response.ok) return undefined
@@ -826,7 +833,7 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
     try {
       const response = await fetch(localBridgeRoute(), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "text/plain" },
         body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
         signal,
       })
@@ -886,7 +893,7 @@ async function recoverBridgeState(input: { chat?: string, text: string }) {
       try {
         const response = await fetch(localBridgeRoute(), {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "text/plain" },
           body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
           signal: abortController.signal,
         })
@@ -929,7 +936,7 @@ function watchBridgeState(input: { chat?: string, text: string }) {
       try {
         const response = await fetch(localBridgeRoute(), {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "text/plain" },
           body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
         })
         if (!response.ok) continue
@@ -967,7 +974,7 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
     response = await Promise.race([
       fetch(localBridgeRoute(), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "text/plain" },
         body: JSON.stringify({ action: "send", ...input, stream: true }),
         signal: abortController.signal,
       }),
