@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Comark } from "@comark/vue"
-import { connectRemoteDevTools, getDevToolsRpcClient } from "@vitejs/devtools-kit/client"
+import { connectRemoteDevTools, getDevToolsRpcClient, parseRemoteConnection } from "@vitejs/devtools-kit/client"
 
 import {
   chatDevtoolsClearRpc,
@@ -633,6 +633,10 @@ function waitForFrame() {
 function localBridgeRoute() {
   if (globalThis.location?.pathname.startsWith("/chat/")) {
     return `/chat${chatDevtoolsBridgeRoute}`
+  }
+  const remoteConnection = parseRemoteConnection()
+  if (remoteConnection?.origin) {
+    return new URL(chatDevtoolsBridgeRoute, remoteConnection.origin).toString()
   }
   const ancestorOrigin = globalThis.location?.ancestorOrigins?.[0]
   if (ancestorOrigin) {
