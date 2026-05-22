@@ -1183,6 +1183,58 @@ async function finishAgentInvocation<
   await context.finishHook?.({ ...eventBase, extensions })
 }
 
+async function finishFailedAgentInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  error: unknown,
+  message: string,
+): Promise<never> {
+  try {
+    await finishAgentInvocation(context, undefined, error)
+  }
+  catch (finishError) {
+    throw new AggregateError([error, finishError], message)
+  }
+  throw error
+}
+
+async function finalizeAgentInvocationResult<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+  TResult,
+>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean },
+  result: unknown,
+  finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, value: TResult }>,
+  failureMessage: string,
+): Promise<Response | AsyncIterable<unknown> | TResult> {
+  const shouldWrapOutput = context.hasCapabilityCleanup || hasFinishWork(context)
+  let finishLifecycleStarted = false
+  try {
+    if (result instanceof Response) {
+      const response = shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(context, error === undefined ? result : undefined, error)) : result
+      finishLifecycleStarted = shouldWrapOutput
+      return response
+    }
+    if (isAsyncIterable(result)) {
+      finishLifecycleStarted = shouldWrapOutput
+      return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(context, error === undefined ? result : undefined, error)) : result
+    }
+    const finalized = await finalizeObject(result)
+    finishLifecycleStarted = true
+    if (!finalized.deferFinish) {
+      await finishAgentInvocation(context, finalized.finishResult)
+    }
+    return finalized.value
+  }
+  catch (error) {
+    if (finishLifecycleStarted) throw error
+    return await finishFailedAgentInvocation(context, error, failureMessage)
+  }
+}
+
 export async function runAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1194,69 +1246,35 @@ export async function runAgent<
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createRunContext(agent, context, input)
     runContext.close = once(runContext.close)
-    const shouldWrapOutput = runContext.hasCapabilityCleanup || hasFinishWork(runContext)
-    let finishLifecycleStarted = false
+    let result: unknown
     try {
-      const result = await agent.run(runContext)
-      if (result instanceof Response) {
-        const response = shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
-        finishLifecycleStarted = shouldWrapOutput
-        return response
-      }
-      if (isAsyncIterable(result)) {
-        finishLifecycleStarted = shouldWrapOutput
-        return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
-      }
-      const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
-      finishLifecycleStarted = true
-      await finishAgentInvocation(runContext, rendered)
-      return rendered
+      result = await agent.run(runContext)
     }
     catch (error) {
-      if (finishLifecycleStarted) throw error
-      try {
-        await finishAgentInvocation(runContext, undefined, error)
-      }
-      catch (finishError) {
-        throw new AggregateError([error, finishError], "[vitehub] Agent run failed and finish lifecycle also failed.")
-      }
-      throw error
+      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
+    return await finalizeAgentInvocationResult(runContext, result, async (result) => {
+      const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
+      return { finishResult: rendered, value: rendered }
+    }, "[vitehub] Agent run failed and finish lifecycle also failed.")
   }
 
   const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
   adapterContext.close = once(adapterContext.close)
-  const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
-  let finishLifecycleStarted = false
+  let result: unknown
   try {
-    const result = await resolved.generate(adapterContext as never)
-    if (result instanceof Response) {
-      const response = shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
-      finishLifecycleStarted = shouldWrapOutput
-      return response
-    }
-    if (isAsyncIterable(result)) {
-      finishLifecycleStarted = shouldWrapOutput
-      return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
-    }
-    const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
-    const runResult = toAgentRunResult(rendered)
-    finishLifecycleStarted = true
-    await finishAgentInvocation(adapterContext, rendered)
-    return runResult
+    result = await resolved.generate(adapterContext as never)
   }
   catch (error) {
-    if (finishLifecycleStarted) throw error
-    try {
-      await finishAgentInvocation(adapterContext, undefined, error)
-    }
-    catch (finishError) {
-      throw new AggregateError([error, finishError], "[vitehub] Agent run failed and finish lifecycle also failed.")
-    }
-    throw error
+    return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
   }
+  return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
+    const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
+    const runResult = toAgentRunResult(rendered)
+    return { finishResult: rendered, value: runResult }
+  }, "[vitehub] Agent run failed and finish lifecycle also failed.")
 }
 
 export async function streamAgent<
@@ -1270,70 +1288,42 @@ export async function streamAgent<
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createRunContext(agent, context, input)
     runContext.close = once(runContext.close)
-    const shouldWrapOutput = runContext.hasCapabilityCleanup || hasFinishWork(runContext)
-    let finishLifecycleStarted = false
+    let result: unknown
     try {
-      const result = await agent.run(runContext)
-      if (result instanceof Response) {
-        const response = shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
-        finishLifecycleStarted = shouldWrapOutput
-        return response
-      }
-      if (isAsyncIterable(result)) {
-        finishLifecycleStarted = shouldWrapOutput
-        return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
-      }
-      const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
-      finishLifecycleStarted = true
-      await finishAgentInvocation(runContext, rendered)
-      return rendered
+      result = await agent.run(runContext)
     }
     catch (error) {
-      if (finishLifecycleStarted) throw error
-      try {
-        await finishAgentInvocation(runContext, undefined, error)
-      }
-      catch (finishError) {
-        throw new AggregateError([error, finishError], "[vitehub] Agent run failed and finish lifecycle also failed.")
-      }
-      throw error
+      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
+    return await finalizeAgentInvocationResult(runContext, result, async (result) => {
+      const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
+      return { finishResult: rendered, value: rendered }
+    }, "[vitehub] Agent run failed and finish lifecycle also failed.")
   }
 
   const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAdapterRunContext(definition, resolved as AgentAdapter<CALL_OPTIONS>, context, input)
   adapterContext.close = once(adapterContext.close)
-  const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
-  let finishLifecycleStarted = false
+  let result: unknown
   try {
-    const result = resolved.stream
+    result = resolved.stream
       ? await resolved.stream(adapterContext as never)
       : await resolved.generate(adapterContext as never)
-    if (result instanceof Response) {
-      const response = shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
-      finishLifecycleStarted = shouldWrapOutput
-      return response
-    }
-    if (isAsyncIterable(result)) {
-      finishLifecycleStarted = shouldWrapOutput
-      return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
-    }
-    const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
-    const events = streamTextResultToEvents(rendered)
-    finishLifecycleStarted = shouldWrapOutput
-    return shouldWrapOutput ? withCapabilityCleanup(events, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error)) : events
   }
   catch (error) {
-    if (finishLifecycleStarted) throw error
-    try {
-      await finishAgentInvocation(adapterContext, undefined, error)
-    }
-    catch (finishError) {
-      throw new AggregateError([error, finishError], "[vitehub] Agent stream failed and finish lifecycle also failed.")
-    }
-    throw error
+    return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
   }
+  return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
+    const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
+    const events = streamTextResultToEvents(rendered)
+    const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
+    return {
+      deferFinish: shouldWrapOutput,
+      finishResult: rendered,
+      value: shouldWrapOutput ? withCapabilityCleanup(events, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error)) : events,
+    }
+  }, "[vitehub] Agent stream failed and finish lifecycle also failed.")
 }
 
 export async function getAgent<TContext extends AgentRuntimeContext>(

@@ -153,12 +153,22 @@ interface AgentFinishEvent {
   }
   extensions: {
     get<T = unknown>(capabilityId: string): T | undefined
-    has(capabilityId: string): boolean
   }
 }
 ```
 
-Capabilities can expose optional data on finish events through extension keys that match their Capability ID. ViteHub-owned usage telemetry uses `usage-telemetry`.
+Capabilities can expose optional data on finish events through extension keys that match their Capability ID. Return `undefined` to omit the extension value for that invocation.
+
+```ts
+defineCapability({
+  id: 'audit-log',
+  output(context) {
+    context.finish.provide(event => event.result)
+  },
+})
+```
+
+ViteHub-owned usage telemetry uses `usage-telemetry`.
 
 ## Run input
 

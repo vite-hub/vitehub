@@ -64,13 +64,13 @@ describe("agent message protocol", () => {
         {
           id: "first",
           output(context) {
-            context.extensions.provide("agent:finish", (event: { result?: unknown }) => `${(event.result as { text: string }).text}:first`)
+            context.finish.provide((event: { result?: unknown }) => `${(event.result as { text: string }).text}:first`)
           },
         },
         {
           id: "second",
           output(context) {
-            context.extensions.provide("agent:finish", "second-value")
+            context.finish.provide("second-value")
           },
         },
       ],
@@ -98,10 +98,9 @@ describe("agent message protocol", () => {
       runtime: expect.objectContaining({ runtime: "unknown" }),
     }))
     const event = finish.mock.calls[0]![0]
-    expect(event.extensions.has("first")).toBe(true)
     expect(event.extensions.get("first")).toBe("ok:first")
     expect(event.extensions.get("second")).toBe("second-value")
-    expect(event.extensions.has("missing")).toBe(false)
+    expect(event.extensions.get("missing")).toBeUndefined()
   })
 
   it("skips finish extension providers when no finish hook is registered", async () => {
@@ -113,7 +112,7 @@ describe("agent message protocol", () => {
       capabilities: [{
         id: "unused",
         output(context) {
-          context.extensions.provide("agent:finish", extension)
+          context.finish.provide(extension)
         },
       }],
       run: () => ({ text: "ok" }),
@@ -138,7 +137,7 @@ describe("agent message protocol", () => {
       capabilities: [{
         id: "finish-extension",
         output(context) {
-          context.extensions.provide("agent:finish", extension)
+          context.finish.provide(extension)
         },
       }],
       hooks: {
@@ -174,12 +173,12 @@ describe("agent message protocol", () => {
       const finish = vi.fn()
       const agent = defineAgent({
         capabilities: [{
-          id: "finish-metadata",
-          output(context) {
-            context.output.render(result => ({ ...result as Record<string, unknown>, finishMetadata: { id: "rendered-1" } }))
-            context.extensions.provide("agent:finish", (event: { result?: unknown }) => (event.result as { finishMetadata?: unknown }).finishMetadata)
-          },
-        }],
+        id: "finish-metadata",
+        output(context) {
+          context.output.render(result => ({ ...result as Record<string, unknown>, finishMetadata: { id: "rendered-1" } }))
+          context.finish.provide((event: { result?: unknown }) => (event.result as { finishMetadata?: unknown }).finishMetadata)
+        },
+      }],
         hooks: {
           "agent:finish": finish,
         },

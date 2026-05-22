@@ -180,7 +180,7 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
     id: "usage-telemetry",
     name: "Usage Telemetry",
     output(context) {
-      context.extensions.provide("agent:finish", (event: AgentFinishEvent) => isRecord(event.result)
+      context.finish.provide((event: AgentFinishEvent) => isRecord(event.result)
         ? event.result.usageRecord
         : undefined)
       context.output.render(async (result) => {

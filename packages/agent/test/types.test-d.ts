@@ -42,6 +42,19 @@ describe("agent public types", () => {
     })
 
     defineAgent({
+      capabilities: [{
+        id: "finish-extension",
+        output(context) {
+          context.finish.provide("ok")
+          // @ts-expect-error finish extensions are registered through context.finish
+          context.extensions.provide("agent:finish", "ok")
+        },
+      }],
+      adapter: "ai-sdk",
+      model: {} as never,
+    })
+
+    defineAgent({
       adapter: "ai-sdk",
       model: {} as never,
       // @ts-expect-error root-level tools are not public API

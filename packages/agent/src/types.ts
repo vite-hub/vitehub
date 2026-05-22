@@ -86,7 +86,6 @@ export interface AgentRunResult {
 
 export interface AgentInvocationExtensions {
   get<T = unknown>(capabilityId: string): T | undefined
-  has(capabilityId: string): boolean
 }
 
 export interface AgentFinishEvent<
@@ -211,8 +210,8 @@ export interface AgentCapabilityRuntimeContext<
   output: {
     render: (renderer: AgentOutputRenderer) => void
   }
-  extensions: {
-    provide: (hook: "agent:finish", value: unknown | AgentFinishExtensionProvider) => void
+  finish: {
+    provide: (value: unknown | AgentFinishExtensionProvider) => void
   }
   state: {
     require: (name: string, options?: { optional?: boolean }) => void

@@ -231,9 +231,8 @@ export async function resolveAgentCapabilities<
             registries.outputRenderers.push(result => renderer(result, capabilityContext))
           },
         },
-        extensions: {
-          provide(hook, value) {
-            if (hook !== "agent:finish") return
+        finish: {
+          provide(value) {
             registries.finishExtensionProviders.push({
               id: capability.id,
               resolve: typeof value === "function"
@@ -426,9 +425,6 @@ export async function createAgentInvocationExtensions(
   const extensions: AgentFinishEvent["extensions"] = {
     get<T = unknown>(capabilityId: string): T | undefined {
       return values.get(capabilityId) as T | undefined
-    },
-    has(capabilityId: string): boolean {
-      return values.has(capabilityId)
     },
   }
   const finishEvent = { ...event, extensions } as AgentFinishEvent

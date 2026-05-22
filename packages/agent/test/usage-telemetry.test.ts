@@ -129,7 +129,13 @@ describe("usage telemetry", () => {
         },
       },
     })
-    expect(finish.mock.calls[0]![0].extensions.has("usage-telemetry")).toBe(true)
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
+      usage: {
+        inputTokens: 1,
+        outputTokens: 2,
+        totalTokens: 3,
+      },
+    }))
   })
 
   it("does not add a usage telemetry extension when no usage record is produced", async () => {
@@ -153,7 +159,6 @@ describe("usage telemetry", () => {
       text: "ok",
     })
     expect(finish).toHaveBeenCalledTimes(1)
-    expect(finish.mock.calls[0]![0].extensions.has("usage-telemetry")).toBe(false)
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toBeUndefined()
   })
 
