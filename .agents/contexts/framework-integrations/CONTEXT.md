@@ -52,6 +52,14 @@ _Avoid_: Invocation option, runtime helper option
 A runtime API used by application code to call, inspect, or use a configured ViteHub primitive.
 _Avoid_: Composable, Vite plugin, Nitro module
 
+**Definition Boundary Helper**:
+A helper whose main role is marking a user file as a ViteHub Definition for discovery.
+_Avoid_: Capability factory, invocation helper, runtime helper
+
+**Nitro Auto Import**:
+A Nitro Integration convenience that makes selected ViteHub helpers available to server code without local import statements.
+_Avoid_: generated import path, hidden capability, runtime wiring
+
 **Stable ViteHub Import Path**:
 A ViteHub-owned app-facing import specifier for generated or integration-backed surfaces.
 _Avoid_: Virtual module path, generated file path, framework import path
@@ -65,6 +73,7 @@ _Avoid_: Virtual module path, generated file path, framework import path
 - **Integration Options** are resolved into Runtime Config when runtime code needs them.
 - **Definition Options** travel with one Definition.
 - **Invocation Options** are supplied to Runtime Helpers.
+- **Nitro Auto Imports** should cover Definition Boundary Helpers and narrow read-oriented Runtime Helpers, not behavior-starting Invocation Helpers.
 - **Provider Selection** belongs in Integration Options when it changes generated output, bindings, imports, or deployment behavior.
 - Options should live as late as possible unless static analysis, type generation, provider binding, generated files, or deployment output require earlier placement.
 - A **Stable ViteHub Import Path** can resolve to a Runtime Registry, Provider Output, virtual module, or generated file.

@@ -130,7 +130,7 @@ describe("agent chat discovery", () => {
       "import { chat, defineAgent } from '@vitehub/agent'",
       "export default defineAgent({",
       "  capabilities: [chat({ events: ['directMessage'] })],",
-      "  provider: 'ai-sdk',",
+      "  adapter: 'ai-sdk',",
       "})",
     ].join("\n"), "utf8")
 

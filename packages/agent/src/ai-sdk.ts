@@ -40,14 +40,20 @@ export interface AiSdkAdapterOptions<
   TCallOptions = unknown,
   TTools extends ToolSet = ToolSet,
   Name extends WorkspaceName = WorkspaceName,
-> extends Omit<ToolLoopAgentSettings<TCallOptions, TTools>, "instructions" | "model" | "tools"> {
-  fallback?: boolean | AiSdkWorkspaceFallbackOptions
+> {
+  adapterOptions?: AiSdkAdapterExecutionOptions<TCallOptions, TTools>
   instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   model: ToolLoopAgentSettings<TCallOptions, TTools>["model"] | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<ToolLoopAgentSettings<TCallOptions, TTools>["model"]>)
-  options?: Record<string, unknown>
-  stepLimit?: number
   tools?: AgentToolResolverWithWorkspace<TRuntimeConfig, Name>
+}
+
+export type AiSdkAdapterExecutionOptions<
+  TCallOptions = unknown,
+  TTools extends ToolSet = ToolSet,
+> = Omit<ToolLoopAgentSettings<TCallOptions, TTools>, "instructions" | "model" | "tools"> & {
+  fallback?: boolean | AiSdkWorkspaceFallbackOptions
+  stepLimit?: number
 }
 
 export interface AiSdkWorkspaceFallbackOptions {
@@ -179,7 +185,7 @@ function getCallInput(context: AgentAdapterRunContext) {
   }
 }
 
-function getFallbackOptions(fallback: AiSdkAdapterOptions["fallback"]): Required<AiSdkWorkspaceFallbackOptions> {
+function getFallbackOptions(fallback: AiSdkAdapterExecutionOptions["fallback"]): Required<AiSdkWorkspaceFallbackOptions> {
   if (fallback === false) return { enabled: false, maxToolResults: 0 }
   if (fallback === true || fallback === undefined) return { enabled: true, maxToolResults: 8 }
   return {
@@ -343,14 +349,15 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
 
 async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRunContext) {
   const { ToolLoopAgent, stepCountIs } = await import("ai")
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
-    ...context.runtime,
+    ...runtime,
     fs: context.workspace?.fs,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const model = await resolveValue(options.model as never, metadataContext)
   const instrumentedModel = options.instrumentModel
-    ? await options.instrumentModel({ ...context.runtime, model, run: context.runtime.run })
+    ? await options.instrumentModel({ ...runtime, model, run: context.runtime.run })
     : model
   const instructions = context.instructions
     ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)
@@ -361,20 +368,21 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   }, [])
   const toolSet = tools || {}
   const {
-    fallback: _fallback,
+    adapterOptions: _adapterOptions,
     instructions: _instructions,
     instrumentModel: _instrumentModel,
     model: _model,
-    options: passthrough,
-    stepLimit,
     tools: _tools,
-    ...settings
   } = options
+  const {
+    fallback: _fallback,
+    stepLimit,
+    ...settings
+  } = options.adapterOptions || {}
 
   return {
     agent: new ToolLoopAgent({
       ...withRunCallbacks(settings, context),
-      ...passthrough,
       instructions,
       model: instrumentedModel as never,
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? stepCountIs(stepLimit ?? 20)) as never,
@@ -385,7 +393,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   }
 }
 
-export function createAiSdkProviderAdapter(options: AiSdkAdapterOptions): AgentAdapter {
+export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
   const staticTools = typeof options.tools === "object" && options.tools
     ? withAgentToolStepReporting(applyAgentToolPolicies(options.tools as AgentToolSet) || {})
     : undefined
@@ -416,7 +424,7 @@ export function createAiSdkProviderAdapter(options: AiSdkAdapterOptions): AgentA
       const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
 
-      const fallback = getFallbackOptions(options.fallback)
+      const fallback = getFallbackOptions(options.adapterOptions?.fallback)
       if (fallback.enabled && (result.finishReason === "tool-calls" || hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
         if (synthesized) return { raw: result, text: synthesized }

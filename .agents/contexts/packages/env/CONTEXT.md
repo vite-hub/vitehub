@@ -58,6 +58,7 @@ _Avoid_: Leak prevention, DLP, log scanning
 - **Generated Server Env Type** is the preferred source for Agent Runtime Config types when an app uses Env Package declarations.
 - **Public Env** is the public API naming pattern for build-time public values.
 - Generated env access should use stable `#vitehub/env/*` import paths instead of exposing integration-specific virtual module names.
+- Agent and Chat callbacks should use **Server Env** for app-owned Runtime Env instead of receiving those values through callback runtime config.
 - A **Secret Env** is a Runtime Env value.
 - A **Secret Env** is not interchangeable with its underlying value.
 - A **Secret Unseal** can read the underlying value from a **Secret Env**.
@@ -91,3 +92,4 @@ _Avoid_: Leak prevention, DLP, log scanning
 - Response scanning was considered a hard guarantee - resolved: **Outbound Secret Redaction** is best-effort and must not be described as general leak prevention.
 - Runtime Env and runtime config were considered interchangeable - resolved: **Runtime Env** is the Env Package concept; runtime config is integration-specific language.
 - Agent Runtime Config was considered a hand-authored mirror of Env declarations - resolved: use the **Generated Server Env Type** as the source of truth when `@vitehub/env` is present.
+- Agent and Chat callback runtime config was considered an app-facing Server Env access path - resolved: use **Server Env** through `useServerEnv()` for app-owned Runtime Env.

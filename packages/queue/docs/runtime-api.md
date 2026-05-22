@@ -22,6 +22,8 @@ import {
 } from '@vitehub/queue'
 ```
 
+In Nitro, the module auto-imports `defineQueue` for discovered queue definitions and `getQueue` for read-oriented server code. Invocation helpers such as `runQueue` and `deferQueue` stay explicit imports because they enqueue work.
+
 ::fw{id="vite:dev vite:build"}
 Vite config imports the plugin from `@vitehub/queue/vite`:
 

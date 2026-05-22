@@ -88,7 +88,6 @@ describe("chat agent history", () => {
       bot: {} as never,
       channel: { id: "channel-1" } as never,
       message: current as never,
-      runtimeConfig: {},
       thread: thread as never,
       workflow: undefined,
     })
@@ -132,7 +131,6 @@ describe("chat agent history", () => {
       bot: {} as never,
       channel: { id: "channel-1" } as never,
       message: current as never,
-      runtimeConfig: {},
       thread: thread as never,
       workflow: undefined,
     })
@@ -177,7 +175,6 @@ describe("chat agent history", () => {
       bot: {} as never,
       channel: { id: "channel-1" } as never,
       message: chatMessage("m1", "help") as never,
-      runtimeConfig: {},
       thread: thread as never,
       workflow: undefined,
     })

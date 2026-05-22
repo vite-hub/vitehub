@@ -185,7 +185,7 @@ export {
   staticModelPricing,
   usageTelemetry,
   vercelAiGatewayPricing,
-} from "./usage-telemetry.ts"
+} from "./capabilities/usage-telemetry.ts"
 
 export type {
   MemoryAppendRequest,
@@ -211,4 +211,4 @@ export type {
   StaticModelPrice,
   UsageTelemetryOptions,
   VercelAiGatewayPricingOptions,
-} from "./usage-telemetry.ts"
+} from "./capabilities/usage-telemetry.ts"

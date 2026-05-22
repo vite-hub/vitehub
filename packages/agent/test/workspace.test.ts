@@ -69,7 +69,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "agent-skills/support" })],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })
@@ -86,7 +86,7 @@ describe("defineAgent workspace option", () => {
         id: "docs",
         requires: [{ primitive: "workspace", workspace: { paths: ["CONTEXT.md"], required: true } }],
       }],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })
@@ -102,7 +102,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "agent-skills/support" })],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })
@@ -119,7 +119,7 @@ describe("defineAgent workspace option", () => {
         sources: {},
       },
       description: "Answer from workspace context",
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     })
 
@@ -134,7 +134,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: "Use workspace sources.",
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -149,7 +149,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: [" First ", "", "Second"],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -168,7 +168,7 @@ describe("defineAgent workspace option", () => {
         "Use workspace sources.",
         async ({ fs }) => await fs.readFile("AGENTS.md"),
       ],
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -185,7 +185,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -211,7 +211,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -229,14 +229,16 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      experimental_telemetry: experimental_telemetry as never,
-      maxOutputTokens: 100,
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
+      adapterOptions: {
+        experimental_telemetry: experimental_telemetry as never,
+        maxOutputTokens: 100,
+        onStepFinish,
+        stopWhen: stopWhen as never,
+        temperature: 0.2,
+        toolChoice: "auto",
+      },
       model: {} as never,
-      onStepFinish,
-      stopWhen: stopWhen as never,
-      temperature: 0.2,
-      toolChoice: "auto",
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -275,9 +277,11 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instrumentModel,
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
+      adapterOptions: {
+        onStepFinish: vi.fn(),
+      },
       model: baseModel as never,
-      onStepFinish: vi.fn(),
     }), { workspace: "docs" })
 
     await agent.run!({
@@ -294,7 +298,6 @@ describe("defineAgent workspace option", () => {
       run: expect.objectContaining({ runId: "run_123" }),
     }))
     expect(agentSettings.at(-1)).toMatchObject({
-      provider: "ai-sdk",
       model: wrappedModel,
       onStepFinish: expect.any(Function),
     })
@@ -312,14 +315,16 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      experimental_onToolCallFinish: experimental_onToolCallFinish as never,
-      experimental_onToolCallStart: experimental_onToolCallStart as never,
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
+      adapterOptions: {
+        experimental_onToolCallFinish: experimental_onToolCallFinish as never,
+        experimental_onToolCallStart: experimental_onToolCallStart as never,
+        onRunStepFinish,
+        onRunToolCallFinish,
+        onRunToolCallStart,
+        onStepFinish,
+      },
       model: {} as never,
-      onRunStepFinish,
-      onRunToolCallFinish,
-      onRunToolCallStart,
-      onStepFinish,
     }), { workspace: "docs" })
 
     await agent.run!({
@@ -347,23 +352,22 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
-  it("passes runtime context and workspace to callback instructions", async () => {
+  it("passes workspace to callback instructions", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent<{ vertex: { model: string } }>({
+    const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      instructions: ({ fs, runtimeConfig, workspace }) => {
+      instructions: ({ fs, workspace }) => {
         expect(fs).toBe(workspace.fs)
-        expect(runtimeConfig).toEqual({ vertex: { model: "gemini" } })
-        return runtimeConfig.vertex.model
+        return "workspace instructions"
       },
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
     await agent.run!(context({ vertex: { model: "gemini" } }))
 
-    expect(agentSettings.at(-1)?.instructions).toBe("gemini")
+    expect(agentSettings.at(-1)?.instructions).toBe("workspace instructions")
   })
 
   it("does not load AGENTS.md as implicit instructions", async () => {
@@ -372,7 +376,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -389,7 +393,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: ({ fs }) => fs.readFile("MISSING.md"),
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -401,7 +405,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -412,18 +416,17 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)).not.toHaveProperty("tools")
   })
 
-  it("passes workspace facade and runtime context to workspace tool resolvers", async () => {
+  it("passes workspace facade to workspace tool resolvers", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const shell = { execute: vi.fn(), inputSchema: {} }
-    const toolResolver = vi.fn(({ runtimeConfig, workspace }) => {
+    const toolResolver = vi.fn(({ workspace }) => {
       expect(workspace.fs).toEqual(expect.objectContaining({ readFile }))
-      expect(runtimeConfig).toEqual({ vertex: { model: "gemini" } })
       return { shell }
     })
 
-    const agent = withWorkspaceAgentDefaults(defineAgent<{ vertex: { model: string } }>({
+    const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-tools", tools: toolResolver as never }],
     }), { workspace: "docs" })
@@ -450,7 +453,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -487,7 +490,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -527,7 +530,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -555,7 +558,7 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -588,7 +591,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -605,7 +608,7 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -634,7 +637,7 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -681,7 +684,7 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -715,7 +718,7 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      provider: "ai-sdk",
+      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })

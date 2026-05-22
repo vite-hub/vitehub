@@ -9,8 +9,16 @@ A named server-side actor that receives inputs, runs model-backed behavior, and 
 _Avoid_: Bot, chat definition, workflow
 
 **Agent Definition**:
-The code declaration that names an Agent and configures its model, workspace, instructions, and Capabilities.
+The code declaration that names an Agent and configures its model, model adapter, workspace, instructions, and Capabilities.
 _Avoid_: Chat definition, server route
+
+**Agent Model Adapter**:
+The selected integration layer that turns an Agent Definition's model configuration into model execution.
+_Avoid_: LLM provider, provider
+
+**Agent Adapter Options**:
+Adapter-owned model execution settings passed through the selected Agent Model Adapter.
+_Avoid_: Top-level Agent Definition fields, passthrough, provider options
 
 **Agent Invocation**:
 One runtime request to an Agent.
@@ -43,6 +51,8 @@ _Avoid_: Production state provider, durable coordination
 ## Relationships
 
 - An **Agent Definition** declares one **Agent**.
+- An **Agent Definition** selects one **Agent Model Adapter** when it uses a model.
+- **Agent Adapter Options** belong to the selected **Agent Model Adapter**.
 - An **Agent** receives zero or more **Agent Invocations**.
 - An **Agent** can attach zero or more Capabilities.
 - Tools are contributed by Capabilities, not by top-level Agent Definition fields.
@@ -55,6 +65,7 @@ _Avoid_: Production state provider, durable coordination
 - **Agent Memory** can outlive one conversation.
 - A **Concurrent Invocation Guard** protects **Agent Run State**.
 - A **Development State Provider** is not acceptable for hosted production runtimes.
+- Agent callbacks receive Agent-owned runtime metadata, not app-owned Runtime Env; server code reads app-owned Runtime Env through Server Env.
 
 ## Example Dialogue
 
@@ -69,3 +80,4 @@ _Avoid_: Production state provider, durable coordination
 - Chat state was considered separate from Agent State Provider - resolved: Chat History state is satisfied through the Agent State Provider when available.
 - Chat History was considered an implicit Chat Capability default - resolved: keep Chat History opt-in, aligned with Chat SDK-style application control.
 - Local and hosted state providers were considered equivalent - resolved: hosted production runtimes require a durable provider and a **Concurrent Invocation Guard**.
+- Callback runtime config was considered an Agent app configuration surface - resolved: app-owned Runtime Env belongs to Server Env, not Agent callback context.

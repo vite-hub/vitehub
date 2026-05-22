@@ -27,6 +27,12 @@ interface NitroStub {
     }
     env?: unknown
     handlers?: Array<{ handler: string, route: string }>
+    imports?: false | {
+      presets?: Array<{ from: string, imports: string[] }>
+    }
+    _config?: {
+      imports?: false
+    }
     plugins?: string[]
     preset?: string
     rootDir: string
@@ -135,10 +141,10 @@ describe("Nitro module", () => {
     expect(integrationTypes).toContain("import \"nitro/types\"")
     expect(integrationTypes).toContain("declare module \"nitro/types\"")
     expect(integrationTypes).toContain("export interface NitroRuntimeConfig")
-    expect(integrationTypes).toContain("declare module \"@vitehub/agent/chat\"")
-    expect(integrationTypes).toContain("export interface ChatRuntimeConfig")
-    expect(integrationTypes).toContain("declare module \"@vitehub/agent\"")
-    expect(integrationTypes).toContain("export interface AgentRuntimeConfig")
+    expect(integrationTypes).not.toContain("declare module \"@vitehub/agent/chat\"")
+    expect(integrationTypes).not.toContain("export interface ChatRuntimeConfig")
+    expect(integrationTypes).not.toContain("declare module \"@vitehub/agent\"")
+    expect(integrationTypes).not.toContain("export interface AgentRuntimeConfig")
     expect(integrationTypes).not.toContain("declare module \"@vitehub/agent/workspace\"")
     expect(types).toContain("export class SecretEnv<T = string>")
     expect(types).toContain("\"botToken\": SecretEnv<string>")
@@ -159,6 +165,32 @@ describe("Nitro module", () => {
     expect(registry).toContain("\"required\": false")
     expect(registry).not.toContain("aaaaaaaa")
     expect(registry).not.toContain("telegram-secret")
+  })
+
+  it("registers useServerEnv as a Nitro server import", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-imports-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          authSecret: env({ secret: true }),
+        },
+        rootDir: root,
+      },
+    }
+
+    await envNitro().setup(nitro as never)
+
+    expect(nitro.options.imports).toMatchObject({
+      presets: [
+        {
+          from: "#vitehub/env/server",
+          imports: ["useServerEnv"],
+        },
+      ],
+    })
   })
 
   it("describes OpenWorkflow env aliases with the active source", async () => {
@@ -196,7 +228,7 @@ describe("Nitro module", () => {
     })
   })
 
-  it("types defineChat and workspace defineAgent runtimeConfig from generated Server Env declarations", async () => {
+  it("types useServerEnv from generated Server Env declarations in chat and agent code", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-chat-types-"))
     const nitro: NitroStub = {
       hooks: { hook: vi.fn() },
@@ -222,21 +254,16 @@ describe("Nitro module", () => {
 
     await writeFile(join(root, "stubs.d.ts"), [
       "declare module '@vitehub/agent/chat' {",
-      "  export interface ChatRuntimeConfig {}",
       "  export function defineChat(config: {",
-      "    adapters(context: { runtimeConfig: ChatRuntimeConfig }): Record<string, unknown>",
+      "    adapters(): Record<string, unknown>",
       "    state: never",
       "  }): void",
       "}",
       "",
       "declare module '@vitehub/agent' {",
-      "  export interface AgentRuntimeConfig {}",
-      "  export interface AgentAdapterMetadataContext<TRuntimeConfig = AgentRuntimeConfig> {",
-      "    runtimeConfig: TRuntimeConfig",
-      "  }",
-      "  export function defineAgent<TRuntimeConfig = AgentRuntimeConfig>(config: {",
+      "  export function defineAgent(config: {",
       "    workspace: {}",
-      "    model(context: AgentAdapterMetadataContext<TRuntimeConfig>): never",
+      "    model(): never",
       "    provider: string",
       "  }): void",
       "}",
@@ -246,15 +273,16 @@ describe("Nitro module", () => {
     await writeFile(join(root, "typecheck.ts"), [
       "import { defineChat } from '@vitehub/agent/chat'",
       "import { defineAgent } from '@vitehub/agent'",
-      "import type { AgentAdapterMetadataContext } from '@vitehub/agent'",
-      "import type { SecretEnv } from '#vitehub/env/server'",
+      "import { useServerEnv } from '#vitehub/env/server'",
+      "import type { SecretEnv, ServerEnv } from '#vitehub/env/server'",
       "",
       "defineChat({",
-      "  adapters({ runtimeConfig }) {",
-      "    const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",
-      "    const appId: SecretEnv = runtimeConfig.teams.appId",
-      "    const appIdValue: string = runtimeConfig.teams.appId.unseal()",
-      "    const model: string = runtimeConfig.vertex.model",
+      "  adapters() {",
+      "    const env: ServerEnv = useServerEnv()",
+      "    const apiUrl: string | undefined = env.teams.apiUrl",
+      "    const appId: SecretEnv = env.teams.appId",
+      "    const appIdValue: string = env.teams.appId.unseal()",
+      "    const model: string = env.vertex.model",
       "    void apiUrl",
       "    void appId",
       "    void appIdValue",
@@ -266,10 +294,11 @@ describe("Nitro module", () => {
       "",
       "defineAgent({",
       "  workspace: {},",
-      "  model({ runtimeConfig }: AgentAdapterMetadataContext) {",
-      "    const model: string = runtimeConfig.vertex.model",
-      "    const apiUrl: string | undefined = runtimeConfig.teams.apiUrl",
-      "    const appId: string = runtimeConfig.teams.appId.unseal()",
+      "  model() {",
+      "    const env = useServerEnv()",
+      "    const model: string = env.vertex.model",
+      "    const apiUrl: string | undefined = env.teams.apiUrl",
+      "    const appId: string = env.teams.appId.unseal()",
       "    void apiUrl",
       "    void appId",
       "    return model as never",
