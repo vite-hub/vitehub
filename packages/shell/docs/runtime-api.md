@@ -1,6 +1,6 @@
 ---
 title: Shell runtime API
-description: Reference for Shell exports, providers, filesystems, analysis, and result shapes.
+description: Reference for Shell exports, providers, filesystems, analysis, and observation shapes.
 navigation.title: Runtime API
 navigation.order: 3
 icon: i-lucide-braces
@@ -13,113 +13,105 @@ Use this page for exact exported names.
 
 ```ts
 import {
-  cleanWorkspaceMutationPath,
-  cleanWorkspaceShellPath,
   analyzeShellCommand,
-  createCloudflareShellRuntime,
-  createReadonlyWorkspaceFs,
   createShellRuntime,
+  type ShellObservation,
+  type ShellRuntime,
+  type ShellSession,
+  type ShellSessionPolicy,
+} from '@vitehub/shell'
+import { createCloudflareShellProvider } from '@vitehub/shell/providers/cloudflare'
+import { createJustBashProvider } from '@vitehub/shell/providers/just-bash'
+import {
+  createReadonlyWorkspaceFs,
   createWritableWorkspaceFs,
   runWorkspaceInspectionCommand,
   workspaceMountPoint,
-} from '@vitehub/shell'
+} from '@vitehub/shell/workspace'
 ```
 
 ## Create a runtime
 
 ```ts
-function createShellRuntime(options: CreateShellRuntimeOptions): ShellRuntime
+const runtime = createShellRuntime({
+  policy: {
+    maxOutputLength: 30_000,
+    maxShellCalls: 8,
+    timeout: 10_000,
+  },
+  provider: createJustBashProvider({
+    commands: ['pwd', 'ls', 'cat', 'rg'],
+    cwd: workspaceMountPoint,
+    fs: createReadonlyWorkspaceFs(workspace),
+  }),
+})
 ```
 
-```ts
-type CreateShellRuntimeOptions =
-  | ({ provider: 'just-bash' } & JustBashRuntimeOptions)
-  | ({ provider: 'cloudflare-shell' } & CloudflareShellRuntimeOptions)
-```
-
-## Runtime
+## Runtime and session
 
 ```ts
 interface ShellRuntime {
-  analyze?: (command: string, options?: ShellAnalyzeOptions) => Promise<ShellAnalyzeResult>
-  exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellRuntimeExecResult>
-  supports: {
-    cwd: boolean
-    env: boolean
-    streaming: boolean
-    writeFs: boolean
-  }
+  boundary: ShellBoundary
+  createSession(options?: CreateShellSessionOptions): ShellSession
+  exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellObservation>
+}
+
+interface ShellSession {
+  boundary: ShellBoundary
+  exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellObservation>
+  startProcess(command: string, options?: ShellRuntimeExecOptions): Promise<ShellProcess>
+  listProcesses(): Promise<ShellProcess[]>
+  dispose(): Promise<ShellObservation>
 }
 ```
 
+`runtime.exec()` is convenience sugar over a short-lived session.
+
+## Observation
+
 ```ts
-interface ShellRuntimeExecResult {
+interface ShellObservation {
+  event: ShellObservationEvent
+  command?: string
+  cwd?: string
   exitCode: number | null
   stdout: string
   stderr: string
+  durationMs?: number
+  timedOut?: boolean
+  maxOutputLength?: number
+  outputTruncated?: boolean
 }
 ```
 
-## Analysis
+## Providers
 
 ```ts
-interface ShellAnalyzeResult {
-  ok: boolean
-  parser: 'sh-syntax'
-  commands?: string[]
-  hasPipelines?: boolean
-  hasRedirects?: boolean
-  hasHeredocs?: boolean
-  hasCommandSubstitution?: boolean
-  error?: string
-}
+const justBash = createJustBashProvider({
+  commands: ['pwd', 'ls', 'cat', 'rg'],
+  cwd: workspaceMountPoint,
+  fs,
+})
+
+const cloudflare = createCloudflareShellProvider({ sandbox })
 ```
 
-## Just Bash options
-
-```ts
-interface JustBashRuntimeOptions {
-  commands?: string[]
-  cwd?: string
-  fs: WorkspaceShellFileSystem
-}
-```
-
-## Cloudflare options
-
-```ts
-interface CloudflareShellRuntimeOptions {
-  sandbox: CloudflareShellClient
-}
-```
-
-## Filesystem adapters
+## Workspace helpers
 
 ```ts
 function createReadonlyWorkspaceFs(workspace: ReadonlyShellWorkspace): WorkspaceShellFileSystem
 function createWritableWorkspaceFs(workspace: WritableShellWorkspace): WorkspaceShellFileSystem
-```
 
-## Path helpers
-
-```ts
-const workspaceMountPoint = '/workspace'
-
-function cleanWorkspaceShellPath(path?: string): string
-function cleanWorkspaceMutationPath(path: string): string
-```
-
-## Inspection helper
-
-```ts
 function runWorkspaceInspectionCommand(
   input: SearchableShellWorkspace,
   command: string,
   options: {
+    broadSearchPaths?: string[]
     commands?: string[]
     cwd?: string
     fs: WorkspaceShellFileSystem
     maxOutputLength?: number
+    timeout?: number
   }
-): Promise<ShellRuntimeExecResult>
+): Promise<ShellObservation>
 ```

@@ -5,6 +5,7 @@ import type {
   CpOptions,
   FileContent,
   FsStat,
+  IFileSystem,
   MkdirOptions,
   RmOptions,
 } from "just-bash"
@@ -15,9 +16,12 @@ import type {
   ShellEntry,
   ShellReadFileOptions,
   ShellStat,
-  WorkspaceShellFileSystem,
   WritableShellWorkspace,
-} from "./types.ts"
+} from "./workspace-types.ts"
+
+export interface WorkspaceShellFileSystem extends IFileSystem {
+  readonly writeFs: boolean
+}
 
 export const workspaceMountPoint = "/workspace"
 

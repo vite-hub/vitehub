@@ -1,64 +1,8 @@
-import type { IFileSystem } from "just-bash"
-
-export type ShellContent = string | Uint8Array
-
-export interface ShellReadFileOptions {
-  encoding?: "utf8" | "binary"
-}
-
-export interface ShellListOptions {
-  recursive?: boolean
-}
-
-export interface ShellMkdirOptions {
-  recursive?: boolean
-}
-
-export interface ShellRmOptions {
-  force?: boolean
-  recursive?: boolean
-}
-
-export interface ShellEntry {
-  path: string
-  type: "file" | "directory"
-  size?: number
-}
-
-export interface ShellStat extends ShellEntry {}
-
-export interface ShellSearchQuery {
-  pattern: string
-  cwd?: string
-  paths?: string[]
-  regex?: boolean
-  caseSensitive?: boolean
-  limit?: number
-}
-
-export interface ShellSearchHit {
-  path: string
-  line: number
-  column: number
-  text: string
-}
-
-export interface ReadonlyShellWorkspace {
-  readFile(path: string, options?: ShellReadFileOptions): Promise<string | Uint8Array>
-  exists(path: string): Promise<boolean>
-  stat(path: string): Promise<ShellStat>
-  list(path?: string, options?: ShellListOptions): Promise<ShellEntry[]>
-}
-
-export interface SearchableShellWorkspace extends ReadonlyShellWorkspace {
-  search(query: ShellSearchQuery): Promise<ShellSearchHit[]>
-}
-
-export interface WritableShellWorkspace extends ReadonlyShellWorkspace {
-  writeFile(path: string, content: ShellContent): Promise<void>
-  mkdir(path: string, options?: ShellMkdirOptions): Promise<void>
-  rm(path: string, options?: ShellRmOptions): Promise<void>
-}
+export type ShellObservationEvent =
+  | "command_finished"
+  | "command_timed_out"
+  | "policy_denied"
+  | "session_disposed"
 
 export interface ShellRuntimeExecOptions {
   cwd?: string
@@ -69,10 +13,17 @@ export interface ShellRuntimeExecOptions {
   timeout?: number
 }
 
-export interface ShellRuntimeExecResult {
+export interface ShellObservation {
+  command?: string
+  cwd?: string
+  durationMs?: number
+  event: ShellObservationEvent
   exitCode: number | null
+  maxOutputLength?: number
+  outputTruncated?: boolean
   stderr: string
   stdout: string
+  timedOut?: boolean
 }
 
 export interface ShellAnalyzeOptions {
@@ -91,55 +42,68 @@ export interface ShellAnalyzeResult {
   parser: "sh-syntax"
 }
 
-export interface ShellRuntime {
-  analyze?: (command: string, options?: ShellAnalyzeOptions) => Promise<ShellAnalyzeResult>
-  exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellRuntimeExecResult>
-  supports: {
-    cwd: boolean
-    env: boolean
-    streaming: boolean
-    writeFs: boolean
+export interface ShellSessionPolicy {
+  maxOutputLength?: number
+  maxShellCalls?: number
+  maxProcesses?: number
+  timeout?: number
+}
+
+export interface ShellBoundary {
+  cwd: boolean
+  env: boolean
+  filesystem: {
+    mountPoint?: string
+    writable: boolean
+  }
+  network: boolean | "unknown"
+  processes: {
+    background: boolean
+    interactive: boolean
+  }
+  streaming: boolean
+  timeout: {
+    enforcedBy: "provider" | "runtime" | "unsupported"
+    supported: boolean
   }
 }
 
-export interface CloudflareShellClient {
-  exec: (
-    command: string,
-    args?: string[],
-    options?: {
-      cwd?: string
-      env?: Record<string, string>
-      onStderr?: (data: string) => void
-      onStdout?: (data: string) => void
-      stdin?: string
-      timeout?: number
-    },
-  ) => Promise<{
-    code?: number | null
-    exitCode?: number | null
-    stderr: string
-    stdout: string
-  }>
-  supports: {
-    execCwd: boolean
-    execEnv: boolean
-  }
-}
-
-export interface WorkspaceShellFileSystem extends IFileSystem {
-  readonly writeFs: boolean
-}
-
-export interface JustBashRuntimeOptions {
-  commands?: string[]
+export interface ShellProcess {
+  id: string
+  command: string
   cwd?: string
-  fs: WorkspaceShellFileSystem
+  stop(): Promise<ShellObservation>
 }
 
-export interface CloudflareShellRuntimeOptions {
-  sandbox: CloudflareShellClient
+export interface ShellExecutionProvider {
+  analyze?: (command: string, options?: ShellAnalyzeOptions) => Promise<ShellAnalyzeResult>
+  boundary: ShellBoundary
+  exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellObservation>
+  startProcess?: (command: string, options?: ShellRuntimeExecOptions) => Promise<ShellProcess>
 }
 
-export type CreateShellRuntimeOptions =
-  | ({ provider: "just-bash" } & JustBashRuntimeOptions)
-  | ({ provider: "cloudflare-shell" } & CloudflareShellRuntimeOptions)
+export interface ShellSession {
+  analyze(command: string, options?: ShellAnalyzeOptions): Promise<ShellAnalyzeResult>
+  boundary: ShellBoundary
+  dispose(): Promise<ShellObservation>
+  exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellObservation>
+  listProcesses(): Promise<ShellProcess[]>
+  policy: ShellSessionPolicy
+  startProcess(command: string, options?: ShellRuntimeExecOptions): Promise<ShellProcess>
+}
+
+export interface ShellRuntime {
+  boundary: ShellBoundary
+  createSession(options?: CreateShellSessionOptions): ShellSession
+  exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellObservation>
+}
+
+export interface CreateShellRuntimeOptions {
+  provider: ShellExecutionProvider
+  policy?: ShellSessionPolicy
+}
+
+export interface CreateShellSessionOptions {
+  env?: Record<string, string>
+  policy?: ShellSessionPolicy
+}

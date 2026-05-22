@@ -1,20 +1,21 @@
 import { posix } from "node:path"
 
-import { createJustBashRuntime } from "./runtime.ts"
+import { createJustBashProvider } from "./providers/just-bash.ts"
+import { createShellRuntime } from "./runtime.ts"
 import { workspaceMountPoint } from "./workspace-fs.ts"
 
 import type {
-  SearchableShellWorkspace,
-  ShellRuntimeExecResult,
-  WorkspaceShellFileSystem,
+  ShellObservation,
 } from "./types.ts"
+import type { WorkspaceShellFileSystem } from "./workspace-fs.ts"
+import type { SearchableShellWorkspace } from "./workspace-types.ts"
 
 interface WorkspaceInspectionCommandOptions {
+  broadSearchPaths?: string[]
   commands?: string[]
   cwd?: string
   fs: WorkspaceShellFileSystem
   maxOutputLength?: number
-  provider?: "cloudflare-shell" | "just-bash"
   timeout?: number
 }
 
@@ -34,40 +35,51 @@ export async function runWorkspaceInspectionCommand(
   _input: SearchableShellWorkspace,
   command: string,
   options: WorkspaceInspectionCommandOptions,
-): Promise<ShellRuntimeExecResult> {
+): Promise<ShellObservation> {
   const maxOutputLength = options.maxOutputLength || 30_000
   const timeout = options.timeout || 30_000
-  const preflight = preflightWorkspaceInspectionCommand(command)
+  const preflight = preflightWorkspaceInspectionCommand(command, options.broadSearchPaths)
   if (preflight) return preflight
-  const runtime = createJustBashRuntime({
-    commands: options.commands,
-    cwd: options.cwd || workspaceMountPoint,
-    fs: options.fs,
+  const runtime = createShellRuntime({
+    policy: {
+      maxOutputLength,
+      timeout,
+    },
+    provider: createJustBashProvider({
+      commands: options.commands,
+      cwd: options.cwd || workspaceMountPoint,
+      fs: options.fs,
+    }),
   })
   const result = await Promise.race([
     runtime.exec(command, { cwd: options.cwd || workspaceMountPoint, timeout }),
-    new Promise<ShellRuntimeExecResult>(resolve => setTimeout(() => resolve({
+    new Promise<ShellObservation>(resolve => setTimeout(() => resolve({
+      command,
+      cwd: options.cwd || workspaceMountPoint,
+      event: "command_timed_out",
       exitCode: null,
       stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`,
       stdout: "",
+      timedOut: true,
     }), timeout)),
   ])
 
-  return {
-    exitCode: result.exitCode,
-    stderr: applyOutputLimit(result.stderr, maxOutputLength),
-    stdout: applyOutputLimit(result.stdout, maxOutputLength),
-  }
+  return result
 }
 
-function preflightWorkspaceInspectionCommand(command: string): ShellRuntimeExecResult | undefined {
+function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: string[] = []): ShellObservation | undefined {
   try {
     for (const segment of splitShellSegments(command)) {
       const words = parseShellWords(segment)
       if (isBroadWorkspaceSearch(words)) {
+        const hint = broadSearchPaths.length
+          ? ` Try one of these paths: ${broadSearchPaths.map(path => `"${path}"`).join(", ")}.`
+          : " Use a narrow mounted source or subdirectory path instead."
         return {
+          command,
+          event: "policy_denied",
           exitCode: 126,
-          stderr: "[vitehub] Workspace root search is too broad. Use a narrow mounted source or subdirectory path instead.\n",
+          stderr: `[vitehub] Workspace root search is too broad.${hint}\n`,
           stdout: "",
         }
       }
@@ -208,9 +220,4 @@ function normalizeSafeShellPath(path: string): string {
     throw new Error(`[vitehub] Workspace path escapes the workspace root: "${path}".`)
   }
   return normalized
-}
-
-function applyOutputLimit(output: string, maxLength: number): string {
-  if (output.length <= maxLength) return output
-  return `${output.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
 }
