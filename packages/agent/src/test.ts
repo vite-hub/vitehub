@@ -137,7 +137,7 @@ async function* streamMockAgent<CALL_OPTIONS>(
     const id = tool.id || tool.name
     yield { id, input: tool.input, name: tool.name, type: "tool-call" }
     await wait(tool.delay ?? options.delay)
-    yield { id, input: tool.input, name: tool.name, output: tool.output, type: "tool-result" }
+    yield { id, name: tool.name, output: tool.output, type: "tool-result" }
   }
 
   const result = await resolveMockReply(context, options.reply)

@@ -127,7 +127,7 @@ describe("agent test runner", () => {
 
     expect(events).toEqual([
       { id: "call-1", input: { query: "docs" }, name: "search", type: "tool-call" },
-      { id: "call-1", input: { query: "docs" }, name: "search", output: { matches: 2 }, type: "tool-result" },
+      { id: "call-1", name: "search", output: { matches: 2 }, type: "tool-result" },
       { text: "reply to hello", type: "text-delta" },
       { reason: "stop", type: "finish" },
     ])
