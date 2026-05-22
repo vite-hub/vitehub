@@ -1,24 +1,7 @@
-import { existsSync } from "node:fs"
-
 import { defineDockEntry, defineRpcFunction } from "@vitejs/devtools-kit"
 
 import type { DevToolsDockEntry, DevToolsViewIframe, ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
 import type { Plugin } from "vite"
-
-export interface ViteHubDevtoolsPanelOptions {
-  distDir?: string
-  enabled?: boolean
-  icon: DevToolsDockEntry["icon"]
-  id: string
-  route: string
-  title: string
-  url?: string
-}
-
-export interface RegisteredViteHubDevtoolsPanel {
-  remote: boolean
-  url: string
-}
 
 export interface ViteHubDevtoolsFeature {
   bridge: string
@@ -39,75 +22,29 @@ export const viteHubDevtoolsTitle = "ViteHub"
 export const viteHubDevtoolsDefaultUrl = "https://devtools.vitehub.dev/"
 export const viteHubDevtoolsGetFeaturesRpc = "@vitehub/devtools:get-features"
 
-const registeredPanels = new WeakMap<ViteDevToolsNodeContext, Map<string, RegisteredViteHubDevtoolsPanel>>()
+const registeredShellPanels = new WeakSet<ViteDevToolsNodeContext>()
 const registeredFeatures = new WeakMap<ViteDevToolsNodeContext, Map<string, ViteHubDevtoolsFeature>>()
 const registeredShells = new WeakSet<ViteDevToolsNodeContext>()
 const missingShellWarnings = new WeakMap<ViteDevToolsNodeContext, Set<string>>()
 
-export function isAbsoluteHttpUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value)
-}
-
-export function resolveViteHubDevtoolsUrl(defaultRoute: string, override?: string): string {
-  return override?.trim() || defaultRoute
-}
-
-export function registerViteHubDevtoolsPanel(
+function registerHostedViteHubDevtoolsShell(
   ctx: ViteDevToolsNodeContext,
-  options: ViteHubDevtoolsPanelOptions,
-): RegisteredViteHubDevtoolsPanel | undefined {
-  if (options.enabled === false) {
+  options: Required<Pick<HubDevtoolsOptions, "icon" | "title">>,
+): void {
+  if (registeredShellPanels.has(ctx)) {
     return
   }
 
-  const url = resolveViteHubDevtoolsUrl(options.route, options.url)
-  const remote = isAbsoluteHttpUrl(url)
-  const registryKey = `${options.id}:${url}`
-  const ctxPanels = registeredPanels.get(ctx)
-  const registered = ctxPanels?.get(registryKey)
-  if (registered) {
-    return registered
-  }
-
-  if (!remote) {
-    if (!options.distDir) {
-      ctx.messages.add({
-        level: "warn",
-        message: `${options.title} DevTools client requires a local distDir for non-HTTP URLs.`,
-      })
-      return
-    }
-
-    if (!existsSync(options.distDir)) {
-      ctx.messages.add({
-        level: "warn",
-        message: `${options.title} DevTools client is not built. Build its client assets before opening this panel.`,
-      })
-      return
-    }
-
-    ctx.views.hostStatic(url, options.distDir)
-  }
-
   const entry: DevToolsViewIframe = {
-    id: options.id,
+    id: viteHubDevtoolsPanelId,
     title: options.title,
     icon: options.icon,
     type: "iframe",
-    url,
-    ...(remote ? { remote: true } : {}),
+    url: viteHubDevtoolsDefaultUrl,
+    remote: true,
   }
   ctx.docks.register(defineDockEntry(entry as never) as never)
-
-  const result = { remote, url }
-  if (ctxPanels) {
-    ctxPanels.set(registryKey, result)
-  }
-  else {
-    registeredPanels.set(ctx, new Map([[registryKey, result]]))
-  }
-
-  return result
+  registeredShellPanels.add(ctx)
 }
 
 function warnIfDevtoolsShellMissing(ctx: ViteDevToolsNodeContext, feature: ViteHubDevtoolsFeature): void {
@@ -165,10 +102,8 @@ export function hubDevtools(options: HubDevtoolsOptions = {}): Plugin {
         }
 
         registeredShells.add(ctx)
-        registerViteHubDevtoolsPanel(ctx, {
+        registerHostedViteHubDevtoolsShell(ctx, {
           icon: options.icon || "ph:toolbox-duotone",
-          id: viteHubDevtoolsPanelId,
-          route: viteHubDevtoolsDefaultUrl,
           title: options.title || viteHubDevtoolsTitle,
         })
 

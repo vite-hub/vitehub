@@ -24,9 +24,9 @@ _Avoid_: Shell plugin, global DevTools config, client app
 The application-side endpoint or RPC surface that connects the ViteHub DevTools Client to package runtime state.
 _Avoid_: API route, webhook, app backend
 
-**DevTools Discovery Endpoint**:
-The DevTools Package-owned app-side endpoint that lists registered DevTools Features for the ViteHub DevTools Client.
-_Avoid_: Feature route, package bridge, hardcoded client list
+**DevTools Discovery Surface**:
+The DevTools Package-owned app-side discovery contract that lists registered DevTools Features for the ViteHub DevTools Client. The current Vite implementation exposes this surface through a DevTools Discovery RPC.
+_Avoid_: Feature route, package bridge, hardcoded client list, HTTP-only endpoint
 
 **DevTools Feature Registration**:
 The integration behavior that makes a DevTools Feature discoverable to the ViteHub DevTools Client.
@@ -44,8 +44,9 @@ _Avoid_: Remove plugin, hide route, disable client
 - A **Package DevTools Integration** registers one package-owned **DevTools Feature** and its **DevTools Bridge**.
 - A package owns its **DevTools Feature**.
 - A **DevTools Feature** talks to application runtime state through a **DevTools Bridge**.
-- The **ViteHub DevTools Client** discovers available **DevTools Features** through the **DevTools Discovery Endpoint**.
-- The DevTools Package owns the **DevTools Discovery Endpoint**.
+- The **ViteHub DevTools Client** discovers available **DevTools Features** through the **DevTools Discovery Surface**.
+- The DevTools Package owns the **DevTools Discovery Surface**.
+- The Vite integration currently implements the **DevTools Discovery Surface** as a **DevTools Discovery RPC**.
 - **DevTools Feature Registration** makes a **DevTools Feature** available when its package integration is active.
 - **DevTools Feature Registration** starts with feature identity, package ownership, title, icon, and bridge location.
 - **DevTools Feature Registration** is automatic unless a **DevTools Opt-Out** disables that feature.
@@ -73,7 +74,7 @@ _Avoid_: Remove plugin, hide route, disable client
 > **Domain expert:** "No. Warn during development; DevTools visibility should not break the app runtime."
 >
 > **Dev:** "Should the hosted client hardcode Chat, KV, and DB routes?"
-> **Domain expert:** "No. The hosted client reads registered features from the **DevTools Discovery Endpoint**."
+> **Domain expert:** "No. The hosted client reads registered features from the **DevTools Discovery Surface**."
 
 ## Flagged Ambiguities
 

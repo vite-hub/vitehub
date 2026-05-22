@@ -1,7 +1,7 @@
 {
   "name": "@vitehub/devtools",
   "version": "0.0.0",
-  "description": "Private shared DevTools helpers and client builders for ViteHub packages.",
+  "description": "Private ViteHub DevTools integration contract and hosted shell helpers.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "private": true,

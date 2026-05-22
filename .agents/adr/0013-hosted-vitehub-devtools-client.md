@@ -1,6 +1,8 @@
 # Hosted ViteHub DevTools Client
 
-ViteHub DevTools use a single hosted **ViteHub DevTools Client** as the public client delivery mode. The DevTools Package owns the **ViteHub DevTools Integration**, **DevTools Discovery Endpoint**, and shared registration helpers; feature packages own their **Package DevTools Integrations**, **DevTools Features**, **DevTools Bridges**, and package-local opt-outs.
+ViteHub DevTools use a single hosted **ViteHub DevTools Client** as the public client delivery mode. The DevTools Package owns the **ViteHub DevTools Integration**, **DevTools Discovery Surface**, and shared registration helpers; feature packages own their **Package DevTools Integrations**, **DevTools Features**, **DevTools Bridges**, and package-local opt-outs.
+
+`@vitehub/devtools` is private for now. In this ADR, "public" describes the intended integration contract inside the monorepo, not npm publication or a stable external package release.
 
 Chat is the first **DevTools Feature**. It should register feature metadata and a bridge with DevTools discovery, not install a separate embedded client or force application bundling workarounds such as Vue aliasing.
 
@@ -16,4 +18,4 @@ Chat is the first **DevTools Feature**. It should register feature metadata and 
 
 This is a breaking DevTools contract. Applications install the DevTools shell explicitly through `hubDevtools()` from `@vitehub/devtools`, while package integrations such as Chat register their own features and bridges. Missing shell integration should warn during development when package DevTools features are enabled, but it should not fail the application runtime.
 
-The hosted client discovers available features through one DevTools-owned discovery endpoint. Feature registration starts with minimal metadata: feature identity, package ownership, title, icon, and bridge location. Local DevTools client development remains an internal repository workflow, not a user-facing integration mode.
+The hosted client discovers available features through one DevTools-owned **DevTools Discovery Surface**. The current Vite implementation exposes that surface as a **DevTools Discovery RPC**. Feature registration starts with minimal metadata: feature identity, package ownership, title, icon, and bridge location. Local DevTools client development remains an internal repository workflow, not a user-facing integration mode.
