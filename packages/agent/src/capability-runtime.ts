@@ -468,11 +468,16 @@ export function withResponseCleanup(response: Response, close: (error?: unknown)
   }
   return new Response(new ReadableStream({
     async cancel(reason) {
+      let cancelError: unknown
       try {
         await reader.cancel(reason)
       }
+      catch (error) {
+        cancelError = error
+        throw error
+      }
       finally {
-        await closeOnce()
+        await closeOnce(cancelError)
       }
     },
     async pull(controller) {
