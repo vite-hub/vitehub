@@ -352,15 +352,14 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
-  it("passes runtime context and workspace to callback instructions", async () => {
+  it("passes workspace to callback instructions", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent<{ vertex: { model: string } }>({
+    const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      instructions: ({ fs, runtimeConfig, workspace }) => {
+      instructions: ({ fs, workspace }) => {
         expect(fs).toBe(workspace.fs)
-        expect(runtimeConfig).toEqual({ vertex: { model: "gemini" } })
-        return runtimeConfig.vertex.model
+        return "workspace instructions"
       },
       adapter: "ai-sdk",
       model: {} as never,
@@ -368,7 +367,7 @@ describe("defineAgent workspace option", () => {
 
     await agent.run!(context({ vertex: { model: "gemini" } }))
 
-    expect(agentSettings.at(-1)?.instructions).toBe("gemini")
+    expect(agentSettings.at(-1)?.instructions).toBe("workspace instructions")
   })
 
   it("does not load AGENTS.md as implicit instructions", async () => {
@@ -417,16 +416,15 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)).not.toHaveProperty("tools")
   })
 
-  it("passes workspace facade and runtime context to workspace tool resolvers", async () => {
+  it("passes workspace facade to workspace tool resolvers", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const shell = { execute: vi.fn(), inputSchema: {} }
-    const toolResolver = vi.fn(({ runtimeConfig, workspace }) => {
+    const toolResolver = vi.fn(({ workspace }) => {
       expect(workspace.fs).toEqual(expect.objectContaining({ readFile }))
-      expect(runtimeConfig).toEqual({ vertex: { model: "gemini" } })
       return { shell }
     })
 
-    const agent = withWorkspaceAgentDefaults(defineAgent<{ vertex: { model: string } }>({
+    const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       adapter: "ai-sdk",
       model: {} as never,

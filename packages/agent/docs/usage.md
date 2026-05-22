@@ -108,7 +108,26 @@ result.usage
 result.usageRecord?.cost
 ```
 
-The v1 capability does not define export callbacks or persistence hooks. Future lifecycle hooks can consume the same usage record.
+The capability does not define export callbacks or persistence hooks. Use the Agent Finish Hook to export, log, or sync completed usage records.
+
+```ts
+export default defineAgent({
+  capabilities: [
+    usageTelemetry({
+      pricing: vercelAiGatewayPricing(),
+    }),
+  ],
+  hooks: {
+    'agent:finish'(event) {
+      const usage = event.extensions.get('usage-telemetry')
+      if (usage) event.runtime.waitUntil(syncUsage(usage))
+    },
+  },
+  instructions: 'Triage support requests.',
+  model,
+  provider: 'ai-sdk',
+})
+```
 
 ## Customize a run
 

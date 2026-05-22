@@ -14,10 +14,14 @@ Use this page after the [Quickstart](./quickstart).
 Pass the commands that `just-bash` should expose in the workspace-backed runtime.
 
 ```ts
+import { createShellRuntime } from '@vitehub/shell'
+import { createJustBashProvider } from '@vitehub/shell/providers/just-bash'
+
 const runtime = createShellRuntime({
-  commands: ['pwd', 'ls', 'cat', 'head', 'rg'],
-  fs,
-  provider: 'just-bash',
+  provider: createJustBashProvider({
+    commands: ['pwd', 'ls', 'cat', 'head', 'rg'],
+    fs,
+  }),
 })
 ```
 
@@ -26,7 +30,7 @@ The runtime accepts real shell syntax. Pipes, redirects, chaining, command subst
 ## Use read-only files
 
 ```ts
-import { createReadonlyWorkspaceFs } from '@vitehub/shell'
+import { createReadonlyWorkspaceFs } from '@vitehub/shell/workspace'
 
 const fs = createReadonlyWorkspaceFs(workspace)
 ```
@@ -36,7 +40,7 @@ Use read-only filesystems for inspection surfaces.
 ## Use writable files
 
 ```ts
-import { createWritableWorkspaceFs } from '@vitehub/shell'
+import { createWritableWorkspaceFs } from '@vitehub/shell/workspace'
 
 const fs = createWritableWorkspaceFs(workspace)
 ```
@@ -62,7 +66,7 @@ import {
   createReadonlyWorkspaceFs,
   runWorkspaceInspectionCommand,
   workspaceMountPoint,
-} from '@vitehub/shell'
+} from '@vitehub/shell/workspace'
 
 const result = await runWorkspaceInspectionCommand(workspace, 'rg TODO docs | head -n 20', {
   commands: ['rg', 'head'],
@@ -80,7 +84,7 @@ Use path helpers before reading or mutating workspace paths from input.
 import {
   cleanWorkspaceMutationPath,
   cleanWorkspaceShellPath,
-} from '@vitehub/shell'
+} from '@vitehub/shell/workspace'
 
 const readPath = cleanWorkspaceShellPath('/workspace/docs/README.md')
 const writePath = cleanWorkspaceMutationPath('generated/summary.md')
@@ -93,9 +97,11 @@ const writePath = cleanWorkspaceMutationPath('generated/summary.md')
 Use `cloudflare-shell` when a Cloudflare sandbox-compatible client owns execution.
 
 ```ts
+import { createShellRuntime } from '@vitehub/shell'
+import { createCloudflareShellProvider } from '@vitehub/shell/providers/cloudflare'
+
 const runtime = createShellRuntime({
-  provider: 'cloudflare-shell',
-  sandbox,
+  provider: createCloudflareShellProvider({ sandbox }),
 })
 
 const result = await runtime.exec('node --version', {
@@ -103,4 +109,4 @@ const result = await runtime.exec('node --version', {
 })
 ```
 
-The client must expose `exec(command, options)` and support metadata.
+The client must expose `exec(command, args, options)` plus `supports.execCwd` and `supports.execEnv`.

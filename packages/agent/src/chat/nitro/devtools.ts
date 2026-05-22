@@ -1,5 +1,5 @@
 import { Chat, Message, parseMarkdown, toPlainText } from "chat"
-import { createError, defineEventHandler, readBody } from "h3"
+import { createError, defineEventHandler, readBody, setHeader } from "h3"
 
 import { chatDevtoolsAdapterName, createDevtoolsAdapter as createBaseDevtoolsAdapter } from "../devtools.ts"
 import { chatDevtoolsClearRpc, chatDevtoolsGetStateRpc, chatDevtoolsSendRpc } from "../devtools-shared.ts"
@@ -400,6 +400,22 @@ function getSingletonDevtoolsAdapter(): { adapter: ChatDevtoolsAdapter, chat: Ch
   return { adapter, chat }
 }
 
+function parseChatDevtoolsBridgeBody(rawBody: ChatDevtoolsBridgeBody | string | undefined): ChatDevtoolsBridgeBody | undefined {
+  if (typeof rawBody !== "string") {
+    return rawBody
+  }
+
+  try {
+    return JSON.parse(rawBody) as ChatDevtoolsBridgeBody
+  }
+  catch {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "Malformed chat devtools payload.",
+    })
+  }
+}
+
 export function defineChatDevtoolsSingletonHandler(): EventHandler {
   return defineEventHandler(async (event) => {
     const body = await readBody<ChatDevtoolsBridgeBody>(event)
@@ -469,7 +485,8 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
   }
 
   return defineEventHandler(async (event) => {
-    const body = await readBody<ChatDevtoolsBridgeBody>(event)
+    setHeader(event, "access-control-allow-origin", "*")
+    const body = parseChatDevtoolsBridgeBody(await readBody<ChatDevtoolsBridgeBody | string>(event))
     if (!body || typeof body.action !== "string") {
       throw createError({
         statusCode: 400,

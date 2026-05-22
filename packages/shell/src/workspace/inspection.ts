@@ -1,13 +1,13 @@
 import { posix } from "node:path"
 
-import { createJustBashRuntime } from "./runtime.ts"
-import { workspaceMountPoint } from "./workspace-fs.ts"
+import { createJustBashProvider } from "../providers/just-bash.ts"
+import { createShellRuntime } from "../runtime/index.ts"
+import { workspaceMountPoint } from "./filesystem.ts"
+import { cleanWorkspaceShellPath } from "./path.ts"
 
-import type {
-  SearchableShellWorkspace,
-  ShellRuntimeExecResult,
-  WorkspaceShellFileSystem,
-} from "./types.ts"
+import type { ShellObservation } from "../runtime/types.ts"
+import type { WorkspaceShellFileSystem } from "./filesystem.ts"
+import type { SearchableShellWorkspace } from "./types.ts"
 
 interface WorkspaceInspectionCommandOptions {
   broadSearchPaths?: string[]
@@ -15,60 +15,53 @@ interface WorkspaceInspectionCommandOptions {
   cwd?: string
   fs: WorkspaceShellFileSystem
   maxOutputLength?: number
-  provider?: "cloudflare-shell" | "just-bash"
   timeout?: number
-}
-
-export function cleanWorkspaceShellPath(path = "."): string {
-  const trimmed = path.trim() || "."
-  if (trimmed === "." || trimmed === "./" || trimmed === "/" || trimmed === workspaceMountPoint) return ""
-  return normalizeSafeShellPath(trimmed.replace(/^\/workspace(\/|$)/, ""))
-}
-
-export function cleanWorkspaceMutationPath(path: string): string {
-  const normalized = cleanWorkspaceShellPath(path)
-  if (!normalized) throw new Error("[vitehub] Workspace root is not a valid mutation target.")
-  return normalized
 }
 
 export async function runWorkspaceInspectionCommand(
   _input: SearchableShellWorkspace,
   command: string,
   options: WorkspaceInspectionCommandOptions,
-): Promise<ShellRuntimeExecResult> {
+): Promise<ShellObservation> {
   const maxOutputLength = options.maxOutputLength || 30_000
   const timeout = options.timeout || 30_000
   const preflight = preflightWorkspaceInspectionCommand(command, options.broadSearchPaths)
   if (preflight) return preflight
   const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd)
   if (missingPath) return missingPath
-  const runtime = createJustBashRuntime({
-    commands: options.commands,
-    cwd: options.cwd || workspaceMountPoint,
-    fs: options.fs,
+  const runtime = createShellRuntime({
+    policy: {
+      maxOutputLength,
+      timeout,
+    },
+    provider: createJustBashProvider({
+      commands: options.commands,
+      cwd: options.cwd || workspaceMountPoint,
+      fs: options.fs,
+    }),
   })
   const result = await Promise.race([
     runtime.exec(command, { cwd: options.cwd || workspaceMountPoint, timeout }),
-    new Promise<ShellRuntimeExecResult>(resolve => setTimeout(() => resolve({
+    new Promise<ShellObservation>(resolve => setTimeout(() => resolve({
+      command,
+      cwd: options.cwd || workspaceMountPoint,
+      event: "command_timed_out",
       exitCode: null,
       stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`,
       stdout: "",
+      timedOut: true,
     }), timeout)),
   ])
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths)
 
-  return {
-    exitCode: result.exitCode,
-    stderr: applyOutputLimit(result.stderr, maxOutputLength),
-    stdout: applyOutputLimit(noMatchFeedback || result.stdout, maxOutputLength),
-  }
+  return noMatchFeedback ? { ...result, stdout: noMatchFeedback } : result
 }
 
-function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: string[] = []): ShellRuntimeExecResult | undefined {
+function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: string[] = []): ShellObservation | undefined {
   try {
     for (const segment of splitShellCommandSegments(command)) {
       const words = parseShellWords(segment.command)
-      if (isBroadWorkspaceSearch(words, broadSearchPaths, segment.followsPipe)) return broadWorkspaceSearchFeedback()
+      if (isBroadWorkspaceSearch(words, broadSearchPaths, segment.followsPipe)) return broadWorkspaceSearchFeedback(broadSearchPaths)
     }
   }
   catch {
@@ -76,7 +69,7 @@ function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: 
   }
 }
 
-async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint): Promise<ShellRuntimeExecResult | undefined> {
+async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint): Promise<ShellObservation | undefined> {
   try {
     let currentCwd = cwd
     let skipAndChain = false
@@ -117,8 +110,10 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
   }
 }
 
-function missingWorkspacePathFeedback(resolvedPath: string): ShellRuntimeExecResult {
+function missingWorkspacePathFeedback(resolvedPath: string): ShellObservation {
   return {
+    command: "",
+    event: "command_finished",
     exitCode: 0,
     stderr: "",
     stdout: [
@@ -145,15 +140,22 @@ function isBroadWorkspaceSearch(words: string[], broadSearchPaths: string[] = []
   return false
 }
 
-function broadWorkspaceSearchFeedback(): ShellRuntimeExecResult {
+function broadWorkspaceSearchFeedback(broadSearchPaths: string[] = []): ShellObservation {
+  const hint = broadSearchPaths.length
+    ? ` Try one of these paths: ${broadSearchPaths.map(path => `"${path}"`).join(", ")}.`
+    : " Use a narrow mounted source or subdirectory path instead."
+  const feedback = [
+    "[vitehub] Workspace search is too broad for this agent tool.",
+    "Use one specific mounted subdirectory or file path.",
+    "If the requested evidence is not in the mounted workspace paths, answer that it is unavailable instead of trying broader searches.",
+  ].join("\n") + "\n"
+
   return {
-    exitCode: 0,
-    stderr: "",
-    stdout: [
-      "[vitehub] Workspace search is too broad for this agent tool.",
-      "Use one specific mounted subdirectory or file path.",
-      "If the requested evidence is not in the mounted workspace paths, answer that it is unavailable instead of trying broader searches.",
-    ].join("\n") + "\n",
+    command: "",
+    event: "policy_denied",
+    exitCode: 126,
+    stderr: `[vitehub] Workspace root search is too broad.${hint}\n`,
+    stdout: feedback,
   }
 }
 
@@ -162,7 +164,7 @@ function isBroadWorkspacePath(path: string, broadSearchPaths: string[] = []) {
   return normalized === "." || broadSearchPaths.includes(normalized)
 }
 
-function searchNoMatchFeedback(command: string, result: ShellRuntimeExecResult, broadSearchPaths: string[] = []) {
+function searchNoMatchFeedback(command: string, result: ShellObservation, broadSearchPaths: string[] = []) {
   if (result.exitCode !== 1 || result.stderr || result.stdout) return ""
   try {
     for (const segment of splitShellCommandSegments(command)) {
@@ -318,6 +320,7 @@ function takesOptionValue(arg: string) {
     "--context",
     "--glob",
     "--max-count",
+    "--max-filesize",
     "--regexp",
     "--type",
     "--type-add",
@@ -327,7 +330,8 @@ function takesOptionValue(arg: string) {
 }
 
 function takesInlineOptionValue(arg: string) {
-  return arg.startsWith("--type=")
+  return arg.startsWith("--max-filesize=")
+    || arg.startsWith("--type=")
     || arg.startsWith("--type-add=")
     || arg.startsWith("--type-clear=")
     || arg.startsWith("--type-not=")
@@ -446,18 +450,4 @@ function parseShellWords(command: string) {
   }
   if (current) words.push(current)
   return words
-}
-
-function normalizeSafeShellPath(path: string): string {
-  const normalized = posix.normalize(path.replace(/\\/g, "/")).replace(/^\//, "")
-  if (normalized === ".") return ""
-  if (normalized === ".." || normalized.startsWith("../")) {
-    throw new Error(`[vitehub] Workspace path escapes the workspace root: "${path}".`)
-  }
-  return normalized
-}
-
-function applyOutputLimit(output: string, maxLength: number): string {
-  if (output.length <= maxLength) return output
-  return `${output.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
 }

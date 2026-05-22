@@ -1,6 +1,4 @@
-ignorePatterns = [
-  "packages/agent/devtools-client/**",
-]
+ignorePatterns = []
 
 dynamicallyLoaded = [
   ".github/scripts/*.mjs",
@@ -9,7 +7,6 @@ dynamicallyLoaded = [
   "packages/devtools/devtools/chat/app/app.vue",
   "packages/devtools/devtools/chat/app/assets/css/main.css",
   "packages/devtools/devtools/chat/nuxt.config.ts",
-  "packages/agent/devtools-client/**",
   "packages/kv/examples/**/nitro.config.ts",
   "packages/kv/examples/**/server/**",
   "packages/kv/test/helpers/*.ts",
@@ -104,6 +101,7 @@ ignoreDependencies = [
 publicPackages = [
   "@vitehub/agent",
   "@vitehub/sandbox",
+  "@vitehub/shell",
   "@vitehub/workspace",
 ]
 
@@ -121,7 +119,3 @@ rules = { "unused-class-members" = "off" }
 [[overrides]]
 files = ["packages/workspace/src/stores/memory-fs.ts"]
 rules = { "unused-class-members" = "off" }
-
-[[overrides]]
-files = ["packages/agent/devtools-client/**"]
-rules = { "unused-files" = "off", "unresolved-imports" = "off", "circular-deps" = "off" }

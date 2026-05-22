@@ -4,14 +4,11 @@ import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspect
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./types.ts"
+import type { ShellObservation, ShellSessionPolicy } from "@vitehub/shell"
 
 export type { WorkspaceMaterializeSourcesResult } from "./types.ts"
 
-export interface WorkspaceShellResult {
-  exitCode: number
-  stderr: string
-  stdout: string
-}
+export type WorkspaceShellResult = ShellObservation
 
 export interface WorkspacePathResult {
   path: string
@@ -42,9 +39,9 @@ export type WorkspaceToolOperations = WorkspaceReadOperations & {
   write?: true | WorkspaceWriteOperations
 }
 
-export interface WorkspaceToolOptions<Operations extends WorkspaceToolOperations | undefined = undefined> {
+export interface WorkspaceToolOptions<Operations extends WorkspaceToolOperations | undefined = undefined> extends Pick<ShellSessionPolicy, "maxOutputLength" | "maxShellCalls" | "timeout"> {
+  broadSearchPaths?: string[]
   cwd?: string
-  maxOutputLength?: number
   operations?: Operations
 }
 
@@ -90,10 +87,6 @@ export type WorkspaceTools<Operations = undefined> = ((ShellEnabled<Operations> 
 
 const defaultMaxOutputLength = 30_000
 const workspaceMountPoint = "/workspace"
-
-function isCloudflareWorkersRuntime() {
-  return typeof navigator === "object" && navigator.userAgent === "Cloudflare-Workers"
-}
 
 function isWorkspace(input: Workspace | WorkspaceAssets): input is Workspace {
   return "sync" in input
@@ -170,16 +163,16 @@ function describeShellCommands(commands: string[]) {
 async function runShellCommand(
   input: Workspace | WorkspaceAssets,
   command: string,
-  options: { commands: string[], cwd: string, maxOutputLength: number },
+  options: { broadSearchPaths: string[], commands: string[], cwd: string, maxOutputLength: number, timeout?: number },
 ): Promise<WorkspaceShellResult> {
   return await runWorkspaceInspectionCommand(input, command, {
-    broadSearchPaths: ["forecasting-engine", "ingestion"],
+    broadSearchPaths: options.broadSearchPaths,
     commands: options.commands,
     cwd: options.cwd,
     fs: createReadonlyWorkspaceFs(input),
     maxOutputLength: options.maxOutputLength,
-    provider: isCloudflareWorkersRuntime() ? "cloudflare-shell" : "just-bash",
-  }) as WorkspaceShellResult
+    timeout: options.timeout,
+  })
 }
 
 function sizeOf(content: string | Uint8Array) {
@@ -359,12 +352,16 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   options: WorkspaceToolOptions<Operations> = {},
 ): WorkspaceTools<Operations> {
   const resolved = {
+    broadSearchPaths: options.broadSearchPaths || [],
     commands: shellCommandsFor(resolveReadOperations(options.operations)),
     cwd: options.cwd || workspaceMountPoint,
     materialize: resolveReadOperations(options.operations).materialize,
+    maxShellCalls: options.maxShellCalls,
     maxOutputLength: options.maxOutputLength || defaultMaxOutputLength,
+    timeout: options.timeout,
     write: resolveWriteOperations(options.operations?.write),
   }
+  let shellCalls = 0
   const writeEnabled = Object.values(resolved.write).some(Boolean)
 
   if (!resolved.commands.length && !resolved.materialize && !writeEnabled) {
@@ -391,7 +388,20 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         required: ["command"],
         type: "object",
       }),
-      execute: async ({ command }) => await runShellCommand(input, command, resolved),
+      execute: async ({ command }) => {
+        if (typeof resolved.maxShellCalls === "number" && shellCalls >= resolved.maxShellCalls) {
+          return {
+            command,
+            cwd: resolved.cwd,
+            event: "policy_denied",
+            exitCode: 126,
+            stderr: `[vitehub] Workspace shell command budget exhausted after ${resolved.maxShellCalls} calls. Answer from the evidence already collected instead of running more shell commands.\n`,
+            stdout: "",
+          } satisfies WorkspaceShellResult
+        }
+        shellCalls += 1
+        return await runShellCommand(input, command, resolved)
+      },
     })
   }
 

@@ -39,7 +39,8 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "pwd")).resolves.toMatchObject({ exitCode: 0, stdout: "/workspace\n" })
     await expect(runShell(tools, "ls models")).resolves.toMatchObject({ exitCode: 0, stdout: "customers.sql\norders.sql\n" })
     await expect(runShell(tools, "find . -name '*.sql'")).resolves.toMatchObject({
-      exitCode: 0,
+      event: "policy_denied",
+      exitCode: 126,
       stdout: expect.stringContaining("Workspace search is too broad"),
     })
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
@@ -54,7 +55,8 @@ describe("createWorkspaceTools", () => {
       stdout: "docs/customers.md:1:Customer docs\nmodels/customers.sql:1:select * from customers\n",
     })
     await expect(runShell(tools, "grep -ri \"customer\" . | head -n 1")).resolves.toMatchObject({
-      exitCode: 0,
+      event: "policy_denied",
+      exitCode: 126,
       stdout: expect.stringContaining("Workspace search is too broad"),
     })
     await expect(runShell(tools, "cd /workspace && rg orders models")).resolves.toMatchObject({
@@ -133,6 +135,42 @@ describe("createWorkspaceTools", () => {
 
     await expect(runShell(tools, "cat large.txt")).resolves.toMatchObject({
       stdout: "0123\n[output truncated to 4 characters]\n",
+    })
+  })
+
+  it("accepts shell timeout through workspace tools", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "README.md": "# Docs\n",
+    }), { timeout: 5 })
+
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
+  })
+
+  it("returns model-readable feedback when shell call budget is exhausted", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "README.md": "# Docs\n",
+    }), { maxShellCalls: 1 })
+
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(runShell(tools, "pwd")).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("command budget exhausted after 1 calls"),
+    })
+  })
+
+  it("uses broad search path hints in workspace shell feedback", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "models/orders.sql": "select * from orders\n",
+    }), { broadSearchPaths: ["models"] })
+
+    await expect(runShell(tools, "rg orders .")).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Try one of these paths: \"models\""),
     })
   })
 
