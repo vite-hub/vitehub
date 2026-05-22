@@ -1,1 +1,1 @@
-export { registerWorkspace } from "./registry.ts"
+export { registerWorkspace } from "./core/registry.ts"

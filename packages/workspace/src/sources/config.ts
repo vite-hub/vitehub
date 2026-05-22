@@ -1,6 +1,6 @@
 import { defu } from "defu"
 
-import { normalizeSafeWorkspacePath } from "./path.ts"
+import { normalizeSafeWorkspacePath } from "../core/path.ts"
 
 import type {
   SourceContext,
@@ -9,7 +9,7 @@ import type {
   WorkspaceMaterializeMode,
   WorkspaceSource,
   WorkspaceValidateMode,
-} from "./types.ts"
+} from "../core/types.ts"
 
 export interface ResolvedWorkspaceSource {
   key: string

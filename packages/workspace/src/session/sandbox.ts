@@ -1,12 +1,10 @@
 import { posix } from "node:path"
 
-import { WorkspaceError } from "../errors.ts"
-import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../path.ts"
-import { createSnapshotFromEntries, diffSnapshots } from "../stores/utils.ts"
+import { WorkspaceError } from "../core/errors.ts"
+import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 
 import type {
-  ExecOptions,
-  ExecResult,
   ReadFileOptions,
   ReadFileResult,
   Workspace,
@@ -18,16 +16,12 @@ import type {
   WorkspaceSearchHit,
   WorkspaceSession,
   WriteFileOptions,
-} from "../types.ts"
+} from "../core/types.ts"
 
 type SandboxClient = Awaited<ReturnType<typeof import("@vitehub/sandbox").createSandboxWithConfig>>
 type SandboxFileEntry = { path: string, size?: number, type: "file" | "directory" }
 
 const sandboxCwd = "/workspace"
-
-function unsupportedExec(): never {
-  throw new WorkspaceError("[vitehub] Workspace does not configure an executable runtime. Set `runtime: 'sandbox'` in the workspace definition.")
-}
 
 function normalizeSearchRoot(path: string) {
   const normalized = posix.normalize(path.replace(/\\/g, "/"))
@@ -146,24 +140,6 @@ async function commitSandboxChanges(
   await workspace.snapshot({ name: "sandbox-commit" })
 }
 
-export function createBasicWorkspaceSession(workspace: Workspace): WorkspaceSession {
-  return {
-    readFile: workspace.readFile,
-    writeFile: workspace.writeFile,
-    list: workspace.list,
-    glob: workspace.glob,
-    search: workspace.search,
-    diff: () => workspace.diff(),
-    async commit(options) {
-      await workspace.snapshot({ name: options?.message || "session-commit" })
-    },
-    async exec(_command: string, _args: string[] = [], _options?: ExecOptions): Promise<ExecResult> {
-      unsupportedExec()
-    },
-    async close() {},
-  }
-}
-
 export async function createSandboxWorkspaceSession(
   definition: WorkspaceDefinition,
   workspace: Workspace,
@@ -217,13 +193,13 @@ export async function createSandboxWorkspaceSession(
     async glob(pattern, _options = {}) {
       assertOpen()
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
-      const { matchesAny } = await import("../path.ts")
+      const { matchesAny } = await import("../core/path.ts")
       return (await listSandboxEntries(sandbox, "", true))
         .filter(entry => entry.type === "file" && patterns.some(item => matchesAny(entry.path, item)))
     },
     async search(query) {
       assertOpen()
-      const { searchText } = await import("../search.ts")
+      const { searchText } = await import("../core/search.ts")
       const searchRoots = [...new Set((query.paths?.length ? query.paths : [query.cwd || ""]).map(normalizeSearchRoot))]
       const scopedSearchRoots = searchRoots.filter(Boolean)
       const limit = query.limit ?? 100

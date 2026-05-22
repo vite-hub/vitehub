@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
 import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
 import { registerWorkspace } from "../src/test.ts"
-import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/registry.ts"
+import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig } from "../src/runtime/state.ts"
 

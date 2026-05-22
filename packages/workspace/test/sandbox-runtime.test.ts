@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace } from "../src/index.ts"
-import { createWorkspace } from "../src/workspace.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
 import { setSandboxRuntimeConfig } from "@vitehub/sandbox/runtime/state"
 
 type FakeEntry = { content?: string | Uint8Array, type: "directory" | "file" }

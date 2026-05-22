@@ -19,7 +19,7 @@ import { bundleSandboxDefinition } from "../../../packages/sandbox/src/bundle.ts
 import { resolveSandboxFeatureConfig } from "../../../packages/sandbox/src/feature.ts"
 import { finalizeCloudflareWranglerConfig } from "../../../packages/sandbox/src/internal/shared/cloudflare-wrangler.ts"
 import { normalizeWorkspaceOptions } from "../../../packages/workspace/src/config.ts"
-import { discoverViteWorkspaceDefinitions } from "../../../packages/workspace/src/discovery.ts"
+import { discoverViteWorkspaceDefinitions } from "../../../packages/workspace/src/build/discovery.ts"
 import { configureCloudflareArtifacts } from "../../../packages/workspace/src/integrations/cloudflare.ts"
 import { normalizeWorkflowOptions } from "../../../packages/workflow/src/config.ts"
 import { discoverWorkflowDefinitions } from "../../../packages/workflow/src/discovery.ts"
@@ -37,7 +37,7 @@ import type { ResolvedDBViteConfig } from "../../../packages/db/src/types.ts"
 import type { ResolvedKVModuleOptions } from "../../../packages/kv/src/types.ts"
 import type { ResolvedQueueOptions } from "../../../packages/queue/src/types.ts"
 import type { AgentSandboxConfig } from "../../../packages/sandbox/src/module-types.ts"
-import type { ResolvedWorkspaceModuleOptions } from "../../../packages/workspace/src/types.ts"
+import type { ResolvedWorkspaceModuleOptions } from "../../../packages/workspace/src/core/types.ts"
 import type { ResolvedWorkflowOptions } from "../../../packages/workflow/src/types.ts"
 import type { Plugin } from "vite"
 
@@ -292,10 +292,10 @@ function renderWorkflowRuntimeModule(file: string) {
 
 function renderWorkspaceRuntimeModule(file: string) {
   return [
-    `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(workspacePackageDir, "define")))}`,
+    `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/define.ts")))}`,
     `export * as loader from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/loaders/index.ts")))}`,
-    `export { registerWorkspace } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(workspacePackageDir, "registry")))}`,
-    `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(workspacePackageDir, "use")))}`,
+    `export { registerWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/registry.ts")))}`,
+    `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/use.ts")))}`,
     "",
   ].join("\n")
 }
@@ -518,7 +518,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   ]
 
   if (workspaceProvider === "cloudflare-artifacts") {
-    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/cloudflare-artifacts.ts")))}`)
+    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/cloudflare/artifacts-store.ts")))}`)
   }
 
   if (artifacts.queueRegistryFile) {
@@ -645,7 +645,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   }
 
   if (workspaceProvider === "vercel-blob") {
-    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/vercel-blob.ts")))}`)
+    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/vercel/blob-store.ts")))}`)
   }
 
   if (artifacts.queueRegistryFile) {

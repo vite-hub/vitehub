@@ -1,9 +1,9 @@
 import { getActiveCloudflareBinding } from "@vitehub/internal/runtime/cloudflare-env"
 
-import { WorkspaceError } from "../errors.ts"
-import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../path.ts"
-import { MemoryFS } from "./memory-fs.ts"
-import { createSnapshotFromEntries, diffSnapshots } from "./utils.ts"
+import { WorkspaceError } from "../../core/errors.ts"
+import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
+import { MemoryFS } from "../../storage/memory-fs.ts"
+import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
 
 import type {
   CloudflareArtifactsWorkspaceStoreOptions,
@@ -19,7 +19,7 @@ import type {
   WorkspaceSnapshot,
   WorkspaceStat,
   WorkspaceStore,
-} from "../types.ts"
+} from "../../core/types.ts"
 
 interface ArtifactsRepo {
   createToken(scope?: "read" | "write", ttl?: number): Promise<{ plaintext: string }>

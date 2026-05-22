@@ -1,7 +1,7 @@
-import { WorkspaceError } from "../errors.ts"
-import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../path.ts"
-import { resolveRuntimeVercelBlobWorkspaceStore } from "../store-provider.ts"
-import { createSnapshotFromEntries, diffSnapshots } from "./utils.ts"
+import { WorkspaceError } from "../../core/errors.ts"
+import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
+import { resolveRuntimeVercelBlobWorkspaceStore } from "../../storage/provider.ts"
+import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
 
 import type {
   DiffOptions,
@@ -17,7 +17,7 @@ import type {
   WorkspaceSnapshot,
   WorkspaceStat,
   WorkspaceStore,
-} from "../types.ts"
+} from "../../core/types.ts"
 
 type BlobListItem = {
   key: string

@@ -5,14 +5,14 @@ import { createImportPath } from "@vitehub/internal/build/paths"
 import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
-import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets, writeWorkspaceRuntimeRegistry } from "../build-integration.ts"
-import { normalizeWorkspaceOptions } from "../config.ts"
-import { discoverNitroWorkspaceDefinitions, type DiscoveredWorkspaceDefinition } from "../discovery.ts"
-import { createWorkspaceTypeAugmentation } from "../generated-types.ts"
-import { configureCloudflareArtifacts } from "../integrations/cloudflare.ts"
+import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets, writeWorkspaceRuntimeRegistry } from "../../build/integration.ts"
+import { normalizeWorkspaceOptions } from "../../config.ts"
+import { discoverNitroWorkspaceDefinitions, type DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
+import { createWorkspaceTypeAugmentation } from "../../build/generated-types.ts"
+import { configureCloudflareArtifacts } from "../../integrations/cloudflare.ts"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../../core/types.ts"
 
 const WORKSPACE_NITRO_IMPORTS_PRESET = {
   from: "@vitehub/workspace",
@@ -128,10 +128,10 @@ function createNitroPluginContents(file: string, registryFile: string, assetsReg
   ]
 
   if (provider === "cloudflare-artifacts") {
-    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/cloudflare-artifacts", "@vitehub/workspace/internal/stores/cloudflare-artifacts")))}`)
+    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../../providers/cloudflare/artifacts-store", "@vitehub/workspace/internal/stores/cloudflare-artifacts")))}`)
   }
   else if (provider === "vercel-blob") {
-    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/vercel-blob", "@vitehub/workspace/internal/stores/vercel-blob")))}`)
+    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../../providers/vercel/blob-store", "@vitehub/workspace/internal/stores/vercel-blob")))}`)
   }
 
   const loader = provider === "cloudflare-artifacts"

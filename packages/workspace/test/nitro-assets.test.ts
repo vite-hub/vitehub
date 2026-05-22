@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import workspaceNitroModule from "../src/nitro/module.ts"
+import workspaceNitroModule from "../src/hosts/nitro/module.ts"
 
 const tempDirs: string[] = []
 

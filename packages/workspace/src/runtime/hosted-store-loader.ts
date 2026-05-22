@@ -1,4 +1,4 @@
-import type { CloudflareArtifactsWorkspaceStoreOptions, VercelBlobWorkspaceStoreOptions, WorkspaceStore } from "../types.ts"
+import type { CloudflareArtifactsWorkspaceStoreOptions, VercelBlobWorkspaceStoreOptions, WorkspaceStore } from "../core/types.ts"
 
 export type HostedWorkspaceStoreOptions = CloudflareArtifactsWorkspaceStoreOptions | VercelBlobWorkspaceStoreOptions
 export type WorkspaceHostedStoreLoader = (options: HostedWorkspaceStoreOptions, workspaceName: string) => WorkspaceStore

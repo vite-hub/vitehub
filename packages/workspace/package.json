@@ -46,8 +46,8 @@
     "./internal/runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./internal/runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./internal/runtime/state": "./dist/runtime/state.js",
-    "./internal/stores/cloudflare-artifacts": "./dist/stores/cloudflare-artifacts.js",
-    "./internal/stores/vercel-blob": "./dist/stores/vercel-blob.js"
+    "./internal/stores/cloudflare-artifacts": "./dist/providers/cloudflare/artifacts-store.js",
+    "./internal/stores/vercel-blob": "./dist/providers/vercel/blob-store.js"
   },
   "files": [
     "dist",

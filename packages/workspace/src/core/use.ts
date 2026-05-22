@@ -6,10 +6,10 @@ import {
   type WorkspaceShellResult,
   type WorkspaceWriteOperations,
   type WorkspaceWriteToolMap,
-} from "./ai.ts"
-import { useWorkspaceAssets } from "./asset-registry.ts"
+} from "../ai.ts"
+import { useWorkspaceAssets } from "../asset-registry.ts"
 import { WorkspaceNotFoundError } from "./errors.ts"
-import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
+import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
 

@@ -1,6 +1,6 @@
 import { glob as createGlobSource, type GlobSourceOptions as UnsourceGlobSourceOptions } from "@vitehub/unsource"
 
-import type { WorkspaceSource } from "../types.ts"
+import type { WorkspaceSource } from "../core/types.ts"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "validate">
 

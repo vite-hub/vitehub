@@ -13,7 +13,7 @@ import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { source } from "../src/index.ts"
 import { hubWorkspace } from "../src/vite.ts"
-import type { WorkspaceModuleOptions, WorkspacePlugin, WorkspaceWriteInput } from "../src/types.ts"
+import type { WorkspaceModuleOptions, WorkspacePlugin, WorkspaceWriteInput } from "../src/core/types.ts"
 
 declare global {
   interface ViteHubWorkspaceAssetMap {

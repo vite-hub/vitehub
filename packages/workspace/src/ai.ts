@@ -3,9 +3,9 @@ import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspect
 
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 
-import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./types.ts"
+import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
 
-export type { WorkspaceMaterializeSourcesResult } from "./types.ts"
+export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
 
 export interface WorkspaceShellResult {
   exitCode: number

@@ -18,8 +18,8 @@ export default defineConfig({
     "src/runtime/assets.ts",
     "src/runtime/nitro-plugin.ts",
     "src/runtime/state.ts",
-    "src/stores/cloudflare-artifacts.ts",
-    "src/stores/vercel-blob.ts",
+    "src/providers/cloudflare/artifacts-store.ts",
+    "src/providers/vercel/blob-store.ts",
     "src/test.ts",
     "src/vite.ts",
   ],
@@ -30,8 +30,8 @@ export default defineConfig({
       "runtime/empty-registry",
       "runtime/nitro-plugin",
       "runtime/state",
-      "stores/cloudflare-artifacts",
-      "stores/vercel-blob",
+      "providers/cloudflare/artifacts-store",
+      "providers/vercel/blob-store",
     ],
     customExports(exports) {
       exports["./internal/runtime/assets"] = "./dist/runtime/assets.js"
@@ -41,8 +41,8 @@ export default defineConfig({
       exports["./internal/runtime/nitro-plugin"] = "./dist/runtime/nitro-plugin.js"
       exports["./internal/runtime/state"] = "./dist/runtime/state.js"
       exports["./internal/stores/cloudflare-artifacts"] =
-        "./dist/stores/cloudflare-artifacts.js"
-      exports["./internal/stores/vercel-blob"] = "./dist/stores/vercel-blob.js"
+        "./dist/providers/cloudflare/artifacts-store.js"
+      exports["./internal/stores/vercel-blob"] = "./dist/providers/vercel/blob-store.js"
 
       return exports
     },

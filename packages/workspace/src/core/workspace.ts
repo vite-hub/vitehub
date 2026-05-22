@@ -1,5 +1,6 @@
-import { createWorkspaceSourceView } from "./source-view.ts"
-import { createWorkspaceStoreFromProvider } from "./store-provider.ts"
+import { createBasicWorkspaceSession } from "../session/basic.ts"
+import { createWorkspaceSourceView } from "../sources/view.ts"
+import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
@@ -20,7 +21,7 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
   const workspace: Workspace = {
     name: definition.name,
     async sync() {
-      const { syncWorkspaceDefinition } = await import("./lifecycle.ts")
+      const { syncWorkspaceDefinition } = await import("../lifecycle.ts")
       await syncWorkspaceDefinition(definition, store)
     },
     async materializeSources(options) {
@@ -61,11 +62,10 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     },
     async startSession(_options): Promise<WorkspaceSession> {
       if (definition.runtime === "sandbox") {
-        const { createSandboxWorkspaceSession } = await import("./runtimes/sandbox.ts")
+        const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
         return await createSandboxWorkspaceSession(definition, workspace)
       }
 
-      const { createBasicWorkspaceSession } = await import("./runtimes/sandbox.ts")
       return createBasicWorkspaceSession(workspace)
     },
     mount(options?: WorkspaceMountOptions): WorkspaceMount {
