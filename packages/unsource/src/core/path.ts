@@ -19,7 +19,7 @@ export function normalizeSafeSourcePath(path = "", options: SafeSourcePathOption
   const parts = normalized.split("/").filter(Boolean)
 
   if (!options.allowEmpty && !normalized) throw new SourcePathError(path)
-  if (raw.startsWith("/") || parts.some(part => part === "." || part === "..")) throw new SourcePathError(path)
+  if (raw.startsWith("/") || /^[A-Za-z]:\//.test(raw) || parts.some(part => part === "." || part === "..")) throw new SourcePathError(path)
   if (!options.allowReserved && (parts[0] === ".git" || parts[0] === ".vitehub")) throw new SourcePathError(path)
 
   return normalized

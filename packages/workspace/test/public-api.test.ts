@@ -116,6 +116,7 @@ describe("workspace public API", () => {
 
   it("rejects unsafe local file source paths", () => {
     expect(() => source.file("/AGENTS.md")).toThrow()
+    expect(() => source.file("C:/Users/maxi/AGENTS.md")).toThrow()
     expect(() => source.file("../AGENTS.md")).toThrow()
   })
 
