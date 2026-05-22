@@ -80,9 +80,14 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
   try {
     let currentCwd = cwd
     let skipAndChain = false
+    let skipOrChain = false
     for (const segment of splitShellCommandSegments(command)) {
       if (skipAndChain) {
         skipAndChain = segment.separatorAfter === "&&"
+        continue
+      }
+      if (skipOrChain) {
+        skipOrChain = segment.separatorAfter === "||"
         continue
       }
       const words = parseShellWords(segment.command)
@@ -92,7 +97,8 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
         const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
         const exists = await fs.exists(resolvedPath)
         if (segment.separatorAfter === "&&" && !exists) skipAndChain = true
-        if (segment.separatorAfter !== "||" && exists) {
+        if (segment.separatorAfter === "||" && exists) skipOrChain = true
+        if (exists) {
           currentCwd = resolvedPath ? posix.join(workspaceMountPoint, resolvedPath) : workspaceMountPoint
         }
         continue
@@ -230,7 +236,7 @@ function isShellOperator(arg: string) {
 }
 
 function isRedirectOperator(arg: string) {
-  return /^(?:\d*)[<>]+&?\d*$/.test(arg)
+  return /^(?:\d*)[<>]+&?\d*$/.test(arg) || /^(?:\d*)[<>]/.test(arg)
 }
 
 function isFindLeadingOption(arg: string) {

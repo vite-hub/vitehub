@@ -512,6 +512,24 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "cd models || cat missing.sql", {
+      commands: ["cat", "cd"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cd models || cat missing.sql || cat missing-again.sql", {
+      commands: ["cat", "cd"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "cd missing && cat README.md", {
       commands: ["cat", "cd"],
       cwd: workspaceMountPoint,
@@ -559,6 +577,26 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "",
     })
     await expect(workspace.readFile("search.txt")).resolves.toBe("models/orders.sql:1:select * from orders\n")
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg orders models >attached-search.txt", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs: createWritableWorkspaceFs(workspace),
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "",
+    })
+    await expect(workspace.readFile("attached-search.txt")).resolves.toBe("models/orders.sql:1:select * from orders\n")
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg missing models 2>attached-error.txt", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs: createWritableWorkspaceFs(workspace),
+    })).resolves.toMatchObject({
+      exitCode: 1,
+      stdout: "",
+    })
+    await expect(workspace.readFile("attached-error.txt")).resolves.toBe("")
 
     await expect(runWorkspaceInspectionCommand(workspace, "find -L models -name '*.sql'", {
       commands: ["find"],
