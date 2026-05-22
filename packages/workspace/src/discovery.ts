@@ -77,6 +77,10 @@ function resolveWorkspaceSourceRoot(file: string) {
   }
 }
 
+function createWorkspaceDefinition(source: string, file: string, name: string): DiscoveredWorkspaceDefinition {
+  return { handler: file, name, path: file, source, sourceRootDir: resolveWorkspaceSourceRoot(file) }
+}
+
 function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
   const workspacesDir = resolve(rootDir, "server", "workspaces")
   const agentsDir = resolve(rootDir, "server", "agents")
@@ -112,7 +116,7 @@ function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource
         if (isAgentConfig(file)) {
           throw new Error(`[vitehub] Workspace config "${file}" must use defineWorkspace(); defineAgent() belongs in server/agents/<name>/config.ts.`)
         }
-        return { handler: file, name, path: file, source: "nitro-server-workspaces-directory-config", sourceRootDir: resolveWorkspaceSourceRoot(file) }
+        return createWorkspaceDefinition("nitro-server-workspaces-directory-config", file, name)
       },
     }),
     createDirectoryDefinitionSource("nitro-server-agent-workspaces", [resolve(rootDir, "server")], "agents", {
@@ -123,11 +127,11 @@ function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource
         const name = relative(agentsDir, dirname(file)).replace(/\\/g, "/")
         return name && name !== "." ? name : undefined
       },
-      createDefinition: ({ file, name }) => ({ handler: file, name, path: file, source: "nitro-server-agent-workspaces", sourceRootDir: resolveWorkspaceSourceRoot(file) }),
+      createDefinition: ({ file, name }) => createWorkspaceDefinition("nitro-server-agent-workspaces", file, name),
     }),
     createDirectoryDefinitionSource("nitro-server-workspaces", [resolve(rootDir, "server")], "workspaces", {
       normalizeName: normalizeFlatName,
-      createDefinition: ({ file, name }) => ({ handler: file, name, path: file, source: "nitro-server-workspaces", sourceRootDir: resolveWorkspaceSourceRoot(file) }),
+      createDefinition: ({ file, name }) => createWorkspaceDefinition("nitro-server-workspaces", file, name),
     }),
   ]
 }
@@ -135,7 +139,7 @@ function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource
 function viteWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
   return [
     createSuffixDefinitionSource("vite-workspace-suffix", [rootDir], workspaceSuffixPattern, (root, file) => normalizeSuffixDefinitionName(root, file, workspaceSuffixPattern, { stripPrefix: "src/" }), {
-      createDefinition: ({ file, name }) => ({ handler: file, name, path: file, source: "vite-workspace-suffix", sourceRootDir: resolveWorkspaceSourceRoot(file) }),
+      createDefinition: ({ file, name }) => createWorkspaceDefinition("vite-workspace-suffix", file, name),
     }),
   ]
 }
@@ -148,6 +152,17 @@ export function discoverViteWorkspaceDefinitions(rootDir: string): DiscoveredWor
   return discoverDefinitions("workspace", [...viteWorkspaceSource(rootDir)])
 }
 
+function createWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition, importExpression: string): string {
+  return [
+    `  ${JSON.stringify(definition.name)}: async () => {`,
+    `    const mod = await ${importExpression}`,
+    definition.sourceRootDir
+      ? `    return { ...mod, default: { ...mod.default, sourceRootDir: mod.default.sourceRootDir ?? ${JSON.stringify(definition.sourceRootDir)} } }`
+      : "    return mod",
+    "  },",
+  ].join("\n")
+}
+
 export function createWorkspaceRegistryContents(registryFile: string, definitions: DiscoveredWorkspaceDefinition[]): string {
   const importExpression = (file: string) => {
     const importPath = relative(resolve(registryFile, ".."), file)
@@ -155,14 +170,7 @@ export function createWorkspaceRegistryContents(registryFile: string, definition
   }
   return [
     "const registry = {",
-    ...definitions.map(definition => [
-      `  ${JSON.stringify(definition.name)}: async () => {`,
-      `    const mod = await ${importExpression(definition.handler)}`,
-      definition.sourceRootDir
-        ? `    return { ...mod, default: { ...mod.default, sourceRootDir: mod.default.sourceRootDir ?? ${JSON.stringify(definition.sourceRootDir)} } }`
-        : "    return mod",
-      "  },",
-    ].join("\n")),
+    ...definitions.map(definition => createWorkspaceRegistryEntry(definition, importExpression(definition.handler))),
     "}",
     "export default registry",
     "",
@@ -172,14 +180,7 @@ export function createWorkspaceRegistryContents(registryFile: string, definition
 export function createWorkspaceVirtualRegistryContents(definitions: DiscoveredWorkspaceDefinition[]): string {
   return [
     "const registry = {",
-    ...definitions.map(definition => [
-      `  ${JSON.stringify(definition.name)}: async () => {`,
-      `    const mod = await import(${JSON.stringify(pathToFileURL(definition.path).href)})`,
-      definition.sourceRootDir
-        ? `    return { ...mod, default: { ...mod.default, sourceRootDir: mod.default.sourceRootDir ?? ${JSON.stringify(definition.sourceRootDir)} } }`
-        : "    return mod",
-      "  },",
-    ].join("\n")),
+    ...definitions.map(definition => createWorkspaceRegistryEntry(definition, `import(${JSON.stringify(pathToFileURL(definition.path).href)})`)),
     "}",
     "export default registry",
     "",

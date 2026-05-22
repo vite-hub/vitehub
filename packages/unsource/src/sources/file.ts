@@ -33,13 +33,9 @@ function normalizeFileSourceOptions<TKey extends string>(input: FileSourceInput<
   return typeof input === "string" ? { path: input } : input
 }
 
-function normalizeFilePath(path: string) {
-  return normalizeSafeSourcePath(path)
-}
-
 function sourceKey<TKey extends string>(options: FileSourceOptions<TKey>): TKey {
   if (options.workspacePath) return normalizeSourcePath(options.workspacePath) as TKey
-  if ("path" in options && options.path) return normalizeSourcePath(basename(normalizeFilePath(options.path))) as TKey
+  if ("path" in options && options.path) return normalizeSourcePath(basename(normalizeSafeSourcePath(options.path))) as TKey
   throw new TypeError("[vitehub] source.file requires a path or workspacePath.")
 }
 
@@ -49,7 +45,7 @@ async function readSourceFile<TKey extends string>(options: FileSourceOptions<TK
   }
   const { readFile } = await import("node:fs/promises")
   const { resolve } = await import("node:path")
-  return new Uint8Array(await readFile(resolve(ctx.sourceRootDir || ctx.rootDir, normalizeFilePath(options.path))))
+  return new Uint8Array(await readFile(resolve(ctx.sourceRootDir ?? ctx.rootDir, normalizeSafeSourcePath(options.path))))
 }
 
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): Source<TKey> {
@@ -66,7 +62,7 @@ export function file<const TKey extends string = string>(input: FileSourceInput<
       if (!("path" in options) || !options.path) return
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
-      const info = await stat(resolve(ctx.sourceRootDir || ctx.rootDir, normalizeFilePath(options.path)))
+      const info = await stat(resolve(ctx.sourceRootDir ?? ctx.rootDir, normalizeSafeSourcePath(options.path)))
       return {
         digest: `${info.size}:${info.mtimeMs}`,
       }
