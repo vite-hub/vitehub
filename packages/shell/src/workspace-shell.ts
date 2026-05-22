@@ -280,6 +280,9 @@ function commandPathArguments(words: string[]) {
         if (takesSearchPatternOptionValue(arg)) sawPattern = true
         index += 1
       }
+      else if (takesInlineOptionValue(arg)) {
+        continue
+      }
       else if (takesInlineSearchPatternOptionValue(arg)) {
         sawPattern = true
       }
@@ -308,13 +311,26 @@ function takesOptionValue(arg: string) {
     "-f",
     "-g",
     "-m",
+    "-T",
+    "-t",
     "--after-context",
     "--before-context",
     "--context",
     "--glob",
     "--max-count",
     "--regexp",
+    "--type",
+    "--type-add",
+    "--type-clear",
+    "--type-not",
   ].includes(arg)
+}
+
+function takesInlineOptionValue(arg: string) {
+  return arg.startsWith("--type=")
+    || arg.startsWith("--type-add=")
+    || arg.startsWith("--type-clear=")
+    || arg.startsWith("--type-not=")
 }
 
 function takesSearchPatternOptionValue(arg: string) {
