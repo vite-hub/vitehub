@@ -217,6 +217,7 @@ function isFindLeadingOption(arg: string) {
 
 function isConcreteWorkspacePath(path: string) {
   return Boolean(path)
+    && path !== "-"
     && cleanWorkspaceShellPath(path) !== ""
     && !path.includes("*")
     && !path.includes("?")
@@ -244,7 +245,13 @@ function commandPathArguments(words: string[]) {
     }
     if (isShellOperator(arg)) break
     if (arg.startsWith("-")) {
-      if (takesOptionValue(arg)) index += 1
+      if (takesOptionValue(arg)) {
+        if (takesSearchPatternOptionValue(arg)) sawPattern = true
+        index += 1
+      }
+      else if (takesInlineSearchPatternOptionValue(arg)) {
+        sawPattern = true
+      }
       continue
     }
     if (!sawPattern) {
@@ -272,6 +279,14 @@ function takesOptionValue(arg: string) {
     "--max-count",
     "--regexp",
   ].includes(arg)
+}
+
+function takesSearchPatternOptionValue(arg: string) {
+  return arg === "-e" || arg === "-f" || arg === "--regexp"
+}
+
+function takesInlineSearchPatternOptionValue(arg: string) {
+  return arg.startsWith("--regexp=")
 }
 
 function takesFileCommandOptionValue(arg: string) {
