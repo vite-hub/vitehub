@@ -9,6 +9,8 @@ import type {
   AgentCapabilityHooks,
   AgentCapabilityMode,
   AgentCapabilityRuntimeContext,
+  AgentFinishEvent,
+  AgentFinishExtensionProvider,
   AgentInstructionBlock,
   AgentOutputRenderer,
   AgentRunInput,
@@ -23,7 +25,13 @@ import type { ReadonlyWorkspaceFacade, WorkspaceName } from "@vitehub/workspace"
 
 type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
 
+export interface ResolvedAgentFinishExtensionProvider {
+  id: string
+  resolve: AgentFinishExtensionProvider
+}
+
 export interface AgentCapabilityRegistries {
+  finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   outputRenderers: ResolvedAgentOutputRenderer[]
   stateRequirements: Array<{ name: string, optional?: boolean }>
 }
@@ -183,6 +191,7 @@ export async function resolveAgentCapabilities<
   const closeCallbacks: Array<() => MaybePromise<void>> = []
   const toolTransforms: AgentToolTransform[] = []
   const registries: AgentCapabilityRegistries = {
+    finishExtensionProviders: [],
     outputRenderers: [],
     stateRequirements: [],
   }
@@ -229,6 +238,16 @@ export async function resolveAgentCapabilities<
         output: {
           render(renderer: AgentOutputRenderer) {
             registries.outputRenderers.push(result => renderer(result, capabilityContext))
+          },
+        },
+        finish: {
+          provide(value) {
+            registries.finishExtensionProviders.push({
+              id: capability.id,
+              resolve: typeof value === "function"
+                ? value as AgentFinishExtensionProvider
+                : () => value,
+            })
           },
         },
         state: {
@@ -408,38 +427,70 @@ export async function applyOutputRenderers(
   return current
 }
 
+export async function createAgentInvocationExtensions(
+  event: Omit<AgentFinishEvent, "extensions">,
+  providers: ResolvedAgentFinishExtensionProvider[] = [],
+): Promise<AgentFinishEvent["extensions"]> {
+  const values = new Map<string, unknown>()
+  const extensions: AgentFinishEvent["extensions"] = {
+    get<T = unknown>(capabilityId: string): T | undefined {
+      return values.get(capabilityId) as T | undefined
+    },
+  }
+  const finishEvent = { ...event, extensions } as AgentFinishEvent
+  for (const provider of providers) {
+    const value = await provider.resolve(finishEvent)
+    if (value !== undefined) {
+      values.set(provider.id, value)
+    }
+  }
+  return extensions
+}
+
 export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   stream: T,
-  close: () => Promise<void>,
+  close: (error?: unknown) => Promise<void>,
 ): AsyncIterable<unknown> {
   return (async function* () {
+    let error: unknown
+    let failed = false
     try {
       yield* stream
     }
+    catch (caught) {
+      failed = true
+      error = caught
+      throw caught
+    }
     finally {
-      await close()
+      await close(failed ? error : undefined)
     }
   })()
 }
 
-export function withResponseCleanup(response: Response, close: () => Promise<void>): Response | Promise<Response> {
+export function withResponseCleanup(response: Response, close: (error?: unknown) => Promise<void>): Response | Promise<Response> {
   if (!response.body) {
     return close().then(() => response)
   }
   const reader = response.body.getReader()
   let closed = false
-  async function closeOnce() {
+  async function closeOnce(error?: unknown) {
     if (closed) return
     closed = true
-    await close()
+    await close(error)
   }
   return new Response(new ReadableStream({
     async cancel(reason) {
+      let cancelError: unknown
       try {
         await reader.cancel(reason)
       }
+      catch (error) {
+        cancelError = error
+        throw error
+      }
       finally {
-        await closeOnce()
+        await closeOnce(cancelError)
       }
     },
     async pull(controller) {
@@ -453,7 +504,7 @@ export function withResponseCleanup(response: Response, close: () => Promise<voi
         controller.enqueue(result.value)
       }
       catch (error) {
-        await closeOnce()
+        await closeOnce(error)
         throw error
       }
     },
