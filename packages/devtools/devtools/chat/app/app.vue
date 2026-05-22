@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { Comark } from "@comark/vue"
-import { connectRemoteDevTools, getDevToolsRpcClient } from "@vitejs/devtools-kit/client"
+import { connectRemoteDevTools, getDevToolsRpcClient, parseRemoteConnection } from "@vitejs/devtools-kit/client"
 
 import {
   chatDevtoolsClearRpc,
-  chatDevtoolsBridgeRoute,
   chatDevtoolsGetStateRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
@@ -16,11 +15,13 @@ import {
   type ChatDevtoolsTool,
   type ChatDevtoolsToolDefinition,
 } from "../../../../agent/src/chat/devtools-shared"
+import { resolveChatBridgeRoute } from "./bridge-route"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = {
   chat?: string
   content?: string
+  createdAt?: string
   id: string
   loading?: boolean
   loadingText?: string
@@ -222,6 +223,7 @@ function applyState(next: ChatDevtoolsStateResult) {
 
   messages.value = nextMessages
   syncExpandedFiles(state.value.files || [])
+
 }
 
 function activeLoadingMessageId(chatName: string | undefined, rawMessages: ChatDevtoolsMessage[]) {
@@ -272,12 +274,21 @@ function toChatMessage(message: ChatDevtoolsMessage, forceLoading = false): Chat
   const loading = forceLoading || Boolean(message.loading) || (genericAssistantText && !(message.tools || []).length)
   return {
     content: loading || genericAssistantText ? undefined : message.text || undefined,
+    createdAt: message.createdAt,
     id: message.id,
     loading,
     loadingText: loading ? (genericAssistantText ? undefined : message.text) || "Thinking..." : undefined,
     role: message.role === "assistant" ? "assistant" : "user",
     parts: (message.tools || []).filter(tool => !isConversationalEchoTool(tool)).map(tool => ({ type: "tool", tool })),
   }
+}
+
+function renderedMessageContent(content: unknown, message: { content?: unknown }) {
+  return typeof content === "string" && content.trim()
+    ? content
+    : typeof message.content === "string" && message.content.trim()
+      ? message.content
+      : undefined
 }
 
 function isGenericAssistantText(text: string): boolean {
@@ -506,16 +517,39 @@ function hasRunningTool(parts: unknown) {
   return chatToolParts(parts).some(part => part.tool.status === "running")
 }
 
-function toolsSummary(parts: unknown) {
+function formatThoughtDuration(ms: number) {
+  if (!Number.isFinite(ms) || ms <= 0) return undefined
+  const seconds = ms / 1000
+  if (seconds < 10) return `${seconds.toFixed(1)}s`
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainder = Math.round(seconds % 60)
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`
+}
+
+function thoughtDuration(message: unknown, parts: unknown) {
+  const createdAt = Date.parse((message as ChatMessage | undefined)?.createdAt || "")
+  if (!Number.isFinite(createdAt)) return undefined
+
+  const toolTimes = chatToolParts(parts)
+    .map(part => Date.parse(part.tool.updatedAt))
+    .filter(Number.isFinite)
+  const endedAt = toolTimes.length ? Math.max(...toolTimes) : Date.now()
+  return formatThoughtDuration(endedAt - createdAt)
+}
+
+function toolsSummary(message: unknown, parts: unknown) {
   const count = chatToolParts(parts).length
-  return count === 1 ? "Used 1 tool" : `Used ${count} tools`
+  const tools = count === 1 ? "1 tool" : `${count} tools`
+  const duration = thoughtDuration(message, parts)
+  return duration ? `${tools} · thought for ${duration}` : tools
 }
 
 function reasoningLabel(message: unknown, parts: unknown) {
   if (isLoadingMessage(message) || hasRunningTool(parts)) {
     return loadingMessageText(message)
   }
-  return toolsSummary(parts)
+  return toolsSummary(message, parts)
 }
 
 function appendDummy(message: ChatDevtoolsMessage) {
@@ -562,6 +596,20 @@ function wait(ms: number) {
 
 function waitForFrame() {
   return new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+}
+
+function localBridgeRoute() {
+  const remoteConnection = parseRemoteConnection()
+  return resolveChatBridgeRoute({
+    ancestorOrigin: globalThis.location?.ancestorOrigins?.[0],
+    pathname: globalThis.location?.pathname,
+    referrer: globalThis.document?.referrer,
+    remoteOrigin: remoteConnection?.origin,
+  })
+}
+
+function shouldPreferRpcBridge() {
+  return Boolean(parseRemoteConnection()?.origin)
 }
 
 async function runStandaloneSimulation(text: string) {
@@ -688,11 +736,11 @@ async function runStandaloneSimulation(text: string) {
 
 async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
   if (!rpcClient) {
-    try {
-      rpcClient = await getDevToolsRpcClient()
-    }
-    catch {
+    if (parseRemoteConnection()) {
       rpcClient = await connectRemoteDevTools()
+    }
+    else {
+      rpcClient = await getDevToolsRpcClient()
     }
   }
   connected.value = true
@@ -701,9 +749,9 @@ async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
 
 async function callBridgeState(body: Record<string, unknown>): Promise<ChatDevtoolsStateResult | undefined> {
   try {
-    const response = await fetch(chatDevtoolsBridgeRoute, {
+    const response = await fetch(localBridgeRoute(), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "text/plain" },
       body: JSON.stringify(body),
     })
     if (!response.ok) return undefined
@@ -717,11 +765,13 @@ async function callBridgeState(body: Record<string, unknown>): Promise<ChatDevto
 }
 
 async function refresh() {
-  const bridgeState = await callBridgeState({ action: "get-state" })
-  if (bridgeState) {
-    applyState(bridgeState)
-    error.value = undefined
-    return
+  if (!shouldPreferRpcBridge()) {
+    const bridgeState = await callBridgeState({ action: "get-state" })
+    if (bridgeState) {
+      applyState(bridgeState)
+      error.value = undefined
+      return
+    }
   }
 
   try {
@@ -735,13 +785,17 @@ async function refresh() {
 }
 
 async function refreshFromBridge(chat?: string) {
+  if (shouldPreferRpcBridge()) {
+    await refresh()
+    return
+  }
+
   const bridgeState = await callBridgeState({ action: "get-state", ...(chat ? { chat } : {}) })
   if (bridgeState) {
     applyState(bridgeState)
     error.value = undefined
     return
   }
-
   await refresh()
 }
 
@@ -751,9 +805,9 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
     if (signal.aborted) break
 
     try {
-      const response = await fetch(chatDevtoolsBridgeRoute, {
+      const response = await fetch(localBridgeRoute(), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "text/plain" },
         body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
         signal,
       })
@@ -765,6 +819,9 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
         error.value = undefined
       }
       if (hasCompletedResponse(next, input.chat, input.text)) {
+        status.value = "ready"
+        activeRequest.value = undefined
+        applyState(next)
         return true
       }
     }
@@ -811,9 +868,9 @@ async function recoverBridgeState(input: { chat?: string, text: string }) {
       if (abortController.signal.aborted) break
 
       try {
-        const response = await fetch(chatDevtoolsBridgeRoute, {
+        const response = await fetch(localBridgeRoute(), {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "text/plain" },
           body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
           signal: abortController.signal,
         })
@@ -848,34 +905,54 @@ async function recoverBridgeState(input: { chat?: string, text: string }) {
 function watchBridgeState(input: { chat?: string, text: string }) {
   let stopped = false
 
+  const loadNextState = async () => {
+    const bridgeAbort = new AbortController()
+    const bridgeTimeout = setTimeout(() => bridgeAbort.abort(), 2_000)
+    try {
+      const response = await fetch(localBridgeRoute(), {
+        method: "POST",
+        headers: { "content-type": "text/plain" },
+        body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
+        signal: bridgeAbort.signal,
+      })
+      if (response.ok) return await response.json() as ChatDevtoolsStateResult
+    }
+    catch {
+      // Fall through to the RPC transport.
+    }
+    finally {
+      clearTimeout(bridgeTimeout)
+    }
+
+    try {
+      return await Promise.race([
+        callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc),
+        new Promise<undefined>(resolve => setTimeout(resolve, 2_000)),
+      ])
+    }
+    catch {
+      return undefined
+    }
+  }
+
   void (async () => {
     while (!stopped) {
       await new Promise(resolve => setTimeout(resolve, 700))
       if (stopped) break
 
-      try {
-        const response = await fetch(chatDevtoolsBridgeRoute, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }),
-        })
-        if (!response.ok) continue
+      const next = await loadNextState()
+      if (!next || !hasCurrentUserMessage(next, input.chat, input.text)) continue
 
-        const next = await response.json() as ChatDevtoolsStateResult
-        if (!hasCurrentUserMessage(next, input.chat, input.text)) continue
+      applyState(next)
+      error.value = undefined
 
+      if (hasCompletedResponse(next, input.chat, input.text)) {
+        stopped = true
+        currentReader?.cancel()
+        status.value = "ready"
+        activeRequest.value = undefined
         applyState(next)
-        error.value = undefined
-
-        if (hasCompletedResponse(next, input.chat, input.text)) {
-          stopped = true
-          currentReader?.cancel()
-          status.value = "ready"
-          break
-        }
-      }
-      catch {
-        // The active stream/RPC path still owns user-visible errors.
+        break
       }
     }
   })()
@@ -892,9 +969,9 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
   let response: Response | undefined
   try {
     response = await Promise.race([
-      fetch(chatDevtoolsBridgeRoute, {
+      fetch(localBridgeRoute(), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "text/plain" },
         body: JSON.stringify({ action: "send", ...input, stream: true }),
         signal: abortController.signal,
       }),
@@ -951,10 +1028,15 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
   }
 
   try {
-    return await Promise.race([
+    const completed = await Promise.race([
       readStream(),
       pollFinalBridgeState(input, abortController.signal),
     ])
+    if (!completed || hasCompletedResponse(state.value, input.chat, input.text)) {
+      return completed
+    }
+
+    return await pollFinalBridgeState(input, abortController.signal)
   }
   finally {
     abortController.abort()
@@ -963,14 +1045,25 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
 }
 
 async function readRpcStream(streamId: string, input: { chat?: string, text: string }) {
+  const abortController = new AbortController()
   const reader = (rpcClient as { streaming?: { subscribe: <T>(channel: string, id: string, options?: Record<string, unknown>) => AsyncIterable<T> & { cancel: () => unknown } } } | undefined)?.streaming?.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
     highWaterMark: 1024,
   })
   if (!reader) {
-    throw new Error("Chat DevTools streaming client is unavailable.")
+    const timeout = setTimeout(() => abortController.abort(), 60_000)
+    try {
+      const completed = await pollFinalRpcState(input, abortController.signal)
+      if (!completed) {
+        throw new Error("Chat DevTools RPC polling timed out.")
+      }
+      return completed
+    }
+    finally {
+      clearTimeout(timeout)
+      abortController.abort()
+    }
   }
 
-  const abortController = new AbortController()
   currentReader = {
     cancel: () => {
       abortController.abort()
@@ -1024,11 +1117,13 @@ async function send() {
     stopBridgeWatch = watchBridgeState({ ...(chat ? { chat } : {}), text })
 
     const bridgeInput = { ...(chat ? { chat } : {}), text }
-    if (await readDirectBridgeStream(bridgeInput)) {
-      await recoverBridgeState({ text })
-      chat = undefined
-      shouldRefreshFinalState = true
-      return
+    if (!shouldPreferRpcBridge()) {
+      if (await readDirectBridgeStream(bridgeInput)) {
+        status.value = "ready"
+        activeRequest.value = undefined
+        await refreshFromBridge(chat)
+        return
+      }
     }
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
@@ -1160,7 +1255,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
                     :unmount-on-hide="false"
                     :ui="{
                       root: 'min-w-0',
-                      content: 'overflow-visible',
+                      content: 'overflow-hidden',
                     }"
                   >
                     <button
@@ -1168,8 +1263,8 @@ onBeforeUnmount(() => stopSidebarResize?.())
                       class="group flex w-full min-w-0 items-center gap-1.5 rounded-md text-xs text-muted transition-colors hover:text-default focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-muted"
                     >
                       <UIcon
-                        name="i-lucide-chevron-down"
-                        class="size-3.5 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180"
+                        name="i-lucide-chevron-right"
+                        class="size-3.5 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-90"
                       />
                       <UChatShimmer
                         v-if="isLoadingMessage(message) || hasRunningTool(parts)"
@@ -1220,10 +1315,10 @@ onBeforeUnmount(() => stopSidebarResize?.())
                     </template>
                   </UCollapsible>
                   <Suspense
-                    v-if="content"
+                    v-if="renderedMessageContent(content, message)"
                   >
                     <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
-                      {{ content }}
+                      {{ renderedMessageContent(content, message) }}
                     </Comark>
                   </Suspense>
                 </div>

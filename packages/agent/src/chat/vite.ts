@@ -14,13 +14,7 @@ const mergeNoExternal = createNoExternalMerger(chatPackageName)
 const cloudflareWorkersDevAlias = new URL("./runtime/cloudflare-workers-dev.js", import.meta.url).pathname
 
 function isChatDevtoolsEnabled(chat: ChatModuleOptions | false | undefined): boolean {
-  return chat !== false && chat?.dev !== false && chat?.dev?.devtools !== false
-}
-
-function getChatDevtoolsOptions(chat: ChatModuleOptions | false | undefined): false | { url?: string } | undefined {
-  return chat && chat.dev !== false && typeof chat.dev?.devtools === "object"
-    ? chat.dev.devtools
-    : undefined
+  return chat !== false && chat?.devtools !== false
 }
 
 export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
@@ -36,7 +30,7 @@ export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
         if (!isChatDevtoolsEnabled(resolvedChat)) {
           return
         }
-        await chatDevTools({ devtools: getChatDevtoolsOptions(resolvedChat) }).nitro.setup?.(nitro)
+        await chatDevTools().nitro.setup?.(nitro)
       },
     },
     config(config, env) {
@@ -66,7 +60,7 @@ export function hubChat(options?: ChatModuleOptions): ChatVitePlugin {
           return
         }
 
-        chatDevToolsPanel({ devtools: getChatDevtoolsOptions(chat) }).devtools?.setup?.(ctx)
+        chatDevToolsPanel().devtools?.setup?.(ctx)
       },
     },
     configEnvironment(name, config) {

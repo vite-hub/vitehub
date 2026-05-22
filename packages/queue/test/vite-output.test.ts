@@ -11,6 +11,7 @@ import { generateProviderOutputs } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
+const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -41,6 +42,20 @@ async function createPlaygroundCopy(prefix: string) {
   await symlink(nodeModules, join(rootDir, "node_modules"), "dir")
 
   return rootDir
+}
+
+async function writeQueueNitroConfig(rootDir: string) {
+  await writeFile(join(rootDir, "nitro.config.ts"), [
+    `import { defineNitroConfig } from "nitro/config"`,
+    "",
+    "export default defineNitroConfig({",
+    `  modules: ["@vitehub/queue/nitro", "@vitehub/kv/nitro"],`,
+    "  kv: {},",
+    "  queue: {},",
+    `  serverDir: "./server",`,
+    "})",
+    "",
+  ].join("\n"), "utf8")
 }
 
 afterAll(async () => {
@@ -108,7 +123,7 @@ describe("Vite provider outputs", () => {
   it("builds the playground and emits cloudflare and vercel outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-queue-vite-playground-")
 
-    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+    await execFileAsync(viteBin, ["build"], {
       cwd: rootDir,
       env: process.env,
     })
@@ -148,6 +163,8 @@ describe("Vite provider outputs", () => {
 
   it("builds Nitro provider output for the Vite playground without unresolved Nitro internals", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-queue-vite-nitro-")
+    await writeQueueNitroConfig(rootDir)
+
     const cloudflareOutput = await buildNitroPlayground(rootDir, "cloudflare_module")
     await assertNoNitroInternalVirtualImports(cloudflareOutput)
 

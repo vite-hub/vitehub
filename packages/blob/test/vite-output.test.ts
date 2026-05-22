@@ -12,6 +12,7 @@ import { generateProviderOutputs } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
+const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
 const tempDirs: string[] = []
 const vercelBlobMock = vi.hoisted(() => ({
   del: vi.fn(async () => {}),
@@ -114,7 +115,7 @@ afterEach(() => {
 
 describe("Vite provider outputs", () => {
   it("builds the playground and emits Cloudflare and Vercel outputs", async () => {
-    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+    await execFileAsync(viteBin, ["build"], {
       cwd: playgroundDir,
       env: {
         ...process.env,

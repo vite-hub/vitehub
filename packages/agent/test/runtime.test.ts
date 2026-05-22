@@ -241,7 +241,6 @@ describe("agent message protocol", () => {
 
     await adapter.startTyping(message.threadId, createChatDevtoolsToolStatus({
       id: "tool-1",
-      input: { command: "find . -maxdepth 3 -name \"*user*\"" },
       name: "shell",
       output: "users.ts",
       status: "completed",
@@ -254,6 +253,7 @@ describe("agent message protocol", () => {
       tools: [
         {
           id: "tool-1",
+          input: { command: "find . -maxdepth 3 -name \"*user*\"" },
           name: "shell",
           output: "users.ts",
           status: "completed",
@@ -330,20 +330,26 @@ describe("agent message protocol", () => {
     expect(messages?.[1]?.tools).toBeUndefined()
   })
 
-  it("registers the packaged DevTools client directory", async () => {
-    const registerViteHubDevtoolsPanel = vi.fn()
+  it("registers the Chat DevTools feature metadata", async () => {
+    const registerViteHubDevtoolsFeature = vi.fn()
     vi.resetModules()
-    vi.doMock("@vitehub/devtools", () => ({ registerViteHubDevtoolsPanel }))
+    vi.doMock("@vitehub/devtools", () => ({ registerViteHubDevtoolsFeature }))
     const { chatDevToolsPanel } = await import("../src/chat/devtools.ts")
 
     chatDevToolsPanel().devtools!.setup({
+      messages: {
+        add: vi.fn(),
+      },
       rpc: {
         register: vi.fn(),
       },
     } as never)
 
-    expect(registerViteHubDevtoolsPanel).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      distDir: expect.stringMatching(/packages\/agent\/devtools-client$/),
+    expect(registerViteHubDevtoolsFeature).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      bridge: "/__vitehub/agent/chat/devtools",
+      id: "agent.chat",
+      packageName: "@vitehub/agent",
+      title: "Chat",
     }))
     vi.doUnmock("@vitehub/devtools")
     vi.resetModules()
@@ -372,6 +378,23 @@ describe("agent message protocol", () => {
     const state = await response.json() as { tools?: Array<{ name: string }> }
 
     expect(state.tools).toEqual([{ name: "reserved-chat-tool" }])
+  })
+
+  it("returns a bad request for malformed text chat devtools payloads", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    app.use(defineChatDevtoolsRegistryHandler({
+      support: async () => ({} as ChatInput),
+    }))
+
+    const response = await toWebHandler(app)(new Request("http://example.test", {
+      body: "not json",
+      headers: { "content-type": "text/plain" },
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(400)
   })
 
   it("converts Nitro request-like events to Fetch Request objects", async () => {

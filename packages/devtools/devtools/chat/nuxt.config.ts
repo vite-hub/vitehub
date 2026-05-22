@@ -1,5 +1,3 @@
-import { resolve } from "node:path"
-
 export default defineNuxtConfig({
   modules: ["@nuxt/ui"],
   ssr: false,
@@ -7,13 +5,8 @@ export default defineNuxtConfig({
     enabled: false,
   },
   app: {
-    baseURL: "/__vitehub/agent/chat-devtools/",
+    baseURL: "/chat/",
   },
   css: ["~/assets/css/main.css"],
   compatibilityDate: "2026-05-05",
-  nitro: {
-    output: {
-      publicDir: resolve(__dirname, "../../../agent/devtools-client"),
-    },
-  },
 })

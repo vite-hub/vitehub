@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
+const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -45,7 +46,7 @@ describe("Vite db provider outputs", () => {
   it("builds the playground and emits multi-database Cloudflare and Vercel outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-db-vite-playground-")
 
-    await execFileAsync("pnpm", ["exec", "vite", "build"], {
+    await execFileAsync(viteBin, ["build"], {
       cwd: rootDir,
       env: {
         ...process.env,
@@ -106,7 +107,7 @@ describe("Vite db provider outputs", () => {
 
     let error: Error | undefined
     try {
-      await execFileAsync("pnpm", ["exec", "vite", "build"], {
+      await execFileAsync(viteBin, ["build"], {
         cwd: rootDir,
         env: {
           ...process.env,
@@ -130,7 +131,7 @@ describe("Vite db provider outputs", () => {
 
     let error: Error | undefined
     try {
-      await execFileAsync("pnpm", ["exec", "vite", "build"], {
+      await execFileAsync(viteBin, ["build"], {
         cwd: rootDir,
         env: {
           ...process.env,
@@ -182,7 +183,7 @@ describe("Vite db provider outputs", () => {
 
     let error: Error | undefined
     try {
-      await execFileAsync("pnpm", ["exec", "vite", "build"], {
+      await execFileAsync(viteBin, ["build"], {
         cwd: rootDir,
         env: {
           ...process.env,
@@ -233,7 +234,7 @@ describe("Vite db provider outputs", () => {
 
     let error: Error | undefined
     try {
-      await execFileAsync("pnpm", ["exec", "vite", "build"], {
+      await execFileAsync(viteBin, ["build"], {
         cwd: rootDir,
         env: {
           ...process.env,
@@ -267,7 +268,7 @@ describe("Vite db provider outputs", () => {
 
     let error: Error | undefined
     try {
-      await execFileAsync("pnpm", ["exec", "vite", "build"], {
+      await execFileAsync(viteBin, ["build"], {
         cwd: rootDir,
         env: {
           ...process.env,
@@ -308,7 +309,7 @@ describe("Vite db provider outputs", () => {
 
     let error: Error | undefined
     try {
-      await execFileAsync("pnpm", ["exec", "vite", "build"], {
+      await execFileAsync(viteBin, ["build"], {
         cwd: rootDir,
         env: {
           ...process.env,
