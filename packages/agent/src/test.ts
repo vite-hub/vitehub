@@ -116,7 +116,7 @@ function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
   return (step.toolResults || []).filter((result) => {
     const output = typeof result.output === "string"
       ? result.output
-      : JSON.stringify(result.output)
+      : JSON.stringify(result.output) || ""
     return output.includes("Workspace search is too broad")
       || output.includes("Workspace path is not mounted")
       || output.includes("Search returned no matches")

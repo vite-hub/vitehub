@@ -143,6 +143,33 @@ describe("agent test runner", () => {
       .rejects.toThrow("[vitehub] Agent stopped after repeated workspace inspection guardrails.")
   })
 
+  it("ignores empty workspace tool outputs when counting guardrails", async () => {
+    const execute = vi.fn(async () => undefined)
+    inspectTools.mockReturnValueOnce({
+      shell: { execute },
+    })
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      await this.settings.tools.shell.execute({ command: "rg customer packages/agent" })
+      return { finishReason: "stop", text: "answer" }
+    })
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(defineAgent({
+      workspace: {},
+      adapter: "ai-sdk",
+      model: {} as never,
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+    }), {
+      name: "support",
+      runtimeConfig: {},
+      workspace: "docs",
+    })
+
+    await expect(runner.run({ prompt: "Find evidence" }))
+      .resolves.toMatchObject({ text: "answer" })
+  })
+
   it("composes workspace agent model instrumentation", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { createAgentTestRunner } = await import("../src/test.ts")
