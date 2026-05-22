@@ -477,6 +477,69 @@ describe("@vitehub/shell just-bash runtime", () => {
     })
   })
 
+  it("handles workspace inspection preflight parser edge cases", async () => {
+    const workspace = new MemoryWorkspace({
+      "README.md": "# Docs\n",
+      "models/customers.sql": "select * from customers\n",
+      "models/orders.sql": "select * from orders\nwhere id is not null\n",
+    })
+    const fs = createReadonlyWorkspaceFs(workspace)
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg orders models > search.txt", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs: createWritableWorkspaceFs(workspace),
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "",
+    })
+    await expect(workspace.readFile("search.txt")).resolves.toBe("models/orders.sql:1:select * from orders\n")
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find -L models -name '*.sql'", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg orders models | grep -v customers", {
+      commands: ["grep", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models/orders.sql:1:select * from orders\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat -- README.md && ls models", {
+      commands: ["cat", "ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\ncustomers.sql\norders.sql\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat ./orders.sql", {
+      commands: ["cat"],
+      cwd: "/workspace/models",
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "select * from orders\nwhere id is not null\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "head --lines 1 missing/README.md", {
+      commands: ["head"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("Workspace path is not mounted: missing/README.md"),
+    })
+  })
+
   it("does not refresh workspace paths when creating a shell filesystem", () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",

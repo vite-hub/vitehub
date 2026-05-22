@@ -66,9 +66,9 @@ export async function runWorkspaceInspectionCommand(
 
 function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: string[] = []): ShellRuntimeExecResult | undefined {
   try {
-    for (const segment of splitShellSegments(command)) {
-      const words = parseShellWords(segment)
-      if (isBroadWorkspaceSearch(words, broadSearchPaths)) return broadWorkspaceSearchFeedback()
+    for (const segment of splitShellCommandSegments(command)) {
+      const words = parseShellWords(segment.command)
+      if (isBroadWorkspaceSearch(words, broadSearchPaths, segment.followsPipe)) return broadWorkspaceSearchFeedback()
     }
   }
   catch {
@@ -78,8 +78,8 @@ function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: 
 
 async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint): Promise<ShellRuntimeExecResult | undefined> {
   try {
-    for (const segment of splitShellSegments(command)) {
-      for (const path of shellPathArguments(parseShellWords(segment))) {
+    for (const segment of splitShellCommandSegments(command)) {
+      for (const path of shellPathArguments(parseShellWords(segment.command))) {
         if (!isConcreteWorkspacePath(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(cwd, path)
         if (await fs.exists(resolvedPath)) continue
@@ -101,11 +101,13 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
   }
 }
 
-function isBroadWorkspaceSearch(words: string[], broadSearchPaths: string[] = []) {
+function isBroadWorkspaceSearch(words: string[], broadSearchPaths: string[] = [], followsPipe = false) {
   const name = words[0]
   if (name === "rg" || name === "grep") {
     const paths = commandPathArguments(words)
-    return paths.length === 0 || paths.length > 4 || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths))
+    return (paths.length === 0 && !(name === "grep" && followsPipe))
+      || paths.length > 4
+      || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths))
   }
   if (name === "find") {
     const paths = findPathArguments(words)
@@ -134,8 +136,8 @@ function isBroadWorkspacePath(path: string, broadSearchPaths: string[] = []) {
 function searchNoMatchFeedback(command: string, result: ShellRuntimeExecResult, broadSearchPaths: string[] = []) {
   if (result.exitCode !== 1 || result.stderr || result.stdout) return ""
   try {
-    for (const segment of splitShellSegments(command)) {
-      const words = parseShellWords(segment)
+    for (const segment of splitShellCommandSegments(command)) {
+      const words = parseShellWords(segment.command)
       if (words[0] !== "rg" && words[0] !== "grep") continue
       const paths = commandPathArguments(words)
       if (!paths.some(path => isBroadWorkspacePath(path, broadSearchPaths))) continue
@@ -188,7 +190,7 @@ function fileCommandPathArguments(words: string[]) {
   for (let index = 1; index < words.length; index++) {
     const arg = words[index]!
     if (arg === "--") {
-      paths.push(...words.slice(index + 1))
+      paths.push(...pathArgumentsUntilShellBoundary(words.slice(index + 1)))
       break
     }
     if (isShellOperator(arg)) break
@@ -222,9 +224,10 @@ function isConcreteWorkspacePath(path: string) {
 }
 
 function resolveWorkspaceShellPath(cwd: string, path: string) {
-  if (path.startsWith("/") || path.startsWith("./") || path.startsWith("../")) {
+  if (path.startsWith("/") && !path.startsWith(workspaceMountPoint)) {
     return cleanWorkspaceShellPath(path)
   }
+  if (path.startsWith(workspaceMountPoint)) return cleanWorkspaceShellPath(path)
   const normalizedCwd = cleanWorkspaceShellPath(cwd)
   return cleanWorkspaceShellPath(normalizedCwd ? posix.join(normalizedCwd, path) : path)
 }
@@ -236,7 +239,7 @@ function commandPathArguments(words: string[]) {
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
     if (arg === "--") {
-      paths.push(...args.slice(index + 1))
+      paths.push(...pathArgumentsUntilShellBoundary(args.slice(index + 1)))
       break
     }
     if (isShellOperator(arg)) break
@@ -272,14 +275,24 @@ function takesOptionValue(arg: string) {
 }
 
 function takesFileCommandOptionValue(arg: string) {
-  return arg === "-c" || arg === "-n" || arg === "--bytes" || takesOptionValue(arg)
+  return arg === "-c" || arg === "-n" || arg === "--bytes" || arg === "--lines" || takesOptionValue(arg)
 }
 
-function splitShellSegments(command: string) {
-  const segments: string[] = []
+function pathArgumentsUntilShellBoundary(args: string[]) {
+  const paths: string[] = []
+  for (const arg of args) {
+    if (isShellOperator(arg)) break
+    paths.push(arg)
+  }
+  return paths
+}
+
+function splitShellCommandSegments(command: string) {
+  const segments: Array<{ command: string, followsPipe: boolean }> = []
   let current = ""
   let quote: "'" | "\"" | undefined
   let escaped = false
+  let followsPipe = false
   for (const char of command) {
     if (escaped) {
       current += char
@@ -302,13 +315,14 @@ function splitShellSegments(command: string) {
       continue
     }
     if (char === "|" || char === ";" || char === "\n") {
-      segments.push(current)
+      segments.push({ command: current, followsPipe })
       current = ""
+      followsPipe = char === "|"
       continue
     }
     current += char
   }
-  segments.push(current)
+  segments.push({ command: current, followsPipe })
   return segments
 }
 
