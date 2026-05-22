@@ -1129,6 +1129,7 @@ async function createAdapterRunContext<
     messages: capabilities.messages,
     outputRenderers: capabilities.registries.outputRenderers,
     prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
+    run: context.run,
     runtime,
     runtimeContext: runtime,
     startedAt,
@@ -1198,8 +1199,9 @@ export async function runAgent<
     try {
       const result = await agent.run(runContext)
       if (result instanceof Response) {
+        const response = shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
         finishLifecycleStarted = shouldWrapOutput
-        return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
+        return response
       }
       if (isAsyncIterable(result)) {
         finishLifecycleStarted = shouldWrapOutput
@@ -1231,8 +1233,9 @@ export async function runAgent<
   try {
     const result = await resolved.generate(adapterContext as never)
     if (result instanceof Response) {
+      const response = shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
       finishLifecycleStarted = shouldWrapOutput
-      return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
+      return response
     }
     if (isAsyncIterable(result)) {
       finishLifecycleStarted = shouldWrapOutput
@@ -1272,8 +1275,9 @@ export async function streamAgent<
     try {
       const result = await agent.run(runContext)
       if (result instanceof Response) {
+        const response = shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
         finishLifecycleStarted = shouldWrapOutput
-        return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(runContext, error === undefined ? result : undefined, error)) : result
+        return response
       }
       if (isAsyncIterable(result)) {
         finishLifecycleStarted = shouldWrapOutput
@@ -1307,8 +1311,9 @@ export async function streamAgent<
       ? await resolved.stream(adapterContext as never)
       : await resolved.generate(adapterContext as never)
     if (result instanceof Response) {
+      const response = shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
       finishLifecycleStarted = shouldWrapOutput
-      return shouldWrapOutput ? await withResponseCleanup(result, error => finishAgentInvocation(adapterContext, error === undefined ? result : undefined, error)) : result
+      return response
     }
     if (isAsyncIterable(result)) {
       finishLifecycleStarted = shouldWrapOutput

@@ -189,6 +189,7 @@ describe("agent message protocol", () => {
 
       await expect(runAgent(agent, {
         memo: vi.fn(),
+        run: { runId: "run-model-1" },
         runtime: "unknown",
         waitUntil: vi.fn(),
       }, {})).resolves.toMatchObject({ finishReason: "stop", text: "ok" })
@@ -196,6 +197,9 @@ describe("agent message protocol", () => {
       expect(finish).toHaveBeenCalledWith(expect.objectContaining({
         extensions: expect.objectContaining({
           get: expect.any(Function),
+        }),
+        invocation: expect.objectContaining({
+          run: { runId: "run-model-1" },
         }),
         result: expect.objectContaining({ finishMetadata: { id: "rendered-1" }, finishReason: "stop", text: "ok" }),
       }))
@@ -329,6 +333,25 @@ describe("agent message protocol", () => {
     const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
     await response.body?.cancel()
     expect(finish).toHaveBeenCalledTimes(1)
+  })
+
+  it("runs agent finish hooks when Response wrapping fails", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const body = new ReadableStream()
+    body.getReader()
+    const agent = defineAgent({
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => new Response(body),
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow()
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      error: expect.any(TypeError),
+    }))
+    expect(finish.mock.calls[0]![0]).not.toHaveProperty("result")
   })
 
   it("returns generated Response results unchanged", async () => {
