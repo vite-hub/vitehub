@@ -521,6 +521,15 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "cd missing && cat missing/one.md && cat missing/two.md", {
+      commands: ["cat", "cd"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 1,
+      stdout: "",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "pwd && ls models", {
       commands: ["pwd", "ls"],
       cwd: workspaceMountPoint,
@@ -536,6 +545,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       "README.md": "# Docs\n",
       "models/customers.sql": "select * from customers\n",
       "models/orders.sql": "select * from orders\nwhere id is not null\n",
+      "flags.txt": "-foo\n",
       "patterns.txt": "customer\n",
     })
     const fs = createReadonlyWorkspaceFs(workspace)
@@ -592,6 +602,24 @@ describe("@vitehub/shell just-bash runtime", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: "models/orders.sql:1:select * from orders\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "grep -- '-foo' flags.txt", {
+      commands: ["grep"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace path is not mounted"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg -- '-foo' flags.txt", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace path is not mounted"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "grep -f patterns.txt models/customers.sql", {

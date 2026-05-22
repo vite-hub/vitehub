@@ -79,10 +79,10 @@ function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: 
 async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint): Promise<ShellRuntimeExecResult | undefined> {
   try {
     let currentCwd = cwd
-    let skipNextSegment = false
+    let skipAndChain = false
     for (const segment of splitShellCommandSegments(command)) {
-      if (skipNextSegment) {
-        skipNextSegment = false
+      if (skipAndChain) {
+        skipAndChain = segment.separatorAfter === "&&"
         continue
       }
       const words = parseShellWords(segment.command)
@@ -91,7 +91,7 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
         if (!isConcreteWorkspacePath(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
         const exists = await fs.exists(resolvedPath)
-        if (segment.separatorAfter === "&&" && !exists) skipNextSegment = true
+        if (segment.separatorAfter === "&&" && !exists) skipAndChain = true
         if (segment.separatorAfter !== "||" && exists) {
           currentCwd = resolvedPath ? posix.join(workspaceMountPoint, resolvedPath) : workspaceMountPoint
         }
@@ -262,7 +262,7 @@ function commandPathArguments(words: string[]) {
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
     if (arg === "--") {
-      paths.push(...pathArgumentsUntilShellBoundary(args.slice(index + 1)))
+      paths.push(...searchPathArgumentsAfterTerminator(args.slice(index + 1), sawPattern))
       break
     }
     if (isShellOperator(arg)) break
@@ -283,6 +283,11 @@ function commandPathArguments(words: string[]) {
     paths.push(arg)
   }
   return paths
+}
+
+function searchPathArgumentsAfterTerminator(args: string[], sawPattern: boolean) {
+  if (sawPattern) return pathArgumentsUntilShellBoundary(args)
+  return pathArgumentsUntilShellBoundary(args.slice(1))
 }
 
 function takesOptionValue(arg: string) {
