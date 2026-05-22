@@ -113,12 +113,17 @@ function getCallerFile(): string | undefined {
   const sourceMappedCurrent = sourceMappedEvalFile(current)
   for (const line of stack.split("\n")) {
     if (line.includes("getCallerFile") || line.includes("defineEval")) continue
-    const match = line.match(/\(?((?:file:\/\/)?.+?\.(?:c|m)?[jt]s)(?::\d+:\d+)?\)?$/)
-    if (!match?.[1]) continue
-    const stackPath = match[1].replace(/^\s*at\s+/, "")
+    const stackPath = parseStackFramePath(line)
+    if (!stackPath) continue
     const file = stackPath.startsWith("file://") ? fileURLToPath(stackPath) : stackPath
     if (file !== current && file !== sourceMappedCurrent) return file
   }
+}
+
+function parseStackFramePath(line: string): string | undefined {
+  const match = line.match(/\(((?:file:\/\/)?[^()]+?\.(?:c|m)?[jt]s)(?::\d+:\d+)?\)$/)
+    || line.match(/^\s*at\s+((?:file:\/\/)?.+?\.(?:c|m)?[jt]s)(?::\d+:\d+)?$/)
+  return match?.[1]
 }
 
 export function sourceMappedEvalFile(current: string): string {
