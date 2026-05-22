@@ -198,9 +198,11 @@ export function createAgentTestRunner<
             if (process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS) {
               console.error("[vitehub-agent-test:tool]", stringifyToolOutput(step))
             }
-            workspaceInspectionGuardrails += countWorkspaceInspectionGuardrails(step)
-            if (workspaceInspectionGuardrails >= 4) {
-              throw new Error("[vitehub] Agent stopped after repeated workspace inspection guardrails. The requested evidence appears unavailable in the mounted workspace sources.")
+            if (options.workspace) {
+              workspaceInspectionGuardrails += countWorkspaceInspectionGuardrails(step)
+              if (workspaceInspectionGuardrails >= 4) {
+                throw new Error("[vitehub] Agent stopped after repeated workspace inspection guardrails. The requested evidence appears unavailable in the mounted workspace sources.")
+              }
             }
           },
         },

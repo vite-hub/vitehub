@@ -193,9 +193,10 @@ function normalizeVariants(variants: AgentEvalVariant[] | undefined): AgentEvalV
 }
 
 function normalizeScore(score: AgentScore): AgentScore {
+  const normalizedScore = Number.isFinite(score.score) ? score.score : 0
   return {
     ...score,
-    score: Math.max(0, Math.min(1, score.score)),
+    score: Math.max(0, Math.min(1, normalizedScore)),
   }
 }
 

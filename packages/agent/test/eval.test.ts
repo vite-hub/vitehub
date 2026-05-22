@@ -161,6 +161,29 @@ describe("agent eval", () => {
     expect(score.score).toBe(1)
   })
 
+  it("coerces non-finite scorer output before aggregation", async () => {
+    const { defineEval } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      name: "support",
+      scenarios: [{
+        input: { prompt: "hello" },
+        name: "hello",
+        scorers: [{
+          name: "custom",
+          score: () => ({ score: Number.NaN }),
+        }],
+      }],
+    })
+
+    const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
+
+    expect(output.scores[0]?.score).toBe(0)
+    expect(score.score).toBe(0)
+  })
+
   it("applies model and replacement instruction variants for workspace agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineEval } = await import("../src/eval.ts")
