@@ -44,6 +44,20 @@ async function createPlaygroundCopy(prefix: string) {
   return rootDir
 }
 
+async function writeQueueNitroConfig(rootDir: string) {
+  await writeFile(join(rootDir, "nitro.config.ts"), [
+    `import { defineNitroConfig } from "nitro/config"`,
+    "",
+    "export default defineNitroConfig({",
+    `  modules: ["@vitehub/queue/nitro", "@vitehub/kv/nitro"],`,
+    "  kv: {},",
+    "  queue: {},",
+    `  serverDir: "./server",`,
+    "})",
+    "",
+  ].join("\n"), "utf8")
+}
+
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -149,6 +163,8 @@ describe("Vite provider outputs", () => {
 
   it("builds Nitro provider output for the Vite playground without unresolved Nitro internals", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-queue-vite-nitro-")
+    await writeQueueNitroConfig(rootDir)
+
     const cloudflareOutput = await buildNitroPlayground(rootDir, "cloudflare_module")
     await assertNoNitroInternalVirtualImports(cloudflareOutput)
 

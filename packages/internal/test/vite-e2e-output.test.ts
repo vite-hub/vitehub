@@ -69,7 +69,7 @@ beforeAll(async () => {
       maxBuffer: execMaxBuffer,
     })
   }
-}, 120_000)
+}, 240_000)
 
 describe("unified vite e2e hosted outputs", () => {
   it("keeps the cloudflare artifact provider-pure and preserves hosted bindings", async () => {

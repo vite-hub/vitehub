@@ -1,4 +1,4 @@
-export const chatDevtoolsFeatureId: "agent.chat" = "agent.chat"
+export const chatDevtoolsFeatureId = "agent.chat" as const
 export const chatDevtoolsPanelId: "agent.chat" = chatDevtoolsFeatureId
 export const chatDevtoolsTitle = "Chat"
 export const chatDevtoolsBridgeRoute = "/__vitehub/agent/chat/devtools"
