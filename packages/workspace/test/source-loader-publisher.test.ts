@@ -8,7 +8,7 @@ import { gzipSync } from "node:zlib"
 import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { collectWorkspaceAssetBundle, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
+import { collectWorkspaceAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build-integration.ts"
 import { defineWorkspace, loader, publish, registerWorkspace, useWorkspace } from "../src/index.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
@@ -517,6 +517,41 @@ describe("sources, loaders, and publishers", () => {
     expect(contents.match(/"instructions\/AGENTS.md"/g)).toHaveLength(1)
   })
 
+  it("preserves empty source root overrides while syncing build assets", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "workspaces", "docs")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(root, "README.md"), "# Root\n")
+    await writeFile(join(directory, "README.md"), "# Directory\n")
+    await writeFile(join(directory, "config.mjs"), [
+      "import * as source from '@vitehub/workspace/source'",
+      "export default {",
+      "  sourceRootDir: '',",
+      "  sources: { docs: source.glob({ include: ['README.md'] }) },",
+      "}",
+      "",
+    ].join("\n"))
+
+    const bundles = await syncDiscoveredWorkspaceAssetBundles([{
+      handler: join(directory, "config.mjs"),
+      name: "docs",
+      path: join(directory, "config.mjs"),
+      source: "test",
+      sourceRootDir: directory,
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      assets: true,
+    })
+
+    expect(bundles).toHaveLength(1)
+    expect(bundles[0]).toMatchObject({
+      files: [expect.objectContaining({ path: "docs/README.md" })],
+      name: "docs",
+    })
+    expect(Buffer.from(bundles[0]!.files[0]!.content)).toEqual(Buffer.from("# Root\n"))
+  })
+
   it("purges stale build source files when source maps change", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["README.md", "stale.md"]
@@ -579,7 +614,7 @@ describe("sources, loaders, and publishers", () => {
   it("purges stale local build source files after store restarts", async () => {
     const root = await createRoot()
     const storeRoot = join(root, ".vitehub", "workspaces", "docs")
-    const docsSource = source.file({ content: "# Docs\n", path: "README.md", workspacePath: "README.md", mount: "docs" })
+    const docsSource = source.file({ content: "# Docs\n", workspacePath: "README.md", mount: "docs" })
     const definition: WorkspaceDefinition = {
       name: "stale-local-build-sources",
       sources: { docs: docsSource },
@@ -709,7 +744,7 @@ describe("sources, loaders, and publishers", () => {
       store: { provider: "memory" },
       sources: {
         docs: source.glob({ cwd: ".", include: ["**/*.md"] }),
-        files: source.file({ path: "two.md", workspacePath: "two.md", content: "# Two\n" }),
+        files: source.file({ workspacePath: "two.md", content: "# Two\n" }),
         custom: source.custom({
           async getKeys() {
             return ["custom.json"]
@@ -775,8 +810,8 @@ describe("sources, loaders, and publishers", () => {
       rootDir: root,
       store: { provider: "memory" },
       sources: {
-        docs: source.file({ content: "hello\n", path: "README.md", workspacePath: "README.md" }),
-        data: source.file({ content: new Uint8Array([1, 2, 3]), path: "data.bin", workspacePath: "data.bin" }),
+        docs: source.file({ content: "hello\n", workspacePath: "README.md" }),
+        data: source.file({ content: new Uint8Array([1, 2, 3]), workspacePath: "data.bin" }),
       },
     }))
 
@@ -787,11 +822,11 @@ describe("sources, loaders, and publishers", () => {
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
 
     await expect(registry["asset-bundle"].list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "docs/README.md", type: "file" }),
-      expect.objectContaining({ path: "data/data.bin", type: "file" }),
+      expect.objectContaining({ path: "README.md", type: "file" }),
+      expect.objectContaining({ path: "data.bin", type: "file" }),
     ]))
-    await expect(registry["asset-bundle"].readFile("docs/README.md")).resolves.toBe("hello\n")
-    await expect(registry["asset-bundle"].readFile("data/data.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+    await expect(registry["asset-bundle"].readFile("README.md")).resolves.toBe("hello\n")
+    await expect(registry["asset-bundle"].readFile("data.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
     await expect(registry["asset-bundle"].exists("../escape.txt")).resolves.toBe(false)
   })
 

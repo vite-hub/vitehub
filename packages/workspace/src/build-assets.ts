@@ -68,6 +68,7 @@ export async function syncDiscoveredWorkspaces(
       ...mod.default,
       name: definition.name,
       rootDir: mod.default.rootDir || rootDir,
+      sourceRootDir: mod.default.sourceRootDir ?? definition.sourceRootDir,
       store: { provider: "memory" },
     })
 
@@ -127,6 +128,7 @@ export async function syncDiscoveredWorkspaceAssetBundles(
       ...mod.default,
       name: definition.name,
       rootDir: mod.default.rootDir || rootDir,
+      sourceRootDir: mod.default.sourceRootDir ?? definition.sourceRootDir,
       store,
     }, store)
     bundles.push(await collectWorkspaceStoreAssetBundle(definition.name, store))

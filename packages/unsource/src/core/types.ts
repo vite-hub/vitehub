@@ -9,6 +9,7 @@ export type ReadSourceResult<TOptions extends ReadSourceOptions | undefined = un
 
 export interface SourceContext {
   rootDir: string
+  sourceRootDir?: string
   source?: string
   workspace?: string
 }

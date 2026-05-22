@@ -1,14 +1,14 @@
 import { lookup } from "mrmime"
 
 import { UnsourceError } from "../core/errors.ts"
-import { normalizeSourcePath } from "../core/path.ts"
+import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceContent, SourceContext } from "../core/types.ts"
 
 export interface FileSourcePathOptions<TKey extends string = string> {
   path: string
   workspacePath?: TKey
-  content?: SourceContent
+  content?: never
   mediaType?: string
 }
 
@@ -23,13 +23,19 @@ export type FileSourceOptions<TKey extends string = string> =
   | FileSourcePathOptions<TKey>
   | FileSourceInlineOptions<TKey>
 
+type FileSourceInput<TKey extends string = string> = FileSourceOptions<TKey> | TKey
+
 function basename(path: string) {
   return path.replace(/\\/g, "/").split("/").filter(Boolean).pop() || path
 }
 
+function normalizeFileSourceOptions<TKey extends string>(input: FileSourceInput<TKey>): FileSourceOptions<TKey> {
+  return typeof input === "string" ? { path: input } : input
+}
+
 function sourceKey<TKey extends string>(options: FileSourceOptions<TKey>): TKey {
   if (options.workspacePath) return normalizeSourcePath(options.workspacePath) as TKey
-  if ("path" in options && options.path) return normalizeSourcePath(basename(options.path)) as TKey
+  if ("path" in options && options.path) return normalizeSourcePath(basename(normalizeSafeSourcePath(options.path))) as TKey
   throw new TypeError("[vitehub] source.file requires a path or workspacePath.")
 }
 
@@ -39,10 +45,11 @@ async function readSourceFile<TKey extends string>(options: FileSourceOptions<TK
   }
   const { readFile } = await import("node:fs/promises")
   const { resolve } = await import("node:path")
-  return new Uint8Array(await readFile(resolve(ctx.rootDir, options.path)))
+  return new Uint8Array(await readFile(resolve(ctx.sourceRootDir ?? ctx.rootDir, normalizeSafeSourcePath(options.path))))
 }
 
-export function file<const TKey extends string = string>(options: FileSourceOptions<TKey>): Source<TKey> {
+export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): Source<TKey> {
+  const options = normalizeFileSourceOptions(input)
   const key = sourceKey(options)
   const mediaType = options.mediaType || lookup(key)
   return {
@@ -55,7 +62,7 @@ export function file<const TKey extends string = string>(options: FileSourceOpti
       if (!("path" in options) || !options.path) return
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
-      const info = await stat(resolve(ctx.rootDir, options.path))
+      const info = await stat(resolve(ctx.sourceRootDir ?? ctx.rootDir, normalizeSafeSourcePath(options.path)))
       return {
         digest: `${info.size}:${info.mtimeMs}`,
       }
