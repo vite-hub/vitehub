@@ -1,6 +1,6 @@
 import { describe, it } from "vitest"
 
-import { defineAgent, type AgentAdapterMetadataContext } from "../src/index.ts"
+import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
 import { bash, db, kv, sandbox, skills } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 
@@ -85,7 +85,7 @@ describe("agent public types", () => {
 
     const agent = defineAgent<TestRuntimeConfig>({
       adapter: "ai-sdk",
-      model: ({ runtimeConfig }: AgentAdapterMetadataContext<TestRuntimeConfig>) => {
+      model: ({ runtimeConfig }: AgentRuntimeContext<TestRuntimeConfig> & { runtimeConfig: TestRuntimeConfig }) => {
         runtimeConfig.service.token.toUpperCase()
         return {} as never
       },
