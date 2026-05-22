@@ -458,6 +458,24 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "models/orders.sql:1:select * from orders\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "cd models; cat orders.sql", {
+      commands: ["cat", "cd"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("select * from orders"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cd models && cat missing.sql", {
+      commands: ["cat", "cd"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("Workspace path is not mounted: models/missing.sql"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models && wc -l models/customers.sql", {
       commands: ["rg", "wc"],
       cwd: workspaceMountPoint,
@@ -465,6 +483,15 @@ describe("@vitehub/shell just-bash runtime", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: "models/customers.sql:1:select * from customers\n1 models/customers.sql\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg customers models || grep -v customer", {
+      commands: ["grep", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("Workspace search is too broad"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "pwd && ls models", {

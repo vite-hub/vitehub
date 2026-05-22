@@ -78,26 +78,40 @@ function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: 
 
 async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint): Promise<ShellRuntimeExecResult | undefined> {
   try {
+    let currentCwd = cwd
     for (const segment of splitShellCommandSegments(command)) {
-      for (const path of shellPathArguments(parseShellWords(segment.command))) {
+      const words = parseShellWords(segment.command)
+      if (words[0] === "cd") {
+        const path = words[1] || workspaceMountPoint
         if (!isConcreteWorkspacePath(path)) continue
-        const resolvedPath = resolveWorkspaceShellPath(cwd, path)
+        const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
+        if (!(await fs.exists(resolvedPath))) return missingWorkspacePathFeedback(resolvedPath)
+        currentCwd = resolvedPath ? posix.join(workspaceMountPoint, resolvedPath) : workspaceMountPoint
+        continue
+      }
+      for (const path of shellPathArguments(words)) {
+        if (!isConcreteWorkspacePath(path)) continue
+        const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
         if (await fs.exists(resolvedPath)) continue
-        return {
-          exitCode: 0,
-          stderr: "",
-          stdout: [
-            `[vitehub] Workspace path is not mounted: ${resolvedPath}`,
-            "The agent cannot inspect files outside the configured workspace sources.",
-            "If this path should exist, update the Agent workspace source configuration or materialize the correct mounted source.",
-            "Otherwise answer that the requested evidence is unavailable in the current workspace.",
-          ].join("\n") + "\n",
-        }
+        return missingWorkspacePathFeedback(resolvedPath)
       }
     }
   }
   catch {
     return undefined
+  }
+}
+
+function missingWorkspacePathFeedback(resolvedPath: string): ShellRuntimeExecResult {
+  return {
+    exitCode: 0,
+    stderr: "",
+    stdout: [
+      `[vitehub] Workspace path is not mounted: ${resolvedPath}`,
+      "The agent cannot inspect files outside the configured workspace sources.",
+      "If this path should exist, update the Agent workspace source configuration or materialize the correct mounted source.",
+      "Otherwise answer that the requested evidence is unavailable in the current workspace.",
+    ].join("\n") + "\n",
   }
 }
 
@@ -308,7 +322,8 @@ function splitShellCommandSegments(command: string) {
   let quote: "'" | "\"" | undefined
   let escaped = false
   let followsPipe = false
-  for (const char of command) {
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index]!
     if (escaped) {
       current += char
       escaped = false
@@ -327,6 +342,21 @@ function splitShellCommandSegments(command: string) {
     if (char === "'" || char === "\"") {
       quote = char
       current += char
+      continue
+    }
+    const next = command[index + 1]
+    if (char === "&" && next === "&") {
+      segments.push({ command: current, followsPipe })
+      current = ""
+      followsPipe = false
+      index += 1
+      continue
+    }
+    if (char === "|" && next === "|") {
+      segments.push({ command: current, followsPipe })
+      current = ""
+      followsPipe = false
+      index += 1
       continue
     }
     if (char === "|" || char === ";" || char === "\n") {
