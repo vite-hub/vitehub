@@ -37,7 +37,7 @@ Define a workspace:
 
 ```ts [src/docs.workspace.ts]
 import { defineWorkspace, source } from '@vitehub/workspace'
-import * as workspaceSource from '@vitehub/workspace/source'
+import { source as workspaceSource } from '@vitehub/workspace'
 
 export default defineWorkspace({
   sources: {
@@ -80,7 +80,7 @@ Use it from server code:
 import { useWorkspace } from '@vitehub/workspace'
 
 const assets = useWorkspace('docs')
-const workspace = useWorkspace('docs', { allowWrite: true })
+const workspace = useWorkspace('docs', { mode: "write" })
 
 const instructions = await assets.fs.readFile('instructions/AGENTS.md')
 await workspace.fs.writeFile('generated/notes.md', 'Hello')
@@ -130,15 +130,15 @@ import { useWorkspace } from '@vitehub/workspace'
 const readOnlyTools = useWorkspace('docs').tools.inspect()
 const sameReadOnlyTools = useWorkspace('docs').tools.readonly()
 const noTools = useWorkspace('docs').tools.none()
-const writeTools = useWorkspace('docs', { allowWrite: true }).tools.write()
+const writeTools = useWorkspace('docs', { mode: "write" }).tools.write()
 ```
 
 - `inspect()` exposes the read-only `shell` tool.
 - `readonly()` is an alias for `inspect()`.
 - `none()` returns an empty tool set.
-- `write()` exposes read tools plus structured write tools, and requires `useWorkspace(name, { allowWrite: true })`.
+- `write()` exposes read tools plus structured write tools, and requires `useWorkspace(name, { mode: "write" })`.
 
-`workspace.tools()` remains as a temporary alias for `workspace.tools.inspect()` for migration. Agent definitions should expose workspace shell access through the `bash()` capability.
+Agent definitions should expose workspace shell access through the `workspaceShell()` capability.
 
 Applications that use `AGENTS.md` as the model instruction source should load it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')` or an agent `instructions` resolver. Keep detailed shell command syntax in tool metadata instead of duplicating it in app instructions.
 
@@ -158,7 +158,7 @@ export default defineWorkspace({
 })
 ```
 
-Sandbox provider selection belongs to app config, not `workspace.open()`:
+Sandbox provider selection belongs to app config, not `workspace.startSession()`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -178,7 +178,7 @@ export default defineConfig({
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const session = await useWorkspace('docs', { allowWrite: true }).open()
+const session = await useWorkspace('docs', { mode: "write" }).startSession()
 
 await session.exec('pnpm', ['test'])
 const changes = await session.diff()

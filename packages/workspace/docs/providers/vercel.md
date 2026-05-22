@@ -64,7 +64,7 @@ export default defineWorkspace({
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const session = await useWorkspace('docs', { allowWrite: true }).open()
+const session = await useWorkspace('docs', { mode: "write" }).startSession()
 
 await session.exec('pnpm', ['test'])
 await session.commit()

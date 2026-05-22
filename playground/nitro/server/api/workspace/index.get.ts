@@ -1,11 +1,11 @@
 import { defineEventHandler } from "h3"
 import { useWorkspace } from "@vitehub/workspace"
-import { getWorkspaceRuntimeConfig } from "@vitehub/workspace/runtime/state"
+import { getWorkspaceRuntimeConfig } from "@vitehub/workspace/internal/runtime/state"
 import { ensureDocsWorkspace } from "../../utils/workspace"
 
 export default defineEventHandler(async () => {
   ensureDocsWorkspace()
-  const workspace = useWorkspace("docs", { allowWrite: true })
+  const workspace = useWorkspace("docs", { mode: "write" })
   const runtimeConfig = getWorkspaceRuntimeConfig()
   const generatedPath = "generated/notes.md"
   return {

@@ -13,4 +13,4 @@ ViteHub agents will use agent-scoped Capabilities created with `defineCapability
 
 ## Consequences
 
-The first official capabilities are `skills()`, `mcp()`, `bash()`, `sandbox()`, `kv()`, `blob()`, and `db()`. Capabilities are single-instance by default, run in user-provided order, and may contribute named instruction blocks that users place with instruction slots such as `{{ skills }}`, `{{ mcp }}`, and `{{ capabilities }}`.
+The first official capabilities are `skills()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, and `db()`. Capabilities are single-instance by default, run in user-provided order, and may contribute named instruction blocks that users place with instruction slots such as `{{ skills }}`, `{{ mcp }}`, and `{{ capabilities }}`.

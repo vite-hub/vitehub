@@ -259,7 +259,7 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { bash, blob, db, kv, mcp, sandbox, skills } from "./capabilities.ts"
+export { blob, db, kv, mcp, sandbox, skills, workspaceShell } from "./capabilities.ts"
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -278,8 +278,8 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
   const capabilities = normalizeCapabilities(options.capabilities)
   const workspaceMode = workspaceModeFromOptions(options)
   for (const capability of capabilities) {
-    if (capability.id === "bash" && normalizeMode(capability.mode, "Bash") === "write" && workspaceMode !== "write") {
-      throw new Error("[vitehub] bash({ mode: \"write\" }) requires workspace.mode: \"write\".")
+    if (capability.id === "workspace-shell" && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
+      throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
     }
     if (capability.id === "sandbox") {
       validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
@@ -290,15 +290,16 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
   if (hasWorkspace) return
   for (const capability of capabilities) {
-    if (capability.id === "bash" || capability.id === "sandbox") {
-      throw new Error(`[vitehub] ${capability.id}() requires an explicit workspace.`)
+    if (capability.id === "workspace-shell" || capability.id === "sandbox") {
+      const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
+      throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }
   }
 }
 
 function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtoolsToolDefinition | undefined {
-  if (capability.id === "bash") {
-    const mode = normalizeMode(capability.mode, "Bash")
+  if (capability.id === "workspace-shell") {
+    const mode = normalizeMode(capability.mode, "Workspace Shell")
     return {
       category: "workspace",
       commands: mode === "write" ? writeCommands : readCommands,
@@ -306,7 +307,7 @@ function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtools
         ? "Run curated workspace read and write shell operations."
         : "Run curated workspace read shell operations.",
       icon: "i-lucide-terminal",
-      name: "bash",
+      name: "workspaceShell",
       status: "available",
     }
   }
@@ -1063,7 +1064,7 @@ async function createRunContext<
   const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
   const workspace = workspaceName
     ? workspaceMode === "write"
-      ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { allowWrite: true })
+      ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { mode: "write" })
       : (await import("@vitehub/workspace")).useWorkspace(workspaceName)
     : undefined
   const capabilityOptions = workspaceOptions
@@ -1112,7 +1113,7 @@ async function createAdapterRunContext<
   const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
   const workspace = workspaceName
     ? workspaceMode === "write"
-      ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { allowWrite: true })
+      ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { mode: "write" })
       : (await import("@vitehub/workspace")).useWorkspace(workspaceName)
     : undefined
   const capabilityOptions = workspaceOptions && workspace

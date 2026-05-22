@@ -455,7 +455,7 @@ describe("defineAgent workspace option", () => {
       workspace: {},
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
     await agent.run!({
@@ -492,7 +492,7 @@ describe("defineAgent workspace option", () => {
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
     await agent.run!({
@@ -532,7 +532,7 @@ describe("defineAgent workspace option", () => {
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
     await expect(agent.run!({
@@ -560,7 +560,7 @@ describe("defineAgent workspace option", () => {
       instructions: "Answer from the workspace.",
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     expect(createAgentDevtoolsMetadata(agent)).toEqual({
@@ -578,7 +578,7 @@ describe("defineAgent workspace option", () => {
         expect.objectContaining({
           commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
           category: "workspace",
-          name: "bash",
+          name: "workspaceShell",
           status: "available",
         }),
       ]),
@@ -593,7 +593,7 @@ describe("defineAgent workspace option", () => {
       instructions: readInstructions,
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     expect(createAgentDevtoolsMetadata(agent).instructions).toEqual(["Dynamic system instructions resolver configured."])
@@ -610,7 +610,7 @@ describe("defineAgent workspace option", () => {
       instructions: readInstructions,
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
@@ -639,7 +639,7 @@ describe("defineAgent workspace option", () => {
       instructions: "Answer from the workspace.",
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
@@ -686,7 +686,7 @@ describe("defineAgent workspace option", () => {
       instructions: "Answer from the workspace.",
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     const metadata = await resolveAgentDevtoolsMetadata(agent)
@@ -720,7 +720,7 @@ describe("defineAgent workspace option", () => {
       instructions: "Answer from the workspace.",
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
     expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({

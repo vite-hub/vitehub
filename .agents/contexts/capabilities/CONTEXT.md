@@ -25,15 +25,20 @@ A Capability that gives an Agent chat-oriented runtime behavior, including Chat 
 _Avoid_: Chat History Capability, Agent Memory
 
 **Workspace Capability**:
-A Capability that gives an Agent model-facing access to Workspace files through inspect or write tools.
+A Capability that gives an Agent model-facing access to Workspace files.
 _Avoid_: Bash, raw workspace tools, built-in tool
+
+**Workspace Shell Capability**:
+A Workspace Capability that exposes shell-shaped Workspace inspection and optional structured Workspace mutation tools.
+_Avoid_: Bash, sandbox, raw workspace tools
 
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `skills()`, `mcp()`, `bash()`, `sandbox()`, `kv()`, `blob()`, and `db()` create **Capability Definitions**.
+- Official helpers such as `skills()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, and `db()` create **Capability Definitions**.
 - A **Chat Capability** owns Chat History behavior for the current stack.
-- A **Workspace Capability** contributes Workspace tools without implying shell access.
+- A **Workspace Capability** contributes Workspace tools without implying unrestricted process execution.
+- A **Workspace Shell Capability** contributes shell-shaped Workspace tools without implying Sandbox execution.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is a separate Capability concern from the **Chat Capability**.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
@@ -55,3 +60,4 @@ _Avoid_: Bash, raw workspace tools, built-in tool
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
+- `bash()` was considered as the public helper for Workspace file access - resolved: use `workspaceShell()` for the **Workspace Shell Capability** because the shell is scoped to Workspace files.

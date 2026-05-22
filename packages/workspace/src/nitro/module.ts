@@ -124,14 +124,14 @@ function createNitroPluginContents(file: string, registryFile: string, assetsReg
     `import { useRuntimeConfig } from "nitro/runtime-config"`,
     `import workspaceRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import workspaceAssetsRegistry from ${JSON.stringify(createImportPath(file, assetsRegistryFile))}`,
-    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/runtime/state")))}`,
+    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/internal/runtime/state")))}`,
   ]
 
   if (provider === "cloudflare-artifacts") {
-    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/cloudflare-artifacts", "@vitehub/workspace/stores/cloudflare-artifacts")))}`)
+    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/cloudflare-artifacts", "@vitehub/workspace/internal/stores/cloudflare-artifacts")))}`)
   }
   else if (provider === "vercel-blob") {
-    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/vercel-blob", "@vitehub/workspace/stores/vercel-blob")))}`)
+    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../stores/vercel-blob", "@vitehub/workspace/internal/stores/vercel-blob")))}`)
   }
 
   const loader = provider === "cloudflare-artifacts"
@@ -194,8 +194,7 @@ const workspaceNitroModule: NitroModule = {
     runtimeConfig.workspace = resolved
 
     nitro.options.alias ||= {}
-    nitro.options.alias["@vitehub/workspace/source"] = resolveRuntimeEntry("../source", "@vitehub/workspace/source")
-    nitro.options.alias["@vitehub/workspace/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/runtime/state")
+    nitro.options.alias["@vitehub/workspace/internal/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/internal/runtime/state")
     nitro.options.alias["@vitehub/workspace"] = resolveRuntimeEntry("../index", "@vitehub/workspace")
     nitro.options.alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     nitro.options.alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()

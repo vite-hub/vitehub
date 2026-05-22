@@ -242,6 +242,6 @@ describe("useWorkspace facade tools", () => {
     expect("shell" in workspace.tools.inspect()).toBe(true)
     expect("shell" in workspace.tools.readonly()).toBe(true)
     expect(workspace.tools.none()).toEqual({})
-    expect("shell" in workspace.tools()).toBe(true)
+    expect("shell" in workspace.tools).toBe(true)
   })
 })

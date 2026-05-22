@@ -6,11 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeWorkspaceSources } from "../src/source-config.ts"
 import { createWorkspaceSourceView } from "../src/source-view.ts"
-import { defineWorkspace, registerWorkspace, source } from "../src/index.ts"
+import { defineWorkspace, source } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/registry.ts"
+import { registerWorkspace } from "../src/test.ts"
 import { useRegisteredWorkspace } from "../src/registry.ts"
-import { glob as globSource } from "../src/source.ts"
-import { github as githubSource } from "../src/source.ts"
+const globSource = source.glob
+const githubSource = source.github
 import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
 
 const tempDirs: string[] = []

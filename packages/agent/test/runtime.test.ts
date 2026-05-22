@@ -882,7 +882,7 @@ describe("agent message protocol", () => {
 
   it("validates capability ids and sandbox commands", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { bash, sandbox } = await import("../src/capabilities.ts")
+    const { sandbox, workspaceShell } = await import("../src/capabilities.ts")
 
     expect(() => defineAgent({
       capabilities: [{ id: "custom" }, { id: "custom" }],
@@ -904,13 +904,13 @@ describe("agent message protocol", () => {
     })).toThrow("executable names only")
 
     expect(() => defineAgent({
-      capabilities: [bash()],
+      capabilities: [workspaceShell()],
       adapter: "ai-sdk",
       model: {} as never,
     })).toThrow("requires an explicit workspace")
 
     expect(() => defineAgent({
-      capabilities: [bash({ mode: "write" })],
+      capabilities: [workspaceShell({ mode: "write" })],
       adapter: "ai-sdk",
       model: {} as never,
       workspace: { mode: "read" },

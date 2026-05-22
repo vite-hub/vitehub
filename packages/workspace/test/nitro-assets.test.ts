@@ -44,12 +44,10 @@ describe("Nitro workspace assets", () => {
 
     await workspaceNitroModule.setup!(nitro as never)
 
-    expect(nitro.options.alias["@vitehub/workspace/source"]).toContain("source")
-    expect(nitro.options.alias["@vitehub/workspace/runtime/state"]).toContain("runtime/state")
+    expect(nitro.options.alias["@vitehub/workspace/internal/runtime/state"]).toContain("runtime/state")
 
     const keys = Object.keys(nitro.options.alias)
-    expect(keys.indexOf("@vitehub/workspace/source")).toBeLessThan(keys.indexOf("@vitehub/workspace"))
-    expect(keys.indexOf("@vitehub/workspace/runtime/state")).toBeLessThan(keys.indexOf("@vitehub/workspace"))
+    expect(keys.indexOf("@vitehub/workspace/internal/runtime/state")).toBeLessThan(keys.indexOf("@vitehub/workspace"))
   })
 
   it("uses a local workspace store in Nitro dev even for Cloudflare presets", async () => {

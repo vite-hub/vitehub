@@ -213,12 +213,12 @@ export default defineChat({
 
 Use `defineAgent()` with a `workspace` option from a colocated agent config when an agent answers from ViteHub Workspace sources. `workspace` mounts the sources only; it does not expose model tools by itself.
 
-Add `bash()` when the model should inspect the mounted files:
+Add `workspaceShell()` when the model should inspect the mounted files:
 
 ```ts [server/agents/data-sources/config.ts]
 import { defineAgent } from '@vitehub/agent'
-import { bash } from '@vitehub/agent/capabilities'
-import * as source from '@vitehub/workspace/source'
+import { workspaceShell } from '@vitehub/agent/capabilities'
+import { source } from '@vitehub/workspace'
 
 export default defineAgent({
   workspace: {
@@ -227,7 +227,7 @@ export default defineAgent({
     },
   },
   capabilities: [
-    bash(),
+    workspaceShell(),
   ],
   model,
   adapter: 'ai-sdk',
@@ -244,7 +244,7 @@ export default defineAgent({
     },
   },
   capabilities: [
-    bash(),
+    workspaceShell(),
   ],
   instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
   model,
@@ -258,7 +258,7 @@ Instruction parts can also be composed with an array:
 export default defineAgent({
   workspace: {},
   capabilities: [
-    bash(),
+    workspaceShell(),
   ],
   instructions: [
     'Answer only from inspected workspace evidence.',
@@ -275,19 +275,19 @@ Workspace sources do not imply model tools. Replace older workspace agents that 
 
 ```diff
  import { defineAgent } from '@vitehub/agent'
-+import { bash } from '@vitehub/agent/capabilities'
++import { workspaceShell } from '@vitehub/agent/capabilities'
 
  export default defineAgent({
    workspace: { sources },
 +  capabilities: [
-+    bash(),
++    workspaceShell(),
 +  ],
 +  model,
 +  adapter: 'ai-sdk',
  })
 ```
 
-Use `bash({ mode: 'write' })` only with `workspace.mode: 'write'`. Raw tools should be wrapped in inline or factory capabilities.
+Use `workspaceShell({ mode: 'write' })` only with `workspace.mode: 'write'`. Raw tools should be wrapped in inline or factory capabilities.
 
 ## Use durable memory
 

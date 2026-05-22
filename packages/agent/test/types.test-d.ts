@@ -1,14 +1,14 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent } from "../src/index.ts"
-import { bash, db, kv, sandbox, skills } from "../src/capabilities.ts"
+import { workspaceShell, db, kv, sandbox, skills } from "../src/capabilities.ts"
 import type { AgentUsageRecord } from "../src/index.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
     defineAgent({
       capabilities: [
-        bash(),
+        workspaceShell(),
         db(),
         kv(),
         skills(),

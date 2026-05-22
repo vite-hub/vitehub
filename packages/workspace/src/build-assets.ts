@@ -47,7 +47,7 @@ async function importWorkspaceConfig(path: string): Promise<{ default?: Workspac
 }
 
 function runtimeAssetsModulePath() {
-  return resolveRuntimeEntry("./runtime/assets", "@vitehub/workspace/runtime/assets", import.meta.url)
+  return resolveRuntimeEntry("./runtime/assets", "@vitehub/workspace/internal/runtime/assets", import.meta.url)
 }
 
 export async function syncDiscoveredWorkspaces(

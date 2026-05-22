@@ -22,7 +22,7 @@ import {
   vercelAiGatewayPricing,
 } from '@vitehub/agent'
 import {
-  bash,
+  workspaceShell,
   blob,
   db,
   kv,
@@ -32,7 +32,7 @@ import {
 } from '@vitehub/agent/capabilities'
 ```
 
-In Nitro, the module auto-imports `defineAgent` for discovered agent definitions. Capability factories such as `bash()` stay explicit imports because they expose model-facing tools.
+In Nitro, the module auto-imports `defineAgent` for discovered agent definitions. Capability factories such as `workspaceShell()` stay explicit imports because they expose model-facing tools.
 
 ::fw{id="vite:dev vite:build"}
 ```ts
@@ -73,7 +73,7 @@ defineAgent({
     sources,
   },
   capabilities: [
-    bash(),
+    workspaceShell(),
   ],
   instructions: 'Use workspace sources.',
   model,
@@ -94,7 +94,7 @@ Workspace agents do not attach workspace tools automatically. The `workspace` op
 defineAgent({
   workspace: { mode: 'read', sources },
   capabilities: [
-    bash(),
+    workspaceShell(),
   ],
   instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
   model,
@@ -102,7 +102,7 @@ defineAgent({
 })
 ```
 
-Use `bash()` for default read-only workspace shell inspection. Use `bash({ mode: 'write' })` only with `workspace.mode: 'write'`. Use inline or factory capabilities to expose raw tools:
+Use `workspaceShell()` for default read-only workspace shell inspection. Use `workspaceShell({ mode: 'write' })` only with `workspace.mode: 'write'`. Use inline or factory capabilities to expose raw tools:
 
 ```ts
 defineAgent({

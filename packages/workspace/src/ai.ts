@@ -371,7 +371,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   }
 
   if (writeEnabled && !isWorkspace(input)) {
-    throw new TypeError("[vitehub] Write operations require a mutable Workspace. Use useWorkspace(name, { allowWrite: true }).tools.write().")
+    throw new TypeError("[vitehub] Write operations require a mutable Workspace. Use useWorkspace(name, { mode: \"write\" }).tools.write().")
   }
 
   const result: Record<string, Tool<any, any>> = {}
