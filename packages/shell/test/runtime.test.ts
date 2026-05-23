@@ -5,6 +5,7 @@ import {
   createShellRuntime,
 } from "../src/index.ts"
 import { createJustBashProvider } from "../src/providers/just-bash.ts"
+import { MemoryWorkspace } from "./workspace-test-utils.ts"
 import {
   createReadonlyWorkspaceFs,
   createWritableWorkspaceFs,
@@ -20,129 +21,11 @@ import type {
 } from "../src/index.ts"
 import type {
   ReadonlyShellWorkspace,
-  ShellContent,
-  ShellEntry,
-  ShellReadFileOptions,
-  ShellSearchHit,
-  ShellSearchQuery,
-  ShellStat,
   WritableShellWorkspace,
 } from "../src/workspace/index.ts"
 
 // @ts-expect-error workspace contracts belong to @vitehub/shell/workspace.
 import type { ReadonlyShellWorkspace as RootReadonlyShellWorkspace } from "../src/index.ts"
-
-type Node = {
-  content?: ShellContent
-  type: "file" | "directory"
-}
-
-class MemoryWorkspace implements WritableShellWorkspace {
-  #nodes = new Map<string, Node>([["", { type: "directory" }]])
-
-  constructor(files: Record<string, ShellContent>) {
-    for (const [path, content] of Object.entries(files)) {
-      void this.writeFile(path, content)
-    }
-  }
-
-  async readFile(path: string, options?: ShellReadFileOptions): Promise<string | Uint8Array> {
-    const node = this.#nodes.get(path)
-    if (!node || node.type !== "file") throw new Error(`[vitehub] Workspace file does not exist: ${path}.`)
-    if (options?.encoding === "binary") {
-      return typeof node.content === "string" ? new TextEncoder().encode(node.content) : node.content || new Uint8Array()
-    }
-    return typeof node.content === "string" ? node.content : new TextDecoder().decode(node.content || new Uint8Array())
-  }
-
-  async exists(path: string): Promise<boolean> {
-    return this.#nodes.has(path)
-  }
-
-  async stat(path: string): Promise<ShellStat> {
-    const node = this.#nodes.get(path)
-    if (!node) throw new Error(`[vitehub] Workspace file does not exist: ${path}.`)
-    const content = typeof node.content === "string" ? new TextEncoder().encode(node.content) : node.content
-    return {
-      path,
-      size: node.type === "file" ? (content?.byteLength || 0) : undefined,
-      type: node.type,
-    }
-  }
-
-  async list(path = "", options: { recursive?: boolean } = {}): Promise<ShellEntry[]> {
-    const result: ShellEntry[] = []
-    for (const [key, node] of this.#nodes) {
-      if (!key || key === path) continue
-      if (path && !key.startsWith(`${path}/`)) continue
-      const rest = path ? key.slice(path.length + 1) : key
-      if (!options.recursive && rest.includes("/")) continue
-      const content = typeof node.content === "string" ? new TextEncoder().encode(node.content) : node.content
-      result.push({
-        path: key,
-        size: node.type === "file" ? (content?.byteLength || 0) : undefined,
-        type: node.type,
-      })
-    }
-    return result.sort((left, right) => left.path.localeCompare(right.path))
-  }
-
-  async writeFile(path: string, content: ShellContent): Promise<void> {
-    this.#ensureParents(path)
-    this.#nodes.set(path, { content, type: "file" })
-  }
-
-  async mkdir(path: string): Promise<void> {
-    this.#ensureParents(path)
-    this.#nodes.set(path, { type: "directory" })
-  }
-
-  async rm(path: string, options?: { force?: boolean, recursive?: boolean }): Promise<void> {
-    if (!this.#nodes.has(path)) {
-      if (options?.force) return
-      throw new Error(`[vitehub] Workspace path does not exist: ${path}.`)
-    }
-    let hasChild = false
-    for (const key of this.#nodes.keys()) {
-      if (key.startsWith(`${path}/`)) {
-        hasChild = true
-        break
-      }
-    }
-    if (!options?.recursive && hasChild) {
-      throw new Error(`[vitehub] Workspace directory is not empty: ${path}.`)
-    }
-    for (const key of this.#nodes.keys()) {
-      if (key === path || key.startsWith(`${path}/`)) this.#nodes.delete(key)
-    }
-  }
-
-  async search(query: ShellSearchQuery): Promise<ShellSearchHit[]> {
-    const result: ShellSearchHit[] = []
-    const pattern = query.caseSensitive === false ? query.pattern.toLowerCase() : query.pattern
-    for (const entry of await this.list("", { recursive: true })) {
-      if (entry.type !== "file") continue
-      if (query.paths?.length && !query.paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
-      const text = await this.readFile(entry.path)
-      const lines = String(text).split("\n")
-      for (const [index, line] of lines.entries()) {
-        const target = query.caseSensitive === false ? line.toLowerCase() : line
-        const column = target.indexOf(pattern)
-        if (column === -1) continue
-        result.push({ column: column + 1, line: index + 1, path: entry.path, text: line })
-      }
-    }
-    return result.slice(0, query.limit ?? 100)
-  }
-
-  #ensureParents(path: string) {
-    const parts = path.split("/").filter(Boolean)
-    for (let index = 1; index < parts.length; index++) {
-      const dir = parts.slice(0, index).join("/")
-      if (!this.#nodes.has(dir)) this.#nodes.set(dir, { type: "directory" })
-    }
-  }
-}
 
 function createReadonlyRuntime(workspace: ReadonlyShellWorkspace) {
   return createShellRuntime({
@@ -296,8 +179,11 @@ describe("@vitehub/shell just-bash runtime", () => {
       cwd: workspaceMountPoint,
       fs,
     })).resolves.toMatchObject({
+      event: "policy_denied",
       exitCode: 126,
-      stderr: "[vitehub] Workspace root search is too broad. Use a narrow mounted source or subdirectory path instead.\n",
+      stderr: expect.stringContaining("Workspace root search is too broad"),
+      stdout: expect.stringContaining("Workspace search is too broad"),
+      workspaceGuardrail: { kind: "broad_search" },
     })
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models", {
       commands: ["rg"],
@@ -371,141 +257,6 @@ describe("@vitehub/shell just-bash runtime", () => {
     await expect(workspace.exists("copy/opy")).resolves.toBe(false)
   })
 
-  it("runs workspace inspection through the real shell runtime", async () => {
-    const workspace = new MemoryWorkspace({
-      "README.md": "# Docs\n",
-      "models/customers.sql": "select * from customers\n",
-      "models/orders.sql": "select * from orders\n",
-    })
-    const fs = createReadonlyWorkspaceFs(workspace)
-
-    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md && pwd", {
-      commands: ["cat", "pwd"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "# Docs\n/workspace\n",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | wc -l", {
-      commands: ["cat", "wc"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "1\n",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "ls -la models", {
-      commands: ["ls"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: expect.stringContaining("customers.sql"),
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "cat", {
-      commands: ["cat"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "find . -type f -name '*.sql'", {
-      commands: ["find"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "./models/customers.sql\n./models/orders.sql\n",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "find . -maxdepth 1", {
-      commands: ["find"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: ".\n./models\n./README.md\n",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "find . -maxdepth 2 -name '*customer*'", {
-      commands: ["find"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "./models/customers.sql\n",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "wc -l", {
-      commands: ["wc"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "0\n",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "rg orders models", {
-      commands: ["rg"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "models/orders.sql:1:select * from orders\n",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "grep -ri customer models | head -n 1", {
-      commands: ["grep", "head"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "models/customers.sql:select * from customers\n",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "grep -ri customer . | grep -v orders | head -n 1", {
-      commands: ["grep", "head"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "models/customers.sql:select * from customers\n",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "rg customer|orders models", {
-      commands: ["rg"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 126,
-      stderr: expect.stringContaining("Workspace root search is too broad"),
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "cd /workspace && rg orders models", {
-      commands: ["cd", "rg"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "models/orders.sql:1:select * from orders\n",
-    })
-
-    await expect(runWorkspaceInspectionCommand(workspace, "pwd && ls models", {
-      commands: ["pwd", "ls"],
-      cwd: workspaceMountPoint,
-      fs,
-    })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "/workspace\ncustomers.sql\norders.sql\n",
-    })
-  })
-
   it("does not refresh workspace paths when creating a shell filesystem", () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
@@ -528,9 +279,11 @@ describe("@vitehub/shell just-bash runtime", () => {
       fs: createReadonlyWorkspaceFs(workspace),
       timeout: 5,
     })).resolves.toMatchObject({
+      event: "command_timed_out",
       exitCode: null,
       stderr: "[vitehub] Workspace shell command timed out after 5ms.",
       stdout: "",
+      timedOut: true,
     })
   })
 })

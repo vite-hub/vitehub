@@ -112,7 +112,7 @@ export async function reportWorkspaceMaterialization(
   tools: AgentToolSet | undefined,
   reportToolStep?: AgentToolStepReporter,
 ): Promise<void> {
-  if (!reportToolStep || !tools || typeof tools !== "object") return
+  if (!tools || typeof tools !== "object") return
   const materializeTool = (tools as Record<string, unknown>).materialize_sources
   const execute = materializeTool && typeof materializeTool === "object" && typeof (materializeTool as { execute?: unknown }).execute === "function"
     ? (materializeTool as { execute: (input: unknown) => Promise<unknown> }).execute
@@ -124,13 +124,13 @@ export async function reportWorkspaceMaterialization(
     toolCallId: createToolCallId("materialize_sources"),
     toolName: "materialize_sources",
   }
-  await reportToolStep({ toolCalls: [toolCall] })
+  await reportToolStep?.({ toolCalls: [toolCall] })
   try {
     const output = await execute.call(materializeTool, toolCall.input)
-    await reportToolStep({ toolResults: [{ ...toolCall, output: materializeSummary(output) }] })
+    await reportToolStep?.({ toolResults: [{ ...toolCall, output: materializeSummary(output) }] })
   }
   catch (error) {
-    await reportToolStep({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
+    await reportToolStep?.({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
   }
 }
 

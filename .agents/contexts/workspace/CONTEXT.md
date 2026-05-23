@@ -35,6 +35,10 @@ _Avoid_: Virtual Source, Ephemeral Source, query tool
 The keyed object that declares a Workspace's Sources.
 _Avoid_: Source list, source array
 
+**Source Namespace**:
+The public authoring namespace that contains all Workspace Source helpers.
+_Avoid_: Common sources, runtime sources, provider source namespace
+
 **Mount**:
 The placement of a Source inside a Workspace file tree.
 _Avoid_: Source
@@ -63,13 +67,27 @@ _Avoid_: Capability, source, loader
 Agent tools derived from a Workspace Definition for inspecting or mutating Workspace files.
 _Avoid_: Workspace Capability, bash, raw tools
 
+**Workspace Access Mode**:
+The read or write authority requested for a Workspace runtime surface or Workspace Capability.
+_Avoid_: allowWrite, writable flag, permission boolean
+
+**Workspace File Tree**:
+The single public file tree exposed by a Workspace regardless of whether a file is backed by store state, a Source, or a build-time asset.
+_Avoid_: Asset workspace, runtime workspace, merged workspace
+
+**Workspace Session**:
+A runtime materialization of a Workspace that can execute commands and commit file changes back to the Workspace Store.
+_Avoid_: Open workspace, sandbox, mount
+
 ## Relationships
 
 - A **Workspace** has one **Workspace Store**.
+- A **Workspace** exposes one **Workspace File Tree**.
 - A **Colocated Workspace Definition** still defines a **Workspace**.
 - A **Workspace Store** can be backed by a Blob Store.
 - A **Workspace** has zero or more **Sources**.
 - A **Workspace** declares Sources through one **Source Map**.
+- A **Source Namespace** contains local, inline, tree, and provider Source helpers.
 - A **Colocated Workspace Definition** has a **Workspace Source Root**.
 - A **Workspace Source Root** is a `workspace/` directory beside the Colocated Workspace Definition when present, otherwise the definition directory.
 - A **Source Map** key is the canonical identity of its Source.
@@ -91,6 +109,8 @@ _Avoid_: Workspace Capability, bash, raw tools
 - A **Workspace Plugin** can contribute Workspace Rules.
 - An Agent with a **Colocated Workspace Definition** receives read-only **Workspace Tools** by default.
 - **Workspace Tools** can be disabled or upgraded to write mode through the Workspace Definition.
+- A **Workspace Access Mode** is `read` by default and must be explicit when write authority is requested.
+- A **Workspace Session** starts from a Workspace runtime surface and may use a Sandbox provider behind the boundary.
 
 ## Example Dialogue
 
@@ -113,3 +133,7 @@ _Avoid_: Workspace Capability, bash, raw tools
 - Single-file Source `path` was considered an inline content output path - resolved: `path` is only a local input path; inline content uses `workspacePath`.
 - Single-file Sources were considered source-key mounted by default - resolved: **Single-File Sources** root-mount by default; source-key mounting is explicit.
 - Workspace inspection was considered a separate Workspace Capability - resolved: **Workspace Tools** are derived from the Workspace Definition by default.
+- Local and provider Source helpers were considered separate public namespaces - resolved: use one **Source Namespace** for all public Source authoring helpers.
+- Workspace write authority was considered as `allowWrite: true` - resolved: use **Workspace Access Mode** language such as `mode: "write"` instead of a permission boolean.
+- Build-time Workspace assets were considered a second user-facing read surface - resolved: users read one **Workspace File Tree** while asset provenance remains internal by default.
+- `open()` was considered as the Workspace execution-session method - resolved: use `startSession()` because it names the **Workspace Session** lifecycle.

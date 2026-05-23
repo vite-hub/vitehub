@@ -117,7 +117,7 @@ afterEach(() => {
 describe("Vercel Blob workspace store", () => {
   it("stores files, metadata, snapshots, and diffs in Blob", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
-    const { createVercelBlobWorkspaceStore } = await import("../src/stores/vercel-blob.ts")
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
     const store = createVercelBlobWorkspaceStore({
       prefix: "workspace/e2e",
       provider: "vercel-blob",
@@ -146,7 +146,7 @@ describe("Vercel Blob workspace store", () => {
 
   it("rejects traversal and reserved public paths", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
-    const { createVercelBlobWorkspaceStore } = await import("../src/stores/vercel-blob.ts")
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
     const store = createVercelBlobWorkspaceStore({
       prefix: "workspace/e2e",
       provider: "vercel-blob",

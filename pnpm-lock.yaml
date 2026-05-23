@@ -250,6 +250,9 @@ importers:
         specifier: ^6.1.1
         version: 6.1.1
     devDependencies:
+      '@ai-sdk/mcp':
+        specifier: ^1.0.36
+        version: 1.0.36(zod@4.4.1)
       '@tanstack/ai':
         specifier: 0.16.0
         version: 0.16.0(@opentelemetry/api@1.9.0)
@@ -575,6 +578,9 @@ importers:
       h3:
         specifier: 'catalog:'
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
+      ofetch:
+        specifier: 'catalog:'
+        version: 1.5.1
       pathe:
         specifier: 'catalog:'
         version: 2.0.3

@@ -1,6 +1,8 @@
 export { custom } from "./custom.ts"
 export { file } from "./file.ts"
 export type { FileSourceOptions } from "./file.ts"
+export { fetch } from "./fetch.ts"
+export type { FetchSourceOptions, FetchSourceRequest, FetchSourceRequestOptions } from "./fetch.ts"
 export { github } from "./github.ts"
 export type { GitHubSourceOptions } from "./github.ts"
 export { glob } from "./glob.ts"

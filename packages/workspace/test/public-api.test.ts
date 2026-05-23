@@ -5,8 +5,9 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
-import { defineWorkspace, registerWorkspace, source, useWorkspace } from "../src/index.ts"
-import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/registry.ts"
+import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
+import { registerWorkspace } from "../src/test.ts"
+import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig } from "../src/runtime/state.ts"
 
@@ -45,7 +46,7 @@ describe("workspace public API", () => {
       },
     }))
 
-    const workspace = useWorkspace("api", { allowWrite: true })
+    const workspace = useWorkspace("api", { mode: "write" })
     await workspace.fs.writeFile("generated/summary.md", "summary")
 
     expect(await workspace.fs.readFile("README.md")).toBe("# API\n")
@@ -67,7 +68,7 @@ describe("workspace public API", () => {
       },
     }))
 
-    const workspace = useWorkspace("root-file", { allowWrite: true })
+    const workspace = useWorkspace("root-file", { mode: "write" })
 
     expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Instructions\n")
     expect(await workspace.fs.list()).toEqual([
@@ -88,7 +89,7 @@ describe("workspace public API", () => {
       },
     }))
 
-    const workspace = useWorkspace("root-file-mount-options", { allowWrite: true })
+    const workspace = useWorkspace("root-file-mount-options", { mode: "write" })
 
     expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Instructions\n")
     await expect(workspace.fs.exists("instructions/AGENTS.md")).resolves.toBe(false)
@@ -136,7 +137,7 @@ describe("workspace public API", () => {
       },
     }))
 
-    const workspace = useWorkspace("rules", { allowWrite: true })
+    const workspace = useWorkspace("rules", { mode: "write" })
 
     await expect(workspace.fs.writeFile("README.md", "# Blocked\n")).rejects.toThrow("does not allow writeFile")
     await expect(workspace.fs.writeFile("generated/result.txt", "ok")).resolves.toBeUndefined()
@@ -166,7 +167,7 @@ describe("workspace public API", () => {
       },
     }))
 
-    const workspace = useWorkspace("plugin-rules", { allowWrite: true })
+    const workspace = useWorkspace("plugin-rules", { mode: "write" })
 
     await workspace.fs.writeFile("docs/notes.md", "notes")
     await expect(workspace.fs.writeFile("tmp/notes.md", "notes")).rejects.toThrow("does not allow writeFile")
@@ -263,7 +264,7 @@ describe("workspace public API", () => {
       rootDir: root,
     }))
 
-    const workspace = useWorkspace("runtime-root", { allowWrite: true })
+    const workspace = useWorkspace("runtime-root", { mode: "write" })
     await workspace.fs.writeFile("notes.md", "runtime")
 
     await expect(readFile(join(configuredRoot, "runtime-root", "notes.md"), "utf8")).resolves.toBe("runtime")
@@ -274,7 +275,7 @@ describe("workspace public API", () => {
       docs: async () => ({ default: defineWorkspace({ store: { provider: "memory" } }) }),
     })
 
-    const workspace = useWorkspace("docs", { allowWrite: true })
+    const workspace = useWorkspace("docs", { mode: "write" })
     await expect(workspace.fs.list()).resolves.toEqual([])
   })
 
@@ -291,7 +292,7 @@ describe("workspace public API", () => {
       }) }),
     })
 
-    const first = useWorkspace("docs", { allowWrite: true })
+    const first = useWorkspace("docs", { mode: "write" })
     expect(await first.fs.readFile("README.md")).toBe("v1\n")
 
     setWorkspaceRegistry({
@@ -306,7 +307,7 @@ describe("workspace public API", () => {
       }) }),
     })
 
-    const second = useWorkspace("docs", { allowWrite: true })
+    const second = useWorkspace("docs", { mode: "write" })
     expect(await second.fs.readFile("README.md")).toBe("v2\n")
   })
 })

@@ -194,8 +194,8 @@ Models guess. Tools inspect. Add a Workspace to your agent so it can search, lis
 ```ts [server/agents/support/chat/config.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vitehub/agent'
-import { bash } from '@vitehub/agent/capabilities'
-import * as source from '@vitehub/workspace/source'
+import { workspaceShell } from '@vitehub/agent/capabilities'
+import { source } from '@vitehub/workspace'
 
 export default defineAgent({
   description: 'Answer support chat messages from connected project sources.',
@@ -222,7 +222,7 @@ export default defineAgent({
     },
   },
   capabilities: [
-    bash(),
+    workspaceShell(),
   ],
   instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
   model: gateway('openai/gpt-5.1-mini'),
@@ -231,7 +231,7 @@ export default defineAgent({
 ```
 ::
 
-Each entry in `workspace.sources` becomes a mount. `bash()` is the explicit capability that lets the model inspect those mounts through the read-only workspace shell. Local globs travel with your repo, GitHub sources stay remote until the agent asks for them (`materialize: 'lazy'`), and inline files are perfect for instructions that should live next to the agent.
+Each entry in `workspace.sources` becomes a mount. `workspaceShell()` is the explicit capability that lets the model inspect those mounts through the read-only workspace shell. Local globs travel with your repo, GitHub sources stay remote until the agent asks for them (`materialize: 'lazy'`), and inline files are perfect for instructions that should live next to the agent.
 
 Send a question that only your sources can answer—"What does our refund policy say?"—and watch the panel show the tool calls firing before the streamed reply.
 

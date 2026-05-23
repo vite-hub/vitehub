@@ -8,15 +8,17 @@ import { gzipSync } from "node:zlib"
 import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { collectWorkspaceAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
-import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build-integration.ts"
-import { defineWorkspace, loader, publish, registerWorkspace, useWorkspace } from "../src/index.ts"
+import { collectWorkspaceStoreAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
+import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build/integration.ts"
+import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
+import * as loader from "../src/loader.ts"
+import * as publish from "../src/publish.ts"
+import { registerWorkspace } from "../src/test.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
-import { useRegisteredWorkspace } from "../src/registry.ts"
-import * as source from "../src/source.ts"
-import { createLocalWorkspaceStore } from "../src/stores/local.ts"
-import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
-import type { Workspace, WorkspaceDefinition } from "../src/types.ts"
+import { useRegisteredWorkspace } from "../src/core/registry.ts"
+import { createLocalWorkspaceStore } from "../src/storage/local.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import type { WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
 
 const tempDirs: string[] = []
 
@@ -458,7 +460,7 @@ describe("sources, loaders, and publishers", () => {
       loaders: [loader.files()],
     }))
 
-    const workspace = useWorkspace("github-loader", { allowWrite: true })
+    const workspace = useWorkspace("github-loader", { mode: "write" })
 
     await expect(workspace.fs.readFile("docs/models/marts/orders.sql")).resolves.toBe("select 1\n")
   })
@@ -524,7 +526,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "README.md"), "# Root\n")
     await writeFile(join(directory, "README.md"), "# Directory\n")
     await writeFile(join(directory, "config.mjs"), [
-      "import * as source from '@vitehub/workspace/source'",
+      "import { source } from '@vitehub/workspace'",
       "export default {",
       "  sourceRootDir: '',",
       "  sources: { docs: source.glob({ include: ['README.md'] }) },",
@@ -769,7 +771,7 @@ describe("sources, loaders, and publishers", () => {
       ],
     }))
 
-    const workspace = useWorkspace("sources", { allowWrite: true })
+    const workspace = useWorkspace("sources", { mode: "write" })
     await workspace.fs.list()
     await workspace.fs.list()
 
@@ -806,18 +808,19 @@ describe("sources, loaders, and publishers", () => {
   it("writes lazy workspace asset modules for text and binary files", async () => {
     const root = await createRoot()
     const registryFile = join(root, ".vitehub/assets/registry.mjs")
-    registerWorkspace("asset-bundle", defineWorkspace({
+    const definition = defineWorkspace({
       rootDir: root,
       store: { provider: "memory" },
       sources: {
         docs: source.file({ content: "hello\n", workspacePath: "README.md" }),
         data: source.file({ content: new Uint8Array([1, 2, 3]), workspacePath: "data.bin" }),
       },
-    }))
+    })
+    registerWorkspace("asset-bundle", definition)
 
-    const workspace = await useRegisteredWorkspace("asset-bundle")
-    await workspace.sync()
-    await writeWorkspaceAssetsRegistry(registryFile, [await collectWorkspaceAssetBundle(workspace)])
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({ ...definition, name: "asset-bundle", store }, store)
+    await writeWorkspaceAssetsRegistry(registryFile, [await collectWorkspaceStoreAssetBundle("asset-bundle", store)])
 
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
 
@@ -839,8 +842,8 @@ describe("sources, loaders, and publishers", () => {
       async readFile() {
         return "escape"
       },
-    } as unknown as Workspace
+    } as unknown as WorkspaceStore
 
-    await expect(collectWorkspaceAssetBundle(workspace)).rejects.toThrow("escapes the workspace root")
+    await expect(collectWorkspaceStoreAssetBundle("unsafe", workspace)).rejects.toThrow("escapes the workspace root")
   })
 })

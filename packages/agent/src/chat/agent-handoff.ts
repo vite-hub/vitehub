@@ -14,7 +14,7 @@ import type {
 } from "./types.ts"
 import type { AgentRunInput, AgentRunMetadata } from "../index.ts"
 import type { Chat, Message as ChatSdkMessage, SentMessage, Thread } from "chat"
-import type { Message } from "../messages.ts"
+import type { AudioData, AudioPart, Message, MessagePart } from "../messages.ts"
 
 export interface ChatAgentWorkflowPayload {
   agentName: string
@@ -97,6 +97,51 @@ function getMessageText(message: ChatSdkMessage): string {
   return ""
 }
 
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.length > 0)
+}
+
+function audioData(value: unknown): AudioData | undefined {
+  if (typeof value === "string" && value.length > 0) return value
+  if (!value || typeof value !== "object") return undefined
+  if (value instanceof ArrayBuffer && value.byteLength > 0) return value
+  if (value instanceof Uint8Array && value.byteLength > 0) return value
+  if (value instanceof Blob && value.size > 0) return value
+  return undefined
+}
+
+async function toAudioPart(value: unknown, index: number): Promise<AudioPart | undefined> {
+  if (!value || typeof value !== "object") return
+  const record = value as Record<string, unknown>
+  const explicitMediaType = firstString(record.mediaType, record.mimeType, record.contentType)
+  const type = firstString(record.type)
+  const mediaType = explicitMediaType || (type === "audio" ? "audio/*" : type)
+  if (!mediaType?.startsWith("audio/")) return
+  const url = firstString(record.url, record.href)
+  const data = audioData(record.data)
+    ?? audioData(record.base64)
+    ?? audioData(record.content)
+    ?? (
+      typeof record.fetchData === "function" && !url
+        ? audioData(await Promise.resolve(record.fetchData()))
+        : undefined
+    )
+  if ((data ? 1 : 0) + (url ? 1 : 0) !== 1) return
+  return { ...(data ? { data } : { url: url! }), id: firstString(record.id) || `audio-${index}`, mediaType, type: "audio" }
+}
+
+async function collectAudioParts(message: ChatSdkMessage): Promise<AudioPart[]> {
+  const record = message as unknown as Record<string, unknown>
+  const parts = await Promise.all([
+    record.audio,
+    record.attachment,
+    ...(Array.isArray(record.attachments) ? record.attachments : []),
+    ...(Array.isArray(record.files) ? record.files : []),
+    ...(Array.isArray(record.parts) ? record.parts : []),
+  ].filter(Boolean).map(toAudioPart))
+  return parts.filter((part): part is AudioPart => Boolean(part))
+}
+
 function getMessageCreatedAt(message: ChatSdkMessage): Date | string | undefined {
   const dateSent = (message as { metadata?: { dateSent?: unknown } }).metadata?.dateSent
   return dateSent instanceof Date || typeof dateSent === "string" ? dateSent : undefined
@@ -112,13 +157,20 @@ function toChatMessageSnapshot(message: ChatSdkMessage): ChatSdkMessage {
   } as ChatSdkMessage
 }
 
-export function toViteHubMessages(messages: ChatSdkMessage[]): Message[] {
-  return messages.map((message, index) => createMessage({
-    createdAt: getMessageCreatedAt(message),
-    id: getEntityId(message) || `chat-message-${index}`,
-    metadata: { source: "chat" },
-    role: (message as { author?: { isMe?: boolean } }).author?.isMe ? "assistant" : "user",
-    text: getMessageText(message),
+export async function toViteHubMessages(messages: ChatSdkMessage[]): Promise<Message[]> {
+  return await Promise.all(messages.map(async (message, index) => {
+    const text = getMessageText(message)
+    const audioParts = await collectAudioParts(message)
+    return createMessage({
+      createdAt: getMessageCreatedAt(message),
+      id: getEntityId(message) || `chat-message-${index}`,
+      metadata: { source: "chat" },
+      parts: [
+        ...(text ? [text] : []),
+        ...audioParts,
+      ] satisfies Array<MessagePart | string>,
+      role: (message as { author?: { isMe?: boolean } }).author?.isMe ? "assistant" : "user",
+    })
   }))
 }
 
@@ -295,7 +347,7 @@ export function createAgentDirectMessageHook<
     const sourceMessages = historyOptions.enabled
       ? await collectThreadMessages(thread, message, historyOptions.maxMessages)
       : [message]
-    const history = toViteHubMessages(sourceMessages)
+    const history = await toViteHubMessages(sourceMessages)
     const run = {
       channelId: getEntityId(channel),
       messageId: getEntityId(message),

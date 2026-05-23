@@ -1,9 +1,9 @@
 import { files as filesLoader } from "./loaders/files.ts"
-import { normalizeWorkspacePath } from "./path.ts"
-import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./source-config.ts"
-import { createWorkspaceStoreFromProvider } from "./store-provider.ts"
+import { normalizeWorkspacePath } from "./core/path.ts"
+import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./sources/config.ts"
+import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 
-import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceStore } from "./types.ts"
+import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceStore } from "./core/types.ts"
 
 const buildSourcesMetaKey = "workspace:build-sources"
 

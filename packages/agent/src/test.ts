@@ -4,7 +4,7 @@ import {
   withWorkspaceAgentDefaults,
 } from "./index.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
-import { registerWorkspace } from "@vitehub/workspace"
+import { registerWorkspace } from "@vitehub/workspace/test"
 
 import type {
   AgentInput,
@@ -117,15 +117,7 @@ function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
     if (result.toolName !== "shell" && result.toolName !== "materialize_sources") {
       return false
     }
-    if (hasWorkspaceGuardrail(result.output)) return true
-    const output = typeof result.output === "string"
-      ? result.output
-      : stringifyToolOutput(result.output)
-    return output.includes("Workspace search is too broad")
-      || output.includes("Workspace root search is too broad")
-      || output.includes("Workspace path is not mounted")
-      || output.includes("Search returned no matches")
-      || output.includes("Workspace shell command timed out")
+    return hasWorkspaceGuardrail(result.output)
   }).length
 }
 

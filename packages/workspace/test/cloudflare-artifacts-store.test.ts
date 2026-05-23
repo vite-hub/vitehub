@@ -45,7 +45,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     }
 
     setActiveCloudflareEnv({ WORKSPACE_ARTIFACTS: binding })
-    const { createCloudflareArtifactsWorkspaceStore } = await import("../src/stores/cloudflare-artifacts.ts")
+    const { createCloudflareArtifactsWorkspaceStore } = await import("../src/providers/cloudflare/artifacts-store.ts")
     const store = createCloudflareArtifactsWorkspaceStore({
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
@@ -82,7 +82,7 @@ describe("Cloudflare Artifacts workspace store", () => {
         get: vi.fn(async () => repo),
       },
     })
-    const { createCloudflareArtifactsWorkspaceStore } = await import("../src/stores/cloudflare-artifacts.ts")
+    const { createCloudflareArtifactsWorkspaceStore } = await import("../src/providers/cloudflare/artifacts-store.ts")
     const store = createCloudflareArtifactsWorkspaceStore({
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
@@ -106,7 +106,7 @@ describe("Cloudflare Artifacts workspace store", () => {
         get: vi.fn(async () => repo),
       },
     })
-    const { createCloudflareArtifactsWorkspaceStore } = await import("../src/stores/cloudflare-artifacts.ts")
+    const { createCloudflareArtifactsWorkspaceStore } = await import("../src/providers/cloudflare/artifacts-store.ts")
     const store = createCloudflareArtifactsWorkspaceStore({
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",

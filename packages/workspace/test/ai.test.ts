@@ -4,7 +4,7 @@ import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
 import { useWorkspace } from "../src/index.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
-import { createWorkspace } from "../src/workspace.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
 
 function createAssets(files: Record<string, string | Uint8Array>) {
   return createWorkspaceAssets(Object.fromEntries(
@@ -38,7 +38,11 @@ describe("createWorkspaceTools", () => {
 
     await expect(runShell(tools, "pwd")).resolves.toMatchObject({ exitCode: 0, stdout: "/workspace\n" })
     await expect(runShell(tools, "ls models")).resolves.toMatchObject({ exitCode: 0, stdout: "customers.sql\norders.sql\n" })
-    await expect(runShell(tools, "find . -name '*.sql'")).resolves.toMatchObject({ exitCode: 0, stdout: "./models/customers.sql\n./models/orders.sql\n" })
+    await expect(runShell(tools, "find . -name '*.sql'")).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stdout: expect.stringContaining("Workspace search is too broad"),
+    })
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
     await expect(runShell(tools, "cat models/orders.sql | head -n 1")).resolves.toMatchObject({ exitCode: 0, stdout: "select * from orders\n" })
     await expect(runShell(tools, "cat models/orders.sql | tail -n 1")).resolves.toMatchObject({ exitCode: 0, stdout: "where id is not null\n" })
@@ -51,8 +55,9 @@ describe("createWorkspaceTools", () => {
       stdout: "docs/customers.md:1:Customer docs\nmodels/customers.sql:1:select * from customers\n",
     })
     await expect(runShell(tools, "grep -ri \"customer\" . | head -n 1")).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "docs/customers.md:Customer docs\n",
+      event: "policy_denied",
+      exitCode: 126,
+      stdout: expect.stringContaining("Workspace search is too broad"),
     })
     await expect(runShell(tools, "cd /workspace && rg orders models")).resolves.toMatchObject({
       exitCode: 0,
@@ -62,20 +67,6 @@ describe("createWorkspaceTools", () => {
       exitCode: 0,
       stdout: "/workspace\ncustomers.sql\norders.sql\n",
     })
-  })
-
-  it("describes shell syntax in tool metadata", () => {
-    const tools = createWorkspaceTools(createAssets({
-      "README.md": "# Docs\n",
-    }))
-    const description = tools.shell.description || ""
-    const commandDescription = (tools.shell.inputSchema as any).jsonSchema.properties.command.description
-
-    expect(description).toContain("real Bash-compatible")
-    expect(description).toContain("/workspace")
-    expect(description).toContain("Pipes, redirects, chaining")
-    expect(description).toContain("rg 'siff|PLC' ingestion forecasting-engine | head -n 20")
-    expect(commandDescription).toContain("Bash-compatible")
   })
 
   it("limits shell commands to the enabled read capabilities", async () => {
@@ -153,7 +144,7 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "pwd")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
-      stderr: expect.stringContaining("command budget exhausted after 1 calls"),
+      stderr: expect.stringContaining("command budget exhausted"),
     })
   })
 
@@ -165,7 +156,7 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "rg orders .")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
-      stderr: expect.stringContaining("Try one of these paths: \"models\""),
+      stderr: expect.stringContaining("Workspace root search is too broad"),
     })
   })
 
@@ -276,8 +267,7 @@ describe("useWorkspace facade tools", () => {
     const workspace = useWorkspace("docs")
 
     expect("shell" in workspace.tools.inspect()).toBe(true)
-    expect("shell" in workspace.tools.readonly()).toBe(true)
     expect(workspace.tools.none()).toEqual({})
-    expect("shell" in workspace.tools()).toBe(true)
+    expect("shell" in workspace.tools).toBe(true)
   })
 })

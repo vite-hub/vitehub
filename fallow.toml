@@ -52,8 +52,8 @@ dynamicallyLoaded = [
   "packages/sandbox/examples/**/src/**/*.sandbox.ts",
   "packages/workspace/test/e2e.ts",
   "packages/workspace/test/**/*.test-d.ts",
-  "packages/workspace/src/stores/cloudflare-artifacts.ts",
-  "packages/workspace/src/stores/vercel-blob.ts",
+  "packages/workspace/src/providers/cloudflare/artifacts-store.ts",
+  "packages/workspace/src/providers/vercel/blob-store.ts",
   "packages/workspace/examples/**/nitro.config.ts",
   "packages/workspace/examples/**/server/**",
   "packages/workspace/examples/**/src/server.ts",
@@ -117,5 +117,9 @@ files = [
 rules = { "unused-class-members" = "off" }
 
 [[overrides]]
-files = ["packages/workspace/src/stores/memory-fs.ts"]
+files = ["packages/workspace/src/storage/memory-fs.ts"]
+rules = { "unused-class-members" = "off" }
+
+[[overrides]]
+files = ["packages/shell/test/workspace-test-utils.ts"]
 rules = { "unused-class-members" = "off" }
