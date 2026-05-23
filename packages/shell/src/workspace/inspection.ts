@@ -139,7 +139,7 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
 async function workspacePathIsDirectory(fs: WorkspaceShellFileSystem, path: string) {
   if (path === "") return true
   try {
-    return (await fs.stat(path)).type === "directory"
+    return (await fs.stat(path)).isDirectory
   }
   catch {
     return false
