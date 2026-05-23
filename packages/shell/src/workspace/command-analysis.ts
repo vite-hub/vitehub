@@ -146,7 +146,11 @@ function takesOptionValue(command: string, arg: string) {
     "--before-context",
     "--context",
     "--directories",
+    "--exclude",
+    "--exclude-dir",
+    "--exclude-from",
     "--file",
+    "--include",
     "--max-count",
     "--regexp",
   ]
@@ -160,6 +164,7 @@ function takesOptionValue(command: string, arg: string) {
     "--ignore-file",
     "--max-depth",
     "--max-filesize",
+    "--pre",
     "--type",
     "--type-add",
     "--type-clear",
@@ -171,12 +176,17 @@ function takesOptionValue(command: string, arg: string) {
 function takesInlineOptionValue(command: string, arg: string) {
   const shared = (arg.startsWith("-d") && arg !== "-d")
     || arg.startsWith("--directories=")
+    || arg.startsWith("--exclude=")
+    || arg.startsWith("--exclude-dir=")
+    || arg.startsWith("--exclude-from=")
+    || arg.startsWith("--include=")
   if (command === "grep") return shared
   return shared
     || arg.startsWith("--iglob=")
     || arg.startsWith("--ignore-file=")
     || arg.startsWith("--max-depth=")
     || arg.startsWith("--max-filesize=")
+    || arg.startsWith("--pre=")
     || arg.startsWith("--type=")
     || arg.startsWith("--type-add=")
     || arg.startsWith("--type-clear=")

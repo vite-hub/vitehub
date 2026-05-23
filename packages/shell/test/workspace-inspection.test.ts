@@ -720,6 +720,24 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: expect.not.stringContaining("Workspace search is too broad"),
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "grep --exclude-dir node_modules customer models", {
+      commands: ["grep"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace path is not mounted"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg --pre cat orders models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace path is not mounted"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | grep Docs -", {
       commands: ["cat", "grep"],
       cwd: workspaceMountPoint,
