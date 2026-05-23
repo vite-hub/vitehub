@@ -94,17 +94,96 @@ function inlineAgentSchedules(file: string, agentName: string, agentExportName?:
   }))
 }
 
+function createInlineAgentSchedules(file: string, agentName: string, source: string, agentExportName?: string): DiscoveredScheduleDefinition[] {
+  return parseInlineAgentScheduleEntries(source).map(schedule => ({
+    agentExportName,
+    agentName,
+    cron: schedule.cron,
+    handler: file,
+    name: `${agentName}/${schedule.id}`,
+    source: "agent-inline-schedule" as const,
+  }))
+}
+
 function parseAgentName(source: string): string | undefined {
   return stripComments(source).match(/\bname\s*:\s*["'`]([^"'`]+)["'`]/)?.[1]
 }
 
-function discoverNamedAgentExports(file: string): Array<{ exportName: string, name: string }> {
-  const source = stripComments(readFileSync(file, "utf8"))
-  const definitions: Array<{ exportName: string, name: string }> = []
-  for (const match of source.matchAll(/\bexport\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*defineAgent\s*\(\s*\{/g)) {
-    definitions.push({ exportName: match[1]!, name: match[1]! })
+function readBalancedCall(source: string, openParen: number): string | undefined {
+  let depth = 0
+  let quote: string | undefined
+  let templateExpressionDepth = 0
+
+  for (let index = openParen; index < source.length; index++) {
+    const char = source[index]!
+    const next = source[index + 1]
+
+    if (quote) {
+      if (char === "\\") {
+        index++
+        continue
+      }
+      if (quote === "`" && char === "$" && next === "{") {
+        templateExpressionDepth++
+        index++
+        continue
+      }
+      if (quote === "`" && templateExpressionDepth > 0) {
+        if (char === "{") templateExpressionDepth++
+        if (char === "}") templateExpressionDepth--
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "(") depth++
+    if (char === ")") {
+      depth--
+      if (depth === 0) return source.slice(openParen, index + 1)
+    }
   }
-  return definitions
+}
+
+function findDefineAgentCall(source: string, initializerStart: number): string | undefined {
+  const callMatch = /\bdefineAgent\s*\(/g
+  callMatch.lastIndex = initializerStart
+  const match = callMatch.exec(source)
+  if (!match) return
+  return readBalancedCall(source, match.index + match[0].length - 1)
+}
+
+function discoverNamedAgentExports(file: string): Array<{ exportName: string, name: string, source: string }> {
+  const source = stripComments(readFileSync(file, "utf8"))
+  const locals = new Map<string, string>()
+  const definitions = new Map<string, { exportName: string, name: string, source: string }>()
+
+  for (const match of source.matchAll(/\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g)) {
+    const localName = match[1]!
+    const callSource = findDefineAgentCall(source, match.index! + match[0].length)
+    if (!callSource) continue
+    locals.set(localName, callSource)
+    if (match[0].startsWith("export")) {
+      definitions.set(localName, { exportName: localName, name: localName, source: callSource })
+    }
+  }
+
+  for (const match of source.matchAll(/\bexport\s*\{([^}]+)\}/g)) {
+    for (const entry of match[1]!.split(",")) {
+      const [left, right] = entry.trim().split(/\s+as\s+/)
+      const localName = (left || "").trim()
+      const exportName = (right || left || "").trim()
+      if (!localName || exportName === "default" || !/^[A-Za-z_$][\w$]*$/.test(exportName)) continue
+      const callSource = locals.get(localName)
+      if (callSource) definitions.set(exportName, { exportName, name: exportName, source: callSource })
+    }
+  }
+
+  return [...definitions.values()].sort((left, right) => left.exportName.localeCompare(right.exportName))
 }
 
 function discoverViteInlineAgentSchedules(rootDir: string, scanDirs?: string[]): DiscoveredScheduleDefinition[] {
@@ -142,7 +221,7 @@ function discoverNitroInlineAgentSchedules(scanDirs: string[]): DiscoveredSchedu
       .filter(file => existsSync(file))
     for (const file of aggregateFiles) {
       for (const agent of discoverNamedAgentExports(file)) {
-        definitions.push(...inlineAgentSchedules(file, agent.name, agent.exportName))
+        definitions.push(...createInlineAgentSchedules(file, agent.name, agent.source, agent.exportName))
       }
     }
 
