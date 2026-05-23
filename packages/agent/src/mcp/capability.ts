@@ -87,7 +87,6 @@ export function mcp<
   return defineCapability({
     id: "mcp",
     metadata: { servers: sanitizeMcpMetadata(options.servers) as Record<string, unknown> },
-    name: "MCP",
     async resolve(context) {
       const tools: AgentToolSet = {}
       const clients: McpClient[] = []

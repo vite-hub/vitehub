@@ -47,6 +47,7 @@ _Avoid_: ViteHub-hosted server, Workspace Source
 - Agent Memory is a separate Capability concern from the **Chat Capability**.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
 - A **Capability Definition** can contribute instructions, tools, policy, and metadata.
+- A **Capability Definition** uses `id` as its only capability-level identity and display label.
 - A **Capability** can declare **Capability Requirements**.
 - The **Capability Lifecycle** validates **Capability Requirements** as early as possible.
 - Tools are exposed through **Capability Definitions**, not through top-level Agent Definition fields.
@@ -65,3 +66,4 @@ _Avoid_: ViteHub-hosted server, Workspace Source
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
 - MCP server language was considered ambiguous between hosting an MCP server and consuming one - resolved: in the **MCP Capability**, an **MCP Server** is external and consumed by an Agent.
+- Capability-level name and description were considered separate display metadata - resolved: remove both as a breaking change and use **Capability** id as the only capability-level identity/display field.

@@ -24,6 +24,10 @@ _Avoid_: Top-level Agent Definition fields, passthrough, provider options
 One runtime request to an Agent.
 _Avoid_: Chat message, webhook call
 
+**Agent Eval**:
+A repeatable development check that runs an Agent Definition against one or more cases and scores the resulting Agent Invocations.
+_Avoid_: Benchmark, unit test, arena
+
 **Agent Run State**:
 Runtime state created while an Agent Invocation is being processed.
 _Avoid_: Chat state, workflow state
@@ -58,6 +62,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - An **Agent Definition** selects one **Agent Model Adapter** when it uses a model.
 - **Agent Adapter Options** belong to the selected **Agent Model Adapter**.
 - An **Agent** receives zero or more **Agent Invocations**.
+- An **Agent Eval** runs an **Agent Definition** to create scored **Agent Invocations**.
 - An **Agent** can attach zero or more Capabilities.
 - Tools are contributed by Capabilities, not by top-level Agent Definition fields.
 - Workspace Tools are derived from an Agent's Colocated Workspace Definition.
@@ -83,6 +88,7 @@ _Avoid_: Fake agent, dummy model, test bot
 ## Flagged Ambiguities
 
 - Raw tools were considered as top-level Agent Definition fields - resolved: tools are contributed by Capabilities.
+- Evalite-backed checks were considered generic tests - resolved: use **Agent Eval** when the check runs an Agent Definition and scores Agent Invocation output.
 - Chat runtime state was considered a public Chat option - resolved: use **Agent Run State** for Agent-owned runtime state.
 - Chat History and Agent Memory were considered interchangeable - resolved: Chat History is conversation-scoped message history; Agent Memory is durable knowledge or preferences across invocations.
 - Chat state was considered separate from Agent State Provider - resolved: Chat History state is satisfied through the Agent State Provider when available.
