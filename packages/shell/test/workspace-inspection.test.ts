@@ -385,6 +385,15 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: expect.not.stringContaining("Workspace search is too broad"),
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "find -- models -name '*.sql'", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models && wc -l models/customers.sql", {
       commands: ["rg", "wc"],
       cwd: workspaceMountPoint,
@@ -599,6 +608,15 @@ describe("@vitehub/shell workspace inspection", () => {
       event: "policy_denied",
       exitCode: 126,
       stdout: expect.stringContaining("Workspace search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | grep -dread Docs", {
+      commands: ["cat", "grep"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "grep -e customer models/customers.sql", {

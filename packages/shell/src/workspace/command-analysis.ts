@@ -40,8 +40,14 @@ function shellPathArguments(words: string[]) {
 function findPathArguments(words: string[]) {
   const paths: string[] = []
   let collectingPaths = true
-  for (const arg of words.slice(1)) {
+  const args = words.slice(1)
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!
     if (isShellOperator(arg)) break
+    if (arg === "--") {
+      paths.push(...pathArgumentsUntilShellBoundary(args.slice(index + 1)))
+      break
+    }
     if (collectingPaths && isFindLeadingOption(arg)) continue
     if (arg.startsWith("-")) break
     collectingPaths = false
@@ -263,6 +269,7 @@ function hasRecursiveGrepFlag(words: string[]) {
     if (arg === "--recursive" || arg === "-r" || arg === "-R") return true
     if (arg === "--directories" || arg === "-d") return args[index + 1] === "recurse"
     if (arg === "--directories=recurse" || arg === "-drecurse") return true
+    if (arg.startsWith("-d") && arg !== "-d") continue
     if (takesOptionValue("grep", arg)) {
       index += 1
       continue
