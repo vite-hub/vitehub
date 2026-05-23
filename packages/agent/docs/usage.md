@@ -203,6 +203,26 @@ export default defineAgent({
 })
 ```
 
+## Transcribe audio input
+
+Use `transcribe()` when an agent should receive audio message parts as text before the model or custom `run` handler executes. The capability appends transcript text to the same ViteHub message, so downstream code can keep reading text parts.
+
+```ts [server/agents/support.ts]
+import { defineAgent, transcribe } from '@vitehub/agent'
+
+export default defineAgent({
+  capabilities: [
+    transcribe({
+      execute: async () => 'Transcribed demo audio.',
+    }),
+  ],
+  model,
+  adapter: 'ai-sdk',
+})
+```
+
+Pass an AI SDK transcription `model` to let ViteHub call `experimental_transcribe()` for each audio part. Use `execute` for deterministic demos, tests, or provider-specific transcription.
+
 ## Customize a run
 
 Use `run` when the default model call is not the right shape.
