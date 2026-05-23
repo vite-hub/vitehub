@@ -346,11 +346,17 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const instructions = context.instructions
     ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
-  const tools = await applyCapabilityToolTransforms({
+  const resolvedTools = await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
   }, [])
-  const toolSet = tools || {}
+  const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
+    args: tool.args || {},
+    id: tool.id,
+    name: tool.name,
+    type: "provider-defined",
+  }]))
+  const toolSet = { ...resolvedTools, ...providerTools }
   const {
     adapterOptions: _adapterOptions,
     instructions: _instructions,

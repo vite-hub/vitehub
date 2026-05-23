@@ -262,8 +262,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { blob, db, inputCommands, kv, mcp, sandbox, skills, transcribe, workspaceShell } from "./capabilities.ts"
-export type { TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions } from "./capabilities.ts"
+export { blob, db, inputCommands, kv, mcp, sandbox, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
+export type { TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -1112,6 +1112,7 @@ async function createAgentInvocationContext<
     messages: capabilities.messages,
     outputRenderers: capabilities.registries.outputRenderers,
     prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
+    providerTools: capabilities.registries.providerTools,
     run: context.run,
     runtimeContext: resolvedContext,
     startedAt,

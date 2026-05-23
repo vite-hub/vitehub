@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, inputCommands as rootInputCommands, type AgentRuntimeContext } from "../src/index.ts"
-import { blob, db, fetch, inputCommands, kv, mcp, sandbox, skills, workspaceShell } from "../src/capabilities.ts"
+import { blob, db, fetch, inputCommands, kv, mcp, sandbox, skills, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -62,6 +62,8 @@ describe("agent public types", () => {
         }),
         skills(),
         sandbox({ commands: ["node"] }),
+        webSearch({ mode: "tool", provider: "exa" }),
+        webSearch({ mode: "model" }),
         {
           id: "custom",
           requires: [{ primitive: "workspace", workspace: { paths: ["CONTEXT.md"], required: true } }],
@@ -74,6 +76,12 @@ describe("agent public types", () => {
       model: {} as never,
       workspace: { mode: "read" },
     })
+
+    // @ts-expect-error web search mode is required
+    webSearch({})
+
+    // @ts-expect-error tool mode requires one explicit provider
+    webSearch({ mode: "tool" })
 
     // @ts-expect-error model agents must select an explicit adapter
     defineAgent({

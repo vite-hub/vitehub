@@ -44,6 +44,46 @@ _Avoid_: Chat History Capability, Agent Memory
 A Capability that gives an Agent model-facing access to Workspace files.
 _Avoid_: Bash, raw workspace tools, built-in tool
 
+**Web Search Capability**:
+A Capability that gives an Agent model-facing access to web search results and normalized URL content.
+_Avoid_: askweb capability, web plugin, search integration
+
+**Web Search Mode**:
+The required developer-selected execution strategy for a Web Search Capability.
+_Avoid_: Implicit web behavior, auto mode, provider type
+
+**Model Web Search Mode**:
+A Web Search Mode that asks the selected Agent Model Adapter to enable the model provider's built-in web search facility.
+_Avoid_: Native search, adapter search, provider value
+
+**Model Web Search Output**:
+The web-search-related sources, citations, provider metadata, warnings, and raw fields returned by an Agent Model Adapter in Model Web Search Mode.
+_Avoid_: Web Search Result, Web Read Result, normalized tool output
+
+**Web Search Result**:
+A normalized structured result returned by a web search operation.
+_Avoid_: HTML page, provider result, raw response
+
+**Web Search Input**:
+The camelCase structured input accepted by the web search tool in tool-based Web Search Mode.
+_Avoid_: Provider raw params, snake_case input
+
+**Web Read Result**:
+A normalized structured content record returned by reading one URL.
+_Avoid_: Scraped HTML, page dump, raw response
+
+**Web Search Provider Policy**:
+The developer-owned rule that selects the single web search provider a Web Search Capability may use.
+_Avoid_: Auto provider choice, model provider choice, provider fan-out, raw provider passthrough
+
+**Web Read Provider**:
+The internal provider used by a Web Search Capability to read normalized URL content.
+_Avoid_: Model-selected read provider, search provider requirement
+
+**Web Search Credential Source**:
+An allowed origin for a Web Search Capability provider credential.
+_Avoid_: Vite env var, Nitro env var, browser env
+
 **Transcription**:
 An Official Capability that turns audio input parts into transcript text before an Agent runs.
 _Avoid_: Voice Input, audio support, voice plugin
@@ -71,7 +111,7 @@ _Avoid_: Input Command, Capability, model tool
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, and `db()` create **Capability Definitions**.
+- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, `db()`, and `webSearch()` create **Capability Definitions**.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
@@ -80,6 +120,22 @@ _Avoid_: Input Command, Capability, model tool
 - A **Workspace Capability** contributes Workspace tools without implying unrestricted process execution.
 - A **Workspace Shell Capability** contributes shell-shaped Workspace tools without implying Sandbox execution.
 - An **MCP Capability** consumes one or more external **MCP Servers**.
+- A **Web Search Capability** hides its underlying search library from users and model-facing labels.
+- A **Web Search Capability** requires an explicit **Web Search Mode** in the first version.
+- A tool-based **Web Search Mode** exposes web search and URL reading as ordinary ViteHub tools.
+- **Model Web Search Mode** uses Agent Model Adapter support and does not expose URL reading.
+- **Model Web Search Mode** preserves **Model Web Search Output** through the normal Agent result path when the selected Agent Model Adapter exposes it.
+- A tool-based **Web Search Capability** exposes web search and URL reading as separate model-facing tools.
+- A **Web Search Capability** returns **Web Search Results** and **Web Read Results** as structured data instead of raw HTML.
+- A tool-based **Web Search Capability** uses camelCase **Web Search Input** fields while keeping tool names consistent with existing ViteHub tool naming.
+- A **Web Search Capability** uses a **Web Search Provider Policy** to keep provider choice under developer control by default.
+- A **Web Search Provider Policy** explicitly selects exactly one search provider in the first version.
+- A **Web Read Provider** is fixed internally in the first version and is not selected by the model.
+- A **Web Search Capability** resolves provider secrets through **Web Search Credential Sources**.
+- **Web Search Credential Sources** prefer explicit Secret Env resolvers, then ViteHub-scoped provider env vars, then canonical provider env vars.
+- A **Web Read Result** defaults to normalized Markdown content, with plain text available when requested.
+- **Model Web Search Mode** is adapter-gated; TanStack AI is not supported for model mode in the first version.
+- A tool search provider and **Web Search Mode** are separate axes; provider is only used by tool-based **Web Search Mode**.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is a separate Capability concern from the **Chat Capability**.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
@@ -111,6 +167,19 @@ _Avoid_: Input Command, Capability, model tool
 ## Flagged Ambiguities
 
 - "plugin" was used to mean both framework plugins and user-shareable ViteHub abilities - resolved: use **Capability** for the agent ability concept.
+- "askweb" was considered as the user-facing capability name - resolved: use **Web Search Capability** and keep the underlying library as an implementation detail.
+- Raw HTML was considered as a model-facing read response - resolved: return structured **Web Read Results** with normalized Markdown or text content.
+- Separate `webSearch()` and `nativeWebSearch()` helpers were considered - resolved: use one **Web Search Capability** with explicit **Web Search Mode**.
+- Defaulting **Web Search Mode** was considered - resolved: require the developer to choose tool or model mode in the first version.
+- "native" was considered as a **Web Search Mode** name - resolved: use **Model Web Search Mode** because native is overloaded across adapters, model providers, and platforms.
+- `nativeModel` was considered as a provider value - resolved: keep model search as **Web Search Mode**, not a tool search provider.
+- Normalizing **Model Web Search Output** into tool-mode result shapes was considered - resolved: preserve adapter/provider output as much as possible without promising cross-provider normalized search or read data.
+- Snake_case web search input fields were considered - resolved: use camelCase input fields for structured tool arguments.
+- Model-mode support for TanStack AI was considered - resolved: fail early for TanStack AI until ViteHub has an adapter-native provider-tool contribution path.
+- Model-controlled provider choice, automatic provider choice, and provider fan-out were considered - resolved: provider choice belongs to explicit **Web Search Provider Policy**, and the first version selects one provider only.
+- Requiring the selected search provider to also own URL reading was considered - resolved: search provider policy and **Web Read Provider** are separate in the first version.
+- Model-facing provider reachability was considered - resolved: keep provider reachability developer-facing in the first version.
+- `VITE_*` and `NITRO_*` provider credential names were considered - resolved: reject them for **Web Search Credential Sources**; `VITE_*` is browser-exposed Vite language, and `NITRO_*` is framework runtime-config language rather than Capability credential language.
 - Tool-first surfaces were considered the primary model - resolved: tools are one contribution of a **Capability Definition**.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.

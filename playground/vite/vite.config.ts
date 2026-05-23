@@ -54,6 +54,7 @@ export default defineConfig(async () => {
     build: {
       outDir: "dist/client",
       rollupOptions: {
+        external: ["askweb"],
         input: resolve(import.meta.dirname, input),
       },
     },
@@ -79,6 +80,7 @@ export default defineConfig(async () => {
           ...baseConfig.build.rollupOptions,
           external: [
             "@cloudflare/sandbox",
+            "askweb",
             "cloudflare:workers",
             "workflow",
             "workflow/api",
