@@ -295,6 +295,24 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: "models/orders.sql:1:select * from orders\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "cd /workspace && cat README.md", {
+      commands: ["cat", "cd"],
+      cwd: "/workspace/models",
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cd && cat README.md", {
+      commands: ["cat", "cd"],
+      cwd: "/workspace/models",
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "cd models; cat orders.sql", {
       commands: ["cat", "cd"],
       cwd: workspaceMountPoint,
@@ -311,6 +329,15 @@ describe("@vitehub/shell workspace inspection", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: expect.stringContaining("Workspace path is not mounted: models/missing.sql"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cd models && rg orders .", {
+      commands: ["cd", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "orders.sql:1:select * from orders\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models && wc -l models/customers.sql", {

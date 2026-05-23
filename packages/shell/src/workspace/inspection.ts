@@ -26,7 +26,7 @@ export async function runWorkspaceInspectionCommand(
 ): Promise<ShellObservation> {
   const maxOutputLength = options.maxOutputLength || 30_000
   const timeout = options.timeout || 30_000
-  const preflight = preflightWorkspaceInspectionCommand(command, options.broadSearchPaths)
+  const preflight = preflightWorkspaceInspectionCommand(command, options.broadSearchPaths, options.cwd)
   if (preflight) return preflight
   const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd)
   if (missingPath) return missingPath
@@ -59,10 +59,19 @@ export async function runWorkspaceInspectionCommand(
   return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
 }
 
-function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: string[] = []): ShellObservation | undefined {
+function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: string[] = [], cwd = workspaceMountPoint): ShellObservation | undefined {
   try {
+    let currentCwd = cwd
     for (const segment of analyzeWorkspaceInspectionCommand(command)) {
-      if (isBroadWorkspaceSearch(segment, broadSearchPaths)) return broadWorkspaceSearchFeedback(broadSearchPaths)
+      const words = segment.words
+      if (words[0] === "cd") {
+        const path = words[1] || workspaceMountPoint
+        if (segment.separatorAfter === "&&" && isWorkspacePathCandidate(path)) {
+          currentCwd = resolvedWorkspaceCwd(currentCwd, path)
+        }
+        continue
+      }
+      if (isBroadWorkspaceSearch(segment, broadSearchPaths, currentCwd)) return broadWorkspaceSearchFeedback(broadSearchPaths)
     }
   }
   catch {
@@ -87,9 +96,9 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
       const words = segment.words
       if (words[0] === "cd") {
         const path = words[1] || workspaceMountPoint
-        if (!isConcreteWorkspacePath(path)) continue
+        if (!isWorkspacePathCandidate(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
-        const exists = await fs.exists(resolvedPath)
+        const exists = resolvedPath === "" || await fs.exists(resolvedPath)
         if (segment.separatorAfter === "&&" && !exists) skipAndChain = true
         if (segment.separatorAfter === "||" && exists) skipOrChain = true
         if (exists) {
@@ -127,18 +136,18 @@ function missingWorkspacePathFeedback(command: string, resolvedPath: string): Sh
   }
 }
 
-function isBroadWorkspaceSearch(segment: ReturnType<typeof analyzeWorkspaceInspectionCommand>[number], broadSearchPaths: string[] = []) {
+function isBroadWorkspaceSearch(segment: ReturnType<typeof analyzeWorkspaceInspectionCommand>[number], broadSearchPaths: string[] = [], cwd = workspaceMountPoint) {
   const name = segment.words[0]
   if (name === "rg" || name === "grep") {
     const paths = segment.paths
     const pipeSafeStdinFilter = name === "grep" && segment.followsPipe && !segment.searchRecursive
     return (paths.length === 0 && !pipeSafeStdinFilter)
       || paths.length > 4
-      || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths))
+      || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, cwd))
   }
   if (name === "find") {
     const paths = segment.paths
-    return paths.length === 0 || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths))
+    return paths.length === 0 || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, cwd))
   }
   return false
 }
@@ -163,8 +172,8 @@ function broadWorkspaceSearchFeedback(broadSearchPaths: string[] = []): ShellObs
   }
 }
 
-function isBroadWorkspacePath(path: string, broadSearchPaths: string[] = []) {
-  const normalized = cleanWorkspaceShellPath(path) || "."
+function isBroadWorkspacePath(path: string, broadSearchPaths: string[] = [], cwd = workspaceMountPoint) {
+  const normalized = cleanWorkspaceShellPath(resolvedWorkspaceCwd(cwd, path)) || "."
   return normalized === "." || broadSearchPaths.includes(normalized)
 }
 
@@ -190,9 +199,12 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
 }
 
 function isConcreteWorkspacePath(path: string) {
+  return isWorkspacePathCandidate(path) && cleanWorkspaceShellPath(path) !== ""
+}
+
+function isWorkspacePathCandidate(path: string) {
   return Boolean(path)
     && path !== "-"
-    && cleanWorkspaceShellPath(path) !== ""
     && !path.includes("$")
     && !path.includes("`")
     && !path.includes("*")
@@ -201,10 +213,15 @@ function isConcreteWorkspacePath(path: string) {
 }
 
 function resolveWorkspaceShellPath(cwd: string, path: string) {
+  return cleanWorkspaceShellPath(resolvedWorkspaceCwd(cwd, path))
+}
+
+function resolvedWorkspaceCwd(cwd: string, path: string) {
   if (path.startsWith("/") && !path.startsWith(workspaceMountPoint)) {
-    return cleanWorkspaceShellPath(path)
+    return path
   }
-  if (path.startsWith(workspaceMountPoint)) return cleanWorkspaceShellPath(path)
+  if (path.startsWith(workspaceMountPoint)) return path
   const normalizedCwd = cleanWorkspaceShellPath(cwd)
-  return cleanWorkspaceShellPath(normalizedCwd ? posix.join(normalizedCwd, path) : path)
+  const resolvedPath = normalizedCwd ? posix.join(normalizedCwd, path) : path
+  return posix.join(workspaceMountPoint, resolvedPath)
 }
