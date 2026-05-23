@@ -235,5 +235,36 @@ describe("fetch sources", () => {
       expect.objectContaining({ path: "docs", type: "directory" }),
       expect.objectContaining({ path: "summary.json", type: "file" }),
     ]))
+    await expect(view.stat("")).resolves.toEqual({ path: "", type: "directory" })
+    await expect(view.exists("")).resolves.toBe(true)
+  })
+
+  it("refreshes root live fetch source metadata before write guards", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ status: "old" }))
+      .mockResolvedValueOnce(jsonResponse({ status: "new" }))
+    const store = createMemoryWorkspaceStore()
+    const firstView = createWorkspaceSourceView({
+      name: "fetch-root-refresh",
+      sources: {
+        status: source.fetch({
+          path: "old.json",
+          url: "https://status.example.com/old",
+        }),
+      },
+    }, store)
+    await firstView.materializeSources({ sources: ["status"] })
+
+    const nextView = createWorkspaceSourceView({
+      name: "fetch-root-refresh",
+      sources: {
+        status: source.fetch({
+          path: "new.json",
+          url: "https://status.example.com/new",
+        }),
+      },
+    }, store)
+    await expect(nextView.writeFile("old.json", "editable")).resolves.toBeUndefined()
+    await expect(nextView.readFile("old.json")).resolves.toBe("editable")
   })
 })

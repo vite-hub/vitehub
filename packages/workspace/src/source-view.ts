@@ -199,7 +199,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function materializeRootSourceForPath(path: string) {
-    for (const source of sources.filter(source => !source.mountPath && !source.livePaths)) {
+    for (const source of sources.filter(source => !source.mountPath)) {
       await ensurePrepared(source.key)
       await ensureMaterialized(source.key)
       const file = await store.readFile(path)
@@ -306,6 +306,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
       let result = await store.stat(resolution.workspacePath)
       if (!result) {
+        if (!resolution.workspacePath && sources.some(source => !source.mountPath && source.livePaths)) {
+          return { path: "", type: "directory" }
+        }
         await materializeRootSourceForPath(resolution.workspacePath)
         result = await store.stat(resolution.workspacePath)
       }
@@ -326,6 +329,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, sourceContext))
       }
       if (await store.stat(resolution.workspacePath)) return true
+      if (!resolution.workspacePath && sources.some(source => !source.mountPath && source.livePaths)) return true
       await materializeRootSourceForPath(resolution.workspacePath)
       return Boolean(await store.stat(resolution.workspacePath))
     },
