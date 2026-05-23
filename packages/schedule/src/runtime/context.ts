@@ -1,4 +1,4 @@
-import { createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./store.ts"
+import { createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./memory-store.ts"
 
 import type { RuntimeScheduleStore, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunStore } from "../types.ts"
 
@@ -20,24 +20,16 @@ export function setScheduleRuntimeRegistry(registry: ScheduleDefinitionRegistry 
   loadingRegistryEntries.clear()
 }
 
-export function getScheduleRuntimeRegistry(): ScheduleDefinitionRegistry | undefined {
-  return runtimeRegistry
-}
-
-export function setRuntimeScheduleStore(store: RuntimeScheduleStore | undefined): void {
-  runtimeStore = store
-}
-
 export function getRuntimeScheduleStore(): RuntimeScheduleStore {
   return runtimeStore ??= createMemoryRuntimeScheduleStore()
 }
 
-export function setScheduleRunStore(store: ScheduleRunStore | undefined): void {
-  runStore = store
-}
-
 export function getScheduleRunStore(): ScheduleRunStore {
   return runStore ??= createMemoryScheduleRunStore()
+}
+
+export function setScheduleRunStore(store: ScheduleRunStore | undefined): void {
+  runStore = store
 }
 
 export async function loadScheduleDefinition(name: string): Promise<ScheduleDefinition | undefined> {

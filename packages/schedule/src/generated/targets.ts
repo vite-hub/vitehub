@@ -1,4 +1,4 @@
-import type { DiscoveredScheduleDefinition } from "./types.ts"
+import type { DiscoveredScheduleDefinition } from "../types.ts"
 
 export const SCHEDULE_TARGETS_ID = "#vitehub/schedule/targets"
 

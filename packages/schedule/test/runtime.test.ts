@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createMemoryScheduleRunStore, executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
-import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
+import { ScheduleError, schedules } from "../src/index.ts"
+import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/context.ts"
+import { executeStaticSchedule } from "../src/runtime/execution.ts"
+import { createMemoryScheduleRunStore } from "../src/runtime/memory-store.ts"
 
 afterEach(() => {
   resetScheduleRuntime()

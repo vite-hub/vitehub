@@ -3,9 +3,9 @@ import { resolve } from "node:path"
 import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
-import { discoverScheduleDefinitions } from "../discovery.ts"
-import { createScheduleRegistryContents } from "../registry-module.ts"
-import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "../targets-module.ts"
+import { createScheduleRegistryContents } from "../../generated/registry.ts"
+import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "../../generated/targets.ts"
+import { discoverScheduleDefinitions } from "../../internal/discovery.ts"
 
 import type { Nitro, NitroModule } from "nitro/types"
 
