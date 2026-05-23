@@ -24,6 +24,10 @@ export function getRuntimeScheduleStore(): RuntimeScheduleStore {
   return runtimeStore ??= createMemoryRuntimeScheduleStore()
 }
 
+export function setRuntimeScheduleStore(store: RuntimeScheduleStore | undefined): void {
+  runtimeStore = store
+}
+
 export function getScheduleRunStore(): ScheduleRunStore {
   return runStore ??= createMemoryScheduleRunStore()
 }

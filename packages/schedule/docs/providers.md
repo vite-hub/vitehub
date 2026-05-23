@@ -18,7 +18,7 @@ import { defineSchedule } from '@vitehub/schedule'
 
 export default defineSchedule('0 9 * * *', async (context) => {
   console.log(context.id, context.scheduledAt)
-})
+}, { allowRuntimeSchedules: true })
 ```
 
 The same Runtime Schedule client shape works in routes and server code:
