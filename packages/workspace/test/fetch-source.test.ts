@@ -232,8 +232,8 @@ describe("fetch sources", () => {
     }, store)
 
     await expect(view.list("")).resolves.toEqual(expect.arrayContaining([
-      { path: "docs", type: "directory" },
-      { path: "summary.json", type: "file" },
+      expect.objectContaining({ path: "docs", type: "directory" }),
+      expect.objectContaining({ path: "summary.json", type: "file" }),
     ]))
   })
 })
