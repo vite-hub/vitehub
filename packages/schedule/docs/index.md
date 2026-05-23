@@ -17,7 +17,7 @@ import { defineSchedule } from '@vitehub/schedule'
 
 export default defineSchedule('0 9 * * *', async (context) => {
   console.log(context.id, context.scheduledAt)
-})
+}, { allowRuntimeSchedules: true })
 ```
 
 ```ts [server/api/schedules.post.ts]
