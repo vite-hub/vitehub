@@ -5,6 +5,7 @@ import {
 } from "./capability-runtime.ts"
 import {
   applyAgentToolPolicies,
+  reportWorkspaceMaterialization,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
 
@@ -215,23 +216,6 @@ function hasToolResults(result: { steps?: Array<{ content?: Array<{ type: string
   return result.steps?.some(step => step.content?.some(content => content.type === "tool-result")) || false
 }
 
-function materializeSummary(output: unknown): unknown {
-  if (!output || typeof output !== "object") return output
-  const result = output as {
-    files?: unknown
-    sources?: unknown
-  }
-  const files = typeof result.files === "number" ? result.files : 0
-  const sources = Array.isArray(result.sources)
-    ? result.sources.map(source => typeof source === "object" && source && "source" in source ? String((source as { source: unknown }).source) : "").filter(Boolean)
-    : []
-  const target = sources.length ? sources.join(" and ") : "workspace sources"
-  return {
-    ...result,
-    summary: `Materialized ${target}${files ? ` (${files.toLocaleString()} file${files === 1 ? "" : "s"})` : ""}.`,
-  }
-}
-
 function getPromptText(context: AgentAdapterRunContext) {
   if (context.prompt) return context.prompt
   const latestUserMessage = [...context.messages].reverse().find(message => message.role === "user")
@@ -401,24 +385,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     async generate(context) {
       const { agent, model, tools } = await createAgent(options, context)
       if (context.workspace && tools && "materialize_sources" in tools) {
-        const materializeTool = tools.materialize_sources
-        const execute = materializeTool?.execute
-        if (execute) {
-          const reportToolStep = context.devtools?.reportToolStep
-          const toolCall = {
-            input: { path: "" },
-            toolCallId: `materialize_sources-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            toolName: "materialize_sources",
-          }
-          await reportToolStep?.({ toolCalls: [toolCall] })
-          try {
-            const output = await execute.call(materializeTool, toolCall.input)
-            await reportToolStep?.({ toolResults: [{ ...toolCall, output: materializeSummary(output) }] })
-          }
-          catch (error) {
-            await reportToolStep?.({ toolErrors: [{ ...toolCall, output: error instanceof Error ? error.message : String(error) }] })
-          }
-        }
+        await reportWorkspaceMaterialization(tools as AgentToolSet, context.devtools?.reportToolStep)
       }
       const result = await agent.generate(getCallInput(context) as never) as GenerateTextResult<ToolSet, never>
       const text = result.text.trim()

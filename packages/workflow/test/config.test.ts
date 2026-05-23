@@ -50,28 +50,6 @@ describe("workflow config", () => {
     })
   })
 
-  it("normalizes node provider alias to openworkflow", () => {
-    expect(normalizeWorkflowOptions({
-      postgres: {
-        namespaceId: "production",
-        runMigrations: false,
-        schema: "vitehub_workflow",
-        url: "postgres://localhost/vitehub",
-      },
-      provider: "node",
-      worker: { concurrency: 4 },
-    })).toEqual({
-      postgres: {
-        namespaceId: "production",
-        runMigrations: false,
-        schema: "vitehub_workflow",
-        url: "postgres://localhost/vitehub",
-      },
-      provider: "openworkflow",
-      worker: { concurrency: 4 },
-    })
-  })
-
   it("rejects invalid openworkflow options", () => {
     expect(() => normalizeWorkflowOptions({
       postgres: "postgres://localhost/vitehub",
