@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
-import { bash, db, fetch, kv, sandbox, skills } from "../src/capabilities.ts"
+import { bash, blob, db, fetch, kv, sandbox, skills } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import type { AgentUsageRecord } from "../src/index.ts"
 import type { FetchCapabilityToolOptions } from "../src/capabilities.ts"
@@ -11,7 +11,8 @@ describe("agent public types", () => {
     defineAgent({
       capabilities: [
         bash(),
-        db(),
+        blob({ mode: "write", policy: () => "allow", store: "assets" }),
+        db({ database: "analytics", mode: "write", policy: "allow", schemaMode: "write" }),
         fetch({
           tools: {
             status: {
@@ -39,7 +40,7 @@ describe("agent public types", () => {
             } satisfies FetchCapabilityToolOptions<{ region: string }, { status: string }, string>,
           },
         }),
-        kv(),
+        kv({ mode: "write", policy: "require-approval", store: "chat" }),
         skills(),
         sandbox({ commands: ["node"] }),
         {

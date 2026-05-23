@@ -62,14 +62,14 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 
 function detectCommandNames(command: string): string[] {
   const names: string[] = []
-  for (const segment of splitCommandSegments(command)) {
+  for (const segment of splitShellCommandSegments(command)) {
     const name = firstCommandWord(segment)
     if (name && !names.includes(name)) names.push(name)
   }
   return names
 }
 
-function splitCommandSegments(command: string): string[] {
+export function splitShellCommandSegments(command: string): string[] {
   const segments: string[] = []
   let current = ""
   let quote: "'" | "\"" | undefined

@@ -66,17 +66,13 @@ export type WorkspaceWriteTools<Options = undefined> = WorkspaceReadTools<Option
 } & ToolSet
 
 export type WorkspaceReadToolSet = WorkspaceReadTools & {
-  <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options): WorkspaceReadTools<Options>
   inspect: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
   none: () => ToolSet
-  readonly: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
 }
 
 export type WorkspaceWriteToolSet = WorkspaceWriteTools & {
-  <Options extends WritableWorkspaceFacadeToolOptions | undefined = undefined>(options?: Options): WorkspaceWriteTools<Options>
   inspect: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
   none: () => ToolSet
-  readonly: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
   write: <Options extends WritableWorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceWriteTools<Options>
 }
 
@@ -385,13 +381,6 @@ function toWriteOperations(options: WritableWorkspaceFacadeToolOptions | undefin
   }
 }
 
-function createDefaultToolSetFactory<TOptions, TDefaultTools extends ToolSet>(
-  createTools: (options?: TOptions) => ToolSet,
-) {
-  const factory = ((options?: TOptions) => createTools(options)) as ((options?: TOptions) => ToolSet) & TDefaultTools
-  return Object.assign(factory, createTools())
-}
-
 function emptyTools(): ToolSet {
   return {}
 }
@@ -417,12 +406,8 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       operations: toReadOperations(opts),
       timeout: opts?.timeout,
     })
-    const tools = createDefaultToolSetFactory<
-      WritableWorkspaceFacadeToolOptions,
-      WorkspaceWriteTools
-    >(createTools) as WritableWorkspaceFacade<Name>["tools"]
+    const tools = createTools() as WritableWorkspaceFacade<Name>["tools"]
     tools.inspect = createReadTools as WritableWorkspaceFacade<Name>["tools"]["inspect"]
-    tools.readonly = createReadTools as WritableWorkspaceFacade<Name>["tools"]["readonly"]
     tools.write = createTools as WritableWorkspaceFacade<Name>["tools"]["write"]
     tools.none = emptyTools
     return {
@@ -441,12 +426,8 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     operations: toReadOperations(opts),
     timeout: opts?.timeout,
   })
-  const tools = createDefaultToolSetFactory<
-    WorkspaceFacadeToolOptions,
-    WorkspaceReadTools
-  >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"]
+  const tools = createTools() as ReadonlyWorkspaceFacade<Name>["tools"]
   tools.inspect = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["inspect"]
-  tools.readonly = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["readonly"]
   tools.none = emptyTools
   return {
     fs,

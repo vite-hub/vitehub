@@ -14,7 +14,6 @@ export type {
   CloudflareWorkflowProviderOptions,
   DiscoveredWorkflowDefinition,
   InferredWorkflowProviderOptions,
-  NodeWorkflowProviderOptions,
   OpenWorkflowPostgresOptions,
   OpenWorkflowProviderOptions,
   OpenWorkflowWorkerOptions,

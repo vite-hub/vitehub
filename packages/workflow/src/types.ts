@@ -40,12 +40,6 @@ export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
   worker?: OpenWorkflowWorkerOptions
 }
 
-export interface NodeWorkflowProviderOptions extends WorkflowSharedOptions {
-  postgres?: OpenWorkflowPostgresOptions
-  provider: "node"
-  worker?: OpenWorkflowWorkerOptions
-}
-
 export interface InferredWorkflowProviderOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
   provider?: undefined
@@ -60,7 +54,6 @@ export type WorkflowProviderOptions =
 export type WorkflowModuleProviderOptions =
   | InferredWorkflowProviderOptions
   | WorkflowProviderOptions
-  | NodeWorkflowProviderOptions
 
 export type WorkflowModuleOptions =
   | false

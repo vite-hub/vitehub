@@ -160,17 +160,13 @@ Read, list, and search commands are enabled by default in the inspection preset.
 import { useWorkspace } from '@vitehub/workspace'
 
 const readOnlyTools = useWorkspace('docs').tools.inspect()
-const sameReadOnlyTools = useWorkspace('docs').tools.readonly()
 const noTools = useWorkspace('docs').tools.none()
 const writeTools = useWorkspace('docs', { allowWrite: true }).tools.write()
 ```
 
 - `inspect()` exposes the read-only `shell` tool.
-- `readonly()` is an alias for `inspect()`.
 - `none()` returns an empty tool set.
 - `write()` exposes read tools plus structured write tools, and requires `useWorkspace(name, { allowWrite: true })`.
-
-`workspace.tools()` remains as a temporary alias for `workspace.tools.inspect()` for migration. Agent definitions should expose workspace shell access through the `bash()` capability.
 
 Applications that use `AGENTS.md` as the model instruction source should load it through `useWorkspace(name).fs.readFile('instructions/AGENTS.md')` or an agent `instructions` resolver. Keep detailed shell command syntax in tool metadata instead of duplicating it in app instructions.
 

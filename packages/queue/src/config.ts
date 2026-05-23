@@ -1,5 +1,6 @@
 import { defu } from "defu"
 
+import { normalizeHosting } from "@vitehub/internal/feature-bridge/hosting"
 import { isPlainObject } from "@vitehub/internal/object"
 
 import type { QueueModuleOptions, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
@@ -9,10 +10,6 @@ interface QueueResolutionInput {
 }
 
 const knownProviders = new Set(["cloudflare", "vercel"])
-
-function normalizeHosting(hosting: string | undefined): string {
-  return hosting?.trim().toLowerCase().replaceAll("_", "-") || ""
-}
 
 function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedQueueOptions {
   const shared: QueueSharedOptions = typeof options.cache === "boolean" ? { cache: options.cache } : {}
