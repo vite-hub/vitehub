@@ -181,6 +181,40 @@ describe("agent test runner", () => {
       .resolves.toMatchObject({ text: "answer" })
   })
 
+  it("does not count shell output text as workspace inspection guardrails without metadata", async () => {
+    const execute = vi.fn(async () => ({
+      event: "command_exit",
+      exitCode: 0,
+      stderr: "",
+      stdout: "Workspace search is too broad\nSearch returned no matches\n",
+    }))
+    inspectTools.mockReturnValueOnce({
+      shell: { execute },
+    })
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      for (let index = 0; index < 4; index++) {
+        await this.settings.tools.shell.execute({ command: "cat packages/shell/test/workspace-inspection.test.ts" })
+      }
+      return { finishReason: "stop", text: "answer" }
+    })
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(defineAgent({
+      workspace: {},
+      adapter: "ai-sdk",
+      model: {} as never,
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+    }), {
+      name: "support",
+      runtimeConfig: {},
+      workspace: "docs",
+    })
+
+    await expect(runner.run({ prompt: "Find evidence" }))
+      .resolves.toMatchObject({ text: "answer" })
+  })
+
   it("does not stop non-workspace runs that produce workspace-like text", async () => {
     const agent = {
       generate: vi.fn(async () => ({ finishReason: "stop", text: "done" })),
