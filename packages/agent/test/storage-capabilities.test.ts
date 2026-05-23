@@ -159,6 +159,7 @@ describe("storage capabilities", () => {
     await expect(Promise.resolve().then(() => readTools.db_query!.execute?.({ statement: "delete from notes" }))).rejects.toThrow("read-only")
     await expect(Promise.resolve().then(() => readTools.db_query!.execute?.({ statement: "begin transaction" }))).rejects.toThrow("read-only")
     await expect(readTools.db_query!.execute?.({ statement: "with x as (select 'delete') select * from x" })).resolves.toEqual({ ok: true })
+    await expect(readTools.db_query!.execute?.({ statement: "with [delete] as (select 1) select * from [delete]" })).resolves.toEqual({ ok: true })
     await expect(readTools.db_query!.execute?.({ statement: "with cleaned as (select replace(title, 'a', 'b') from notes) select * from cleaned" })).resolves.toEqual({ ok: true })
 
     const writeTools = await resolveTools([db({ mode: "write", policy: "allow" })], { db: database })

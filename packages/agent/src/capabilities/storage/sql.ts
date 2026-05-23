@@ -79,6 +79,7 @@ export function splitSingleSqlStatement(statement: string): string | undefined {
 function stripSqlComments(statement: string) {
   let output = ""
   let quote: "\"" | "'" | "`" | undefined
+  let bracketIdentifier = false
   for (let index = 0; index < statement.length; index++) {
     const char = statement[index]
     const next = statement[index + 1]
@@ -92,8 +93,18 @@ function stripSqlComments(statement: string) {
       output += " "
       continue
     }
+    if (bracketIdentifier) {
+      if (char === "]") bracketIdentifier = false
+      output += " "
+      continue
+    }
     if (char === "\"" || char === "'" || char === "`") {
       quote = char
+      output += " "
+      continue
+    }
+    if (char === "[") {
+      bracketIdentifier = true
       output += " "
       continue
     }
