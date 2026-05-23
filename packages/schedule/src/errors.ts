@@ -1,4 +1,4 @@
-export interface ScheduleErrorOptions {
+interface ScheduleErrorOptions {
   cause?: unknown
   code?: string
   details?: unknown

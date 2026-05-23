@@ -2,7 +2,7 @@ import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 export const SCHEDULE_TARGETS_ID = "#vitehub/schedule/targets"
 
-export function getScheduleTargetNames(definitions: Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "name">[]): string[] {
+function getScheduleTargetNames(definitions: Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "name">[]): string[] {
   return definitions
     .filter(definition => definition.allowRuntimeSchedules)
     .map(definition => definition.name)

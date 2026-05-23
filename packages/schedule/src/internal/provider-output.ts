@@ -20,7 +20,7 @@ const generatedRegistryFileName = "registry.mjs"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 
-export interface GeneratedScheduleArtifacts {
+interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
   definitions: DiscoveredScheduleDefinition[]
   generatedDir: string
@@ -28,7 +28,7 @@ export interface GeneratedScheduleArtifacts {
   vercelServerFile: string
 }
 
-export interface GenerateProviderOutputsOptions {
+interface GenerateProviderOutputsOptions {
   clientOutDir: string
   rootDir: string
 }
