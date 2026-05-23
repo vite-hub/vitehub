@@ -207,6 +207,13 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
       httpStatus: 404,
     })
   }
+  if (definition.options?.allowRuntimeSchedules !== true) {
+    throw new ScheduleError(`Runtime Schedule target is not eligible: ${schedule.target}`, {
+      code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
+      details: { target: schedule.target },
+      httpStatus: 400,
+    })
+  }
 
   return await executeSchedule({
     definition,
