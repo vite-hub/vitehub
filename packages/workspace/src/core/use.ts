@@ -6,10 +6,10 @@ import {
   type WorkspaceShellResult,
   type WorkspaceWriteOperations,
   type WorkspaceWriteToolMap,
-} from "./ai.ts"
-import { useWorkspaceAssets } from "./asset-registry.ts"
+} from "../ai.ts"
+import { useWorkspaceAssets } from "../asset-registry.ts"
 import { WorkspaceNotFoundError } from "./errors.ts"
-import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
+import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
 
@@ -26,7 +26,7 @@ import type {
   WorkspaceAssets,
   WorkspaceContent,
   WorkspaceEntry,
-  WorkspaceOpenOptions,
+  WorkspaceSessionOptions,
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
@@ -38,7 +38,7 @@ import type {
 type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
 
 export interface UseWorkspaceOptions {
-  allowWrite?: boolean
+  mode?: "read" | "write"
 }
 
 export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
@@ -100,12 +100,12 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
 
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   fs: WritableWorkspaceFs<Name>
-  open(options?: WorkspaceOpenOptions): Promise<WorkspaceSession>
+  startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
   tools: WorkspaceWriteToolSet
 }
 
-export type WorkspaceFacade<Name extends WorkspaceName = WorkspaceName, AllowWrite extends boolean = false> =
-  AllowWrite extends true ? WritableWorkspaceFacade<Name> : ReadonlyWorkspaceFacade<Name>
+export type WorkspaceFacade<Name extends WorkspaceName = WorkspaceName, Mode extends UseWorkspaceOptions["mode"] = "read"> =
+  Mode extends "write" ? WritableWorkspaceFacade<Name> : ReadonlyWorkspaceFacade<Name>
 
 function normalizePath(path: string, allowEmpty = false) {
   return normalizeSafeWorkspacePath(path, { allowEmpty })
@@ -195,8 +195,8 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
     async diff(options) {
       return await (await resolveSyncedWorkspace()).diff(options)
     },
-    async open(options) {
-      return await (await resolveSyncedWorkspace()).open(options)
+    async startSession(options) {
+      return await (await resolveSyncedWorkspace()).startSession(options)
     },
     mount(options) {
       const mode = options?.mode || "read-only"
@@ -381,14 +381,21 @@ function toWriteOperations(options: WritableWorkspaceFacadeToolOptions | undefin
   }
 }
 
+function createDefaultToolSet<TOptions, TDefaultTools extends ToolSet>(
+  createTools: (options?: TOptions) => ToolSet,
+) {
+  return createTools() as TDefaultTools
+}
+
 function emptyTools(): ToolSet {
   return {}
 }
 
 export function useWorkspace<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFacade<Name>
-export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { allowWrite: true }): WritableWorkspaceFacade<Name>
+export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { mode: "read" }): ReadonlyWorkspaceFacade<Name>
+export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { mode: "write" }): WritableWorkspaceFacade<Name>
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
-  if (options?.allowWrite) {
+  if (options?.mode === "write") {
     const workspace = createLazyWorkspace(name)
     const createTools = (opts?: WritableWorkspaceFacadeToolOptions) => createWorkspaceTools(workspace, {
       broadSearchPaths: opts?.broadSearchPaths,
@@ -406,13 +413,16 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       operations: toReadOperations(opts),
       timeout: opts?.timeout,
     })
-    const tools = createTools() as WritableWorkspaceFacade<Name>["tools"]
+    const tools = createDefaultToolSet<
+      WritableWorkspaceFacadeToolOptions,
+      WorkspaceWriteTools
+    >(createTools) as WritableWorkspaceFacade<Name>["tools"]
     tools.inspect = createReadTools as WritableWorkspaceFacade<Name>["tools"]["inspect"]
     tools.write = createTools as WritableWorkspaceFacade<Name>["tools"]["write"]
     tools.none = emptyTools
     return {
       fs: createWritableFs<Name>(workspace),
-      open: async options => await workspace.open(options),
+      startSession: async options => await workspace.startSession(options),
       tools,
     }
   }
@@ -426,7 +436,10 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     operations: toReadOperations(opts),
     timeout: opts?.timeout,
   })
-  const tools = createTools() as ReadonlyWorkspaceFacade<Name>["tools"]
+  const tools = createDefaultToolSet<
+    WorkspaceFacadeToolOptions,
+    WorkspaceReadTools
+  >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"]
   tools.inspect = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["inspect"]
   tools.none = emptyTools
   return {

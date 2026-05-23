@@ -1,5 +1,5 @@
 import type { NitroOptions } from "nitro/types"
-import type { ResolvedWorkspaceModuleOptions } from "../types.ts"
+import type { ResolvedWorkspaceModuleOptions } from "../core/types.ts"
 
 export function configureCloudflareArtifacts(
   target: Pick<NitroOptions, "cloudflare">,

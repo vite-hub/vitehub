@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineWorkspace, registerWorkspace, source, useWorkspace } from "../src/index.ts"
-import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/registry.ts"
-import { createWorkspaceSourceView } from "../src/source-view.ts"
-import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
+import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
+import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
+import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { registerWorkspace } from "../src/test.ts"
 
 function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), {
@@ -146,7 +147,7 @@ describe("fetch sources", () => {
       },
     }))
 
-    const workspace = useWorkspace("fetch-readonly", { allowWrite: true })
+    const workspace = useWorkspace("fetch-readonly", { mode: "write" })
 
     await expect(workspace.fs.writeFile("status/eu.json", "nope")).rejects.toThrow("read-only")
   })

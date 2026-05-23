@@ -35,17 +35,19 @@
   "exports": {
     ".": "./dist/index.js",
     "./ai": "./dist/ai.js",
+    "./loader": "./dist/loader.js",
     "./nitro": "./dist/nitro.js",
-    "./runtime/assets": "./dist/runtime/assets.js",
-    "./runtime/empty-assets-registry": "./dist/runtime/empty-assets-registry.js",
-    "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
-    "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
-    "./runtime/state": "./dist/runtime/state.js",
-    "./source": "./dist/source.js",
-    "./stores/cloudflare-artifacts": "./dist/stores/cloudflare-artifacts.js",
-    "./stores/vercel-blob": "./dist/stores/vercel-blob.js",
+    "./publish": "./dist/publish.js",
+    "./test": "./dist/test.js",
     "./vite": "./dist/vite.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./internal/runtime/assets": "./dist/runtime/assets.js",
+    "./internal/runtime/empty-assets-registry": "./dist/runtime/empty-assets-registry.js",
+    "./internal/runtime/empty-registry": "./dist/runtime/empty-registry.js",
+    "./internal/runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
+    "./internal/runtime/state": "./dist/runtime/state.js",
+    "./internal/stores/cloudflare-artifacts": "./dist/providers/cloudflare/artifacts-store.js",
+    "./internal/stores/vercel-blob": "./dist/providers/vercel/blob-store.js"
   },
   "files": [
     "dist",

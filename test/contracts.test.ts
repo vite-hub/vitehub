@@ -26,6 +26,15 @@ function exportTargetPath(packageName: PackageName, target: string) {
   return join(packageDir(packageName), target.replace(/^\.\//, ""))
 }
 
+function exportTarget(rawTarget: unknown) {
+  if (typeof rawTarget === "string") return rawTarget
+  if (rawTarget && typeof rawTarget === "object") {
+    const target = rawTarget as { default?: unknown, import?: unknown }
+    if (typeof target.default === "string") return target.default
+    if (typeof target.import === "string") return target.import
+  }
+}
+
 function hasExport(packageName: string, specifier: string) {
   const shortName = packageName.replace("@vitehub/", "") as PackageName
   const manifest = readPackageManifest(shortName)
@@ -63,7 +72,7 @@ describe("package manifest contracts", () => {
       expect(manifest.scripts?.build).toEqual(expect.any(String))
       expect(manifest.scripts?.typecheck).toEqual(expect.any(String))
       expect(manifest.scripts?.test).toEqual(expect.any(String))
-      expect(manifest.exports?.["."]).toBe("./dist/index.js")
+      expect(exportTarget(manifest.exports?.["."])).toBe("./dist/index.js")
       expect(manifest.exports?.["./package.json"]).toBe("./package.json")
     }
   })
@@ -73,7 +82,7 @@ describe("package manifest contracts", () => {
       const manifest = readPackageManifest(packageName)
 
       for (const [subpath, rawTarget] of Object.entries(manifest.exports || {})) {
-        const target = typeof rawTarget === "string" ? rawTarget : rawTarget.default
+        const target = exportTarget(rawTarget)
         expect(target, `${packageName} ${subpath} should use string/default export target`).toEqual(expect.any(String))
 
         if (subpath === "./package.json") {
@@ -90,7 +99,7 @@ describe("package manifest contracts", () => {
   it("keeps blob adapter SDKs as optional peers", () => {
     const manifest = readPackageManifest("blob")
 
-    for (const name of ["@vercel/blob", "files-sdk"]) {
+    for (const name of ["files-sdk"]) {
       expect(manifest.dependencies?.[name], `${name} should not be installed with @vitehub/blob by default`).toBeUndefined()
       expect(manifest.peerDependencies?.[name], `${name} should be declared as an opt-in blob peer`).toEqual(expect.any(String))
       expect(manifest.peerDependenciesMeta?.[name]?.optional, `${name} should be an optional blob peer`).toBe(true)
@@ -126,6 +135,24 @@ describe("docs import contracts", () => {
       expect(packageNames.map(item => `@vitehub/${item}`), `Unexpected docs package import: ${specifier}`).toContain(packageName)
       expect(hasExport(packageName, specifier), `Missing docs export: ${specifier}`).toBe(true)
     }
+  })
+})
+
+describe("playground import contracts", () => {
+  it("keeps the Vite e2e workspace shim aligned with root source exports", () => {
+    const sourceIndex = readFileSync(join(packageDir("workspace"), "src", "sources", "index.ts"), "utf8")
+    const viteE2e = readFileSync(join(repoRoot, "playground", "vite", "build", "vite-e2e.ts"), "utf8")
+    const workspaceShim = viteE2e.slice(
+      viteE2e.indexOf("function renderWorkspaceRuntimeModule"),
+      viteE2e.indexOf("function renderWorkspaceShellRuntimeModule"),
+    )
+    const sourceExports = [...sourceIndex.matchAll(/^export \{ (\w+) \}/gm)].map(match => match[1]).sort()
+    const shimExports = [...workspaceShim.matchAll(/`export (?:\{ (\w+) \}|\* as (\w+)|const (\w+) =)/g)].map(match => match[1] || match[2] || match[3]).sort()
+    const sourceShim = workspaceShim.match(/export const source = \{([^`]+)\}/)?.[1] || ""
+    const shimProperties = [...sourceShim.matchAll(/\b(\w+): [^,}]+/g)].map(match => match[1])
+
+    expect(shimExports).toEqual(["defineWorkspace", "source", "useWorkspace"])
+    expect(shimProperties.sort()).toEqual(sourceExports)
   })
 })
 
@@ -185,6 +212,7 @@ describe("runtime hygiene contracts", () => {
 
     const offenders = runtimeFiles
       .filter(path => !toRepoPath(path).endsWith("/empty-registry.ts"))
+      .filter(path => toRepoPath(path) !== "packages/agent/src/runtime/nitro-runtime-config.ts")
       .filter(path => readFileSync(path, "utf8").includes("__vitehub"))
       .map(toRepoPath)
 

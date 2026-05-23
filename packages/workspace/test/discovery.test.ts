@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createWorkspaceRegistryContents, discoverNitroWorkspaceDefinitions } from "../src/discovery.ts"
+import { createWorkspaceRegistryContents, discoverNitroWorkspaceDefinitions } from "../src/build/discovery.ts"
 
 const tempDirs: string[] = []
 

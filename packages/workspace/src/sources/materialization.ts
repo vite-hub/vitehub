@@ -1,11 +1,11 @@
 import { posix } from "node:path"
 
-import { WorkspaceError } from "./errors.ts"
-import { decodeFile, normalizeWorkspacePath, sha256 } from "./path.ts"
-import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./source-config.ts"
-import { searchText } from "./search.ts"
-import type { ResolvedWorkspaceSource } from "./source-config.ts"
-import type { ResolvedSourcePath } from "./source-resolver.ts"
+import { WorkspaceError } from "../core/errors.ts"
+import { decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
+import { searchText } from "../core/search.ts"
+import type { ResolvedWorkspaceSource } from "./config.ts"
+import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
   ListOptions,
   ReadFileOptions,
@@ -22,7 +22,7 @@ import type {
   WorkspaceMaterializeSourcesOptions,
   WorkspaceMaterializeSourcesResult,
   WorkspaceSourceMaterializationStatus,
-} from "./types.ts"
+} from "../core/types.ts"
 
 export interface LazyMaterializedMetadata {
   source: string

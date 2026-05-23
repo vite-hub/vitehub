@@ -4,7 +4,7 @@ import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
 import { useWorkspace } from "../src/index.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
-import { createWorkspace } from "../src/workspace.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
 
 function createAssets(files: Record<string, string | Uint8Array>) {
   return createWorkspaceAssets(Object.fromEntries(
@@ -268,5 +268,6 @@ describe("useWorkspace facade tools", () => {
 
     expect("shell" in workspace.tools.inspect()).toBe(true)
     expect(workspace.tools.none()).toEqual({})
+    expect("shell" in workspace.tools).toBe(true)
   })
 })

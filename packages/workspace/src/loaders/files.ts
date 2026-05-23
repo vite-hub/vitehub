@@ -1,6 +1,6 @@
-import { matchesAny, normalizeWorkspacePath } from "../path.ts"
+import { matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 
-import type { LoaderContext, WorkspaceContent, WorkspaceLoader, WorkspaceSourceItem } from "../types.ts"
+import type { LoaderContext, WorkspaceContent, WorkspaceLoader, WorkspaceSourceItem } from "../core/types.ts"
 
 export interface FilesLoaderOptions {
   include?: string | string[]

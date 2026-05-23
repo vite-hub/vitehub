@@ -1,6 +1,6 @@
-import { WorkspaceError } from "../errors.ts"
-import { decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../path.ts"
-import { searchText } from "../search.ts"
+import { WorkspaceError } from "../core/errors.ts"
+import { decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { searchText } from "../core/search.ts"
 
 import type {
   GlobOptions,
@@ -10,7 +10,7 @@ import type {
   WorkspaceEntry,
   WorkspaceSearchQuery,
   WorkspaceStat,
-} from "../types.ts"
+} from "../core/types.ts"
 
 interface WorkspaceAssetFile {
   load: () => Promise<WorkspaceContent>

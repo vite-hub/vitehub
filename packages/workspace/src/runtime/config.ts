@@ -1,4 +1,4 @@
-import type { ResolvedWorkspaceModuleOptions } from "../types.ts"
+import type { ResolvedWorkspaceModuleOptions } from "../core/types.ts"
 
 let workspaceRuntimeConfig: false | ResolvedWorkspaceModuleOptions = false
 

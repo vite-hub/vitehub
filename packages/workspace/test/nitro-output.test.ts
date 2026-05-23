@@ -113,7 +113,8 @@ describe("Nitro workspace outputs", () => {
     expect(cloudflareOutput).not.toContain("node-liblzma")
     expect(cloudflareOutput).not.toContain("zstd.node")
     expect(cloudflareOutput).not.toContain("js-exec-worker")
-    expect(cloudflareOutput).not.toMatch(/createRequire\([^)]*import\.meta\.url/)
+    expect(cloudflareOutput).not.toContain("resolveShellDependency")
+    expect(cloudflareOutput).not.toContain("resolveIsomorphicGitEsmEntry")
     expect(cloudflareOutput).not.toContain("createCloudflareArtifactsWorkspaceStore")
 
     await cleanupPlayground()

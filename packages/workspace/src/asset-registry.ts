@@ -1,7 +1,7 @@
-import { WorkspaceNotFoundError } from "./errors.ts"
+import { WorkspaceNotFoundError } from "./core/errors.ts"
 import runtimeAssetsRegistry from "#vitehub-workspace-assets-registry"
 
-import type { WorkspaceAssetPath, WorkspaceAssets, WorkspaceAssetsRegistry, WorkspaceName } from "./types.ts"
+import type { WorkspaceAssetPath, WorkspaceAssets, WorkspaceAssetsRegistry, WorkspaceName } from "./core/types.ts"
 
 let assetsRegistry: WorkspaceAssetsRegistry = runtimeAssetsRegistry
 

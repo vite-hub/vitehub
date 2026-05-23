@@ -1,4 +1,4 @@
-import type { WorkspaceRegistry } from "../registry.ts"
+import type { WorkspaceRegistry } from "../core/registry.ts"
 
 const registry: WorkspaceRegistry = {}
 

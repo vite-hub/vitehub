@@ -33,7 +33,7 @@ export default defineNitroConfig({
 
 The default Cloudflare store uses binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, branch `main`, and repository names generated from `vitehub-workspace-` plus the workspace name. Use environment variables or explicit store options only when those defaults need to change.
 
-Use `runtime: 'sandbox'` on the workspace definition to make `workspace.open()` materialize that workspace into Cloudflare Sandbox at runtime:
+Use `runtime: 'sandbox'` on the workspace definition to make `workspace.startSession()` materialize that workspace into Cloudflare Sandbox at runtime:
 
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace } from '@vitehub/workspace'
@@ -50,7 +50,7 @@ export default defineWorkspace({
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const session = await useWorkspace('docs', { allowWrite: true }).open()
+const session = await useWorkspace('docs', { mode: "write" }).startSession()
 
 await session.exec('pnpm', ['test'])
 await session.commit()
@@ -64,7 +64,7 @@ Cloudflare-specific capabilities such as `runCode`, `exposePort`, `mountBucket`,
 The public API remains source-oriented:
 
 ```ts
-import * as source from '@vitehub/workspace/source'
+import { source } from '@vitehub/workspace'
 
 source.github({
   repo: 'acme/app',

@@ -476,10 +476,10 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
   })
 }
 
-export function bash(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
-  const mode = normalizeMode(options.mode, "Bash")
+export function workspaceShell(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
+  const mode = normalizeMode(options.mode, "Workspace Shell")
   return defineCapability({
-    id: "bash",
+    id: "workspace-shell",
     mode,
     requires: [{ primitive: "workspace", workspace: { mode, required: true } }],
     tools: ({ workspace }) => (mode === "write" && "write" in workspace.tools

@@ -3,10 +3,10 @@ import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspect
 
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 
-import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./types.ts"
+import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
 import type { ShellObservation, ShellSessionPolicy } from "@vitehub/shell"
 
-export type { WorkspaceMaterializeSourcesResult } from "./types.ts"
+export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
 
 export type WorkspaceShellResult = ShellObservation
 
@@ -369,7 +369,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   }
 
   if (writeEnabled && !isWorkspace(input)) {
-    throw new TypeError("[vitehub] Write operations require a mutable Workspace. Use useWorkspace(name, { allowWrite: true }).tools.write().")
+    throw new TypeError("[vitehub] Write operations require a mutable Workspace. Use useWorkspace(name, { mode: \"write\" }).tools.write().")
   }
 
   const result: Record<string, Tool<any, any>> = {}
