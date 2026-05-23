@@ -20,8 +20,16 @@ The directory beside a Colocated Workspace Definition that contains local files 
 _Avoid_: Project root, worktree root, automatic sibling ingestion
 
 **Source**:
-A named origin that contributes read-only files or items into a Workspace.
-_Avoid_: Input, files, context, resource, mount
+A named origin that exposes read-only addressable files or items through a Workspace.
+_Avoid_: Input, files, context, resource, mount, connector
+
+**Materialized Source**:
+A Source whose items are written into the Workspace Store.
+_Avoid_: Stored connector, synced files
+
+**Live Source**:
+A Source whose items are fetched on demand without being written into the Workspace Store by default.
+_Avoid_: Virtual Source, Ephemeral Source, query tool
 
 **Source Map**:
 The keyed object that declares a Workspace's Sources.
@@ -66,6 +74,14 @@ _Avoid_: Workspace Capability, bash, raw tools
 - A **Workspace Source Root** is a `workspace/` directory beside the Colocated Workspace Definition when present, otherwise the definition directory.
 - A **Source Map** key is the canonical identity of its Source.
 - A **Source** has zero or one **Mount**.
+- A **Source** can expose local or external read-only information when that information has addressable files or items.
+- A **Source** must expose addressable files or items; query-only read tools belong outside the Source concept.
+- A **Materialized Source** persists its items in the **Workspace Store**.
+- A **Live Source** resolves Source-Backed Paths directly from its origin unless an explicit cache or materialization policy says otherwise.
+- A **Live Source** cache is separate from the **Workspace Store** and is opt-in.
+- A **Live Source** must support direct reads for known Source-Backed Paths, but it does not have to enumerate every item.
+- A **Live Source** can provide search, but search results must resolve to readable Source-Backed Paths.
+- A **Live Source** exposes which Workspace operations it supports for inspection surfaces such as DevTools.
 - A **Source-Backed Path** belongs to exactly one Source.
 - A **Single-File Source** path is relative to the Workspace Source Root.
 - A **Single-File Source** can default its Mount to the Workspace root and its Source-Backed Path to the source file basename.
@@ -83,7 +99,11 @@ _Avoid_: Workspace Capability, bash, raw tools
 
 ## Flagged Ambiguities
 
-- "source" can mean source code, provenance, or data connector - resolved: in Workspace, **Source** means a named origin that contributes files or items.
+- "source" can mean source code, provenance, or data connector - resolved: in Workspace, **Source** means a named origin that exposes read-only addressable files or items.
+- Query-only access to external information was considered a Source shape - resolved: a **Source** must expose addressable files or items, even when search or query helps discover them.
+- Non-store-backed external Sources were called "virtual" or "ephemeral" - resolved: use **Live Source** for on-demand read-through Sources and reserve "virtual" for Vite module surfaces.
+- Addressable Sources were assumed to be fully enumerable - resolved: a **Live Source** can support direct reads for known paths without global enumeration.
+- Live Source search was considered mandatory - resolved: search is optional, and any search hit must resolve to a readable Source-Backed Path.
 - "mount" was considered as the name for `workspace.sources` - resolved: **Mount** is only the placement of a Source inside the Workspace.
 - `workspace.sources` was considered as an array for simple one-off Sources - resolved: use a **Source Map** so every Source has stable identity.
 - Agent `workspace: { ... }` shorthand was considered as Agent-owned configuration - resolved: treat it as a **Colocated Workspace Definition**.
