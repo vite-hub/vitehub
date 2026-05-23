@@ -10,7 +10,8 @@ ViteHub agents will use agent-scoped Capabilities created with `defineCapability
 - Implicit adapter selection from `defineAgent({ model })` was rejected because package or model-shape detection makes provider choice surprising; model agents must select an explicit provider.
 - Global module-level capabilities were rejected because capabilities affect one agent's inputs, instructions, workspace behavior, and tool access.
 - Hooks-only design was rejected because phases provide a clearer primary lifecycle while hooks remain useful extension points around those phases.
+- Capability-level `name` and `description` were rejected because `id` is the stable capability identity and display label, while user-facing descriptions belong on concrete surfaces such as tools and commands.
 
 ## Consequences
 
-The first official capabilities are `skills()`, `mcp()`, `bash()`, `sandbox()`, `kv()`, `blob()`, and `db()`. Capabilities are single-instance by default, run in user-provided order, and may contribute named instruction blocks that users place with instruction slots such as `{{ skills }}`, `{{ mcp }}`, and `{{ capabilities }}`.
+The first official capabilities are `skills()`, `mcp()`, `bash()`, `sandbox()`, `kv()`, `blob()`, and `db()`. Capabilities are single-instance by default, run in user-provided order, and may contribute named instruction blocks that users place with instruction slots such as `{{ skills }}`, `{{ mcp }}`, and `{{ capabilities }}`. Capability definitions keep generic structured `metadata` for runtime configuration details, but do not carry capability-level display metadata.

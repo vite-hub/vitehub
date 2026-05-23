@@ -112,37 +112,28 @@ function createWaitUntil(): AgentWaitUntil {
   }
 }
 
-function safeStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value) || ""
-  }
-  catch {
-    return String(value)
-  }
-}
-
-function isWorkspaceShellObservationResult(result: { output?: unknown, toolName?: string }) {
-  if (result.toolName !== "shell") return false
-  const output = result.output
-  return typeof output === "object"
-    && output !== null
-    && "event" in output
-    && "stderr" in output
-    && "stdout" in output
-}
-
-function hasWorkspaceGuardrail(output: unknown) {
-  return typeof output === "object"
-    && output !== null
-    && "workspaceGuardrail" in output
-    && Boolean(output.workspaceGuardrail)
-}
-
 function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
   return (step.toolResults || []).filter((result) => {
-    if (!isWorkspaceShellObservationResult(result)) return false
+    if (result.toolName !== "shell" && result.toolName !== "materialize_sources") {
+      return false
+    }
     return hasWorkspaceGuardrail(result.output)
   }).length
+}
+
+function hasWorkspaceGuardrail(output: unknown): boolean {
+  return typeof output === "object"
+    && output !== null
+    && typeof (output as { workspaceGuardrail?: { kind?: unknown } }).workspaceGuardrail?.kind === "string"
+}
+
+function stringifyToolOutput(output: unknown): string {
+  try {
+    return JSON.stringify(output) ?? String(output)
+  }
+  catch {
+    return String(output)
+  }
 }
 
 function textFromRaw(value: unknown): string {
@@ -207,11 +198,13 @@ export function createAgentTestRunner<
           reportToolStep(step) {
             toolSteps.push(step)
             if (process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS) {
-              console.error("[vitehub-agent-test:tool]", safeStringify(step))
+              console.error("[vitehub-agent-test:tool]", stringifyToolOutput(step))
             }
-            workspaceInspectionGuardrails += countWorkspaceInspectionGuardrails(step)
-            if (workspaceInspectionGuardrails >= 4) {
-              throw new Error("[vitehub] Agent stopped after repeated workspace inspection guardrails. The requested evidence appears unavailable in the mounted workspace sources.")
+            if (options.workspace) {
+              workspaceInspectionGuardrails += countWorkspaceInspectionGuardrails(step)
+              if (workspaceInspectionGuardrails >= 4) {
+                throw new Error("[vitehub] Agent stopped after repeated workspace inspection guardrails. The requested evidence appears unavailable in the mounted workspace sources.")
+              }
             }
           },
         },

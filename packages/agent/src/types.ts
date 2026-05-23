@@ -232,7 +232,6 @@ export interface AgentCapabilityDefinition<
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
-  description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
@@ -242,7 +241,6 @@ export interface AgentCapabilityDefinition<
     | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentAdapterInstructionsValue | false | undefined>)
   metadata?: Record<string, unknown>
   mode?: AgentCapabilityMode
-  name?: string
   output?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   prepare?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   requires?: AgentCapabilityRequirement[]
