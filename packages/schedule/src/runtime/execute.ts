@@ -59,18 +59,29 @@ async function createOrGetRun(options: Omit<ExecuteScheduleOptions, "definition"
   }
 
   const now = new Date()
-  return {
-    created: true,
-    run: await store.createRun({
-      attemptCount: 0,
-      createdAt: now,
-      id,
-      scheduleId: options.scheduleId,
-      scheduledAt: options.scheduledAt,
-      status: "pending",
-      target: options.target,
-      updatedAt: now,
-    }),
+  const runInput = {
+    attemptCount: 0,
+    createdAt: now,
+    id,
+    scheduleId: options.scheduleId,
+    scheduledAt: options.scheduledAt,
+    status: "pending" as const,
+    target: options.target,
+    updatedAt: now,
+  }
+
+  try {
+    return {
+      created: true,
+      run: await store.createRun(runInput),
+    }
+  }
+  catch (error) {
+    const run = await store.getRun(id)
+    if (run) {
+      return { created: false, run }
+    }
+    throw error
   }
 }
 

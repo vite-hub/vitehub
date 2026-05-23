@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
-import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
+import { createMemoryScheduleRunStore, executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
+import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 afterEach(() => {
   resetScheduleRuntime()
@@ -272,6 +272,37 @@ describe("Schedule Run bookkeeping", () => {
     expect(second).toEqual(first)
     expect(calls).toBe(1)
     expect(await schedules.listAttempts(first.id)).toHaveLength(1)
+  })
+
+  it("reloads an existing run when duplicate creation wins the race", async () => {
+    const store = createMemoryScheduleRunStore()
+    let calls = 0
+    setScheduleRunStore({
+      ...store,
+      async createRun(run) {
+        const created = await store.createRun(run)
+        throw new Error(`Schedule Run already exists: ${created.id}`)
+      },
+    })
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls += 1
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const run = await schedules.run("schedule-1", { scheduledAt })
+
+    expect(run).toMatchObject({
+      id: "srun_schedule-1_2026-05-23T09:00:00.000Z",
+      status: "pending",
+    })
+    expect(calls).toBe(0)
   })
 
   it("records failed handler diagnostics on the run and attempt", async () => {
