@@ -14,7 +14,7 @@ import type {
 } from "./types.ts"
 import type { AgentRunInput, AgentRunMetadata } from "../index.ts"
 import type { Chat, Message as ChatSdkMessage, SentMessage, Thread } from "chat"
-import type { Message } from "../messages.ts"
+import type { AudioPart, Message, MessagePart } from "../messages.ts"
 
 export interface ChatAgentWorkflowPayload {
   agentName: string
@@ -97,6 +97,32 @@ function getMessageText(message: ChatSdkMessage): string {
   return ""
 }
 
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.length > 0)
+}
+
+function toAudioPart(value: unknown, index: number): AudioPart | undefined {
+  if (!value || typeof value !== "object") return
+  const record = value as Record<string, unknown>
+  const mediaType = firstString(record.mediaType, record.mimeType, record.contentType, record.type)
+  if (!mediaType?.startsWith("audio/")) return
+  const data = firstString(record.data, record.base64, record.content)
+  const url = firstString(record.url, record.href)
+  if ((data ? 1 : 0) + (url ? 1 : 0) !== 1) return
+  return { ...(data ? { data } : { url: url! }), id: firstString(record.id) || `audio-${index}`, mediaType, type: "audio" }
+}
+
+function collectAudioParts(message: ChatSdkMessage): AudioPart[] {
+  const record = message as unknown as Record<string, unknown>
+  return [
+    record.audio,
+    record.attachment,
+    ...(Array.isArray(record.attachments) ? record.attachments : []),
+    ...(Array.isArray(record.files) ? record.files : []),
+    ...(Array.isArray(record.parts) ? record.parts : []),
+  ].filter(Boolean).map(toAudioPart).filter((part): part is AudioPart => Boolean(part))
+}
+
 function getMessageCreatedAt(message: ChatSdkMessage): Date | string | undefined {
   const dateSent = (message as { metadata?: { dateSent?: unknown } }).metadata?.dateSent
   return dateSent instanceof Date || typeof dateSent === "string" ? dateSent : undefined
@@ -113,13 +139,20 @@ function toChatMessageSnapshot(message: ChatSdkMessage): ChatSdkMessage {
 }
 
 export function toViteHubMessages(messages: ChatSdkMessage[]): Message[] {
-  return messages.map((message, index) => createMessage({
-    createdAt: getMessageCreatedAt(message),
-    id: getEntityId(message) || `chat-message-${index}`,
-    metadata: { source: "chat" },
-    role: (message as { author?: { isMe?: boolean } }).author?.isMe ? "assistant" : "user",
-    text: getMessageText(message),
-  }))
+  return messages.map((message, index) => {
+    const text = getMessageText(message)
+    const audioParts = collectAudioParts(message)
+    return createMessage({
+      createdAt: getMessageCreatedAt(message),
+      id: getEntityId(message) || `chat-message-${index}`,
+      metadata: { source: "chat" },
+      parts: [
+        ...(text ? [text] : []),
+        ...audioParts,
+      ] satisfies Array<MessagePart | string>,
+      role: (message as { author?: { isMe?: boolean } }).author?.isMe ? "assistant" : "user",
+    })
+  })
 }
 
 function createAgentRuntimeContext<TRuntimeConfig extends ChatRuntimeConfig>(

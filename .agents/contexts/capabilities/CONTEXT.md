@@ -28,11 +28,16 @@ _Avoid_: Chat History Capability, Agent Memory
 A Capability that gives an Agent model-facing access to Workspace files through inspect or write tools.
 _Avoid_: Bash, raw workspace tools, built-in tool
 
+**Transcription**:
+An Official Capability that turns audio input parts into transcript text before an Agent runs.
+_Avoid_: Voice Input, audio support, voice plugin
+
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `skills()`, `mcp()`, `bash()`, `sandbox()`, `kv()`, `blob()`, and `db()` create **Capability Definitions**.
+- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `bash()`, `sandbox()`, `kv()`, `blob()`, and `db()` create **Capability Definitions**.
 - A **Chat Capability** owns Chat History behavior for the current stack.
+- **Transcription** is an input-phase Official Capability.
 - A **Workspace Capability** contributes Workspace tools without implying shell access.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is a separate Capability concern from the **Chat Capability**.
@@ -55,3 +60,4 @@ _Avoid_: Bash, raw workspace tools, built-in tool
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
+- "audio input", "voice input", and "voice transcription" were considered as names for spoken user messages - resolved: use **Transcription** for the capability.

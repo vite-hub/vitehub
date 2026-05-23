@@ -16,6 +16,14 @@ export interface DataPart {
   type: "data"
 }
 
+export interface AudioPart {
+  data?: string
+  id?: string
+  mediaType: string
+  type: "audio"
+  url?: string
+}
+
 export type ToolInvocationState = "approval-required" | "failed" | "proposed" | "running" | "completed"
 
 export interface ToolInvocation {
@@ -78,6 +86,7 @@ export interface ErrorPart {
 export type MessagePart =
   | ApprovalDecisionPart
   | ApprovalRequestPart
+  | AudioPart
   | DataPart
   | ErrorPart
   | SourcePart
@@ -162,6 +171,21 @@ export function getMessageText(message: Message): string {
     .filter((part): part is TextPart => part.type === "text")
     .map(part => part.text)
     .join("")
+}
+
+export function appendMessageText(message: Message, text: string): Message {
+  if (!text) return message
+  return {
+    ...message,
+    parts: [
+      ...message.parts,
+      {
+        id: `text-${message.parts.length}`,
+        text,
+        type: "text",
+      },
+    ],
+  }
 }
 
 export function getToolInvocations(message: Message): ToolInvocation[] {
@@ -276,6 +300,18 @@ export function validateMessage(message: Message): void {
       case "data":
         if (!("data" in part)) throw new TypeError("[vitehub:messages] data part requires data.")
         break
+      case "audio": {
+        if (typeof part.mediaType !== "string" || !part.mediaType.startsWith("audio/")) {
+          throw new TypeError("[vitehub:messages] audio part requires an audio/* mediaType.")
+        }
+        const hasData = typeof part.data === "string" && part.data.length > 0
+        const hasUrl = typeof part.url === "string" && part.url.length > 0
+        if (hasData === hasUrl) {
+          throw new TypeError("[vitehub:messages] audio part requires exactly one of data or url.")
+        }
+        if (part.id !== undefined) assertString(part.id, "audio.id")
+        break
+      }
       case "source":
       case "error":
         break
