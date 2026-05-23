@@ -1,8 +1,11 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent } from "../src/index.ts"
-import { bash, db, kv, sandbox, skills } from "../src/capabilities.ts"
+import { bash, db, kv, mcp, sandbox, skills } from "../src/capabilities.ts"
+import { remoteMcpServer } from "../src/mcp.ts"
+import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentUsageRecord } from "../src/index.ts"
+import type { MCPClient } from "@ai-sdk/mcp"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -11,6 +14,14 @@ describe("agent public types", () => {
         bash(),
         db(),
         kv(),
+        mcp({
+          servers: {
+            direct: {} as MCPClient,
+            factory: () => remoteMcpServer({ type: "sse", url: "https://example.com/sse" }),
+            remote: remoteMcpServer({ url: "https://example.com/mcp" }),
+            stdio: stdioMcpServer({ command: "node", args: ["server.js"] }),
+          },
+        }),
         skills(),
         sandbox({ commands: ["node"] }),
         {

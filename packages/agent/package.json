@@ -43,6 +43,8 @@
     "./chat/vercel": "./dist/chat/vercel.js",
     "./chat/vite": "./dist/chat/vite.js",
     "./cloudflare": "./dist/cloudflare.js",
+    "./mcp": "./dist/mcp.js",
+    "./mcp/stdio": "./dist/mcp/stdio.js",
     "./memory": "./dist/memory.js",
     "./messages": "./dist/messages.js",
     "./nitro": "./dist/nitro.js",
@@ -87,6 +89,7 @@
     "hookable": "^6.1.1"
   },
   "peerDependencies": {
+    "@ai-sdk/mcp": "^1.0.36",
     "agents": "^0.12.3",
     "@tanstack/ai": "0.16.0",
     "ai": "^6.0.0",
@@ -94,6 +97,9 @@
     "vite": ">=8.0.0"
   },
   "peerDependenciesMeta": {
+    "@ai-sdk/mcp": {
+      "optional": true
+    },
     "agents": {
       "optional": true
     },
@@ -111,6 +117,7 @@
     }
   },
   "devDependencies": {
+    "@ai-sdk/mcp": "^1.0.36",
     "@types/node": "catalog:",
     "@vitehub/devtools": "workspace:*",
     "@vitehub/internal": "workspace:*",

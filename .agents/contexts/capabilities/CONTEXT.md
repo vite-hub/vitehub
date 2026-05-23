@@ -28,12 +28,21 @@ _Avoid_: Chat History Capability, Agent Memory
 A Capability that gives an Agent model-facing access to Workspace files through inspect or write tools.
 _Avoid_: Bash, raw workspace tools, built-in tool
 
+**MCP Capability**:
+A Capability that connects an Agent to external MCP servers and exposes their model-facing tools.
+_Avoid_: MCP server implementation, MCP Source
+
+**MCP Server**:
+An external Model Context Protocol server consumed by an Agent through the MCP Capability.
+_Avoid_: ViteHub-hosted server, Workspace Source
+
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
 - Official helpers such as `skills()`, `mcp()`, `bash()`, `sandbox()`, `kv()`, `blob()`, and `db()` create **Capability Definitions**.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Workspace Capability** contributes Workspace tools without implying shell access.
+- An **MCP Capability** consumes one or more external **MCP Servers**.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is a separate Capability concern from the **Chat Capability**.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
@@ -55,3 +64,4 @@ _Avoid_: Bash, raw workspace tools, built-in tool
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
+- MCP server language was considered ambiguous between hosting an MCP server and consuming one - resolved: in the **MCP Capability**, an **MCP Server** is external and consumed by an Agent.
