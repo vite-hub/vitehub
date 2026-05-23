@@ -94,7 +94,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
     for (const source of getLazySourcesForPath(path)) {
       await ensurePrepared(source.key)
-      if (source.livePaths) continue
+      if (source.livePaths) {
+        await pruneLiveSourceStoreEntries(result, source)
+        continue
+      }
       if (!path && options.recursive && !await hasCurrentSourceSnapshot(store, source)) {
         if ([...result.keys()].some(key => sourceMountContainsPath(source, key))) {
           const allowed = await currentSourceTreePaths(source, sourceContext)
@@ -259,6 +262,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         result.set(entry.path, entry)
       }
       for (const source of sources.filter(source => source.livePaths)) {
+        await pruneLiveSourceStoreEntries(result, source)
         for (const entry of liveSourceEntries(source)) {
           if (entry.type === "file" && patterns.some(pattern => matchesAny(entry.path, pattern))) result.set(entry.path, entry)
         }
@@ -345,6 +349,25 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
     },
   }
+
+  async function pruneLiveSourceStoreEntries(result: Map<string, WorkspaceEntry>, source: ReturnType<typeof normalizeWorkspaceSources>[number]) {
+    const allowed = new Set(liveSourceEntries(source).map(entry => entry.path))
+    for (const [path, entry] of result) {
+      if (!isWithinLiveSourceMount(source, path) || allowed.has(path)) continue
+      if (entry.type === "file") {
+        const file = await store.readFile(path)
+        if (file?.metadata?.source === source.key) result.delete(path)
+        continue
+      }
+      if (![...allowed].some(allowedPath => allowedPath.startsWith(`${path}/`))) {
+        result.delete(path)
+      }
+    }
+  }
+}
+
+function isWithinLiveSourceMount(source: ReturnType<typeof normalizeWorkspaceSources>[number], path: string) {
+  return source.mountPath ? sourceMountContainsPath(source, path) : Boolean(path)
 }
 
 function liveSourceEntries(source: ReturnType<typeof normalizeWorkspaceSources>[number]): WorkspaceEntry[] {

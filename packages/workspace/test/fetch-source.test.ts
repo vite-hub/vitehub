@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace, registerWorkspace, source, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/registry.ts"
+import { createWorkspaceSourceView } from "../src/source-view.ts"
+import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
 
 function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), {
@@ -169,5 +171,30 @@ describe("fetch sources", () => {
     await expect(workspace.diff()).resolves.toMatchObject({
       entries: expect.arrayContaining([expect.objectContaining({ path: "status/summary.json", type: "added" })]),
     })
+  })
+
+  it("hides stale materialized files from live fetch source listings", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("status/old.json", {
+      content: "{}",
+      metadata: { source: "status" },
+      path: "status/old.json",
+    })
+    const view = createWorkspaceSourceView({
+      name: "fetch-stale-listing",
+      sources: {
+        status: source.fetch({
+          path: "status/new.json",
+          url: "https://status.example.com/new",
+        }),
+      },
+    }, store)
+
+    await expect(view.list("status")).resolves.toEqual([
+      { path: "status/new.json", type: "file" },
+    ])
+    await expect(view.glob("status/*.json")).resolves.toEqual([
+      { path: "status/new.json", type: "file" },
+    ])
   })
 })
