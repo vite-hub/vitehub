@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace, registerWorkspace, source, useWorkspace } from "../src/index.ts"
-import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/registry.ts"
-import { createWorkspaceSourceView } from "../src/source-view.ts"
-import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
+import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
+import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 
 function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), {
