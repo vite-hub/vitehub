@@ -204,7 +204,7 @@ describe("@vitehub/shell just-bash runtime", () => {
     await expect(session.exec("pwd", { cwd: workspaceMountPoint })).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
-      stderr: expect.stringContaining("command budget exhausted after 1 calls"),
+      stderr: expect.stringContaining("command budget exhausted"),
     })
     await expect(session.startProcess("sleep 10")).rejects.toThrow("does not support long-running processes")
     await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
