@@ -17,6 +17,7 @@ const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const agentConfigPattern = /^config\.(?:c|m)?[jt]s$/i
 const sourceFileExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
+const ignoredViteInlineAgentScheduleDirs = new Set(["build", "coverage", "dist", "node_modules", ".output", ".vercel"])
 
 function stripComments(source: string) {
   return source
@@ -30,6 +31,14 @@ function normalizeScheduleCron(cron: string): string {
 
 function scheduleIdFromCron(cron: string): string {
   return `schedule-${normalizeScheduleCron(cron).replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase()}`
+}
+
+function isInlineScheduleObjectKey(source: string, stringEnd: number): boolean {
+  return /^\s*:/.test(source.slice(stringEnd))
+}
+
+function isInlineScheduleObjectValue(source: string, stringStart: number): boolean {
+  return /(?:^|[,{]\s*)(["'`])?(?:cron|id)\1?\s*:\s*$/u.test(source.slice(Math.max(0, stringStart - 24), stringStart))
 }
 
 function readScheduleIdOverride(file: string): string | undefined {
@@ -59,15 +68,15 @@ function parseInlineAgentScheduleEntries(source: string): Array<{ cron: string, 
   for (const match of stripped.matchAll(schedulesPattern)) {
     const body = match[1]!
     for (const stringEntry of body.matchAll(/(["'`])([^"'`]+)\1/g)) {
-      const before = body.slice(Math.max(0, stringEntry.index! - 12), stringEntry.index)
-      if (/\b(?:cron|id)\s*:\s*$/.test(before)) continue
+      if (isInlineScheduleObjectKey(body, stringEntry.index! + stringEntry[0].length)) continue
+      if (isInlineScheduleObjectValue(body, stringEntry.index!)) continue
       const cron = normalizeScheduleCron(stringEntry[2]!)
       entries.push({ cron, id: scheduleIdFromCron(cron) })
     }
-    for (const objectEntry of body.matchAll(/\{[\s\S]*?\bcron\s*:\s*(["'`])([^"'`]+)\1[\s\S]*?\}/g)) {
+    for (const objectEntry of body.matchAll(/\{[\s\S]*?(["'`])?cron\1?\s*:\s*(["'`])([^"'`]+)\2[\s\S]*?\}/g)) {
       const objectSource = objectEntry[0]
-      const cron = normalizeScheduleCron(objectEntry[2]!)
-      const id = objectSource.match(/\bid\s*:\s*(["'`])([^"'`]+)\1/)?.[2] || scheduleIdFromCron(cron)
+      const cron = normalizeScheduleCron(objectEntry[3]!)
+      const id = objectSource.match(/(["'`])?id\1?\s*:\s*(["'`])([^"'`]+)\2/)?.[3] || scheduleIdFromCron(cron)
       entries.push({ cron, id })
     }
   }
@@ -112,7 +121,7 @@ function discoverViteInlineAgentSchedules(rootDir: string, scanDirs?: string[]):
     }
     for (const entry of entries) {
       const file = resolve(current, entry.name)
-      if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
+      if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".") && !ignoredViteInlineAgentScheduleDirs.has(entry.name)) {
         walk(root, file)
         continue
       }

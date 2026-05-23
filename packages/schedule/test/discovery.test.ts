@@ -118,6 +118,45 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("ignores quoted object keys in inline Agent Schedules", async () => {
+    const viteRootDir = await createTempDir("vitehub-agent-schedule-quoted-")
+    await mkdir(join(viteRootDir, "src"), { recursive: true })
+    await writeFile(join(viteRootDir, "src", "support.agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export default defineAgent({",
+      "  capabilities: [schedule({ schedules: [{ \"cron\": \"0 9 * * *\", \"id\": \"daily\" }] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([
+      expect.objectContaining({ cron: "0 9 * * *", name: "support/daily" }),
+    ])
+  })
+
+  it("skips dependency directories during Vite inline Agent Schedule discovery", async () => {
+    const viteRootDir = await createTempDir("vitehub-agent-schedule-skip-deps-")
+    await mkdir(join(viteRootDir, "src"), { recursive: true })
+    await mkdir(join(viteRootDir, "node_modules", "third-party"), { recursive: true })
+    await writeFile(join(viteRootDir, "src", "support.agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export default defineAgent({ capabilities: [schedule({ schedules: ['0 9 * * *'] })] })",
+    ].join("\n"), "utf8")
+    await writeFile(join(viteRootDir, "node_modules", "third-party", "support.agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export default defineAgent({ capabilities: [schedule({ schedules: ['0 10 * * *'] })] })",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([
+      expect.objectContaining({ cron: "0 9 * * *", name: "support/schedule-0-9" }),
+    ])
+  })
+
   it("rejects duplicate schedule ids across discovery roots and explicit ids", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-vite-duplicate-")
     const viteScanDir = await createTempDir("vitehub-schedule-vite-duplicate-scan-")
