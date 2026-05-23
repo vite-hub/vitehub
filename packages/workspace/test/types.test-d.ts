@@ -85,7 +85,6 @@ describe("workspace types", () => {
     expectTypeOf(readonly.tools.shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(readonly.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(readonly.tools.inspect({ materialize: true }).materialize_sources).toMatchTypeOf<Tool<{ path?: string, sources?: string[] }, WorkspaceMaterializeSourcesResult>>()
-    expectTypeOf(readonly.tools.readonly().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(readonly.tools.none()).toMatchTypeOf<ToolSet>()
     // @ts-expect-error workspace tools are no longer callable aliases
     readonly.tools()

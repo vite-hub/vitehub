@@ -128,13 +128,11 @@ Read, list, and search commands are enabled by default in the inspection preset.
 import { useWorkspace } from '@vitehub/workspace'
 
 const readOnlyTools = useWorkspace('docs').tools.inspect()
-const sameReadOnlyTools = useWorkspace('docs').tools.readonly()
 const noTools = useWorkspace('docs').tools.none()
 const writeTools = useWorkspace('docs', { mode: "write" }).tools.write()
 ```
 
 - `inspect()` exposes the read-only `shell` tool.
-- `readonly()` is an alias for `inspect()`.
 - `none()` returns an empty tool set.
 - `write()` exposes read tools plus structured write tools, and requires `useWorkspace(name, { mode: "write" })`.
 

@@ -1,6 +1,7 @@
 import { defu } from "defu"
 
 import { readEnv, trimmed } from "@vitehub/internal/env"
+import { normalizeHosting } from "@vitehub/internal/feature-bridge/hosting"
 import { isPlainObject } from "@vitehub/internal/object"
 import { hasUpstashEnv, resolveUpstashStore } from "./integrations/upstash.ts"
 
@@ -62,7 +63,7 @@ export function normalizeKVOptions(
   }
 
   const env = input.env || process.env
-  const hosting = input.hosting || ""
+  const hosting = normalizeHosting(input.hosting)
   const explicit = options as KVStoreConfig | undefined
 
   if (hasStoresConfig(options)) {
@@ -86,7 +87,7 @@ export function warnVercelKVFallback(
   config: ResolvedKVModuleOptions | undefined,
   hosting?: string,
 ): void {
-  if (!config || !hosting?.includes("vercel")) return
+  if (!config || !normalizeHosting(hosting).includes("vercel")) return
   const stores = Object.values(config.stores || { default: config.store })
   if (!stores.some(store => store.driver === "fs-lite")) return
   target.logger.error(

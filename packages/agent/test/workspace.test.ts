@@ -518,6 +518,25 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("materializes lazy workspace sources without DevTools reporting", async () => {
+    const materialize = vi.fn(async () => ({ bytes: 12, directories: 1, durationMs: 3, files: 2, path: "", sources: [{ source: "docs", status: "ready" }] }))
+    inspectTools.mockReturnValueOnce({
+      materialize_sources: { execute: materialize },
+    })
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
+      adapter: "ai-sdk",
+      model: {} as never,
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+    }), { workspace: "docs" })
+
+    await expect(agent.run!(context())).resolves.toBe("ok")
+
+    expect(materialize).toHaveBeenCalledWith({ path: "" })
+  })
+
   it("reports materialization errors and continues the model run", async () => {
     const materialize = vi.fn(async () => {
       throw new Error("source unavailable")

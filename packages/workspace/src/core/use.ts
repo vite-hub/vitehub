@@ -68,13 +68,11 @@ export type WorkspaceWriteTools<Options = undefined> = WorkspaceReadTools<Option
 export type WorkspaceReadToolSet = WorkspaceReadTools & {
   inspect: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
   none: () => ToolSet
-  readonly: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
 }
 
 export type WorkspaceWriteToolSet = WorkspaceWriteTools & {
   inspect: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
   none: () => ToolSet
-  readonly: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
   write: <Options extends WritableWorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceWriteTools<Options>
 }
 
@@ -420,7 +418,6 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       WorkspaceWriteTools
     >(createTools) as WritableWorkspaceFacade<Name>["tools"]
     tools.inspect = createReadTools as WritableWorkspaceFacade<Name>["tools"]["inspect"]
-    tools.readonly = createReadTools as WritableWorkspaceFacade<Name>["tools"]["readonly"]
     tools.write = createTools as WritableWorkspaceFacade<Name>["tools"]["write"]
     tools.none = emptyTools
     return {
@@ -444,7 +441,6 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     WorkspaceReadTools
   >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"]
   tools.inspect = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["inspect"]
-  tools.readonly = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["readonly"]
   tools.none = emptyTools
   return {
     fs,

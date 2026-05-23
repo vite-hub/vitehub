@@ -10,10 +10,9 @@ import { createJiti } from "jiti"
 import { syncWorkspaceDefinition } from "../lifecycle.ts"
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
-import { createWorkspace } from "../core/workspace.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
-import type { ResolvedWorkspaceModuleOptions, Workspace, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "../core/types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "../core/types.ts"
 
 export interface WorkspaceAssetFile {
   content: WorkspaceContent
@@ -48,50 +47,6 @@ async function importWorkspaceConfig(path: string): Promise<{ default?: Workspac
 
 function runtimeAssetsModulePath() {
   return resolveRuntimeEntry("../runtime/assets", "@vitehub/workspace/internal/runtime/assets", import.meta.url)
-}
-
-export async function syncDiscoveredWorkspaces(
-  definitions: DiscoveredWorkspaceDefinition[],
-  rootDir: string,
-  options: false | ResolvedWorkspaceModuleOptions,
-): Promise<Workspace[]> {
-  if (!options) return []
-
-  const workspaces: Workspace[] = []
-  for (const definition of definitions) {
-    if (!shouldBundleWorkspaceAssets(options.assets, definition.name)) continue
-
-    const mod = await importWorkspaceConfig(definition.path)
-    if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
-
-    const workspace = createWorkspace({
-      ...mod.default,
-      name: definition.name,
-      rootDir: mod.default.rootDir || rootDir,
-      sourceRootDir: mod.default.sourceRootDir ?? definition.sourceRootDir,
-      store: { provider: "memory" },
-    })
-
-    await workspace.sync()
-    workspaces.push(workspace)
-  }
-
-  return workspaces
-}
-
-export async function collectWorkspaceAssetBundle(workspace: Workspace): Promise<WorkspaceAssetBundle> {
-  const entries = (await workspace.glob("**/*")).filter(entry => entry.type === "file")
-  const files = await Promise.all(entries.map(async (entry) => {
-    const path = normalizeSafeWorkspacePath(entry.path)
-    return { content: await workspace.readFile(path, { encoding: "binary" }), mediaType: entry.mediaType, path }
-  }))
-
-  files.sort((a, b) => a.path.localeCompare(b.path))
-  return { files, name: workspace.name }
-}
-
-export async function collectWorkspaceAssetBundles(workspaces: Workspace[]): Promise<WorkspaceAssetBundle[]> {
-  return await Promise.all(workspaces.map(workspace => collectWorkspaceAssetBundle(workspace)))
 }
 
 export async function collectWorkspaceStoreAssetBundle(name: string, store: WorkspaceStore): Promise<WorkspaceAssetBundle> {
