@@ -158,7 +158,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
     for (const source of sources) {
       const paths = sourcePaths.get(source.key)
-      if (query.paths?.length && !paths?.length) continue
+      if (query.paths?.length && !paths?.length && !query.paths.some(path => !normalizeWorkspacePath(path))) continue
       if (source.livePaths) {
         await ensurePrepared(source.key)
         const liveEntries = liveSourceEntries(source)
