@@ -79,6 +79,7 @@ export default defineConfig(async () => {
           ...baseConfig.build.rollupOptions,
           external: [
             "@cloudflare/sandbox",
+            "askweb",
             "cloudflare:workers",
             "workflow",
             "workflow/api",
