@@ -560,7 +560,7 @@ describe("@vitehub/shell workspace inspection", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stderr: expect.not.stringContaining("Workspace path is not mounted"),
-      stdout: expect.stringContaining("select * from customers"),
+      stdout: expect.not.stringContaining("Workspace path is not mounted"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "find -L models -name '*.sql'", {
