@@ -64,10 +64,11 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
       return {
         command,
         cwd: execOptions.cwd,
-        event: "command_finished",
+        event: result.timedOut ? "command_timed_out" : "command_finished",
         exitCode: result.exitCode,
         stderr: result.stderr,
         stdout: result.stdout,
+        timedOut: result.timedOut,
       }
     },
   }
@@ -77,17 +78,18 @@ async function withProviderTimeout<T extends { exitCode: number, stderr: string,
   command: string,
   options: ShellRuntimeExecOptions,
   run: () => Promise<T>,
-): Promise<T | { exitCode: null, stderr: string, stdout: string }> {
+): Promise<T | { exitCode: null, stderr: string, stdout: string, timedOut: true }> {
   if (typeof options.timeout !== "number") return await run()
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       run(),
-      new Promise<{ exitCode: null, stderr: string, stdout: string }>((resolve) => {
+      new Promise<{ exitCode: null, stderr: string, stdout: string, timedOut: true }>((resolve) => {
         timeout = setTimeout(() => resolve({
           exitCode: null,
           stderr: `[vitehub] Workspace shell command timed out after ${options.timeout}ms.`,
           stdout: "",
+          timedOut: true,
         }), options.timeout)
       }),
     ])
