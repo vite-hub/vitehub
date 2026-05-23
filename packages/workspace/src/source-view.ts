@@ -295,6 +295,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
         if (isLiveSource(resolution.sourceKey)) {
+          if (!resolution.workspacePath) return { path: "", type: "directory" }
           const result = liveSourceStat(resolution.source, resolution.workspacePath)
           if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
           return result
@@ -323,6 +324,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
         if (isLiveSource(resolution.sourceKey)) {
+          if (!resolution.workspacePath) return true
           return Boolean(liveSourceStat(resolution.source, resolution.workspacePath))
         }
         await ensureMaterialized(resolution.sourceKey)
