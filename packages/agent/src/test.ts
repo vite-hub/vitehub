@@ -131,9 +131,17 @@ function isWorkspaceShellObservationResult(result: { output?: unknown, toolName?
     && "stdout" in output
 }
 
+function hasWorkspaceGuardrail(output: unknown) {
+  return typeof output === "object"
+    && output !== null
+    && "workspaceGuardrail" in output
+    && Boolean(output.workspaceGuardrail)
+}
+
 function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
   return (step.toolResults || []).filter((result) => {
     if (!isWorkspaceShellObservationResult(result)) return false
+    if (hasWorkspaceGuardrail(result.output)) return true
     const output = typeof result.output === "string"
       ? result.output
       : safeStringify(result.output)

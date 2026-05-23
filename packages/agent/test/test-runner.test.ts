@@ -120,6 +120,7 @@ describe("agent test runner", () => {
       exitCode: 126,
       stderr: "[vitehub] Workspace root search is too broad.\n",
       stdout: "Workspace search is too broad for this agent tool.",
+      workspaceGuardrail: { kind: "broad_search" },
     }))
     inspectTools.mockReturnValueOnce({
       shell: { execute },
