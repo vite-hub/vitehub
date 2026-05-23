@@ -244,14 +244,22 @@ function splitShellCommandSegments(command: string) {
 }
 
 function hasRecursiveGrepFlag(words: string[]) {
-  return words.slice(1).some((arg, index, args) => {
+  const args = words.slice(1)
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!
     if (arg === "--recursive" || arg === "-r" || arg === "-R") return true
     if (arg === "--directories" || arg === "-d") return args[index + 1] === "recurse"
     if (arg === "--directories=recurse" || arg === "-drecurse") return true
+    if (takesOptionValue(arg)) {
+      index += 1
+      continue
+    }
+    if (takesInlineSearchPatternOptionValue(arg)) continue
     if (!/^-[^-]/.test(arg)) return false
     if ((arg.startsWith("-e") || arg.startsWith("-f")) && arg.length > 2) return false
-    return arg.includes("r") || arg.includes("R")
-  })
+    if (arg.includes("r") || arg.includes("R")) return true
+  }
+  return false
 }
 
 function parseShellWords(command: string) {

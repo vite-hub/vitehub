@@ -121,13 +121,13 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
         }
         continue
       }
-      if (segment.separatorAfter === "&&" || segment.separatorAfter === "||") return undefined
       for (const path of segment.paths) {
         if (!isConcreteWorkspacePath(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
         if (await fs.exists(resolvedPath)) continue
         return missingWorkspacePathFeedback(command, resolvedPath)
       }
+      if (segment.separatorAfter === "&&" || segment.separatorAfter === "||") return undefined
     }
   }
   catch {

@@ -637,6 +637,15 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: "",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | grep --regexp -r", {
+      commands: ["cat", "grep"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace search is too broad"),
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "cat -- README.md && ls models", {
       commands: ["cat", "ls"],
       cwd: workspaceMountPoint,
@@ -689,6 +698,14 @@ describe("@vitehub/shell workspace inspection", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: expect.stringContaining("Workspace path is not mounted: missing/README.md"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat missing.md && pwd", {
+      commands: ["cat", "pwd"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stdout: expect.stringContaining("Workspace path is not mounted: missing.md"),
     })
   })
 
