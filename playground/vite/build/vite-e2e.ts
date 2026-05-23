@@ -293,8 +293,6 @@ function renderWorkflowRuntimeModule(file: string) {
 function renderWorkspaceRuntimeModule(file: string) {
   return [
     `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/define.ts")))}`,
-    `export * as loader from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/loaders/index.ts")))}`,
-    `export { registerWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/registry.ts")))}`,
     `export const source = { custom: source => source, file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options) }`,
     `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/use.ts")))}`,
     `function createHostedSourceStub(kind, input) {`,

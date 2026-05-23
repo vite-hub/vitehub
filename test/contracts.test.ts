@@ -146,6 +146,8 @@ describe("playground import contracts", () => {
     const shimProperties = [...viteE2e.matchAll(/\b(\w+): [^,}]+/g)].map(match => match[1])
 
     expect(shimProperties).toEqual(expect.arrayContaining(sourceExports))
+    expect(viteE2e).not.toContain("export * as loader")
+    expect(viteE2e).not.toContain("export { registerWorkspace }")
   })
 })
 
