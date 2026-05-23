@@ -32,6 +32,10 @@ _Avoid_: Untyped string, binding name, namespace id
 Internal concurrency guarantees provided by a KV Store for ViteHub runtime behavior.
 _Avoid_: Public lock API, adapter lock
 
+**KV Prefix Discovery**:
+Scoped key listing under a developer-provided prefix.
+_Avoid_: Global browsing, key tree
+
 ## Relationships
 
 - **KV** can expose one or more **KV Stores**.
@@ -42,6 +46,8 @@ _Avoid_: Public lock API, adapter lock
 - Runtime code selects non-default stores through **KV Store Selection** using a **KV Store Name**.
 - Invalid **KV Store Names** fail during build-time validation and runtime selection.
 - A **KV Store** may provide **KV Coordination**.
+- A KV Capability can use **KV Store Selection** chosen by the developer when the Capability is attached.
+- Agent-facing KV reads can use **KV Prefix Discovery** when the developer provides stable key conventions.
 
 ## Example Dialogue
 
@@ -52,3 +58,4 @@ _Avoid_: Public lock API, adapter lock
 
 - "namespace" was considered for multiple KV backends - resolved: use **KV Store** publicly because provider namespaces and bindings are backend details.
 - Named KV APIs were considered as separate top-level exports - resolved: keep the default KV API and add **KV Store Selection**.
+- KV listing was considered a separate agent tool - resolved: keep scoped prefix listing inside the KV read tool rather than adding a standalone discovery tool.

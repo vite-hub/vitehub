@@ -1,3 +1,5 @@
+import { splitShellCommandSegments } from "../command/analyze.ts"
+import { parseShellCommand } from "../command/parse.ts"
 import { createJustBashProvider } from "../providers/just-bash.ts"
 import { createShellRuntime } from "../runtime/index.ts"
 import { workspaceMountPoint } from "./filesystem.ts"
@@ -35,26 +37,13 @@ export async function runWorkspaceInspectionCommand(
       fs: options.fs,
     }),
   })
-  const result = await Promise.race([
-    runtime.exec(command, { cwd: options.cwd || workspaceMountPoint, timeout }),
-    new Promise<ShellObservation>(resolve => setTimeout(() => resolve({
-      command,
-      cwd: options.cwd || workspaceMountPoint,
-      event: "command_timed_out",
-      exitCode: null,
-      stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`,
-      stdout: "",
-      timedOut: true,
-    }), timeout)),
-  ])
-
-  return result
+  return await runtime.exec(command, { cwd: options.cwd || workspaceMountPoint, timeout })
 }
 
 function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: string[] = []): ShellObservation | undefined {
   try {
-    for (const segment of splitShellSegments(command)) {
-      const words = parseShellWords(segment)
+    for (const segment of splitShellCommandSegments(command)) {
+      const words = parseShellCommand(segment)
       if (isBroadWorkspaceSearch(words)) {
         const hint = broadSearchPaths.length
           ? ` Try one of these paths: ${broadSearchPaths.map(path => `"${path}"`).join(", ")}.`
@@ -121,78 +110,4 @@ function takesOptionValue(arg: string) {
     "--max-count",
     "--regexp",
   ].includes(arg)
-}
-
-function splitShellSegments(command: string) {
-  const segments: string[] = []
-  let current = ""
-  let quote: "'" | "\"" | undefined
-  let escaped = false
-  for (const char of command) {
-    if (escaped) {
-      current += char
-      escaped = false
-      continue
-    }
-    if (char === "\\") {
-      current += char
-      escaped = true
-      continue
-    }
-    if (quote) {
-      if (char === quote) quote = undefined
-      current += char
-      continue
-    }
-    if (char === "'" || char === "\"") {
-      quote = char
-      current += char
-      continue
-    }
-    if (char === "|" || char === ";" || char === "\n") {
-      segments.push(current)
-      current = ""
-      continue
-    }
-    current += char
-  }
-  segments.push(current)
-  return segments
-}
-
-function parseShellWords(command: string) {
-  const words: string[] = []
-  let current = ""
-  let quote: "'" | "\"" | undefined
-  let escaped = false
-  for (const char of command) {
-    if (escaped) {
-      current += char
-      escaped = false
-      continue
-    }
-    if (char === "\\") {
-      escaped = true
-      continue
-    }
-    if (quote) {
-      if (char === quote) quote = undefined
-      else current += char
-      continue
-    }
-    if (char === "'" || char === "\"") {
-      quote = char
-      continue
-    }
-    if (/\s/.test(char)) {
-      if (current) {
-        words.push(current)
-        current = ""
-      }
-      continue
-    }
-    current += char
-  }
-  if (current) words.push(current)
-  return words
 }
