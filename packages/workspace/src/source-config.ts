@@ -18,7 +18,15 @@ export interface ResolvedWorkspaceSource {
   materialize: WorkspaceMaterializeMode
   cache: false | WorkspaceCacheOptions
   validate: WorkspaceValidateMode
+  livePaths?: Record<string, string>
   readonly: true
+}
+
+const liveSourcePaths = new WeakMap<WorkspaceSource, Record<string, string>>()
+
+export function markLiveWorkspaceSource(source: WorkspaceSource, paths: Record<string, string>): WorkspaceSource {
+  liveSourcePaths.set(source, paths)
+  return source
 }
 
 export function createSourceContext(definition: WorkspaceDefinition): SourceContext {
@@ -48,6 +56,7 @@ export function normalizeWorkspaceSource(key: string, source: WorkspaceSource): 
     materialize: mount.materialize || source.materialize || (cache ? "lazy" : "build"),
     cache,
     validate: mount.validate ?? source.validate ?? false,
+    livePaths: liveSourcePaths.get(source),
     readonly: true,
   }
 }

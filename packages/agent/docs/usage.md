@@ -383,6 +383,43 @@ Workspace sources do not imply model tools. Replace older workspace agents that 
 
 Use `bash({ mode: 'write' })` only with `workspace.mode: 'write'`. Raw tools should be wrapped in inline or factory capabilities.
 
+## Use fetch capabilities
+
+Use `fetch()` when the model should call declared read-oriented HTTP tools. It supports JSON and text resources in v1:
+
+```ts [server/agents/status/config.ts]
+import { defineAgent } from '@vitehub/agent'
+import { fetch } from '@vitehub/agent/capabilities'
+import { useServerEnv } from '#vitehub/env/server'
+
+export default defineAgent({
+  capabilities: [
+    fetch({
+      tools: {
+        checkRegionStatus: {
+          description: 'Fetch current service status for a region.',
+          request: ({ region }) => {
+            const env = useServerEnv()
+            return {
+              url: 'https://status.example.com/api/region',
+              query: { region },
+              headers: {
+                authorization: `Bearer ${env.status.token.unseal()}`,
+              },
+            }
+          },
+          responseType: 'json',
+        },
+      },
+    }),
+  ],
+  model,
+  adapter: 'ai-sdk',
+})
+```
+
+The fetch Capability is query-only. Use it for stable read-style `GET`, `HEAD`, and `POST` requests; side-effectful API calls need a separate Capability design with explicit policy.
+
 ## Use durable memory
 
 Memory stores expose scoped records through model tools. Configure at least one explicit scope value so records do not bleed across tenants, projects, users, or agents.

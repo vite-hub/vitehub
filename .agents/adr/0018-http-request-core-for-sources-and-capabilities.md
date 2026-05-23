@@ -13,7 +13,7 @@ API-backed Workspace Sources and API Capabilities share a neutral HTTP Request D
 
 An API-backed Source is valid only when it exposes stable read targets that can map to Source item keys and Source-Backed Paths. Query-only, aggregate-only, arbitrary-parameter, and side-effectful API calls remain Capability tools even when they share the same HTTP Request Definition core.
 
-This ADR does not name the future API/HTTP Capability helper. Capability naming and tool option shape are deferred because query/effect classification, approval policy, retry/idempotency behavior, and model-facing descriptions need their own design pass.
+The first Agent Capability projection should be `fetch()` from `@vitehub/agent/capabilities`. It exposes query-only model-facing fetch tools for JSON and text resources. Effect/mutation tools, approval policy, retry/idempotency behavior, binary/image outputs, and richer model-facing descriptions need their own design pass.
 
 The first API-backed Source helper should be `source.fetch(...)` for one declared HTTP read target and one Source-Backed Path, with the path derived from the URL when safe and overridable when needed. Multiple static HTTP items should be represented as multiple Source Map entries rather than a nested item map. Shared origin/client configuration and enumerable API collections are deferred until a real many-item Source design is needed.
 

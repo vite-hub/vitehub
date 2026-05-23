@@ -29,6 +29,8 @@ export default defineConfig({
     "src/index.ts",
     "src/memory.ts",
     "src/messages.ts",
+    "src/mcp.ts",
+    "src/mcp/stdio.ts",
     "src/cloudflare.ts",
     "src/eval.ts",
     "src/nitro.ts",

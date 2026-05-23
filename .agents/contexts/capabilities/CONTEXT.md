@@ -48,6 +48,14 @@ _Avoid_: Bash, raw workspace tools, built-in tool
 An Official Capability that turns audio input parts into transcript text before an Agent runs.
 _Avoid_: Voice Input, audio support, voice plugin
 
+**MCP Capability**:
+A Capability that connects an Agent to external MCP servers and exposes their model-facing tools.
+_Avoid_: MCP server implementation, MCP Source
+
+**MCP Server**:
+An external Model Context Protocol server consumed by an Agent through the MCP Capability.
+_Avoid_: ViteHub-hosted server, Workspace Source
+
 **Input Command**:
 A Capability-provided command that transforms or enriches explicit user input before an Agent runs.
 _Avoid_: Slash Command, chat command, shell command, model tool
@@ -66,6 +74,7 @@ _Avoid_: Input Command, Capability, model tool
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - **Transcription** is an input-phase Official Capability.
 - A **Workspace Capability** contributes Workspace tools without implying shell access.
+- An **MCP Capability** consumes one or more external **MCP Servers**.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is a separate Capability concern from the **Chat Capability**.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
@@ -103,6 +112,7 @@ _Avoid_: Input Command, Capability, model tool
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
 - "audio input", "voice input", and "voice transcription" were considered as names for spoken user messages - resolved: use **Transcription** for the capability.
+- MCP server language was considered ambiguous between hosting an MCP server and consuming one - resolved: in the **MCP Capability**, an **MCP Server** is external and consumed by an Agent.
 - Capability-level name and description were considered separate display metadata - resolved: remove both as a breaking change and use **Capability** id as the only capability-level identity/display field.
 - Slash command was considered as the domain term - resolved: use **Input Command** for the Capability concept because it names the lifecycle position; slash syntax is only the initial invocation format.
 - Host/session commands were considered part of Input Commands - resolved: **Host Commands** are a separate future concern because they change chat, session, UI, or product state rather than Agent run input.
