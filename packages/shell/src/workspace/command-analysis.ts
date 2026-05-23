@@ -141,6 +141,7 @@ function takesOptionValue(command: string, arg: string) {
     "-t",
     "-T",
     "--glob",
+    "--iglob",
     "--ignore-file",
     "--max-depth",
     "--max-filesize",
@@ -157,6 +158,7 @@ function takesInlineOptionValue(command: string, arg: string) {
     || arg.startsWith("--directories=")
   if (command === "grep") return shared
   return shared
+    || arg.startsWith("--iglob=")
     || arg.startsWith("--ignore-file=")
     || arg.startsWith("--max-depth=")
     || arg.startsWith("--max-filesize=")

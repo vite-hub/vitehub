@@ -128,6 +128,15 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: expect.not.stringContaining("Workspace search is too broad"),
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "rg --iglob '*.sql' orders models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg --max-filesize 50K customers models", {
       commands: ["rg"],
       cwd: workspaceMountPoint,
