@@ -103,7 +103,7 @@ describe("storage capabilities", () => {
     })
 
     expect(Object.keys(tools).sort()).toEqual(["db_query", "db_schema"])
-    expect(tools.db_schema!.execute?.({})).toEqual({ database: "analytics", schema: { events: true } })
+    await expect(tools.db_schema!.execute?.({})).resolves.toEqual({ database: "analytics", schema: { events: true } })
     await expect(tools.db_query!.execute?.({ statement: "select * from events;" })).resolves.toEqual([{ id: 1 }])
     expect(dbPrimitive.database).toHaveBeenCalledWith("analytics")
     expect(analytics.query).toHaveBeenCalledWith("select * from events")
@@ -122,7 +122,7 @@ describe("storage capabilities", () => {
       db: dbPrimitive,
     })
 
-    expect(tools.db_schema!.execute?.({})).toEqual({ database: "default", schema: { notes: true } })
+    await expect(tools.db_schema!.execute?.({})).resolves.toEqual({ database: "default", schema: { notes: true } })
     await expect(tools.db_query!.execute?.({ statement: "select * from notes;" })).resolves.toEqual([{ id: 1 }])
     expect(dbPrimitive.database).toHaveBeenCalledWith("default")
     expect(defaultDatabase.query).toHaveBeenCalledWith("select * from notes")
@@ -138,10 +138,24 @@ describe("storage capabilities", () => {
       db: database,
     })
 
-    expect(tools.db_schema!.execute?.({})).toEqual({ database: "default", schema: { notes: true } })
+    await expect(tools.db_schema!.execute?.({})).resolves.toEqual({ database: "default", schema: { notes: true } })
     await expect(tools.db_query!.execute?.({ statement: "select * from notes" })).rejects.toThrow("raw string query")
     await expect(tools.db_exec!.execute?.({ rationale: "cleanup", statement: "delete from notes where id = 1" })).rejects.toThrow("raw string exec")
     expect(database.db.run).not.toHaveBeenCalled()
+  })
+
+  it("resolves DB schema from method-style primitive handles", async () => {
+    const { db } = await import("../src/capabilities.ts")
+    const database = {
+      query: vi.fn(async () => []),
+      schema: vi.fn(async () => ({ notes: true })),
+    }
+    const tools = await resolveTools([db()], {
+      db: database,
+    })
+
+    await expect(tools.db_schema!.execute?.({})).resolves.toEqual({ database: "default", schema: { notes: true } })
+    expect(database.schema).toHaveBeenCalledTimes(1)
   })
 
   it("applies DB SQL guardrails and data/schema permissions", async () => {
@@ -155,6 +169,8 @@ describe("storage capabilities", () => {
     const readTools = await resolveTools([db()], { db: database })
     expect(readTools.db_exec).toBeUndefined()
     await expect(readTools.db_query!.execute?.({ statement: "select ';' as semi; -- trailing" })).resolves.toEqual({ ok: true })
+    await expect(readTools.db_query!.execute?.({ statement: "pragma table_list" })).resolves.toEqual({ ok: true })
+    await expect(readTools.db_query!.execute?.({ statement: "pragma index_xinfo(notes_title_idx)" })).resolves.toEqual({ ok: true })
     await expect(Promise.resolve().then(() => readTools.db_query!.execute?.({ statement: "select 1; select 2" }))).rejects.toThrow("only accepts one")
     await expect(Promise.resolve().then(() => readTools.db_query!.execute?.({ statement: "delete from notes" }))).rejects.toThrow("read-only")
     await expect(Promise.resolve().then(() => readTools.db_query!.execute?.({ statement: "begin transaction" }))).rejects.toThrow("read-only")

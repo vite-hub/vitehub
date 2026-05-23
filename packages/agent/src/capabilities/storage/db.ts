@@ -28,7 +28,7 @@ export interface DBCapabilityOptions {
 interface AgentDatabaseHandle {
   exec?: (statement: string) => MaybePromise<unknown>
   query?: (statement: string) => MaybePromise<unknown>
-  schema?: Record<string, unknown>
+  schema?: Record<string, unknown> | (() => MaybePromise<unknown>)
 }
 
 interface AgentDatabasePrimitive extends AgentDatabaseHandle {
@@ -64,11 +64,14 @@ function querySql(database: unknown, statement: string): MaybePromise<unknown> {
   throw new Error("[vitehub] db primitive must expose raw string query() for db_query.")
 }
 
-function readDatabaseSchema(database: unknown, databaseName: string): unknown {
+async function readDatabaseSchema(database: unknown, databaseName: string): Promise<unknown> {
   const handle = asAgentDatabaseHandle(database)
+  const schema = typeof handle?.schema === "function"
+    ? await handle.schema.call(handle)
+    : handle?.schema
   return {
     database: databaseName,
-    schema: handle?.schema,
+    schema,
   }
 }
 
@@ -103,7 +106,7 @@ export function dbTools(mode: AgentCapabilityMode, schemaMode: AgentCapabilityMo
       }),
       db_schema: createTool({
         description: "Describe the configured ViteHub database schema.",
-        execute: () => readDatabaseSchema(database, databaseName),
+        execute: async () => await readDatabaseSchema(database, databaseName),
         name: "db_schema",
       }),
     }

@@ -128,7 +128,18 @@ function stripSqlComments(statement: string) {
 
 function isReadOnlyPragma(statement: string) {
   const match = /^\s*pragma\s+(?:(?:main|temp)\.)?([a-z_]+)\s*(?:\([^)]*\))?\s*$/i.exec(statement)
-  return match ? ["foreign_key_list", "index_list", "table_info"].includes(match[1]!.toLowerCase()) : false
+  return match
+    ? [
+        "foreign_key_check",
+        "foreign_key_list",
+        "index_info",
+        "index_list",
+        "index_xinfo",
+        "table_info",
+        "table_list",
+        "table_xinfo",
+      ].includes(match[1]!.toLowerCase())
+    : false
 }
 
 function topLevelSqlKind(normalized: string): "data" | "read" | "schema" | undefined {
