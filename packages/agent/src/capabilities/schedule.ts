@@ -178,7 +178,6 @@ const runtimeScheduleReadInputSchema = jsonObjectSchema({
 })
 
 const runtimeScheduleEditInputSchema = {
-  additionalProperties: false,
   oneOf: [
     jsonObjectSchema({
       cron: runtimeScheduleCronSchema,

@@ -114,7 +114,6 @@ describe("storage capabilities", () => {
     })
 
     expect(tools.schedule_edit!.inputSchema).toMatchObject({
-      additionalProperties: false,
       oneOf: expect.arrayContaining([
         expect.objectContaining({
           additionalProperties: false,
