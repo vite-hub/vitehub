@@ -1,5 +1,6 @@
 import { defu } from "defu"
 
+import { normalizeHosting } from "@vitehub/internal/feature-bridge/hosting"
 import { isPlainObject } from "@vitehub/internal/object"
 
 import type { OpenWorkflowPostgresOptions, OpenWorkflowWorkerOptions, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowSharedOptions } from "./types.ts"
@@ -9,10 +10,6 @@ interface WorkflowResolutionInput {
 }
 
 const knownProviders = new Set(["cloudflare", "openworkflow", "vercel"])
-
-function normalizeHosting(hosting: string | undefined): string {
-  return hosting?.trim().toLowerCase().replaceAll("_", "-") || ""
-}
 
 function readString(value: unknown, label: string): string | undefined {
   if (typeof value === "undefined") {

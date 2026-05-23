@@ -34,7 +34,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
     },
     streaming: false,
     timeout: {
-      enforcedBy: "runtime",
+      enforcedBy: "provider",
       supported: true,
     },
   }
@@ -43,19 +43,21 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
     analyze: analyzeShellCommand,
     boundary,
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
-      const { Bash } = await import("just-bash/browser")
-      const bash = new Bash({
-        commands: options.commands as CommandName[] | undefined,
-        cwd: options.cwd,
-        fs: options.fs,
-      })
-      const signal = typeof execOptions.timeout === "number"
-        ? AbortSignal.timeout(execOptions.timeout)
-        : undefined
-      const result = await bash.exec(command, {
-        cwd: execOptions.cwd,
-        env: execOptions.env,
-        signal,
+      const result = await withProviderTimeout(command, execOptions, async () => {
+        const { Bash } = await import("just-bash/browser")
+        const bash = new Bash({
+          commands: options.commands as CommandName[] | undefined,
+          cwd: options.cwd,
+          fs: options.fs,
+        })
+        const signal = typeof execOptions.timeout === "number"
+          ? AbortSignal.timeout(execOptions.timeout)
+          : undefined
+        return await bash.exec(command, {
+          cwd: execOptions.cwd,
+          env: execOptions.env,
+          signal,
+        })
       })
       execOptions.onStdout?.(result.stdout)
       execOptions.onStderr?.(result.stderr)
@@ -68,5 +70,29 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
         stdout: result.stdout,
       }
     },
+  }
+}
+
+async function withProviderTimeout<T extends { exitCode: number, stderr: string, stdout: string }>(
+  command: string,
+  options: ShellRuntimeExecOptions,
+  run: () => Promise<T>,
+): Promise<T | { exitCode: null, stderr: string, stdout: string }> {
+  if (typeof options.timeout !== "number") return await run()
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      run(),
+      new Promise<{ exitCode: null, stderr: string, stdout: string }>((resolve) => {
+        timeout = setTimeout(() => resolve({
+          exitCode: null,
+          stderr: `[vitehub] Workspace shell command timed out after ${options.timeout}ms.`,
+          stdout: "",
+        }), options.timeout)
+      }),
+    ])
+  }
+  finally {
+    if (timeout) clearTimeout(timeout)
   }
 }

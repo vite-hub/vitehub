@@ -8,7 +8,7 @@ import { gzipSync } from "node:zlib"
 import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { collectWorkspaceAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
+import { collectWorkspaceStoreAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build-assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build-integration.ts"
 import { defineWorkspace, loader, publish, registerWorkspace, useWorkspace } from "../src/index.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
@@ -16,7 +16,7 @@ import { useRegisteredWorkspace } from "../src/registry.ts"
 import * as source from "../src/source.ts"
 import { createLocalWorkspaceStore } from "../src/stores/local.ts"
 import { createMemoryWorkspaceStore } from "../src/stores/memory.ts"
-import type { Workspace, WorkspaceDefinition } from "../src/types.ts"
+import type { WorkspaceDefinition, WorkspaceStore } from "../src/types.ts"
 
 const tempDirs: string[] = []
 
@@ -806,18 +806,19 @@ describe("sources, loaders, and publishers", () => {
   it("writes lazy workspace asset modules for text and binary files", async () => {
     const root = await createRoot()
     const registryFile = join(root, ".vitehub/assets/registry.mjs")
-    registerWorkspace("asset-bundle", defineWorkspace({
+    const definition = defineWorkspace({
       rootDir: root,
       store: { provider: "memory" },
       sources: {
         docs: source.file({ content: "hello\n", workspacePath: "README.md" }),
         data: source.file({ content: new Uint8Array([1, 2, 3]), workspacePath: "data.bin" }),
       },
-    }))
+    })
+    registerWorkspace("asset-bundle", definition)
 
-    const workspace = await useRegisteredWorkspace("asset-bundle")
-    await workspace.sync()
-    await writeWorkspaceAssetsRegistry(registryFile, [await collectWorkspaceAssetBundle(workspace)])
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({ ...definition, name: "asset-bundle", store }, store)
+    await writeWorkspaceAssetsRegistry(registryFile, [await collectWorkspaceStoreAssetBundle("asset-bundle", store)])
 
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
 
@@ -839,8 +840,8 @@ describe("sources, loaders, and publishers", () => {
       async readFile() {
         return "escape"
       },
-    } as unknown as Workspace
+    } as unknown as WorkspaceStore
 
-    await expect(collectWorkspaceAssetBundle(workspace)).rejects.toThrow("escapes the workspace root")
+    await expect(collectWorkspaceStoreAssetBundle("unsafe", workspace)).rejects.toThrow("escapes the workspace root")
   })
 })
