@@ -1,0 +1,46 @@
+{
+  "name": "@vitehub/schedule",
+  "version": "0.0.0",
+  "description": "Schedule primitives and definition discovery for ViteHub.",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/schedule"
+  },
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "keywords": [
+    "vitehub",
+    "vite",
+    "nitro",
+    "schedule",
+    "cron"
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsdown --tsconfig tsconfig.build.json",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "pnpm --dir . build && vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitehub/internal": "workspace:*",
+    "publint": "^0.3.15",
+    "tsdown": "^0.21.8",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
