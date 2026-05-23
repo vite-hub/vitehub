@@ -1,6 +1,7 @@
 import { WorkspaceError } from "./errors.ts"
 import { decodeFile, matchesAny, normalizeWorkspacePath } from "./path.ts"
 import { createWorkspaceWritePolicy } from "./rules.ts"
+import { searchText } from "./search.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./source-config.ts"
 import {
   hasCurrentSourceSnapshot,
@@ -156,9 +157,25 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
 
     for (const source of sources) {
-      if (source.livePaths) continue
       const paths = sourcePaths.get(source.key)
       if (query.paths?.length && !paths?.length) continue
+      if (source.livePaths) {
+        await ensurePrepared(source.key)
+        const liveEntries = liveSourceEntries(source)
+          .filter(entry => entry.type === "file")
+          .filter(entry => !paths?.length || paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`)))
+        for (const entry of liveEntries) {
+          const sourcePath = source.livePaths[entry.path]
+          if (typeof sourcePath !== "string") continue
+          const item = await source.source.getItem(sourcePath, sourceContext)
+          const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
+          const text = typeof content === "string" ? content : new TextDecoder().decode(content)
+          results.push(...searchText(entry.path, text, { ...query, limit: limit - results.length }))
+          if (results.length >= limit) break
+        }
+        if (results.length >= limit) break
+        continue
+      }
       await ensureMaterialized(source.key)
       results.push(...await searchMaterializedStore(store, {
         ...query,
@@ -359,6 +376,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (file?.metadata?.source === source.key) result.delete(path)
         continue
       }
+      if (!source.mountPath) continue
       if (![...allowed].some(allowedPath => allowedPath.startsWith(`${path}/`))) {
         result.delete(path)
       }

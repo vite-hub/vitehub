@@ -197,4 +197,43 @@ describe("fetch sources", () => {
       { path: "status/new.json", type: "file" },
     ])
   })
+
+  it("searches live fetch source content", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "searchable" }))
+    const view = createWorkspaceSourceView({
+      name: "fetch-search",
+      sources: {
+        status: source.fetch({
+          path: "status/search.json",
+          url: "https://status.example.com/search",
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.search({ pattern: "searchable", paths: ["status"] })).resolves.toEqual([
+      expect.objectContaining({ path: "status/search.json", text: expect.stringContaining("searchable") }),
+    ])
+  })
+
+  it("keeps unrelated root store entries visible beside root live fetch sources", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("docs/readme.md", {
+      content: "# Docs\n",
+      path: "docs/readme.md",
+    })
+    const view = createWorkspaceSourceView({
+      name: "fetch-root-listing",
+      sources: {
+        status: source.fetch({
+          path: "summary.json",
+          url: "https://status.example.com/summary",
+        }),
+      },
+    }, store)
+
+    await expect(view.list("")).resolves.toEqual(expect.arrayContaining([
+      { path: "docs", type: "directory" },
+      { path: "summary.json", type: "file" },
+    ]))
+  })
 })
