@@ -71,6 +71,34 @@ describe("storage capabilities", () => {
     await expect(allowed.schedule_edit!.execute?.({ cron: "0 9 * * *", operation: "create", target: "agent/daily" })).resolves.toMatchObject({ target: "agent/daily" })
   })
 
+  it("applies self-target permissions to Runtime Schedule list results", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+    const records = [
+      { cron: "0 9 * * *", enabled: true, id: "own", target: "agent/daily" },
+      { cron: "0 10 * * *", enabled: true, id: "reports", target: "reports" },
+    ]
+    const tools = await resolveTools([schedule({ mode: "read", selfTarget: "agent/daily", targets: ["agent/daily", "reports"] })], {
+      schedule: {
+        get: vi.fn(),
+        list: vi.fn(async () => records),
+      },
+    })
+
+    await expect(tools.schedule_read!.execute?.({ operation: "list" })).resolves.toEqual([records[1]])
+  })
+
+  it("accepts read-only Runtime Schedule clients in read mode", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+    const tools = await resolveTools([schedule({ mode: "read", targets: ["reports"] })], {
+      schedule: {
+        get: vi.fn(),
+        list: vi.fn(async () => []),
+      },
+    })
+
+    expect(Object.keys(tools)).toEqual(["schedule_read"])
+  })
+
   it("uses strict Runtime Schedule tool schemas", async () => {
     const { schedule } = await import("../src/capabilities.ts")
     const tools = await resolveTools([schedule({ mode: "write", targets: ["reports"] })], {

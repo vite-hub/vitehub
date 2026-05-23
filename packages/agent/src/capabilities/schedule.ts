@@ -67,14 +67,16 @@ type NormalizedRuntimeScheduleCapabilityOptions = Omit<RuntimeScheduleCapability
   targets?: readonly string[]
 }
 
-function scheduleClient(context: AgentCapabilityContext): RuntimeScheduleClientLike {
+function scheduleClient(context: AgentCapabilityContext, mode: AgentCapabilityMode): RuntimeScheduleClientLike {
   const handle = requirePrimitive(context, "schedule")
   const client = typeof handle === "object" && handle !== null && "schedules" in handle
     ? (handle as { schedules?: unknown }).schedules
     : handle
-  const methods = ["create", "delete", "disable", "enable", "get", "list", "update"] as const
+  const methods = mode === "write"
+    ? ["create", "delete", "disable", "enable", "get", "list", "update"] as const
+    : ["get", "list"] as const
   if (!client || typeof client !== "object" || methods.some(method => typeof (client as Record<string, unknown>)[method] !== "function")) {
-    throw new Error("[vitehub] schedule primitive must expose the Runtime Schedule client methods.")
+    throw new Error(`[vitehub] schedule primitive must expose the Runtime Schedule ${mode} client methods.`)
   }
   return client as RuntimeScheduleClientLike
 }
@@ -148,12 +150,19 @@ function assertRuntimeScheduleInputKeys(input: Record<string, unknown> | undefin
   }
 }
 
-function visibleRuntimeSchedules(records: RuntimeScheduleRecordLike[], options: Pick<RuntimeScheduleCapabilityOptions, "targets">): RuntimeScheduleRecordLike[] {
-  if (!options.targets) return records
-  return records.filter(record => options.targets!.includes(record.target))
+function visibleRuntimeSchedules(records: RuntimeScheduleRecordLike[], options: Pick<RuntimeScheduleCapabilityOptions, "allowSelfTarget" | "selfTarget" | "targets">): RuntimeScheduleRecordLike[] {
+  return records.filter((record) => {
+    try {
+      assertAllowedRuntimeScheduleTarget(record.target, options, "schedule_read")
+      return true
+    }
+    catch {
+      return false
+    }
+  })
 }
 
-async function requireScopedRuntimeSchedule(client: RuntimeScheduleClientLike, id: string, options: Pick<RuntimeScheduleCapabilityOptions, "targets">): Promise<RuntimeScheduleRecordLike> {
+async function requireScopedRuntimeSchedule(client: RuntimeScheduleClientLike, id: string, options: Pick<RuntimeScheduleCapabilityOptions, "allowSelfTarget" | "selfTarget" | "targets">): Promise<RuntimeScheduleRecordLike> {
   const record = await client.get(id)
   if (!record) throw new Error(`[vitehub] Runtime Schedule not found: ${id}`)
   assertAllowedRuntimeScheduleTarget(record.target, options, "schedule_edit")
@@ -194,7 +203,7 @@ const runtimeScheduleEditInputSchema = {
 
 function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOptions): AgentCapabilityDefinition["tools"] {
   return (context) => {
-    const client = scheduleClient(context as never)
+    const client = scheduleClient(context as never, options.mode)
     const tools: AgentToolSet = {
       schedule_read: createTool<RuntimeScheduleReadInput>({
         description: "Read visible Runtime Schedules or the Schedule Capability target allowlist.",
