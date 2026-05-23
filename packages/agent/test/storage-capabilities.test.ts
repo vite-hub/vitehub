@@ -15,6 +15,92 @@ async function resolveTools(capabilities: unknown[], handles: Record<string, unk
 }
 
 describe("storage capabilities", () => {
+  it("exposes scoped Runtime Schedule read and edit tools", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+    const records = [
+      { createdAt: new Date("2026-05-23T00:00:00.000Z"), cron: "0 9 * * *", enabled: true, id: "daily", target: "reports", updatedAt: new Date("2026-05-23T00:00:00.000Z") },
+      { createdAt: new Date("2026-05-23T00:00:00.000Z"), cron: "0 10 * * *", enabled: true, id: "private", target: "private", updatedAt: new Date("2026-05-23T00:00:00.000Z") },
+    ]
+    const schedules = {
+      create: vi.fn(async input => ({ ...input, createdAt: new Date("2026-05-23T00:00:00.000Z"), enabled: input.enabled ?? true, id: input.id || "created", updatedAt: new Date("2026-05-23T00:00:00.000Z") })),
+      delete: vi.fn(async () => true),
+      disable: vi.fn(async id => ({ ...records.find(record => record.id === id)!, enabled: false })),
+      enable: vi.fn(async id => ({ ...records.find(record => record.id === id)!, enabled: true })),
+      get: vi.fn(async id => records.find(record => record.id === id)),
+      list: vi.fn(async () => records),
+      update: vi.fn(async (id, input) => ({ ...records.find(record => record.id === id)!, ...input })),
+    }
+
+    await expect(resolveTools([schedule({ mode: "read", targets: ["reports"] })], { schedule: { schedules } }).then(tools => Object.keys(tools).sort())).resolves.toEqual(["schedule_read"])
+
+    const tools = await resolveTools([schedule({ mode: "write", policy: "allow", targets: ["reports"] })], { schedule: { schedules } })
+    expect(Object.keys(tools).sort()).toEqual(["schedule_edit", "schedule_read"])
+    expect(tools.schedule_edit?.policy).toBe("allow")
+
+    await expect(tools.schedule_read!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: ["reports"] })
+    await expect(tools.schedule_read!.execute?.({ operation: "list" })).resolves.toEqual([records[0]])
+    await expect(tools.schedule_read!.execute?.({ id: "daily", operation: "get" })).resolves.toEqual(records[0])
+    await expect(tools.schedule_read!.execute?.({ id: "private", operation: "get" })).rejects.toThrow("allowlist")
+
+    await tools.schedule_edit!.execute?.({ cron: "15 9 * * *", id: "new-daily", operation: "create", target: "reports" })
+    expect(schedules.create).toHaveBeenCalledWith({ cron: "15 9 * * *", enabled: undefined, id: "new-daily", target: "reports" })
+
+    await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", operation: "create", target: "private" })).rejects.toThrow("allowlist")
+    await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timezone: "UTC" } as never)).rejects.toThrow()
+    await tools.schedule_edit!.execute?.({ cron: "30 9 * * *", id: "daily", operation: "update" })
+    expect(schedules.update).toHaveBeenCalledWith("daily", { cron: "30 9 * * *", enabled: undefined, target: undefined })
+    await expect(tools.schedule_edit!.execute?.({ id: "private", operation: "delete" })).rejects.toThrow("allowlist")
+  })
+
+  it("blocks self-targeting Runtime Schedules unless explicitly allowed", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+    const schedules = {
+      create: vi.fn(async input => input),
+      delete: vi.fn(),
+      disable: vi.fn(),
+      enable: vi.fn(),
+      get: vi.fn(),
+      list: vi.fn(async () => []),
+      update: vi.fn(),
+    }
+
+    const blocked = await resolveTools([schedule({ mode: "write", selfTarget: "agent/daily", targets: ["agent/daily"] })], { schedule: schedules })
+    await expect(blocked.schedule_edit!.execute?.({ cron: "0 9 * * *", operation: "create", target: "agent/daily" })).rejects.toThrow("Self Schedule Permission")
+
+    const allowed = await resolveTools([schedule({ allowSelfTarget: true, mode: "write", selfTarget: "agent/daily", targets: ["agent/daily"] })], { schedule: schedules })
+    await expect(allowed.schedule_edit!.execute?.({ cron: "0 9 * * *", operation: "create", target: "agent/daily" })).resolves.toMatchObject({ target: "agent/daily" })
+  })
+
+  it("uses strict Runtime Schedule tool schemas", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+    const tools = await resolveTools([schedule({ mode: "write", targets: ["reports"] })], {
+      schedule: {
+        create: vi.fn(),
+        delete: vi.fn(),
+        disable: vi.fn(),
+        enable: vi.fn(),
+        get: vi.fn(),
+        list: vi.fn(),
+        update: vi.fn(),
+      },
+    })
+
+    expect(tools.schedule_edit!.inputSchema).toMatchObject({
+      additionalProperties: false,
+      oneOf: expect.arrayContaining([
+        expect.objectContaining({
+          additionalProperties: false,
+          properties: expect.not.objectContaining({
+            at: expect.anything(),
+            every: expect.anything(),
+            policy: expect.anything(),
+            timezone: expect.anything(),
+          }),
+        }),
+      ]),
+    })
+  })
+
   it("exposes curated KV read and edit tools", async () => {
     const { kv } = await import("../src/capabilities.ts")
     const store = {

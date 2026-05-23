@@ -7,6 +7,10 @@ import {
   normalizeMode,
 } from "./capability-runtime.ts"
 import {
+  isRuntimeScheduleOptions,
+  runtimeScheduleCapability,
+} from "./capabilities/schedule.ts"
+import {
   appendMessageText,
   getMessageText,
   validateMessage,
@@ -23,6 +27,7 @@ import type {
   MaybePromise,
 } from "./types.ts"
 import type { AudioPart, Message } from "./messages.ts"
+import type { RuntimeScheduleCapabilityOptions } from "./capabilities/schedule.ts"
 
 type AiSdkTranscribe = typeof import("ai")["experimental_transcribe"]
 type AiSdkTranscribeOptions = Omit<Parameters<AiSdkTranscribe>[0], "abortSignal" | "audio">
@@ -221,7 +226,13 @@ function normalizeAgentScheduleEntries(entries: unknown): AgentScheduleCapabilit
   })
 }
 
-export function schedule(options: AgentScheduleCapabilityOptions): AgentCapabilityDefinition {
+export function schedule(options: AgentScheduleCapabilityOptions): AgentCapabilityDefinition
+export function schedule<const TTarget extends string>(options: RuntimeScheduleCapabilityOptions<TTarget>): AgentCapabilityDefinition
+export function schedule(options: AgentScheduleCapabilityOptions | RuntimeScheduleCapabilityOptions): AgentCapabilityDefinition {
+  if (isRuntimeScheduleOptions(options)) {
+    return runtimeScheduleCapability(options)
+  }
+
   const schedules = normalizeAgentScheduleEntries(options?.schedules)
   return defineCapability({
     id: "schedule",
@@ -685,6 +696,11 @@ export {
   webSearch,
 } from "./capabilities/web-search/index.ts"
 
+export type {
+  RuntimeScheduleCapabilityMetadata,
+  RuntimeScheduleCapabilityOptions,
+  ScheduleCapabilityToolPolicy,
+} from "./capabilities/schedule.ts"
 export type {
   BlobCapabilityOptions,
   DBCapabilityOptions,
