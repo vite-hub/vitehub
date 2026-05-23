@@ -60,7 +60,7 @@ function fileCommandPathArguments(words: string[]) {
     }
     if (isShellOperator(arg)) break
     if (arg.startsWith("-")) {
-      if (takesFileCommandOptionValue(arg)) index += 1
+      if (takesFileCommandOptionValue(words[0]!, arg)) index += 1
       continue
     }
     paths.push(arg)
@@ -169,14 +169,17 @@ function takesInlineSearchPatternOptionValue(arg: string) {
     || (arg.startsWith("-f") && arg !== "-f")
 }
 
-function takesFileCommandOptionValue(arg: string) {
-  return arg === "-c"
-    || arg === "-I"
-    || arg === "-n"
-    || arg === "--bytes"
-    || arg === "--ignore"
-    || arg === "--lines"
-    || takesOptionValue(arg)
+function takesFileCommandOptionValue(command: string, arg: string) {
+  if (command === "head" || command === "tail") {
+    return arg === "-c"
+      || arg === "-n"
+      || arg === "--bytes"
+      || arg === "--lines"
+  }
+  if (command === "ls") {
+    return arg === "-I" || arg === "--ignore"
+  }
+  return false
 }
 
 function pathArgumentsUntilShellBoundary(args: string[]) {

@@ -673,6 +673,22 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: expect.not.stringContaining("Workspace path is not mounted"),
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "ls -A missing-dir", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stdout: expect.stringContaining("Workspace path is not mounted: missing-dir"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat -n missing.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stdout: expect.stringContaining("Workspace path is not mounted: missing.md"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "cat ./orders.sql", {
       commands: ["cat"],
       cwd: "/workspace/models",
