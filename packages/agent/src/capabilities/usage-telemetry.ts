@@ -178,7 +178,6 @@ function removeRawUsage(usage: AgentUsage): AgentUsage {
 export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabilityDefinition {
   return defineCapability({
     id: "usage-telemetry",
-    name: "Usage Telemetry",
     output(context) {
       context.finish.provide((event: AgentFinishEvent) => isRecord(event.result)
         ? event.result.usageRecord

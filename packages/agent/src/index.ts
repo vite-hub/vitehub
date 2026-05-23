@@ -323,7 +323,6 @@ function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtools
   return capability.tools
     ? {
         category: "capability",
-        description: capability.description,
         icon: "i-lucide-wrench",
         name: capability.id,
         status: "available",
@@ -347,7 +346,6 @@ export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
       chat: options,
       kind: "chat",
     } satisfies ChatCapabilityMetadata<TRuntimeConfig>,
-    name: "Chat",
     prepare(context) {
       context.state.require("chat-history", { optional: true })
     },
