@@ -601,6 +601,15 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: "select * from customers\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "grep -T customer models/customers.sql", {
+      commands: ["grep"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "grep -ecustomer models/customers.sql", {
       commands: ["grep"],
       cwd: workspaceMountPoint,

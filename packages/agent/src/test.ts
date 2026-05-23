@@ -141,14 +141,7 @@ function hasWorkspaceGuardrail(output: unknown) {
 function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
   return (step.toolResults || []).filter((result) => {
     if (!isWorkspaceShellObservationResult(result)) return false
-    if (hasWorkspaceGuardrail(result.output)) return true
-    const output = typeof result.output === "string"
-      ? result.output
-      : safeStringify(result.output)
-    return output.includes("Workspace search is too broad")
-      || output.includes("Workspace path is not mounted")
-      || output.includes("Search returned no matches")
-      || output.includes("Workspace shell command timed out")
+    return hasWorkspaceGuardrail(result.output)
   }).length
 }
 

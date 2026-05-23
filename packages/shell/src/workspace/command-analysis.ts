@@ -23,7 +23,7 @@ function shellPathArguments(words: string[]) {
   switch (words[0]) {
     case "rg":
     case "grep":
-      return commandPathArguments(words)
+      return commandPathArguments(words[0], words)
     case "find":
       return findPathArguments(words)
     case "cat":
@@ -80,7 +80,7 @@ function isFindLeadingOption(arg: string) {
   return arg === "-H" || arg === "-L" || arg === "-P"
 }
 
-function commandPathArguments(words: string[]) {
+function commandPathArguments(command: string, words: string[]) {
   const args = words.slice(1)
   const paths: string[] = []
   let sawPattern = false
@@ -92,11 +92,11 @@ function commandPathArguments(words: string[]) {
     }
     if (isShellOperator(arg) && sawPattern) break
     if (arg.startsWith("-")) {
-      if (takesOptionValue(arg)) {
+      if (takesOptionValue(command, arg)) {
         if (takesSearchPatternOptionValue(arg)) sawPattern = true
         index += 1
       }
-      else if (takesInlineOptionValue(arg)) {
+      else if (takesInlineOptionValue(command, arg)) {
         continue
       }
       else if (takesInlineSearchPatternOptionValue(arg)) {
@@ -118,38 +118,44 @@ function searchPathArgumentsAfterTerminator(args: string[], sawPattern: boolean)
   return pathArgumentsUntilShellBoundary(args.slice(1))
 }
 
-function takesOptionValue(arg: string) {
-  return [
+function takesOptionValue(command: string, arg: string) {
+  const grepOptions = [
     "-A",
     "-B",
     "-C",
     "-e",
     "-f",
-    "-g",
     "-m",
     "-d",
-    "-T",
-    "-t",
     "--after-context",
     "--before-context",
     "--context",
     "--directories",
+    "--max-count",
+    "--regexp",
+  ]
+  const rgOptions = [
+    ...grepOptions,
+    "-g",
+    "-t",
+    "-T",
     "--glob",
     "--ignore-file",
-    "--max-count",
     "--max-depth",
     "--max-filesize",
-    "--regexp",
     "--type",
     "--type-add",
     "--type-clear",
     "--type-not",
-  ].includes(arg)
+  ]
+  return (command === "grep" ? grepOptions : rgOptions).includes(arg)
 }
 
-function takesInlineOptionValue(arg: string) {
-  return (arg.startsWith("-d") && arg !== "-d")
+function takesInlineOptionValue(command: string, arg: string) {
+  const shared = (arg.startsWith("-d") && arg !== "-d")
     || arg.startsWith("--directories=")
+  if (command === "grep") return shared
+  return shared
     || arg.startsWith("--ignore-file=")
     || arg.startsWith("--max-depth=")
     || arg.startsWith("--max-filesize=")
@@ -253,7 +259,7 @@ function hasRecursiveGrepFlag(words: string[]) {
     if (arg === "--recursive" || arg === "-r" || arg === "-R") return true
     if (arg === "--directories" || arg === "-d") return args[index + 1] === "recurse"
     if (arg === "--directories=recurse" || arg === "-drecurse") return true
-    if (takesOptionValue(arg)) {
+    if (takesOptionValue("grep", arg)) {
       index += 1
       continue
     }
