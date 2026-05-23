@@ -163,7 +163,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await ensurePrepared(source.key)
         const liveEntries = liveSourceEntries(source)
           .filter(entry => entry.type === "file")
-          .filter(entry => !paths?.length || paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`)))
+          .filter(entry => !paths?.length || paths.some(path => !path || entry.path === path || entry.path.startsWith(`${path}/`)))
         for (const entry of liveEntries) {
           const sourcePath = source.livePaths[entry.path]
           if (typeof sourcePath !== "string") continue

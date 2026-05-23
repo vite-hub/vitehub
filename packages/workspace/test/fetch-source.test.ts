@@ -213,6 +213,9 @@ describe("fetch sources", () => {
     await expect(view.search({ pattern: "searchable", paths: ["status"] })).resolves.toEqual([
       expect.objectContaining({ path: "status/search.json", text: expect.stringContaining("searchable") }),
     ])
+    await expect(view.search({ pattern: "searchable", paths: [""] })).resolves.toEqual([
+      expect.objectContaining({ path: "status/search.json", text: expect.stringContaining("searchable") }),
+    ])
   })
 
   it("keeps unrelated root store entries visible beside root live fetch sources", async () => {
