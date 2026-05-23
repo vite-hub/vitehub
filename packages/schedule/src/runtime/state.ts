@@ -14,6 +14,7 @@ function isScheduleDefinition(value: unknown): value is ScheduleDefinition {
 export function setScheduleRuntimeRegistry(registry: ScheduleDefinitionRegistry | undefined): void {
   runtimeRegistry = registry
   loadedRegistryEntries.clear()
+  loadingRegistryEntries.clear()
 }
 
 export function getScheduleRuntimeRegistry(): ScheduleDefinitionRegistry | undefined {

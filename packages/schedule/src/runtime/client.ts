@@ -121,6 +121,13 @@ async function assertRuntimeTarget(target: ScheduleTargetName): Promise<void> {
 async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<void> {
   await assertRuntimeTarget(input.target)
   validateRuntimeScheduleCron(input.cron)
+  if (input.id !== undefined && !input.id.trim()) {
+    throw new ScheduleError("Runtime Schedule id must be a non-empty string when provided.", {
+      code: "SCHEDULE_INVALID_ID",
+      details: { id: input.id },
+      httpStatus: 400,
+    })
+  }
 }
 
 async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<void> {
@@ -156,7 +163,7 @@ export const schedules = {
       createdAt: now,
       cron: input.cron,
       enabled: input.enabled ?? true,
-      id: input.id || randomId("sched"),
+      id: input.id ?? randomId("sched"),
       target: input.target,
       updatedAt: now,
     })

@@ -77,6 +77,20 @@ describe("Runtime Schedule helper", () => {
     })
   })
 
+  it("rejects explicitly empty ids", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await expect(schedules.create({ cron: "0 9 * * *", id: "", target: "report" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_ID",
+    })
+  })
+
   it("fails clearly for unknown targets", async () => {
     await expect(schedules.create({ cron: "0 9 * * *", target: "missing" })).rejects.toMatchObject({
       code: "SCHEDULE_TARGET_NOT_FOUND",
