@@ -121,10 +121,17 @@ async function assertRuntimeTarget(target: ScheduleTargetName): Promise<void> {
 async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<void> {
   await assertRuntimeTarget(input.target)
   validateRuntimeScheduleCron(input.cron)
-  if (input.id !== undefined && !input.id.trim()) {
+  if (input.id !== undefined && (typeof input.id !== "string" || !input.id.trim())) {
     throw new ScheduleError("Runtime Schedule id must be a non-empty string when provided.", {
       code: "SCHEDULE_INVALID_ID",
       details: { id: input.id },
+      httpStatus: 400,
+    })
+  }
+  if (input.enabled !== undefined && typeof input.enabled !== "boolean") {
+    throw new ScheduleError("Runtime Schedule enabled must be a boolean when provided.", {
+      code: "SCHEDULE_INVALID_ENABLED",
+      details: { enabled: input.enabled },
       httpStatus: 400,
     })
   }
@@ -136,6 +143,13 @@ async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<v
   }
   if (input.cron !== undefined) {
     validateRuntimeScheduleCron(input.cron)
+  }
+  if (input.enabled !== undefined && typeof input.enabled !== "boolean") {
+    throw new ScheduleError("Runtime Schedule enabled must be a boolean when provided.", {
+      code: "SCHEDULE_INVALID_ENABLED",
+      details: { enabled: input.enabled },
+      httpStatus: 400,
+    })
   }
 }
 

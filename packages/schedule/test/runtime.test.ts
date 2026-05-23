@@ -104,6 +104,28 @@ describe("Runtime Schedule helper", () => {
     await expect(schedules.create({ cron: "0 9 * * *", id: "", target: "report" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_ID",
     })
+    await expect(schedules.create({ cron: "0 9 * * *", id: 123 as never, target: "report" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_ID",
+    })
+  })
+
+  it("rejects non-boolean enabled flags", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await expect(schedules.create({ cron: "0 9 * * *", enabled: "false" as never, target: "report" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_ENABLED",
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.update("schedule-1", { enabled: "false" as never })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_ENABLED",
+    })
   })
 
   it("fails clearly for unknown targets", async () => {
