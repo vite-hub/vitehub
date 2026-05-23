@@ -523,13 +523,6 @@ async function resolveFetchToolRequest(options: FetchCapabilityToolOptions, inpu
   }
 }
 
-export function mcp(options: { servers?: Record<string, unknown> } = {}): AgentCapabilityDefinition {
-  return defineCapability({
-    id: "mcp",
-    metadata: { servers: options.servers || {} },
-  })
-}
-
 export {
   blob,
   db,
