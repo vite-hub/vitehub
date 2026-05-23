@@ -119,3 +119,7 @@ rules = { "unused-class-members" = "off" }
 [[overrides]]
 files = ["packages/workspace/src/storage/memory-fs.ts"]
 rules = { "unused-class-members" = "off" }
+
+[[overrides]]
+files = ["packages/shell/test/workspace-test-utils.ts"]
+rules = { "unused-class-members" = "off" }

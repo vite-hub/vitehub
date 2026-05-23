@@ -262,7 +262,7 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { blob, db, kv, mcp, sandbox, skills, workspaceShell } from "./capabilities.ts"
+export { blob, db, inputCommands, kv, mcp, sandbox, skills, workspaceShell } from "./capabilities.ts"
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -362,6 +362,11 @@ export {
   usageTelemetry,
   vercelAiGatewayPricing,
 } from "./capabilities/usage-telemetry.ts"
+export type {
+  InputCommand,
+  InputCommandRunInput,
+  InputCommandsOptions,
+} from "./capabilities.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,

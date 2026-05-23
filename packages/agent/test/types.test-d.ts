@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
-import { blob, db, kv, sandbox, skills, workspaceShell } from "../src/capabilities.ts"
+import { defineAgent, inputCommands as rootInputCommands, type AgentRuntimeContext } from "../src/index.ts"
+import { blob, db, inputCommands, kv, sandbox, skills, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import type { AgentUsageRecord } from "../src/index.ts"
 
@@ -12,6 +12,14 @@ describe("agent public types", () => {
         workspaceShell(),
         blob({ mode: "write", policy: () => "allow", store: "assets" }),
         db({ database: "analytics", mode: "write", policy: "allow", schemaMode: "write" }),
+        inputCommands({
+          commands: {
+            review: {
+              description: "Review the request.",
+              run: ({ args }) => `review:${args}`,
+            },
+          },
+        }),
         kv({ mode: "write", policy: "require-approval", store: "chat" }),
         skills(),
         sandbox({ commands: ["node"] }),
@@ -93,6 +101,24 @@ describe("agent public types", () => {
       model: {} as never,
       // @ts-expect-error adapter settings belong under adapterOptions
       temperature: 0.2,
+    })
+
+    inputCommands({
+      commands: {
+        // @ts-expect-error input commands require user-facing descriptions
+        review: {
+          run: () => undefined,
+        },
+      },
+    })
+
+    rootInputCommands({
+      commands: {
+        review: {
+          description: "Review the request.",
+          run: () => undefined,
+        },
+      },
     })
   })
 
