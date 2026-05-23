@@ -13,6 +13,7 @@ import type {
   AgentFinishExtensionProvider,
   AgentInstructionBlock,
   AgentOutputRenderer,
+  AgentProviderToolContribution,
   AgentRunInput,
   AgentRuntimeConfig,
   AgentToolSet,
@@ -33,6 +34,7 @@ export interface ResolvedAgentFinishExtensionProvider {
 export interface AgentCapabilityRegistries {
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   outputRenderers: ResolvedAgentOutputRenderer[]
+  providerTools: AgentProviderToolContribution[]
   stateRequirements: Array<{ name: string, optional?: boolean }>
 }
 
@@ -193,6 +195,7 @@ export async function resolveAgentCapabilities<
   const registries: AgentCapabilityRegistries = {
     finishExtensionProviders: [],
     outputRenderers: [],
+    providerTools: [],
     stateRequirements: [],
   }
 
@@ -238,6 +241,11 @@ export async function resolveAgentCapabilities<
         output: {
           render(renderer: AgentOutputRenderer) {
             registries.outputRenderers.push(result => renderer(result, capabilityContext))
+          },
+        },
+        providerTools: {
+          add(tool) {
+            registries.providerTools.push(tool)
           },
         },
         finish: {

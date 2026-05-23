@@ -182,6 +182,9 @@ export {
   usageTelemetry,
   vercelAiGatewayPricing,
 } from "./capabilities/usage-telemetry.ts"
+export {
+  webSearch,
+} from "./capabilities/web-search/index.ts"
 
 export type {
   MemoryAppendRequest,
@@ -208,3 +211,17 @@ export type {
   UsageTelemetryOptions,
   VercelAiGatewayPricingOptions,
 } from "./capabilities/usage-telemetry.ts"
+export type {
+  WebReadToolDefinition,
+  WebReadToolInput,
+  WebReadResult,
+  WebSearchModelModeOptions,
+  WebSearchOptions,
+  WebSearchProvider,
+  WebSearchProviderInput,
+  WebSearchProviderOptions,
+  WebSearchResult,
+  WebSearchToolDefinition,
+  WebSearchToolInput,
+  WebSearchToolModeOptions,
+} from "./capabilities/web-search/index.ts"

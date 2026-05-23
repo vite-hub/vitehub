@@ -126,6 +126,7 @@ export interface AgentRunContext<
   input: AgentRunInput<CALL_OPTIONS>
   messages: Message[]
   prompt?: string
+  providerTools?: AgentProviderToolContribution[]
   tools?: AgentToolSet
 }
 
@@ -180,6 +181,11 @@ export interface AgentInstructionBlock {
 }
 
 export type AgentToolTransform = (tools: AgentToolSet | undefined) => MaybePromise<AgentToolSet | undefined>
+export interface AgentProviderToolContribution {
+  args?: Record<string, unknown>
+  id: `${string}.${string}`
+  name: string
+}
 export type AgentOutputRenderer = (
   result: unknown,
   context: AgentCapabilityRuntimeContext,
@@ -212,6 +218,9 @@ export interface AgentCapabilityRuntimeContext<
   }
   output: {
     render: (renderer: AgentOutputRenderer) => void
+  }
+  providerTools: {
+    add: (tool: AgentProviderToolContribution) => void
   }
   finish: {
     provide: (value: unknown | AgentFinishExtensionProvider) => void
@@ -599,6 +608,7 @@ export interface AgentAdapterRunContext<
   messages: Message[]
   outputRenderers?: Array<(result: unknown) => MaybePromise<unknown>>
   prompt?: string
+  providerTools?: AgentProviderToolContribution[]
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade<Name>

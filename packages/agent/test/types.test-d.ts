@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
-import { bash, db, kv, sandbox, skills } from "../src/capabilities.ts"
+import { bash, db, kv, sandbox, skills, webSearch } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import type { AgentUsageRecord } from "../src/index.ts"
 
@@ -14,6 +14,8 @@ describe("agent public types", () => {
         kv(),
         skills(),
         sandbox({ commands: ["node"] }),
+        webSearch({ mode: "tool", provider: "exa" }),
+        webSearch({ mode: "model" }),
         {
           id: "custom",
           requires: [{ primitive: "workspace", workspace: { paths: ["CONTEXT.md"], required: true } }],
@@ -26,6 +28,12 @@ describe("agent public types", () => {
       model: {} as never,
       workspace: { mode: "read" },
     })
+
+    // @ts-expect-error web search mode is required
+    webSearch({})
+
+    // @ts-expect-error tool mode requires one explicit provider
+    webSearch({ mode: "tool" })
 
     // @ts-expect-error model agents must select an explicit adapter
     defineAgent({
