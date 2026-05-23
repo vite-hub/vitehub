@@ -14,9 +14,48 @@ import type { DiscoveredScheduleDefinition } from "./types.ts"
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
 function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1")
+  let stripped = ""
+  let quote: string | undefined
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    const next = source[index + 1]
+
+    if (quote) {
+      stripped += char
+      if (char === "\\") {
+        stripped += next ?? ""
+        index++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      stripped += char
+      continue
+    }
+
+    if (char === "/" && next === "/") {
+      while (index < source.length && source[index] !== "\n") index++
+      stripped += "\n"
+      continue
+    }
+
+    if (char === "/" && next === "*") {
+      index += 2
+      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
+        if (source[index] === "\n") stripped += "\n"
+        index++
+      }
+      index++
+      continue
+    }
+
+    stripped += char
+  }
+  return stripped
 }
 
 function readBalancedCall(source: string, openParen: number): string | undefined {
