@@ -28,10 +28,20 @@ _Avoid_: Chat History Capability, Agent Memory
 A Capability that gives an Agent model-facing access to Workspace files through inspect or write tools.
 _Avoid_: Bash, raw workspace tools, built-in tool
 
+**Input Command**:
+A Capability-provided command that transforms or enriches explicit user input before an Agent runs.
+_Avoid_: Slash Command, chat command, shell command, model tool
+
+**Host Command**:
+A host-owned command that changes chat, session, UI, or product state around an Agent.
+_Avoid_: Input Command, Capability, model tool
+
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
 - Official helpers such as `skills()`, `mcp()`, `bash()`, `sandbox()`, `kv()`, `blob()`, and `db()` create **Capability Definitions**.
+- An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
+- A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Workspace Capability** contributes Workspace tools without implying shell access.
 - Chat History is not a standalone **Capability** in the current stack.
@@ -42,11 +52,18 @@ _Avoid_: Bash, raw workspace tools, built-in tool
 - A **Capability** can declare **Capability Requirements**.
 - The **Capability Lifecycle** validates **Capability Requirements** as early as possible.
 - Tools are exposed through **Capability Definitions**, not through top-level Agent Definition fields.
+- An **Input Command** exposes user-facing command descriptions for host rendering without making those descriptions part of command identity.
 
 ## Example Dialogue
 
 > **Dev:** "Should DB access be a raw tool on the agent?"
 > **Domain expert:** "No. Expose it through a **Capability Definition** with requirements and policy."
+>
+> **Dev:** "Is `/review` a chat feature or a shell command?"
+> **Domain expert:** "No. It is an **Input Command** when a Capability transforms the explicit user input before the Agent runs."
+>
+> **Dev:** "Should `/clear` be an Input Command?"
+> **Domain expert:** "No. `/clear` is a **Host Command** because it changes chat or session state instead of Agent run input."
 
 ## Flagged Ambiguities
 
@@ -57,3 +74,6 @@ _Avoid_: Bash, raw workspace tools, built-in tool
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
 - Capability-level name and description were considered separate display metadata - resolved: remove both as a breaking change and use **Capability** id as the only capability-level identity/display field.
+- Slash command was considered as the domain term - resolved: use **Input Command** for the Capability concept because it names the lifecycle position; slash syntax is only the initial invocation format.
+- Host/session commands were considered part of Input Commands - resolved: **Host Commands** are a separate future concern because they change chat, session, UI, or product state rather than Agent run input.
+- Input Command display metadata was considered capability-level - resolved: Capability id owns identity, while command descriptions are the user-facing metadata hosts may render.
