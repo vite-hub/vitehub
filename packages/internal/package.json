@@ -23,6 +23,7 @@
     "./runtime/hosted": "./src/runtime/hosted.ts",
     "./runtime/vercel-hosted": "./src/runtime/vercel-hosted.ts",
     "./runtime/cloudflare-env": "./src/runtime/cloudflare-env.ts",
+    "./http-request": "./src/http-request.ts",
     "./runtime/random": "./src/runtime/random.ts",
     "./build/cloudflare": "./src/build/cloudflare.ts",
     "./build/deployment-output": "./src/build/deployment-output.ts",
@@ -46,6 +47,7 @@
     "esbuild": "^0.27.7",
     "exsolve": "catalog:",
     "h3": "catalog:",
+    "ofetch": "catalog:",
     "pathe": "catalog:"
   },
   "devDependencies": {

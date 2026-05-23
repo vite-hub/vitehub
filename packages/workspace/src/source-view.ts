@@ -1,5 +1,5 @@
 import { WorkspaceError } from "./errors.ts"
-import { decodeFile, normalizeWorkspacePath } from "./path.ts"
+import { decodeFile, matchesAny, normalizeWorkspacePath } from "./path.ts"
 import { createWorkspaceWritePolicy } from "./rules.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./source-config.ts"
 import {
@@ -52,6 +52,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return sources.some(source => sourceMountContainsPath(source, path))
   }
 
+  function isLiveSource(sourceKey: string) {
+    return Boolean(sources.find(item => item.key === sourceKey)?.livePaths)
+  }
+
   function getLazySourcesForPath(path: string) {
     return sources.filter(source => sourceMountIntersectsPath(source, path))
   }
@@ -90,6 +94,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
     for (const source of getLazySourcesForPath(path)) {
       await ensurePrepared(source.key)
+      if (source.livePaths) continue
       if (!path && options.recursive && !await hasCurrentSourceSnapshot(store, source)) {
         if ([...result.keys()].some(key => sourceMountContainsPath(source, key))) {
           const allowed = await currentSourceTreePaths(source, sourceContext)
@@ -113,6 +118,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
       }
     }
+
+    addLiveSourceEntries(result, path, options, sources)
 
     return [...result.values()].sort((left, right) => left.path.localeCompare(right.path))
   }
@@ -146,6 +153,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
 
     for (const source of sources) {
+      if (source.livePaths) continue
       const paths = sourcePaths.get(source.key)
       if (query.paths?.length && !paths?.length) continue
       await ensureMaterialized(source.key)
@@ -171,7 +179,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function materializeRootSourceForPath(path: string) {
-    for (const source of sources.filter(source => !source.mountPath)) {
+    for (const source of sources.filter(source => !source.mountPath && !source.livePaths)) {
       await ensurePrepared(source.key)
       await ensureMaterialized(source.key)
       const file = await store.readFile(path)
@@ -206,6 +214,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
+        if (isLiveSource(resolution.sourceKey)) {
+          const item = await resolution.source.source.getItem(resolution.sourcePath, sourceContext)
+          return decodeFile(item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2)), options)
+        }
         await ensureMaterialized(resolution.sourceKey)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
@@ -240,11 +252,16 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     async glob(pattern, options) {
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
       await ensurePreparedSources()
-      await ensureMaterializedSources()
+      await ensureMaterializedSources(sources.filter(source => !source.livePaths))
 
       const result = new Map<string, WorkspaceEntry>()
       for (const entry of await store.glob(patterns, options)) {
         result.set(entry.path, entry)
+      }
+      for (const source of sources.filter(source => source.livePaths)) {
+        for (const entry of liveSourceEntries(source)) {
+          if (entry.type === "file" && patterns.some(pattern => matchesAny(entry.path, pattern))) result.set(entry.path, entry)
+        }
       }
 
       return [...result.values()].sort((left, right) => left.path.localeCompare(right.path))
@@ -256,6 +273,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
+        if (isLiveSource(resolution.sourceKey)) {
+          const result = liveSourceStat(resolution.source, resolution.workspacePath)
+          if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+          return result
+        }
         await ensureMaterialized(resolution.sourceKey)
         const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, sourceContext)
         if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
@@ -276,6 +298,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
+        if (isLiveSource(resolution.sourceKey)) {
+          return Boolean(liveSourceStat(resolution.source, resolution.workspacePath))
+        }
         await ensureMaterialized(resolution.sourceKey)
         return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, sourceContext))
       }
@@ -320,6 +345,50 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
     },
   }
+}
+
+function liveSourceEntries(source: ReturnType<typeof normalizeWorkspaceSources>[number]): WorkspaceEntry[] {
+  const paths = Object.keys(source.livePaths || {})
+  const entries = new Map<string, WorkspaceEntry>()
+  for (const path of paths) {
+    const parts = path.split("/").filter(Boolean)
+    for (let index = 1; index < parts.length; index++) {
+      const directory = parts.slice(0, index).join("/")
+      entries.set(directory, { path: directory, type: "directory" })
+    }
+    entries.set(path, { path, type: "file" })
+  }
+  return [...entries.values()]
+}
+
+function addLiveSourceEntries(
+  result: Map<string, WorkspaceEntry>,
+  path: string,
+  options: ListOptions,
+  sources: ReturnType<typeof normalizeWorkspaceSources>,
+) {
+  const normalized = normalizeWorkspacePath(path)
+  for (const source of sources.filter(source => source.livePaths)) {
+    for (const entry of liveSourceEntries(source)) {
+      if (!isListedLiveEntry(entry, normalized, options)) continue
+      result.set(entry.path, entry)
+    }
+  }
+}
+
+function isListedLiveEntry(entry: WorkspaceEntry, path: string, options: ListOptions) {
+  if (!path) {
+    if (options.recursive) return true
+    return !entry.path.includes("/")
+  }
+  if (entry.path === path) return false
+  if (!entry.path.startsWith(`${path}/`)) return false
+  if (options.recursive) return true
+  return !entry.path.slice(path.length + 1).includes("/")
+}
+
+function liveSourceStat(source: ReturnType<typeof normalizeWorkspaceSources>[number], workspacePath: string): WorkspaceStat | undefined {
+  return liveSourceEntries(source).find(entry => entry.path === workspacePath)
 }
 
 async function currentSourceTreePaths(source: ReturnType<typeof normalizeWorkspaceSources>[number], sourceContext: ReturnType<typeof createSourceContext>) {

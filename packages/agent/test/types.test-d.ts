@@ -1,8 +1,9 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent } from "../src/index.ts"
-import { bash, db, kv, sandbox, skills } from "../src/capabilities.ts"
+import { bash, db, fetch, kv, sandbox, skills } from "../src/capabilities.ts"
 import type { AgentUsageRecord } from "../src/index.ts"
+import type { FetchCapabilityToolOptions } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -10,6 +11,33 @@ describe("agent public types", () => {
       capabilities: [
         bash(),
         db(),
+        fetch({
+          tools: {
+            status: {
+              inputSchema: {
+                "~standard": {
+                  validate: (input: unknown) => ({ value: input as { region: string } }),
+                },
+              },
+              request(input) {
+                expectTypeOf(input.region).toEqualTypeOf<string>()
+                return {
+                  query: { region: input.region },
+                  url: "https://status.example.com/api/region",
+                }
+              },
+              schema: {
+                "~standard": {
+                  validate: (input: unknown) => ({ value: input as { status: string } }),
+                },
+              },
+              transform(data) {
+                expectTypeOf(data.status).toEqualTypeOf<string>()
+                return data.status
+              },
+            } satisfies FetchCapabilityToolOptions<{ region: string }, { status: string }, string>,
+          },
+        }),
         kv(),
         skills(),
         sandbox({ commands: ["node"] }),
