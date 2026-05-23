@@ -817,6 +817,26 @@ describe("@vitehub/shell just-bash runtime", () => {
       stdout: "models/orders.sql:1:select * from orders\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "rg orders models | grep -r orders", {
+      commands: ["grep", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stdout: expect.stringContaining("Workspace search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg orders models | grep -Ri orders", {
+      commands: ["grep", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stdout: expect.stringContaining("Workspace search is too broad"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "grep -e customer models/customers.sql", {
       commands: ["grep"],
       cwd: workspaceMountPoint,
@@ -887,6 +907,24 @@ describe("@vitehub/shell just-bash runtime", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: "# Docs\ncustomers.sql\norders.sql\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls -I node_modules models", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace path is not mounted"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls --ignore node_modules models", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace path is not mounted"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cat ./orders.sql", {

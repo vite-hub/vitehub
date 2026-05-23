@@ -129,7 +129,8 @@ function isBroadWorkspaceSearch(words: string[], broadSearchPaths: string[] = []
   const name = words[0]
   if (name === "rg" || name === "grep") {
     const paths = commandPathArguments(words)
-    return (paths.length === 0 && !(name === "grep" && followsPipe))
+    const pipeSafeStdinFilter = name === "grep" && followsPipe && !hasRecursiveGrepFlag(words)
+    return (paths.length === 0 && !pipeSafeStdinFilter)
       || paths.length > 4
       || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths))
   }
@@ -348,7 +349,13 @@ function takesInlineSearchPatternOptionValue(arg: string) {
 }
 
 function takesFileCommandOptionValue(arg: string) {
-  return arg === "-c" || arg === "-n" || arg === "--bytes" || arg === "--lines" || takesOptionValue(arg)
+  return arg === "-c"
+    || arg === "-I"
+    || arg === "-n"
+    || arg === "--bytes"
+    || arg === "--ignore"
+    || arg === "--lines"
+    || takesOptionValue(arg)
 }
 
 function pathArgumentsUntilShellBoundary(args: string[]) {
@@ -413,6 +420,15 @@ function splitShellCommandSegments(command: string) {
   }
   segments.push({ command: current, followsPipe })
   return segments
+}
+
+function hasRecursiveGrepFlag(words: string[]) {
+  return words.slice(1).some((arg) => {
+    if (arg === "--recursive" || arg === "-r" || arg === "-R") return true
+    if (!/^-[^-]/.test(arg)) return false
+    if ((arg.startsWith("-e") || arg.startsWith("-f")) && arg.length > 2) return false
+    return arg.includes("r") || arg.includes("R")
+  })
 }
 
 function parseShellWords(command: string) {
