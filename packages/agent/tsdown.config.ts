@@ -30,6 +30,7 @@ export default defineConfig({
     "src/memory.ts",
     "src/messages.ts",
     "src/cloudflare.ts",
+    "src/eval.ts",
     "src/nitro.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/chat-devtools-handler.ts",
