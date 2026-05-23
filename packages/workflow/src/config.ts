@@ -8,7 +8,7 @@ interface WorkflowResolutionInput {
   hosting?: string
 }
 
-const knownProviders = new Set(["cloudflare", "node", "openworkflow", "vercel"])
+const knownProviders = new Set(["cloudflare", "openworkflow", "vercel"])
 
 function normalizeHosting(hosting: string | undefined): string {
   return hosting?.trim().toLowerCase().replaceAll("_", "-") || ""
@@ -82,9 +82,6 @@ function hasOpenWorkflowPostgresConfig(options: Record<string, unknown>): boolea
 }
 
 function inferProvider(provider: unknown, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
-  if (provider === "node") {
-    return "openworkflow"
-  }
   if (provider === "cloudflare" || provider === "openworkflow" || provider === "vercel") {
     return provider
   }
@@ -109,7 +106,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
   const provider = options.provider
 
   if (typeof provider === "string" && !knownProviders.has(provider)) {
-    throw new TypeError(`Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", "node", or "vercel".`)
+    throw new TypeError(`Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", or "vercel".`)
   }
 
   const resolved = inferProviderFromOptions(options, hosting)

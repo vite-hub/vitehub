@@ -81,11 +81,10 @@ Use explicit tool presets when an AI runtime needs workspace files:
 
 ```ts
 const readOnlyTools = useWorkspace('docs').tools.inspect()
-const sameReadOnlyTools = useWorkspace('docs').tools.readonly()
 const noTools = useWorkspace('docs').tools.none()
 const writableTools = useWorkspace('docs', { allowWrite: true }).tools.write()
 ```
 
-`inspect()` and `readonly()` expose the restricted read-only `shell` inspection tool. `none()` returns no tools. `write()` requires a writable facade and exposes structured mutation tools intentionally.
+`inspect()` exposes the restricted read-only `shell` inspection tool. `none()` returns no tools. `write()` requires a writable facade and exposes structured mutation tools intentionally.
 
 Source mounts are resolved behind the workspace API. Agents do not access a real mounted filesystem directly; they only interact with these workspace handles and tools.

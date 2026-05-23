@@ -386,15 +386,15 @@ function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
-  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS> },
+  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   if ("model" in (options as Record<string, unknown>) && !("adapter" in (options as Record<string, unknown>))) {
     throw new Error("[vitehub] defineAgent({ model }) requires an explicit adapter, for example adapter: \"ai-sdk\".")
   }
 
-  const { capabilities, chat: legacyChat, description, hooks, run, runtime, workspace } = options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS> }
+  const { capabilities, description, hooks, run, runtime, workspace } = options
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
-  const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities) || legacyChat
+  const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = "model" in options
@@ -507,11 +507,7 @@ export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   _Name extends WorkspaceName = WorkspaceName,
 > = AgentSettings<TRuntimeConfig> & {
-  chat?: AgentChatOptions<TRuntimeConfig>
-  description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
   name?: string
-  runtime?: AgentRuntimeBinding
   workspace: WorkspaceAgentWorkspaceConfig
 }
 
@@ -540,7 +536,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
   >(
-    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { chat?: AgentChatOptions<TRuntimeConfig>, hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS> },
+    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -841,7 +837,6 @@ function createWorkspaceAgentDefinition<
   validateWorkspaceCapabilities(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   const definition = defineBaseAgent<TRuntimeConfig>({
     ...options,
-    chat: options.chat,
     description: options.description,
     hooks: options.hooks,
     run: options.run,
