@@ -24,6 +24,10 @@ export interface ShellObservation {
   stderr: string
   stdout: string
   timedOut?: boolean
+  workspaceGuardrail?: {
+    kind: "broad_search" | "missing_path" | "no_match" | "timeout"
+    path?: string
+  }
 }
 
 export interface ShellAnalyzeOptions {
