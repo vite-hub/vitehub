@@ -358,6 +358,24 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: "orders.sql:1:select * from orders\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "cd models && find -name '*.sql'", {
+      commands: ["cd", "find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find -name '*.sql'", {
+      commands: ["find"],
+      cwd: "/workspace/models",
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models && wc -l models/customers.sql", {
       commands: ["rg", "wc"],
       cwd: workspaceMountPoint,
@@ -701,6 +719,15 @@ describe("@vitehub/shell workspace inspection", () => {
     await expect(runWorkspaceInspectionCommand(workspace, "rg missing .", {
       commands: ["rg"],
       cwd: "/workspace/models",
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 1,
+      stdout: "",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg missing models && rg missing .", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
       fs,
     })).resolves.toMatchObject({
       exitCode: 1,

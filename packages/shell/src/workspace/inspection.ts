@@ -87,6 +87,7 @@ async function preflightWorkspaceInspectionCommand(command: string, fs: Workspac
         continue
       }
       if (isBroadWorkspaceSearch(segment, broadSearchPaths, currentCwd)) return broadWorkspaceSearchFeedback(broadSearchPaths)
+      if (segment.separatorAfter === "&&") return undefined
     }
   }
   catch {
@@ -162,7 +163,8 @@ function isBroadWorkspaceSearch(segment: ReturnType<typeof analyzeWorkspaceInspe
   }
   if (name === "find") {
     const paths = segment.paths
-    return paths.length === 0 || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, cwd))
+    return (paths.length === 0 && isBroadWorkspacePath(".", broadSearchPaths, cwd))
+      || paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, cwd))
   }
   return false
 }
@@ -203,9 +205,16 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
         if (isWorkspacePathCandidate(path)) currentCwd = resolvedWorkspaceCwd(currentCwd, path)
         continue
       }
-      if (words[0] !== "rg" && words[0] !== "grep") continue
+      if (words[0] !== "rg" && words[0] !== "grep") {
+        if (segment.separatorAfter === "&&") return ""
+        continue
+      }
       const paths = segment.paths
-      if (!paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, currentCwd))) continue
+      const hasBroadPath = paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, currentCwd))
+      if (!hasBroadPath) {
+        if (segment.separatorAfter === "&&") return ""
+        continue
+      }
       return [
         "[vitehub] Search returned no matches in the mounted workspace source.",
         "If the expected file is outside this mounted source, tell the user the evidence is unavailable in the current workspace instead of continuing broad searches.",
