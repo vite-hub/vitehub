@@ -82,6 +82,10 @@ function isRedirectOperator(arg: string) {
   return /^(?:\d*)[<>]+&?\d*$/.test(arg) || /^(?:\d*)[<>]/.test(arg)
 }
 
+function isSeparateRedirectOperator(arg: string) {
+  return /^(?:\d*)[<>]+&?\d*$/.test(arg)
+}
+
 function isFindLeadingOption(arg: string) {
   return arg === "-H" || arg === "-L" || arg === "-P"
 }
@@ -98,6 +102,7 @@ function commandPathArguments(command: string, words: string[]) {
     }
     if (isRedirectOperator(arg)) {
       if (sawPattern) break
+      if (isSeparateRedirectOperator(arg)) index += 1
       continue
     }
     if (isShellOperator(arg) && sawPattern) break
