@@ -48,8 +48,8 @@ function requireObject(input: unknown, toolName: string): Record<string, unknown
 
 async function loadAskweb(): Promise<AskwebModule> {
   try {
-    const importModule = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>
-    return await importModule("askweb") as AskwebModule
+    const specifier = "askweb"
+    return await import(specifier) as AskwebModule
   }
   catch (error) {
     throw new Error("[vitehub] webSearch({ mode: \"tool\" }) requires askweb to be installed by the application. Install askweb@0.2.0 or use webSearch({ mode: \"model\" }).", { cause: error })

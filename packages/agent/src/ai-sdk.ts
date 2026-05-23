@@ -370,7 +370,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     args: tool.args || {},
     id: tool.id,
     name: tool.name,
-    type: "provider",
+    type: "provider-defined",
   }]))
   const toolSet = { ...resolvedTools, ...providerTools }
   const {

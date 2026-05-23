@@ -253,6 +253,29 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("passes provider-defined capability tools to AI SDK agents", async () => {
+    const { webSearch } = await import("../src/capabilities.ts")
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      adapter: "ai-sdk",
+      capabilities: [webSearch({ mode: "model" })],
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.tools).toMatchObject({
+      web_search: {
+        args: {},
+        id: "openai.web_search",
+        name: "web_search",
+        type: "provider-defined",
+      },
+    })
+  })
+
   it("uses custom run for workspace agents on the streaming path", async () => {
     const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const stream = (async function* () {
