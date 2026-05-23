@@ -142,10 +142,12 @@ function isReadOnlyPragma(statement: string) {
     : false
 }
 
-function topLevelSqlKind(normalized: string): "data" | "read" | "schema" | undefined {
+const statementKeywords = ["alter", "create", "delete", "drop", "insert", "reindex", "replace", "select", "update", "vacuum"] as const
+
+function topLevelTokens(normalized: string) {
   let depth = 0
   const tokens: string[] = []
-  for (const match of normalized.matchAll(/[A-Za-z_]+|[()]/g)) {
+  for (const match of normalized.matchAll(/[A-Za-z_]+|[(),]/g)) {
     const token = match[0].toLowerCase()
     if (token === "(") {
       depth++
@@ -157,7 +159,28 @@ function topLevelSqlKind(normalized: string): "data" | "read" | "schema" | undef
     }
     if (depth === 0) tokens.push(token)
   }
-  const firstStatementToken = tokens.find(token => ["alter", "create", "delete", "drop", "insert", "reindex", "replace", "select", "update", "vacuum"].includes(token))
+  return tokens
+}
+
+function terminalWithStatementToken(tokens: string[]) {
+  if (tokens[0] !== "with") return tokens.find(token => statementKeywords.includes(token as typeof statementKeywords[number]))
+  let index = tokens[1] === "recursive" ? 2 : 1
+  while (index < tokens.length) {
+    const name = tokens[index]
+    const asToken = tokens[index + 1]
+    if (!name || asToken !== "as") return tokens.find((token, tokenIndex) => tokenIndex >= index && statementKeywords.includes(token as typeof statementKeywords[number]))
+    index += 2
+    while (index < tokens.length && tokens[index] !== "," && !statementKeywords.includes(tokens[index] as typeof statementKeywords[number])) index++
+    if (tokens[index] === ",") {
+      index++
+      continue
+    }
+    return tokens[index]
+  }
+}
+
+function topLevelSqlKind(normalized: string): "data" | "read" | "schema" | undefined {
+  const firstStatementToken = terminalWithStatementToken(topLevelTokens(normalized))
   if (!firstStatementToken) return
   if (["select"].includes(firstStatementToken)) return "read"
   if (["alter", "create", "drop", "reindex", "vacuum"].includes(firstStatementToken)) return "schema"
