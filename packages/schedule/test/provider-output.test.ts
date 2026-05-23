@@ -102,4 +102,21 @@ describe("schedule provider output", () => {
       ["daily:report", "0 0 * * *"],
     ]))).rejects.toThrow(/same Vercel function path/)
   })
+
+  it("emits Vercel handlers that load nested schedule names from the full path", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-vercel-nested-")
+    await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
+    const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
+    await writeFile(registryFile, "export default {}\n", "utf8")
+
+    await writeVercelScheduleFunctions({
+      definitions: [{ handler: join(rootDir, "src", "cleanup.schedule.ts"), name: "reports/daily" }],
+      outputRoot: join(rootDir, ".vercel", "output"),
+      registryFile,
+      rootDir,
+    }, new Map([["reports/daily", "0 0 * * *"]]))
+
+    const source = await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "reports", "daily.func", "index.mjs"), "utf8")
+    expect(source).toContain("url.pathname.slice(prefix.length)")
+  })
 })

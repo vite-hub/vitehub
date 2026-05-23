@@ -92,7 +92,8 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
       : [
           "export default async function scheduleHandler(req, res) {",
           "  const url = new URL(req.url || '/', 'https://vitehub.local')",
-          "  const name = decodeURIComponent(url.pathname.split('/').filter(Boolean).at(-1) || '')",
+          "  const prefix = '/api/vitehub/schedules/vercel/'",
+          "  const name = decodeURIComponent(url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : '')",
           "  const definition = await loadScheduleDefinition(name)",
           "  if (!definition) {",
           "    res.statusCode = 404",
