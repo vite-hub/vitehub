@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, inputCommands as rootInputCommands, type AgentRuntimeContext } from "../src/index.ts"
-import { bash, blob, db, fetch, inputCommands, kv, mcp, sandbox, skills } from "../src/capabilities.ts"
+import { blob, db, fetch, inputCommands, kv, mcp, sandbox, skills, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -13,7 +13,7 @@ describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
     defineAgent({
       capabilities: [
-        bash(),
+        workspaceShell(),
         blob({ mode: "write", policy: () => "allow", store: "assets" }),
         db({ database: "analytics", mode: "write", policy: "allow", schemaMode: "write" }),
         fetch({

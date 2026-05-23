@@ -8,7 +8,7 @@ import {
   syncDiscoveredWorkspaceAssetBundles,
   type WorkspaceAssetBundle,
   writeWorkspaceAssetsRegistry,
-} from "./build-assets.ts"
+} from "./assets.ts"
 import {
   createWorkspaceManifest,
   createWorkspaceRegistryContents,
@@ -17,7 +17,7 @@ import {
 import { createWorkspaceTypeAugmentation } from "./generated-types.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
-import type { ResolvedWorkspaceModuleOptions } from "./types.ts"
+import type { ResolvedWorkspaceModuleOptions } from "../core/types.ts"
 
 export interface WorkspaceBuildState {
   manifest: Awaited<ReturnType<typeof createWorkspaceManifest>>

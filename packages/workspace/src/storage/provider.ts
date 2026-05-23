@@ -3,11 +3,11 @@ import { resolve } from "node:path"
 
 import { readEnv, trimmed } from "@vitehub/internal/env"
 
-import { WorkspaceError } from "./errors.ts"
-import { getWorkspaceRuntimeConfig } from "./runtime/config.ts"
-import { getWorkspaceHostedStoreLoader } from "./runtime/hosted-store-loader.ts"
-import { createLocalWorkspaceStore } from "./stores/local.ts"
-import { createMemoryWorkspaceStore } from "./stores/memory.ts"
+import { WorkspaceError } from "../core/errors.ts"
+import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
+import { getWorkspaceHostedStoreLoader } from "../runtime/hosted-store-loader.ts"
+import { createLocalWorkspaceStore } from "./local.ts"
+import { createMemoryWorkspaceStore } from "./memory.ts"
 
 import type {
   CloudflareArtifactsWorkspaceStoreOptions,
@@ -15,7 +15,7 @@ import type {
   WorkspaceDefinition,
   WorkspaceStore,
   WorkspaceStoreOptions,
-} from "./types.ts"
+} from "../core/types.ts"
 
 export interface WorkspaceResolutionInput {
   dev?: boolean

@@ -1,16 +1,16 @@
-import { WorkspaceError } from "./errors.ts"
-import { decodeFile, matchesAny, normalizeWorkspacePath } from "./path.ts"
-import { createWorkspaceWritePolicy } from "./rules.ts"
-import { searchText } from "./search.ts"
-import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./source-config.ts"
+import { WorkspaceError } from "../core/errors.ts"
+import { decodeFile, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
+import { createWorkspaceWritePolicy } from "../core/rules.ts"
+import { searchText } from "../core/search.ts"
+import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import {
   hasCurrentSourceSnapshot,
   materializeWorkspaceSources,
   readResolvedSourceFile,
   searchMaterializedStore,
   statVirtualSourcePath,
-} from "./source-materialization.ts"
-import { resolveWorkspacePath } from "./source-resolver.ts"
+} from "./materialization.ts"
+import { resolveWorkspacePath } from "./resolver.ts"
 
 import type {
   GlobOptions,
@@ -27,7 +27,7 @@ import type {
   WorkspaceStat,
   WorkspaceStore,
   WriteFileOptions,
-} from "./types.ts"
+} from "../core/types.ts"
 
 export interface WorkspaceSourceView {
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
@@ -37,7 +37,7 @@ export interface WorkspaceSourceView {
   search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
   stat(path: string): Promise<WorkspaceStat>
   exists(path: string): Promise<boolean>
-  materializeSources(options?: import("./types.ts").WorkspaceMaterializeSourcesOptions): Promise<import("./types.ts").WorkspaceMaterializeSourcesResult>
+  materializeSources(options?: import("../core/types.ts").WorkspaceMaterializeSourcesOptions): Promise<import("../core/types.ts").WorkspaceMaterializeSourcesResult>
   mkdir(path: string, options?: MkdirOptions): Promise<void>
   rm(path: string, options?: RmOptions): Promise<void>
 }

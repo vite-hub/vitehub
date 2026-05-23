@@ -1,5 +1,5 @@
-import { WorkspaceError } from "../errors.ts"
-import { normalizeWorkspacePath, matchesAny, sha256 } from "../path.ts"
+import { WorkspaceError } from "../core/errors.ts"
+import { normalizeWorkspacePath, matchesAny, sha256 } from "../core/path.ts"
 
 import type {
   DiffOptions,
@@ -14,7 +14,7 @@ import type {
   WorkspaceSnapshot,
   WorkspaceStat,
   WorkspaceStore,
-} from "../types.ts"
+} from "../core/types.ts"
 
 type MemoryNode = {
   type: "file" | "directory"

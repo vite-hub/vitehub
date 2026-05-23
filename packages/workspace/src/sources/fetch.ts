@@ -1,10 +1,10 @@
 import { executeHttpRequest } from "@vitehub/internal/http-request"
 import { posix } from "node:path"
 
-import { normalizeSafeWorkspacePath } from "../path.ts"
-import { markLiveWorkspaceSource } from "../source-config.ts"
+import { normalizeSafeWorkspacePath } from "../core/path.ts"
+import { markLiveWorkspaceSource } from "./config.ts"
 
-import type { WorkspaceContent, WorkspaceSource } from "../types.ts"
+import type { WorkspaceContent, WorkspaceSource } from "../core/types.ts"
 
 export type FetchSourceMethod = "GET" | "HEAD" | "POST"
 export type FetchSourceResponseType = "json" | "text"

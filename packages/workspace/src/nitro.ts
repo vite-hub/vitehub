@@ -1,2 +1,2 @@
-export * from "./nitro/module.ts"
-export { default } from "./nitro/module.ts"
+export * from "./hosts/nitro/module.ts"
+export { default } from "./hosts/nitro/module.ts"

@@ -1,4 +1,4 @@
-import type { WorkspacePublisher } from "../types.ts"
+import type { WorkspacePublisher } from "../core/types.ts"
 
 export interface VirtualModulePublisherOptions {
   id: string

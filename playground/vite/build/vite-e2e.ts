@@ -19,7 +19,7 @@ import { bundleSandboxDefinition } from "../../../packages/sandbox/src/bundle.ts
 import { resolveSandboxFeatureConfig } from "../../../packages/sandbox/src/feature.ts"
 import { finalizeCloudflareWranglerConfig } from "../../../packages/sandbox/src/internal/shared/cloudflare-wrangler.ts"
 import { normalizeWorkspaceOptions } from "../../../packages/workspace/src/config.ts"
-import { discoverViteWorkspaceDefinitions } from "../../../packages/workspace/src/discovery.ts"
+import { discoverViteWorkspaceDefinitions } from "../../../packages/workspace/src/build/discovery.ts"
 import { configureCloudflareArtifacts } from "../../../packages/workspace/src/integrations/cloudflare.ts"
 import { normalizeWorkflowOptions } from "../../../packages/workflow/src/config.ts"
 import { discoverWorkflowDefinitions } from "../../../packages/workflow/src/discovery.ts"
@@ -37,7 +37,7 @@ import type { ResolvedDBViteConfig } from "../../../packages/db/src/types.ts"
 import type { ResolvedKVModuleOptions } from "../../../packages/kv/src/types.ts"
 import type { ResolvedQueueOptions } from "../../../packages/queue/src/types.ts"
 import type { AgentSandboxConfig } from "../../../packages/sandbox/src/module-types.ts"
-import type { ResolvedWorkspaceModuleOptions } from "../../../packages/workspace/src/types.ts"
+import type { ResolvedWorkspaceModuleOptions } from "../../../packages/workspace/src/core/types.ts"
 import type { ResolvedWorkflowOptions } from "../../../packages/workflow/src/types.ts"
 import type { Plugin } from "vite"
 
@@ -292,10 +292,16 @@ function renderWorkflowRuntimeModule(file: string) {
 
 function renderWorkspaceRuntimeModule(file: string) {
   return [
-    `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(workspacePackageDir, "define")))}`,
-    `export * as loader from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/loaders/index.ts")))}`,
-    `export { registerWorkspace } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(workspacePackageDir, "registry")))}`,
-    `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(workspacePackageDir, "use")))}`,
+    `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/define.ts")))}`,
+    `export const source = { custom: source => source, file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options) }`,
+    `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/use.ts")))}`,
+    `function createHostedSourceStub(kind, input) {`,
+    `  return {`,
+    `    fingerprint: { input, kind },`,
+    `    async getKeys() { throw new Error("[vitehub] workspace source." + kind + "() is not available in the hosted Vite e2e runtime.") },`,
+    `    async getItem() { throw new Error("[vitehub] workspace source." + kind + "() is not available in the hosted Vite e2e runtime.") },`,
+    `  }`,
+    `}`,
     "",
   ].join("\n")
 }
@@ -422,7 +428,10 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   if (typeof options.workspace !== "undefined") {
     const workspaceRuntimeFile = resolve(generatedDir, "workspace-runtime.mjs")
     const workspaceShellRuntimeFile = resolve(generatedDir, "workspace-shell-runtime.mjs")
-    alias["@vitehub/workspace/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
+    alias["@vitehub/workspace/internal/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
+    alias["@vitehub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
+    alias["@vitehub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
+    alias["@vitehub/workspace/test"] = resolve(workspacePackageDir, "src/test.ts")
     alias["@vitehub/workspace"] = workspaceRuntimeFile
     alias["@vitehub/shell/workspace"] = workspaceShellRuntimeFile
     alias["@vitehub/shell"] = workspaceShellRuntimeFile
@@ -516,7 +525,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   ]
 
   if (workspaceProvider === "cloudflare-artifacts") {
-    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/cloudflare-artifacts.ts")))}`)
+    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/cloudflare/artifacts-store.ts")))}`)
   }
 
   if (artifacts.queueRegistryFile) {
@@ -643,7 +652,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   }
 
   if (workspaceProvider === "vercel-blob") {
-    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/stores/vercel-blob.ts")))}`)
+    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/vercel/blob-store.ts")))}`)
   }
 
   if (artifacts.queueRegistryFile) {

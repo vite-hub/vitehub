@@ -4,7 +4,7 @@ import {
   withWorkspaceAgentDefaults,
 } from "./index.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
-import { registerWorkspace } from "@vitehub/workspace"
+import { registerWorkspace } from "@vitehub/workspace/test"
 
 import type {
   AgentInput,

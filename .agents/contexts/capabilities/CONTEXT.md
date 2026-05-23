@@ -41,8 +41,12 @@ A Capability that gives an Agent chat-oriented runtime behavior, including Chat 
 _Avoid_: Chat History Capability, Agent Memory
 
 **Workspace Capability**:
-A Capability that gives an Agent model-facing access to Workspace files through inspect or write tools.
+A Capability that gives an Agent model-facing access to Workspace files.
 _Avoid_: Bash, raw workspace tools, built-in tool
+
+**Workspace Shell Capability**:
+A Workspace Capability that exposes shell-shaped Workspace inspection and optional structured Workspace mutation tools.
+_Avoid_: Bash, sandbox, raw workspace tools
 
 **MCP Capability**:
 A Capability that connects an Agent to external MCP servers and exposes their model-facing tools.
@@ -63,12 +67,13 @@ _Avoid_: Input Command, Capability, model tool
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `skills()`, `mcp()`, `bash()`, `sandbox()`, `kv()`, `blob()`, and `db()` create **Capability Definitions**.
+- Official helpers such as `skills()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, and `db()` create **Capability Definitions**.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
-- A **Workspace Capability** contributes Workspace tools without implying shell access.
+- A **Workspace Capability** contributes Workspace tools without implying unrestricted process execution.
+- A **Workspace Shell Capability** contributes shell-shaped Workspace tools without implying Sandbox execution.
 - An **MCP Capability** consumes one or more external **MCP Servers**.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is a separate Capability concern from the **Chat Capability**.
@@ -106,6 +111,7 @@ _Avoid_: Input Command, Capability, model tool
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
+- `bash()` was considered as the public helper for Workspace file access - resolved: use `workspaceShell()` for the **Workspace Shell Capability** because the shell is scoped to Workspace files.
 - MCP server language was considered ambiguous between hosting an MCP server and consuming one - resolved: in the **MCP Capability**, an **MCP Server** is external and consumed by an Agent.
 - Capability-level name and description were considered separate display metadata - resolved: remove both as a breaking change and use **Capability** id as the only capability-level identity/display field.
 - Slash command was considered as the domain term - resolved: use **Input Command** for the Capability concept because it names the lifecycle position; slash syntax is only the initial invocation format.

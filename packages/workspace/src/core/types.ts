@@ -109,7 +109,7 @@ export interface WorkspaceSyncOptions {
   force?: boolean
 }
 
-export interface WorkspaceOpenOptions {
+export interface WorkspaceSessionOptions {
   runtime?: never
   sandbox?: never
 }
@@ -407,7 +407,7 @@ export interface Workspace {
   rm(path: string, options?: RmOptions): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
-  open(options?: WorkspaceOpenOptions): Promise<WorkspaceSession>
+  startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
   mount(options?: WorkspaceMountOptions): WorkspaceMount
 }
 

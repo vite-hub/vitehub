@@ -1,5 +1,5 @@
-import { WorkspaceError } from "../errors.ts"
-import { contentToBytes, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../path.ts"
+import { WorkspaceError } from "../core/errors.ts"
+import { contentToBytes, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
   DiffOptions,
@@ -14,7 +14,7 @@ import type {
   WorkspaceSnapshot,
   WorkspaceStat,
   WorkspaceStore,
-} from "../types.ts"
+} from "../core/types.ts"
 
 async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")

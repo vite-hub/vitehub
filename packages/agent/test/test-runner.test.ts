@@ -20,13 +20,16 @@ vi.mock("ai", () => ({
 }))
 
 vi.mock("@vitehub/workspace", () => ({
-  registerWorkspace: vi.fn(),
   useWorkspace: vi.fn(() => ({
     fs: { list, readFile },
     tools: {
       inspect: inspectTools,
     },
   })),
+}))
+
+vi.mock("@vitehub/workspace/test", () => ({
+  registerWorkspace: vi.fn(),
 }))
 
 describe("agent test runner", () => {
@@ -76,7 +79,7 @@ describe("agent test runner", () => {
   })
 
   it("applies workspace defaults and collects workspace tool steps", async () => {
-    const { registerWorkspace } = await import("@vitehub/workspace")
+    const { registerWorkspace } = await import("@vitehub/workspace/test")
     const execute = vi.fn(async () => "workspace result")
     inspectTools.mockReturnValueOnce({
       shell: { execute },
@@ -92,7 +95,7 @@ describe("agent test runner", () => {
       workspace: {},
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
       name: "support",
       runtimeConfig: {},

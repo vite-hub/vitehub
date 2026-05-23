@@ -7,12 +7,12 @@ import { createImportPath } from "@vitehub/internal/build/paths"
 import { resolveRuntimeEntry } from "@vitehub/internal/nitro"
 import { createJiti } from "jiti"
 
-import { syncWorkspaceDefinition } from "./lifecycle.ts"
-import { normalizeSafeWorkspacePath } from "./path.ts"
-import { createMemoryWorkspaceStore } from "./stores/memory.ts"
+import { syncWorkspaceDefinition } from "../lifecycle.ts"
+import { normalizeSafeWorkspacePath } from "../core/path.ts"
+import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "./types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "../core/types.ts"
 
 export interface WorkspaceAssetFile {
   content: WorkspaceContent
@@ -46,7 +46,7 @@ async function importWorkspaceConfig(path: string): Promise<{ default?: Workspac
 }
 
 function runtimeAssetsModulePath() {
-  return resolveRuntimeEntry("./runtime/assets", "@vitehub/workspace/runtime/assets", import.meta.url)
+  return resolveRuntimeEntry("../runtime/assets", "@vitehub/workspace/internal/runtime/assets", import.meta.url)
 }
 
 export async function collectWorkspaceStoreAssetBundle(name: string, store: WorkspaceStore): Promise<WorkspaceAssetBundle> {

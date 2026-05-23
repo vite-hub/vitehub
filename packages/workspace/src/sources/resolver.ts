@@ -1,7 +1,7 @@
-import { normalizeSafeWorkspacePath, normalizeWorkspacePath } from "./path.ts"
-import { normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./source-config.ts"
+import { normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../core/path.ts"
+import { normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
 
-import type { WorkspaceDefinition, WorkspaceSearchQuery } from "./types.ts"
+import type { WorkspaceDefinition, WorkspaceSearchQuery } from "../core/types.ts"
 
 export interface ResolvedStorePath {
   type: "store"

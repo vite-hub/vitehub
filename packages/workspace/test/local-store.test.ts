@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createLocalWorkspaceStore } from "../src/stores/local.ts"
+import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 
 const tempDirs: string[] = []
 
