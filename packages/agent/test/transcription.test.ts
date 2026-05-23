@@ -63,10 +63,13 @@ describe("agent transcription", () => {
   })
 
   it("preserves chat audio attachments as ViteHub audio parts", () => {
+    const binary = new Uint8Array([1, 2, 3])
+
     expect(toViteHubMessages([
       {
         attachments: [
           { data: "AAAA", mediaType: "audio/wav" },
+          { data: binary, type: "audio" },
         ],
         id: "chat-1",
         text: "please transcribe",
@@ -74,6 +77,7 @@ describe("agent transcription", () => {
     ])[0]?.parts).toEqual([
       { id: "text-0", text: "please transcribe", type: "text" },
       { data: "AAAA", id: "audio-0", mediaType: "audio/wav", type: "audio" },
+      { data: binary, id: "audio-1", mediaType: "audio/*", type: "audio" },
     ])
   })
 })

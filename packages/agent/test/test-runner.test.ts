@@ -114,6 +114,168 @@ describe("agent test runner", () => {
     })
   })
 
+  it("stops test runs after repeated workspace inspection guardrails", async () => {
+    const execute = vi.fn(async () => ({ workspaceGuardrail: { kind: "broad_search" } }))
+    inspectTools.mockReturnValueOnce({
+      shell: { execute },
+    })
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      for (let index = 0; index < 4; index++) {
+        await this.settings.tools.shell.execute({ command: "rg customer ." })
+      }
+      return { finishReason: "stop", text: "answer" }
+    })
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(defineAgent({
+      workspace: {},
+      adapter: "ai-sdk",
+      model: {} as never,
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+    }), {
+      name: "support",
+      runtimeConfig: {},
+      workspace: "docs",
+    })
+
+    await expect(runner.run({ prompt: "Find evidence" }))
+      .rejects.toThrow("[vitehub] Agent stopped after repeated workspace inspection guardrails.")
+  })
+
+  it("ignores non-JSON tool output while counting workspace guardrails", async () => {
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    const execute = vi.fn()
+      .mockResolvedValueOnce(circular)
+      .mockResolvedValueOnce(1n)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(Symbol("tool-output"))
+      .mockResolvedValueOnce("Workspace search is too broad for this agent tool.")
+    inspectTools.mockReturnValueOnce({
+      shell: { execute },
+    })
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      await this.settings.tools.shell.execute({ command: "circular" })
+      await this.settings.tools.shell.execute({ command: "bigint" })
+      await this.settings.tools.shell.execute({ command: "undefined" })
+      await this.settings.tools.shell.execute({ command: "symbol" })
+      await this.settings.tools.shell.execute({ command: "rg customer ." })
+      return { finishReason: "stop", text: "answer" }
+    })
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(defineAgent({
+      workspace: {},
+      adapter: "ai-sdk",
+      model: {} as never,
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+    }), {
+      name: "support",
+      runtimeConfig: {},
+      workspace: "docs",
+    })
+
+    await expect(runner.run({ prompt: "Find evidence" }))
+      .resolves.toMatchObject({ text: "answer" })
+  })
+
+  it("does not stop non-workspace runs that produce workspace-like text", async () => {
+    const agent = {
+      generate: vi.fn(async () => ({ finishReason: "stop", text: "done" })),
+      stream: vi.fn(),
+      tools: {
+        search: {
+          execute: vi.fn(async (_input: unknown) => "Search returned no matches"),
+        },
+      },
+      version: "agent-v1",
+    }
+    agent.generate.mockImplementationOnce(async function (this: typeof agent) {
+      for (let index = 0; index < 4; index++) {
+        await this.tools.search.execute({})
+      }
+      return { finishReason: "stop", text: "done" }
+    })
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(agent as never, {
+      runtimeConfig: {},
+    })
+
+    await expect(runner.run({ prompt: "Find evidence" }))
+      .resolves.toMatchObject({ text: "done" })
+  })
+
+  it("does not stop workspace runs for non-inspection tool misses", async () => {
+    const agent = {
+      generate: vi.fn(async () => ({ finishReason: "stop", text: "done" })),
+      stream: vi.fn(),
+      tools: {
+        search: {
+          execute: vi.fn(async (_input: unknown) => "Search returned no matches"),
+        },
+      },
+      version: "agent-v1",
+    }
+    agent.generate.mockImplementationOnce(async function (this: typeof agent) {
+      for (let index = 0; index < 4; index++) {
+        await this.tools.search.execute({})
+      }
+      return { finishReason: "stop", text: "done" }
+    })
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(agent as never, {
+      runtimeConfig: {},
+      workspace: "docs",
+    })
+
+    await expect(runner.run({ prompt: "Find evidence" }))
+      .resolves.toMatchObject({ text: "done" })
+  })
+
+  it("does not let debug tool logging fail test runs", async () => {
+    const previousDebug = process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS
+    process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS = "1"
+    const previousError = console.error
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    console.error = vi.fn()
+    const execute = vi.fn(async () => circular)
+    inspectTools.mockReturnValueOnce({
+      shell: { execute },
+    })
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      await this.settings.tools.shell.execute({ command: "circular" })
+      return { finishReason: "stop", text: "answer" }
+    })
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    try {
+      const runner = createAgentTestRunner(defineAgent({
+        workspace: {},
+        adapter: "ai-sdk",
+        model: {} as never,
+        capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      }), {
+        name: "support",
+        runtimeConfig: {},
+        workspace: "docs",
+      })
+
+      await expect(runner.run({ prompt: "Find evidence" }))
+        .resolves.toMatchObject({ text: "answer" })
+    }
+    finally {
+      console.error = previousError
+      if (previousDebug === undefined) delete process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS
+      else process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS = previousDebug
+    }
+  })
+
   it("composes workspace agent model instrumentation", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { createAgentTestRunner } = await import("../src/test.ts")

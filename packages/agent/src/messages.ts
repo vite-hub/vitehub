@@ -16,8 +16,10 @@ export interface DataPart {
   type: "data"
 }
 
+export type AudioData = ArrayBuffer | Blob | string | Uint8Array
+
 export interface AudioPart {
-  data?: string
+  data?: AudioData
   id?: string
   mediaType: string
   type: "audio"
@@ -253,6 +255,14 @@ function assertSerializable(value: unknown, field: string): void {
   }
 }
 
+function hasAudioData(value: unknown): boolean {
+  if (typeof value === "string") return value.length > 0
+  if (!value || typeof value !== "object") return false
+  if ("byteLength" in value && typeof value.byteLength === "number") return value.byteLength > 0
+  if ("size" in value && typeof value.size === "number") return value.size > 0
+  return false
+}
+
 export function validateMessage(message: Message): void {
   assertString(message.id, "message.id")
   assertSerializable(message.id, "message.id")
@@ -304,7 +314,7 @@ export function validateMessage(message: Message): void {
         if (typeof part.mediaType !== "string" || !part.mediaType.startsWith("audio/")) {
           throw new TypeError("[vitehub:messages] audio part requires an audio/* mediaType.")
         }
-        const hasData = typeof part.data === "string" && part.data.length > 0
+        const hasData = hasAudioData(part.data)
         const hasUrl = typeof part.url === "string" && part.url.length > 0
         if (hasData === hasUrl) {
           throw new TypeError("[vitehub:messages] audio part requires exactly one of data or url.")

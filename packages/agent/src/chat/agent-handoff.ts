@@ -14,7 +14,7 @@ import type {
 } from "./types.ts"
 import type { AgentRunInput, AgentRunMetadata } from "../index.ts"
 import type { Chat, Message as ChatSdkMessage, SentMessage, Thread } from "chat"
-import type { AudioPart, Message, MessagePart } from "../messages.ts"
+import type { AudioData, AudioPart, Message, MessagePart } from "../messages.ts"
 
 export interface ChatAgentWorkflowPayload {
   agentName: string
@@ -101,12 +101,23 @@ function firstString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
+function audioData(value: unknown): AudioData | undefined {
+  if (typeof value === "string" && value.length > 0) return value
+  if (!value || typeof value !== "object") return undefined
+  if (value instanceof ArrayBuffer && value.byteLength > 0) return value
+  if (value instanceof Uint8Array && value.byteLength > 0) return value
+  if (value instanceof Blob && value.size > 0) return value
+  return undefined
+}
+
 function toAudioPart(value: unknown, index: number): AudioPart | undefined {
   if (!value || typeof value !== "object") return
   const record = value as Record<string, unknown>
-  const mediaType = firstString(record.mediaType, record.mimeType, record.contentType, record.type)
+  const explicitMediaType = firstString(record.mediaType, record.mimeType, record.contentType)
+  const type = firstString(record.type)
+  const mediaType = explicitMediaType || (type === "audio" ? "audio/*" : type)
   if (!mediaType?.startsWith("audio/")) return
-  const data = firstString(record.data, record.base64, record.content)
+  const data = audioData(record.data) ?? audioData(record.base64) ?? audioData(record.content)
   const url = firstString(record.url, record.href)
   if ((data ? 1 : 0) + (url ? 1 : 0) !== 1) return
   return { ...(data ? { data } : { url: url! }), id: firstString(record.id) || `audio-${index}`, mediaType, type: "audio" }

@@ -48,8 +48,9 @@ function isAudioPart(part: unknown): part is AudioPart {
     && typeof (part as { mediaType?: unknown }).mediaType === "string"
 }
 
-function toAiSdkAudio(audio: AudioPart): Parameters<AiSdkTranscribe>[0]["audio"] {
+async function toAiSdkAudio(audio: AudioPart): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
   if (audio.url) return new URL(audio.url)
+  if (audio.data instanceof Blob) return await audio.data.arrayBuffer()
   if (audio.data) return audio.data
   throw new TypeError("[vitehub] transcribe() requires audio data or url.")
 }
@@ -71,7 +72,7 @@ async function runTranscription(options: TranscribeOptions, audio: AudioPart, ab
   const result = await experimental_transcribe({
     ...transcribeOptions,
     abortSignal,
-    audio: toAiSdkAudio(audio),
+    audio: await toAiSdkAudio(audio),
   })
   return result.text
 }
@@ -155,7 +156,6 @@ export function bash(options: { mode?: AgentCapabilityMode } = {}): AgentCapabil
   return defineCapability({
     id: "bash",
     mode,
-    name: "Bash",
     requires: [{ primitive: "workspace", workspace: { mode, required: true } }],
     tools: ({ workspace }) => (mode === "write" && "write" in workspace.tools
       ? (workspace.tools as unknown as { write: () => AgentToolSet }).write()
@@ -168,7 +168,6 @@ export function sandbox(options: { commands: string[] }): AgentCapabilityDefinit
   return defineCapability({
     id: "sandbox",
     metadata: { commands },
-    name: "Sandbox",
     requires: [{ primitive: "workspace", workspace: { required: true } }, { primitive: "sandbox" }],
     tools: (context) => {
       const handle = requirePrimitive(context as never, "sandbox") as {
@@ -193,17 +192,17 @@ export function sandbox(options: { commands: string[] }): AgentCapabilityDefinit
 
 export function kv(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
   const mode = normalizeMode(options.mode, "KV")
-  return defineCapability({ id: "kv", mode, name: "KV", requires: [{ primitive: "kv" }], tools: primitiveTools("kv", mode) })
+  return defineCapability({ id: "kv", mode, requires: [{ primitive: "kv" }], tools: primitiveTools("kv", mode) })
 }
 
 export function blob(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
   const mode = normalizeMode(options.mode, "Blob")
-  return defineCapability({ id: "blob", mode, name: "Blob", requires: [{ primitive: "blob" }], tools: primitiveTools("blob", mode) })
+  return defineCapability({ id: "blob", mode, requires: [{ primitive: "blob" }], tools: primitiveTools("blob", mode) })
 }
 
 export function db(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
   const mode = normalizeMode(options.mode, "DB")
-  return defineCapability({ id: "db", mode, name: "DB", requires: [{ primitive: "db" }], tools: primitiveTools("db", mode) })
+  return defineCapability({ id: "db", mode, requires: [{ primitive: "db" }], tools: primitiveTools("db", mode) })
 }
 
 export function skills(options: { path?: string } = {}): AgentCapabilityDefinition {
@@ -214,7 +213,6 @@ export function skills(options: { path?: string } = {}): AgentCapabilityDefiniti
   return defineCapability({
     id: "skills",
     metadata: { path: path.replace(/\/+$/, ""), skillPath },
-    name: "Skills",
     requires: [{ primitive: "workspace", workspace: { mode: "read", paths: [skillPath], required: true } }],
   })
 }
@@ -239,7 +237,6 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
       context.input.setMessages(messages)
     },
     instructions: options.instructions ?? false,
-    name: "Transcription",
   })
 }
 
@@ -247,7 +244,6 @@ export function mcp(options: { servers?: Record<string, unknown> } = {}): AgentC
   return defineCapability({
     id: "mcp",
     metadata: { servers: options.servers || {} },
-    name: "MCP",
   })
 }
 

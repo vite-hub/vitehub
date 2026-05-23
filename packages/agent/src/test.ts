@@ -112,6 +112,38 @@ function createWaitUntil(): AgentWaitUntil {
   }
 }
 
+function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
+  return (step.toolResults || []).filter((result) => {
+    if (result.toolName !== "shell" && result.toolName !== "materialize_sources") {
+      return false
+    }
+    if (hasWorkspaceGuardrail(result.output)) return true
+    const output = typeof result.output === "string"
+      ? result.output
+      : stringifyToolOutput(result.output)
+    return output.includes("Workspace search is too broad")
+      || output.includes("Workspace root search is too broad")
+      || output.includes("Workspace path is not mounted")
+      || output.includes("Search returned no matches")
+      || output.includes("Workspace shell command timed out")
+  }).length
+}
+
+function hasWorkspaceGuardrail(output: unknown): boolean {
+  return typeof output === "object"
+    && output !== null
+    && typeof (output as { workspaceGuardrail?: { kind?: unknown } }).workspaceGuardrail?.kind === "string"
+}
+
+function stringifyToolOutput(output: unknown): string {
+  try {
+    return JSON.stringify(output) ?? String(output)
+  }
+  catch {
+    return String(output)
+  }
+}
+
 function textFromRaw(value: unknown): string {
   if (typeof value === "string") {
     return value
@@ -168,10 +200,20 @@ export function createAgentTestRunner<
   return {
     async run(input) {
       const toolSteps: AgentToolStep[] = []
+      let workspaceInspectionGuardrails = 0
       const context = createAgentRuntimeContext({
         devtools: {
           reportToolStep(step) {
             toolSteps.push(step)
+            if (process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS) {
+              console.error("[vitehub-agent-test:tool]", stringifyToolOutput(step))
+            }
+            if (options.workspace) {
+              workspaceInspectionGuardrails += countWorkspaceInspectionGuardrails(step)
+              if (workspaceInspectionGuardrails >= 4) {
+                throw new Error("[vitehub] Agent stopped after repeated workspace inspection guardrails. The requested evidence appears unavailable in the mounted workspace sources.")
+              }
+            }
           },
         },
         request: options.request,
