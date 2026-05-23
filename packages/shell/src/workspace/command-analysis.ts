@@ -131,6 +131,7 @@ function takesOptionValue(command: string, arg: string) {
     "--before-context",
     "--context",
     "--directories",
+    "--file",
     "--max-count",
     "--regexp",
   ]
@@ -166,11 +167,12 @@ function takesInlineOptionValue(command: string, arg: string) {
 }
 
 function takesSearchPatternOptionValue(arg: string) {
-  return arg === "-e" || arg === "-f" || arg === "--regexp"
+  return arg === "-e" || arg === "-f" || arg === "--regexp" || arg === "--file"
 }
 
 function takesInlineSearchPatternOptionValue(arg: string) {
   return arg.startsWith("--regexp=")
+    || arg.startsWith("--file=")
     || (arg.startsWith("-e") && arg !== "-e")
     || (arg.startsWith("-f") && arg !== "-f")
 }

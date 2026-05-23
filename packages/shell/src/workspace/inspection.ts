@@ -87,7 +87,6 @@ async function preflightWorkspaceInspectionCommand(command: string, fs: Workspac
         continue
       }
       if (isBroadWorkspaceSearch(segment, broadSearchPaths, currentCwd)) return broadWorkspaceSearchFeedback(broadSearchPaths)
-      if (segment.separatorAfter === "&&") return undefined
     }
   }
   catch {

@@ -655,6 +655,15 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: expect.not.stringContaining("Workspace search is too broad"),
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "grep --file=patterns.txt models/customers.sql", {
+      commands: ["grep"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | grep Docs -", {
       commands: ["cat", "grep"],
       cwd: workspaceMountPoint,
@@ -739,8 +748,8 @@ describe("@vitehub/shell workspace inspection", () => {
       cwd: workspaceMountPoint,
       fs,
     })).resolves.toMatchObject({
-      exitCode: 1,
-      stdout: "",
+      exitCode: 126,
+      stdout: expect.stringContaining("Workspace search is too broad"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "head --lines 1 missing/README.md", {
