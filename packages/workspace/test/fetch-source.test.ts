@@ -199,7 +199,7 @@ describe("fetch sources", () => {
   })
 
   it("searches live fetch source content", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "searchable" }))
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ status: "searchable" }))
     const view = createWorkspaceSourceView({
       name: "fetch-search",
       sources: {
