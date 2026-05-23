@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot } from "@vitehub/internal/build/deployment-output"
 
-import { generateProviderOutputs, validateProviderCron } from "../src/internal/provider-output.ts"
+import { generateProviderOutputs, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 
 const tempDirs: string[] = []
 
@@ -52,5 +52,54 @@ describe("schedule provider output", () => {
 
   it("reports provider cron syntax limitations before output generation", () => {
     expect(() => validateProviderCron("0 0 1 1 * 2026", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
+  })
+
+  it("preserves existing Vercel output config when adding schedule crons", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-vercel-config-")
+    const outputRoot = join(rootDir, ".vercel", "output")
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "config.json"), JSON.stringify({
+      routes: [{ src: "/api/(.*)", dest: "/api/index.func" }],
+      version: 3,
+    }), "utf8")
+    const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
+    await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
+    await writeFile(registryFile, "export default {}\n", "utf8")
+
+    await writeVercelScheduleFunctions({
+      definitions: [{
+        handler: join(rootDir, "src", "cleanup.schedule.ts"),
+        name: "cleanup",
+      }],
+      outputRoot,
+      registryFile,
+      rootDir,
+    }, new Map([["cleanup", "0 0 * * *"]]))
+
+    expect(JSON.parse(await readFile(join(outputRoot, "config.json"), "utf8"))).toMatchObject({
+      crons: [{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 0 * * *" }],
+      routes: [{ src: "/api/(.*)", dest: "/api/index.func" }],
+      version: 3,
+    })
+  })
+
+  it("rejects sanitized Vercel function path collisions", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-vercel-collision-")
+    const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
+    await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
+    await writeFile(registryFile, "export default {}\n", "utf8")
+
+    await expect(writeVercelScheduleFunctions({
+      definitions: [
+        { handler: join(rootDir, "src", "cleanup.schedule.ts"), name: "daily?report" },
+        { handler: join(rootDir, "src", "cleanup.schedule.ts"), name: "daily:report" },
+      ],
+      outputRoot: join(rootDir, ".vercel", "output"),
+      registryFile,
+      rootDir,
+    }, new Map([
+      ["daily?report", "0 0 * * *"],
+      ["daily:report", "0 0 * * *"],
+    ]))).rejects.toThrow(/same Vercel function path/)
   })
 })

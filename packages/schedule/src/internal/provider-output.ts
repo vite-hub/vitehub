@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
@@ -144,8 +144,15 @@ export async function writeVercelScheduleFunctions(options: {
   const functionRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
   await rm(functionRoot, { force: true, recursive: true })
 
+  const emittedFunctionNames = new Map<string, string>()
   for (const definition of options.definitions) {
     const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_")
+    const existingName = emittedFunctionNames.get(safeName)
+    if (existingName) {
+      throw new Error(`Schedule "${definition.name}" and "${existingName}" both emit the same Vercel function path: ${safeName}`)
+    }
+    emittedFunctionNames.set(safeName, definition.name)
+
     const segments = safeName.split("/")
     const functionDir = resolve(functionRoot, ...segments.slice(0, -1), `${segments.at(-1)}.func`)
     const functionFile = resolve(functionDir, "index.mjs")
@@ -157,12 +164,19 @@ export async function writeVercelScheduleFunctions(options: {
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
   }
 
-  const vercelConfig = createVercelConfigJson() as ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
+  const configFile = resolve(outputRoot, "config.json")
+  let vercelConfig = createVercelConfigJson() as ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
+  try {
+    vercelConfig = JSON.parse(await readFile(configFile, "utf8"))
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
   vercelConfig.crons = options.definitions.map(definition => ({
     path: getVercelSchedulePath(definition.name),
     schedule: crons.get(definition.name)!,
   }))
-  await writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
+  await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
