@@ -54,6 +54,7 @@ export default defineConfig(async () => {
     build: {
       outDir: "dist/client",
       rollupOptions: {
+        external: ["askweb"],
         input: resolve(import.meta.dirname, input),
       },
     },
