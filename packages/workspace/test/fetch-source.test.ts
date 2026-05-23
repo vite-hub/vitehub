@@ -86,6 +86,24 @@ describe("fetch sources", () => {
     }))
   })
 
+  it("serializes top-level JSON strings as valid JSON", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse("ok"))
+
+    registerWorkspace("fetch-json-string", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        status: source.fetch({
+          path: "external/status/string.json",
+          url: "https://status.example.com/string",
+        }),
+      },
+    }))
+
+    const workspace = useWorkspace("fetch-json-string")
+
+    await expect(workspace.fs.readFile("external/status/string.json")).resolves.toBe(JSON.stringify("ok"))
+  })
+
   it("accepts HEAD requests and rejects unsupported response types", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse(""))
     registerWorkspace("fetch-head", defineWorkspace({

@@ -125,8 +125,8 @@ function deriveWorkspacePath(url: string | URL, responseType: FetchSourceRespons
 
 function serializeFetchSourceContent(value: unknown, responseType: FetchSourceResponseType): WorkspaceContent {
   if (value instanceof Uint8Array) return value
+  if (responseType === "json") return JSON.stringify(value, null, 2) ?? "null"
   if (typeof value === "string") return value
-  if (responseType === "json") return JSON.stringify(value, null, 2)
   return typeof value === "undefined" ? "" : String(value)
 }
 
