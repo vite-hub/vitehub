@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -24,6 +24,7 @@ describe("Nitro schedule integration", () => {
 
     const registryFile = join(root, ".nitro", "vitehub", "schedule", "nitro-registry.mjs")
     expect(nitro.options.alias["#vitehub/schedule/registry"]).toBe(registryFile)
+    expect(nitro.options.alias["#vitehub/schedule/targets"]).toBe(join(root, ".nitro", "vitehub", "schedule", "targets.mjs"))
     expect(await readFile(registryFile, "utf8")).toBe([
       "",
       "const registry = {",
@@ -32,6 +33,31 @@ describe("Nitro schedule integration", () => {
       "export default registry",
       "",
     ].join("\n"))
+  })
+
+  it("adds Cloudflare cron triggers and the schedule provider plugin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-cloudflare-"))
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "cleanup.ts"), "export default { cron: '0 0 * * *', handler: () => undefined }\n", "utf8")
+    const nitro = {
+      hooks: { hook: vi.fn() },
+      options: {
+        alias: {} as Record<string, string>,
+        buildDir: join(root, ".nitro"),
+        cloudflare: {} as { wrangler?: { triggers?: { crons?: string[] } } },
+        imports: undefined as { presets?: Array<{ from: string, imports: string[] }> } | undefined,
+        plugins: [] as string[],
+        preset: "cloudflare_module",
+        rootDir: root,
+        scanDirs: [],
+      },
+    }
+
+    await scheduleNitroModule.setup(nitro as never)
+
+    expect(nitro.options.cloudflare.wrangler?.triggers?.crons).toEqual(["0 0 * * *"])
+    expect(nitro.options.plugins[0]).toBe(join(root, ".nitro", "vitehub", "schedule", "nitro-plugin.ts"))
+    expect(await readFile(nitro.options.plugins[0]!, "utf8")).toContain("cloudflare:scheduled")
   })
 
   it("auto-imports only the schedule definition boundary helper", async () => {

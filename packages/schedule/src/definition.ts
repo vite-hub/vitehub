@@ -36,5 +36,9 @@ export function defineSchedule<TResult = unknown>(
     throw new TypeError("`defineSchedule()` options.id must be a non-empty string.")
   }
 
+  if (typeof options?.allowRuntimeSchedules !== "undefined" && typeof options.allowRuntimeSchedules !== "boolean") {
+    throw new TypeError("`defineSchedule()` options.allowRuntimeSchedules must be a boolean.")
+  }
+
   return { cron, handler, options }
 }
