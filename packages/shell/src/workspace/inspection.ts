@@ -51,11 +51,12 @@ export async function runWorkspaceInspectionCommand(
       stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`,
       stdout: "",
       timedOut: true,
+      workspaceGuardrail: { kind: "timeout" },
     }), timeout)),
   ])
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths)
 
-  return noMatchFeedback ? { ...result, stdout: noMatchFeedback } : result
+  return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
 }
 
 function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: string[] = []): ShellObservation | undefined {
@@ -101,7 +102,7 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
         if (!isConcreteWorkspacePath(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
         if (await fs.exists(resolvedPath)) continue
-        return missingWorkspacePathFeedback(resolvedPath)
+        return missingWorkspacePathFeedback(command, resolvedPath)
       }
     }
   }
@@ -110,9 +111,9 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
   }
 }
 
-function missingWorkspacePathFeedback(resolvedPath: string): ShellObservation {
+function missingWorkspacePathFeedback(command: string, resolvedPath: string): ShellObservation {
   return {
-    command: "",
+    command,
     event: "command_finished",
     exitCode: 0,
     stderr: "",
@@ -122,6 +123,7 @@ function missingWorkspacePathFeedback(resolvedPath: string): ShellObservation {
       "If this path should exist, update the Agent workspace source configuration or materialize the correct mounted source.",
       "Otherwise answer that the requested evidence is unavailable in the current workspace.",
     ].join("\n") + "\n",
+    workspaceGuardrail: { kind: "missing_path", path: resolvedPath },
   }
 }
 
@@ -157,6 +159,7 @@ function broadWorkspaceSearchFeedback(broadSearchPaths: string[] = []): ShellObs
     exitCode: 126,
     stderr: `[vitehub] Workspace root search is too broad.${hint}\n`,
     stdout: feedback,
+    workspaceGuardrail: { kind: "broad_search" },
   }
 }
 
