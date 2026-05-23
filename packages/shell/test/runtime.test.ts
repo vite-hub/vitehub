@@ -279,10 +279,11 @@ describe("@vitehub/shell just-bash runtime", () => {
       fs: createReadonlyWorkspaceFs(workspace),
       timeout: 5,
     })).resolves.toMatchObject({
+      event: "command_timed_out",
       exitCode: null,
       stderr: "[vitehub] Workspace shell command timed out after 5ms.",
       stdout: "",
-      workspaceGuardrail: { kind: "timeout" },
+      timedOut: true,
     })
   })
 })

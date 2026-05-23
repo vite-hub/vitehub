@@ -41,19 +41,7 @@ export async function runWorkspaceInspectionCommand(
       fs: options.fs,
     }),
   })
-  const result = await Promise.race([
-    runtime.exec(command, { cwd: options.cwd || workspaceMountPoint, timeout }),
-    new Promise<ShellObservation>(resolve => setTimeout(() => resolve({
-      command,
-      cwd: options.cwd || workspaceMountPoint,
-      event: "command_timed_out",
-      exitCode: null,
-      stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`,
-      stdout: "",
-      timedOut: true,
-      workspaceGuardrail: { kind: "timeout" },
-    }), timeout)),
-  ])
+  const result = await runtime.exec(command, { cwd: options.cwd || workspaceMountPoint, timeout })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
   return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result

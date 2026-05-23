@@ -184,7 +184,7 @@ workflow: {
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `provider` | `'cloudflare' \| 'openworkflow' \| 'node' \| 'vercel'` | Explicit provider. `node` is accepted as an alias for `openworkflow`. Defaults from hosting: Cloudflare hosting selects Cloudflare, Nitro node/Docker hosting selects OpenWorkflow, everything else selects Vercel. |
+| `provider` | `'cloudflare' \| 'openworkflow' \| 'vercel'` | Explicit provider. Defaults from hosting: Cloudflare hosting selects Cloudflare, Nitro node/Docker hosting selects OpenWorkflow, everything else selects Vercel. |
 | `binding` | `string` | Override the generated Cloudflare binding name used at runtime. |
 | `name` | `string` | Override the provider workflow name used by generated output. |
 | `postgres.url` | `string` | OpenWorkflow Postgres URL. Defaults to `OPENWORKFLOW_POSTGRES_URL` or `DATABASE_URL`. |

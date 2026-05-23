@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
-import { bash, db, kv, sandbox, skills } from "../src/capabilities.ts"
+import { bash, blob, db, kv, sandbox, skills } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import type { AgentUsageRecord } from "../src/index.ts"
 
@@ -10,8 +10,9 @@ describe("agent public types", () => {
     defineAgent({
       capabilities: [
         bash(),
-        db(),
-        kv(),
+        blob({ mode: "write", policy: () => "allow", store: "assets" }),
+        db({ database: "analytics", mode: "write", policy: "allow", schemaMode: "write" }),
+        kv({ mode: "write", policy: "require-approval", store: "chat" }),
         skills(),
         sandbox({ commands: ["node"] }),
         {
@@ -67,6 +68,24 @@ describe("agent public types", () => {
       model: {} as never,
       // @ts-expect-error workspace mode must be read or write
       workspace: { mode: "mutable" },
+    })
+
+    defineAgent({
+      adapter: "ai-sdk",
+      model: {} as never,
+      capabilities: [
+        // @ts-expect-error capability mode must be read or write
+        blob({ mode: "mutable" }),
+      ],
+    })
+
+    defineAgent({
+      adapter: "ai-sdk",
+      model: {} as never,
+      capabilities: [
+        // @ts-expect-error schemaMode must be read or write
+        db({ schemaMode: "mutable" }),
+      ],
     })
 
     defineAgent({

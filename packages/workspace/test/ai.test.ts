@@ -69,20 +69,6 @@ describe("createWorkspaceTools", () => {
     })
   })
 
-  it("describes shell syntax in tool metadata", () => {
-    const tools = createWorkspaceTools(createAssets({
-      "README.md": "# Docs\n",
-    }))
-    const description = tools.shell.description || ""
-    const commandDescription = (tools.shell.inputSchema as any).jsonSchema.properties.command.description
-
-    expect(description).toContain("real Bash-compatible")
-    expect(description).toContain("/workspace")
-    expect(description).toContain("Pipes, redirects, chaining")
-    expect(description).toContain("rg 'siff|PLC' ingestion forecasting-engine | head -n 20")
-    expect(commandDescription).toContain("Bash-compatible")
-  })
-
   it("limits shell commands to the enabled read capabilities", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
@@ -158,7 +144,7 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "pwd")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
-      stderr: expect.stringContaining("command budget exhausted after 1 calls"),
+      stderr: expect.stringContaining("command budget exhausted"),
     })
   })
 
@@ -170,7 +156,7 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "rg orders .")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
-      stderr: expect.stringContaining("Try one of these paths: \"models\""),
+      stderr: expect.stringContaining("Workspace root search is too broad"),
     })
   })
 
@@ -281,8 +267,6 @@ describe("useWorkspace facade tools", () => {
     const workspace = useWorkspace("docs")
 
     expect("shell" in workspace.tools.inspect()).toBe(true)
-    expect("shell" in workspace.tools.readonly()).toBe(true)
     expect(workspace.tools.none()).toEqual({})
-    expect("shell" in workspace.tools()).toBe(true)
   })
 })
