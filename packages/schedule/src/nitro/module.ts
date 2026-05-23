@@ -4,6 +4,7 @@ import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, createRuntimeRegi
 import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
+import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "../targets-module.ts"
 
 import type { Nitro, NitroModule } from "nitro/types"
 
@@ -22,20 +23,32 @@ function createNitroScheduleRegistryPath(rootDir: string, buildDir: string) {
   })
 }
 
+function createNitroScheduleTargetsPath(rootDir: string, buildDir: string) {
+  return createNitroRuntimeFilePath(rootDir, {
+    buildDir,
+    fileName: "targets.mjs",
+    segments: ["vitehub", "schedule"],
+  })
+}
+
 function resolveNitroScheduleScanDirs(rootDir: string, scanDirs: string[] | undefined) {
   return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
 }
 
-async function writeNitroScheduleRuntimeFiles(nitro: Nitro): Promise<string> {
+async function writeNitroScheduleRuntimeFiles(nitro: Nitro): Promise<{ registryFile: string, targetsFile: string }> {
   const registryFile = createNitroScheduleRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
+  const targetsFile = createNitroScheduleTargetsPath(nitro.options.rootDir, nitro.options.buildDir)
   const definitions = discoverScheduleDefinitions({
     mode: "nitro-server-schedules",
     scanDirs: resolveNitroScheduleScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
 
-  await writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions))
+  await Promise.all([
+    writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
+    writeFileIfChanged(targetsFile, createScheduleTargetsContents(definitions)),
+  ])
 
-  return registryFile
+  return { registryFile, targetsFile }
 }
 
 const scheduleNitroModule: NitroModule = {
@@ -46,17 +59,23 @@ const scheduleNitroModule: NitroModule = {
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/schedule"] = resolveRuntimeEntry("../index", "@vitehub/schedule")
 
-    let registryFile = await writeNitroScheduleRuntimeFiles(nitro)
-    applyNitroRuntimeAliases(nitro, { "#vitehub/schedule/registry": registryFile })
+    let runtimeFiles = await writeNitroScheduleRuntimeFiles(nitro)
+    applyNitroRuntimeAliases(nitro, {
+      "#vitehub/schedule/registry": runtimeFiles.registryFile,
+      [SCHEDULE_TARGETS_ID]: runtimeFiles.targetsFile,
+    })
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
     if (!importsExplicitlyDisabled) {
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, SCHEDULE_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
     }
 
-    hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroScheduleRuntimeFiles(nitro), (nextRegistryFile) => {
-      registryFile = nextRegistryFile
-      applyNitroRuntimeAliases(nitro, { "#vitehub/schedule/registry": registryFile })
+    hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroScheduleRuntimeFiles(nitro), (nextRuntimeFiles) => {
+      runtimeFiles = nextRuntimeFiles
+      applyNitroRuntimeAliases(nitro, {
+        "#vitehub/schedule/registry": runtimeFiles.registryFile,
+        [SCHEDULE_TARGETS_ID]: runtimeFiles.targetsFile,
+      })
     })
   },
 }

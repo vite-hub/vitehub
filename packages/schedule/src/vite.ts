@@ -5,6 +5,7 @@ import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/b
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import scheduleNitroModule from "./nitro/module.ts"
+import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-module.ts"
 
 import type { NitroModule } from "nitro/types"
 import type { Plugin, ResolvedConfig } from "vite"
@@ -13,6 +14,7 @@ const schedulePackageName = "@vitehub/schedule"
 const SCHEDULE_VITE_PLUGIN_NAME = "@vitehub/schedule/vite"
 const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
+const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
 export type ScheduleVitePlugin = Plugin & { nitro: NitroModule }
@@ -20,17 +22,24 @@ export type ScheduleVitePlugin = Plugin & { nitro: NitroModule }
 export function hubSchedule(): ScheduleVitePlugin {
   let resolved: ResolvedConfig | undefined
 
-  function createRegistryContents() {
+  function discoverViteSchedules() {
     if (!resolved) {
-      return createRuntimeRegistryContents(SCHEDULE_REGISTRY_ID, [])
+      return []
     }
 
-    const definitions = discoverScheduleDefinitions({
+    return discoverScheduleDefinitions({
       mode: "vite-suffix",
       rootDir: resolved.root,
     })
+  }
 
+  function createRegistryContents() {
+    const definitions = discoverViteSchedules()
     return createRuntimeRegistryContents(SCHEDULE_REGISTRY_ID, definitions)
+  }
+
+  function createTargetsContents() {
+    return createScheduleTargetsContents(discoverViteSchedules(), { types: true })
   }
 
   return {
@@ -56,15 +65,25 @@ export function hubSchedule(): ScheduleVitePlugin {
       if (registryModule) {
         context.server.moduleGraph.invalidateModule(registryModule)
       }
+      const targetsModule = context.server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_TARGETS_ID)
+      if (targetsModule) {
+        context.server.moduleGraph.invalidateModule(targetsModule)
+      }
     },
     resolveId(id) {
       if (id === SCHEDULE_REGISTRY_ID) {
         return RESOLVED_SCHEDULE_REGISTRY_ID
       }
+      if (id === SCHEDULE_TARGETS_ID) {
+        return RESOLVED_SCHEDULE_TARGETS_ID
+      }
     },
     load(id) {
       if (id === RESOLVED_SCHEDULE_REGISTRY_ID) {
         return createRegistryContents()
+      }
+      if (id === RESOLVED_SCHEDULE_TARGETS_ID) {
+        return createTargetsContents()
       }
     },
   }
