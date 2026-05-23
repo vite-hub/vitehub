@@ -553,6 +553,16 @@ describe("@vitehub/shell workspace inspection", () => {
     })
     await expect(workspace.readFile("attached-error.txt")).resolves.toBe("")
 
+    await expect(runWorkspaceInspectionCommand(workspace, "grep > grep-output.txt customer models/customers.sql", {
+      commands: ["grep"],
+      cwd: workspaceMountPoint,
+      fs: createWritableWorkspaceFs(workspace),
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+    })
+    await expect(workspace.readFile("grep-output.txt")).resolves.toBe("select * from customers\n")
+
     await expect(runWorkspaceInspectionCommand(workspace, "find -L models -name '*.sql'", {
       commands: ["find"],
       cwd: workspaceMountPoint,

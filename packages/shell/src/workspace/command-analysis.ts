@@ -96,7 +96,10 @@ function commandPathArguments(command: string, words: string[]) {
       paths.push(...searchPathArgumentsAfterTerminator(args.slice(index + 1), sawPattern))
       break
     }
-    if (isShellOperator(arg) && sawPattern) break
+    if (isShellOperator(arg)) {
+      if (sawPattern) break
+      continue
+    }
     if (arg.startsWith("-")) {
       if (takesOptionValue(command, arg)) {
         if (takesSearchPatternOptionValue(arg)) sawPattern = true
