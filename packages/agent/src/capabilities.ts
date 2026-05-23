@@ -542,7 +542,9 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
         const transcripts = await Promise.all(
           audioParts.map(part => runTranscription(options, part, context.input.get().abortSignal)),
         )
-        messages.push(appendMessageText(message, transcripts.filter(Boolean).join("\n")))
+        const text = transcripts.filter(Boolean).join("\n")
+        const separator = text && message.parts.some(part => part.type === "text" && part.text.length > 0) ? "\n" : ""
+        messages.push(appendMessageText(message, `${separator}${text}`))
       }
       context.input.setMessages(messages)
     },
