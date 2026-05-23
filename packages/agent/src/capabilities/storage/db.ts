@@ -79,8 +79,8 @@ function asAgentDatabaseHandle(value: unknown): AgentDatabaseHandle | undefined 
 function selectAgentDatabase(handle: unknown, database = "default"): unknown {
   const primitive = typeof handle === "object" && handle !== null ? handle as AgentDatabasePrimitive : undefined
   if (!primitive) return handle
+  if (typeof primitive.database === "function") return primitive.database(database)
   if (database !== "default") {
-    if (typeof primitive.database === "function") return primitive.database(database)
     throw new Error(`[vitehub] Database "${database}" is not available.`)
   }
   return handle

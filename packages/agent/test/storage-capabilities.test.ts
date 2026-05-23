@@ -109,6 +109,25 @@ describe("storage capabilities", () => {
     expect(analytics.query).toHaveBeenCalledWith("select * from events")
   })
 
+  it("selects the default DB through primitive database selectors", async () => {
+    const { db } = await import("../src/capabilities.ts")
+    const defaultDatabase = {
+      query: vi.fn(async () => [{ id: 1 }]),
+      schema: { notes: true },
+    }
+    const dbPrimitive = {
+      database: vi.fn(() => defaultDatabase),
+    }
+    const tools = await resolveTools([db()], {
+      db: dbPrimitive,
+    })
+
+    expect(tools.db_schema!.execute?.({})).toEqual({ database: "default", schema: { notes: true } })
+    await expect(tools.db_query!.execute?.({ statement: "select * from notes;" })).resolves.toEqual([{ id: 1 }])
+    expect(dbPrimitive.database).toHaveBeenCalledWith("default")
+    expect(defaultDatabase.query).toHaveBeenCalledWith("select * from notes")
+  })
+
   it("expects an agent-facing raw SQL DB handle instead of adapting Drizzle entries", async () => {
     const { db } = await import("../src/capabilities.ts")
     const database = {
