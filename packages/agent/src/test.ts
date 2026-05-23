@@ -117,6 +117,7 @@ function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
     if (result.toolName !== "shell" && result.toolName !== "materialize_sources") {
       return false
     }
+    if (hasWorkspaceGuardrail(result.output)) return true
     const output = typeof result.output === "string"
       ? result.output
       : stringifyToolOutput(result.output)
@@ -126,6 +127,12 @@ function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
       || output.includes("Search returned no matches")
       || output.includes("Workspace shell command timed out")
   }).length
+}
+
+function hasWorkspaceGuardrail(output: unknown): boolean {
+  return typeof output === "object"
+    && output !== null
+    && typeof (output as { workspaceGuardrail?: { kind?: unknown } }).workspaceGuardrail?.kind === "string"
 }
 
 function stringifyToolOutput(output: unknown): string {
