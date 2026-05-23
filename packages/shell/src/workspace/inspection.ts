@@ -78,10 +78,10 @@ async function preflightWorkspaceInspectionCommand(command: string, fs: Workspac
         const path = words[1] || workspaceMountPoint
         if (!isWorkspacePathCandidate(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
-        const exists = resolvedPath === "" || await fs.exists(resolvedPath)
-        if (segment.separatorAfter === "&&" && !exists) skipAndChain = true
-        if (segment.separatorAfter === "||" && exists) skipOrChain = true
-        if (exists) {
+        const directory = await workspacePathIsDirectory(fs, resolvedPath)
+        if (segment.separatorAfter === "&&" && !directory) skipAndChain = true
+        if (segment.separatorAfter === "||" && directory) skipOrChain = true
+        if (directory) {
           currentCwd = resolvedPath ? posix.join(workspaceMountPoint, resolvedPath) : workspaceMountPoint
         }
         continue
@@ -113,10 +113,10 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
         const path = words[1] || workspaceMountPoint
         if (!isWorkspacePathCandidate(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
-        const exists = resolvedPath === "" || await fs.exists(resolvedPath)
-        if (segment.separatorAfter === "&&" && !exists) skipAndChain = true
-        if (segment.separatorAfter === "||" && exists) skipOrChain = true
-        if (exists) {
+        const directory = await workspacePathIsDirectory(fs, resolvedPath)
+        if (segment.separatorAfter === "&&" && !directory) skipAndChain = true
+        if (segment.separatorAfter === "||" && directory) skipOrChain = true
+        if (directory) {
           currentCwd = resolvedPath ? posix.join(workspaceMountPoint, resolvedPath) : workspaceMountPoint
         }
         continue
@@ -125,6 +125,7 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
         if (!isConcreteWorkspacePath(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
         if (await fs.exists(resolvedPath)) continue
+        if (segment.separatorAfter === "||") continue
         return missingWorkspacePathFeedback(command, resolvedPath)
       }
       if (segment.separatorAfter === "&&" || segment.separatorAfter === "||") return undefined
@@ -132,6 +133,16 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
   }
   catch {
     return undefined
+  }
+}
+
+async function workspacePathIsDirectory(fs: WorkspaceShellFileSystem, path: string) {
+  if (path === "") return true
+  try {
+    return (await fs.stat(path)).type === "directory"
+  }
+  catch {
+    return false
   }
 }
 

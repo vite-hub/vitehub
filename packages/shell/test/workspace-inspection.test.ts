@@ -440,6 +440,25 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: "# Docs\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "cat missing.md || cat README.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cd README.md || rg customer .", {
+      commands: ["cd", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stdout: expect.stringContaining("Workspace search is too broad"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "cd models || cat README.md", {
       commands: ["cat", "cd"],
       cwd: workspaceMountPoint,
