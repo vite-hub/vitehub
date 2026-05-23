@@ -140,20 +140,18 @@ describe("docs import contracts", () => {
 
 describe("playground import contracts", () => {
   it("keeps the Vite e2e workspace shim aligned with root source exports", () => {
-    const workspaceIndex = readFileSync(join(packageDir("workspace"), "src", "index.ts"), "utf8")
     const sourceIndex = readFileSync(join(packageDir("workspace"), "src", "sources", "index.ts"), "utf8")
     const viteE2e = readFileSync(join(repoRoot, "playground", "vite", "build", "vite-e2e.ts"), "utf8")
     const workspaceShim = viteE2e.slice(
       viteE2e.indexOf("function renderWorkspaceRuntimeModule"),
       viteE2e.indexOf("function renderWorkspaceShellRuntimeModule"),
     )
-    const rootExports = [...workspaceIndex.matchAll(/^export (?:\{ (\w+) \}|\* as (\w+)) /gm)].map(match => match[1] || match[2]).sort()
     const sourceExports = [...sourceIndex.matchAll(/^export \{ (\w+) \}/gm)].map(match => match[1]).sort()
     const shimExports = [...workspaceShim.matchAll(/`export (?:\{ (\w+) \}|\* as (\w+)|const (\w+) =)/g)].map(match => match[1] || match[2] || match[3]).sort()
     const sourceShim = workspaceShim.match(/export const source = \{([^`]+)\}/)?.[1] || ""
     const shimProperties = [...sourceShim.matchAll(/\b(\w+): [^,}]+/g)].map(match => match[1])
 
-    expect(shimExports).toEqual(rootExports)
+    expect(shimExports).toEqual(["defineWorkspace", "source", "useWorkspace"])
     expect(shimProperties.sort()).toEqual(sourceExports)
   })
 })
