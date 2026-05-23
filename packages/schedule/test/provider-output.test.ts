@@ -117,6 +117,23 @@ describe("schedule provider output", () => {
     }, new Map([["reports/daily", "0 0 * * *"]]))
 
     const source = await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "reports", "daily.func", "index.mjs"), "utf8")
-    expect(source).toContain("url.pathname.slice(prefix.length)")
+    expect(source).toContain("const name = \"reports/daily\"")
+  })
+
+  it("emits Vercel handlers that load unsanitized schedule names", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-vercel-unsanitized-")
+    await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
+    const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
+    await writeFile(registryFile, "export default {}\n", "utf8")
+
+    await writeVercelScheduleFunctions({
+      definitions: [{ handler: join(rootDir, "src", "cleanup.schedule.ts"), name: "billing:daily" }],
+      outputRoot: join(rootDir, ".vercel", "output"),
+      registryFile,
+      rootDir,
+    }, new Map([["billing:daily", "0 0 * * *"]]))
+
+    const source = await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "billing_daily.func", "index.mjs"), "utf8")
+    expect(source).toContain("const name = \"billing:daily\"")
   })
 })

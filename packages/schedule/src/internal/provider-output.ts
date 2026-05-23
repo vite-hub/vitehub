@@ -52,7 +52,7 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
   return match[2]
 }
 
-function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel") {
+function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string) {
   const runtimeImport = createImportPath(file, resolveRuntimeModule("runtime/execute"))
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
@@ -93,7 +93,9 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "export default async function scheduleHandler(req, res) {",
           "  const url = new URL(req.url || '/', 'https://vitehub.local')",
           "  const prefix = '/api/vitehub/schedules/vercel/'",
-          "  const name = decodeURIComponent(url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : '')",
+          scheduleName === undefined
+            ? "  const name = decodeURIComponent(url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : '')"
+            : `  const name = ${JSON.stringify(scheduleName)}`,
           "  const definition = await loadScheduleDefinition(name)",
           "  if (!definition) {",
           "    res.statusCode = 404",
@@ -159,7 +161,7 @@ export async function writeVercelScheduleFunctions(options: {
     const functionFile = resolve(functionDir, "index.mjs")
     const wrapperFile = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
-    await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel"), "utf8")
+    await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, { format: "esm", platform: "node" })
     await rm(wrapperFile, { force: true })
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
