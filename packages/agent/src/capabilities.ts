@@ -523,13 +523,6 @@ async function resolveFetchToolRequest(options: FetchCapabilityToolOptions, inpu
   }
 }
 
-export function mcp(options: { servers?: Record<string, unknown> } = {}): AgentCapabilityDefinition {
-  return defineCapability({
-    id: "mcp",
-    metadata: { servers: options.servers || {} },
-  })
-}
-
 export {
   blob,
   db,
@@ -539,6 +532,9 @@ export {
   memory,
   workspaceJsonlMemoryStore,
 } from "./memory.ts"
+export {
+  mcp,
+} from "./mcp/capability.ts"
 export {
   normalizeAgentUsage,
   staticModelPricing,
@@ -570,6 +566,12 @@ export type {
   MemoryStoreOptions,
   WorkspaceJsonlMemoryStoreOptions,
 } from "./memory.ts"
+export type {
+  McpCapabilityOptions,
+  McpClient,
+  McpClientConfig,
+  McpServerConfig,
+} from "./mcp/types.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,

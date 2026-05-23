@@ -44,6 +44,14 @@ _Avoid_: Chat History Capability, Agent Memory
 A Capability that gives an Agent model-facing access to Workspace files through inspect or write tools.
 _Avoid_: Bash, raw workspace tools, built-in tool
 
+**MCP Capability**:
+A Capability that connects an Agent to external MCP servers and exposes their model-facing tools.
+_Avoid_: MCP server implementation, MCP Source
+
+**MCP Server**:
+An external Model Context Protocol server consumed by an Agent through the MCP Capability.
+_Avoid_: ViteHub-hosted server, Workspace Source
+
 **Input Command**:
 A Capability-provided command that transforms or enriches explicit user input before an Agent runs.
 _Avoid_: Slash Command, chat command, shell command, model tool
@@ -61,6 +69,7 @@ _Avoid_: Input Command, Capability, model tool
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Workspace Capability** contributes Workspace tools without implying shell access.
+- An **MCP Capability** consumes one or more external **MCP Servers**.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is a separate Capability concern from the **Chat Capability**.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
@@ -97,6 +106,7 @@ _Avoid_: Input Command, Capability, model tool
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
+- MCP server language was considered ambiguous between hosting an MCP server and consuming one - resolved: in the **MCP Capability**, an **MCP Server** is external and consumed by an Agent.
 - Capability-level name and description were considered separate display metadata - resolved: remove both as a breaking change and use **Capability** id as the only capability-level identity/display field.
 - Slash command was considered as the domain term - resolved: use **Input Command** for the Capability concept because it names the lifecycle position; slash syntax is only the initial invocation format.
 - Host/session commands were considered part of Input Commands - resolved: **Host Commands** are a separate future concern because they change chat, session, UI, or product state rather than Agent run input.
