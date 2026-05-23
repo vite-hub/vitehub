@@ -127,14 +127,17 @@ function takesOptionValue(arg: string) {
     "-f",
     "-g",
     "-m",
+    "-d",
     "-T",
     "-t",
     "--after-context",
     "--before-context",
     "--context",
+    "--directories",
     "--glob",
     "--ignore-file",
     "--max-count",
+    "--max-depth",
     "--max-filesize",
     "--regexp",
     "--type",
@@ -145,7 +148,10 @@ function takesOptionValue(arg: string) {
 }
 
 function takesInlineOptionValue(arg: string) {
-  return arg.startsWith("--ignore-file=")
+  return (arg.startsWith("-d") && arg !== "-d")
+    || arg.startsWith("--directories=")
+    || arg.startsWith("--ignore-file=")
+    || arg.startsWith("--max-depth=")
     || arg.startsWith("--max-filesize=")
     || arg.startsWith("--type=")
     || arg.startsWith("--type-add=")
@@ -238,8 +244,10 @@ function splitShellCommandSegments(command: string) {
 }
 
 function hasRecursiveGrepFlag(words: string[]) {
-  return words.slice(1).some((arg) => {
+  return words.slice(1).some((arg, index, args) => {
     if (arg === "--recursive" || arg === "-r" || arg === "-R") return true
+    if (arg === "--directories" || arg === "-d") return args[index + 1] === "recurse"
+    if (arg === "--directories=recurse" || arg === "-drecurse") return true
     if (!/^-[^-]/.test(arg)) return false
     if ((arg.startsWith("-e") || arg.startsWith("-f")) && arg.length > 2) return false
     return arg.includes("r") || arg.includes("R")

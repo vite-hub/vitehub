@@ -155,6 +155,24 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: expect.not.stringContaining("Workspace search is too broad"),
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "rg --max-depth 1 customers models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg --max-depth=1 customers models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg '&&' models", {
       commands: ["rg"],
       cwd: workspaceMountPoint,
@@ -482,6 +500,26 @@ describe("@vitehub/shell workspace inspection", () => {
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "rg orders models | grep -Ri orders", {
+      commands: ["grep", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stdout: expect.stringContaining("Workspace search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg orders models | grep --directories=recurse orders", {
+      commands: ["grep", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stdout: expect.stringContaining("Workspace search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg orders models | grep --directories recurse orders", {
       commands: ["grep", "rg"],
       cwd: workspaceMountPoint,
       fs,
