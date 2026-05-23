@@ -58,6 +58,28 @@ describe("Vite schedule integration", () => {
     expect(targets).not.toContain("\"cleanup\"")
   })
 
+  it("lowers inline Agent Schedules into generated schedule definitions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-registry-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "support.agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export default defineAgent({",
+      "  capabilities: [schedule({ schedules: [{ cron: '0 9 * * *', id: 'daily' }] })],",
+      "  run: () => 'ok',",
+      "})",
+    ].join("\n"), "utf8")
+
+    const plugin = hubSchedule()
+    resolvePluginConfig(plugin, root)
+    const registry = await loadScheduleRegistry(plugin)
+
+    expect(registry).toContain("import { runScheduledAgent } from \"@vitehub/agent\"")
+    expect(registry).toContain("\"support/daily\": async () => ({")
+    expect(registry).toContain("cron: \"0 9 * * *\"")
+    expect(registry).toContain("options: { id: \"daily\", target: \"support\" }")
+    expect(registry).toContain("handler: async (context) => runScheduledAgent(")
+  })
+
   it("serves an empty registry without special cases", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vite-empty-"))
     const plugin = hubSchedule()

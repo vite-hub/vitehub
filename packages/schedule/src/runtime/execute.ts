@@ -179,7 +179,7 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
     definition: options.definition,
     scheduleId: options.definition.options?.id ?? options.name,
     scheduledAt: options.scheduledAt,
-    target: options.name,
+    target: options.definition.options?.target ?? options.name,
   })
 }
 

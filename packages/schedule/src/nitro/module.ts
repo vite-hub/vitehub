@@ -1,9 +1,10 @@
 import { resolve } from "node:path"
 
-import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, createRuntimeRegistryContents, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
+import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
+import { createScheduleRegistryContents } from "../registry-module.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "../targets-module.ts"
 
 import type { Nitro, NitroModule } from "nitro/types"
@@ -44,7 +45,7 @@ async function writeNitroScheduleRuntimeFiles(nitro: Nitro): Promise<{ registryF
   })
 
   await Promise.all([
-    writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
+    writeFileIfChanged(registryFile, createScheduleRegistryContents(registryFile, definitions)),
     writeFileIfChanged(targetsFile, createScheduleTargetsContents(definitions)),
   ])
 

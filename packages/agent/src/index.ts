@@ -52,6 +52,7 @@ import type {
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  AgentScheduleInvocationInput,
   AgentSettings,
   AgentUsageCost,
   AgentUsageRecord,
@@ -185,6 +186,14 @@ type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
   chat: AgentChatOptions<TRuntimeConfig>
   kind: "chat"
 }
+interface ScheduleRunContextLike {
+  attemptId?: string
+  id: string
+  runId?: string
+  scheduleId?: string
+  scheduledAt: Date
+  target?: string
+}
 
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -262,8 +271,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { blob, db, inputCommands, kv, mcp, sandbox, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
-export type { TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
+export { agentScheduleIdFromCron, blob, db, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
+export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -1258,6 +1267,31 @@ export async function runAgent<
     const runResult = toAgentRunResult(rendered)
     return { finishResult: rendered, value: runResult }
   }, "[vitehub] Agent run failed and finish lifecycle also failed.")
+}
+
+export async function runScheduledAgent(
+  agent: AgentInput<AgentRuntimeContext>,
+  context: ScheduleRunContextLike,
+): Promise<unknown> {
+  return await runAgent(agent, {
+    memo(_key, create) {
+      return create()
+    },
+    run: { runId: context.runId || context.id },
+    runtime: "unknown",
+    waitUntil() {},
+  }, {
+    context: {
+      schedule: {
+        id: context.id,
+        kind: "schedule",
+        runId: context.runId,
+        scheduleId: context.scheduleId,
+        scheduledAt: context.scheduledAt,
+        target: context.target,
+      },
+    },
+  })
 }
 
 export async function streamAgent<
