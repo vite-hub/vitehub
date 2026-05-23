@@ -1,9 +1,10 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, inputCommands as rootInputCommands, type AgentRuntimeContext } from "../src/index.ts"
-import { blob, db, inputCommands, kv, sandbox, skills, workspaceShell } from "../src/capabilities.ts"
+import { blob, db, fetch, inputCommands, kv, sandbox, skills, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import type { AgentUsageRecord } from "../src/index.ts"
+import type { FetchCapabilityToolOptions } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -12,6 +13,33 @@ describe("agent public types", () => {
         workspaceShell(),
         blob({ mode: "write", policy: () => "allow", store: "assets" }),
         db({ database: "analytics", mode: "write", policy: "allow", schemaMode: "write" }),
+        fetch({
+          tools: {
+            status: {
+              inputSchema: {
+                "~standard": {
+                  validate: (input: unknown) => ({ value: input as { region: string } }),
+                },
+              },
+              request(input) {
+                expectTypeOf(input.region).toEqualTypeOf<string>()
+                return {
+                  query: { region: input.region },
+                  url: "https://status.example.com/api/region",
+                }
+              },
+              schema: {
+                "~standard": {
+                  validate: (input: unknown) => ({ value: input as { status: string } }),
+                },
+              },
+              transform(data) {
+                expectTypeOf(data.status).toEqualTypeOf<string>()
+                return data.status
+              },
+            } satisfies FetchCapabilityToolOptions<{ region: string }, { status: string }, string>,
+          },
+        }),
         inputCommands({
           commands: {
             review: {
@@ -76,24 +104,6 @@ describe("agent public types", () => {
       model: {} as never,
       // @ts-expect-error workspace mode must be read or write
       workspace: { mode: "mutable" },
-    })
-
-    defineAgent({
-      adapter: "ai-sdk",
-      model: {} as never,
-      capabilities: [
-        // @ts-expect-error capability mode must be read or write
-        blob({ mode: "mutable" }),
-      ],
-    })
-
-    defineAgent({
-      adapter: "ai-sdk",
-      model: {} as never,
-      capabilities: [
-        // @ts-expect-error schemaMode must be read or write
-        db({ schemaMode: "mutable" }),
-      ],
     })
 
     defineAgent({

@@ -69,6 +69,24 @@ describe("workspace types", () => {
       include: "**/*.md",
       prefix: "content",
     })
+    source.fetch({
+      schema: {
+        "~standard": {
+          validate: (input: unknown) => ({ value: input as { status: string } }),
+        },
+      },
+      transform(data) {
+        expectTypeOf(data.status).toEqualTypeOf<string>()
+        return { ok: data.status === "ok" }
+      },
+      url: "https://status.example.com/api/summary",
+    })
+    // @ts-expect-error source.fetch does not expose public lifecycle hooks
+    source.fetch({ url: "https://status.example.com/api/summary", beforeRequest() {} })
+    // @ts-expect-error source.fetch uses path as its only Workspace-facing address
+    source.fetch({ url: "https://status.example.com/api/summary", mount: "status" })
+    // @ts-expect-error source.fetch does not expose generic source validation mode
+    source.fetch({ url: "https://status.example.com/api/summary", validate: "request" })
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
       name: "typed",

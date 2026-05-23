@@ -28,6 +28,10 @@ export function resolveWorkspacePath(definition: WorkspaceDefinition, path: stri
   const sources = normalizeWorkspaceSources(definition.sources)
 
   for (const source of sources) {
+    const liveSourcePath = source.livePaths?.[workspacePath]
+    if (typeof liveSourcePath === "string") {
+      return createSourceResolution(source, workspacePath, liveSourcePath)
+    }
     if (workspacePath === source.mountPath) {
       return createSourceResolution(source, workspacePath, "")
     }

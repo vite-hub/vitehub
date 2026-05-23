@@ -46,6 +46,11 @@ export default defineWorkspace({
       include: ['README.md', 'docs/**/*.md'],
     }),
     instructions: source.file('AGENTS.md'),
+    status: source.fetch({
+      url: 'https://status.example.com/api/summary',
+      responseType: 'json',
+      cache: { maxAge: 30 },
+    }),
   },
 })
 ```
@@ -56,6 +61,33 @@ Single-file sources mount at the workspace root by default, so `source.file('AGE
 For colocated workspace definitions, local file paths are relative to the adjacent `workspace/` directory when it exists, otherwise the definition directory.
 For inline files, use `workspacePath` and `content`. For file-backed sources, use `path` for the source file; `workspacePath` overrides its path inside the mounted source.
 Directory workspaces and colocated agent workspaces do not ingest sibling files automatically; declare every file origin through `sources`.
+
+Use `source.fetch()` for one API-backed Live Source item:
+
+```ts [src/status.workspace.ts]
+import { defineWorkspace, source } from '@vitehub/workspace'
+import { useServerEnv } from '#vitehub/env/server'
+
+export default defineWorkspace({
+  sources: {
+    status: source.fetch({
+      url: 'https://status.example.com/api/summary',
+      request: () => {
+        const env = useServerEnv()
+        return {
+          headers: {
+            authorization: `Bearer ${env.status.token.unseal()}`,
+          },
+        }
+      },
+      path: 'external/status/summary.json',
+      responseType: 'json',
+    }),
+  },
+})
+```
+
+Fetch Sources are Live Sources: reads fetch on demand and do not write the response body into the Workspace Store unless `materializeSources()` is called explicitly. `GET`, `HEAD`, and read-style `POST` requests are supported; `POST` Sources are a developer trust boundary and should only target stable read endpoints.
 
 Workspace rules are path-scoped write policy, similar in shape to Nitro route rules:
 
