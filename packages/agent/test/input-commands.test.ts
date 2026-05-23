@@ -76,6 +76,28 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBeUndefined()
   })
 
+  it("falls back to a string prompt when messages have no user message", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review the request.",
+            run: ({ args }) => `review:${args}`,
+          },
+        },
+      })],
+    }, runtime(), {
+      messages: [],
+      prompt: "/review auth",
+    })
+
+    expect(resolved.input.prompt).toBe("review:auth")
+    expect(resolved.input.messages).toEqual([])
+  })
+
   it("preserves non-text message parts when replacing message text", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

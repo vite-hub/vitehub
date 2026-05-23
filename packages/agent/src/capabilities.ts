@@ -255,7 +255,11 @@ function getInputCommandTarget(input: AgentRunInput): InputCommandTarget | undef
   const messages = input.messages || (Array.isArray(input.prompt) ? input.prompt : undefined)
   if (!messages) return
   const messageIndex = latestUserMessageIndex(messages)
-  if (messageIndex < 0) return
+  if (messageIndex < 0) {
+    return typeof input.prompt === "string"
+      ? { text: input.prompt, type: "prompt" }
+      : undefined
+  }
   const message = messages[messageIndex]!
   return {
     message,
