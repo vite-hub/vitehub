@@ -138,6 +138,17 @@ describe("docs import contracts", () => {
   })
 })
 
+describe("playground import contracts", () => {
+  it("keeps the Vite e2e workspace shim aligned with root source exports", () => {
+    const sourceIndex = readFileSync(join(packageDir("workspace"), "src", "sources", "index.ts"), "utf8")
+    const viteE2e = readFileSync(join(repoRoot, "playground", "vite", "build", "vite-e2e.ts"), "utf8")
+    const sourceExports = [...sourceIndex.matchAll(/^export \{ (\w+) \}/gm)].map(match => match[1]).sort()
+    const shimProperties = [...viteE2e.matchAll(/\b(\w+): [^,}]+/g)].map(match => match[1])
+
+    expect(shimProperties).toEqual(expect.arrayContaining(sourceExports))
+  })
+})
+
 describe("showcase contracts", () => {
   it("keeps existing showcase manifests pointed at real files", () => {
     for (const packageName of packageNames) {
