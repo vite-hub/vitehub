@@ -115,7 +115,12 @@ describe("agent test runner", () => {
   })
 
   it("stops test runs after repeated workspace inspection guardrails", async () => {
-    const execute = vi.fn(async () => "Workspace search is too broad for this agent tool.")
+    const execute = vi.fn(async () => ({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: "[vitehub] Workspace root search is too broad.\n",
+      stdout: "Workspace search is too broad for this agent tool.",
+    }))
     inspectTools.mockReturnValueOnce({
       shell: { execute },
     })
@@ -141,6 +146,36 @@ describe("agent test runner", () => {
 
     await expect(runner.run({ prompt: "Find evidence" }))
       .rejects.toThrow("[vitehub] Agent stopped after repeated workspace inspection guardrails.")
+  })
+
+  it("does not count non-shell tool output as workspace inspection guardrails", async () => {
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      for (let index = 0; index < 4; index++) {
+        await this.settings.tools.search.execute({ query: "missing" })
+      }
+      return { finishReason: "stop", text: "answer" }
+    })
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(defineAgent({
+      adapter: "ai-sdk",
+      model: {} as never,
+      capabilities: [{
+        id: "search",
+        tools: () => ({
+          search: {
+            execute: vi.fn(async () => "Search returned no matches"),
+          },
+        }),
+      }],
+    }), {
+      name: "support",
+      runtimeConfig: {},
+    })
+
+    await expect(runner.run({ prompt: "Find evidence" }))
+      .resolves.toMatchObject({ text: "answer" })
   })
 
   it("ignores empty workspace tool outputs when counting guardrails", async () => {

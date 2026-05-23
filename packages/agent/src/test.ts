@@ -112,11 +112,31 @@ function createWaitUntil(): AgentWaitUntil {
   }
 }
 
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) || ""
+  }
+  catch {
+    return String(value)
+  }
+}
+
+function isWorkspaceShellObservationResult(result: { output?: unknown, toolName?: string }) {
+  if (result.toolName !== "shell") return false
+  const output = result.output
+  return typeof output === "object"
+    && output !== null
+    && "event" in output
+    && "stderr" in output
+    && "stdout" in output
+}
+
 function countWorkspaceInspectionGuardrails(step: AgentToolStep): number {
   return (step.toolResults || []).filter((result) => {
+    if (!isWorkspaceShellObservationResult(result)) return false
     const output = typeof result.output === "string"
       ? result.output
-      : JSON.stringify(result.output) || ""
+      : safeStringify(result.output)
     return output.includes("Workspace search is too broad")
       || output.includes("Workspace path is not mounted")
       || output.includes("Search returned no matches")
@@ -186,7 +206,7 @@ export function createAgentTestRunner<
           reportToolStep(step) {
             toolSteps.push(step)
             if (process.env.VITEHUB_AGENT_TEST_DEBUG_TOOLS) {
-              console.error("[vitehub-agent-test:tool]", JSON.stringify(step))
+              console.error("[vitehub-agent-test:tool]", safeStringify(step))
             }
             workspaceInspectionGuardrails += countWorkspaceInspectionGuardrails(step)
             if (workspaceInspectionGuardrails >= 4) {
