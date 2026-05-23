@@ -4,6 +4,7 @@ import type { RuntimeScheduleStore, ScheduleDefinition, ScheduleDefinitionRegist
 
 let runtimeRegistry: ScheduleDefinitionRegistry | undefined
 let runtimeStore: RuntimeScheduleStore | undefined
+let runtimeRegistryVersion = 0
 const loadedRegistryEntries = new Map<string, ScheduleDefinition | undefined>()
 const loadingRegistryEntries = new Map<string, Promise<ScheduleDefinition | undefined>>()
 
@@ -13,6 +14,7 @@ function isScheduleDefinition(value: unknown): value is ScheduleDefinition {
 
 export function setScheduleRuntimeRegistry(registry: ScheduleDefinitionRegistry | undefined): void {
   runtimeRegistry = registry
+  runtimeRegistryVersion++
   loadedRegistryEntries.clear()
   loadingRegistryEntries.clear()
 }
@@ -44,6 +46,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
     return await inFlightEntry
   }
 
+  const loadingVersion = runtimeRegistryVersion
   const loadingEntry = Promise.resolve().then(async () => {
     const loaded = await entry()
     if (isScheduleDefinition(loaded)) {
@@ -57,7 +60,9 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
   loadingRegistryEntries.set(name, loadingEntry)
   try {
     const loaded = await loadingEntry
-    loadedRegistryEntries.set(name, loaded)
+    if (loadingVersion === runtimeRegistryVersion) {
+      loadedRegistryEntries.set(name, loaded)
+    }
     return loaded
   }
   finally {

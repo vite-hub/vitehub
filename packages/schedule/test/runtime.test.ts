@@ -63,6 +63,21 @@ describe("Runtime Schedule helper", () => {
     expect(await schedules.get("schedule-1")).toBeUndefined()
   })
 
+  it("fails clearly for duplicate runtime schedule ids", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.create({ cron: "0 10 * * *", id: "schedule-1", target: "report" })).rejects.toMatchObject({
+      code: "SCHEDULE_ALREADY_EXISTS",
+    })
+  })
+
   it("fails clearly for invalid cron strings", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({

@@ -1,3 +1,5 @@
+import { ScheduleError } from "../errors.ts"
+
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleUpdateInput } from "../types.ts"
 
 function cloneRuntimeSchedule(record: RuntimeScheduleRecord): RuntimeScheduleRecord {
@@ -14,7 +16,11 @@ export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
   return {
     create(record) {
       if (records.has(record.id)) {
-        throw new Error(`Runtime Schedule already exists: ${record.id}`)
+        throw new ScheduleError(`Runtime Schedule already exists: ${record.id}`, {
+          code: "SCHEDULE_ALREADY_EXISTS",
+          details: { id: record.id },
+          httpStatus: 409,
+        })
       }
       records.set(record.id, cloneRuntimeSchedule(record))
       return cloneRuntimeSchedule(record)
