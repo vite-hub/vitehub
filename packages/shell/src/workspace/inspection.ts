@@ -26,7 +26,7 @@ export async function runWorkspaceInspectionCommand(
 ): Promise<ShellObservation> {
   const maxOutputLength = options.maxOutputLength || 30_000
   const timeout = options.timeout || 30_000
-  const preflight = preflightWorkspaceInspectionCommand(command, options.broadSearchPaths, options.cwd)
+  const preflight = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd)
   if (preflight) return preflight
   const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd)
   if (missingPath) return missingPath
@@ -54,20 +54,35 @@ export async function runWorkspaceInspectionCommand(
       workspaceGuardrail: { kind: "timeout" },
     }), timeout)),
   ])
-  const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths)
+  const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
   return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
 }
 
-function preflightWorkspaceInspectionCommand(command: string, broadSearchPaths: string[] = [], cwd = workspaceMountPoint): ShellObservation | undefined {
+async function preflightWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, broadSearchPaths: string[] = [], cwd = workspaceMountPoint): Promise<ShellObservation | undefined> {
   try {
     let currentCwd = cwd
+    let skipAndChain = false
+    let skipOrChain = false
     for (const segment of analyzeWorkspaceInspectionCommand(command)) {
+      if (skipAndChain) {
+        skipAndChain = segment.separatorAfter === "&&"
+        continue
+      }
+      if (skipOrChain) {
+        skipOrChain = segment.separatorAfter === "||"
+        continue
+      }
       const words = segment.words
       if (words[0] === "cd") {
         const path = words[1] || workspaceMountPoint
-        if (segment.separatorAfter === "&&" && isWorkspacePathCandidate(path)) {
-          currentCwd = resolvedWorkspaceCwd(currentCwd, path)
+        if (!isWorkspacePathCandidate(path)) continue
+        const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
+        const exists = resolvedPath === "" || await fs.exists(resolvedPath)
+        if (segment.separatorAfter === "&&" && !exists) skipAndChain = true
+        if (segment.separatorAfter === "||" && exists) skipOrChain = true
+        if (exists) {
+          currentCwd = resolvedPath ? posix.join(workspaceMountPoint, resolvedPath) : workspaceMountPoint
         }
         continue
       }
@@ -177,14 +192,20 @@ function isBroadWorkspacePath(path: string, broadSearchPaths: string[] = [], cwd
   return normalized === "." || broadSearchPaths.includes(normalized)
 }
 
-function searchNoMatchFeedback(command: string, result: ShellObservation, broadSearchPaths: string[] = []) {
+function searchNoMatchFeedback(command: string, result: ShellObservation, broadSearchPaths: string[] = [], cwd = workspaceMountPoint) {
   if (result.exitCode !== 1 || result.stderr || result.stdout) return ""
   try {
+    let currentCwd = cwd
     for (const segment of analyzeWorkspaceInspectionCommand(command)) {
       const words = segment.words
+      if (words[0] === "cd") {
+        const path = words[1] || workspaceMountPoint
+        if (isWorkspacePathCandidate(path)) currentCwd = resolvedWorkspaceCwd(currentCwd, path)
+        continue
+      }
       if (words[0] !== "rg" && words[0] !== "grep") continue
       const paths = segment.paths
-      if (!paths.some(path => isBroadWorkspacePath(path, broadSearchPaths))) continue
+      if (!paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, currentCwd))) continue
       return [
         "[vitehub] Search returned no matches in the mounted workspace source.",
         "If the expected file is outside this mounted source, tell the user the evidence is unavailable in the current workspace instead of continuing broad searches.",

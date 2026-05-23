@@ -340,6 +340,24 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: "orders.sql:1:select * from orders\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "cd models; rg orders .", {
+      commands: ["cd", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "orders.sql:1:select * from orders\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cd models\nrg orders .", {
+      commands: ["cd", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "orders.sql:1:select * from orders\n",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models && wc -l models/customers.sql", {
       commands: ["rg", "wc"],
       cwd: workspaceMountPoint,
@@ -653,6 +671,15 @@ describe("@vitehub/shell workspace inspection", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: "select * from orders\nwhere id is not null\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg missing .", {
+      commands: ["rg"],
+      cwd: "/workspace/models",
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 1,
+      stdout: "",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "head --lines 1 missing/README.md", {
