@@ -183,6 +183,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       exitCode: 126,
       stderr: expect.stringContaining("Workspace root search is too broad"),
       stdout: expect.stringContaining("Workspace search is too broad"),
+      workspaceGuardrail: { kind: "broad_search" },
     })
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models", {
       commands: ["rg"],
@@ -281,6 +282,7 @@ describe("@vitehub/shell just-bash runtime", () => {
       exitCode: null,
       stderr: "[vitehub] Workspace shell command timed out after 5ms.",
       stdout: "",
+      workspaceGuardrail: { kind: "timeout" },
     })
   })
 })
