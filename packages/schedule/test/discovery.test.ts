@@ -95,6 +95,34 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["daily"])
   })
 
+  it("reads ids from nested generic defineSchedule calls", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-nested-generic-")
+    await writeFile(
+      join(viteRootDir, "daily.schedule.ts"),
+      "export default defineSchedule<Promise<string>>('0 9 * * *', async () => 'ok', { id: 'reports/daily' })\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual(["reports/daily"])
+  })
+
+  it("ignores commented defineSchedule examples during id discovery", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-commented-")
+    await writeFile(
+      join(viteRootDir, "daily.schedule.ts"),
+      "// defineSchedule('0 9 * * *', () => {}, { id: 'docs/example' })\nexport default defineSchedule('0 9 * * *', () => {}, { id: 'reports/daily' })\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual(["reports/daily"])
+  })
+
   it("rejects duplicate schedule ids across discovery roots and explicit ids", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-vite-duplicate-")
     const viteScanDir = await createTempDir("vitehub-schedule-vite-duplicate-scan-")

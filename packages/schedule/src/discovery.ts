@@ -13,6 +13,12 @@ import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1")
+}
+
 function readBalancedCall(source: string, openParen: number): string | undefined {
   let depth = 0
   let quote: string | undefined
@@ -77,11 +83,33 @@ function splitTopLevelArguments(source: string): string[] {
   return args
 }
 
+function findDefineScheduleOpenParen(source: string): number | undefined {
+  for (const match of source.matchAll(/\bdefineSchedule\b/g)) {
+    let index = match.index! + match[0].length
+    while (/\s/.test(source[index] ?? "")) index++
+    if (source[index] === "<") {
+      let depth = 0
+      for (; index < source.length; index++) {
+        if (source[index] === "<") depth++
+        if (source[index] === ">") {
+          depth--
+          if (depth === 0) {
+            index++
+            break
+          }
+        }
+      }
+      while (/\s/.test(source[index] ?? "")) index++
+    }
+    if (source[index] === "(") return index
+  }
+}
+
 function readDefineScheduleOptions(source: string): string | undefined {
-  const match = /\bdefineSchedule\s*(?:<[^>]+>\s*)?\(/.exec(source)
-  if (!match) return undefined
-  const openParen = match.index + match[0].length - 1
-  return splitTopLevelArguments(readBalancedCall(source, openParen) ?? "")[2]
+  const stripped = stripComments(source)
+  const openParen = findDefineScheduleOpenParen(stripped)
+  if (openParen === undefined) return undefined
+  return splitTopLevelArguments(readBalancedCall(stripped, openParen) ?? "")[2]
 }
 
 function readScheduleIdOverride(file: string): string | undefined {
