@@ -137,6 +137,24 @@ describe("@vitehub/shell workspace inspection", () => {
       stdout: "models/customers.sql:1:select * from customers\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "rg --ignore-file .rgignore customers models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg --ignore-file=.rgignore customers models", {
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      stderr: expect.not.stringContaining("Workspace path is not mounted"),
+      stdout: expect.not.stringContaining("Workspace search is too broad"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg '&&' models", {
       commands: ["rg"],
       cwd: workspaceMountPoint,

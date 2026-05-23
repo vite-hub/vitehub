@@ -133,6 +133,7 @@ function takesOptionValue(arg: string) {
     "--before-context",
     "--context",
     "--glob",
+    "--ignore-file",
     "--max-count",
     "--max-filesize",
     "--regexp",
@@ -144,7 +145,8 @@ function takesOptionValue(arg: string) {
 }
 
 function takesInlineOptionValue(arg: string) {
-  return arg.startsWith("--max-filesize=")
+  return arg.startsWith("--ignore-file=")
+    || arg.startsWith("--max-filesize=")
     || arg.startsWith("--type=")
     || arg.startsWith("--type-add=")
     || arg.startsWith("--type-clear=")
