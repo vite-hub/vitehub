@@ -9,6 +9,8 @@ export default defineConfig({
   dts: true,
   entry: [
     "src/index.ts",
+    "src/nitro.ts",
+    "src/vite.ts",
   ],
   exports: {
     inlinedDependencies: false,
