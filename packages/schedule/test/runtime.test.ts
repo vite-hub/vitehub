@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { ScheduleError, schedules } from "../src/index.ts"
+import { executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 afterEach(() => {
@@ -185,6 +185,119 @@ describe("Runtime Schedule helper", () => {
     await expect(schedules.update("missing", { enabled: false })).rejects.toBeInstanceOf(ScheduleError)
     await expect(schedules.update("missing", { enabled: false })).rejects.toMatchObject({
       code: "SCHEDULE_NOT_FOUND",
+    })
+  })
+})
+
+describe("Schedule Run bookkeeping", () => {
+  it("records a run and one successful attempt for a Runtime Schedule", async () => {
+    const seen: unknown[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async context => seen.push(context),
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const run = await schedules.run("schedule-1", { scheduledAt })
+    const attempts = await schedules.listAttempts(run.id)
+
+    expect(run).toMatchObject({
+      attemptCount: 1,
+      id: "srun_schedule-1_2026-05-23T09:00:00.000Z",
+      scheduleId: "schedule-1",
+      scheduledAt,
+      status: "succeeded",
+      target: "report",
+    })
+    expect(attempts).toHaveLength(1)
+    expect(attempts[0]).toMatchObject({ runId: run.id, status: "succeeded" })
+    expect(seen).toEqual([
+      expect.objectContaining({
+        attemptId: attempts[0]!.id,
+        id: run.id,
+        runId: run.id,
+        scheduleId: "schedule-1",
+        scheduledAt,
+        target: "report",
+      }),
+    ])
+  })
+
+  it("uses the same bookkeeping path for static provider-triggered schedules", async () => {
+    const scheduledAt = new Date("2026-05-23T10:00:00.000Z")
+    const run = await executeStaticSchedule({
+      cron: "0 10 * * *",
+      definition: {
+        cron: "0 10 * * *",
+        handler: async () => {},
+        options: { id: "static-report" },
+      },
+      name: "report",
+      scheduledAt,
+    })
+
+    expect(run).toMatchObject({
+      attemptCount: 1,
+      id: "srun_static-report_2026-05-23T10:00:00.000Z",
+      scheduleId: "static-report",
+      scheduledAt,
+      status: "succeeded",
+      target: "report",
+    })
+    expect(await schedules.getRun(run.id)).toEqual(run)
+    expect(await schedules.listAttempts(run.id)).toHaveLength(1)
+  })
+
+  it("dedupes repeated due events and does not retry or overlap by default", async () => {
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls += 1
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    const second = await schedules.run("schedule-1", { scheduledAt })
+
+    expect(second).toEqual(first)
+    expect(calls).toBe(1)
+    expect(await schedules.listAttempts(first.id)).toHaveLength(1)
+  })
+
+  it("records failed handler diagnostics on the run and attempt", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          throw new TypeError("boom")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toThrow("boom")
+
+    const [run] = await schedules.listRuns()
+    expect(run).toMatchObject({
+      error: { message: "boom", name: "TypeError" },
+      status: "failed",
+    })
+    const [attempt] = await schedules.listAttempts(run!.id)
+    expect(attempt).toMatchObject({
+      error: { message: "boom", name: "TypeError" },
+      status: "failed",
     })
   })
 })

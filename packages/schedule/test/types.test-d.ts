@@ -2,13 +2,12 @@ import { expectTypeOf, it } from "vitest"
 
 import { defineSchedule, schedules } from "../src/index.ts"
 
+import type { ScheduleRunContext } from "../src/index.ts"
+
 it("infers schedule handler result types", () => {
   const schedule = defineSchedule("0 9 * * *", async context => context.id)
 
-  expectTypeOf(schedule.handler).parameters.toEqualTypeOf<[{
-    id: string
-    scheduledAt: Date
-  }]>()
+  expectTypeOf(schedule.handler).parameters.toEqualTypeOf<[ScheduleRunContext]>()
   expectTypeOf(schedule.handler).returns.toEqualTypeOf<string | Promise<string>>()
 })
 
