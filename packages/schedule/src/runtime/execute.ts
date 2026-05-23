@@ -25,8 +25,7 @@ interface ExecuteRuntimeScheduleOptions {
 }
 
 function toRunId(scheduleId: string, scheduledAt: Date): string {
-  const normalizedScheduleId = scheduleId.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "schedule"
-  return `srun_${normalizedScheduleId}_${scheduledAt.toISOString()}`
+  return `srun_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
 }
 
 function toRunError(error: unknown): ScheduleRunError {

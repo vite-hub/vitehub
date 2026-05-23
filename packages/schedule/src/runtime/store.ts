@@ -58,6 +58,7 @@ function cloneScheduleRun(record: ScheduleRunRecord): ScheduleRunRecord {
     completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
     createdAt: new Date(record.createdAt),
     scheduledAt: new Date(record.scheduledAt),
+    error: record.error ? { ...record.error } : undefined,
     startedAt: record.startedAt ? new Date(record.startedAt) : undefined,
     updatedAt: new Date(record.updatedAt),
   }
@@ -68,6 +69,7 @@ function cloneScheduleRunAttempt(record: ScheduleRunAttemptRecord): ScheduleRunA
     ...record,
     completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
     createdAt: new Date(record.createdAt),
+    error: record.error ? { ...record.error } : undefined,
     startedAt: new Date(record.startedAt),
     updatedAt: new Date(record.updatedAt),
   }

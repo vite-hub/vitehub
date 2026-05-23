@@ -274,6 +274,25 @@ describe("Schedule Run bookkeeping", () => {
     expect(await schedules.listAttempts(first.id)).toHaveLength(1)
   })
 
+  it("keeps run ids distinct for schedule ids with the same sanitized form", async () => {
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {}, options: { id: "daily/report" } },
+      name: "daily/report",
+      scheduledAt,
+    })
+    const second = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {}, options: { id: "daily-report" } },
+      name: "daily-report",
+      scheduledAt,
+    })
+
+    expect(first.id).toBe("srun_daily%2Freport_2026-05-23T09:00:00.000Z")
+    expect(second.id).toBe("srun_daily-report_2026-05-23T09:00:00.000Z")
+  })
+
   it("reloads an existing run when duplicate creation wins the race", async () => {
     const store = createMemoryScheduleRunStore()
     let calls = 0
@@ -330,5 +349,24 @@ describe("Schedule Run bookkeeping", () => {
       error: { message: "boom", name: "TypeError" },
       status: "failed",
     })
+  })
+
+  it("isolates stored run errors from returned object mutation", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          throw new TypeError("boom")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.run("schedule-1", { scheduledAt: new Date("2026-05-23T09:00:00.000Z") })).rejects.toThrow("boom")
+    const [run] = await schedules.listRuns()
+    run!.error!.message = "mutated"
+
+    expect((await schedules.getRun(run!.id))!.error).toMatchObject({ message: "boom" })
   })
 })
