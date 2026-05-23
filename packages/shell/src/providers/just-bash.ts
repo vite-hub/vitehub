@@ -59,16 +59,17 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           signal,
         })
       })
+      const timedOut = "timedOut" in result && result.timedOut === true
       execOptions.onStdout?.(result.stdout)
       execOptions.onStderr?.(result.stderr)
       return {
         command,
         cwd: execOptions.cwd,
-        event: result.timedOut ? "command_timed_out" : "command_finished",
+        event: timedOut ? "command_timed_out" : "command_finished",
         exitCode: result.exitCode,
         stderr: result.stderr,
         stdout: result.stdout,
-        timedOut: result.timedOut,
+        timedOut,
       }
     },
   }
