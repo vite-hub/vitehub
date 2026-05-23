@@ -24,6 +24,18 @@ _Avoid_: Top-level Agent Definition fields, passthrough, provider options
 One runtime request to an Agent.
 _Avoid_: Chat message, webhook call
 
+**Agent Invocation Lifecycle**:
+The ordered runtime moments that occur while one Agent Invocation is processed.
+_Avoid_: Capability Lifecycle, chat event hooks, request middleware
+
+**Agent Finish Hook**:
+The final Agent Invocation Lifecycle hook for observing the completed invocation outcome.
+_Avoid_: onUsage, onRecord, afterRun
+
+**Agent Invocation Extension**:
+Capability-owned data attached to an Agent Invocation Lifecycle event without becoming a top-level lifecycle field.
+_Avoid_: Event metadata, arbitrary event fields, built-in usage field
+
 **Agent Eval**:
 A repeatable development check that runs an Agent Definition against one or more cases and scores the resulting Agent Invocations.
 _Avoid_: Benchmark, unit test, arena
@@ -52,6 +64,18 @@ _Avoid_: Public lock API, Capability
 An in-memory or local provider used only for single-process Agent development.
 _Avoid_: Production state provider, durable coordination
 
+**Agent Usage**:
+Normalized model usage information produced by an Agent Invocation, including token counts and provider-reported usage details.
+_Avoid_: Metadata, metrics
+
+**Agent Usage Telemetry**:
+Runtime measurement of an Agent Invocation's model usage, latency, throughput, and cost.
+_Avoid_: Metadata, chat analytics, generic observability
+
+**Agent Usage Record**:
+The final completed accounting record captured after one Agent Invocation finishes, combining Agent Usage with model, response, latency, and optional cost information.
+_Avoid_: Live stream event, token log
+
 **Mock Agent Adapter**:
 A deterministic Agent Adapter that exercises Agent Invocation behavior without calling a paid model provider.
 _Avoid_: Fake agent, dummy model, test bot
@@ -62,6 +86,9 @@ _Avoid_: Fake agent, dummy model, test bot
 - An **Agent Definition** selects one **Agent Model Adapter** when it uses a model.
 - **Agent Adapter Options** belong to the selected **Agent Model Adapter**.
 - An **Agent** receives zero or more **Agent Invocations**.
+- An **Agent Invocation** follows one **Agent Invocation Lifecycle**.
+- An **Agent Finish Hook** belongs to the **Agent Invocation Lifecycle**.
+- Capabilities can expose **Agent Invocation Extensions** on Agent Invocation Lifecycle events.
 - An **Agent Eval** runs an **Agent Definition** to create scored **Agent Invocations**.
 - An **Agent** can attach zero or more Capabilities.
 - Tools are contributed by Capabilities, not by top-level Agent Definition fields.
@@ -74,6 +101,9 @@ _Avoid_: Fake agent, dummy model, test bot
 - **Agent Memory** can outlive one conversation.
 - A **Concurrent Invocation Guard** protects **Agent Run State**.
 - A **Development State Provider** is not acceptable for hosted production runtimes.
+- **Agent Usage** belongs to one **Agent Invocation**.
+- **Agent Usage Telemetry** observes **Agent Usage Records**.
+- **Agent Usage Telemetry** can expose an **Agent Usage Record** as an **Agent Invocation Extension**.
 - A **Mock Agent Adapter** can support playgrounds and end-to-end tests without creating provider cost.
 - Agent callbacks receive Agent-owned runtime metadata, not app-owned Runtime Env; server code reads app-owned Runtime Env through Server Env.
 

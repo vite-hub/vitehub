@@ -295,7 +295,6 @@ type AgentSettingsBase<
 > = {
   adapter?: AgentModelAdapter
   adapterOptions?: Record<string, unknown>
-  chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>

@@ -89,56 +89,6 @@ function defineInternalTool<TInput = unknown, TOutput = unknown>(
   return tool
 }
 
-function primitiveMethodTool(primitive: "blob" | "db" | "kv", method: string, handle: unknown): AgentToolDefinition {
-  return defineInternalTool({
-    description: `Call ${primitive}.${method}.`,
-    name: `${primitive}_${method}`,
-    async execute(input) {
-      const primitiveHandle = handle as Record<string, unknown>
-      const fn = primitiveHandle[method]
-      if (typeof fn !== "function") throw new Error(`[vitehub] ${primitive} primitive does not expose ${method}().`)
-      const args = Array.isArray(input) ? input : [input]
-      return await fn.apply(primitiveHandle, args)
-    },
-  })
-}
-
-function primitiveTools(primitive: "blob" | "db" | "kv", mode: AgentCapabilityMode): AgentCapabilityDefinition["tools"] {
-  return (context) => {
-    const handle = requirePrimitive(context as never, primitive)
-    if (primitive === "kv") {
-      return {
-        kv_get: primitiveMethodTool("kv", "get", handle),
-        kv_keys: primitiveMethodTool("kv", "keys", handle),
-        ...(mode === "write"
-          ? {
-              kv_del: primitiveMethodTool("kv", "del", handle),
-              kv_set: primitiveMethodTool("kv", "set", handle),
-            }
-          : {}),
-      }
-    }
-    if (primitive === "blob") {
-      return {
-        blob_get: primitiveMethodTool("blob", "get", handle),
-        blob_head: primitiveMethodTool("blob", "head", handle),
-        blob_list: primitiveMethodTool("blob", "list", handle),
-        ...(mode === "write"
-          ? {
-              blob_del: primitiveMethodTool("blob", "del", handle),
-              blob_put: primitiveMethodTool("blob", "put", handle),
-            }
-          : {}),
-      }
-    }
-    return {
-      db_query: primitiveMethodTool("db", "query", handle),
-      db_schema: primitiveMethodTool("db", "schema", handle),
-      ...(mode === "write" ? { db_execute: primitiveMethodTool("db", "execute", handle) } : {}),
-    }
-  }
-}
-
 function validateSandboxCommands(commands: unknown): string[] {
   if (!Array.isArray(commands) || !commands.length) {
     throw new TypeError("[vitehub] sandbox({ commands }) requires at least one executable name.")
@@ -190,21 +140,6 @@ export function sandbox(options: { commands: string[] }): AgentCapabilityDefinit
   })
 }
 
-export function kv(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
-  const mode = normalizeMode(options.mode, "KV")
-  return defineCapability({ id: "kv", mode, requires: [{ primitive: "kv" }], tools: primitiveTools("kv", mode) })
-}
-
-export function blob(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
-  const mode = normalizeMode(options.mode, "Blob")
-  return defineCapability({ id: "blob", mode, requires: [{ primitive: "blob" }], tools: primitiveTools("blob", mode) })
-}
-
-export function db(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
-  const mode = normalizeMode(options.mode, "DB")
-  return defineCapability({ id: "db", mode, requires: [{ primitive: "db" }], tools: primitiveTools("db", mode) })
-}
-
 export function skills(options: { path?: string } = {}): AgentCapabilityDefinition {
   const path = options.path || "skills"
   const skillPath = path.replace(/\/+$/, "").endsWith("/SKILL.md")
@@ -248,6 +183,11 @@ export function mcp(options: { servers?: Record<string, unknown> } = {}): AgentC
 }
 
 export {
+  blob,
+  db,
+  kv,
+} from "./capabilities/storage/index.ts"
+export {
   memory,
   workspaceJsonlMemoryStore,
 } from "./memory.ts"
@@ -258,6 +198,12 @@ export {
   vercelAiGatewayPricing,
 } from "./capabilities/usage-telemetry.ts"
 
+export type {
+  BlobCapabilityOptions,
+  DBCapabilityOptions,
+  KVCapabilityOptions,
+  StorageToolPolicy,
+} from "./capabilities/storage/index.ts"
 export type {
   MemoryAppendRequest,
   MemoryCapabilityInstructionsOption,
