@@ -3,7 +3,7 @@ import { defineConfig } from "tsdown"
 export default defineConfig({
   clean: true,
   copy: [
-    { from: "src/registry-module.d.ts", to: "dist" },
+    { from: "src/generated/registry.d.ts", to: "dist/generated" },
   ],
   deps: {
     alwaysBundle: [/^@vitehub\/internal/],
