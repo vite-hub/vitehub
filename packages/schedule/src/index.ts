@@ -1,5 +1,5 @@
 export { defineSchedule } from "./definition.ts"
-export type {} from "./registry-module.d.ts"
+export type {} from "./generated/registry.d.ts"
 export { ScheduleError } from "./errors.ts"
 export { setRuntimeScheduleStore, setScheduleRunStore, setScheduleRuntimeRegistry } from "./runtime/context.ts"
 export { createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./runtime/memory-store.ts"
