@@ -123,24 +123,28 @@ export function chatTitle(options: ChatTitleOptions = {}): AgentCapabilityDefini
       if (!message) return
 
       const text = getMessageText(message)
-      const title = generateChatTitle(options, {
-        input: context.input.get(),
-        message,
-        messages,
-        text,
-      }).catch(() => undefined)
+      let title: Promise<string | undefined> | undefined
+      const getTitle = () => {
+        title ??= generateChatTitle(options, {
+          input: context.input.get(),
+          message,
+          messages,
+          text,
+        }).catch(() => undefined)
+        return title
+      }
 
       context.finish.provide(async () => {
-        const resolvedTitle = await title
+        const resolvedTitle = await getTitle()
         return resolvedTitle ? { title: resolvedTitle } : undefined
       })
       context.output.render((result) => {
         if (isStreamTextResult(result)) {
-          if (result.fullStream) return { ...result, fullStream: withChatTitleFullStream(result.fullStream, title) }
-          if (result.textStream) return withChatTitleTextStream(result.textStream, title)
+          if (result.fullStream) return { ...result, fullStream: withChatTitleFullStream(result.fullStream, getTitle()) }
+          if (result.textStream) return withChatTitleTextStream(result.textStream, getTitle())
         }
         if (!isAsyncIterable(result)) return result
-        return withChatTitleEvent(result, title)
+        return withChatTitleEvent(result, getTitle())
       })
     },
   })
