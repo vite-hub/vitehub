@@ -1,4 +1,5 @@
 export { defineSchedule } from "./definition.ts"
+export { discoverScheduleDefinitions } from "./discovery.ts"
 export type {} from "./registry-module.d.ts"
 export { ScheduleError } from "./errors.ts"
 export { createScheduleRun, executeRuntimeSchedule, executeSchedule, executeStaticSchedule } from "./runtime/execute.ts"
@@ -18,6 +19,7 @@ export {
 
 export type {
   KVScheduleStoreOptions,
+  ScheduleKVStorage,
 } from "./runtime/store.ts"
 
 export type {

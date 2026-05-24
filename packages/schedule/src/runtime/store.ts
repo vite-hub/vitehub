@@ -1,10 +1,17 @@
 import { ScheduleError } from "../errors.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
-import type { KVStorage } from "@vitehub/kv"
+
+export interface ScheduleKVStorage {
+  del(key: string): boolean | Promise<boolean> | Promise<void> | void
+  get<T = unknown>(key: string): Promise<T | null | undefined> | T | null | undefined
+  has(key: string): boolean | Promise<boolean>
+  keys(base?: string): Promise<string[]> | string[]
+  set<T = unknown>(key: string, value: T): Promise<void> | void
+}
 
 export interface KVScheduleStoreOptions {
-  kvStore?: KVStorage
+  kvStore?: ScheduleKVStorage
   prefix?: string
 }
 
@@ -62,7 +69,7 @@ function scheduleRunAttemptBase(prefix: string): string {
   return joinKey(prefix, "schedule-run-attempts")
 }
 
-async function resolveDefaultKVStore(): Promise<KVStorage> {
+async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
   const module = await import("@vitehub/kv")
   return module.kv
 }
@@ -89,6 +96,10 @@ function deserializeRuntimeSchedule(record: StoredRuntimeScheduleRecord): Runtim
     createdAt: new Date(record.createdAt),
     updatedAt: new Date(record.updatedAt),
   }
+}
+
+function omitUndefinedPatch(patch: RuntimeScheduleUpdateInput): RuntimeScheduleUpdateInput {
+  return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as RuntimeScheduleUpdateInput
 }
 
 export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
@@ -124,7 +135,7 @@ export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
 
       const next = cloneRuntimeSchedule({
         ...existing,
-        ...patch,
+        ...omitUndefinedPatch(patch),
         updatedAt: patch.updatedAt,
       })
       records.set(id, next)

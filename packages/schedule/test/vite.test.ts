@@ -40,6 +40,7 @@ describe("Vite schedule integration", () => {
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     expect(registry).toContain("\"cleanup\": async () => import(")
     expect(registry).toContain("\"daily-reports\": async () => import(")
+    expect(registry).toContain("../../src/cleanup.schedule.ts")
   })
 
   it("serves generated runtime schedule target names behind a stable import", async () => {
@@ -54,7 +55,7 @@ describe("Vite schedule integration", () => {
 
     expect(resolveScheduleTargets(plugin)).toBe("\0#vitehub/schedule/targets")
     expect(targets).toContain("export const scheduleTargetNames = [\"daily-reports\"];")
-    expect(targets).toContain("export type ScheduleTargetName = \"daily-reports\";")
+    expect(targets).not.toContain("export type")
     expect(targets).not.toContain("\"cleanup\"")
   })
 
