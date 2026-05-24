@@ -9,6 +9,7 @@ interface ExecuteScheduleOptions {
   definition: ScheduleDefinition
   scheduleId: string
   scheduledAt?: Date
+  source?: ScheduleRunSource
   target: ScheduleTargetName
 }
 
@@ -24,8 +25,10 @@ interface ExecuteRuntimeScheduleOptions {
   scheduledAt?: Date
 }
 
-function toRunId(scheduleId: string, scheduledAt: Date): string {
-  return `srun_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
+type ScheduleRunSource = "direct" | "runtime" | "static"
+
+function toRunId(source: ScheduleRunSource, scheduleId: string, scheduledAt: Date): string {
+  return `srun_${source}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
 }
 
 function toRunError(error: unknown): ScheduleRunError {
@@ -49,9 +52,14 @@ function requireUpdatedRun(run: ScheduleRunRecord | undefined): ScheduleRunRecor
   return run
 }
 
-async function createOrGetRun(options: Omit<ExecuteScheduleOptions, "definition"> & { scheduledAt: Date }): Promise<{ created: boolean, run: ScheduleRunRecord }> {
+async function getExistingRun(options: { scheduleId: string, scheduledAt: Date, source: ScheduleRunSource }): Promise<ScheduleRunRecord | undefined> {
   const store = getScheduleRunStore()
-  const id = toRunId(options.scheduleId, options.scheduledAt)
+  return await store.getRun(toRunId(options.source, options.scheduleId, options.scheduledAt))
+}
+
+async function createOrGetRun(options: Omit<ExecuteScheduleOptions, "definition"> & { scheduledAt: Date, source: ScheduleRunSource }): Promise<{ created: boolean, run: ScheduleRunRecord }> {
+  const store = getScheduleRunStore()
+  const id = toRunId(options.source, options.scheduleId, options.scheduledAt)
   const existing = await store.getRun(id)
   if (existing) {
     return { created: false, run: existing }
@@ -150,12 +158,12 @@ async function failRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord
 
 export async function createScheduleRun(options: Omit<ExecuteScheduleOptions, "definition">): Promise<ScheduleRunRecord> {
   const scheduledAt = options.scheduledAt ?? new Date()
-  return (await createOrGetRun({ ...options, scheduledAt })).run
+  return (await createOrGetRun({ ...options, scheduledAt, source: options.source ?? "direct" })).run
 }
 
 export async function executeSchedule(options: ExecuteScheduleOptions): Promise<ScheduleRunRecord> {
   const scheduledAt = options.scheduledAt ?? new Date()
-  const { created, run } = await createOrGetRun({ ...options, scheduledAt })
+  const { created, run } = await createOrGetRun({ ...options, scheduledAt, source: options.source ?? "direct" })
 
   // v1 policy is intentionally fixed: the deterministic run id dedupes repeated
   // delivery for one scheduled occurrence, and an existing run never overlaps or retries.
@@ -179,6 +187,7 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
     definition: options.definition,
     scheduleId: options.definition.options?.id ?? options.name,
     scheduledAt: options.scheduledAt,
+    source: "static",
     target: options.name,
   })
 }
@@ -197,8 +206,12 @@ async function loadRequiredRuntimeSchedule(id: string): Promise<RuntimeScheduleR
 
 export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
   const id = typeof options === "string" ? options : options.id
-  const scheduledAt = typeof options === "string" ? undefined : options.scheduledAt
+  const scheduledAt = typeof options === "string" ? new Date() : options.scheduledAt ?? new Date()
   const schedule = await loadRequiredRuntimeSchedule(id)
+  const existing = await getExistingRun({ scheduleId: schedule.id, scheduledAt, source: "runtime" })
+  if (existing) {
+    return existing
+  }
   if (!schedule.enabled) {
     throw new ScheduleError(`Runtime Schedule is disabled: ${id}`, {
       code: "SCHEDULE_DISABLED",
@@ -226,6 +239,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
     definition,
     scheduleId: schedule.id,
     scheduledAt,
+    source: "runtime",
     target: schedule.target,
   })
 }
