@@ -18,6 +18,7 @@ export {
 
 export type {
   KVScheduleStoreOptions,
+  ScheduleKVStorage,
 } from "./runtime/store.ts"
 
 export type {
