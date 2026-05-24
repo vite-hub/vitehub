@@ -313,6 +313,73 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("keeps streaming when chat title generation fails", async () => {
+    const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => { throw new Error("title failed") } })],
+      run: () => (async function* () {
+        yield { text: "hello", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    })
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "hello", type: "text-delta" },
+      { type: "finish" },
+    ])
+  })
+
+  it("emits chat title data for adapter text streams", async () => {
+    vi.doMock("ai", () => ({
+      ToolLoopAgent: class {
+        async generate() {
+          return { finishReason: "stop", text: "ok" }
+        }
+        async stream() {
+          return {
+            textStream: (async function* () {
+              yield "hello"
+            })(),
+          }
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+      const agent = defineAgent({
+        adapter: "ai-sdk",
+        capabilities: [chatTitle({ execute: () => "Adapter title" })],
+        model: {} as never,
+      })
+
+      const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      })
+      const events = []
+      for await (const event of stream as AsyncIterable<unknown>) {
+        events.push(event)
+      }
+
+      expect(events).toEqual([
+        { data: { title: "Adapter title", type: "chat-title" }, type: "data" },
+        { text: "hello", type: "text-delta" },
+      ])
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it("exposes chat title finish extension without registering command metadata", async () => {
     const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

@@ -458,7 +458,7 @@ async function generateChatTitle(options: ChatTitleOptions, input: ChatTitleExec
   return heuristicTitle(input.text, maxLength, fallback)
 }
 
-async function* withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Promise<string>): AsyncIterable<StreamEvent> {
+async function* withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
   const resolvedTitle = await title
   if (resolvedTitle) {
     yield { data: { title: resolvedTitle, type: "chat-title" }, type: "data" }
@@ -466,11 +466,34 @@ async function* withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Pr
   yield* result
 }
 
+async function* withChatTitleFullStream(result: AsyncIterable<unknown>, title: Promise<string | undefined>): AsyncIterable<unknown> {
+  const resolvedTitle = await title
+  if (resolvedTitle) {
+    yield { data: { title: resolvedTitle, type: "chat-title" }, type: "data" }
+  }
+  yield* result
+}
+
+async function* withChatTitleTextStream(result: AsyncIterable<string>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
+  const resolvedTitle = await title
+  if (resolvedTitle) {
+    yield { data: { title: resolvedTitle, type: "chat-title" }, type: "data" }
+  }
+  for await (const text of result) {
+    yield { text, type: "text-delta" }
+  }
+}
+
 function isAsyncIterable(value: unknown): value is AsyncIterable<StreamEvent> {
   return !!value
     && typeof value === "object"
     && Symbol.asyncIterator in value
     && typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === "function"
+}
+
+function isStreamTextResult(value: unknown): value is { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> } {
+  return !!value && typeof value === "object"
+    && (isAsyncIterable((value as { fullStream?: unknown }).fullStream) || isAsyncIterable((value as { textStream?: unknown }).textStream))
 }
 
 export function chatTitle(options: ChatTitleOptions = {}): AgentCapabilityDefinition {
@@ -487,10 +510,17 @@ export function chatTitle(options: ChatTitleOptions = {}): AgentCapabilityDefini
         message,
         messages,
         text,
-      })
+      }).catch(() => undefined)
 
-      context.finish.provide(async () => ({ title: await title }))
+      context.finish.provide(async () => {
+        const resolvedTitle = await title
+        return resolvedTitle ? { title: resolvedTitle } : undefined
+      })
       context.output.render((result) => {
+        if (isStreamTextResult(result)) {
+          if (result.fullStream) return { ...result, fullStream: withChatTitleFullStream(result.fullStream, title) }
+          if (result.textStream) return withChatTitleTextStream(result.textStream, title)
+        }
         if (!isAsyncIterable(result)) return result
         return withChatTitleEvent(result, title)
       })

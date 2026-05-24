@@ -998,6 +998,9 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
   if (type === "finish") {
     return { reason: typeof value.finishReason === "string" ? value.finishReason : undefined, type: "finish" }
   }
+  if (type === "data") {
+    return { data: value.data, type: "data" }
+  }
   return undefined
 }
 
