@@ -37,6 +37,100 @@ interface GenerateProviderOutputsOptions {
 
 const cronFieldPattern = /^[*,/\-0-9A-Za-z]+$/
 
+function readBalancedCall(source: string, openParen: number): string | undefined {
+  let depth = 0
+  let quote: string | undefined
+  for (let index = openParen; index < source.length; index++) {
+    const char = source[index]
+    if (quote) {
+      if (char === "\\") {
+        index++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "(" || char === "{" || char === "[") depth++
+    if (char === ")" || char === "}" || char === "]") {
+      depth--
+      if (depth === 0) return source.slice(openParen + 1, index)
+    }
+  }
+}
+
+function splitTopLevelArguments(source: string): string[] {
+  const args: string[] = []
+  let depth = 0
+  let quote: string | undefined
+  let start = 0
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    if (quote) {
+      if (char === "\\") {
+        index++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "(" || char === "{" || char === "[") depth++
+    if (char === ")" || char === "}" || char === "]") depth--
+    if (char === "," && depth === 0) {
+      args.push(source.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+  args.push(source.slice(start).trim())
+  return args
+}
+
+function findDefineScheduleOpenParen(source: string): number | undefined {
+  for (const match of source.matchAll(/\bdefineSchedule\b/g)) {
+    let index = match.index! + match[0].length
+    while (/\s/.test(source[index] ?? "")) index++
+    if (source[index] === "<") {
+      let depth = 0
+      for (; index < source.length; index++) {
+        if (source[index] === "<") depth++
+        if (source[index] === ">") {
+          depth--
+          if (depth === 0) {
+            index++
+            break
+          }
+        }
+      }
+      while (/\s/.test(source[index] ?? "")) index++
+    }
+    if (source[index] === "(") return index
+  }
+}
+
+function readStringLiteral(source: string): string | undefined {
+  const quote = source.trim()[0]
+  if (quote !== "\"" && quote !== "'" && quote !== "`") return undefined
+  const trimmed = source.trim()
+  let value = ""
+  for (let index = 1; index < trimmed.length; index++) {
+    const char = trimmed[index]
+    if (char === "\\") {
+      value += trimmed[index + 1] ?? ""
+      index++
+      continue
+    }
+    if (char === quote) return value
+    value += char
+  }
+}
+
 export function validateProviderCron(cron: string, scheduleName: string): void {
   const fields = cron.split(/\s+/)
   if (fields.length !== 5 || !fields.every(field => cronFieldPattern.test(field))) {
@@ -46,12 +140,14 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
   const source = readFileSync(file, "utf8")
-  const match = source.match(/\bdefineSchedule\s*(?:<[^>]+>\s*)?\(\s*(["'`])([^"'`]+)\1/)
-    ?? source.match(/\bcron\s*:\s*(["'`])([^"'`]+)\1/)
-  if (!match?.[2]) {
+  const openParen = findDefineScheduleOpenParen(source)
+  const args = openParen === undefined ? [] : splitTopLevelArguments(readBalancedCall(source, openParen) ?? "")
+  const cron = (args[0] ? readStringLiteral(args[0]) : undefined)
+    ?? source.match(/\bexport\s+default\s*\{[\s\S]*?\bcron\s*:\s*(["'`])([^"'`]+)\1/)?.[2]
+  if (!cron) {
     throw new Error(`Schedule "${scheduleName}" must declare a static cron string for provider wake output.`)
   }
-  return match[2]
+  return cron
 }
 
 function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string) {
@@ -177,10 +273,12 @@ export async function writeVercelScheduleFunctions(options: {
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
-  vercelConfig.crons = options.definitions.map(definition => ({
+  const schedulePaths = new Set(options.definitions.map(definition => getVercelSchedulePath(definition.name)))
+  const existingCrons = vercelConfig.crons?.filter(cron => !schedulePaths.has(cron.path)) ?? []
+  vercelConfig.crons = [...existingCrons, ...options.definitions.map(definition => ({
     path: getVercelSchedulePath(definition.name),
     schedule: crons.get(definition.name)!,
-  }))
+  }))]
   await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
 }
 
