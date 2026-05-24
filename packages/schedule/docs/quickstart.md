@@ -22,13 +22,11 @@ pnpm add @vitehub/schedule
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
 import { hubSchedule } from '@vitehub/schedule/vite'
-import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
     hubSchedule(),
-    nitro(),
   ],
 })
 ```

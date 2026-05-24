@@ -49,6 +49,7 @@ function createNitroSchedulePluginContents(file: string, registryFile: string) {
   return [
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
     "import { executeStaticSchedule } from \"@vitehub/schedule\"",
+    "import { setScheduleRuntimeRegistry } from \"@vitehub/schedule/runtime\"",
     "",
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
@@ -60,6 +61,7 @@ function createNitroSchedulePluginContents(file: string, registryFile: string) {
     "}",
     "",
     "export default defineNitroPlugin((nitroApp: any) => {",
+    "  setScheduleRuntimeRegistry(scheduleRegistry)",
     "  nitroApp.hooks.hook(\"cloudflare:scheduled\", async ({ event }: { event: { cron: string, scheduledTime: number } }) => {",
     "    await Promise.all(Object.keys(scheduleRegistry).map(async (name) => {",
     "      const definition = await loadScheduleDefinition(name)",
