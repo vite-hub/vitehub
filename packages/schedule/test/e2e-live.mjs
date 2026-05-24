@@ -9,6 +9,7 @@ async function dispatch() {
 
 async function waitForSchedule(run) {
   const startedAt = Date.now()
+  const startedAtIso = new Date(startedAt).toISOString()
   let attempts = 0
   let lastPayload
   let lastError
@@ -18,7 +19,8 @@ async function waitForSchedule(run) {
     try {
       const payload = await requestJson(new URL("/api/tests/schedule", run.url))
       lastPayload = payload
-      if (payload?.ok && payload?.seen === true && payload?.marker?.schedule === "daily-marker") {
+      const ranAt = typeof payload?.marker?.ranAt === "string" ? Date.parse(payload.marker.ranAt) : Number.NaN
+      if (payload?.ok && payload?.seen === true && payload?.marker?.schedule === "daily-marker" && ranAt >= startedAt) {
         return
       }
     }
@@ -35,6 +37,7 @@ async function waitForSchedule(run) {
     lastError: lastError instanceof Error ? lastError.message : lastError ? String(lastError) : undefined,
     lastPayload,
     provider: run.provider,
+    startedAt: startedAtIso,
     timeoutMs: run.timeoutMs,
     url: new URL("/api/tests/schedule", run.url).toString(),
   })}`)
