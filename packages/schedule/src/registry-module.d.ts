@@ -1,6 +1,4 @@
 declare module "#vitehub/schedule/registry" {
-  import type { ScheduleDefinitionRegistry } from "./types"
-
-  const registry: ScheduleDefinitionRegistry
+  const registry: import("@vitehub/schedule").ScheduleDefinitionRegistry
   export default registry
 }
