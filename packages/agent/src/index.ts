@@ -1242,8 +1242,13 @@ export async function runAgent<
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
-    if (isAsyncIterable(result)) {
-      result = await applyOutputRenderers(result, runContext.outputRenderers)
+    try {
+      if (isAsyncIterable(result)) {
+        result = await applyOutputRenderers(result, runContext.outputRenderers)
+      }
+    }
+    catch (error) {
+      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
@@ -1287,8 +1292,13 @@ export async function streamAgent<
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
-    if (isAsyncIterable(result)) {
-      result = await applyOutputRenderers(result, runContext.outputRenderers)
+    try {
+      if (isAsyncIterable(result)) {
+        result = await applyOutputRenderers(result, runContext.outputRenderers)
+      }
+    }
+    catch (error) {
+      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
@@ -1309,8 +1319,13 @@ export async function streamAgent<
   catch (error) {
     return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
   }
-  if (isAsyncIterable(result)) {
-    result = await applyOutputRenderers(result, adapterContext.outputRenderers)
+  try {
+    if (isAsyncIterable(result)) {
+      result = await applyOutputRenderers(result, adapterContext.outputRenderers)
+    }
+  }
+  catch (error) {
+    return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
   }
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)

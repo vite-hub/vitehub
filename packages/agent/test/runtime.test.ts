@@ -276,6 +276,33 @@ describe("agent message protocol", () => {
     expect(order).toEqual(["stream:done", "finish"])
   })
 
+  it("runs finish lifecycle when async stream output renderer setup fails", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const renderError = new Error("render failed")
+    const agent = defineAgent({
+      capabilities: [{
+        id: "broken-renderer",
+        output(context) {
+          context.output.render(() => {
+            throw renderError
+          })
+        },
+      }],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => (async function* () {
+        yield "hello"
+      })(),
+    })
+
+    await expect(streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow("render failed")
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      error: renderError,
+    }))
+  })
+
   it("emits chat title data for the first user message in streams", async () => {
     const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(({ text }) => `Title: ${text}`)
