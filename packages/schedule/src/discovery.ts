@@ -207,10 +207,6 @@ function readTopLevelStringProperty(source: string, property: string): string | 
       if (char === quote) quote = undefined
       continue
     }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
     if (char === "{" || char === "[" || char === "(") {
       depth++
       continue
@@ -219,11 +215,24 @@ function readTopLevelStringProperty(source: string, property: string): string | 
       depth--
       continue
     }
-    if (depth !== 1 || !source.startsWith(property, index)) continue
-    const before = source[index - 1] ?? ""
-    const after = source[index + property.length] ?? ""
-    if (/[\w$]/.test(before) || /[\w$]/.test(after)) continue
-    let valueStart = index + property.length
+    if (char === "\"" || char === "'" || char === "`") {
+      if (depth !== 1 || char === "`" || !source.startsWith(property, index + 1) || source[index + property.length + 1] !== char) {
+        quote = char
+        continue
+      }
+    }
+    if (depth !== 1) continue
+    let valueStart: number
+    if (source[index] === "\"" || source[index] === "'") {
+      valueStart = index + property.length + 2
+    }
+    else {
+      if (!source.startsWith(property, index)) continue
+      const before = source[index - 1] ?? ""
+      const after = source[index + property.length] ?? ""
+      if (/[\w$]/.test(before) || /[\w$]/.test(after)) continue
+      valueStart = index + property.length
+    }
     while (/\s/.test(source[valueStart] ?? "")) valueStart++
     if (source[valueStart] !== ":") continue
     valueStart++

@@ -81,6 +81,17 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["reports/daily"])
   })
 
+  it("uses explicit ids from quoted defineSchedule option keys", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-quoted-explicit-id-")
+    await writeFile(join(viteRootDir, "daily.schedule.ts"), "export default defineSchedule('0 9 * * *', () => {}, { 'id': 'reports/daily' })\n", "utf8")
+    await writeFile(join(viteRootDir, "weekly.schedule.ts"), "export default defineSchedule('0 9 * * 1', () => {}, { \"id\": \"reports/weekly\" })\n", "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual(["reports/daily", "reports/weekly"])
+  })
+
   it("ignores nested id fields when no defineSchedule id option is set", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-nested-id-")
     await writeFile(
