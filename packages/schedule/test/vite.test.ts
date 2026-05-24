@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { createScheduleRegistryContents } from "../src/registry-module.ts"
+import { createScheduleRegistryContents } from "../src/generated/registry.ts"
 import { hubSchedule } from "../src/vite.ts"
 
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {

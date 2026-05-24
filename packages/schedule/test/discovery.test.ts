@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createRuntimeRegistryContents } from "@vitehub/internal/definition-discovery"
-import { discoverScheduleDefinitions } from "../src/discovery.ts"
+import { discoverScheduleDefinitions } from "../src/internal/discovery.ts"
 
 const directories: string[] = []
 

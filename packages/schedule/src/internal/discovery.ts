@@ -11,7 +11,7 @@ import {
   resolveDefinitionScanRoots,
 } from "@vitehub/internal/definition-catalog"
 
-import type { DiscoveredScheduleDefinition } from "./types.ts"
+import type { DiscoveredScheduleDefinition } from "../types.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i

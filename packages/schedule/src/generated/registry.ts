@@ -1,6 +1,6 @@
 import { relative, resolve } from "node:path"
 
-import type { DiscoveredScheduleDefinition } from "./types.ts"
+import type { DiscoveredScheduleDefinition } from "../types.ts"
 
 export const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 

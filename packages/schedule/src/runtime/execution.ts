@@ -1,7 +1,7 @@
 import { randomId } from "@vitehub/internal/runtime/random"
 
 import { ScheduleError } from "../errors.ts"
-import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
+import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./context.ts"
 
 import type { RuntimeScheduleRecord, ScheduleDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleTargetName } from "../types.ts"
 
@@ -148,12 +148,7 @@ async function failRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord
   }))
 }
 
-export async function createScheduleRun(options: Omit<ExecuteScheduleOptions, "definition">): Promise<ScheduleRunRecord> {
-  const scheduledAt = options.scheduledAt ?? new Date()
-  return (await createOrGetRun({ ...options, scheduledAt })).run
-}
-
-export async function executeSchedule(options: ExecuteScheduleOptions): Promise<ScheduleRunRecord> {
+async function executeSchedule(options: ExecuteScheduleOptions): Promise<ScheduleRunRecord> {
   const scheduledAt = options.scheduledAt ?? new Date()
   const { created, run } = await createOrGetRun({ ...options, scheduledAt })
 
