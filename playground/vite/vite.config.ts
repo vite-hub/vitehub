@@ -173,10 +173,18 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.schedule) {
-    const { hubSchedule } = await import("@vitehub/schedule/vite")
+    const [{ hubKv }, { hubSchedule }] = await Promise.all([
+      import("@vitehub/kv/vite"),
+      import("@vitehub/schedule/vite"),
+    ])
     return {
       ...baseConfig,
-      plugins: [hubSchedule()],
+      build: {
+        ...baseConfig.build,
+        ssr: true,
+      },
+      kv: {},
+      plugins: [hubSchedule(), hubKv()],
     }
   }
 

@@ -151,7 +151,7 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
 }
 
 function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string) {
-  const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
+  const runtimeImport = scheduleRuntimeEntry
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
@@ -291,6 +291,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
       bundleEntry: artifacts.cloudflareWorkerFile,
       bundleOptions: {
         conditions: ["workerd", "worker", "browser", "default"],
+        external: ["node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
         format: "esm",
         platform: "neutral",
       },

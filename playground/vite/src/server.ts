@@ -1,9 +1,10 @@
 import { H3, getRequestURL, readValidatedBody } from "h3"
 import * as v from "valibot"
 
+import { kv } from "@vitehub/kv"
 import { deferQueue, runQueue } from "@vitehub/queue"
 import { resolveTrustedMarkerCallbackUrl, runInBackground } from "../../_shared/queue-test"
-import { scheduleMarkerKey } from "./daily-marker.schedule"
+import { scheduleMarkerKey } from "./schedule-marker"
 
 const app = new H3()
 const queueMarkers = new Set<string>()
@@ -66,7 +67,7 @@ app.post("/api/tests/queue", async (event) => {
 })
 
 app.get("/api/tests/schedule", async () => {
-  const marker = globalThis.__vitehubScheduleMarker
+  const marker = globalThis.__vitehubScheduleMarker ?? await kv.get(scheduleMarkerKey)
   return {
     ok: true,
     key: scheduleMarkerKey,
