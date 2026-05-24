@@ -262,8 +262,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { blob, db, inputCommands, kv, mcp, sandbox, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
-export type { TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
+export { blob, chatTitle, db, inputCommands, kv, mcp, sandbox, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
+export type { ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -976,6 +976,9 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
   if (type === "text-delta" || type === "text") {
     return { id: value.id as string | undefined, text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
+  if (type === "data") {
+    return { data: value.data, id: value.id as string | undefined, messageId: value.messageId as string | undefined, type: "data" }
+  }
   if (type === "tool-input-start") {
     return { id: String(value.id || value.toolCallId), input: value.input, name: String(value.toolName || value.name), type: "tool-input-start" }
   }
@@ -1236,6 +1239,9 @@ export async function runAgent<
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
+    if (isAsyncIterable(result)) {
+      result = await applyOutputRenderers(result, runContext.outputRenderers)
+    }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       return { finishResult: rendered, value: rendered }
@@ -1278,6 +1284,9 @@ export async function streamAgent<
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
+    if (isAsyncIterable(result)) {
+      result = await applyOutputRenderers(result, runContext.outputRenderers)
+    }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       return { finishResult: rendered, value: rendered }
@@ -1296,6 +1305,9 @@ export async function streamAgent<
   }
   catch (error) {
     return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
+  }
+  if (isAsyncIterable(result)) {
+    result = await applyOutputRenderers(result, adapterContext.outputRenderers)
   }
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)

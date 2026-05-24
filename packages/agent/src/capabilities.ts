@@ -22,7 +22,7 @@ import type {
   AgentToolSet,
   MaybePromise,
 } from "./types.ts"
-import type { AudioPart, Message } from "./messages.ts"
+import type { AudioPart, Message, StreamEvent } from "./messages.ts"
 
 type AiSdkTranscribe = typeof import("ai")["experimental_transcribe"]
 type AiSdkTranscribeOptions = Omit<Parameters<AiSdkTranscribe>[0], "abortSignal" | "audio">
@@ -187,6 +187,24 @@ export interface InputCommandsOptions {
   commands: Record<string, InputCommand>
   id?: string
   trigger?: string
+}
+
+export interface ChatTitleExecuteInput {
+  input: AgentRunInput
+  message: Message
+  messages: Message[]
+  text: string
+}
+
+export type ChatTitleExecuteResult = string | { title?: string }
+
+export interface ChatTitleOptions {
+  execute?: (input: ChatTitleExecuteInput) => MaybePromise<ChatTitleExecuteResult>
+  fallback?: string
+  id?: string
+  instructions?: string
+  maxLength?: number
+  model?: unknown
 }
 
 interface InputCommandInvocation {
@@ -391,6 +409,93 @@ function mergeInputCommandResult(input: AgentRunInput, result: Partial<AgentRunI
     delete next.messages
   }
   return next
+}
+
+function firstUserMessage(messages: Message[]): Message | undefined {
+  return messages.find(message => message.role === "user")
+}
+
+function cleanGeneratedTitle(value: unknown, maxLength: number, fallback: string): string {
+  const raw = typeof value === "string" ? value : ""
+  const title = raw
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength)
+    .trim()
+  return title || fallback
+}
+
+function heuristicTitle(text: string, maxLength: number, fallback: string): string {
+  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean).slice(0, 6).join(" ")
+  return cleanGeneratedTitle(words, maxLength, fallback)
+}
+
+async function generateChatTitle(options: ChatTitleOptions, input: ChatTitleExecuteInput): Promise<string> {
+  const fallback = options.fallback ?? "New Conversation"
+  const maxLength = options.maxLength ?? 80
+
+  if (options.execute) {
+    const result = await options.execute(input)
+    return cleanGeneratedTitle(typeof result === "string" ? result : result.title, maxLength, fallback)
+  }
+
+  if (options.model) {
+    const { generateText } = await import("ai")
+    const result = await generateText({
+      model: options.model as never,
+      system: options.instructions ?? [
+        "Generate a short chat title from the user's first message.",
+        "Return only the title.",
+        "Use 2-5 words when possible.",
+        `Use "${fallback}" when the message is too vague.`,
+      ].join("\n"),
+      prompt: input.text,
+    })
+    return cleanGeneratedTitle(result.text, maxLength, fallback)
+  }
+
+  return heuristicTitle(input.text, maxLength, fallback)
+}
+
+async function* withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Promise<string>): AsyncIterable<StreamEvent> {
+  const resolvedTitle = await title
+  if (resolvedTitle) {
+    yield { data: { title: resolvedTitle, type: "chat-title" }, type: "data" }
+  }
+  yield* result
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<StreamEvent> {
+  return !!value
+    && typeof value === "object"
+    && Symbol.asyncIterator in value
+    && typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === "function"
+}
+
+export function chatTitle(options: ChatTitleOptions = {}): AgentCapabilityDefinition {
+  return defineCapability({
+    id: options.id || "chat-title",
+    output(context) {
+      const messages = context.input.messages()
+      const message = firstUserMessage(messages)
+      if (!message) return
+
+      const text = getMessageText(message)
+      const title = generateChatTitle(options, {
+        input: context.input.get(),
+        message,
+        messages,
+        text,
+      })
+
+      context.finish.provide(async () => ({ title: await title }))
+      context.output.render((result) => {
+        if (!isAsyncIterable(result)) return result
+        return withChatTitleEvent(result, title)
+      })
+    },
+  })
 }
 
 export function inputCommands(options: InputCommandsOptions): AgentCapabilityDefinition {
