@@ -4,6 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { createScheduleRegistryContents } from "../src/registry-module.ts"
 import { hubSchedule } from "../src/vite.ts"
 
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
@@ -78,6 +79,16 @@ describe("Vite schedule integration", () => {
     expect(registry).toContain("cron: \"0 9 * * *\"")
     expect(registry).toContain("options: { id: \"daily\", target: \"support\" }")
     expect(registry).toContain("handler: async (context) => runScheduledAgent(")
+  })
+
+  it("normalizes generated registry import specifiers", () => {
+    const registry = createScheduleRegistryContents("C:\\project\\.vitehub\\schedule\\registry.mjs", [{
+      handler: "C:\\project\\src\\daily.schedule.ts",
+      name: "daily",
+    }])
+
+    expect(registry).toContain("C:/project/src/daily.schedule.ts")
+    expect(registry).not.toContain("\\\\")
   })
 
   it("serves an empty registry without special cases", async () => {

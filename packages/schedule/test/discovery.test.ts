@@ -196,6 +196,24 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("ignores non-agent exports before Nitro aggregate agents", async () => {
+    const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-non-agent-export-")
+    await writeFile(join(nitroScanDir, "agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export const VERSION = '1.0.0'",
+      "export const Support = defineAgent({",
+      "  capabilities: [schedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "nitro-server-schedules",
+      scanDirs: [nitroScanDir],
+    })).toEqual([
+      expect.objectContaining({ agentExportName: "Support", agentName: "Support", cron: "0 9 * * *", name: "Support/schedule-0-9" }),
+    ])
+  })
+
   it("rejects duplicate schedule ids across discovery roots and explicit ids", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-vite-duplicate-")
     const viteScanDir = await createTempDir("vitehub-schedule-vite-duplicate-scan-")

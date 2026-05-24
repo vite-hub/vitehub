@@ -150,11 +150,12 @@ function readBalancedCall(source: string, openParen: number): string | undefined
 }
 
 function findDefineAgentCall(source: string, initializerStart: number): string | undefined {
-  const callMatch = /\bdefineAgent\s*\(/g
-  callMatch.lastIndex = initializerStart
-  const match = callMatch.exec(source)
+  const initializer = source.slice(initializerStart)
+  const leadingWhitespace = initializer.match(/^\s*/)?.[0].length ?? 0
+  if (!initializer.slice(leadingWhitespace).startsWith("defineAgent")) return
+  const match = /^defineAgent\s*\(/.exec(initializer.slice(leadingWhitespace))
   if (!match) return
-  return readBalancedCall(source, match.index + match[0].length - 1)
+  return readBalancedCall(source, initializerStart + leadingWhitespace + match[0].length - 1)
 }
 
 function discoverNamedAgentExports(file: string): Array<{ exportName: string, name: string, source: string }> {

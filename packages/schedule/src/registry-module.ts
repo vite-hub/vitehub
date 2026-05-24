@@ -5,7 +5,7 @@ import type { DiscoveredScheduleDefinition } from "./types.ts"
 export const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 
 function createImportExpression(registryFile: string, file: string): string {
-  const importPath = relative(resolve(registryFile, ".."), file)
+  const importPath = relative(resolve(registryFile, ".."), file).replace(/\\/g, "/")
   return `import(${JSON.stringify(importPath.startsWith(".") ? importPath : `./${importPath}`)})`
 }
 
