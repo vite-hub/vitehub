@@ -11,7 +11,11 @@ function cloneRuntimeSchedule(record: RuntimeScheduleRecord): RuntimeScheduleRec
 }
 
 function omitUndefinedPatch(patch: RuntimeScheduleUpdateInput): RuntimeScheduleUpdateInput {
-  return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as RuntimeScheduleUpdateInput
+  return {
+    ...(patch.cron !== undefined ? { cron: patch.cron } : {}),
+    ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+    ...(patch.target !== undefined ? { target: patch.target } : {}),
+  }
 }
 
 export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {

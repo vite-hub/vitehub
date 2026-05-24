@@ -187,4 +187,26 @@ describe("Runtime Schedule helper", () => {
       code: "SCHEDULE_NOT_FOUND",
     })
   })
+
+  it("does not let update patches rewrite Runtime Schedule invariants", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    const created = await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const updated = await schedules.update("schedule-1", {
+      createdAt: new Date(0),
+      id: "schedule-2",
+      target: undefined,
+    } as never)
+
+    expect(updated).toMatchObject({ id: "schedule-1", target: "report" })
+    expect(updated.createdAt).toEqual(created.createdAt)
+    expect(await schedules.get("schedule-1")).toMatchObject({ id: "schedule-1", target: "report" })
+    expect(await schedules.get("schedule-2")).toBeUndefined()
+  })
 })

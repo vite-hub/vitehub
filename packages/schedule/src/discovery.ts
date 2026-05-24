@@ -248,6 +248,54 @@ function readTopLevelStringProperty(source: string, property: string): string | 
   }
 }
 
+function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
+  let depth = 0
+  let quote: string | undefined
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    if (quote) {
+      if (char === "\\") {
+        index++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "{" || char === "[" || char === "(") {
+      depth++
+      continue
+    }
+    if (char === "}" || char === "]" || char === ")") {
+      depth--
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      if (depth !== 1 || char === "`" || !source.startsWith(property, index + 1) || source[index + property.length + 1] !== char) {
+        quote = char
+        continue
+      }
+    }
+    if (depth !== 1) continue
+    let valueStart: number
+    if (source[index] === "\"" || source[index] === "'") {
+      valueStart = index + property.length + 2
+    }
+    else {
+      if (!source.startsWith(property, index)) continue
+      const before = source[index - 1] ?? ""
+      const after = source[index + property.length] ?? ""
+      if (/[\w$]/.test(before) || /[\w$]/.test(after)) continue
+      valueStart = index + property.length
+    }
+    while (/\s/.test(source[valueStart] ?? "")) valueStart++
+    if (source[valueStart] !== ":") continue
+    valueStart++
+    while (/\s/.test(source[valueStart] ?? "")) valueStart++
+    if (source.startsWith("true", valueStart) && !/[\w$]/.test(source[valueStart + 4] ?? "")) return true
+    if (source.startsWith("false", valueStart) && !/[\w$]/.test(source[valueStart + 5] ?? "")) return false
+  }
+}
+
 function readScheduleIdOverride(file: string): string | undefined {
   const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
   return options ? readTopLevelStringProperty(options, "id") : undefined
@@ -255,7 +303,7 @@ function readScheduleIdOverride(file: string): string | undefined {
 
 function readAllowRuntimeSchedules(file: string): boolean {
   const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
-  return /\ballowRuntimeSchedules\s*:\s*true\b/.test(options ?? "")
+  return options ? readTopLevelBooleanProperty(options, "allowRuntimeSchedules") === true : false
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {
