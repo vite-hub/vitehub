@@ -18,6 +18,9 @@
     "schedule",
     "cron"
   ],
+  "dependencies": {
+    "@vitehub/kv": "workspace:*"
+  },
   "sideEffects": false,
   "type": "module",
   "types": "./dist/index.d.ts",
