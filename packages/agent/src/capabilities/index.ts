@@ -1,7 +1,4 @@
 export {
-  chatTitle,
-} from "./chat-title.ts"
-export {
   fetch,
 } from "./fetch.ts"
 export {
@@ -41,11 +38,6 @@ export {
   webSearch,
 } from "./web-search/index.ts"
 
-export type {
-  ChatTitleExecuteInput,
-  ChatTitleExecuteResult,
-  ChatTitleOptions,
-} from "./chat-title.ts"
 export type {
   FetchCapabilityMethod,
   FetchCapabilityOptions,
