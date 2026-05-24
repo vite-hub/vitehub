@@ -61,6 +61,7 @@ function stripComments(source: string): string {
 function readBalancedCall(source: string, openParen: number): string | undefined {
   let depth = 0
   let quote: string | undefined
+  let previousSignificant = ""
   for (let index = openParen; index < source.length; index++) {
     const char = source[index]
     if (quote) {
@@ -75,13 +76,34 @@ function readBalancedCall(source: string, openParen: number): string | undefined
       quote = char
       continue
     }
+    if (char === "/" && previousSignificant && /[({[=,:!&|?;>]/.test(previousSignificant)) {
+      index++
+      while (index < source.length) {
+        const current = source[index]
+        if (current === "\\") {
+          index += 2
+          continue
+        }
+        if (current === "/") break
+        index++
+      }
+      while (/[a-z]/i.test(source[index + 1] ?? "")) index++
+      previousSignificant = "/"
+      continue
+    }
     if (char === "(" || char === "{" || char === "[") {
       depth++
+      previousSignificant = char
       continue
     }
     if (char === ")" || char === "}" || char === "]") {
       depth--
       if (depth === 0) return source.slice(openParen + 1, index)
+      previousSignificant = char
+      continue
+    }
+    if (!/\s/.test(char ?? "")) {
+      previousSignificant = char ?? ""
     }
   }
 }
@@ -90,6 +112,7 @@ function splitTopLevelArguments(source: string): string[] {
   const args: string[] = []
   let depth = 0
   let quote: string | undefined
+  let previousSignificant = ""
   let start = 0
   for (let index = 0; index < source.length; index++) {
     const char = source[index]
@@ -105,17 +128,37 @@ function splitTopLevelArguments(source: string): string[] {
       quote = char
       continue
     }
+    if (char === "/" && previousSignificant && /[({[=,:!&|?;>]/.test(previousSignificant)) {
+      index++
+      while (index < source.length) {
+        const current = source[index]
+        if (current === "\\") {
+          index += 2
+          continue
+        }
+        if (current === "/") break
+        index++
+      }
+      while (/[a-z]/i.test(source[index + 1] ?? "")) index++
+      previousSignificant = "/"
+      continue
+    }
     if (char === "(" || char === "{" || char === "[") {
       depth++
+      previousSignificant = char
       continue
     }
     if (char === ")" || char === "}" || char === "]") {
       depth--
+      previousSignificant = char
       continue
     }
     if (char === "," && depth === 0) {
       args.push(source.slice(start, index))
       start = index + 1
+    }
+    if (!/\s/.test(char ?? "")) {
+      previousSignificant = char ?? ""
     }
   }
   args.push(source.slice(start))
@@ -151,9 +194,59 @@ function readDefineScheduleOptions(source: string): string | undefined {
   return splitTopLevelArguments(readBalancedCall(stripped, openParen) ?? "")[2]
 }
 
+function readTopLevelStringProperty(source: string, property: string): string | undefined {
+  let depth = 0
+  let quote: string | undefined
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    if (quote) {
+      if (char === "\\") {
+        index++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "{" || char === "[" || char === "(") {
+      depth++
+      continue
+    }
+    if (char === "}" || char === "]" || char === ")") {
+      depth--
+      continue
+    }
+    if (depth !== 1 || !source.startsWith(property, index)) continue
+    const before = source[index - 1] ?? ""
+    const after = source[index + property.length] ?? ""
+    if (/[\w$]/.test(before) || /[\w$]/.test(after)) continue
+    let valueStart = index + property.length
+    while (/\s/.test(source[valueStart] ?? "")) valueStart++
+    if (source[valueStart] !== ":") continue
+    valueStart++
+    while (/\s/.test(source[valueStart] ?? "")) valueStart++
+    const valueQuote = source[valueStart]
+    if (valueQuote !== "\"" && valueQuote !== "'") continue
+    let value = ""
+    for (let valueIndex = valueStart + 1; valueIndex < source.length; valueIndex++) {
+      const valueChar = source[valueIndex]
+      if (valueChar === "\\") {
+        value += source[valueIndex + 1] ?? ""
+        valueIndex++
+        continue
+      }
+      if (valueChar === valueQuote) return value
+      value += valueChar
+    }
+  }
+}
+
 function readScheduleIdOverride(file: string): string | undefined {
-  const match = readDefineScheduleOptions(readFileSync(file, "utf8"))?.match(/\bid\s*:\s*(["'])([^"']+)\1/)
-  return match?.[2]
+  const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
+  return options ? readTopLevelStringProperty(options, "id") : undefined
 }
 
 function normalizeSuffixScheduleName(rootDir: string, file: string) {
