@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { ScheduleError, schedules } from "../src/index.ts"
+import { ScheduleError } from "../src/index.ts"
+import { schedules } from "../src/runtime.ts"
 import { resetScheduleRuntime, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 afterEach(() => {

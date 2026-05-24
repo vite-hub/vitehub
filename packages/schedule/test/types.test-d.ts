@@ -1,6 +1,7 @@
 import { expectTypeOf, it } from "vitest"
 
-import { defineSchedule, schedules } from "../src/index.ts"
+import { defineSchedule } from "../src/index.ts"
+import { schedules } from "../src/runtime.ts"
 
 it("infers schedule handler result types", () => {
   const schedule = defineSchedule("0 9 * * *", async context => context.id)
