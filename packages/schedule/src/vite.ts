@@ -39,7 +39,7 @@ export function hubSchedule(): ScheduleVitePlugin {
   }
 
   function createTargetsContents() {
-    return createScheduleTargetsContents(discoverViteSchedules(), { types: true })
+    return createScheduleTargetsContents(discoverViteSchedules(), { types: false })
   }
 
   return {
