@@ -60,6 +60,27 @@ describe("Nitro schedule integration", () => {
     expect(await readFile(nitro.options.plugins[0]!, "utf8")).toContain("cloudflare:scheduled")
   })
 
+  it("does not require static cron strings outside provider presets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-non-provider-"))
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "cleanup.ts"), "export default defineSchedule(process.env.CRON!, () => undefined)\n", "utf8")
+    const nitro = {
+      hooks: { hook: vi.fn() },
+      options: {
+        alias: {} as Record<string, string>,
+        buildDir: join(root, ".nitro"),
+        imports: undefined as { presets?: Array<{ from: string, imports: string[] }> } | undefined,
+        plugins: [] as string[],
+        preset: "node-server",
+        rootDir: root,
+        scanDirs: [],
+      },
+    }
+
+    await expect(scheduleNitroModule.setup(nitro as never)).resolves.toBeUndefined()
+    expect(nitro.options.plugins[0]).toBe(join(root, ".nitro", "vitehub", "schedule", "nitro-plugin.ts"))
+  })
+
   it("auto-imports only the schedule definition boundary helper", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-imports-"))
     const nitro = {

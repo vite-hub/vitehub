@@ -105,7 +105,6 @@ const scheduleNitroModule: NitroModule = {
       "#vitehub/schedule/registry": runtimeFiles.registryFile,
       [SCHEDULE_TARGETS_ID]: runtimeFiles.targetsFile,
     })
-    const crons = await readDefinitionCrons(runtimeFiles.definitions)
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
     if (!importsExplicitlyDisabled) {
@@ -119,12 +118,15 @@ const scheduleNitroModule: NitroModule = {
       }
     }
 
-    if (crons.size && nitro.options.preset?.includes("cloudflare")) {
-      nitro.options.cloudflare ||= {}
-      nitro.options.cloudflare.wrangler ||= {}
-      nitro.options.cloudflare.wrangler.triggers ||= { crons: [] }
-      const existing = nitro.options.cloudflare.wrangler.triggers.crons || []
-      nitro.options.cloudflare.wrangler.triggers.crons = [...new Set([...existing, ...crons.values()])]
+    if (nitro.options.preset?.includes("cloudflare")) {
+      const crons = await readDefinitionCrons(runtimeFiles.definitions)
+      if (crons.size) {
+        nitro.options.cloudflare ||= {}
+        nitro.options.cloudflare.wrangler ||= {}
+        nitro.options.cloudflare.wrangler.triggers ||= { crons: [] }
+        const existing = nitro.options.cloudflare.wrangler.triggers.crons || []
+        nitro.options.cloudflare.wrangler.triggers.crons = [...new Set([...existing, ...crons.values()])]
+      }
     }
 
     hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroScheduleRuntimeFiles(nitro), (nextRuntimeFiles) => {
