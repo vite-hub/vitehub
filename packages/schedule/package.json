@@ -58,5 +58,8 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
+  },
+  "dependencies": {
+    "esbuild": "catalog:"
   }
 }
