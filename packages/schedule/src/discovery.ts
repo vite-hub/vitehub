@@ -41,6 +41,12 @@ function isInlineScheduleObjectValue(source: string, stringStart: number): boole
   return /(?:^|[,{]\s*)(["'`])?(?:cron|id)\1?\s*:\s*$/u.test(source.slice(Math.max(0, stringStart - 24), stringStart))
 }
 
+function isInlineScheduleStringEntry(source: string, stringStart: number, stringEnd: number): boolean {
+  const before = source.slice(0, stringStart).trimEnd().at(-1)
+  const after = source.slice(stringEnd).trimStart()[0]
+  return (before === undefined || before === ",") && (after === "," || after === undefined)
+}
+
 function readScheduleIdOverride(file: string): string | undefined {
   const source = readFileSync(file, "utf8")
   const match = source.match(/\bdefineSchedule\s*(?:<[^>]+>\s*)?\([\s\S]*?,[\s\S]*?,\s*\{[\s\S]*?\bid\s*:\s*(["'])([^"']+)\1/)
@@ -70,6 +76,7 @@ function parseInlineAgentScheduleEntries(source: string): Array<{ cron: string, 
     for (const stringEntry of body.matchAll(/(["'`])([^"'`]+)\1/g)) {
       if (isInlineScheduleObjectKey(body, stringEntry.index! + stringEntry[0].length)) continue
       if (isInlineScheduleObjectValue(body, stringEntry.index!)) continue
+      if (!isInlineScheduleStringEntry(body, stringEntry.index!, stringEntry.index! + stringEntry[0].length)) continue
       const cron = normalizeScheduleCron(stringEntry[2]!)
       entries.push({ cron, id: scheduleIdFromCron(cron) })
     }
@@ -163,7 +170,7 @@ function discoverNamedAgentExports(file: string): Array<{ exportName: string, na
   const locals = new Map<string, string>()
   const definitions = new Map<string, { exportName: string, name: string, source: string }>()
 
-  for (const match of source.matchAll(/\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g)) {
+  for (const match of source.matchAll(/\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=/g)) {
     const localName = match[1]!
     const callSource = findDefineAgentCall(source, match.index! + match[0].length)
     if (!callSource) continue
