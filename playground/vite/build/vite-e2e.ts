@@ -12,6 +12,9 @@ import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
 import { discoverQueueDefinitions } from "../../../packages/queue/src/discovery.ts"
 import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../../../packages/queue/src/integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
+import { discoverScheduleDefinitions } from "../../../packages/schedule/src/discovery.ts"
+import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
+import { readDefinitionCrons } from "../../../packages/schedule/src/internal/provider-output.ts"
 import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, defaultCloudflareSandboxMigrationTag, configureCloudflareSandbox, writeCloudflareSandboxDockerfile } from "../../../packages/sandbox/src/cloudflare.ts"
 import { extractSandboxDefinitionOptions } from "../../../packages/sandbox/src/definition-options.ts"
 import { discoverNitroSandboxDefinitions } from "../../../packages/sandbox/src/discovery.ts"
@@ -48,6 +51,7 @@ const blobPackageDir = resolve(packagesDir, "blob")
 const dbPackageDir = resolve(packagesDir, "db")
 const kvPackageDir = resolve(packagesDir, "kv")
 const queuePackageDir = resolve(packagesDir, "queue")
+const schedulePackageDir = resolve(packagesDir, "schedule")
 const sandboxPackageDir = resolve(packagesDir, "sandbox")
 const workspacePackageDir = resolve(packagesDir, "workspace")
 const workflowPackageDir = resolve(packagesDir, "workflow")
@@ -64,6 +68,7 @@ interface ViteE2EComposerOptions {
   rootDir: string
   sandbox?: false | AgentSandboxConfig
   queue?: false | ResolvedQueueOptions
+  schedule?: false | true
   workspace?: false | ResolvedWorkspaceModuleOptions
   workflow?: false | ResolvedWorkflowOptions
 }
@@ -86,6 +91,7 @@ interface CloudflareWranglerConfig {
   }
   r2_buckets?: Array<{ binding: string, bucket_name: string }>
   artifacts?: Array<{ binding: string, namespace: string }>
+  triggers?: { crons: string[] }
   workflows?: Array<{ binding: string, class_name: string, name: string }>
 }
 
@@ -94,6 +100,9 @@ interface GeneratedFeatureArtifacts {
   generatedDir: string
   queueDefinitions: Array<{ name: string, handler: string }>
   queueRegistryFile?: string
+  scheduleCrons: Map<string, string>
+  scheduleDefinitions: Array<{ name: string, handler: string }>
+  scheduleRegistryFile?: string
   sandboxConfig?: false | AgentSandboxConfig
   workflowBindings: Array<{ binding: string, class_name: string, name: string }>
   workflowDefinitions: Array<{ name: string, handler: string }>
@@ -270,6 +279,13 @@ function renderQueueRuntimeModule(file: string) {
   ].join("\n")
 }
 
+function renderScheduleRuntimeModule(file: string) {
+  return [
+    `export { defineSchedule } from ${JSON.stringify(createImportPath(file, resolve(schedulePackageDir, "src/definition.ts")))}`,
+    "",
+  ].join("\n")
+}
+
 function renderSandboxRuntimeModule(file: string) {
   return [
     `export { defineSandbox } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxPackageDir, "runtime/registry")))}`,
@@ -364,6 +380,9 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   const queueDefinitions = options.queue
     ? discoverQueueDefinitions({ mode: "nitro-server-queues", scanDirs: [resolve(options.rootDir, "server")] })
     : []
+  const scheduleDefinitions = options.schedule
+    ? discoverScheduleDefinitions({ rootDir: options.rootDir })
+    : []
   const workflowDefinitions = options.workflow
     ? discoverWorkflowDefinitions({ mode: "nitro-server-workflows", scanDirs: [resolve(options.rootDir, "server")] })
     : []
@@ -380,6 +399,12 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   if (queueDefinitions.length) {
     queueRegistryFile = resolve(generatedDir, "queue-registry.mjs")
     runtimeWrites.push(writeFile(queueRegistryFile, createRuntimeRegistryContents(queueRegistryFile, queueDefinitions), "utf8"))
+  }
+
+  let scheduleRegistryFile: string | undefined
+  if (scheduleDefinitions.length) {
+    scheduleRegistryFile = resolve(generatedDir, "schedule-registry.mjs")
+    runtimeWrites.push(writeFile(scheduleRegistryFile, createRuntimeRegistryContents(scheduleRegistryFile, scheduleDefinitions), "utf8"))
   }
 
   let workflowRegistryFile: string | undefined
@@ -410,6 +435,12 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     const queueRuntimeFile = resolve(generatedDir, "queue-runtime.mjs")
     alias["@vitehub/queue"] = queueRuntimeFile
     runtimeWrites.push(writeFile(queueRuntimeFile, renderQueueRuntimeModule(queueRuntimeFile), "utf8"))
+  }
+
+  if (typeof options.schedule !== "undefined") {
+    const scheduleRuntimeFile = resolve(generatedDir, "schedule-runtime.mjs")
+    alias["@vitehub/schedule"] = scheduleRuntimeFile
+    runtimeWrites.push(writeFile(scheduleRuntimeFile, renderScheduleRuntimeModule(scheduleRuntimeFile), "utf8"))
   }
 
   if (typeof options.sandbox !== "undefined") {
@@ -447,6 +478,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   }
 
   await Promise.all(runtimeWrites)
+  const scheduleCrons = await readDefinitionCrons(scheduleDefinitions)
 
   let sandboxConfig: false | AgentSandboxConfig | undefined
   if (options.sandbox) {
@@ -494,6 +526,9 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     generatedDir,
     queueDefinitions,
     queueRegistryFile,
+    scheduleCrons,
+    scheduleDefinitions,
+    scheduleRegistryFile,
     sandboxConfig,
     workflowBindings: createCloudflareWorkflowBindings(workflowDefinitions, options.workflow) || [],
     workflowDefinitions,
@@ -517,6 +552,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `import { getCloudflareQueueDefinitionName } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/integrations/cloudflare.ts")))}`,
     `import { createQueueJob } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/cloudflare-shared.ts")))}`,
     `import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/runtime/state.ts")))}`,
+    `import { executeStaticSchedule } from ${JSON.stringify(createImportPath(file, resolve(schedulePackageDir, "src/runtime/execute.ts")))}`,
     `import { runCloudflareWorkflow } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/cloudflare-runner.ts")))}`,
     `import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
@@ -530,6 +566,9 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
 
   if (artifacts.queueRegistryFile) {
     imports.push(`import queueRegistry from ${JSON.stringify(createImportPath(file, artifacts.queueRegistryFile))}`)
+  }
+  if (artifacts.scheduleRegistryFile) {
+    imports.push(`import __vitehubScheduleRegistry from ${JSON.stringify(createImportPath(file, artifacts.scheduleRegistryFile))}`)
   }
   if (artifacts.workflowRegistryFile) {
     imports.push(`import workflowRegistry from ${JSON.stringify(createImportPath(file, artifacts.workflowRegistryFile))}`)
@@ -618,6 +657,20 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     "          })",
     "        },",
     "      })(batch)",
+    "    } finally {",
+    "      clearActiveCloudflareEnv()",
+    "    }",
+    "  },",
+    "  async scheduled(event, env, context) {",
+    `    const scheduleRegistry = ${artifacts.scheduleRegistryFile ? "__vitehubScheduleRegistry" : "{}"}`,
+    "    setActiveCloudflareEnv(env)",
+    "    try {",
+    "      await Promise.all(Object.entries(scheduleRegistry).map(async ([name, loader]) => {",
+    "        const loaded = await loader()",
+    "        const definition = loaded?.default ?? loaded",
+    "        if (!definition || definition.cron !== event.cron) return",
+    "        await executeStaticSchedule({ cron: event.cron, definition, name, scheduledAt: new Date(event.scheduledTime) })",
+    "      }))",
     "    } finally {",
     "      clearActiveCloudflareEnv()",
     "    }",
@@ -741,6 +794,28 @@ function renderVercelQueueWrapper(file: string, queueRegistryFile: string, defin
     "}",
     "",
   ].filter(Boolean).join("\n")
+}
+
+function renderVercelScheduleWrapper(file: string, scheduleRegistryFile: string, definitionName: string) {
+  return [
+    `import { executeStaticSchedule } from ${JSON.stringify(createImportPath(file, resolve(schedulePackageDir, "src/runtime/execute.ts")))}`,
+    `import scheduleRegistry from ${JSON.stringify(createImportPath(file, scheduleRegistryFile))}`,
+    "",
+    "export default async function scheduleHandler(req, res) {",
+    `  const name = ${JSON.stringify(definitionName)}`,
+    "  const loaded = await scheduleRegistry[name]?.()",
+    "  const definition = loaded?.default ?? loaded",
+    "  if (!definition) {",
+    "    res.statusCode = 404",
+    "    res.end('Missing schedule definition.')",
+    "    return",
+    "  }",
+    "  await executeStaticSchedule({ cron: definition.cron, definition, name, scheduledAt: new Date() })",
+    "  res.statusCode = 204",
+    "  res.end()",
+    "}",
+    "",
+  ].join("\n")
 }
 
 function sanitizeVercelConsumerName(functionPath: string) {
@@ -876,6 +951,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
     observability: { enabled: true },
     ...(staticIndex ? { assets: { directory: "../client", run_worker_first: ["/api/*"] } } : {}),
     ...(queueBindings ? { queues: queueBindings } : {}),
+    ...(artifacts.scheduleCrons.size ? { triggers: { crons: [...new Set(artifacts.scheduleCrons.values())] } } : {}),
     ...(artifacts.workflowBindings.length ? { workflows: artifacts.workflowBindings } : {}),
     ...(r2Buckets ? { r2_buckets: r2Buckets } : {}),
   }
@@ -947,11 +1023,46 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
     platform: "node",
   })
 
+  const vercelConfig = createVercelConfigJson() as ReturnType<typeof createVercelConfigJson> & { crons?: Array<{ path: string, schedule: string }> }
+  if (artifacts.scheduleDefinitions.length) {
+    vercelConfig.crons = artifacts.scheduleDefinitions.map(definition => ({
+      path: getVercelSchedulePath(definition.name),
+      schedule: artifacts.scheduleCrons.get(definition.name)!,
+    }))
+  }
+
   await Promise.all([
     writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
-    writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(createVercelConfigJson(), null, 2)}\n`, "utf8"),
+    writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8"),
     staticIndex ? copyClientOutput(clientDir, resolve(outputRoot, "static")) : Promise.resolve(),
   ])
+
+  const scheduleRegistryFile = artifacts.scheduleRegistryFile
+  if (artifacts.scheduleDefinitions.length && scheduleRegistryFile) {
+    const scheduleRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
+    const seen = new Set<string>()
+    await Promise.all(artifacts.scheduleDefinitions.map(async (definition) => {
+      const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_")
+      const segments = safeName.split("/")
+      const functionDir = resolve(scheduleRoot, ...segments.slice(0, -1), `${segments.at(-1)}.func`)
+      if (seen.has(functionDir)) {
+        throw new Error(`[vitehub] Conflicting Vercel schedule output for "${definition.name}".`)
+      }
+      seen.add(functionDir)
+      const functionSource = resolve(functionDir, "index.source.mjs")
+      await mkdir(functionDir, { recursive: true })
+      await writeFile(functionSource, renderVercelScheduleWrapper(functionSource, scheduleRegistryFile, definition.name), "utf8")
+      await bundleEsmEntry(functionSource, resolve(functionDir, "index.mjs"), {
+        alias: withoutCloudflareWorkspaceAliases(artifacts.alias),
+        format: "esm",
+        platform: "node",
+      })
+      await Promise.all([
+        rm(functionSource, { force: true }),
+        writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
+      ])
+    }))
+  }
 
   const queueRegistryFile = artifacts.queueRegistryFile
   if (!artifacts.queueDefinitions.length || !queueRegistryFile) return
@@ -1064,6 +1175,7 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
     hosting: provider,
     kv: normalizeKVOptions(undefined, { hosting }),
     queue: normalizeQueueOptions({}, { hosting }) || false,
+    schedule: true,
     sandbox: resolveSandboxFeatureConfig({}, hosting),
     workspace: normalizeWorkspaceOptions({}, { env: process.env, hosting, rootDir }),
     workflow: normalizeWorkflowOptions({}, { hosting }) || false,

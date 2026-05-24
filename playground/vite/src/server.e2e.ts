@@ -17,6 +17,10 @@ const app = new H3()
 const queueName = "welcome-email"
 const workflowName = "welcome"
 
+declare global {
+  var __vitehubScheduleMarker: { id: string, ranAt: string, schedule: string } | undefined
+}
+
 const blobDeleteBody = v.object({
   pathname: v.string(),
 })
@@ -107,6 +111,7 @@ app.get("/", () => ({
   kv: true,
   ok: true,
   queue: queueName,
+  schedule: "daily-marker",
   sandbox: true,
   workflow: workflowName,
 }))
@@ -265,6 +270,15 @@ app.post("/api/tests/queue", async (event) => {
   const body = await readValidatedBody(event, markerBody)
   await kv.set(`queue-e2e:${body.marker}`, true)
   return { ok: true }
+})
+
+app.get("/api/tests/schedule", async () => {
+  const marker = globalThis.__vitehubScheduleMarker ?? await kv.get("schedule-e2e:daily-marker")
+  return {
+    ok: true,
+    marker,
+    seen: Boolean(marker),
+  }
 })
 
 app.get("/api/workspace", async (event) => {
