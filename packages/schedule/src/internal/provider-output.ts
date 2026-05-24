@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
 import { createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vitehub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
-import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
+import { createImportPath, ensureGeneratedDir } from "@vitehub/internal/build/paths"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
 import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
 
@@ -17,8 +18,9 @@ import type { DiscoveredScheduleDefinition } from "../types.ts"
 export const schedulePackageName = "@vitehub/schedule"
 const productName = "schedule"
 const generatedRegistryFileName = "registry.mjs"
-const packageDir = computePackageDir(import.meta.url)
-const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
+const scheduleRuntimeEntry = import.meta.url.includes("/src/")
+  ? resolve(dirname(fileURLToPath(import.meta.url)), "../runtime/execute.ts")
+  : resolve(dirname(fileURLToPath(import.meta.url)), "runtime/execute.js")
 
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
@@ -53,7 +55,7 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
 }
 
 function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string) {
-  const runtimeImport = createImportPath(file, resolveRuntimeModule("runtime/execute"))
+  const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
