@@ -66,7 +66,9 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
     return loaded
   }
   finally {
-    loadingRegistryEntries.delete(name)
+    if (loadingRegistryEntries.get(name) === loadingEntry) {
+      loadingRegistryEntries.delete(name)
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 
 import { ScheduleError, schedules } from "../src/index.ts"
-import { resetScheduleRuntime, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
+import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 afterEach(() => {
   resetScheduleRuntime()
@@ -145,6 +145,40 @@ describe("Runtime Schedule helper", () => {
     await expect(schedules.create({ cron: "0 9 * * *", target: "report" })).rejects.toMatchObject({
       code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
     })
+  })
+
+  it("preserves newer in-flight registry loads when stale loads finish", async () => {
+    let finishOld: (() => void) | undefined
+    let finishNew: (() => void) | undefined
+    let newLoadCount = 0
+
+    setScheduleRuntimeRegistry({
+      report: async () => {
+        await new Promise<void>(resolve => { finishOld = resolve })
+        return { cron: "0 9 * * *", handler: async () => {} }
+      },
+    })
+    const oldLoad = loadScheduleDefinition("report")
+    await Promise.resolve()
+
+    setScheduleRuntimeRegistry({
+      report: async () => {
+        newLoadCount++
+        await new Promise<void>(resolve => { finishNew = resolve })
+        return { cron: "0 10 * * *", handler: async () => {} }
+      },
+    })
+    const newLoad = loadScheduleDefinition("report")
+    await Promise.resolve()
+    finishOld?.()
+    await oldLoad
+
+    const sharedLoad = loadScheduleDefinition("report")
+    await Promise.resolve()
+    finishNew?.()
+    await Promise.all([newLoad, sharedLoad])
+
+    expect(newLoadCount).toBe(1)
   })
 
   it("fails clearly when updating an unknown schedule", async () => {
