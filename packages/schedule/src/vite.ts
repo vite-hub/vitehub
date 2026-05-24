@@ -6,7 +6,6 @@ import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/b
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import scheduleNitroModule from "./nitro/module.ts"
 
-import type { NitroModule } from "nitro/types"
 import type { Plugin, ResolvedConfig } from "vite"
 
 const schedulePackageName = "@vitehub/schedule"
@@ -15,7 +14,7 @@ const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
-export type ScheduleVitePlugin = Plugin & { nitro: NitroModule }
+export type ScheduleVitePlugin = Plugin & { nitro: unknown }
 
 export function hubSchedule(): ScheduleVitePlugin {
   let resolved: ResolvedConfig | undefined
