@@ -62,6 +62,28 @@ describe("chatSummary", () => {
     })
   })
 
+  it("keeps normal user text around the summary command in source messages", async () => {
+    const { chatSummary } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const execute = vi.fn(() => "Decision captured.")
+
+    await resolveAgentCapabilities({
+      capabilities: [chatSummary({ execute })],
+    }, runtime(), {
+      messages: [
+        createMessage({ role: "assistant", text: "Earlier context" }),
+        createMessage({ role: "user", text: "We decided to use metadata events. /summary" }),
+      ],
+    })
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      text: [
+        "assistant: Earlier context",
+        "user: We decided to use metadata events.",
+      ].join("\n"),
+    }))
+  })
+
   it("exposes generated summaries through finish extensions", async () => {
     const { chatSummary } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")

@@ -597,9 +597,18 @@ export function chatSummary(options: ChatSummaryOptions = {}): AgentCapabilityDe
       if (!invocation) return
 
       const messages = context.input.messages()
-      const sourceMessages = target.type === "message"
-        ? messages.filter((message, index) => index !== target.messageIndex)
-        : messages
+      let sourceMessages = messages
+      if (target.type === "message") {
+        const sourceMessage = replaceMessageTextParts(target.message!, {
+          end: invocation.end,
+          replacement: "",
+          start: invocation.start,
+        })
+        validateMessage(sourceMessage)
+        sourceMessages = getMessageText(sourceMessage).trim()
+          ? messages.map((message, index) => index === target.messageIndex ? sourceMessage : message)
+          : messages.filter((message, index) => index !== target.messageIndex)
+      }
       const text = chatTranscript(sourceMessages)
       const summary = await generateChatSummary(options, {
         args: invocation.args,
