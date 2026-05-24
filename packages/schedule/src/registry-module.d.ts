@@ -1,13 +1,9 @@
 declare module "#vitehub/schedule/registry" {
-  import type { ScheduleDefinitionRegistry } from "./types.js"
-
-  const registry: ScheduleDefinitionRegistry
+  const registry: import("@vitehub/schedule").ScheduleDefinitionRegistry
   export default registry
 }
 
 declare module "#vitehub/schedule/targets" {
-  import type { ScheduleTargetName as RuntimeScheduleTargetName } from "./types.js"
-
-  export const scheduleTargetNames: RuntimeScheduleTargetName[]
-  export type ScheduleTargetName = RuntimeScheduleTargetName
+  export const scheduleTargetNames: import("@vitehub/schedule").ScheduleTargetName[]
+  export type ScheduleTargetName = import("@vitehub/schedule").ScheduleTargetName
 }
