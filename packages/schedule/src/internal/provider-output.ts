@@ -236,6 +236,7 @@ export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinit
 }
 
 export async function writeVercelScheduleFunctions(options: {
+  bundleAlias?: Record<string, string>
   definitions: DiscoveredScheduleDefinition[]
   outputRoot: string
   registryFile: string
@@ -260,7 +261,7 @@ export async function writeVercelScheduleFunctions(options: {
     const wrapperFile = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
     await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name), "utf8")
-    await bundleEsmEntry(wrapperFile, functionFile, { format: "esm", platform: "node" })
+    await bundleEsmEntry(wrapperFile, functionFile, { alias: options.bundleAlias, format: "esm", platform: "node" })
     await rm(wrapperFile, { force: true })
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
   }
@@ -273,8 +274,8 @@ export async function writeVercelScheduleFunctions(options: {
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
   }
-  const schedulePaths = new Set(options.definitions.map(definition => getVercelSchedulePath(definition.name)))
-  const existingCrons = vercelConfig.crons?.filter(cron => !schedulePaths.has(cron.path)) ?? []
+  const schedulePathPrefix = "/api/vitehub/schedules/vercel/"
+  const existingCrons = vercelConfig.crons?.filter(cron => !cron.path.startsWith(schedulePathPrefix)) ?? []
   vercelConfig.crons = [...existingCrons, ...options.definitions.map(definition => ({
     path: getVercelSchedulePath(definition.name),
     schedule: crons.get(definition.name)!,

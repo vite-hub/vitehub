@@ -146,6 +146,7 @@ const scheduleNitroModule: NitroModule = {
       })
       const crons = await readDefinitionCrons(definitions)
       await writeVercelScheduleFunctions({
+        bundleAlias: currentNitro.options.alias,
         definitions,
         outputRoot: currentNitro.options.output.dir,
         registryFile: runtimeFiles.registryFile,
