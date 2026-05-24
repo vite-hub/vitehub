@@ -76,6 +76,7 @@ dynamicallyLoaded = [
   "playground/vite/src/db/**",
   "playground/vite/workspaces/**",
   "playground/vite/src/**/*.queue.ts",
+  "playground/vite/src/**/*.schedule.ts",
   "playground/vite/src/**/*.workflow.ts",
 ]
 
