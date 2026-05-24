@@ -228,6 +228,7 @@ jobs:
         if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
         env:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          VITEHUB_HOSTING: cloudflare
         run: pnpm --dir playground/nitro exec nitro build --preset cloudflare-module
 
       - name: Assert Nitro Cloudflare bindings
@@ -282,6 +283,7 @@ jobs:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VITEHUB_HOSTING: vercel
         run: |
           APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           VITEHUB_WORKSPACE_BLOB_PREFIX="vitehub/workspace-e2e/${{ matrix.framework }}" \

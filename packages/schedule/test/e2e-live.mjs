@@ -20,7 +20,14 @@ async function waitForSchedule(run) {
       const payload = await requestJson(new URL("/api/tests/schedule", run.url))
       lastPayload = payload
       const ranAt = typeof payload?.marker?.ranAt === "string" ? Date.parse(payload.marker.ranAt) : Number.NaN
-      if (payload?.ok && payload?.seen === true && payload?.marker?.schedule === "daily-marker" && ranAt >= startedAt) {
+      if (
+        payload?.ok
+        && payload?.seen === true
+        && payload?.marker?.framework === run.framework
+        && payload?.marker?.provider === run.provider
+        && payload?.marker?.schedule === "daily-marker"
+        && ranAt >= startedAt
+      ) {
         return
       }
     }
