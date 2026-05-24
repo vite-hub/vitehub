@@ -1,4 +1,4 @@
-import { normalize } from "node:path"
+import { normalize, resolve } from "node:path"
 
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
@@ -14,6 +14,7 @@ const schedulePackageName = "@vitehub/schedule"
 const SCHEDULE_VITE_PLUGIN_NAME = "@vitehub/schedule/vite"
 const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
+const registryImportAnchor = ".vitehub/schedule/registry.js"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
 export type ScheduleVitePlugin = Plugin & { nitro: NitroModule }
@@ -34,11 +35,12 @@ export function hubSchedule(): ScheduleVitePlugin {
 
   function createRegistryContents() {
     const definitions = discoverViteSchedules()
-    return createScheduleRegistryContents(SCHEDULE_REGISTRY_ID, definitions)
+    const registryImport = resolved ? resolve(resolved.root, registryImportAnchor) : registryImportAnchor
+    return createScheduleRegistryContents(registryImport, definitions)
   }
 
   function createTargetsContents() {
-    return createScheduleTargetsContents(discoverViteSchedules(), { types: true })
+    return createScheduleTargetsContents(discoverViteSchedules(), { types: false })
   }
 
   return {
