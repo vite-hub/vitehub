@@ -91,6 +91,10 @@ function deserializeRuntimeSchedule(record: StoredRuntimeScheduleRecord): Runtim
   }
 }
 
+function omitUndefinedPatch(patch: RuntimeScheduleUpdateInput): RuntimeScheduleUpdateInput {
+  return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as RuntimeScheduleUpdateInput
+}
+
 export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
   const records = new Map<string, RuntimeScheduleRecord>()
 
@@ -124,7 +128,7 @@ export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
 
       const next = cloneRuntimeSchedule({
         ...existing,
-        ...patch,
+        ...omitUndefinedPatch(patch),
         updatedAt: patch.updatedAt,
       })
       records.set(id, next)
