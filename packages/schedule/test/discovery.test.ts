@@ -176,6 +176,20 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["reports/daily"])
   })
 
+  it("preserves division operators while reading defineSchedule options", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-division-operator-")
+    await writeFile(
+      join(viteRootDir, "daily.schedule.ts"),
+      "export default defineSchedule('0 9 * * *', () => { const ratio = a / b }, { id: 'reports/daily' })\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual(["reports/daily"])
+  })
+
   it("ignores defineSchedule examples inside strings during id discovery", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-string-example-")
     await writeFile(
