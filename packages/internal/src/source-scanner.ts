@@ -41,7 +41,7 @@ function isIdentifierChar(char: string | undefined) {
 }
 
 function isRegexLiteralStart(previousSignificant: string) {
-  return !previousSignificant || /[({[=,:!&|?;>]/.test(previousSignificant) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(previousSignificant)
+  return !previousSignificant || /[({[=,:!&|?;>+\-*%^~]/.test(previousSignificant) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(previousSignificant)
 }
 
 function skipRegexLiteral(source: string, index: number) {

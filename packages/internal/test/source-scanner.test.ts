@@ -29,6 +29,11 @@ describe("source scanner", () => {
       `async () => { await /\\)/.test(")") }`,
       `{ id: "daily" }`,
     ])
+
+    expect(splitTopLevel(`() => { const ok = foo + /\\)/.test(")") }, { id: "daily" }`)).toEqual([
+      `() => { const ok = foo + /\\)/.test(")") }`,
+      `{ id: "daily" }`,
+    ])
   })
 
   it("does not treat division operators as regex literals after identifiers", () => {

@@ -190,6 +190,20 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["reports/daily"])
   })
 
+  it("preserves regex literals after binary operators while reading defineSchedule options", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-binary-regex-literal-")
+    await writeFile(
+      join(viteRootDir, "daily.schedule.ts"),
+      "export default defineSchedule('0 9 * * *', () => { const ok = foo + /\\)/.test(')') }, { id: 'reports/daily' })\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual(["reports/daily"])
+  })
+
   it("preserves division operators while reading defineSchedule options", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-division-operator-")
     await writeFile(
