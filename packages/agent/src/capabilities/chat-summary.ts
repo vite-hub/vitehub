@@ -113,6 +113,7 @@ export function chatSummary(options: ChatSummaryOptions = {}): AgentCapabilityDe
   const command = normalizeChatSummaryCommand(options.command)
   const commandName = command?.name
   if (commandName) assertInputCommandName(commandName)
+  const generatedSummaries = new WeakMap<AgentRunInput, { summary: string }>()
 
   return defineCapability({
     id,
@@ -141,6 +142,7 @@ export function chatSummary(options: ChatSummaryOptions = {}): AgentCapabilityDe
 
       const messages = context.input.messages()
       let sourceMessages = messages
+      let sourceText: string | undefined
       if (target.type === "message") {
         const sourceMessage = replaceMessageTextParts(target.message!, {
           end: invocation.end,
@@ -152,7 +154,10 @@ export function chatSummary(options: ChatSummaryOptions = {}): AgentCapabilityDe
           ? messages.map((message, index) => index === target.messageIndex ? sourceMessage : message)
           : messages.filter((message, index) => index !== target.messageIndex)
       }
-      const text = chatTranscript(sourceMessages)
+      else {
+        sourceText = `${target.text.slice(0, invocation.start)}${target.text.slice(invocation.end)}`.trim()
+      }
+      const text = sourceText ?? chatTranscript(sourceMessages)
       const summary = await generateChatSummary(options, {
         args: invocation.args,
         input,
@@ -167,21 +172,21 @@ export function chatSummary(options: ChatSummaryOptions = {}): AgentCapabilityDe
         replacement,
         start: invocation.start,
       })
-      context.input.set({
+      const summaryValue = { summary }
+      const nextInput = {
         ...input,
         context: {
           ...input.context,
-          chatSummary: { summary },
-          [summaryContextKey]: { summary },
+          chatSummary: summaryValue,
+          [summaryContextKey]: summaryValue,
         },
-      })
+      }
+      generatedSummaries.set(nextInput, summaryValue)
+      context.input.set(nextInput)
     },
     output(context) {
       context.finish.provide((event: AgentFinishEvent) => {
-        const summary = event.input.context?.[summaryContextKey]
-        return summary && typeof summary === "object" && "summary" in summary
-          ? summary
-          : undefined
+        return generatedSummaries.get(event.input)
       })
     },
   })

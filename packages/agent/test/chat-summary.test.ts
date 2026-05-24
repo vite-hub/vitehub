@@ -84,6 +84,24 @@ describe("chatSummary", () => {
     }))
   })
 
+  it("builds prompt-mode summaries from the prompt text around the command", async () => {
+    const { chatSummary } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const execute = vi.fn(() => "Prompt summary.")
+
+    await resolveAgentCapabilities({
+      capabilities: [chatSummary({ execute })],
+    }, runtime(), {
+      prompt: "We decided to keep command UX with the capability. /summary focus on DX",
+    })
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      args: "focus on DX",
+      messages: [],
+      text: "We decided to keep command UX with the capability.",
+    }))
+  })
+
   it("exposes generated summaries through finish extensions", async () => {
     const { chatSummary } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
@@ -124,6 +142,26 @@ describe("chatSummary", () => {
 
     await runAgent(agent, runtime(), {
       context: { chatSummary: { summary: "External summary." } },
+      messages: [createMessage({ role: "user", text: "No command here" })],
+    })
+
+    expect(finish.mock.calls[0]![0].extensions.get("chat-summary")).toBeUndefined()
+  })
+
+  it("does not expose pre-populated scoped summary context as this run result", async () => {
+    const { chatSummary } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [chatSummary()],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "ok" }),
+    })
+
+    await runAgent(agent, runtime(), {
+      context: { "chat-summary:summary": { summary: "External summary." } },
       messages: [createMessage({ role: "user", text: "No command here" })],
     })
 
