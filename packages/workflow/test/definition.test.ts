@@ -139,6 +139,46 @@ describe("workflow definitions", () => {
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([])
   })
 
+  it("does not discover inline workflows inside strings", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-strings-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server"), { recursive: true })
+    await writeFile(join(rootDir, "server", "chat.ts"), [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `const docs = "createWorkflow({ name: 'docs/example', handler: async () => 'ok' })"`,
+      `export const chatReply = createWorkflow({ name: "chat-reply", handler: async () => "ok" })`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({
+        handler: join(rootDir, "server", "chat.ts"),
+        name: "chat-reply",
+        source: "inline",
+      }),
+    ])
+  })
+
+  it("preserves regex literals while discovering inline workflow calls", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-regex-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server"), { recursive: true })
+    await writeFile(join(rootDir, "server", "chat.ts"), [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `export const chatReply = createWorkflow({`,
+      `  name: "chat-reply",`,
+      `  handler: async () => { return /\\)/.test(")") },`,
+      `})`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({
+        handler: join(rootDir, "server", "chat.ts"),
+        name: "chat-reply",
+        source: "inline",
+      }),
+    ])
+  })
+
   it("ignores options-only createWorkflow calls", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-options-"))
     tempDirs.push(rootDir)
