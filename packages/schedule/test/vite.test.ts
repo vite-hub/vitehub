@@ -32,6 +32,7 @@ describe("Vite schedule integration", () => {
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     expect(registry).toContain("\"cleanup\": async () => import(")
     expect(registry).toContain("\"daily-reports\": async () => import(")
+    expect(registry).toContain("../../src/cleanup.schedule.ts")
   })
 
   it("serves an empty registry without special cases", async () => {
