@@ -13,9 +13,55 @@ import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
+function stripComments(source: string): string {
+  let stripped = ""
+  let quote: string | undefined
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    const next = source[index + 1]
+
+    if (quote) {
+      stripped += char
+      if (char === "\\") {
+        stripped += next ?? ""
+        index++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      stripped += char
+      continue
+    }
+
+    if (char === "/" && next === "/") {
+      while (index < source.length && source[index] !== "\n") index++
+      stripped += "\n"
+      continue
+    }
+
+    if (char === "/" && next === "*") {
+      index += 2
+      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
+        if (source[index] === "\n") stripped += "\n"
+        index++
+      }
+      index++
+      continue
+    }
+
+    stripped += char
+  }
+  return stripped
+}
+
 function readBalancedCall(source: string, openParen: number): string | undefined {
   let depth = 0
   let quote: string | undefined
+  let previousSignificant = ""
   for (let index = openParen; index < source.length; index++) {
     const char = source[index]
     if (quote) {
@@ -30,10 +76,34 @@ function readBalancedCall(source: string, openParen: number): string | undefined
       quote = char
       continue
     }
-    if (char === "(" || char === "{" || char === "[") depth++
+    if (char === "/" && previousSignificant && /[({[=,:!&|?;>]/.test(previousSignificant)) {
+      index++
+      while (index < source.length) {
+        const current = source[index]
+        if (current === "\\") {
+          index += 2
+          continue
+        }
+        if (current === "/") break
+        index++
+      }
+      while (/[a-z]/i.test(source[index + 1] ?? "")) index++
+      previousSignificant = "/"
+      continue
+    }
+    if (char === "(" || char === "{" || char === "[") {
+      depth++
+      previousSignificant = char
+      continue
+    }
     if (char === ")" || char === "}" || char === "]") {
       depth--
       if (depth === 0) return source.slice(openParen + 1, index)
+      previousSignificant = char
+      continue
+    }
+    if (!/\s/.test(char ?? "")) {
+      previousSignificant = char ?? ""
     }
   }
 }
@@ -42,6 +112,7 @@ function splitTopLevelArguments(source: string): string[] {
   const args: string[] = []
   let depth = 0
   let quote: string | undefined
+  let previousSignificant = ""
   let start = 0
   for (let index = 0; index < source.length; index++) {
     const char = source[index]
@@ -57,11 +128,37 @@ function splitTopLevelArguments(source: string): string[] {
       quote = char
       continue
     }
-    if (char === "(" || char === "{" || char === "[") depth++
-    if (char === ")" || char === "}" || char === "]") depth--
+    if (char === "/" && previousSignificant && /[({[=,:!&|?;>]/.test(previousSignificant)) {
+      index++
+      while (index < source.length) {
+        const current = source[index]
+        if (current === "\\") {
+          index += 2
+          continue
+        }
+        if (current === "/") break
+        index++
+      }
+      while (/[a-z]/i.test(source[index + 1] ?? "")) index++
+      previousSignificant = "/"
+      continue
+    }
+    if (char === "(" || char === "{" || char === "[") {
+      depth++
+      previousSignificant = char
+      continue
+    }
+    if (char === ")" || char === "}" || char === "]") {
+      depth--
+      previousSignificant = char
+      continue
+    }
     if (char === "," && depth === 0) {
       args.push(source.slice(start, index))
       start = index + 1
+    }
+    if (!/\s/.test(char ?? "")) {
+      previousSignificant = char ?? ""
     }
   }
   args.push(source.slice(start))
@@ -91,12 +188,13 @@ function findDefineScheduleOpenParen(source: string): number | undefined {
 }
 
 function readDefineScheduleOptions(source: string): string | undefined {
-  const openParen = findDefineScheduleOpenParen(source)
+  const stripped = stripComments(source)
+  const openParen = findDefineScheduleOpenParen(stripped)
   if (openParen === undefined) return undefined
-  return splitTopLevelArguments(readBalancedCall(source, openParen) ?? "")[2]
+  return splitTopLevelArguments(readBalancedCall(stripped, openParen) ?? "")[2]
 }
 
-function readTopLevelProperty(source: string, property: string): string | undefined {
+function readTopLevelPropertyStart(source: string, property: string): number | undefined {
   let depth = 0
   let quote: string | undefined
   for (let index = 0; index < source.length; index++) {
@@ -109,33 +207,71 @@ function readTopLevelProperty(source: string, property: string): string | undefi
       if (char === quote) quote = undefined
       continue
     }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
+    if (char === "{" || char === "[" || char === "(") {
+      depth++
       continue
     }
-    if (char === "{" || char === "[" || char === "(") depth++
-    if (char === "}" || char === "]" || char === ")") depth--
+    if (char === "}" || char === "]" || char === ")") {
+      depth--
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      if (depth !== 1 || char === "`" || !source.startsWith(property, index + 1) || source[index + property.length + 1] !== char) {
+        quote = char
+        continue
+      }
+    }
     if (depth !== 1) continue
-    if (!source.startsWith(property, index)) continue
-    const before = source[index - 1] ?? ""
-    const after = source[index + property.length] ?? ""
-    if (/[\w$]/.test(before) || /[\w$]/.test(after)) continue
-    let valueStart = index + property.length
+    let valueStart: number
+    if (source[index] === "\"" || source[index] === "'") {
+      valueStart = index + property.length + 2
+    }
+    else {
+      if (!source.startsWith(property, index)) continue
+      const before = source[index - 1] ?? ""
+      const after = source[index + property.length] ?? ""
+      if (/[\w$]/.test(before) || /[\w$]/.test(after)) continue
+      valueStart = index + property.length
+    }
     while (/\s/.test(source[valueStart] ?? "")) valueStart++
     if (source[valueStart] !== ":") continue
-    return source.slice(valueStart + 1)
+    valueStart++
+    while (/\s/.test(source[valueStart] ?? "")) valueStart++
+    return valueStart
   }
 }
 
+function readTopLevelStringProperty(source: string, property: string): string | undefined {
+  const valueStart = readTopLevelPropertyStart(source, property)
+  if (valueStart === undefined) return undefined
+  const valueQuote = source[valueStart]
+  if (valueQuote !== "\"" && valueQuote !== "'") return undefined
+  let value = ""
+  for (let valueIndex = valueStart + 1; valueIndex < source.length; valueIndex++) {
+    const valueChar = source[valueIndex]
+    if (valueChar === "\\") {
+      value += source[valueIndex + 1] ?? ""
+      valueIndex++
+      continue
+    }
+    if (valueChar === valueQuote) return value
+    value += valueChar
+  }
+}
+
+function readTopLevelBooleanProperty(source: string, property: string): boolean {
+  const valueStart = readTopLevelPropertyStart(source, property)
+  return source.slice(valueStart).trimStart().startsWith("true")
+}
+
 function readScheduleIdOverride(file: string): string | undefined {
-  const source = readFileSync(file, "utf8")
-  const match = readDefineScheduleOptions(source)?.match(/\bid\s*:\s*(["'])([^"']+)\1/)
-  return match?.[2]
+  const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
+  return options ? readTopLevelStringProperty(options, "id") : undefined
 }
 
 function readAllowRuntimeSchedules(file: string): boolean {
-  const source = readFileSync(file, "utf8")
-  return readTopLevelProperty(readDefineScheduleOptions(source) ?? "", "allowRuntimeSchedules")?.trimStart().startsWith("true") ?? false
+  const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
+  return options ? readTopLevelBooleanProperty(options, "allowRuntimeSchedules") : false
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {
