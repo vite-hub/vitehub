@@ -162,6 +162,34 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["reports/daily"])
   })
 
+  it("preserves regex literals after return keywords while reading defineSchedule options", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-return-regex-literal-")
+    await writeFile(
+      join(viteRootDir, "daily.schedule.ts"),
+      "export default defineSchedule('0 9 * * *', () => { return /\\)/.test(')') }, { id: 'reports/daily' })\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual(["reports/daily"])
+  })
+
+  it("ignores defineSchedule examples inside strings during id discovery", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-string-example-")
+    await writeFile(
+      join(viteRootDir, "daily.schedule.ts"),
+      "const example = \"defineSchedule('0 9 * * *', () => {}, { id: 'docs/example' })\"\nexport default defineSchedule('0 9 * * *', () => {}, { id: 'reports/daily' })\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual(["reports/daily"])
+  })
+
   it("ignores nested id fields in defineSchedule options", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-nested-options-id-")
     await writeFile(

@@ -58,6 +58,10 @@ function stripComments(source: string): string {
   return stripped
 }
 
+function isRegexLiteralStart(previousSignificant: string) {
+  return !previousSignificant || /[({[=,:!&|?;>]/.test(previousSignificant) || /\b(?:case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(previousSignificant)
+}
+
 function readBalancedCall(source: string, openParen: number): string | undefined {
   let depth = 0
   let quote: string | undefined
@@ -76,7 +80,7 @@ function readBalancedCall(source: string, openParen: number): string | undefined
       quote = char
       continue
     }
-    if (char === "/" && previousSignificant && /[({[=,:!&|?;>]/.test(previousSignificant)) {
+    if (char === "/" && isRegexLiteralStart(previousSignificant)) {
       index++
       while (index < source.length) {
         const current = source[index]
@@ -100,6 +104,10 @@ function readBalancedCall(source: string, openParen: number): string | undefined
       depth--
       if (depth === 0) return source.slice(openParen + 1, index)
       previousSignificant = char
+      continue
+    }
+    if (/[a-z$]/i.test(char ?? "")) {
+      previousSignificant += char
       continue
     }
     if (!/\s/.test(char ?? "")) {
@@ -128,7 +136,7 @@ function splitTopLevelArguments(source: string): string[] {
       quote = char
       continue
     }
-    if (char === "/" && previousSignificant && /[({[=,:!&|?;>]/.test(previousSignificant)) {
+    if (char === "/" && isRegexLiteralStart(previousSignificant)) {
       index++
       while (index < source.length) {
         const current = source[index]
@@ -157,6 +165,10 @@ function splitTopLevelArguments(source: string): string[] {
       args.push(source.slice(start, index))
       start = index + 1
     }
+    if (/[a-z$]/i.test(char ?? "")) {
+      previousSignificant += char
+      continue
+    }
     if (!/\s/.test(char ?? "")) {
       previousSignificant = char ?? ""
     }
@@ -166,8 +178,27 @@ function splitTopLevelArguments(source: string): string[] {
 }
 
 function findDefineScheduleOpenParen(source: string): number | undefined {
-  for (const match of source.matchAll(/\bdefineSchedule\b/g)) {
-    let index = match.index! + match[0].length
+  let quote: string | undefined
+  for (let searchIndex = 0; searchIndex < source.length; searchIndex++) {
+    const char = source[searchIndex]
+    if (quote) {
+      if (char === "\\") {
+        searchIndex++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (!source.startsWith("defineSchedule", searchIndex)) continue
+    const before = source[searchIndex - 1] ?? ""
+    const after = source[searchIndex + "defineSchedule".length] ?? ""
+    if (/[\w$]/.test(before) || /[\w$]/.test(after)) continue
+
+    let index = searchIndex + "defineSchedule".length
     while (/\s/.test(source[index] ?? "")) index++
     if (source[index] === "<") {
       let depth = 0
