@@ -87,4 +87,24 @@ describe("chatSummary", () => {
       summary: "Summary for finish hook.",
     })
   })
+
+  it("does not expose pre-populated summary context as this capability instance result", async () => {
+    const { chatSummary } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [chatSummary()],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "ok" }),
+    })
+
+    await runAgent(agent, runtime(), {
+      context: { chatSummary: { summary: "External summary." } },
+      messages: [createMessage({ role: "user", text: "No command here" })],
+    })
+
+    expect(finish.mock.calls[0]![0].extensions.get("chat-summary")).toBeUndefined()
+  })
 })

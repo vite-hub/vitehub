@@ -565,12 +565,14 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
 }
 
 export function chatSummary(options: ChatSummaryOptions = {}): AgentCapabilityDefinition {
+  const id = options.id || "chat-summary"
+  const summaryContextKey = `${id}:summary`
   const command = normalizeChatSummaryCommand(options.command)
   const commandName = command?.name
   if (commandName) assertInputCommandName(commandName)
 
   return defineCapability({
-    id: options.id || "chat-summary",
+    id,
     metadata: command
       ? {
           commands: {
@@ -618,12 +620,13 @@ export function chatSummary(options: ChatSummaryOptions = {}): AgentCapabilityDe
         context: {
           ...input.context,
           chatSummary: { summary },
+          [summaryContextKey]: { summary },
         },
       })
     },
     output(context) {
       context.finish.provide((event: AgentFinishEvent) => {
-        const summary = event.input.context?.chatSummary
+        const summary = event.input.context?.[summaryContextKey]
         return summary && typeof summary === "object" && "summary" in summary
           ? summary
           : undefined
