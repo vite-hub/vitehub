@@ -47,6 +47,10 @@ function isInlineScheduleStringEntry(source: string, stringStart: number, string
   return (before === undefined || before === ",") && (after === "," || after === undefined)
 }
 
+function isStaticStringLiteral(quote: string, value: string): boolean {
+  return quote !== "`" || !value.includes("${")
+}
+
 function readScheduleIdOverride(file: string): string | undefined {
   const source = readFileSync(file, "utf8")
   const match = source.match(/\bdefineSchedule\s*(?:<[^>]+>\s*)?\([\s\S]*?,[\s\S]*?,\s*\{[\s\S]*?\bid\s*:\s*(["'])([^"']+)\1/)
@@ -74,6 +78,7 @@ function parseInlineAgentScheduleEntries(source: string): Array<{ cron: string, 
   for (const match of stripped.matchAll(schedulesPattern)) {
     const body = match[1]!
     for (const stringEntry of body.matchAll(/(["'`])([^"'`]+)\1/g)) {
+      if (!isStaticStringLiteral(stringEntry[1]!, stringEntry[2]!)) continue
       if (isInlineScheduleObjectKey(body, stringEntry.index! + stringEntry[0].length)) continue
       if (isInlineScheduleObjectValue(body, stringEntry.index!)) continue
       if (!isInlineScheduleStringEntry(body, stringEntry.index!, stringEntry.index! + stringEntry[0].length)) continue
@@ -81,6 +86,7 @@ function parseInlineAgentScheduleEntries(source: string): Array<{ cron: string, 
       entries.push({ cron, id: scheduleIdFromCron(cron) })
     }
     for (const objectEntry of body.matchAll(/\{[\s\S]*?(["'`])?cron\1?\s*:\s*(["'`])([^"'`]+)\2[\s\S]*?\}/g)) {
+      if (!isStaticStringLiteral(objectEntry[2]!, objectEntry[3]!)) continue
       const objectSource = objectEntry[0]
       const cron = normalizeScheduleCron(objectEntry[3]!)
       const id = objectSource.match(/(["'`])?id\1?\s*:\s*(["'`])([^"'`]+)\2/)?.[3] || scheduleIdFromCron(cron)
@@ -160,9 +166,69 @@ function findDefineAgentCall(source: string, initializerStart: number): string |
   const initializer = source.slice(initializerStart)
   const leadingWhitespace = initializer.match(/^\s*/)?.[0].length ?? 0
   if (!initializer.slice(leadingWhitespace).startsWith("defineAgent")) return
-  const match = /^defineAgent\s*\(/.exec(initializer.slice(leadingWhitespace))
+  const match = /^defineAgent\s*(?:<[^)]*?>\s*)?\(/.exec(initializer.slice(leadingWhitespace))
   if (!match) return
   return readBalancedCall(source, initializerStart + leadingWhitespace + match[0].length - 1)
+}
+
+function findNextTopLevelCommaOrSemicolon(source: string, start: number): number {
+  let depth = 0
+  let quote: string | undefined
+  let templateExpressionDepth = 0
+
+  for (let index = start; index < source.length; index++) {
+    const char = source[index]!
+    const next = source[index + 1]
+
+    if (quote) {
+      if (char === "\\") {
+        index++
+        continue
+      }
+      if (quote === "`" && char === "$" && next === "{") {
+        templateExpressionDepth++
+        index++
+        continue
+      }
+      if (quote === "`" && templateExpressionDepth > 0) {
+        if (char === "{") templateExpressionDepth++
+        if (char === "}") templateExpressionDepth--
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "(" || char === "[" || char === "{") depth++
+    if (char === ")" || char === "]" || char === "}") depth--
+    if (depth === 0 && (char === "," || char === ";")) return index
+  }
+  return source.length
+}
+
+function discoverVariableDeclarators(source: string): Array<{ exported: boolean, initializerStart: number, localName: string }> {
+  const declarators: Array<{ exported: boolean, initializerStart: number, localName: string }> = []
+  for (const match of source.matchAll(/\b(export\s+)?(?:const|let|var)\s+/g)) {
+    const exported = !!match[1]
+    let cursor = match.index! + match[0].length
+
+    while (cursor < source.length) {
+      const declarator = /^[\s,]*([A-Za-z_$][\w$]*)(?:\s*:[^=,;]+)?\s*=/.exec(source.slice(cursor))
+      if (!declarator) break
+      const localName = declarator[1]!
+      const initializerStart = cursor + declarator[0].length
+      declarators.push({ exported, initializerStart, localName })
+
+      const next = findNextTopLevelCommaOrSemicolon(source, initializerStart)
+      if (source[next] !== ",") break
+      cursor = next + 1
+    }
+  }
+  return declarators
 }
 
 function discoverNamedAgentExports(file: string): Array<{ exportName: string, name: string, source: string }> {
@@ -170,13 +236,12 @@ function discoverNamedAgentExports(file: string): Array<{ exportName: string, na
   const locals = new Map<string, string>()
   const definitions = new Map<string, { exportName: string, name: string, source: string }>()
 
-  for (const match of source.matchAll(/\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=/g)) {
-    const localName = match[1]!
-    const callSource = findDefineAgentCall(source, match.index! + match[0].length)
+  for (const declarator of discoverVariableDeclarators(source)) {
+    const callSource = findDefineAgentCall(source, declarator.initializerStart)
     if (!callSource) continue
-    locals.set(localName, callSource)
-    if (match[0].startsWith("export")) {
-      definitions.set(localName, { exportName: localName, name: localName, source: callSource })
+    locals.set(declarator.localName, callSource)
+    if (declarator.exported) {
+      definitions.set(declarator.localName, { exportName: declarator.localName, name: declarator.localName, source: callSource })
     }
   }
 
