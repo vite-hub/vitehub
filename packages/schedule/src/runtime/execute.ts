@@ -3,10 +3,11 @@ import { randomId } from "@vitehub/internal/runtime/random"
 import { ScheduleError } from "../errors.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
-import type { RuntimeScheduleRecord, ScheduleDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleTargetName } from "../types.ts"
+import type { RuntimeScheduleRecord, RuntimeScheduleStore, ScheduleDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
 
 interface ExecuteScheduleOptions {
   definition: ScheduleDefinition
+  runStore?: ScheduleRunStore
   scheduleId: string
   scheduledAt?: Date
   target: ScheduleTargetName
@@ -21,7 +22,9 @@ interface ExecuteStaticScheduleOptions {
 
 interface ExecuteRuntimeScheduleOptions {
   id: string
+  runtimeScheduleStore?: RuntimeScheduleStore
   scheduledAt?: Date
+  scheduleRunStore?: ScheduleRunStore
 }
 
 function toRunId(scheduleId: string, scheduledAt: Date): string {
@@ -50,7 +53,7 @@ function requireUpdatedRun(run: ScheduleRunRecord | undefined): ScheduleRunRecor
 }
 
 async function createOrGetRun(options: Omit<ExecuteScheduleOptions, "definition"> & { scheduledAt: Date }): Promise<{ created: boolean, run: ScheduleRunRecord }> {
-  const store = getScheduleRunStore()
+  const store = options.runStore ?? getScheduleRunStore()
   const id = toRunId(options.scheduleId, options.scheduledAt)
   const existing = await store.getRun(id)
   if (existing) {
@@ -84,8 +87,7 @@ async function createOrGetRun(options: Omit<ExecuteScheduleOptions, "definition"
   }
 }
 
-async function startAttempt(run: ScheduleRunRecord): Promise<ScheduleRunAttemptRecord> {
-  const store = getScheduleRunStore()
+async function startAttempt(run: ScheduleRunRecord, store: ScheduleRunStore = getScheduleRunStore()): Promise<ScheduleRunAttemptRecord> {
   const now = new Date()
   const attempt = await store.createAttempt({
     createdAt: now,
@@ -115,8 +117,7 @@ function toHandlerContext(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRec
   }
 }
 
-async function completeRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord): Promise<ScheduleRunRecord> {
-  const store = getScheduleRunStore()
+async function completeRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord, store: ScheduleRunStore = getScheduleRunStore()): Promise<ScheduleRunRecord> {
   const now = new Date()
   await store.updateAttempt(attempt.id, {
     completedAt: now,
@@ -130,8 +131,7 @@ async function completeRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRe
   }))
 }
 
-async function failRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord, error: unknown): Promise<ScheduleRunRecord> {
-  const store = getScheduleRunStore()
+async function failRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord, error: unknown, store: ScheduleRunStore = getScheduleRunStore()): Promise<ScheduleRunRecord> {
   const now = new Date()
   const serializedError = toRunError(error)
   await store.updateAttempt(attempt.id, {
@@ -163,13 +163,14 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
     return run
   }
 
-  const attempt = await startAttempt(run)
+  const runStore = options.runStore ?? getScheduleRunStore()
+  const attempt = await startAttempt(run, runStore)
   try {
     await options.definition.handler(toHandlerContext(run, attempt))
-    return await completeRun(run, attempt)
+    return await completeRun(run, attempt, runStore)
   }
   catch (error) {
-    await failRun(run, attempt, error)
+    await failRun(run, attempt, error, runStore)
     throw error
   }
 }
@@ -183,8 +184,8 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   })
 }
 
-async function loadRequiredRuntimeSchedule(id: string): Promise<RuntimeScheduleRecord> {
-  const schedule = await getRuntimeScheduleStore().get(id)
+async function loadRequiredRuntimeSchedule(id: string, store: RuntimeScheduleStore = getRuntimeScheduleStore()): Promise<RuntimeScheduleRecord> {
+  const schedule = await store.get(id)
   if (!schedule) {
     throw new ScheduleError(`Runtime Schedule not found: ${id}`, {
       code: "SCHEDULE_NOT_FOUND",
@@ -198,7 +199,9 @@ async function loadRequiredRuntimeSchedule(id: string): Promise<RuntimeScheduleR
 export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
   const id = typeof options === "string" ? options : options.id
   const scheduledAt = typeof options === "string" ? undefined : options.scheduledAt
-  const schedule = await loadRequiredRuntimeSchedule(id)
+  const runtimeScheduleStore = typeof options === "string" ? undefined : options.runtimeScheduleStore
+  const scheduleRunStore = typeof options === "string" ? undefined : options.scheduleRunStore
+  const schedule = await loadRequiredRuntimeSchedule(id, runtimeScheduleStore)
   if (!schedule.enabled) {
     throw new ScheduleError(`Runtime Schedule is disabled: ${id}`, {
       code: "SCHEDULE_DISABLED",
@@ -224,6 +227,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
 
   return await executeSchedule({
     definition,
+    runStore: scheduleRunStore,
     scheduleId: schedule.id,
     scheduledAt,
     target: schedule.target,

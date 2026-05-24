@@ -873,6 +873,9 @@ importers:
       '@vitehub/kv':
         specifier: workspace:*
         version: link:../kv
+      cron-schedule:
+        specifier: ^6.0.0
+        version: 6.0.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

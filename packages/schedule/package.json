@@ -19,7 +19,8 @@
     "cron"
   ],
   "dependencies": {
-    "@vitehub/kv": "workspace:*"
+    "@vitehub/kv": "workspace:*",
+    "cron-schedule": "^6.0.0"
   },
   "sideEffects": false,
   "type": "module",
