@@ -1,4 +1,5 @@
 export { defineSchedule } from "./definition.ts"
+export { discoverScheduleDefinitions } from "./discovery.ts"
 export type {} from "./registry-module.d.ts"
 export { ScheduleError } from "./errors.ts"
 export { createScheduleRun, executeStaticSchedule } from "./runtime/execute.ts"
