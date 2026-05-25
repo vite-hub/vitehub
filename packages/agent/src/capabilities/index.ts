@@ -2,6 +2,9 @@ export {
   chatSummary,
 } from "./chat-summary.ts"
 export {
+  chatTitle,
+} from "./chat-title.ts"
+export {
   fetch,
 } from "./fetch.ts"
 export {
@@ -47,6 +50,11 @@ export type {
   ChatSummaryExecuteResult,
   ChatSummaryOptions,
 } from "./chat-summary.ts"
+export type {
+  ChatTitleExecuteInput,
+  ChatTitleExecuteResult,
+  ChatTitleOptions,
+} from "./chat-title.ts"
 export type {
   FetchCapabilityMethod,
   FetchCapabilityOptions,
