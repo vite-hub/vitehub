@@ -50,7 +50,7 @@ function isDue(schedule: RuntimeScheduleRecord, scheduledAt: Date): boolean {
 }
 
 function toRunId(scheduleId: string, scheduledAt: Date): string {
-  return `srun_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
+  return `srun_runtime_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
 }
 
 function reportError(error: unknown, onError: ((error: unknown) => void) | undefined): void {
@@ -129,6 +129,9 @@ export function startScheduleRunner(options: ScheduleRunnerOptions = {}): Schedu
           if (stopped) {
             return
           }
+          if (!schedule.enabled) {
+            continue
+          }
           let due = false
           try {
             due = isDue(schedule, scheduledAt)
@@ -137,7 +140,7 @@ export function startScheduleRunner(options: ScheduleRunnerOptions = {}): Schedu
             reportError(error, options.onError)
             continue
           }
-          if (!schedule.enabled || !due) {
+          if (!due) {
             continue
           }
           const runId = toRunId(schedule.id, scheduledAt)

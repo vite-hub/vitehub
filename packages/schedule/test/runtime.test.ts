@@ -355,7 +355,7 @@ describe("Schedule Run bookkeeping", () => {
 
     expect(run).toMatchObject({
       attemptCount: 1,
-      id: "srun_schedule-1_2026-05-23T09:00:00.000Z",
+      id: "srun_runtime_schedule-1_2026-05-23T09:00:00.000Z",
       scheduleId: "schedule-1",
       scheduledAt,
       status: "succeeded",
@@ -449,7 +449,7 @@ describe("Schedule Run bookkeeping", () => {
 
     expect(run).toMatchObject({
       attemptCount: 1,
-      id: "srun_static-report_2026-05-23T10:00:00.000Z",
+      id: "srun_static_static-report_2026-05-23T10:00:00.000Z",
       scheduleId: "static-report",
       scheduledAt,
       status: "succeeded",
@@ -496,8 +496,43 @@ describe("Schedule Run bookkeeping", () => {
       scheduledAt,
     })
 
-    expect(first.id).toBe("srun_daily%2Freport_2026-05-23T09:00:00.000Z")
-    expect(second.id).toBe("srun_daily-report_2026-05-23T09:00:00.000Z")
+    expect(first.id).toBe("srun_static_daily%2Freport_2026-05-23T09:00:00.000Z")
+    expect(second.id).toBe("srun_static_daily-report_2026-05-23T09:00:00.000Z")
+  })
+
+  it("keeps static and Runtime Schedule runs distinct for shared ids", async () => {
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    let runtimeCalls = 0
+    let staticCalls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          runtimeCalls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.create({ cron: "0 9 * * *", id: "shared-id", target: "report" })
+
+    const runtimeRun = await schedules.run("shared-id", { scheduledAt })
+    const staticRun = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: {
+        cron: "0 9 * * *",
+        handler: async () => {
+          staticCalls++
+        },
+        options: { id: "shared-id" },
+      },
+      name: "report",
+      scheduledAt,
+    })
+
+    expect(runtimeRun.id).toBe("srun_runtime_shared-id_2026-05-23T09:00:00.000Z")
+    expect(staticRun.id).toBe("srun_static_shared-id_2026-05-23T09:00:00.000Z")
+    expect(runtimeCalls).toBe(1)
+    expect(staticCalls).toBe(1)
   })
 
   it("reloads an existing run when duplicate creation wins the race", async () => {
@@ -525,7 +560,7 @@ describe("Schedule Run bookkeeping", () => {
     const run = await schedules.run("schedule-1", { scheduledAt })
 
     expect(run).toMatchObject({
-      id: "srun_schedule-1_2026-05-23T09:00:00.000Z",
+      id: "srun_runtime_schedule-1_2026-05-23T09:00:00.000Z",
       status: "pending",
     })
     expect(calls).toBe(0)
@@ -613,7 +648,7 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     await flushAsyncWork()
 
     expect(fastCalls).toBe(1)
-    expect((await scheduleRunStore.getRun("srun_fast_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
+    expect((await scheduleRunStore.getRun("srun_runtime_fast_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
 
     runner.stop()
     releaseSlow?.()
@@ -654,14 +689,14 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     await flushAsyncWork()
 
     expect(secondCalls).toBe(0)
-    expect(await scheduleRunStore.getRun("srun_second_2026-05-23T09:00:00.000Z")).toBeUndefined()
+    expect(await scheduleRunStore.getRun("srun_runtime_second_2026-05-23T09:00:00.000Z")).toBeUndefined()
 
     releaseFirst?.()
     await flushAsyncWork()
     await vi.advanceTimersByTimeAsync(0)
     await flushAsyncWork()
     expect(secondCalls).toBe(1)
-    expect((await scheduleRunStore.getRun("srun_second_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
+    expect((await scheduleRunStore.getRun("srun_runtime_second_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
 
     await vi.advanceTimersByTimeAsync(10)
     await flushAsyncWork()
@@ -696,7 +731,7 @@ describe("Basic Self-Hosted Schedule Runner", () => {
 
     expect(calls).toBe(1)
     expect(await scheduleRunStore.listRuns()).toHaveLength(1)
-    expect((await scheduleRunStore.listRuns())[0]?.id).toBe("srun_report_2026-05-23T09:00:00.000Z")
+    expect((await scheduleRunStore.listRuns())[0]?.id).toBe("srun_runtime_report_2026-05-23T09:00:00.000Z")
     runner.stop()
   })
 
@@ -728,7 +763,7 @@ describe("Basic Self-Hosted Schedule Runner", () => {
       await flushAsyncWork()
 
       expect(calls).toBe(1)
-      expect((await scheduleRunStore.listRuns())[0]?.id).toBe("srun_report_2026-03-08T02:30:00.000Z")
+      expect((await scheduleRunStore.listRuns())[0]?.id).toBe("srun_runtime_report_2026-03-08T02:30:00.000Z")
       runner.stop()
     }
     finally {
@@ -792,7 +827,7 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     await vi.advanceTimersByTimeAsync(10)
     await flushAsyncWork()
 
-    const run = await scheduleRunStore.getRun("srun_report_2026-05-23T09:00:00.000Z")
+    const run = await scheduleRunStore.getRun("srun_runtime_report_2026-05-23T09:00:00.000Z")
     expect(run).toMatchObject({
       error: { message: "runner boom", name: "TypeError" },
       status: "failed",
@@ -831,7 +866,24 @@ describe("Basic Self-Hosted Schedule Runner", () => {
 
     expect(calls).toBe(1)
     expect(errors).toHaveLength(1)
-    expect((await scheduleRunStore.getRun("srun_report_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
+    expect((await scheduleRunStore.getRun("srun_runtime_report_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
+    runner.stop()
+  })
+
+  it("does not parse disabled Runtime Schedule cron records", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    const errors: unknown[] = []
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "bad cron", enabled: false, id: "disabled", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+
+    expect(errors).toEqual([])
     runner.stop()
   })
 
