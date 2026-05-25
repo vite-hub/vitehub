@@ -82,7 +82,7 @@ These options are portable across providers:
 | `runtime.args` | `string[]` | Extra arguments for the runtime command. |
 
 ::callout{icon="i-lucide-alert-triangle" color="warning"}
-Definition options must be static JSON-serializable values. The build step extracts them from the `defineSandbox()` call.
+Definition options must be static JSON-serializable values. The build step extracts them only from a direct `export default defineSandbox(handler, options)` call in the discovered sandbox file. These are non-identity Definition Options; the sandbox's Discovery Identity still comes from its file path.
 ::
 
 ## Execution API

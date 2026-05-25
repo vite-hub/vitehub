@@ -32,7 +32,7 @@ describe("extractSandboxDefinitionOptions", () => {
     await expect(extractSandboxDefinitionOptions(file)).resolves.toEqual({ timeout: 1000 })
   })
 
-  it("reads options when defineSandbox is exported through a local binding", async () => {
+  it("ignores options when defineSandbox is exported through a local binding", async () => {
     const file = await writeDefinition([
       `import { defineSandbox } from "@vitehub/sandbox"`,
       ``,
@@ -45,9 +45,39 @@ describe("extractSandboxDefinitionOptions", () => {
       ``,
     ].join("\n"))
 
+    await expect(extractSandboxDefinitionOptions(file)).resolves.toBeUndefined()
+  })
+
+  it("rejects arithmetic and string concatenation in extracted options", async () => {
+    const file = await writeDefinition([
+      `import { defineSandbox } from "@vitehub/sandbox"`,
+      ``,
+      `export default defineSandbox(async () => null, {`,
+      `  env: { MODE: "te" + "st" },`,
+      `  timeout: 1000 * 2,`,
+      `})`,
+      ``,
+    ].join("\n"))
+
+    await expect(extractSandboxDefinitionOptions(file)).rejects.toThrow("static JSON-serializable values")
+  })
+
+  it("reads nested JSON-like literal option values", async () => {
+    const file = await writeDefinition([
+      `import { defineSandbox } from "@vitehub/sandbox"`,
+      ``,
+      `export default defineSandbox(async () => null, {`,
+      `  env: { MODE: "test" },`,
+      `  runtime: { command: "node", args: ["worker.mjs"] },`,
+      `  timeout: 30_000,`,
+      `})`,
+      ``,
+    ].join("\n"))
+
     await expect(extractSandboxDefinitionOptions(file)).resolves.toEqual({
       env: { MODE: "test" },
-      timeout: 2000,
+      runtime: { command: "node", args: ["worker.mjs"] },
+      timeout: 30000,
     })
   })
 })

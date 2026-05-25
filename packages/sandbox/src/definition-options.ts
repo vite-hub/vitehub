@@ -28,21 +28,6 @@ function getSandboxDefinitionOptionsCall(expression: ts.Expression): OptionsExpr
 
 function readExportedOptionsExpression(sourceFile: ts.SourceFile): OptionsExpression {
   const ts = getTypeScript()
-  const localDefinitions = new Map<string, OptionsExpression>()
-
-  for (const statement of sourceFile.statements) {
-    if (!ts.isVariableStatement(statement))
-      continue
-
-    for (const declaration of statement.declarationList.declarations) {
-      if (!ts.isIdentifier(declaration.name) || !declaration.initializer)
-        continue
-
-      const options = getSandboxDefinitionOptionsCall(declaration.initializer)
-      if (typeof options !== 'undefined')
-        localDefinitions.set(declaration.name.text, options)
-    }
-  }
 
   for (const statement of sourceFile.statements) {
     if (!ts.isExportAssignment(statement))
@@ -51,9 +36,6 @@ function readExportedOptionsExpression(sourceFile: ts.SourceFile): OptionsExpres
     const options = getSandboxDefinitionOptionsCall(statement.expression)
     if (typeof options !== 'undefined')
       return options
-
-    if (ts.isIdentifier(statement.expression) && localDefinitions.has(statement.expression.text))
-      return localDefinitions.get(statement.expression.text)
   }
 
   return undefined
@@ -72,38 +54,8 @@ function readStaticValue(node: ts.Expression): unknown {
     return false
   if (node.kind === ts.SyntaxKind.NullKeyword)
     return null
-  if (ts.isIdentifier(node) && node.text === 'undefined')
-    return undefined
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(node.operand))
     return -Number(node.operand.text)
-  if (ts.isParenthesizedExpression(node))
-    return readStaticValue(node.expression)
-  if (ts.isBinaryExpression(node)) {
-    const left = readStaticValue(node.left)
-    const right = readStaticValue(node.right)
-
-    if (typeof left === 'number' && typeof right === 'number') {
-      switch (node.operatorToken.kind) {
-        case ts.SyntaxKind.PlusToken:
-          return left + right
-        case ts.SyntaxKind.MinusToken:
-          return left - right
-        case ts.SyntaxKind.AsteriskToken:
-          return left * right
-        case ts.SyntaxKind.SlashToken:
-          return left / right
-        case ts.SyntaxKind.PercentToken:
-          return left % right
-        case ts.SyntaxKind.AsteriskAsteriskToken:
-          return left ** right
-      }
-    }
-
-    if (node.operatorToken.kind === ts.SyntaxKind.PlusToken && typeof left === 'string' && typeof right === 'string')
-      return left + right
-
-    throw new Error(`[vitehub] ${sandboxDefinitionSyntax} options only support static arithmetic and string concatenation expressions.`)
-  }
   if (ts.isArrayLiteralExpression(node))
     return node.elements.map((element) => {
       if (!ts.isExpression(element))
