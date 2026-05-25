@@ -1017,6 +1017,37 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     runner.stop()
   })
 
+  it("rejects six-field cron records while scanning due schedules", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    const errors: unknown[] = []
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "30 * * * * *", enabled: true, id: "seconds", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushAsyncWork()
+
+    expect(calls).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(TypeError)
+    runner.stop()
+  })
+
   it("isolates run-store lookup failures while scanning due schedules", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))

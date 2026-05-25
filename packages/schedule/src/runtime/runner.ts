@@ -33,6 +33,9 @@ function floorUTCMinute(date: Date): Date {
 }
 
 function isDue(schedule: RuntimeScheduleRecord, scheduledAt: Date): boolean {
+  if (schedule.cron.trim().split(/\s+/).length !== 5) {
+    throw new TypeError(`Runtime Schedule "${schedule.id}" must use a five-field cron expression.`)
+  }
   const cron = parseCronExpression(schedule.cron)
   const minute = scheduledAt.getUTCMinutes()
   const hour = scheduledAt.getUTCHours()
