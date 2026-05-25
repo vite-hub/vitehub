@@ -21,9 +21,24 @@ function isExportDefaultCall(source: string, start: number) {
   return /(?:^|[^\w$])export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)|\()*$/.test(source.slice(0, start))
 }
 
+function readDefaultExportIdentifier(source: string) {
+  return source.match(/\bexport\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
+}
+
+function readDefineScheduleBindingName(source: string, start: number) {
+  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n|$)\s*)*$/)?.[1]
+}
+
 function readDefineScheduleOptions(source: string): string | undefined {
   const calls = findIdentifierCalls(source, "defineSchedule")
-  return (calls.find(call => isExportDefaultCall(source, call.start)) ?? calls[0])?.arguments[2]
+  const directExportCall = calls.find(call => isExportDefaultCall(source, call.start))
+  if (directExportCall) return directExportCall.arguments[2]
+
+  const defaultExportName = readDefaultExportIdentifier(source)
+  const defaultExportBindingCall = defaultExportName
+    ? calls.find(call => readDefineScheduleBindingName(source, call.start) === defaultExportName)
+    : undefined
+  return (defaultExportBindingCall ?? calls[0])?.arguments[2]
 }
 
 function readTopLevelStringProperty(source: string, property: string): string | undefined {
