@@ -4,8 +4,6 @@ declare module "#vitehub/schedule/registry" {
 }
 
 declare module "#vitehub/schedule/targets" {
-  import type { ScheduleTargetName as RuntimeScheduleTargetName } from "./types"
-
-  export const scheduleTargetNames: RuntimeScheduleTargetName[]
-  export type ScheduleTargetName = RuntimeScheduleTargetName
+  export const scheduleTargetNames: import("@vitehub/schedule").ScheduleTargetName[]
+  export type ScheduleTargetName = import("@vitehub/schedule").ScheduleTargetName
 }
