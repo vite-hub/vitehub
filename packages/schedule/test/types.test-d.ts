@@ -1,6 +1,8 @@
 import { expectTypeOf, it } from "vitest"
 
 import { defineSchedule } from "../src/definition.ts"
+import registry from "#vitehub/schedule/registry"
+import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
 it("infers schedule handler result types", () => {
   const schedule = defineSchedule("0 9 * * *", async context => context.id)
@@ -25,4 +27,8 @@ it("types the defineSchedule helper signature", () => {
 
   // @ts-expect-error options.id must be a string when provided.
   defineSchedule("0 9 * * *", () => {}, { id: 123 })
+})
+
+it("types the generated schedule registry module", () => {
+  expectTypeOf(registry).toEqualTypeOf<ScheduleDefinitionRegistry>()
 })

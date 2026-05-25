@@ -1,5 +1,6 @@
 export { defineSchedule } from "./definition.ts"
 export { discoverScheduleDefinitions } from "./discovery.ts"
+export type {} from "./registry-module.d.ts"
 
 export type {
   DiscoveredScheduleDefinition,

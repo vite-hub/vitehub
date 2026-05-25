@@ -2,6 +2,9 @@ import { defineConfig } from "tsdown"
 
 export default defineConfig({
   clean: true,
+  copy: [
+    { from: "src/registry-module.d.ts", to: "dist" },
+  ],
   deps: {
     alwaysBundle: [/^@vitehub\/internal/],
     onlyBundle: false,
@@ -9,6 +12,8 @@ export default defineConfig({
   dts: true,
   entry: [
     "src/index.ts",
+    "src/nitro.ts",
+    "src/vite.ts",
   ],
   exports: {
     inlinedDependencies: false,
