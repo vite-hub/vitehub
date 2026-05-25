@@ -47,7 +47,9 @@ describe("schedule provider output", () => {
       path: "/api/vitehub/schedules/vercel/cleanup",
       schedule: "0 0 * * *",
     }])
-    expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
+    const vercelFunctionSource = await readFile(vercelFunction, "utf8")
+    expect(vercelFunctionSource).toContain("executeStaticSchedule")
+    expect(vercelFunctionSource).not.toContain("from \"/")
   })
 
   it("reports provider cron syntax limitations before output generation", () => {
