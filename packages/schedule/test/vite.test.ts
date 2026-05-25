@@ -59,6 +59,20 @@ describe("Vite schedule integration", () => {
     expect(targets).not.toContain("\"cleanup\"")
   })
 
+  it("discovers quoted runtime schedule opt-in keys and ignores commented opt-ins", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-targets-quoted-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "commented.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { /* allowRuntimeSchedules: true */ id: \"commented\" })\n", "utf8")
+    await writeFile(join(root, "src", "quoted.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { \"allowRuntimeSchedules\": true })\n", "utf8")
+
+    const plugin = hubSchedule()
+    resolvePluginConfig(plugin, root)
+    const targets = await loadScheduleTargets(plugin)
+
+    expect(targets).toContain("export const scheduleTargetNames = [\"quoted\"];")
+    expect(targets).not.toContain("\"commented\"")
+  })
+
   it("serves an empty registry without special cases", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vite-empty-"))
     const plugin = hubSchedule()
