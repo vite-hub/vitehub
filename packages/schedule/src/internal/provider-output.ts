@@ -46,6 +46,7 @@ interface GeneratedScheduleArtifacts {
 }
 
 interface GenerateProviderOutputsOptions {
+  bundleAlias?: Record<string, string>
   clientOutDir: string
   rootDir: string
 }
@@ -197,7 +198,7 @@ export async function writeVercelScheduleFunctions(options: {
 
   const emittedFunctionNames = new Map<string, string>()
   for (const definition of options.definitions) {
-    const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_")
+    const safeName = definition.name.replace(/[^a-z0-9/_-]+/gi, "_").split("/").filter(Boolean).join("/")
     const existingName = emittedFunctionNames.get(safeName)
     if (existingName) {
       throw new Error(`Schedule "${definition.name}" and "${existingName}" both emit the same Vercel function path: ${safeName}`)
@@ -233,6 +234,7 @@ export async function writeVercelScheduleFunctions(options: {
 }
 
 async function writeCloudflareScheduleOutput(options: {
+  bundleAlias?: Record<string, string>
   bundleEntry: string
   crons: string[]
   rootDir: string
@@ -269,6 +271,7 @@ async function writeCloudflareScheduleOutput(options: {
 
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, resolve(outputRoot, main), {
+      alias: options.bundleAlias,
       conditions: ["workerd", "worker", "browser", "default"],
       external: ["node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
       format: "esm",
@@ -282,11 +285,13 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const artifacts = await writeProviderEntries(options.rootDir)
   const crons = await readDefinitionCrons(artifacts.definitions)
   await writeCloudflareScheduleOutput({
+    bundleAlias: options.bundleAlias,
     bundleEntry: artifacts.cloudflareWorkerFile,
     crons: [...new Set(crons.values())],
     rootDir: options.rootDir,
   })
   await writeVercelScheduleFunctions({
+    bundleAlias: options.bundleAlias,
     definitions: artifacts.definitions,
     outputRoot: createDefaultVercelOutputRoot(options.rootDir),
     registryFile: artifacts.registryFile,

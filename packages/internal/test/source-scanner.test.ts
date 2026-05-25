@@ -68,6 +68,10 @@ describe("source scanner", () => {
       `<T, U>(ctx: T) => ctx`,
       `{ id: "daily" }`,
     ])
+    expect(splitTopLevel(`<T, U>/* hint */(ctx: T) => ctx, { id: "daily" }`)).toEqual([
+      `<T, U>/* hint */(ctx: T) => ctx`,
+      `{ id: "daily" }`,
+    ])
   })
 
   it("keeps comparison operators structural while splitting arguments", () => {
