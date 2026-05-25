@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot } from "@vitehub/internal/build/deployment-output"
 
-import { generateProviderOutputs, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { generateProviderOutputs, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 
 const tempDirs: string[] = []
 
@@ -54,6 +54,13 @@ describe("schedule provider output", () => {
 
   it("reports provider cron syntax limitations before output generation", () => {
     expect(() => validateProviderCron("0 0 1 1 * 2026", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
+    expect(() => validateProviderCron("0 0 * JAN *", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
+    expect(() => validateProviderCron("0 0 1 * 1", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
+  })
+
+  it("resolves the runtime execute entry from package source and dist layouts", () => {
+    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/runtime/execute.ts")
+    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/runtime/execute.js")
   })
 
   it("rejects dynamic cron expressions before provider output generation", async () => {

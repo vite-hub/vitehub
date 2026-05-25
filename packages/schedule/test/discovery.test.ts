@@ -115,6 +115,24 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["reports/daily"])
   })
 
+  it("uses explicit ids from default-exported defineSchedule bindings after earlier local calls", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-exported-binding-id-")
+    await writeFile(
+      join(viteRootDir, "daily.schedule.ts"),
+      [
+        "const preset = defineSchedule('0 8 * * *', () => {}, { id: 'internal/preset' })",
+        "const daily = defineSchedule('0 9 * * *', () => {}, { id: 'reports/daily' })",
+        "export default daily",
+      ].join("\n"),
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual(["reports/daily"])
+  })
+
   it("uses explicit ids from quoted defineSchedule option keys", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-quoted-explicit-id-")
     await writeFile(join(viteRootDir, "daily.schedule.ts"), "export default defineSchedule('0 9 * * *', () => {}, { 'id': 'reports/daily' })\n", "utf8")
