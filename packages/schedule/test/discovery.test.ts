@@ -311,6 +311,27 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("discovers Nitro aggregate inline Agent Schedules from directory index re-exports", async () => {
+    const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-directory-re-export-")
+    await writeFile(join(nitroScanDir, "agent.ts"), [
+      "export { Support } from './support'",
+    ].join("\n"), "utf8")
+    await mkdir(join(nitroScanDir, "support"), { recursive: true })
+    await writeFile(join(nitroScanDir, "support", "index.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export const Support = defineAgent({",
+      "  capabilities: [schedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "nitro-server-schedules",
+      scanDirs: [nitroScanDir],
+    })).toEqual([
+      expect.objectContaining({ agentExportName: "Support", agentName: "Support", cron: "0 9 * * *", name: "Support/schedule-0-9" }),
+    ])
+  })
+
   it("discovers Nitro aggregate inline Agent Schedules from default re-exported agents", async () => {
     const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-default-re-export-")
     await writeFile(join(nitroScanDir, "agent.ts"), [

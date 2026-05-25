@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { basename, dirname, join, relative, resolve } from "node:path"
 
 import {
@@ -636,11 +636,11 @@ function resolveSourceFile(fromFile: string, specifier: string): string | undefi
   if (!specifier.startsWith(".")) return undefined
   const base = resolve(dirname(fromFile), specifier)
   const candidates = [
-    base,
     ...sourceFileExtensions.map(extension => `${base}${extension}`),
     ...sourceFileExtensions.map(extension => join(base, `index${extension}`)),
+    base,
   ]
-  return candidates.find(candidate => existsSync(candidate))
+  return candidates.find(candidate => existsSync(candidate) && statSync(candidate).isFile())
 }
 
 function discoverNamedAgentExports(file: string, seen = new Set<string>()): Array<{ capabilityNames: string[], exportName: string, name: string, source: string }> {
