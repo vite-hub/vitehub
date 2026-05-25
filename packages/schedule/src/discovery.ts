@@ -360,7 +360,10 @@ function parseInlineAgentScheduleEntries(source: string): Array<{ cron: string, 
       const cronProperty = readTopLevelStaticStringProperty(trimmed, "cron")
       if (!cronProperty || !isStaticStringLiteral(cronProperty.quote, cronProperty.value)) continue
       const cron = normalizeScheduleCron(cronProperty.value)
-      const id = readTopLevelStringProperty(trimmed, "id") || scheduleIdFromCron(cron)
+      const idProperty = readTopLevelStaticStringProperty(trimmed, "id")
+      const id = idProperty && isStaticStringLiteral(idProperty.quote, idProperty.value)
+        ? idProperty.value
+        : scheduleIdFromCron(cron)
       entries.push({ cron, id })
     }
   }

@@ -307,6 +307,25 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("ignores interpolated template ids in inline Agent Schedules", async () => {
+    const viteRootDir = await createTempDir("vitehub-agent-schedule-template-id-")
+    await mkdir(join(viteRootDir, "src"), { recursive: true })
+    await writeFile(join(viteRootDir, "src", "support.agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "const tenant = 'acme'",
+      "export default defineAgent({",
+      "  capabilities: [schedule({ schedules: [{ cron: '0 9 * * *', id: `${tenant}-daily` }] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([
+      expect.objectContaining({ cron: "0 9 * * *", name: "support/schedule-0-9" }),
+    ])
+  })
+
   it("ignores non-agent exports before Nitro aggregate agents", async () => {
     const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-non-agent-export-")
     await writeFile(join(nitroScanDir, "agent.ts"), [
