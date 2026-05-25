@@ -30,7 +30,11 @@ function getViteCliMode(argv: string[] = process.argv): ViteHubMode | undefined 
   const modes = new Set<string>(Object.values(VITEHUB_MODES))
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
-    const mode = arg === "--mode" ? argv[index + 1] : arg.startsWith("--mode=") ? arg.slice("--mode=".length) : undefined
+    const mode = arg === "--mode" || arg === "-m"
+      ? argv[index + 1]
+      : arg.startsWith("--mode=")
+        ? arg.slice("--mode=".length)
+        : undefined
     if (mode && modes.has(mode)) {
       return mode as ViteHubMode
     }

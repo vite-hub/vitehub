@@ -22,6 +22,12 @@ describe("ViteHub build mode", () => {
     expect(getViteMode()).toBe(VITEHUB_MODES.schedule)
   })
 
+  it("reads Vite CLI -m values for direct Vite builds", () => {
+    process.argv = ["/usr/bin/node", "/workspace/node_modules/.bin/vite", "build", "-m", "schedule"]
+
+    expect(getViteMode()).toBe(VITEHUB_MODES.schedule)
+  })
+
   it("does not read --mode values from non-Vite commands", () => {
     process.argv = ["/usr/bin/node", "/workspace/node_modules/.bin/vitest", "run", "--mode", "schedule"]
 
