@@ -64,11 +64,11 @@ describe("discoverScheduleDefinitions", () => {
 
   it("uses explicit ids from defineSchedule options", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-explicit-id-")
-    await writeFile(join(viteRootDir, "daily.schedule.ts"), "export default defineSchedule('0 9 * * *', () => {}, { id: 'reports/daily' })\n", "utf8")
+    await writeFile(join(viteRootDir, "daily.schedule.ts"), "export default defineSchedule('0 9 * * *', () => {}, { id: `reports/daily` })\n", "utf8")
 
     const nitroScanDir = await createTempDir("vitehub-schedule-nitro-explicit-id-")
     await mkdir(join(nitroScanDir, "schedules"), { recursive: true })
-    await writeFile(join(nitroScanDir, "schedules", "daily.ts"), "export default defineSchedule('0 9 * * *', () => {}, { id: 'reports/daily' })\n", "utf8")
+    await writeFile(join(nitroScanDir, "schedules", "daily.ts"), "export default defineSchedule('0 9 * * *', () => {}, { id: `reports/daily` })\n", "utf8")
 
     expect(discoverScheduleDefinitions({
       mode: "vite-suffix",
@@ -117,7 +117,7 @@ describe("discoverScheduleDefinitions", () => {
     const viteRootDir = await createTempDir("vitehub-schedule-exported-binding-options-")
     await writeFile(join(viteRootDir, "daily.schedule.ts"), [
       "const helper = defineSchedule('0 8 * * *', () => {}, { id: 'internal/helper', allowRuntimeSchedules: true })",
-      "const daily = defineSchedule('0 9 * * *', () => {}, { id: 'reports/daily' })",
+      "const daily: ScheduleDefinition<{ Defaults extends string = 'x' }> = defineSchedule('0 9 * * *', () => {}, { id: 'reports/daily' })",
       "export default daily",
     ].join("\n"), "utf8")
 

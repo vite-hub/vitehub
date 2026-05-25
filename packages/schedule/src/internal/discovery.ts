@@ -121,7 +121,12 @@ function readDefaultExportIdentifier(source: string) {
 }
 
 function readDefineScheduleBindingName(source: string, start: number) {
-  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=\s*(?:\(\s*)*$/)?.[1]
+  for (const match of source.matchAll(/\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)) {
+    const initializerStart = findVariableInitializerStart(source, match.index! + match[0].length)
+    if (initializerStart === undefined) continue
+    const leadingWhitespace = source.slice(initializerStart, start).match(/^\s*/)?.[0].length ?? 0
+    if (initializerStart + leadingWhitespace === start) return match[1]
+  }
 }
 
 function readDefineScheduleOptions(source: string): string | undefined {
@@ -155,7 +160,7 @@ function readTopLevelBooleanProperty(source: string, property: string): boolean 
 function readTopLevelStaticStringProperty(source: string, property: string): string | undefined {
   if (!source.trim().startsWith("{") || !source.trim().endsWith("}")) return undefined
   for (const entry of splitTopLevelScheduleEntries(source.trim().slice(1, -1))) {
-    const match = entry.match(new RegExp(`^(?:["'\`]?)${property}(?:["'\`]?)\\s*:\\s*(["'])((?:\\\\.|(?!\\1).)*)\\1\\s*$`, "s"))
+    const match = entry.match(new RegExp(`^(?:["'\`]?)${property}(?:["'\`]?)\\s*:\\s*(["'\`])((?:\\\\.|(?!\\1).)*)\\1\\s*$`, "s"))
     if (match) return match[2]
   }
 }
