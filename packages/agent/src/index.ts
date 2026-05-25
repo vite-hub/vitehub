@@ -1286,17 +1286,20 @@ export async function runAgent<
 export async function runScheduledAgent(
   agent: AgentInput<AgentRuntimeContext>,
   context: ScheduleRunContextLike,
+  runtimeContext: Partial<ResolvedAgentRuntimeContext> = {},
 ): Promise<unknown> {
   const memoValues = new Map<string, unknown>()
+  const runId = context.runId || context.id
 
   return await runAgent(agent, {
+    ...runtimeContext,
     memo(key, create) {
       if (!memoValues.has(key)) memoValues.set(key, create())
       return memoValues.get(key) as never
     },
-    run: { runId: context.runId || context.id },
-    runtime: "unknown",
-    waitUntil() {},
+    run: { ...runtimeContext.run, runId },
+    runtime: runtimeContext.runtime ?? "unknown",
+    waitUntil: runtimeContext.waitUntil ?? (() => {}),
   }, {
     context: {
       schedule: {
