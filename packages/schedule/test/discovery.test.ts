@@ -272,6 +272,40 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("discovers Nitro aggregate inline Agent Schedules from nested generic agents", async () => {
+    const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-nested-generic-")
+    await writeFile(join(nitroScanDir, "agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export const Support = defineAgent<MyRuntime<Ctx>>({",
+      "  capabilities: [schedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "nitro-server-schedules",
+      scanDirs: [nitroScanDir],
+    })).toEqual([
+      expect.objectContaining({ agentExportName: "Support", agentName: "Support", cron: "0 9 * * *", name: "Support/schedule-0-9" }),
+    ])
+  })
+
+  it("discovers Nitro aggregate inline Agent Schedules from function type generic agents", async () => {
+    const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-function-generic-")
+    await writeFile(join(nitroScanDir, "agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export const Support = defineAgent<(ctx: Ctx) => Out>({",
+      "  capabilities: [schedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "nitro-server-schedules",
+      scanDirs: [nitroScanDir],
+    })).toEqual([
+      expect.objectContaining({ agentExportName: "Support", agentName: "Support", cron: "0 9 * * *", name: "Support/schedule-0-9" }),
+    ])
+  })
+
   it("discovers typed aggregate inline Agent Schedules with generic commas", async () => {
     const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-generic-commas-")
     await writeFile(join(nitroScanDir, "agent.ts"), [
@@ -305,6 +339,23 @@ describe("discoverScheduleDefinitions", () => {
     })).toEqual([
       expect.objectContaining({ cron: "0 9 * * *", name: "support/daily" }),
     ])
+  })
+
+  it("ignores local schedule functions that are not agent capabilities", async () => {
+    const viteRootDir = await createTempDir("vitehub-agent-schedule-local-helper-")
+    await mkdir(join(viteRootDir, "src"), { recursive: true })
+    await writeFile(join(viteRootDir, "src", "support.agent.ts"), [
+      "import { defineAgent } from '@vitehub/agent'",
+      "function schedule(options: unknown) { return options }",
+      "export default defineAgent({",
+      "  capabilities: [schedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([])
   })
 
   it("discovers all Nitro aggregate inline Agent Schedules from one declaration", async () => {

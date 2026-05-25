@@ -341,7 +341,7 @@ function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition
 }
 
 function parseScheduleCapabilityNames(source: string): string[] {
-  const names = new Set(["schedule"])
+  const names = new Set<string>()
   for (const match of source.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*(['"])@vitehub\/agent(?:\/capabilities)?\2/g)) {
     for (const entry of match[1]!.split(",")) {
       const [imported, local] = entry.trim().split(/\s+as\s+/)
@@ -351,10 +351,10 @@ function parseScheduleCapabilityNames(source: string): string[] {
   return [...names].filter(name => /^[A-Za-z_$][\w$]*$/.test(name))
 }
 
-function parseInlineAgentScheduleEntries(source: string): Array<{ cron: string, id: string }> {
+function parseInlineAgentScheduleEntries(source: string, capabilityNames = parseScheduleCapabilityNames(source)): Array<{ cron: string, id: string }> {
   const stripped = stripComments(source)
   const entries: Array<{ cron: string, id: string }> = []
-  for (const capabilityName of parseScheduleCapabilityNames(stripped)) {
+  for (const capabilityName of capabilityNames) {
     const schedulesPattern = new RegExp(`\\b${capabilityName}\\s*\\(\\s*\\{[\\s\\S]*?\\bschedules\\s*:\\s*\\[([\\s\\S]*?)\\][\\s\\S]*?\\}\\s*\\)`, "g")
     for (const match of stripped.matchAll(schedulesPattern)) {
       const body = match[1]!
@@ -394,8 +394,8 @@ function inlineAgentSchedules(file: string, agentName: string, agentExportName?:
   }))
 }
 
-function createInlineAgentSchedules(file: string, agentName: string, source: string, agentExportName?: string): DiscoveredScheduleDefinition[] {
-  return parseInlineAgentScheduleEntries(source).map(schedule => ({
+function createInlineAgentSchedules(file: string, agentName: string, source: string, capabilityNames: string[], agentExportName?: string): DiscoveredScheduleDefinition[] {
+  return parseInlineAgentScheduleEntries(source, capabilityNames).map(schedule => ({
     agentExportName,
     agentName,
     cron: schedule.cron,
@@ -449,13 +449,34 @@ function readBalancedCall(source: string, openParen: number): string | undefined
   }
 }
 
+function findDefineAgentOpenParen(source: string, start: number): number | undefined {
+  let index = start
+  if (!source.slice(index).startsWith("defineAgent")) return
+  index += "defineAgent".length
+  while (/\s/.test(source[index] ?? "")) index++
+  if (source[index] === "<") {
+    let depth = 0
+    for (; index < source.length; index++) {
+      const char = source[index]!
+      if (char === "<") depth++
+      if (char === ">" && source[index - 1] !== "=") {
+        depth--
+        if (depth === 0) {
+          index++
+          break
+        }
+      }
+    }
+    while (/\s/.test(source[index] ?? "")) index++
+  }
+  return source[index] === "(" ? index : undefined
+}
+
 function findDefineAgentCall(source: string, initializerStart: number): string | undefined {
   const initializer = source.slice(initializerStart)
   const leadingWhitespace = initializer.match(/^\s*/)?.[0].length ?? 0
-  if (!initializer.slice(leadingWhitespace).startsWith("defineAgent")) return
-  const match = /^defineAgent\s*(?:<[^)]*?>\s*)?\(/.exec(initializer.slice(leadingWhitespace))
-  if (!match) return
-  return readBalancedCall(source, initializerStart + leadingWhitespace + match[0].length - 1)
+  const openParen = findDefineAgentOpenParen(source, initializerStart + leadingWhitespace)
+  return openParen === undefined ? undefined : readBalancedCall(source, openParen)
 }
 
 function findNextTopLevelCommaOrSemicolon(source: string, start: number): number {
@@ -573,42 +594,44 @@ function resolveSourceFile(fromFile: string, specifier: string): string | undefi
   return candidates.find(candidate => existsSync(candidate))
 }
 
-function discoverNamedAgentExports(file: string, seen = new Set<string>()): Array<{ exportName: string, name: string, source: string }> {
+function discoverNamedAgentExports(file: string, seen = new Set<string>()): Array<{ capabilityNames: string[], exportName: string, name: string, source: string }> {
   if (seen.has(file)) return []
   seen.add(file)
 
   const source = stripComments(readFileSync(file, "utf8"))
+  const capabilityNames = parseScheduleCapabilityNames(source)
   const locals = new Map<string, string>()
-  const definitions = new Map<string, { exportName: string, name: string, source: string }>()
+  const definitions = new Map<string, { capabilityNames: string[], exportName: string, name: string, source: string }>()
 
   for (const declarator of discoverVariableDeclarators(source)) {
     const callSource = findDefineAgentCall(source, declarator.initializerStart)
     if (!callSource) continue
     locals.set(declarator.localName, callSource)
     if (declarator.exported) {
-      definitions.set(declarator.localName, { exportName: declarator.localName, name: declarator.localName, source: callSource })
+      definitions.set(declarator.localName, { capabilityNames, exportName: declarator.localName, name: declarator.localName, source: callSource })
     }
   }
 
   for (const match of source.matchAll(/\bexport\s+default\b/g)) {
     const callSource = findDefineAgentCall(source, match.index! + match[0].length)
     if (callSource) {
-      definitions.set("default", { exportName: "default", name: "default", source: callSource })
+      definitions.set("default", { capabilityNames, exportName: "default", name: "default", source: callSource })
     }
   }
 
   for (const match of source.matchAll(/\bexport\s*\{([^}]+)\}\s*(?:from\s*(['"])([^'"]+)\2)?/g)) {
     const importFile = match[3] ? resolveSourceFile(file, match[3]) : undefined
     const importedDefinitions = importFile
-      ? new Map(discoverNamedAgentExports(importFile, new Set(seen)).map(definition => [definition.exportName, definition.source]))
+      ? new Map(discoverNamedAgentExports(importFile, new Set(seen)).map(definition => [definition.exportName, definition]))
       : undefined
     for (const entry of match[1]!.split(",")) {
       const [left, right] = entry.trim().split(/\s+as\s+/)
       const localName = (left || "").trim()
       const exportName = (right || left || "").trim()
       if (!localName || exportName === "default" || !/^[A-Za-z_$][\w$]*$/.test(exportName)) continue
-      const callSource = importedDefinitions?.get(localName) ?? locals.get(localName)
-      if (callSource) definitions.set(exportName, { exportName, name: exportName, source: callSource })
+      const importedDefinition = importedDefinitions?.get(localName)
+      const callSource = importedDefinition?.source ?? locals.get(localName)
+      if (callSource) definitions.set(exportName, { capabilityNames: importedDefinition?.capabilityNames ?? capabilityNames, exportName, name: exportName, source: callSource })
     }
   }
 
@@ -650,7 +673,7 @@ function discoverNitroInlineAgentSchedules(scanDirs: string[]): DiscoveredSchedu
       .filter(file => existsSync(file))
     for (const file of aggregateFiles) {
       for (const agent of discoverNamedAgentExports(file)) {
-        definitions.push(...createInlineAgentSchedules(file, agent.name, agent.source, agent.exportName))
+        definitions.push(...createInlineAgentSchedules(file, agent.name, agent.source, agent.capabilityNames, agent.exportName))
       }
     }
 
