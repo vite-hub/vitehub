@@ -33,12 +33,34 @@ function scheduleIdFromCron(cron: string): string {
   return `schedule-${normalizeScheduleCron(cron).replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase()}`
 }
 
-function isInlineScheduleObjectKey(source: string, stringEnd: number): boolean {
-  return /^\s*:/.test(source.slice(stringEnd))
-}
-
-function isInlineScheduleObjectValue(source: string, stringStart: number): boolean {
-  return /(?:^|[,{]\s*)(["'`])?(?:cron|id)\1?\s*:\s*$/u.test(source.slice(Math.max(0, stringStart - 24), stringStart))
+function splitTopLevelScheduleEntries(source: string): string[] {
+  const entries: string[] = []
+  let depth = 0
+  let quote: string | undefined
+  let start = 0
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    if (quote) {
+      if (char === "\\") {
+        index++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "(" || char === "{" || char === "[") depth++
+    if (char === ")" || char === "}" || char === "]") depth--
+    if (char === "," && depth === 0) {
+      entries.push(source.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+  entries.push(source.slice(start).trim())
+  return entries
 }
 
 function readScheduleIdOverride(file: string): string | undefined {
@@ -67,9 +89,9 @@ function parseInlineAgentScheduleEntries(source: string): Array<{ cron: string, 
   const schedulesPattern = /\bschedule\s*\(\s*\{[\s\S]*?\bschedules\s*:\s*\[([\s\S]*?)\][\s\S]*?\}\s*\)/g
   for (const match of stripped.matchAll(schedulesPattern)) {
     const body = match[1]!
-    for (const stringEntry of body.matchAll(/(["'`])([^"'`]+)\1/g)) {
-      if (isInlineScheduleObjectKey(body, stringEntry.index! + stringEntry[0].length)) continue
-      if (isInlineScheduleObjectValue(body, stringEntry.index!)) continue
+    for (const entry of splitTopLevelScheduleEntries(body)) {
+      const stringEntry = /^(["'`])([^"'`]+)\1$/.exec(entry)
+      if (!stringEntry) continue
       const cron = normalizeScheduleCron(stringEntry[2]!)
       entries.push({ cron, id: scheduleIdFromCron(cron) })
     }
@@ -153,7 +175,7 @@ function findDefineAgentCall(source: string, initializerStart: number): string |
   const initializer = source.slice(initializerStart)
   const leadingWhitespace = initializer.match(/^\s*/)?.[0].length ?? 0
   if (!initializer.slice(leadingWhitespace).startsWith("defineAgent")) return
-  const match = /^defineAgent\s*\(/.exec(initializer.slice(leadingWhitespace))
+  const match = /^defineAgent\s*(?:<[^)]*?>\s*)?\(/.exec(initializer.slice(leadingWhitespace))
   if (!match) return
   return readBalancedCall(source, initializerStart + leadingWhitespace + match[0].length - 1)
 }

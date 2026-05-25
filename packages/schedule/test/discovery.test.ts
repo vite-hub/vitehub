@@ -218,6 +218,41 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("discovers generic Nitro aggregate inline Agent Schedule exports", async () => {
+    const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-generic-export-")
+    await writeFile(join(nitroScanDir, "agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export const Support = defineAgent<MyRuntime>({",
+      "  capabilities: [schedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "nitro-server-schedules",
+      scanDirs: [nitroScanDir],
+    })).toEqual([
+      expect.objectContaining({ agentExportName: "Support", agentName: "Support", cron: "0 9 * * *", name: "Support/schedule-0-9" }),
+    ])
+  })
+
+  it("ignores non-cron string fields in inline Agent Schedule objects", async () => {
+    const viteRootDir = await createTempDir("vitehub-agent-schedule-extra-strings-")
+    await mkdir(join(viteRootDir, "src"), { recursive: true })
+    await writeFile(join(viteRootDir, "src", "support.agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export default defineAgent({",
+      "  capabilities: [schedule({ schedules: [{ cron: '0 9 * * *', id: 'daily', timezone: 'UTC', label: 'Daily' }] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([
+      expect.objectContaining({ cron: "0 9 * * *", name: "support/daily" }),
+    ])
+  })
+
   it("ignores non-agent exports before Nitro aggregate agents", async () => {
     const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-non-agent-export-")
     await writeFile(join(nitroScanDir, "agent.ts"), [
