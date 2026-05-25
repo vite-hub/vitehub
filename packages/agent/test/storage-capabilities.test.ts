@@ -15,6 +15,22 @@ async function resolveTools(capabilities: unknown[], handles: Record<string, unk
 }
 
 describe("storage capabilities", () => {
+  it("allows inline and Runtime Schedule capabilities together", async () => {
+    const { schedule } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const schedules = {
+      get: vi.fn(),
+      list: vi.fn(async () => []),
+    }
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        schedule({ schedules: ["0 9 * * *"] }),
+        schedule({ mode: "read", targets: ["reports"] }),
+      ],
+    }, runtime({ schedule: { schedules } }), {}).then(resolved => Object.keys(resolved.tools!).sort())).resolves.toEqual(["schedule_read"])
+  })
+
   it("exposes scoped Runtime Schedule read and edit tools", async () => {
     const { schedule } = await import("../src/capabilities.ts")
     const records = [

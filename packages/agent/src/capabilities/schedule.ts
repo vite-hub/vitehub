@@ -330,7 +330,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
 function runtimeScheduleCapability<TTarget extends string>(options: RuntimeScheduleCapabilityOptions<TTarget>): AgentCapabilityDefinition {
   const normalized = normalizeRuntimeScheduleOptions(options)
   return defineCapability({
-    id: "schedule",
+    id: "runtime-schedule",
     metadata: {
       allowSelfTarget: normalized.allowSelfTarget,
       kind: "runtime-schedule",
