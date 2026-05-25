@@ -85,6 +85,32 @@ function stripComments(source: string): string {
   return stripped
 }
 
+function maskStringContents(source: string): string {
+  let masked = ""
+  let quote: string | undefined
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (quote) {
+      masked += char === quote ? char : char === "\n" ? "\n" : " "
+      if (char === "\\") {
+        masked += next === "\n" ? "\n" : " "
+        index++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      masked += char
+      continue
+    }
+    masked += char
+  }
+  return masked
+}
+
 function readBalancedArguments(source: string, openParen: number): string | undefined {
   let depth = 0
   let quote: string | undefined
@@ -364,11 +390,13 @@ function scheduleCapabilityCallPattern(capabilityName: string): string {
 
 function parseInlineAgentScheduleEntries(source: string, capabilityNames = parseScheduleCapabilityNames(stripComments(source))): Array<{ cron: string, id: string }> {
   const stripped = stripComments(source)
+  const searchable = maskStringContents(stripped)
   const entries: Array<{ cron: string, id: string }> = []
   for (const capabilityName of capabilityNames) {
     const schedulesPattern = new RegExp(`\\b${scheduleCapabilityCallPattern(capabilityName)}\\s*\\(\\s*\\{[\\s\\S]*?\\bschedules\\s*:\\s*\\[([\\s\\S]*?)\\][\\s\\S]*?\\}\\s*\\)`, "g")
-    for (const match of stripped.matchAll(schedulesPattern)) {
-      const body = match[1]!
+    for (const match of searchable.matchAll(schedulesPattern)) {
+      const bodyStart = match.index! + match[0].indexOf(match[1]!)
+      const body = stripped.slice(bodyStart, bodyStart + match[1]!.length)
       for (const entry of splitTopLevelArguments(body)) {
         const trimmed = entry.trim()
         const stringEntry = /^(["'`])([^"'`]+)\1$/.exec(trimmed)
@@ -417,7 +445,17 @@ function createInlineAgentSchedules(file: string, agentName: string, source: str
 }
 
 function parseAgentName(source: string): string | undefined {
-  return stripComments(source).match(/\bname\s*:\s*["'`]([^"'`]+)["'`]/)?.[1]
+  const stripped = stripComments(source)
+  for (const match of stripped.matchAll(/\bdefineAgent\b/g)) {
+    const callSource = findDefineAgentCall(stripped, match.index!)
+    if (!callSource) continue
+    const firstArgument = splitTopLevelArguments(callSource.slice(1, -1))[0]?.trim()
+    if (!firstArgument?.startsWith("{") || !firstArgument.endsWith("}")) continue
+    for (const entry of splitTopLevelArguments(firstArgument.slice(1, -1))) {
+      const name = entry.match(/^(?:["'`]?name["'`]?)\s*:\s*["'`]([^"'`]+)["'`]\s*$/)?.[1]
+      if (name) return name
+    }
+  }
 }
 
 function readBalancedCall(source: string, openParen: number): string | undefined {
