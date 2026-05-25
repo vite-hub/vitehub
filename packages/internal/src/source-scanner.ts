@@ -195,9 +195,7 @@ function previousNonWhitespace(source: string, index: number) {
 }
 
 function nextNonWhitespace(source: string, index: number) {
-  let current = index
-  while (/\s/.test(source[current] ?? "")) current += 1
-  return source[current]
+  return source[skipWhitespaceAndComments(source, index)]
 }
 
 function skipWhitespaceAndComments(source: string, index: number) {
