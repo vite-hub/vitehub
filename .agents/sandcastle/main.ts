@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 import { codex, run } from "@ai-hero/sandcastle"
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker"
 
-const issueNumber = process.env.ISSUE_NUMBER || process.argv[2]
+const issueNumber = process.env.ISSUE_NUMBER || process.argv.slice(2).find((arg) => /^\d+$/.test(arg))
 
 if (!issueNumber) {
   throw new Error("Set ISSUE_NUMBER or pass an issue number: pnpm sandcastle -- 123")
