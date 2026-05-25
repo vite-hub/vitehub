@@ -274,6 +274,23 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
   })
 
+  it("ignores quoted defineSchedule examples when reading static provider cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-quoted-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "const docs = \"export default defineSchedule({ cron: '0 1 * * *', handler: () => 'docs' })\"",
+      "export default defineSchedule({ cron: '0 2 * * *', handler: () => 'ok' })",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
   it("continues to later object default exports when earlier defaults are not objects", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-later-object-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [

@@ -139,11 +139,13 @@ function skipBlockComment(source: string, index: number): number {
   return close === -1 ? source.length : close + 2
 }
 
-function isInsideComment(source: string, targetIndex: number): boolean {
+function isInsideNonCode(source: string, targetIndex: number): boolean {
   for (let index = 0; index < targetIndex; index += 1) {
     const char = source[index]
     if (char === "\"" || char === "'" || char === "`") {
-      index = skipQuoted(source, index) - 1
+      const quotedEnd = skipQuoted(source, index)
+      if (targetIndex < quotedEnd) return true
+      index = quotedEnd - 1
       continue
     }
     if (source.startsWith("//", index)) {
@@ -341,11 +343,12 @@ function readDefaultDefineScheduleCron(source: string): string | undefined {
   let match: RegExpExecArray | null
   const pattern = /\bexport\s+default\s+defineSchedule\s*\(/g
   while ((match = pattern.exec(source))) {
-    if (isInsideComment(source, match.index)) continue
+    if (isInsideNonCode(source, match.index)) continue
 
     const objectStart = skipIgnorable(source, match.index + match[0].length)
     const objectSource = readBalancedObject(source, objectStart)
-    return objectSource ? readTopLevelCronProperty(objectSource) : undefined
+    if (!objectSource) continue
+    return readTopLevelCronProperty(objectSource)
   }
 }
 
@@ -353,7 +356,7 @@ function readDefaultObjectCron(source: string): string | undefined {
   let match: RegExpExecArray | null
   const pattern = /\bexport\s+default\b/g
   while ((match = pattern.exec(source))) {
-    if (isInsideComment(source, match.index)) continue
+    if (isInsideNonCode(source, match.index)) continue
 
     const objectStart = skipIgnorable(source, match.index + match[0].length)
     const objectSource = readBalancedObject(source, objectStart)

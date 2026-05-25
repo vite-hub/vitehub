@@ -56,6 +56,30 @@ function skipIgnorable(source: string, index: number): number {
   return index
 }
 
+function isInsideNonCode(source: string, targetIndex: number): boolean {
+  for (let index = 0; index < targetIndex; index += 1) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      const quotedEnd = skipQuoted(source, index)
+      if (targetIndex < quotedEnd) return true
+      index = quotedEnd - 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      const commentEnd = skipLineComment(source, index)
+      if (targetIndex < commentEnd) return true
+      index = commentEnd - 1
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      const commentEnd = skipBlockComment(source, index)
+      if (targetIndex < commentEnd) return true
+      index = commentEnd - 1
+    }
+  }
+  return false
+}
+
 function readBalancedObject(source: string, openIndex: number): string | undefined {
   if (source[openIndex] !== "{") return undefined
 
@@ -137,6 +161,7 @@ function readDefaultDefineScheduleObject(source: string): string | undefined {
   let match: RegExpExecArray | null
   const pattern = /\bexport\s+default\s+defineSchedule\s*\(/g
   while ((match = pattern.exec(source))) {
+    if (isInsideNonCode(source, match.index)) continue
     const objectStart = skipIgnorable(source, match.index + match[0].length)
     const objectSource = readBalancedObject(source, objectStart)
     if (objectSource) return objectSource
