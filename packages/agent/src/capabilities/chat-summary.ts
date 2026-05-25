@@ -113,7 +113,7 @@ export function chatSummary(options: ChatSummaryOptions = {}): AgentCapabilityDe
   const command = normalizeChatSummaryCommand(options.command)
   const commandName = command?.name
   if (commandName) assertInputCommandName(commandName)
-  const generatedSummaries = new WeakMap<AgentRunInput, { summary: string }>()
+  const generatedSummaries = new WeakSet<{ summary: string }>()
 
   return defineCapability({
     id,
@@ -181,12 +181,15 @@ export function chatSummary(options: ChatSummaryOptions = {}): AgentCapabilityDe
           [summaryContextKey]: summaryValue,
         },
       }
-      generatedSummaries.set(nextInput, summaryValue)
+      generatedSummaries.add(summaryValue)
       context.input.set(nextInput)
     },
     output(context) {
       context.finish.provide((event: AgentFinishEvent) => {
-        return generatedSummaries.get(event.input)
+        const summaryValue = event.input.context?.[summaryContextKey]
+        return typeof summaryValue === "object" && summaryValue !== null && generatedSummaries.has(summaryValue as { summary: string })
+          ? summaryValue
+          : undefined
       })
     },
   })

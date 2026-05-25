@@ -128,6 +128,37 @@ describe("chatSummary", () => {
     })
   })
 
+  it("exposes generated summaries after later input object replacement", async () => {
+    const { chatSummary } = await import("../src/capabilities.ts")
+    const { defineCapability } = await import("../src/capability-runtime.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const replaceInput = defineCapability({
+      id: "replace-input",
+      input(context) {
+        context.input.set({ ...context.input.get(), metadata: { replaced: true } })
+      },
+    })
+    const agent = defineAgent({
+      capabilities: [chatSummary({ execute: () => "Summary for finish hook." }), replaceInput],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: ({ messages }) => ({ text: getMessageText(messages.at(-1)!) }),
+    })
+
+    await runAgent(agent, runtime(), {
+      messages: [
+        createMessage({ role: "user", text: "Original request" }),
+        createMessage({ role: "user", text: "/summary" }),
+      ],
+    })
+
+    expect(finish.mock.calls[0]![0].extensions.get("chat-summary")).toEqual({
+      summary: "Summary for finish hook.",
+    })
+  })
+
   it("does not expose pre-populated summary context as this capability instance result", async () => {
     const { chatSummary } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
