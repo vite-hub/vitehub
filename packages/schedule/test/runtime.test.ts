@@ -258,6 +258,9 @@ describe("KV Runtime Schedule Store", () => {
     expect(updated?.createdAt).toEqual(createdAt)
     expect(updated?.updatedAt).toEqual(changedAt)
 
+    const unchanged = await store.update("schedule/1", { cron: undefined, target: undefined, updatedAt: changedAt } as never)
+    expect(unchanged).toMatchObject({ cron: "30 10 * * *", target: "daily/report" })
+
     await expect(store.create({
       createdAt,
       cron: "0 9 * * *",
@@ -556,6 +559,9 @@ describe("KV Schedule Run Store", () => {
     failedAttempt!.error!.message = "mutated"
     expect((await store.getRun(run.id))?.error).toMatchObject({ message: "boom" })
     expect((await store.getAttempt(attempt.id))?.error).toMatchObject({ message: "boom" })
+    const listedRun = (await store.listRuns())[0]
+    listedRun!.error!.message = "listed mutation"
+    expect((await store.getRun(run.id))?.error).toMatchObject({ message: "boom" })
 
     await expect(store.createRun(run)).rejects.toThrow("Schedule Run already exists: run/1")
     await expect(store.createAttempt(attempt)).rejects.toThrow("Schedule Run Attempt already exists: attempt/1")

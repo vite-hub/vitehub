@@ -194,7 +194,7 @@ export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions = {
       }
       const next = cloneRuntimeSchedule({
         ...deserializeRuntimeSchedule(existing),
-        ...patch,
+        ...omitUndefinedPatch(patch),
         updatedAt: patch.updatedAt,
       })
       await store.set(key, serializeRuntimeSchedule(next))
@@ -242,6 +242,7 @@ function deserializeScheduleRun(record: StoredScheduleRunRecord): ScheduleRunRec
     ...record,
     completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
     createdAt: new Date(record.createdAt),
+    error: record.error ? { ...record.error } : undefined,
     scheduledAt: new Date(record.scheduledAt),
     startedAt: record.startedAt ? new Date(record.startedAt) : undefined,
     updatedAt: new Date(record.updatedAt),
