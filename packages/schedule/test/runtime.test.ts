@@ -360,6 +360,28 @@ describe("Schedule Run bookkeeping", () => {
     expect(await schedules.listAttempts(first.id)).toHaveLength(1)
   })
 
+  it("returns an existing Runtime Schedule run after the schedule record is deleted", async () => {
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls += 1
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.delete("schedule-1")
+    const second = await schedules.run("schedule-1", { scheduledAt })
+
+    expect(second).toEqual(first)
+    expect(calls).toBe(1)
+  })
+
   it("keeps run ids distinct for schedule ids with the same sanitized form", async () => {
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const first = await executeStaticSchedule({

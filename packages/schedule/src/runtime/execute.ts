@@ -57,6 +57,10 @@ async function getExistingRun(options: { scheduleId: string, scheduledAt: Date, 
   return await store.getRun(toRunId(options.source, options.scheduleId, options.scheduledAt))
 }
 
+async function getExistingRuntimeRun(id: string, scheduledAt: Date): Promise<ScheduleRunRecord | undefined> {
+  return await getExistingRun({ scheduleId: id, scheduledAt, source: "runtime" })
+}
+
 async function createOrGetRun(options: Omit<ExecuteScheduleOptions, "definition"> & { scheduledAt: Date, source: ScheduleRunSource }): Promise<{ created: boolean, run: ScheduleRunRecord }> {
   const store = getScheduleRunStore()
   const id = toRunId(options.source, options.scheduleId, options.scheduledAt)
@@ -207,11 +211,11 @@ async function loadRequiredRuntimeSchedule(id: string): Promise<RuntimeScheduleR
 export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
   const id = typeof options === "string" ? options : options.id
   const scheduledAt = typeof options === "string" ? new Date() : options.scheduledAt ?? new Date()
-  const schedule = await loadRequiredRuntimeSchedule(id)
-  const existing = await getExistingRun({ scheduleId: schedule.id, scheduledAt, source: "runtime" })
+  const existing = await getExistingRuntimeRun(id, scheduledAt)
   if (existing) {
     return existing
   }
+  const schedule = await loadRequiredRuntimeSchedule(id)
   if (!schedule.enabled) {
     throw new ScheduleError(`Runtime Schedule is disabled: ${id}`, {
       code: "SCHEDULE_DISABLED",
