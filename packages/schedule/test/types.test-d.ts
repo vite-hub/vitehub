@@ -1,6 +1,7 @@
 import { expectTypeOf, it } from "vitest"
 
 import { defineSchedule, schedules } from "../src/index.ts"
+import "../src/runtime.ts"
 import registry from "#vitehub/schedule/registry"
 import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
