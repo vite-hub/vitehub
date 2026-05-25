@@ -77,7 +77,7 @@ describe("Vite schedule integration", () => {
     expect(registry).toContain("import { runScheduledAgent } from \"@vitehub/agent\"")
     expect(registry).toContain("\"support/daily\": async () => ({")
     expect(registry).toContain("cron: \"0 9 * * *\"")
-    expect(registry).toContain("options: { id: \"daily\", target: \"support\" }")
+    expect(registry).toContain("options: { id: \"support/daily\", target: \"support\" }")
     expect(registry).toContain("handler: async (context) => runScheduledAgent(")
   })
 

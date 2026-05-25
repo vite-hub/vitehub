@@ -25,7 +25,6 @@ export function createScheduleRegistryContents(registryFile: string, definitions
       const agentExpression = definition.agentExportName
         ? `(await ${createImportExpression(registryFile, definition.handler)})[${JSON.stringify(definition.agentExportName)}]`
         : `(await ${createImportExpression(registryFile, definition.handler)}).default`
-      const scheduleId = definition.name.split("/").at(-1) || definition.name
       return [
         `  ${JSON.stringify(definition.name)}: async () => ({`,
         `    cron: ${JSON.stringify(definition.cron || "")},`,
@@ -33,7 +32,7 @@ export function createScheduleRegistryContents(registryFile: string, definitions
         `      ${agentExpression},`,
         "      context,",
         "    ),",
-        `    options: { id: ${JSON.stringify(scheduleId)}, target: ${JSON.stringify(definition.agentName || definition.name)} },`,
+        `    options: { id: ${JSON.stringify(definition.name)}, target: ${JSON.stringify(definition.agentName || definition.name)} },`,
         "  }),",
       ].join("\n")
     }),
