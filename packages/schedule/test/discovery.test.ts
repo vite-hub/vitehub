@@ -155,6 +155,25 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("discovers inline Agent Schedules from namespace schedule capabilities", async () => {
+    const viteRootDir = await createTempDir("vitehub-agent-schedule-namespace-")
+    await mkdir(join(viteRootDir, "src"), { recursive: true })
+    await writeFile(join(viteRootDir, "src", "support.agent.ts"), [
+      "import { defineAgent } from '@vitehub/agent'",
+      "import * as agent from '@vitehub/agent/capabilities'",
+      "export default defineAgent({",
+      "  capabilities: [agent.schedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([
+      expect.objectContaining({ cron: "0 9 * * *", name: "support/schedule-0-9" }),
+    ])
+  })
+
   it("skips dependency directories during Vite inline Agent Schedule discovery", async () => {
     const viteRootDir = await createTempDir("vitehub-agent-schedule-skip-deps-")
     await mkdir(join(viteRootDir, "src"), { recursive: true })

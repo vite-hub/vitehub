@@ -348,14 +348,25 @@ function parseScheduleCapabilityNames(source: string): string[] {
       if (imported?.trim() === "schedule") names.add((local || imported).trim())
     }
   }
-  return [...names].filter(name => /^[A-Za-z_$][\w$]*$/.test(name))
+  for (const match of source.matchAll(/\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s*(['"])@vitehub\/agent(?:\/capabilities)?\2/g)) {
+    names.add(`${match[1]}.schedule`)
+  }
+  return [...names].filter(name => /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?$/.test(name))
+}
+
+function escapeRegExp(source: string): string {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function scheduleCapabilityCallPattern(capabilityName: string): string {
+  return capabilityName.split(".").map(escapeRegExp).join("\\s*\\.\\s*")
 }
 
 function parseInlineAgentScheduleEntries(source: string, capabilityNames = parseScheduleCapabilityNames(source)): Array<{ cron: string, id: string }> {
   const stripped = stripComments(source)
   const entries: Array<{ cron: string, id: string }> = []
   for (const capabilityName of capabilityNames) {
-    const schedulesPattern = new RegExp(`\\b${capabilityName}\\s*\\(\\s*\\{[\\s\\S]*?\\bschedules\\s*:\\s*\\[([\\s\\S]*?)\\][\\s\\S]*?\\}\\s*\\)`, "g")
+    const schedulesPattern = new RegExp(`\\b${scheduleCapabilityCallPattern(capabilityName)}\\s*\\(\\s*\\{[\\s\\S]*?\\bschedules\\s*:\\s*\\[([\\s\\S]*?)\\][\\s\\S]*?\\}\\s*\\)`, "g")
     for (const match of stripped.matchAll(schedulesPattern)) {
       const body = match[1]!
       for (const entry of splitTopLevelArguments(body)) {
