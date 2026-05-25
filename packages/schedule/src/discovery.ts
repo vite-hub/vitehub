@@ -65,11 +65,13 @@ function maskCommentsAndStrings(source: string) {
 }
 
 function readDefaultExportIdentifier(source: string) {
-  return maskCommentsAndStrings(source).match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
+  const code = maskCommentsAndStrings(source)
+  return code.match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
+    ?? code.match(/\bexport\s*\{\s*([A-Za-z_$][\w$]*)\s+as\s+default\s*\}/)?.[1]
 }
 
 function readDefineScheduleBindingName(source: string, start: number) {
-  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n|$)\s*)*$/)?.[1]
+  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n|$)\s*)*$/)?.[1]
 }
 
 function readDefineScheduleOptions(source: string): string | undefined {
@@ -90,6 +92,51 @@ function stripBoundaryComments(source: string) {
     .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
 }
 
+function decodeStringLiteralValue(value: string) {
+  let decoded = ""
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index]
+    if (char !== "\\") {
+      decoded += char
+      continue
+    }
+    const next = value[++index]
+    if (next === undefined) {
+      decoded += "\\"
+      continue
+    }
+    if (next === "u") {
+      const hex = value.slice(index + 1, index + 5)
+      if (/^[\da-f]{4}$/i.test(hex)) {
+        decoded += String.fromCharCode(Number.parseInt(hex, 16))
+        index += 4
+        continue
+      }
+    }
+    if (next === "x") {
+      const hex = value.slice(index + 1, index + 3)
+      if (/^[\da-f]{2}$/i.test(hex)) {
+        decoded += String.fromCharCode(Number.parseInt(hex, 16))
+        index += 2
+        continue
+      }
+    }
+    decoded += ({
+      "\\": "\\",
+      "\"": "\"",
+      "'": "'",
+      "0": "\0",
+      b: "\b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      t: "\t",
+      v: "\v",
+    } as Record<string, string>)[next] ?? next
+  }
+  return decoded
+}
+
 function readTopLevelStringProperty(source: string, property: string): string | undefined {
   const objectSource = stripBoundaryComments(source)
   if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
@@ -101,7 +148,7 @@ function readTopLevelStringProperty(source: string, property: string): string | 
     const value = stripBoundaryComments(valueParts.join(":"))
     const match = value.match(/^(['"])((?:\\.|(?!\1).)*)\1$/)
     if (match) {
-      return match[2]?.replace(/\\(.)/g, "$1")
+      return decodeStringLiteralValue(match[2] ?? "")
     }
   }
 }
