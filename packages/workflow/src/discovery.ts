@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs"
+import { readdirSync, statSync } from "node:fs"
 import { relative } from "node:path"
 
 import { normalize, resolve } from "pathe"
@@ -7,7 +7,6 @@ import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
-  listSourceFiles,
   mergeDefinitions,
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
@@ -15,10 +14,6 @@ import {
   resolveDefinitionScanRoots,
   sortDefinitions,
 } from "@vitehub/internal/definition-catalog"
-import {
-  findIdentifierCalls,
-  splitTopLevel,
-} from "@vitehub/internal/source-scanner"
 
 import type { DiscoveredWorkflowDefinition } from "./types.ts"
 
@@ -26,6 +21,7 @@ const workflowSuffixPattern = /\.workflow\.(?:c|m)?[jt]s$/i
 const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
 const stepFilePattern = /^\d+[.-].*\.(?:c|m)?[jt]s$/i
+
 function normalizeSuffixWorkflowName(rootDir: string, file: string) {
   return normalizeSuffixDefinitionName(rootDir, file, workflowSuffixPattern, { stripPrefix: "src/" })
 }
@@ -118,110 +114,6 @@ function discoverFlatServerWorkflowDefinitions(scanDirs: string[], source: NonNu
   ])
 }
 
-function readStringLiteral(source: string) {
-  const match = source.trim().match(/^(['"])([^'"]+)\1$/)
-  return match?.[2]
-}
-
-function readObjectWorkflowName(argument: string) {
-  const objectSource = argument.trim()
-  if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) {
-    return
-  }
-  const properties = splitTopLevel(objectSource.slice(1, -1))
-  let name: string | undefined
-  let hasHandler = false
-  for (const property of properties) {
-    const [key, ...valueParts] = splitTopLevel(property, ":")
-    const value = valueParts.join(":").trim()
-    if (key?.trim() === "name") {
-      name = readStringLiteral(value)
-    }
-    else if (key?.trim() === "handler" || property.trim() === "handler" || /^(?:async\s+)?handler\s*\(/.test(property.trim())) {
-      hasHandler = true
-    }
-  }
-  return hasHandler ? name : undefined
-}
-
-function isOptionsOnlyWorkflowCall(argumentsList: string[]) {
-  return argumentsList.length === 2 && argumentsList[1]?.trim().startsWith("{")
-}
-
-function discoverInlineWorkflowNames(source: string) {
-  const names: string[] = []
-  for (const call of findIdentifierCalls(source, "createWorkflow")) {
-    const argumentsList = call.arguments
-    if (!argumentsList?.length) {
-      continue
-    }
-
-    const objectName = readObjectWorkflowName(argumentsList[0]!)
-    if (objectName) {
-      names.push(objectName)
-      continue
-    }
-
-    if (isOptionsOnlyWorkflowCall(argumentsList)) {
-      continue
-    }
-
-    const stringName = readStringLiteral(argumentsList[0]!)
-    if (stringName && argumentsList.length > 1) {
-      names.push(stringName)
-    }
-  }
-  return names
-}
-
-function resolveInlineWorkflowScanRoots(options: { rootDir: string, scanDirs?: string[] }) {
-  if (options.scanDirs?.length) {
-    return options.scanDirs
-  }
-  return [resolve(options.rootDir, "server")]
-}
-
-function discoverInlineWorkflowDefinitions(options: { rootDir: string, scanDirs?: string[] }): DiscoveredWorkflowDefinition[] {
-  const definitions = new Map<string, DiscoveredWorkflowDefinition>()
-  const roots = resolveInlineWorkflowScanRoots(options)
-  const seenFiles = new Set<string>()
-
-  for (const root of roots) {
-    for (const file of listSourceFiles(root)) {
-      if (seenFiles.has(file)) {
-        continue
-      }
-      seenFiles.add(file)
-      const contents = readFileSync(file, "utf8")
-      for (const name of discoverInlineWorkflowNames(contents)) {
-        registerDefinition(definitions, {
-          handler: file,
-          name,
-          source: "inline",
-        }, "workflow")
-      }
-    }
-  }
-
-  return sortDefinitions(definitions)
-}
-
-function mergeInlineWorkflowFolderSteps(
-  inlineDefinitions: DiscoveredWorkflowDefinition[],
-  folderDefinitions: DiscoveredWorkflowDefinition[],
-) {
-  const stepsByHandler = new Map(
-    folderDefinitions
-      .filter(definition => definition.steps?.length)
-      .map(definition => [normalize(definition.handler), definition.steps!]),
-  )
-
-  return inlineDefinitions.map((definition) => {
-    const steps = stepsByHandler.get(normalize(definition.handler))
-    return steps ? { ...definition, steps } : definition
-  })
-}
-
 export function discoverWorkflowDefinitions(options:
   | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
   | { mode: "nitro-server-workflows", scanDirs: string[] }
@@ -236,20 +128,16 @@ export function discoverWorkflowDefinitions(options:
 
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
   const serverScanDirs = roots.map(root => resolve(root, "server"))
-  const inlineDefinitions = discoverInlineWorkflowDefinitions(options)
-  const inlineHandlers = new Set(inlineDefinitions.map(definition => normalize(definition.handler)))
-  const preferInlineHandler = (definition: { handler: string }) => !inlineHandlers.has(normalize(definition.handler))
   const folderDefinitions = discoverWorkflowFolders(serverScanDirs, "nitro-server-workflows")
 
   return mergeDefinitions(
     "workflow",
-    mergeInlineWorkflowFolderSteps(inlineDefinitions, folderDefinitions),
     discoverDefinitions("workflow", [
       createSuffixDefinitionSource<DiscoveredWorkflowDefinition>("vite-suffix", roots, workflowSuffixPattern, normalizeSuffixWorkflowName, {
         createDefinition: ({ file, name }) => ({ handler: file, name, source: "vite-suffix" }),
       }),
-    ]).filter(preferInlineHandler),
-    discoverFlatServerWorkflowDefinitions(serverScanDirs, "nitro-server-workflows").filter(preferInlineHandler),
-    folderDefinitions.filter(preferInlineHandler),
+    ]),
+    discoverFlatServerWorkflowDefinitions(serverScanDirs, "nitro-server-workflows"),
+    folderDefinitions,
   )
 }

@@ -301,6 +301,25 @@ describe("workflow runtime", () => {
     expect(discovered).not.toHaveBeenCalled()
   })
 
+  it("uses a single inline definition registered by a discovered location entry", async () => {
+    const inline = vi.fn(async () => "inline")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      "server/workflows/chat": async () => {
+        createWorkflow("legacy-chat-name", inline)
+        return {}
+      },
+    })
+
+    const run = await runWorkflow("server/workflows/chat", undefined, { id: "chat" })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("server/workflows/chat", run.id)).resolves.toMatchObject({ result: "inline" })
+    })
+    expect(inline).toHaveBeenCalledTimes(1)
+  })
+
   it("wraps Cloudflare workflow handlers with provider steps", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
     const step = { do: stepDo } as WorkflowProviderStep
