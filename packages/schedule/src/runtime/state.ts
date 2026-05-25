@@ -83,6 +83,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
 
 export function resetScheduleRuntime(): void {
   runtimeRegistry = undefined
+  runtimeRegistryVersion++
   runtimeStore = undefined
   runStore = undefined
   loadedRegistryEntries.clear()
