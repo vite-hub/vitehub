@@ -85,7 +85,8 @@ function isIdentifierChar(char: string | undefined) {
 }
 
 function isRegexLiteralStart(previousSignificant: string) {
-  return !previousSignificant || /[({[=,:!&|?;>+\-*%^~]/.test(previousSignificant) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(previousSignificant)
+  const token = previousSignificant.trimEnd()
+  return !token || /[({[=,:!&|?;>+\-*%^~]/.test(token) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(token)
 }
 
 function isControlFlowRegexStart(source: string, index: number) {
@@ -96,7 +97,8 @@ function isControlFlowRegexStart(source: string, index: number) {
   for (let current = closeParen; current >= 0; current--) {
     if (source[current] !== "(") continue
     if (findMatching(source, current, "(", ")") !== closeParen) continue
-    return /(?:^|[^\w$])(?:if|while|for|with)\s*$/.test(source.slice(0, current))
+    const head = source.slice(0, current).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ")
+    return /(?:^|[^\w$])(?:if|while|for|with)\s*$/.test(head)
   }
 
   return false
@@ -134,6 +136,9 @@ function skipRegexLiteral(source: string, index: number) {
 function trackSignificant(previousSignificant: string, char: string | undefined) {
   if (/[a-z$]/i.test(char ?? "")) {
     return /[\w$]$/.test(previousSignificant) ? previousSignificant + char : char ?? ""
+  }
+  if (/\s/.test(char ?? "")) {
+    return /[\w$]$/.test(previousSignificant) ? `${previousSignificant} ` : previousSignificant
   }
   if (!/\s/.test(char ?? "")) {
     return char ?? ""
