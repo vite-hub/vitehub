@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { ScheduleError } from "../src/index.ts"
 import { schedules } from "../src/runtime.ts"
-import { resetScheduleRuntime, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
+import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 afterEach(() => {
   resetScheduleRuntime()
@@ -95,6 +95,33 @@ describe("Runtime Schedule helper", () => {
     await expect(schedules.create({ cron: "0 9 * * *", target: "report" })).rejects.toMatchObject({
       code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
     })
+  })
+
+  it("uses the replacement registry while an old registry load is in flight", async () => {
+    let finishOld: (() => void) | undefined
+    let newLoadCount = 0
+
+    setScheduleRuntimeRegistry({
+      report: async () => {
+        await new Promise<void>(resolve => { finishOld = resolve })
+        return { cron: "0 8 * * *", handler: async () => {} }
+      },
+    })
+    const oldLoad = loadScheduleDefinition("report")
+    await Promise.resolve()
+
+    setScheduleRuntimeRegistry({
+      report: async () => {
+        newLoadCount++
+        return { cron: "0 9 * * *", handler: async () => {} }
+      },
+    })
+
+    await expect(loadScheduleDefinition("report")).resolves.toMatchObject({ cron: "0 9 * * *" })
+    finishOld?.()
+    await oldLoad
+    await expect(loadScheduleDefinition("report")).resolves.toMatchObject({ cron: "0 9 * * *" })
+    expect(newLoadCount).toBe(1)
   })
 
   it("fails clearly when updating an unknown schedule", async () => {

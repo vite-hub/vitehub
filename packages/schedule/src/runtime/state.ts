@@ -6,6 +6,7 @@ import type { RuntimeScheduleStore, ScheduleDefinition, ScheduleDefinitionRegist
 
 let runtimeRegistry: ScheduleDefinitionRegistry | undefined
 let runtimeStore: RuntimeScheduleStore | undefined
+let runtimeRegistryVersion = 0
 let fallbackEvent: unknown
 const eventStorage = new AsyncLocalStorage<unknown>()
 const loadedRegistryEntries = new Map<string, ScheduleDefinition | undefined>()
@@ -18,7 +19,9 @@ function isScheduleDefinition(value: unknown): value is ScheduleDefinition {
 
 export function setScheduleRuntimeRegistry(registry: ScheduleDefinitionRegistry | undefined): void {
   runtimeRegistry = registry
+  runtimeRegistryVersion++
   loadedRegistryEntries.clear()
+  loadingRegistryEntries.clear()
 }
 
 export function getScheduleRuntimeRegistry(): ScheduleDefinitionRegistry | undefined {
@@ -67,6 +70,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
 
   const nextActiveLoads = new Set(activeLoads)
   nextActiveLoads.add(name)
+  const loadingVersion = runtimeRegistryVersion
   const loadingEntry = Promise.resolve().then(() => loadingRegistryStorage.run(nextActiveLoads, async () => {
     const loaded = await entry()
     if (isScheduleDefinition(loaded)) {
@@ -80,7 +84,9 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
   loadingRegistryEntries.set(name, loadingEntry)
   try {
     const loaded = await loadingEntry
-    loadedRegistryEntries.set(name, loaded)
+    if (loadingVersion === runtimeRegistryVersion) {
+      loadedRegistryEntries.set(name, loaded)
+    }
     return loaded
   }
   finally {
@@ -90,6 +96,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
 
 export function resetScheduleRuntime(): void {
   runtimeRegistry = undefined
+  runtimeRegistryVersion++
   runtimeStore = undefined
   fallbackEvent = undefined
   loadedRegistryEntries.clear()

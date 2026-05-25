@@ -25,6 +25,7 @@ describe("Nitro schedule integration", () => {
     const registryFile = join(root, ".nitro", "vitehub", "schedule", "nitro-registry.mjs")
     expect(nitro.options.alias["#vitehub/schedule/registry"]).toBe(registryFile)
     expect(nitro.options.alias["#vitehub/schedule/targets"]).toBe(join(root, ".nitro", "vitehub", "schedule", "targets.mjs"))
+    expect(nitro.options.alias["@vitehub/schedule/runtime"]).toContain("/src/runtime")
     expect(await readFile(registryFile, "utf8")).toBe([
       "",
       "const registry = {",
@@ -57,7 +58,9 @@ describe("Nitro schedule integration", () => {
 
     expect(nitro.options.cloudflare.wrangler?.triggers?.crons).toEqual(["0 0 * * *"])
     expect(nitro.options.plugins[0]).toBe(join(root, ".nitro", "vitehub", "schedule", "nitro-plugin.ts"))
-    expect(await readFile(nitro.options.plugins[0]!, "utf8")).toContain("cloudflare:scheduled")
+    const pluginContents = await readFile(nitro.options.plugins[0]!, "utf8")
+    expect(pluginContents).toContain("setScheduleRuntimeRegistry(scheduleRegistry)")
+    expect(pluginContents).toContain("cloudflare:scheduled")
   })
 
   it("does not require static cron strings outside provider presets", async () => {

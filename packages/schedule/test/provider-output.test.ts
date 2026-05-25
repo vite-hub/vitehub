@@ -56,6 +56,20 @@ describe("schedule provider output", () => {
     expect(() => validateProviderCron("0 0 1 1 * 2026", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
   })
 
+  it("rejects dynamic cron expressions before provider output generation", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-dynamic-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "const suffix = '0'",
+      "export default defineSchedule('0 0 * * *' + suffix, () => 'ok')",
+      "",
+    ].join("\n"), "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow(/must declare a static cron string/)
+  })
+
   it("preserves existing Vercel output config when adding schedule crons", async () => {
     const rootDir = await createTempProject("vitehub-schedule-vercel-config-")
     const outputRoot = join(rootDir, ".vercel", "output")
@@ -83,6 +97,71 @@ describe("schedule provider output", () => {
       routes: [{ src: "/api/(.*)", dest: "/api/index.func" }],
       version: 3,
     })
+  })
+
+  it("removes stale generated Vercel schedule crons when rewriting config", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-vercel-stale-crons-")
+    const outputRoot = join(rootDir, ".vercel", "output")
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "config.json"), JSON.stringify({
+      crons: [
+        { path: "/api/user-cron", schedule: "0 1 * * *" },
+        { path: "/api/vitehub/schedules/vercel/old-cleanup", schedule: "0 2 * * *" },
+      ],
+      version: 3,
+    }), "utf8")
+    const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
+    await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
+    await writeFile(registryFile, "export default {}\n", "utf8")
+
+    await writeVercelScheduleFunctions({
+      definitions: [{
+        handler: join(rootDir, "src", "cleanup.schedule.ts"),
+        name: "cleanup",
+      }],
+      outputRoot,
+      registryFile,
+      rootDir,
+    }, new Map([["cleanup", "0 0 * * *"]]))
+
+    expect(JSON.parse(await readFile(join(outputRoot, "config.json"), "utf8")).crons).toEqual([
+      { path: "/api/user-cron", schedule: "0 1 * * *" },
+      { path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 0 * * *" },
+    ])
+  })
+
+  it("uses Nitro aliases when bundling Vercel schedule functions", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-vercel-alias-")
+    const aliasFile = join(rootDir, "nitro-imports.mjs")
+    const outputRoot = join(rootDir, ".vercel", "output")
+    const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
+    await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
+    await writeFile(aliasFile, "export const marker = 'nitro-alias-marker'\n", "utf8")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "import { marker } from '#imports'",
+      "export default { cron: '0 0 * * *', handler: () => marker }",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(registryFile, [
+      "const registry = {",
+      `  cleanup: async () => import(${JSON.stringify(join(rootDir, "src", "cleanup.schedule.ts"))}),`,
+      "}",
+      "export default registry",
+      "",
+    ].join("\n"), "utf8")
+
+    await writeVercelScheduleFunctions({
+      bundleAlias: { "#imports": aliasFile },
+      definitions: [{
+        handler: join(rootDir, "src", "cleanup.schedule.ts"),
+        name: "cleanup",
+      }],
+      outputRoot,
+      registryFile,
+      rootDir,
+    }, new Map([["cleanup", "0 0 * * *"]]))
+
+    await expect(readFile(join(outputRoot, "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")).resolves.toContain("nitro-alias-marker")
   })
 
   it("rejects sanitized Vercel function path collisions", async () => {
