@@ -194,6 +194,13 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   const id = typeof options === "string" ? options : options.id
   const scheduledAt = typeof options === "string" ? undefined : options.scheduledAt
   const schedule = await loadRequiredRuntimeSchedule(id)
+  if (!schedule.enabled) {
+    throw new ScheduleError(`Runtime Schedule is disabled: ${id}`, {
+      code: "SCHEDULE_DISABLED",
+      details: { id },
+      httpStatus: 409,
+    })
+  }
   const definition = await loadScheduleDefinition(schedule.target)
   if (!definition) {
     throw new ScheduleError(`Unknown Runtime Schedule target: ${schedule.target}`, {

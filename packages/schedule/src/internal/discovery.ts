@@ -180,14 +180,40 @@ function findDefineAgentCall(source: string, initializerStart: number): string |
   return readBalancedCall(source, initializerStart + leadingWhitespace + match[0].length - 1)
 }
 
+function findVariableInitializerStart(source: string, start: number): number | undefined {
+  let depth = 0
+  let quote: "\"" | "'" | "`" | undefined
+  for (let index = start; index < source.length; index++) {
+    const char = source[index]
+    if (quote) {
+      if (char === "\\") {
+        index++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "<" || char === "{" || char === "(" || char === "[") depth++
+    if (char === ">" || char === "}" || char === ")" || char === "]") depth = Math.max(0, depth - 1)
+    if (char === "=" && depth === 0) return index + 1
+    if ((char === ";" || char === "\n") && depth === 0) return
+  }
+}
+
 function discoverNamedAgentExports(file: string): Array<{ exportName: string, name: string, source: string }> {
   const source = stripComments(readFileSync(file, "utf8"))
   const locals = new Map<string, string>()
   const definitions = new Map<string, { exportName: string, name: string, source: string }>()
 
-  for (const match of source.matchAll(/\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=/g)) {
+  for (const match of source.matchAll(/\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)) {
     const localName = match[1]!
-    const callSource = findDefineAgentCall(source, match.index! + match[0].length)
+    const initializerStart = findVariableInitializerStart(source, match.index! + match[0].length)
+    if (initializerStart === undefined) continue
+    const callSource = findDefineAgentCall(source, initializerStart)
     if (!callSource) continue
     locals.set(localName, callSource)
     if (match[0].startsWith("export")) {

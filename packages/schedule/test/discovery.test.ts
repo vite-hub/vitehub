@@ -218,6 +218,23 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("discovers Nitro aggregate inline Agent exports with equals in type annotations", async () => {
+    const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-equals-type-export-")
+    await writeFile(join(nitroScanDir, "agent.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export const Support: AgentDefinition<{ Defaults extends string = 'daily' }> = defineAgent({",
+      "  capabilities: [schedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "nitro-server-schedules",
+      scanDirs: [nitroScanDir],
+    })).toEqual([
+      expect.objectContaining({ agentExportName: "Support", agentName: "Support", cron: "0 9 * * *", name: "Support/schedule-0-9" }),
+    ])
+  })
+
   it("discovers generic Nitro aggregate inline Agent Schedule exports", async () => {
     const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-generic-export-")
     await writeFile(join(nitroScanDir, "agent.ts"), [

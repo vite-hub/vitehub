@@ -251,6 +251,22 @@ describe("Schedule Run bookkeeping", () => {
     })
   })
 
+  it("blocks execution when a persisted Runtime Schedule is disabled", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.disable("schedule-1")
+
+    await expect(schedules.run("schedule-1")).rejects.toMatchObject({
+      code: "SCHEDULE_DISABLED",
+    })
+  })
+
   it("uses the same bookkeeping path for static provider-triggered schedules", async () => {
     const scheduledAt = new Date("2026-05-23T10:00:00.000Z")
     const run = await executeStaticSchedule({
