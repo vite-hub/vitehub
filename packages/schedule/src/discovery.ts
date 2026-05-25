@@ -156,6 +156,15 @@ function decodeStringLiteralValue(value: string) {
       continue
     }
     if (next === "u") {
+      if (value[index + 1] === "{") {
+        const end = value.indexOf("}", index + 2)
+        const hex = end === -1 ? "" : value.slice(index + 2, end)
+        if (/^[\da-f]+$/i.test(hex)) {
+          decoded += String.fromCodePoint(Number.parseInt(hex, 16))
+          index = end
+          continue
+        }
+      }
       const hex = value.slice(index + 1, index + 5)
       if (/^[\da-f]{4}$/i.test(hex)) {
         decoded += String.fromCharCode(Number.parseInt(hex, 16))

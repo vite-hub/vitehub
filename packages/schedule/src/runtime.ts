@@ -1,3 +1,5 @@
+export type {} from "./registry-module.d.ts"
+
 export { ScheduleError } from "./errors.ts"
 export { schedules, validateRuntimeScheduleCron } from "./runtime/client.ts"
 export { createMemoryRuntimeScheduleStore } from "./runtime/store.ts"
