@@ -8,7 +8,7 @@ import type { RuntimeScheduleRecord, ScheduleDefinition, ScheduleRunAttemptRecor
 interface ExecuteScheduleOptions {
   definition: ScheduleDefinition
   scheduleId: string
-  source: "runtime" | "static"
+  source?: "direct" | "runtime" | "static"
   scheduledAt?: Date
   target: ScheduleTargetName
 }
@@ -25,8 +25,12 @@ interface ExecuteRuntimeScheduleOptions {
   scheduledAt?: Date
 }
 
+function normalizeRunSource(source: ExecuteScheduleOptions["source"]): NonNullable<ExecuteScheduleOptions["source"]> {
+  return source ?? "direct"
+}
+
 function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: string, scheduledAt: Date): string {
-  return `srun_${source}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
+  return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
 }
 
 function toRunError(error: unknown): ScheduleRunError {

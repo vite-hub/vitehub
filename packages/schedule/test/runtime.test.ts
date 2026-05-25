@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 import type { KVStorage } from "@vitehub/kv"
 
@@ -373,6 +373,18 @@ describe("KV Runtime Schedule Store", () => {
 })
 
 describe("Schedule Run bookkeeping", () => {
+  it("uses direct schedule run ids when source is omitted", async () => {
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+
+    await expect(createScheduleRun({
+      scheduleId: "daily-report",
+      scheduledAt,
+      target: "daily-report",
+    })).resolves.toMatchObject({
+      id: "srun_direct_daily-report_2026-05-23T09:00:00.000Z",
+    })
+  })
+
   it("records a run and one successful attempt for a Runtime Schedule", async () => {
     const seen: unknown[] = []
     setScheduleRuntimeRegistry({
