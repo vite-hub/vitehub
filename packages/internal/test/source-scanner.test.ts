@@ -96,6 +96,16 @@ describe("source scanner", () => {
       `() => { if ((ready)) /\\)/.test(")") }`,
       `{ id: "daily" }`,
     ])
+
+    expect(splitTopLevel(`() => { return await /\\)/.test(")") }, { id: "daily" }`)).toEqual([
+      `() => { return await /\\)/.test(")") }`,
+      `{ id: "daily" }`,
+    ])
+
+    expect(splitTopLevel(`() => { if /* hint */ (ready) /\\)/.test(")") }, { id: "daily" }`)).toEqual([
+      `() => { if /* hint */ (ready) /\\)/.test(")") }`,
+      `{ id: "daily" }`,
+    ])
   })
 
   it("ignores member calls with matching names", () => {
