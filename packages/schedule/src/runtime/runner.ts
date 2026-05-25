@@ -33,14 +33,20 @@ function floorUTCMinute(date: Date): Date {
 }
 
 function isDue(schedule: RuntimeScheduleRecord, scheduledAt: Date): boolean {
-  const utcWallClockMinute = new Date(
-    scheduledAt.getUTCFullYear(),
-    scheduledAt.getUTCMonth(),
-    scheduledAt.getUTCDate(),
-    scheduledAt.getUTCHours(),
-    scheduledAt.getUTCMinutes(),
-  )
-  return parseCronExpression(schedule.cron).matchDate(utcWallClockMinute)
+  const cron = parseCronExpression(schedule.cron)
+  const minute = scheduledAt.getUTCMinutes()
+  const hour = scheduledAt.getUTCHours()
+  const day = scheduledAt.getUTCDate()
+  const month = scheduledAt.getUTCMonth()
+  const weekday = scheduledAt.getUTCDay()
+
+  if (!cron.minutes.includes(minute) || !cron.hours.includes(hour) || !cron.months.includes(month)) {
+    return false
+  }
+  if (cron.days.length !== 31 && cron.weekdays.length !== 7) {
+    return cron.days.includes(day) || cron.weekdays.includes(weekday)
+  }
+  return cron.days.includes(day) && cron.weekdays.includes(weekday)
 }
 
 function toRunId(scheduleId: string, scheduledAt: Date): string {

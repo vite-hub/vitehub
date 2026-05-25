@@ -622,6 +622,42 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     runner.stop()
   })
 
+  it("matches runner cron expressions against UTC fields", async () => {
+    const previousTZ = process.env.TZ
+    process.env.TZ = "America/New_York"
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-03-08T02:30:00.000Z"))
+
+    try {
+      let calls = 0
+      setScheduleRuntimeRegistry({
+        report: async () => ({
+          cron: "30 2 * * *",
+          handler: async () => {
+            calls++
+          },
+          options: { allowRuntimeSchedules: true },
+        }),
+      })
+      const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+      const scheduleRunStore = createMemoryScheduleRunStore()
+      const now = new Date("2026-03-08T02:00:00.000Z")
+      await runtimeScheduleStore.create({ createdAt: now, cron: "30 2 * * *", enabled: true, id: "report", target: "report", updatedAt: now })
+
+      const runner = startScheduleRunner({ intervalMs: 10, runtimeScheduleStore, scheduleRunStore })
+      await flushAsyncWork()
+      await vi.advanceTimersByTimeAsync(0)
+      await flushAsyncWork()
+
+      expect(calls).toBe(1)
+      expect((await scheduleRunStore.listRuns())[0]?.id).toBe("srun_report_2026-03-08T02:30:00.000Z")
+      runner.stop()
+    }
+    finally {
+      process.env.TZ = previousTZ
+    }
+  })
+
   it("stops future scans and reports running state", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
