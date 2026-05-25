@@ -12,6 +12,7 @@ function isQuote(char: string | undefined) {
 
 function skipQuoted(source: string, index: number) {
   const quote = source[index]
+  if (quote === "`") return skipTemplateLiteral(source, index)
   index += 1
   while (index < source.length) {
     if (source[index] === "\\") {
@@ -21,6 +22,49 @@ function skipQuoted(source: string, index: number) {
     if (source[index] === quote) {
       return index + 1
     }
+    index += 1
+  }
+  return index
+}
+
+function skipTemplateLiteral(source: string, index: number): number {
+  index += 1
+  let expressionDepth = 0
+  while (index < source.length) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (char === "\\") {
+      index += 2
+      continue
+    }
+    if (expressionDepth === 0) {
+      if (char === "`") return index + 1
+      if (char === "$" && next === "{") {
+        expressionDepth = 1
+        index += 2
+        continue
+      }
+      index += 1
+      continue
+    }
+    if (char === "\"" || char === "'") {
+      index = skipQuoted(source, index)
+      continue
+    }
+    if (char === "`") {
+      index = skipTemplateLiteral(source, index)
+      continue
+    }
+    if (char === "/" && next === "/") {
+      index = skipLineComment(source, index)
+      continue
+    }
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    if (char === "{") expressionDepth += 1
+    if (char === "}") expressionDepth -= 1
     index += 1
   }
   return index
@@ -42,6 +86,10 @@ function isIdentifierChar(char: string | undefined) {
 
 function isRegexLiteralStart(previousSignificant: string) {
   return !previousSignificant || /[({[=,:!&|?;>+\-*%^~]/.test(previousSignificant) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(previousSignificant)
+}
+
+function isControlFlowRegexStart(source: string, index: number) {
+  return /(?:^|[^\w$])(?:if|while|for|with)\s*\([^()]*\)\s*$/.test(source.slice(0, index))
 }
 
 function skipRegexLiteral(source: string, index: number) {
@@ -126,7 +174,7 @@ export function findMatching(source: string, index: number, open: string, close:
       current = skipBlockComment(source, current) - 1
       continue
     }
-    if (char === "/" && isRegexLiteralStart(previousSignificant)) {
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, current))) {
       current = skipRegexLiteral(source, current) - 1
       previousSignificant = "/"
       continue
@@ -166,7 +214,7 @@ export function splitTopLevel(source: string, separator = ",") {
       index = skipBlockComment(source, index) - 1
       continue
     }
-    if (char === "/" && isRegexLiteralStart(previousSignificant)) {
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
       index = skipRegexLiteral(source, index) - 1
       previousSignificant = "/"
       continue
@@ -218,7 +266,7 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
       index = skipBlockComment(source, index) - 1
       continue
     }
-    if (char === "/" && isRegexLiteralStart(previousSignificant)) {
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
       index = skipRegexLiteral(source, index) - 1
       previousSignificant = "/"
       continue

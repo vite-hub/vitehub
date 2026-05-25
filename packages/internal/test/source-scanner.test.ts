@@ -86,12 +86,24 @@ describe("source scanner", () => {
       `() => { const ok = foo + /\\)/.test(")") }`,
       `{ id: "daily" }`,
     ])
+
+    expect(splitTopLevel(`() => { if (ready) /\\)/.test(")") }, { id: "daily" }`)).toEqual([
+      `() => { if (ready) /\\)/.test(")") }`,
+      `{ id: "daily" }`,
+    ])
   })
 
   it("does not treat division operators as regex literals after identifiers", () => {
     expect(splitTopLevel(`() => { const ratio = a / b }, { id: "daily" }`)).toEqual([
       `() => { const ratio = a / b }`,
       `{ id: "daily" }`,
+    ])
+  })
+
+  it("keeps nested template literals non-structural while splitting arguments", () => {
+    expect(splitTopLevel("() => `x ${`y)`}` , { id: \"daily\" }")).toEqual([
+      "() => `x ${`y)`}`",
+      "{ id: \"daily\" }",
     ])
   })
 })
