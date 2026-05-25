@@ -110,7 +110,8 @@ async function withKVKeyLock<T>(key: string, operation: () => Promise<T>): Promi
   const current = new Promise<void>(resolve => {
     release = resolve
   })
-  keyLocks.set(key, previous.then(() => current, () => current))
+  const queued = previous.then(() => current, () => current)
+  keyLocks.set(key, queued)
 
   await previous
   try {
@@ -118,7 +119,7 @@ async function withKVKeyLock<T>(key: string, operation: () => Promise<T>): Promi
   }
   finally {
     release()
-    if (keyLocks.get(key) === current) {
+    if (keyLocks.get(key) === queued) {
       keyLocks.delete(key)
     }
   }
