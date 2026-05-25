@@ -1,4 +1,7 @@
 export {
+  chatSummary,
+} from "./chat-summary.ts"
+export {
   chatTitle,
 } from "./chat-title.ts"
 export {
@@ -41,6 +44,12 @@ export {
   webSearch,
 } from "./web-search/index.ts"
 
+export type {
+  ChatSummaryCommandOptions,
+  ChatSummaryExecuteInput,
+  ChatSummaryExecuteResult,
+  ChatSummaryOptions,
+} from "./chat-summary.ts"
 export type {
   ChatTitleExecuteInput,
   ChatTitleExecuteResult,

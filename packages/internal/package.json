@@ -17,6 +17,7 @@
     "./integrations/hex": "./src/integrations/hex.ts",
     "./nitro": "./src/nitro.ts",
     "./object": "./src/object.ts",
+    "./source-scanner": "./src/source-scanner.ts",
     "./runtime/app": "./src/runtime/app.ts",
     "./runtime/context": "./src/runtime/context.ts",
     "./runtime/cloudflare-hosted": "./src/runtime/cloudflare-hosted.ts",
