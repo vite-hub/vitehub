@@ -8,6 +8,7 @@ import type { RuntimeScheduleRecord, ScheduleDefinition, ScheduleRunAttemptRecor
 interface ExecuteScheduleOptions {
   definition: ScheduleDefinition
   scheduleId: string
+  source: "runtime" | "static"
   scheduledAt?: Date
   target: ScheduleTargetName
 }
@@ -24,8 +25,8 @@ interface ExecuteRuntimeScheduleOptions {
   scheduledAt?: Date
 }
 
-function toRunId(scheduleId: string, scheduledAt: Date): string {
-  return `srun_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
+function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: string, scheduledAt: Date): string {
+  return `srun_${source}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
 }
 
 function toRunError(error: unknown): ScheduleRunError {
@@ -51,7 +52,7 @@ function requireUpdatedRun(run: ScheduleRunRecord | undefined): ScheduleRunRecor
 
 async function createOrGetRun(options: Omit<ExecuteScheduleOptions, "definition"> & { scheduledAt: Date }): Promise<{ created: boolean, run: ScheduleRunRecord }> {
   const store = getScheduleRunStore()
-  const id = toRunId(options.scheduleId, options.scheduledAt)
+  const id = toRunId(options.source, options.scheduleId, options.scheduledAt)
   const existing = await store.getRun(id)
   if (existing) {
     return { created: false, run: existing }
@@ -178,6 +179,7 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   return await executeSchedule({
     definition: options.definition,
     scheduleId: options.definition.options?.id ?? options.name,
+    source: "static",
     scheduledAt: options.scheduledAt,
     target: options.name,
   })
@@ -199,7 +201,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   const id = typeof options === "string" ? options : options.id
   const scheduledAt = typeof options === "string" ? undefined : options.scheduledAt
   if (scheduledAt) {
-    const existingRun = await getScheduleRunStore().getRun(toRunId(id, scheduledAt))
+    const existingRun = await getScheduleRunStore().getRun(toRunId("runtime", id, scheduledAt))
     if (existingRun) {
       return existingRun
     }
@@ -232,6 +234,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   return await executeSchedule({
     definition,
     scheduleId: schedule.id,
+    source: "runtime",
     scheduledAt,
     target: schedule.target,
   })

@@ -354,7 +354,7 @@ describe("Schedule Run bookkeeping", () => {
 
     expect(run).toMatchObject({
       attemptCount: 1,
-      id: "srun_schedule-1_2026-05-23T09:00:00.000Z",
+      id: "srun_runtime_schedule-1_2026-05-23T09:00:00.000Z",
       scheduleId: "schedule-1",
       scheduledAt,
       status: "succeeded",
@@ -448,7 +448,7 @@ describe("Schedule Run bookkeeping", () => {
 
     expect(run).toMatchObject({
       attemptCount: 1,
-      id: "srun_static-report_2026-05-23T10:00:00.000Z",
+      id: "srun_static_static-report_2026-05-23T10:00:00.000Z",
       scheduleId: "static-report",
       scheduledAt,
       status: "succeeded",
@@ -495,8 +495,43 @@ describe("Schedule Run bookkeeping", () => {
       scheduledAt,
     })
 
-    expect(first.id).toBe("srun_daily%2Freport_2026-05-23T09:00:00.000Z")
-    expect(second.id).toBe("srun_daily-report_2026-05-23T09:00:00.000Z")
+    expect(first.id).toBe("srun_static_daily%2Freport_2026-05-23T09:00:00.000Z")
+    expect(second.id).toBe("srun_static_daily-report_2026-05-23T09:00:00.000Z")
+  })
+
+  it("keeps static and Runtime Schedule runs distinct for shared ids", async () => {
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    let runtimeCalls = 0
+    let staticCalls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          runtimeCalls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.create({ cron: "0 9 * * *", id: "shared-id", target: "report" })
+
+    const runtimeRun = await schedules.run("shared-id", { scheduledAt })
+    const staticRun = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: {
+        cron: "0 9 * * *",
+        handler: async () => {
+          staticCalls++
+        },
+        options: { id: "shared-id" },
+      },
+      name: "report",
+      scheduledAt,
+    })
+
+    expect(runtimeRun.id).toBe("srun_runtime_shared-id_2026-05-23T09:00:00.000Z")
+    expect(staticRun.id).toBe("srun_static_shared-id_2026-05-23T09:00:00.000Z")
+    expect(runtimeCalls).toBe(1)
+    expect(staticCalls).toBe(1)
   })
 
   it("reloads an existing run when duplicate creation wins the race", async () => {
@@ -524,7 +559,7 @@ describe("Schedule Run bookkeeping", () => {
     const run = await schedules.run("schedule-1", { scheduledAt })
 
     expect(run).toMatchObject({
-      id: "srun_schedule-1_2026-05-23T09:00:00.000Z",
+      id: "srun_runtime_schedule-1_2026-05-23T09:00:00.000Z",
       status: "pending",
     })
     expect(calls).toBe(0)
