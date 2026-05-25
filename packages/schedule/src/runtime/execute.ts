@@ -201,6 +201,13 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   const scheduledAt = typeof options === "string" ? undefined : options.scheduledAt
   const runtimeScheduleStore = typeof options === "string" ? undefined : options.runtimeScheduleStore
   const scheduleRunStore = typeof options === "string" ? undefined : options.scheduleRunStore
+  if (scheduledAt) {
+    const existingRun = await (scheduleRunStore ?? getScheduleRunStore()).getRun(toRunId(id, scheduledAt))
+    if (existingRun) {
+      return existingRun
+    }
+  }
+
   const schedule = await loadRequiredRuntimeSchedule(id, runtimeScheduleStore)
   if (!schedule.enabled) {
     throw new ScheduleError(`Runtime Schedule is disabled: ${id}`, {

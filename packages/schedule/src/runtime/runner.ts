@@ -129,7 +129,15 @@ export function startScheduleRunner(options: ScheduleRunnerOptions = {}): Schedu
           if (stopped) {
             return
           }
-          if (!schedule.enabled || !isDue(schedule, scheduledAt)) {
+          let due = false
+          try {
+            due = isDue(schedule, scheduledAt)
+          }
+          catch (error) {
+            reportError(error, options.onError)
+            continue
+          }
+          if (!schedule.enabled || !due) {
             continue
           }
           const runId = toRunId(schedule.id, scheduledAt)

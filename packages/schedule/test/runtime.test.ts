@@ -238,6 +238,19 @@ describe("Runtime Schedule helper", () => {
     expect(newLoadCount).toBe(1)
   })
 
+  it("returns early for recursive loads of the same runtime target", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => {
+        expect(await loadScheduleDefinition("report")).toBeUndefined()
+        return { cron: "0 9 * * *", handler: async () => {} }
+      },
+    })
+
+    await expect(loadScheduleDefinition("report")).resolves.toMatchObject({
+      cron: "0 9 * * *",
+    })
+  })
+
   it("fails clearly when updating an unknown schedule", async () => {
     await expect(schedules.update("missing", { enabled: false })).rejects.toBeInstanceOf(ScheduleError)
     await expect(schedules.update("missing", { enabled: false })).rejects.toMatchObject({
@@ -398,6 +411,27 @@ describe("Schedule Run bookkeeping", () => {
     await expect(schedules.run("schedule-1")).rejects.toMatchObject({
       code: "SCHEDULE_DISABLED",
     })
+  })
+
+  it("returns an existing run before revalidating a Runtime Schedule", async () => {
+    const calls: string[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls.push("run")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.delete("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+    expect(calls).toEqual(["run"])
   })
 
   it("uses the same bookkeeping path for static provider-triggered schedules", async () => {
@@ -769,6 +803,38 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     runner.stop()
   })
 
+  it("isolates malformed cron records while scanning due schedules", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    const errors: unknown[] = []
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "bad cron", enabled: true, id: "bad", target: "report", updatedAt: now })
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "report", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushAsyncWork()
+
+    expect(calls).toBe(1)
+    expect(errors).toHaveLength(1)
+    expect((await scheduleRunStore.getRun("srun_report_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
+    runner.stop()
+  })
+
   it("reports synchronous schedule list failures without crashing", async () => {
     vi.useFakeTimers()
     const errors: unknown[] = []
@@ -895,5 +961,29 @@ describe("KV Schedule Run Store", () => {
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
     expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
     await expect(store.getRun("run/1")).resolves.toMatchObject({ id: "run/1" })
+  })
+
+  it("serializes concurrent creates for the same KV schedule run attempt key", async () => {
+    const kvStore = createDelayedHasKVStore()
+    const store = createKVScheduleRunStore({ kvStore, prefix: "tests/run-attempts-lock" })
+    const createdAt = new Date("2026-05-23T09:00:00.000Z")
+    const attempt = {
+      createdAt,
+      id: "attempt/1",
+      runId: "run/1",
+      startedAt: createdAt,
+      status: "running" as const,
+      updatedAt: createdAt,
+    }
+
+    const first = store.createAttempt(attempt)
+    const second = store.createAttempt(attempt)
+    await flushAsyncWork()
+    kvStore.releaseHas()
+
+    const results = await Promise.allSettled([first, second])
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
+    await expect(store.getAttempt("attempt/1")).resolves.toMatchObject({ id: "attempt/1" })
   })
 })
