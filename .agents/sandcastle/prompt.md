@@ -3,13 +3,13 @@
 You are working in the ViteHub repository on one GitHub issue.
 
 Issue:
-!`gh issue view "$ISSUE_NUMBER" --repo vite-hub/vitehub --json number,title,body,labels,url`
+{{ISSUE_JSON}}
 
 Current branch:
-!`git branch --show-current`
+{{CURRENT_BRANCH}}
 
 Recent commits:
-!`git log --oneline -10`
+{{RECENT_COMMITS}}
 
 # Task
 
