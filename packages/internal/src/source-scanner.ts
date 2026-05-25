@@ -83,6 +83,10 @@ function trackSignificant(previousSignificant: string, char: string | undefined)
   return previousSignificant
 }
 
+function isFunctionDeclarationName(source: string, index: number) {
+  return /(?:^|[^\w$])(?:async\s+)?function\s*\*?\s*$/.test(source.slice(0, index))
+}
+
 export function findMatching(source: string, index: number, open: string, close: string): number | undefined {
   let depth = 0
   let previousSignificant = ""
@@ -190,7 +194,12 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
       previousSignificant = "/"
       continue
     }
-    if (!source.startsWith(name, index) || isIdentifierChar(source[index - 1]) || isIdentifierChar(source[index + name.length])) {
+    if (
+      !source.startsWith(name, index)
+      || isIdentifierChar(source[index - 1])
+      || isIdentifierChar(source[index + name.length])
+      || isFunctionDeclarationName(source, index)
+    ) {
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }

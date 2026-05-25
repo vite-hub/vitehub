@@ -158,6 +158,25 @@ describe("workflow definitions", () => {
     ])
   })
 
+  it("does not discover inline workflows from function declarations", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-declarations-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server"), { recursive: true })
+    await writeFile(join(rootDir, "server", "chat.ts"), [
+      `import { createWorkflow } from "@vitehub/workflow"`,
+      `function createWorkflow(name: string) { return name }`,
+      `export const chatReply = createWorkflow({ name: "chat-reply", handler: async () => "ok" })`,
+    ].join("\n"), "utf8")
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({
+        handler: join(rootDir, "server", "chat.ts"),
+        name: "chat-reply",
+        source: "inline",
+      }),
+    ])
+  })
+
   it("preserves regex literals while discovering inline workflow calls", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-inline-regex-"))
     tempDirs.push(rootDir)

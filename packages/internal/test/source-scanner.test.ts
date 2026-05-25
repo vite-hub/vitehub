@@ -19,6 +19,28 @@ describe("source scanner", () => {
     expect(calls[0]?.arguments).toEqual(["\"real\"", "{ ok: true }"])
   })
 
+  it("ignores function declarations with matching names", () => {
+    const defineCalls = findIdentifierCalls([
+      `function defineThing(value: string) { return value }`,
+      `const first = defineThing("real")`,
+    ].join("\n"), "defineThing")
+    const createCalls = findIdentifierCalls([
+      `async function createThing<T>(value: T) { return value }`,
+      `const second = createThing<string>("generic")`,
+    ].join("\n"), "createThing")
+    const streamCalls = findIdentifierCalls([
+      `function* streamThing() { yield "ok" }`,
+      `const third = streamThing()`,
+    ].join("\n"), "streamThing")
+
+    expect(defineCalls).toHaveLength(1)
+    expect(defineCalls[0]?.arguments).toEqual(["\"real\""])
+    expect(createCalls).toHaveLength(1)
+    expect(createCalls[0]?.arguments).toEqual(["\"generic\""])
+    expect(streamCalls).toHaveLength(1)
+    expect(streamCalls[0]?.arguments).toEqual([""])
+  })
+
   it("keeps regex literals non-structural while splitting arguments", () => {
     expect(splitTopLevel(`() => { return /\\)/.test(")") }, { id: "daily" }`)).toEqual([
       `() => { return /\\)/.test(")") }`,
