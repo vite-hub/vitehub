@@ -56,6 +56,56 @@ function skipIgnorable(source: string, index: number): number {
   return index
 }
 
+function previousSignificantToken(source: string, index: number): string {
+  let cursor = index - 1
+  while (cursor >= 0 && /\s/.test(source[cursor]!)) cursor -= 1
+  if (cursor < 0) return ""
+
+  const wordEnd = cursor + 1
+  while (cursor >= 0 && /[$\w]/.test(source[cursor]!)) cursor -= 1
+  if (cursor < wordEnd - 1) return source.slice(cursor + 1, wordEnd)
+
+  return source[cursor]!
+}
+
+function canStartRegexLiteral(source: string, index: number): boolean {
+  const token = previousSignificantToken(source, index)
+  return token === ""
+    || token === "await"
+    || token === "case"
+    || token === "delete"
+    || token === "return"
+    || token === "throw"
+    || token === "typeof"
+    || token === "void"
+    || /^[({[=,:;!&|?+\-*%^~<>]$/.test(token)
+}
+
+function skipRegexLiteral(source: string, index: number): number {
+  let inCharacterClass = false
+  for (let cursor = index + 1; cursor < source.length; cursor += 1) {
+    const char = source[cursor]
+    if (char === "\\") {
+      cursor += 1
+      continue
+    }
+    if (char === "[") {
+      inCharacterClass = true
+      continue
+    }
+    if (char === "]") {
+      inCharacterClass = false
+      continue
+    }
+    if (char === "/" && !inCharacterClass) {
+      cursor += 1
+      while (/[a-z]/i.test(source[cursor] ?? "")) cursor += 1
+      return cursor
+    }
+  }
+  return source.length
+}
+
 function isInsideNonCode(source: string, targetIndex: number): boolean {
   for (let index = 0; index < targetIndex; index += 1) {
     const char = source[index]
@@ -98,6 +148,10 @@ function readBalancedObject(source: string, openIndex: number): string | undefin
       index = skipBlockComment(source, index) - 1
       continue
     }
+    if (char === "/" && canStartRegexLiteral(source, index)) {
+      index = skipRegexLiteral(source, index) - 1
+      continue
+    }
     if (char === "{") depth += 1
     if (char === "}") {
       depth -= 1
@@ -123,6 +177,10 @@ function splitTopLevelProperties(source: string): string[] {
     }
     if (source.startsWith("/*", index)) {
       index = skipBlockComment(source, index) - 1
+      continue
+    }
+    if (char === "/" && canStartRegexLiteral(source, index)) {
+      index = skipRegexLiteral(source, index) - 1
       continue
     }
     if (char === "{" || char === "[" || char === "(") depth += 1
@@ -159,7 +217,7 @@ function stripBoundaryComments(source: string): string {
 
 function readDefaultDefineScheduleObject(source: string): string | undefined {
   let match: RegExpExecArray | null
-  const pattern = /\bexport\s+default\s+defineSchedule\s*\(/g
+  const pattern = /\bexport\s+default\s+defineSchedule(?:\s*<[^>]+>)?\s*\(/g
   while ((match = pattern.exec(source))) {
     if (isInsideNonCode(source, match.index)) continue
     const objectStart = skipIgnorable(source, match.index + match[0].length)

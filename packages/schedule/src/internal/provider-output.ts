@@ -341,7 +341,7 @@ function readTopLevelCronProperty(objectSource: string): string | undefined {
 
 function readDefaultDefineScheduleCron(source: string): string | undefined {
   let match: RegExpExecArray | null
-  const pattern = /\bexport\s+default\s+defineSchedule\s*\(/g
+  const pattern = /\bexport\s+default\s+defineSchedule(?:\s*<[^>]+>)?\s*\(/g
   while ((match = pattern.exec(source))) {
     if (isInsideNonCode(source, match.index)) continue
 
