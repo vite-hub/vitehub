@@ -194,7 +194,15 @@ function previousSignificantToken(source: string, index: number): string {
 
 function canStartRegexLiteral(source: string, index: number): boolean {
   const token = previousSignificantToken(source, index)
-  return token === "" || token === "return" || token === "throw" || token === "case" || token === "await" || /^[({[=,:;!&|?+\-*%^~<>]$/.test(token)
+  return token === ""
+    || token === "await"
+    || token === "case"
+    || token === "delete"
+    || token === "return"
+    || token === "throw"
+    || token === "typeof"
+    || token === "void"
+    || /^[({[=,:;!&|?+\-*%^~<>]$/.test(token)
 }
 
 function skipRegexLiteral(source: string, index: number): number {
@@ -317,7 +325,8 @@ function readTopLevelCronProperty(objectSource: string): string | undefined {
     const colon = property.indexOf(":")
     if (colon === -1) continue
 
-    const key = property.slice(0, colon).trim().replace(/^["'`](.*)["'`]$/s, "$1")
+    const keyStart = skipIgnorable(property, 0)
+    const key = property.slice(keyStart, colon).trim().replace(/^["'`](.*)["'`]$/s, "$1")
     if (key !== "cron") continue
 
     const cron = readStaticStringLiteral(property.slice(colon + 1))
