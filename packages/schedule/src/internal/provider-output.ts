@@ -22,13 +22,14 @@ const generatedRegistryFileName = "registry.mjs"
 
 export function resolveScheduleRuntimeEntry(metaUrl = import.meta.url) {
   const file = fileURLToPath(metaUrl)
-  if (file.endsWith("/src/internal/provider-output.ts")) {
+  const normalizedFile = file.replace(/\\/g, "/")
+  if (normalizedFile.endsWith("/src/internal/provider-output.ts")) {
     return resolve(dirname(file), "../runtime/execute.ts")
   }
-  if (file.match(/\/dist\/[^/]+\.js$/)) {
+  if (normalizedFile.match(/\/dist\/[^/]+\.js$/)) {
     return resolve(dirname(file), "runtime/execute.js")
   }
-  if (file.endsWith("/internal/provider-output.js") && !file.endsWith("/dist/internal/provider-output.js")) {
+  if (normalizedFile.endsWith("/internal/provider-output.js") && !normalizedFile.endsWith("/dist/internal/provider-output.js")) {
     return resolve(dirname(file), "../src/runtime/execute.ts")
   }
   return resolve(dirname(file), "../runtime/execute.js")
@@ -244,11 +245,14 @@ async function writeCloudflareScheduleOutput(options: {
   const existingTriggers = typeof wranglerConfig.triggers === "object" && wranglerConfig.triggers !== null
     ? wranglerConfig.triggers as { crons?: string[] }
     : {}
+  const main = typeof wranglerConfig.main === "string" && wranglerConfig.main
+    ? wranglerConfig.main
+    : "index.js"
   wranglerConfig = {
     ...wranglerConfig,
     compatibility_date: wranglerConfig.compatibility_date ?? defaultCloudflareCompatibilityDate,
     compatibility_flags: wranglerConfig.compatibility_flags ?? ["nodejs_compat"],
-    main: wranglerConfig.main ?? "index.js",
+    main,
     observability: wranglerConfig.observability ?? { enabled: true },
     triggers: {
       ...existingTriggers,
@@ -257,7 +261,7 @@ async function writeCloudflareScheduleOutput(options: {
   }
 
   await Promise.all([
-    bundleEsmEntry(options.bundleEntry, resolve(outputRoot, "index.js"), {
+    bundleEsmEntry(options.bundleEntry, resolve(outputRoot, main), {
       conditions: ["workerd", "worker", "browser", "default"],
       external: ["node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
       format: "esm",

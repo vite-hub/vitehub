@@ -84,9 +84,28 @@ describe("schedule provider output", () => {
   it("resolves the runtime execute entry from package source and dist layouts", () => {
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/runtime/execute.ts")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/internal/provider-output.js")).toBe("/repo/packages/schedule/src/runtime/execute.ts")
+    expect(resolveScheduleRuntimeEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/runtime/execute.ts")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/runtime/execute.js")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/module-BVrgieBu.js")).toBe("/repo/packages/schedule/dist/runtime/execute.js")
     expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vitehub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vitehub/schedule/dist/runtime/execute.js")
+  })
+
+  it("writes Cloudflare schedule output to an existing Wrangler main", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-custom-main-")
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareRoot, { recursive: true })
+    await writeFile(join(cloudflareRoot, "wrangler.json"), JSON.stringify({
+      main: "worker.js",
+    }), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    expect(existsSync(join(cloudflareRoot, "worker.js"))).toBe(true)
+    expect(existsSync(join(cloudflareRoot, "index.js"))).toBe(false)
+    expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).main).toBe("worker.js")
   })
 
   it("rejects dynamic cron expressions before provider output generation", async () => {
