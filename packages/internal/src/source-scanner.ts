@@ -221,7 +221,7 @@ function skipWhitespaceAndComments(source: string, index: number) {
 
 function isMethodDeclarationName(source: string, index: number, closeParen: number) {
   const previous = previousNonWhitespace(source, index)
-  return nextNonWhitespace(source, closeParen + 1) === "{"
+  return source[skipWhitespaceAndComments(source, closeParen + 1)] === "{"
     && previous !== "("
     && previous !== "="
     && previous !== ","
