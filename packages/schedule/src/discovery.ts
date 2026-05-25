@@ -9,6 +9,7 @@ import {
   resolveDefinitionScanRoots,
 } from "@vitehub/internal/definition-catalog"
 import {
+  findMatching,
   findIdentifierCalls,
   splitTopLevel,
 } from "@vitehub/internal/source-scanner"
@@ -203,18 +204,51 @@ function readTopLevelStringProperty(source: string, property: string): string | 
   }
 }
 
-function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
-  const objectSource = source.trim()
+function readTopLevelObjectProperty(source: string, property: string): string | undefined {
+  const objectSource = stripBoundaryComments(source)
   if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
 
   for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
     const [key, ...valueParts] = splitTopLevel(entry, ":")
-    const normalizedKey = key?.trim().replace(/^(['"])(.*)\1$/, "$2")
+    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
     if (normalizedKey !== property) continue
-    const value = valueParts.join(":").trim()
+    const value = stripBoundaryComments(valueParts.join(":"))
+    return value.startsWith("{") && value.endsWith("}") ? value : undefined
+  }
+}
+
+function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
+  const objectSource = stripBoundaryComments(source)
+  if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
+
+  for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
+    const [key, ...valueParts] = splitTopLevel(entry, ":")
+    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
+    if (normalizedKey !== property) continue
+    const value = stripBoundaryComments(valueParts.join(":"))
     if (value === "true") return true
     if (value === "false") return false
   }
+}
+
+function readObjectLiteralAt(source: string, openBrace: number): string | undefined {
+  const closeBrace = findMatching(source, openBrace, "{", "}")
+  return closeBrace === undefined ? undefined : source.slice(openBrace, closeBrace + 1)
+}
+
+function readDefaultExportObject(source: string): string | undefined {
+  const code = maskCommentsAndStrings(source)
+  const directExport = /\bexport\s+default\s*\{/.exec(code)
+  if (directExport) {
+    return readObjectLiteralAt(source, directExport.index + directExport[0].lastIndexOf("{"))
+  }
+
+  const defaultExportName = readDefaultExportIdentifier(source)
+  if (!defaultExportName) return undefined
+
+  const declarationPattern = new RegExp(`(?:^|[;\\n])\\s*(?:export\\s+)?(?:const|let|var)\\s+${defaultExportName}\\b[^=]*=\\s*\\{`, "m")
+  const declaration = declarationPattern.exec(code)
+  return declaration ? readObjectLiteralAt(source, declaration.index + declaration[0].lastIndexOf("{")) : undefined
 }
 
 function readScheduleIdOverride(file: string): string | undefined {
@@ -223,8 +257,13 @@ function readScheduleIdOverride(file: string): string | undefined {
 }
 
 function readAllowRuntimeSchedules(file: string): boolean {
-  const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
-  return options ? readTopLevelBooleanProperty(options, "allowRuntimeSchedules") === true : false
+  const source = readFileSync(file, "utf8")
+  const options = readDefineScheduleOptions(source)
+  if (options && readTopLevelBooleanProperty(options, "allowRuntimeSchedules") === true) return true
+
+  const objectSchedule = readDefaultExportObject(source)
+  const objectOptions = objectSchedule ? readTopLevelObjectProperty(objectSchedule, "options") : undefined
+  return objectOptions ? readTopLevelBooleanProperty(objectOptions, "allowRuntimeSchedules") === true : false
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {

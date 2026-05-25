@@ -81,6 +81,42 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["reports/daily"])
   })
 
+  it("reads runtime schedule opt-in from exported object schedules", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-object-runtime-opt-in-")
+    await writeFile(join(viteRootDir, "daily.schedule.ts"), [
+      "export default {",
+      "  cron: '0 9 * * *',",
+      "  handler: () => 'ok',",
+      "  options: { allowRuntimeSchedules: true },",
+      "}",
+    ].join("\n"), "utf8")
+
+    const nitroScanDir = await createTempDir("vitehub-schedule-nitro-object-runtime-opt-in-")
+    await mkdir(join(nitroScanDir, "schedules"), { recursive: true })
+    await writeFile(join(nitroScanDir, "schedules", "daily.ts"), [
+      "const daily = {",
+      "  cron: '0 9 * * *',",
+      "  handler: () => 'ok',",
+      "  options: { allowRuntimeSchedules: true },",
+      "}",
+      "export default daily",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([
+      expect.objectContaining({ allowRuntimeSchedules: true, name: "daily" }),
+    ])
+
+    expect(discoverScheduleDefinitions({
+      mode: "nitro-server-schedules",
+      scanDirs: [nitroScanDir],
+    })).toEqual([
+      expect.objectContaining({ allowRuntimeSchedules: true, name: "daily" }),
+    ])
+  })
+
   it("uses explicit ids from exported defineSchedule calls after earlier local calls", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-exported-call-id-")
     await writeFile(
