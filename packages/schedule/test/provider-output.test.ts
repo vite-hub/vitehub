@@ -54,6 +54,20 @@ describe("schedule provider output", () => {
     expect(() => validateProviderCron("0 0 1 1 * 2026", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
   })
 
+  it("rejects dynamic cron expressions before provider output generation", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-dynamic-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "const suffix = '0'",
+      "export default defineSchedule('0 0 * * *' + suffix, () => 'ok')",
+      "",
+    ].join("\n"), "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow(/must declare a static cron string/)
+  })
+
   it("preserves existing Vercel output config when adding schedule crons", async () => {
     const rootDir = await createTempProject("vitehub-schedule-vercel-config-")
     const outputRoot = join(rootDir, ".vercel", "output")

@@ -126,7 +126,11 @@ function readStringLiteral(source: string): string | undefined {
       index++
       continue
     }
-    if (char === quote) return value
+    if (char === quote) {
+      if (trimmed.slice(index + 1).trim()) return undefined
+      if (quote === "`" && value.includes("${")) return undefined
+      return value
+    }
     value += char
   }
 }
