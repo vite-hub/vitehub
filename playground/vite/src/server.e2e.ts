@@ -273,7 +273,7 @@ app.post("/api/tests/queue", async (event) => {
 })
 
 app.get("/api/tests/schedule", async () => {
-  const marker = globalThis.__vitehubScheduleMarker ?? await kv.get("schedule-e2e:daily-marker")
+  const marker = globalThis.__vitehubScheduleMarker ?? await kv.get("schedule-e2e:vite:daily-marker")
   return {
     ok: true,
     marker,
