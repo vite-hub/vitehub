@@ -385,6 +385,21 @@ describe("workflow runtime", () => {
     expect(helper).not.toHaveBeenCalled()
   })
 
+  it("does not resolve non-object module loads to unexported inline handles", async () => {
+    const helper = vi.fn(async () => "helper")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      "server/workflows/chat": async () => {
+        createWorkflow("helper", helper)
+        return undefined as never
+      },
+    })
+
+    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow(/Unknown workflow definition/)
+    expect(helper).not.toHaveBeenCalled()
+  })
+
   it("prefers discovered default exports over helper inline handles", async () => {
     const discovered = vi.fn(async () => "discovered")
     const helper = vi.fn(async () => "helper")

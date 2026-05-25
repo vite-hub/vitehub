@@ -179,12 +179,7 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
       return registeredInlineDefinition
     }
     if (!loaded || typeof loaded !== "object") {
-      const onlyInlineDefinitionName = loadingInlineDefinitions.size === 1
-        ? loadingInlineDefinitions.keys().next().value
-        : undefined
-      return onlyInlineDefinitionName === undefined
-        ? undefined
-        : consumeInlineWorkflowDefinition(onlyInlineDefinitionName)
+      return undefined
     }
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
     if (definition && typeof definition.handler === "function") {
