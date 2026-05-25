@@ -24,6 +24,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./nitro": "./dist/nitro.js",
+    "./runtime/execute": "./dist/runtime/execute.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
@@ -58,5 +59,8 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
+  },
+  "dependencies": {
+    "esbuild": "catalog:"
   }
 }

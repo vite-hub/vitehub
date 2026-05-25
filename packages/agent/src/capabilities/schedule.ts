@@ -294,11 +294,11 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
           if (operation === "update") {
             const id = assertRuntimeScheduleId(input.id, "schedule_edit update")
             await requireScopedRuntimeSchedule(client, id, options)
-            return await client.update(id, {
-              cron: input.cron === undefined ? undefined : assertRuntimeScheduleCron(input.cron, "schedule_edit update"),
-              enabled: input.enabled,
-              target: input.target === undefined ? undefined : assertAllowedRuntimeScheduleTarget(input.target, options, "schedule_edit update"),
-            })
+            const update: { cron?: string, enabled?: boolean, target?: string } = {}
+            if (input.cron !== undefined) update.cron = assertRuntimeScheduleCron(input.cron, "schedule_edit update")
+            if (input.enabled !== undefined) update.enabled = input.enabled
+            if (input.target !== undefined) update.target = assertAllowedRuntimeScheduleTarget(input.target, options, "schedule_edit update")
+            return await client.update(id, update)
           }
           if (operation === "enable") {
             const id = assertRuntimeScheduleId(input.id, "schedule_edit enable")

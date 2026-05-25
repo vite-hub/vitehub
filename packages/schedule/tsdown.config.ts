@@ -3,16 +3,18 @@ import { defineConfig } from "tsdown"
 export default defineConfig({
   clean: true,
   copy: [
-    { from: "src/generated/registry.d.ts", to: "dist/generated" },
+    { from: "src/registry-module.d.ts", to: "dist" },
   ],
   deps: {
     alwaysBundle: [/^@vitehub\/internal/],
+    neverBundle: ["esbuild"],
     onlyBundle: false,
   },
   dts: true,
   entry: [
     "src/index.ts",
     "src/nitro.ts",
+    "src/runtime/execute.ts",
     "src/vite.ts",
   ],
   exports: {
