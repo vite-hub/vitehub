@@ -63,7 +63,7 @@ function validateCronPart(part: string, range: { min: number, max: number }): vo
   }
 }
 
-export function validateRuntimeScheduleCron(cron: string): void {
+export function validateRuntimeScheduleCron(cron: unknown): void {
   if (typeof cron !== "string" || cron.trim() !== cron || cron.length === 0) {
     throw new ScheduleError("Runtime Schedule cron must be a five-field UTC cron expression.", {
       code: "SCHEDULE_INVALID_CRON",
@@ -100,7 +100,7 @@ export function validateRuntimeScheduleCron(cron: string): void {
   }
 }
 
-async function assertRuntimeTarget(target: ScheduleTargetName): Promise<void> {
+async function assertRuntimeTarget(target: unknown): Promise<void> {
   if (typeof target !== "string" || !target.trim()) {
     throw new ScheduleError("Runtime Schedule target must be a non-empty string.", {
       code: "SCHEDULE_INVALID_TARGET",
@@ -127,7 +127,18 @@ async function assertRuntimeTarget(target: ScheduleTargetName): Promise<void> {
   }
 }
 
+function assertRuntimeScheduleInputObject(input: unknown, operation: "create" | "update"): asserts input is Record<string, unknown> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new ScheduleError(`Runtime Schedule ${operation} input must be an object.`, {
+      code: "SCHEDULE_INVALID_INPUT",
+      details: { input },
+      httpStatus: 400,
+    })
+  }
+}
+
 async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<void> {
+  assertRuntimeScheduleInputObject(input, "create")
   await assertRuntimeTarget(input.target)
   validateRuntimeScheduleCron(input.cron)
   if (input.id !== undefined && (typeof input.id !== "string" || !input.id.trim())) {
@@ -147,6 +158,7 @@ async function validateCreateInput(input: RuntimeScheduleCreateInput): Promise<v
 }
 
 async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<void> {
+  assertRuntimeScheduleInputObject(input, "update")
   if (input.target !== undefined) {
     await assertRuntimeTarget(input.target)
   }

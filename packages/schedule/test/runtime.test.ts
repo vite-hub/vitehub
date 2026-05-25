@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 import type { KVStorage } from "@vitehub/kv"
 
@@ -181,6 +181,32 @@ describe("Runtime Schedule helper", () => {
     await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     await expect(schedules.update("schedule-1", { enabled: "false" as never })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_ENABLED",
+    })
+  })
+
+  it("rejects non-object runtime schedule create and update inputs", async () => {
+    await expect(schedules.create(null as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      httpStatus: 400,
+    })
+    await expect(schedules.create("bad" as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      httpStatus: 400,
+    })
+    await expect(schedules.update("schedule-1", null as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      httpStatus: 400,
+    })
+  })
+
+  it("rejects non-object runtime schedule execute options", async () => {
+    await expect(executeRuntimeSchedule(null as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      httpStatus: 400,
+    })
+    await expect(executeRuntimeSchedule(123 as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      httpStatus: 400,
     })
   })
 
