@@ -576,9 +576,8 @@ describe("Schedule Run bookkeeping", () => {
       definition: {
         cron: "0 10 * * *",
         handler: async () => {},
-        options: { id: "static-report" },
       },
-      name: "report",
+      name: "static-report",
       scheduledAt,
     })
 
@@ -588,7 +587,7 @@ describe("Schedule Run bookkeeping", () => {
       scheduleId: "static-report",
       scheduledAt,
       status: "succeeded",
-      target: "report",
+      target: "static-report",
     })
     expect(await schedules.getRun(run.id)).toEqual(run)
     expect(await schedules.listAttempts(run.id)).toHaveLength(1)
@@ -620,13 +619,13 @@ describe("Schedule Run bookkeeping", () => {
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const first = await executeStaticSchedule({
       cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler: async () => {}, options: { id: "daily/report" } },
+      definition: { cron: "0 9 * * *", handler: async () => {} },
       name: "daily/report",
       scheduledAt,
     })
     const second = await executeStaticSchedule({
       cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler: async () => {}, options: { id: "daily-report" } },
+      definition: { cron: "0 9 * * *", handler: async () => {} },
       name: "daily-report",
       scheduledAt,
     })
@@ -658,9 +657,8 @@ describe("Schedule Run bookkeeping", () => {
         handler: async () => {
           staticCalls++
         },
-        options: { id: "shared-id" },
       },
-      name: "report",
+      name: "shared-id",
       scheduledAt,
     })
 

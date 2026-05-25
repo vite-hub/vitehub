@@ -31,7 +31,7 @@ describe("Vite schedule integration", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vite-"))
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default null\n", "utf8")
-    await writeFile(join(root, "src", "reports.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { id: \"daily-reports\" })\n", "utf8")
+    await writeFile(join(root, "src", "reports.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {} })\n", "utf8")
 
     const plugin = hubSchedule()
     resolvePluginConfig(plugin, root)
@@ -39,22 +39,22 @@ describe("Vite schedule integration", () => {
 
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     expect(registry).toContain("\"cleanup\": async () => import(")
-    expect(registry).toContain("\"daily-reports\": async () => import(")
+    expect(registry).toContain("\"reports\": async () => import(")
     expect(registry).toContain("../../src/cleanup.schedule.ts")
   })
 
   it("serves generated runtime schedule target names behind a stable import", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-targets-"))
     await mkdir(join(root, "src"), { recursive: true })
-    await writeFile(join(root, "src", "cleanup.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {})\n", "utf8")
-    await writeFile(join(root, "src", "reports.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { id: \"daily-reports\", allowRuntimeSchedules: true })\n", "utf8")
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {} })\n", "utf8")
+    await writeFile(join(root, "src", "reports.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {}, allowRuntimeSchedules: true })\n", "utf8")
 
     const plugin = hubSchedule()
     resolvePluginConfig(plugin, root)
     const targets = await loadScheduleTargets(plugin)
 
     expect(resolveScheduleTargets(plugin)).toBe("\0#vitehub/schedule/targets")
-    expect(targets).toContain("export const scheduleTargetNames = [\"daily-reports\"];")
+    expect(targets).toContain("export const scheduleTargetNames = [\"reports\"];")
     expect(targets).not.toContain("export type")
     expect(targets).not.toContain("\"cleanup\"")
   })
@@ -62,8 +62,8 @@ describe("Vite schedule integration", () => {
   it("discovers quoted runtime schedule opt-in keys and ignores commented opt-ins", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-targets-quoted-"))
     await mkdir(join(root, "src"), { recursive: true })
-    await writeFile(join(root, "src", "commented.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { /* allowRuntimeSchedules: true */ id: \"commented\" })\n", "utf8")
-    await writeFile(join(root, "src", "quoted.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { \"allowRuntimeSchedules\": true })\n", "utf8")
+    await writeFile(join(root, "src", "commented.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {}, /* allowRuntimeSchedules: true */ })\n", "utf8")
+    await writeFile(join(root, "src", "quoted.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {}, \"allowRuntimeSchedules\": true })\n", "utf8")
 
     const plugin = hubSchedule()
     resolvePluginConfig(plugin, root)

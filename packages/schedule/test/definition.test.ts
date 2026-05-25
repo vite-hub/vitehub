@@ -6,19 +6,18 @@ describe("defineSchedule", () => {
   it("creates a cron Schedule Definition", () => {
     const handler = () => "ok"
 
-    expect(defineSchedule("0 9 * * *", handler, { id: "daily-report" })).toEqual({
+    expect(defineSchedule({ cron: "0 9 * * *", handler })).toEqual({
       cron: "0 9 * * *",
       handler,
-      options: { id: "daily-report" },
     })
   })
 
-  it("rejects invalid cron and handler inputs", () => {
-    expect(() => defineSchedule("", () => {})).toThrow(/cron string/)
-    expect(() => defineSchedule("0 9 * *", () => {})).toThrow(/five-field UTC cron/)
-    expect(() => defineSchedule(" 0 9 * * *", () => {})).toThrow(/cron string/)
-    expect(() => defineSchedule("0 9 * * *", "handler" as never)).toThrow(/schedule handler/)
-    expect(() => defineSchedule("0 9 * * *", () => {}, [] as never)).toThrow(/plain object/)
-    expect(() => defineSchedule("0 9 * * *", () => {}, { id: "" })).toThrow(/options.id/)
+  it("rejects invalid definition inputs", () => {
+    expect(() => defineSchedule(undefined as never)).toThrow(/expects an object/)
+    expect(() => defineSchedule({ cron: "", handler: () => {} })).toThrow(/cron string/)
+    expect(() => defineSchedule({ cron: "0 9 * *", handler: () => {} })).toThrow(/five-field UTC cron/)
+    expect(() => defineSchedule({ cron: " 0 9 * * *", handler: () => {} })).toThrow(/cron string/)
+    expect(() => defineSchedule({ cron: "0 9 * * *", handler: "handler" as never })).toThrow(/schedule handler/)
+    expect(() => defineSchedule({ cron: "0 9 * * *", handler: () => {}, id: "daily" } as never)).toThrow(/does not support the "id" option/)
   })
 })

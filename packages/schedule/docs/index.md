@@ -14,10 +14,15 @@ Use Schedule when an app needs named recurring work such as daily reports, clean
 ```ts [server/schedules/daily-report.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
-  console.log(`Run daily report at ${context.scheduledAt.toISOString()}`)
+export default defineSchedule({
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log(`Run daily report at ${context.scheduledAt.toISOString()}`)
+  },
 })
 ```
+
+The discovered Schedule name comes from the file path. For example, `server/schedules/daily-report.ts` is discovered as `daily-report`.
 
 ## What Schedule Owns
 

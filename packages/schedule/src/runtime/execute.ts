@@ -203,7 +203,7 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<ScheduleRunRecord> {
   return await executeSchedule({
     definition: options.definition,
-    scheduleId: options.definition.options?.id ?? options.name,
+    scheduleId: options.name,
     source: "static",
     scheduledAt: options.scheduledAt,
     target: options.name,
