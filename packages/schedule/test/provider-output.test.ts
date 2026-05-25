@@ -233,6 +233,23 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
   })
 
+  it("continues to later object default exports when earlier defaults are not objects", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-later-object-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "const docs = 'export default helper'",
+      "export default { cron: '0 2 * * *', handler: () => 'ok' }",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
   it("preserves existing Vercel output config when adding schedule crons", async () => {
     const rootDir = await createTempProject("vitehub-schedule-vercel-config-")
     const outputRoot = join(rootDir, ".vercel", "output")

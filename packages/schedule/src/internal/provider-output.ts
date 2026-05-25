@@ -341,12 +341,15 @@ function readDefaultDefineScheduleCron(source: string): string | undefined {
 }
 
 function readDefaultObjectCron(source: string): string | undefined {
-  const match = /\bexport\s+default\b/.exec(source)
-  if (!match) return undefined
+  let match: RegExpExecArray | null
+  const pattern = /\bexport\s+default\b/g
+  while ((match = pattern.exec(source))) {
+    if (isInsideComment(source, match.index)) continue
 
-  const objectStart = skipIgnorable(source, match.index + match[0].length)
-  const objectSource = readBalancedObject(source, objectStart)
-  return objectSource ? readTopLevelCronProperty(objectSource) : undefined
+    const objectStart = skipIgnorable(source, match.index + match[0].length)
+    const objectSource = readBalancedObject(source, objectStart)
+    if (objectSource) return readTopLevelCronProperty(objectSource)
+  }
 }
 
 function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string) {
