@@ -264,6 +264,7 @@ function deserializeScheduleRunAttempt(record: StoredScheduleRunAttemptRecord): 
     ...record,
     completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
     createdAt: new Date(record.createdAt),
+    error: record.error ? { ...record.error } : undefined,
     startedAt: new Date(record.startedAt),
     updatedAt: new Date(record.updatedAt),
   }

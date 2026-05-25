@@ -562,6 +562,9 @@ describe("KV Schedule Run Store", () => {
     const listedRun = (await store.listRuns())[0]
     listedRun!.error!.message = "listed mutation"
     expect((await store.getRun(run.id))?.error).toMatchObject({ message: "boom" })
+    const listedAttempt = (await store.listAttempts(run.id))[0]
+    listedAttempt!.error!.message = "listed mutation"
+    expect((await store.getAttempt(attempt.id))?.error).toMatchObject({ message: "boom" })
 
     await expect(store.createRun(run)).rejects.toThrow("Schedule Run already exists: run/1")
     await expect(store.createAttempt(attempt)).rejects.toThrow("Schedule Run Attempt already exists: attempt/1")
