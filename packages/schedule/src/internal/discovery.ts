@@ -64,14 +64,11 @@ function splitTopLevelScheduleEntries(source: string): string[] {
 }
 
 function readScheduleIdOverride(file: string): string | undefined {
-  const source = stripComments(readFileSync(file, "utf8"))
-  const match = source.match(/\bdefineSchedule\s*(?:<[^>]+>\s*)?\([\s\S]*?,[\s\S]*?,\s*\{[\s\S]*?\bid\s*:\s*(["'])([^"']+)\1/)
-  return match?.[2]
+  return readTopLevelStaticStringProperty(readDefineScheduleOptions(readFileSync(file, "utf8")) ?? "", "id")
 }
 
 function readAllowRuntimeSchedules(file: string): boolean {
-  const source = stripComments(readFileSync(file, "utf8"))
-  return /\bdefineSchedule\s*(?:<[^>]+>\s*)?\([\s\S]*?,[\s\S]*?,\s*\{[\s\S]*?\ballowRuntimeSchedules\s*:\s*true\b/.test(source)
+  return readTopLevelBooleanProperty(readDefineScheduleOptions(readFileSync(file, "utf8")) ?? "", "allowRuntimeSchedules") === true
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {
@@ -103,6 +100,64 @@ function parseInlineAgentScheduleEntries(source: string): Array<{ cron: string, 
     }
   }
   return entries
+}
+
+function findDefineScheduleCall(source: string, initializerStart: number): string | undefined {
+  const initializer = source.slice(initializerStart)
+  const leadingWhitespace = initializer.match(/^\s*/)?.[0].length ?? 0
+  if (!initializer.slice(leadingWhitespace).startsWith("defineSchedule")) return
+  const match = /^defineSchedule\s*(?:<[^)]*?>\s*)?\(/.exec(initializer.slice(leadingWhitespace))
+  if (!match) return
+  return readBalancedCall(source, initializerStart + leadingWhitespace + match[0].length - 1)
+}
+
+function isExportDefaultCall(source: string, start: number) {
+  return /(?:^|[^\w$])export\s+default(?:\s|\()*$/.test(source.slice(0, start))
+}
+
+function readDefaultExportIdentifier(source: string) {
+  return source.match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
+    ?? source.match(/\bexport\s*\{\s*([A-Za-z_$][\w$]*)\s+as\s+default\s*\}/)?.[1]
+}
+
+function readDefineScheduleBindingName(source: string, start: number) {
+  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=\s*(?:\(\s*)*$/)?.[1]
+}
+
+function readDefineScheduleOptions(source: string): string | undefined {
+  const stripped = stripComments(source)
+  const calls = [...stripped.matchAll(/\bdefineSchedule\b/g)].map(match => ({
+    args: splitTopLevelScheduleEntries(findDefineScheduleCall(stripped, match.index!)?.slice(1, -1) ?? ""),
+    start: match.index!,
+  })).filter(call => call.args.length > 0)
+  const directExportCall = calls.find(call => isExportDefaultCall(stripped, call.start))
+  if (directExportCall) return directExportCall.args[2]
+
+  const defaultExportName = readDefaultExportIdentifier(stripped)
+  const defaultExportBindingCall = defaultExportName
+    ? calls.find(call => readDefineScheduleBindingName(stripped, call.start) === defaultExportName)
+    : undefined
+  return (defaultExportBindingCall ?? calls[0])?.args[2]
+}
+
+function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
+  if (!source.trim().startsWith("{") || !source.trim().endsWith("}")) return undefined
+  for (const entry of splitTopLevelScheduleEntries(source.trim().slice(1, -1))) {
+    const [key, valueSource] = entry.split(/:(.*)/s)
+    const normalizedKey = key?.trim().replace(/^(['"`]?)(.*)\1$/, "$2")
+    if (normalizedKey !== property) continue
+    const value = valueSource?.trim()
+    if (value === "true") return true
+    if (value === "false") return false
+  }
+}
+
+function readTopLevelStaticStringProperty(source: string, property: string): string | undefined {
+  if (!source.trim().startsWith("{") || !source.trim().endsWith("}")) return undefined
+  for (const entry of splitTopLevelScheduleEntries(source.trim().slice(1, -1))) {
+    const match = entry.match(new RegExp(`^(?:["'\`]?)${property}(?:["'\`]?)\\s*:\\s*(["'])((?:\\\\.|(?!\\1).)*)\\1\\s*$`, "s"))
+    if (match) return match[2]
+  }
 }
 
 function inlineAgentSchedules(file: string, agentName: string, agentExportName?: string): DiscoveredScheduleDefinition[] {

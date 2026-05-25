@@ -98,6 +98,37 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("uses schedule options from exported defineSchedule calls", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-exported-options-")
+    await writeFile(join(viteRootDir, "daily.schedule.ts"), [
+      "const helper = defineSchedule('0 8 * * *', () => {}, { id: 'internal/helper', allowRuntimeSchedules: true })",
+      "export default defineSchedule('0 9 * * *', () => {}, { id: 'reports/daily' })",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([
+      expect.objectContaining({ allowRuntimeSchedules: false, name: "reports/daily" }),
+    ])
+  })
+
+  it("uses schedule options from default-exported defineSchedule bindings", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-exported-binding-options-")
+    await writeFile(join(viteRootDir, "daily.schedule.ts"), [
+      "const helper = defineSchedule('0 8 * * *', () => {}, { id: 'internal/helper', allowRuntimeSchedules: true })",
+      "const daily = defineSchedule('0 9 * * *', () => {}, { id: 'reports/daily' })",
+      "export default daily",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([
+      expect.objectContaining({ allowRuntimeSchedules: false, name: "reports/daily" }),
+    ])
+  })
+
   it("discovers inline Agent Schedules from Agent capabilities", async () => {
     const viteRootDir = await createTempDir("vitehub-agent-schedule-vite-")
     await mkdir(join(viteRootDir, "src"), { recursive: true })
