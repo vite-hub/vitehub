@@ -91,7 +91,6 @@ export function startScheduleRunner(options: ScheduleRunnerOptions = {}): Schedu
       if (!next) {
         return
       }
-      queuedRunIds.delete(toRunId(next.schedule.id, next.scheduledAt))
       dispatch(next.schedule, next.scheduledAt)
     }
   }
@@ -109,6 +108,7 @@ export function startScheduleRunner(options: ScheduleRunnerOptions = {}): Schedu
       })
       .finally(() => {
         active--
+        queuedRunIds.delete(toRunId(schedule.id, scheduledAt))
         pump()
       })
   }
