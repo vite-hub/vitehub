@@ -178,6 +178,25 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
   })
 
+  it("balances regex literals after throw while reading top-level provider cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-throw-regex-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule({",
+      "  handler: () => { throw /}/.test('x') },",
+      "  cron: '0 2 * * *',",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
   it("balances template interpolation while reading top-level provider cron", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-template-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [

@@ -194,7 +194,7 @@ function previousSignificantToken(source: string, index: number): string {
 
 function canStartRegexLiteral(source: string, index: number): boolean {
   const token = previousSignificantToken(source, index)
-  return token === "" || token === "return" || token === "case" || token === "await" || /^[({[=,:;!&|?+\-*%^~<>]$/.test(token)
+  return token === "" || token === "return" || token === "throw" || token === "case" || token === "await" || /^[({[=,:;!&|?+\-*%^~<>]$/.test(token)
 }
 
 function skipRegexLiteral(source: string, index: number): number {
