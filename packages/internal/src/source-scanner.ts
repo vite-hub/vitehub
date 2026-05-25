@@ -89,6 +89,24 @@ function isRegexLiteralStart(previousSignificant: string) {
   return !token || /[({[=,:!&|?;>+\-*%^~]/.test(token) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(token)
 }
 
+function findLineCommentStart(source: string, start: number, end: number) {
+  for (let index = start; index <= end;) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (isQuote(char)) {
+      index = skipQuoted(source, index)
+      continue
+    }
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    if (char === "/" && next === "/") return index
+    index += 1
+  }
+  return -1
+}
+
 function previousCodeIndex(source: string, index: number) {
   let current = index
   while (current >= 0) {
@@ -100,7 +118,7 @@ function previousCodeIndex(source: string, index: number) {
       continue
     }
     const lineStart = source.lastIndexOf("\n", current) + 1
-    const lineComment = source.indexOf("//", lineStart)
+    const lineComment = findLineCommentStart(source, lineStart, current)
     if (lineComment !== -1 && lineComment <= current) {
       current = lineStart - 1
       continue
