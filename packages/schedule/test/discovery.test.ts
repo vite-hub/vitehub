@@ -144,6 +144,20 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["reports/daily", "reports/weekly"])
   })
 
+  it("uses explicit ids from defineSchedule options with trailing comments", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-trailing-comment-id-")
+    await writeFile(
+      join(viteRootDir, "daily.schedule.ts"),
+      "export default defineSchedule('0 9 * * *', () => {}, { id: 'reports/daily' } /* schedule id */)\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual(["reports/daily"])
+  })
+
   it("ignores nested id fields when no defineSchedule id option is set", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-nested-id-")
     await writeFile(
