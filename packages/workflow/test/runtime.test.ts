@@ -370,6 +370,37 @@ describe("workflow runtime", () => {
     expect(getInlineWorkflowDefinitions().has("legacy-name")).toBe(false)
   })
 
+  it("loads matching legacy inline names concurrently for distinct discovered entries", async () => {
+    const first = vi.fn(async () => "first")
+    const second = vi.fn(async () => "second")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      first: async () => {
+        const workflow = createWorkflow("legacy-name", first)
+        await Promise.resolve()
+        return { workflow }
+      },
+      second: async () => {
+        const workflow = createWorkflow("legacy-name", second)
+        await Promise.resolve()
+        return { workflow }
+      },
+    })
+
+    const [firstRun, secondRun] = await Promise.all([
+      runWorkflow("first", undefined, { id: "first" }),
+      runWorkflow("second", undefined, { id: "second" }),
+    ])
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("first", firstRun.id)).resolves.toMatchObject({ result: "first" })
+      await expect(getWorkflowRun("second", secondRun.id)).resolves.toMatchObject({ result: "second" })
+    })
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).toHaveBeenCalledTimes(1)
+  })
+
   it("does not resolve discovered workflows to unexported helper handles", async () => {
     const helper = vi.fn(async () => "helper")
 

@@ -62,6 +62,7 @@ export function getInlineWorkflowDefinitions(): ReadonlyMap<string, WorkflowDefi
 export function takeInlineWorkflowDefinition(name: string): WorkflowDefinition | undefined {
   const definition = inlineRegistry.get(name)
   inlineRegistry.delete(name)
+  loadingInlineRegistryStorage.getStore()?.delete(name)
   return definition
 }
 
@@ -108,9 +109,11 @@ export function takeInlineWorkflowDefinitionForModule(name: string, loaded: unkn
   return match.definition
 }
 
-function consumeInlineWorkflowDefinition(name: string): WorkflowDefinition | undefined {
+function consumeInlineWorkflowDefinition(name: string, expected?: WorkflowDefinition): WorkflowDefinition | undefined {
   const definition = inlineRegistry.get(name)
-  inlineRegistry.delete(name)
+  if (!expected || definition === expected) {
+    inlineRegistry.delete(name)
+  }
   return definition
 }
 
@@ -119,13 +122,16 @@ export function registerInlineWorkflowDefinition(name: string, definition: Workf
     throw new TypeError("`createWorkflow()` requires a workflow name.")
   }
 
+  const loadingDefinitions = loadingInlineRegistryStorage.getStore()
   const existing = inlineRegistry.get(name)
   if (existing && existing !== definition) {
-    throw new Error(`Duplicate workflow name "${name}" from inline definitions.`)
+    if (!loadingDefinitions) {
+      throw new Error(`Duplicate workflow name "${name}" from inline definitions.`)
+    }
   }
-
   inlineRegistry.set(name, definition)
-  loadingInlineRegistryStorage.getStore()?.set(name, definition)
+
+  loadingDefinitions?.set(name, definition)
 }
 
 export function enterWorkflowRuntimeEvent(event: unknown): void {
@@ -174,19 +180,22 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
   const loadingEntry = Promise.resolve().then(() => loadingRegistryStorage.run(nextActiveLoads, async () => {
     const loadingInlineDefinitions = new Map<string, WorkflowDefinition>()
     const loaded = await loadingInlineRegistryStorage.run(loadingInlineDefinitions, entry)
-    const registeredInlineDefinition = consumeInlineWorkflowDefinition(name)
-    if (registeredInlineDefinition) {
-      return registeredInlineDefinition
-    }
     if (!loaded || typeof loaded !== "object") {
       return undefined
+    }
+    const registeredInlineDefinition = loadingInlineDefinitions.get(name) ?? consumeInlineWorkflowDefinition(name)
+    if (registeredInlineDefinition) {
+      consumeInlineWorkflowDefinition(name, registeredInlineDefinition)
+      return registeredInlineDefinition
     }
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
     if (definition && typeof definition.handler === "function") {
       return definition
     }
     const exportedInlineDefinition = findExportedInlineWorkflowDefinition(name, loaded, loadingInlineDefinitions)
-    return exportedInlineDefinition ? consumeInlineWorkflowDefinition(exportedInlineDefinition.name) : undefined
+    if (!exportedInlineDefinition) return undefined
+    consumeInlineWorkflowDefinition(exportedInlineDefinition.name, exportedInlineDefinition.definition)
+    return exportedInlineDefinition.definition
   }))
   loadingRegistryEntries.set(name, loadingEntry)
   try {
