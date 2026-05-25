@@ -199,6 +199,19 @@ describe("Runtime Schedule helper", () => {
     expect(newLoadCount).toBe(1)
   })
 
+  it("returns early for recursive loads of the same runtime target", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => {
+        expect(await loadScheduleDefinition("report")).toBeUndefined()
+        return { cron: "0 9 * * *", handler: async () => {} }
+      },
+    })
+
+    await expect(loadScheduleDefinition("report")).resolves.toMatchObject({
+      cron: "0 9 * * *",
+    })
+  })
+
   it("fails clearly when updating an unknown schedule", async () => {
     await expect(schedules.update("missing", { enabled: false })).rejects.toBeInstanceOf(ScheduleError)
     await expect(schedules.update("missing", { enabled: false })).rejects.toMatchObject({
