@@ -89,7 +89,17 @@ function isRegexLiteralStart(previousSignificant: string) {
 }
 
 function isControlFlowRegexStart(source: string, index: number) {
-  return /(?:^|[^\w$])(?:if|while|for|with)\s*\([^()]*\)\s*$/.test(source.slice(0, index))
+  let closeParen = index - 1
+  while (/\s/.test(source[closeParen] ?? "")) closeParen -= 1
+  if (source[closeParen] !== ")") return false
+
+  for (let current = closeParen; current >= 0; current--) {
+    if (source[current] !== "(") continue
+    if (findMatching(source, current, "(", ")") !== closeParen) continue
+    return /(?:^|[^\w$])(?:if|while|for|with)\s*$/.test(source.slice(0, current))
+  }
+
+  return false
 }
 
 function skipRegexLiteral(source: string, index: number) {
@@ -154,6 +164,10 @@ function isMethodDeclarationName(source: string, index: number, closeParen: numb
     && previous !== "="
     && previous !== ","
     && previous !== ":"
+}
+
+function isMemberAccessName(source: string, index: number) {
+  return previousNonWhitespace(source, index) === "."
 }
 
 export function findMatching(source: string, index: number, open: string, close: string): number | undefined {
@@ -276,6 +290,7 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
       || isIdentifierChar(source[index - 1])
       || isIdentifierChar(source[index + name.length])
       || isFunctionDeclarationName(source, index)
+      || isMemberAccessName(source, index)
     ) {
       previousSignificant = trackSignificant(previousSignificant, char)
       continue

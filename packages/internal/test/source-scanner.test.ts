@@ -91,6 +91,22 @@ describe("source scanner", () => {
       `() => { if (ready) /\\)/.test(")") }`,
       `{ id: "daily" }`,
     ])
+
+    expect(splitTopLevel(`() => { if ((ready)) /\\)/.test(")") }, { id: "daily" }`)).toEqual([
+      `() => { if ((ready)) /\\)/.test(")") }`,
+      `{ id: "daily" }`,
+    ])
+  })
+
+  it("ignores member calls with matching names", () => {
+    const calls = findIdentifierCalls([
+      `logger.defineThing("member")`,
+      `logger?.defineThing("optional-member")`,
+      `const real = defineThing("real")`,
+    ].join("\n"), "defineThing")
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.arguments).toEqual(["\"real\""])
   })
 
   it("does not treat division operators as regex literals after identifiers", () => {
