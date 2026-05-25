@@ -189,7 +189,7 @@ describe("Runtime Schedule helper", () => {
     const newLoad = loadScheduleDefinition("report")
     await Promise.resolve()
     finishOld?.()
-    await oldLoad
+    await expect(oldLoad).resolves.toBeUndefined()
 
     const sharedLoad = loadScheduleDefinition("report")
     await Promise.resolve()
