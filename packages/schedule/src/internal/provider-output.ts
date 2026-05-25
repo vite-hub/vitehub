@@ -9,6 +9,7 @@ import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vitehub/internal/build/paths"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
 import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
+import { findIdentifierCalls } from "@vitehub/internal/source-scanner"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
@@ -36,83 +37,6 @@ interface GenerateProviderOutputsOptions {
 }
 
 const cronFieldPattern = /^[*,/\-0-9A-Za-z]+$/
-
-function readBalancedCall(source: string, openParen: number): string | undefined {
-  let depth = 0
-  let quote: string | undefined
-  for (let index = openParen; index < source.length; index++) {
-    const char = source[index]
-    if (quote) {
-      if (char === "\\") {
-        index++
-        continue
-      }
-      if (char === quote) quote = undefined
-      continue
-    }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "(" || char === "{" || char === "[") depth++
-    if (char === ")" || char === "}" || char === "]") {
-      depth--
-      if (depth === 0) return source.slice(openParen + 1, index)
-    }
-  }
-}
-
-function splitTopLevelArguments(source: string): string[] {
-  const args: string[] = []
-  let depth = 0
-  let quote: string | undefined
-  let start = 0
-  for (let index = 0; index < source.length; index++) {
-    const char = source[index]
-    if (quote) {
-      if (char === "\\") {
-        index++
-        continue
-      }
-      if (char === quote) quote = undefined
-      continue
-    }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "(" || char === "{" || char === "[") depth++
-    if (char === ")" || char === "}" || char === "]") depth--
-    if (char === "," && depth === 0) {
-      args.push(source.slice(start, index).trim())
-      start = index + 1
-    }
-  }
-  args.push(source.slice(start).trim())
-  return args
-}
-
-function findDefineScheduleOpenParen(source: string): number | undefined {
-  for (const match of source.matchAll(/\bdefineSchedule\b/g)) {
-    let index = match.index! + match[0].length
-    while (/\s/.test(source[index] ?? "")) index++
-    if (source[index] === "<") {
-      let depth = 0
-      for (; index < source.length; index++) {
-        if (source[index] === "<") depth++
-        if (source[index] === ">") {
-          depth--
-          if (depth === 0) {
-            index++
-            break
-          }
-        }
-      }
-      while (/\s/.test(source[index] ?? "")) index++
-    }
-    if (source[index] === "(") return index
-  }
-}
 
 function readStringLiteral(source: string): string | undefined {
   const quote = source.trim()[0]
@@ -144,8 +68,7 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
   const source = readFileSync(file, "utf8")
-  const openParen = findDefineScheduleOpenParen(source)
-  const args = openParen === undefined ? [] : splitTopLevelArguments(readBalancedCall(source, openParen) ?? "")
+  const args = findIdentifierCalls(source, "defineSchedule")[0]?.arguments ?? []
   const cron = (args[0] ? readStringLiteral(args[0]) : undefined)
     ?? source.match(/\bexport\s+default\s*\{[\s\S]*?\bcron\s*:\s*(["'`])([^"'`]+)\1/)?.[2]
   if (!cron) {

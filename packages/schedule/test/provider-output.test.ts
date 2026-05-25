@@ -68,6 +68,23 @@ describe("schedule provider output", () => {
     })).rejects.toThrow(/must declare a static cron string/)
   })
 
+  it("ignores commented defineSchedule examples when reading static provider cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-commented-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "// defineSchedule('0 1 * * *', () => 'docs')",
+      "export default defineSchedule('0 2 * * *', () => 'ok')",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
   it("preserves existing Vercel output config when adding schedule crons", async () => {
     const rootDir = await createTempProject("vitehub-schedule-vercel-config-")
     const outputRoot = join(rootDir, ".vercel", "output")
