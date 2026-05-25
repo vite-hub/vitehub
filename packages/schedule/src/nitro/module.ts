@@ -1,12 +1,11 @@
 import { resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
-import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeFileIfChanged, writeRuntimeRegistryFiles } from "@vitehub/internal/definition-catalog"
+import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeRuntimeRegistryFiles } from "@vitehub/internal/definition-catalog"
 import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { readDefinitionCrons, writeVercelScheduleFunctions } from "../internal/provider-output.ts"
-import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "../targets-module.ts"
 
 import type { Nitro, NitroModule } from "nitro/types"
 
@@ -33,14 +32,6 @@ function createNitroSchedulePluginPath(rootDir: string, buildDir: string) {
   })
 }
 
-function createNitroScheduleTargetsPath(rootDir: string, buildDir: string) {
-  return createNitroRuntimeFilePath(rootDir, {
-    buildDir,
-    fileName: "targets.mjs",
-    segments: ["vitehub", "schedule"],
-  })
-}
-
 function resolveNitroScheduleScanDirs(rootDir: string, scanDirs: string[] | undefined) {
   return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
 }
@@ -56,7 +47,6 @@ function createNitroSchedulePluginContents(file: string, registryFile: string) {
   return [
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
     "import { executeStaticSchedule } from \"@vitehub/schedule\"",
-    "import { setScheduleRuntimeRegistry } from \"@vitehub/schedule/runtime\"",
     "",
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
@@ -68,7 +58,6 @@ function createNitroSchedulePluginContents(file: string, registryFile: string) {
     "}",
     "",
     "export default defineNitroPlugin((nitroApp: any) => {",
-    "  setScheduleRuntimeRegistry(scheduleRegistry)",
     "  nitroApp.hooks.hook(\"cloudflare:scheduled\", async ({ event }: { event: { cron: string, scheduledTime: number } }) => {",
     "    await Promise.all(Object.keys(scheduleRegistry).map(async (name) => {",
     "      const definition = await loadScheduleDefinition(name)",
@@ -84,21 +73,17 @@ function createNitroSchedulePluginContents(file: string, registryFile: string) {
 async function writeNitroScheduleRuntimeFiles(nitro: Nitro) {
   const registryFile = createNitroScheduleRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
   const pluginFile = createNitroSchedulePluginPath(nitro.options.rootDir, nitro.options.buildDir)
-  const targetsFile = createNitroScheduleTargetsPath(nitro.options.rootDir, nitro.options.buildDir)
   const definitions = discoverScheduleDefinitions({
     mode: "nitro-server-schedules",
     scanDirs: resolveNitroScheduleScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
   })
 
-  const runtimeFiles = await writeRuntimeRegistryFiles({
+  return await writeRuntimeRegistryFiles({
     createPluginContents: createNitroSchedulePluginContents,
     definitions,
     pluginFile,
     registryFile,
   })
-
-  await writeFileIfChanged(targetsFile, createScheduleTargetsContents(definitions))
-  return { ...runtimeFiles, targetsFile }
 }
 
 const scheduleNitroModule: NitroModule = {
@@ -108,13 +93,9 @@ const scheduleNitroModule: NitroModule = {
 
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/schedule"] = resolveRuntimeEntry("../index", "@vitehub/schedule")
-    nitro.options.alias["@vitehub/schedule/runtime"] = resolveRuntimeEntry("../runtime", "@vitehub/schedule/runtime")
 
     let runtimeFiles = await writeNitroScheduleRuntimeFiles(nitro)
-    applyNitroRuntimeAliases(nitro, {
-      "#vitehub/schedule/registry": runtimeFiles.registryFile,
-      [SCHEDULE_TARGETS_ID]: runtimeFiles.targetsFile,
-    })
+    applyNitroRuntimeAliases(nitro, { "#vitehub/schedule/registry": runtimeFiles.registryFile })
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
     if (!importsExplicitlyDisabled) {
@@ -138,14 +119,12 @@ const scheduleNitroModule: NitroModule = {
 
     hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroScheduleRuntimeFiles(nitro), (nextRuntimeFiles) => {
       runtimeFiles = nextRuntimeFiles
-      applyNitroRuntimeAliases(nitro, {
-        "#vitehub/schedule/registry": runtimeFiles.registryFile,
-        [SCHEDULE_TARGETS_ID]: runtimeFiles.targetsFile,
-      })
+      applyNitroRuntimeAliases(nitro, { "#vitehub/schedule/registry": runtimeFiles.registryFile })
       if (runtimeFiles.definitions.length) {
         registerNitroSchedulePlugin(nitro, runtimeFiles.pluginFile)
       }
     })
+
     nitro.hooks.hook("compiled", async (currentNitro: Nitro) => {
       if (!currentNitro.options.preset?.includes("vercel")) {
         return

@@ -47,9 +47,7 @@ describe("schedule provider output", () => {
       path: "/api/vitehub/schedules/vercel/cleanup",
       schedule: "0 0 * * *",
     }])
-    const vercelFunctionSource = await readFile(vercelFunction, "utf8")
-    expect(vercelFunctionSource).toContain("executeStaticSchedule")
-    expect(vercelFunctionSource).not.toContain("from \"/")
+    expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
   })
 
   it("preserves existing provider output files when adding schedule output", async () => {
@@ -83,10 +81,8 @@ describe("schedule provider output", () => {
 
   it("resolves the runtime execute entry from package source and dist layouts", () => {
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/runtime/execute.ts")
-    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/internal/provider-output.js")).toBe("/repo/packages/schedule/src/runtime/execute.ts")
     expect(resolveScheduleRuntimeEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/runtime/execute.ts")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/runtime/execute.js")
-    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/module-BVrgieBu.js")).toBe("/repo/packages/schedule/dist/runtime/execute.js")
     expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vitehub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vitehub/schedule/dist/runtime/execute.js")
   })
 

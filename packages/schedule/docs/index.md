@@ -7,7 +7,7 @@ icon: i-lucide-calendar-clock
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/schedule` defines recurring cron schedules that can run in Vite and Nitro apps. A Schedule Definition keeps the cron expression, handler, and runtime options together so provider output can discover it.
+`@vitehub/schedule` defines recurring cron schedules that can run in Vite and Nitro apps. A Schedule Definition keeps the cron expression and handler together so provider output can discover it.
 
 Use Schedule when an app needs named recurring work such as daily reports, cleanup jobs, or provider-triggered maintenance tasks.
 
@@ -28,14 +28,6 @@ export default defineSchedule('0 9 * * *', async (context) => {
   title: Schedule definitions
   ---
   Keep recurring cron handlers in `defineSchedule()`.
-  :::
-
-  :::card
-  ---
-  icon: i-lucide-list-checks
-  title: Runtime bookkeeping
-  ---
-  Track schedule runs and attempts through the schedule runtime.
   :::
 
   :::card

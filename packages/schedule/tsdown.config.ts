@@ -14,7 +14,6 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/nitro.ts",
-    "src/runtime.ts",
     "src/runtime/execute.ts",
     "src/vite.ts",
   ],

@@ -25,7 +25,7 @@ The Definition Boundary Helper used to declare a Static Schedule Definition in s
 _Avoid_: Runtime Helper, cron job factory
 
 **Schedule File Name**:
-The file name used as the default identity for a discovered Static Schedule Definition.
+The file name used as the identity for a discovered Static Schedule Definition.
 _Avoid_: Required explicit id, route name
 
 **Runtime Schedule Opt-In**:
@@ -160,7 +160,7 @@ _Avoid_: Per-user timezone, local server time
 - A **Schedule Run** can have one or more **Schedule Run Attempts**.
 - A **Schedule Run** can start an Agent Invocation without becoming an Agent Invocation.
 - A Static Schedule Definition can provide both cron timing and its default **Schedule Target**.
-- A **Schedule File Name** provides the default Static Schedule Definition id unless the developer overrides it.
+- A **Schedule File Name** provides the Static Schedule Definition identity.
 - `allowRuntimeSchedules` is the **Runtime Schedule Opt-In**.
 - A **Schedule Run** starts one **Schedule Target**.
 - A Static Schedule Definition handler is not a **Runtime Schedule Target** unless it explicitly opts into runtime reuse.

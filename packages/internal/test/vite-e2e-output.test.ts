@@ -162,8 +162,10 @@ describe("unified vite e2e hosted outputs", () => {
     const vercelConfig = await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")
     const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
     const vercelConsumer = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", "index.mjs")
+    const vercelSchedule = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "daily-marker.func", "index.mjs")
     const vercelConsumerConfig = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", ".vc-config.json"), "utf8"))
     const vercelConsumerContents = await readFile(vercelConsumer, "utf8")
+    const vercelScheduleContents = await readFile(vercelSchedule, "utf8")
     const vercelServerContents = await readFile(vercelServer, "utf8")
 
     expect(vercelConfig).toContain("\"/__server\"")
@@ -175,6 +177,8 @@ describe("unified vite e2e hosted outputs", () => {
     expect(vercelServerContents).toContain("/api/workflows/welcome")
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).toContain("handleHostedVercelQueueCallback")
+    expect(vercelScheduleContents).toContain("process.env.CRON_SECRET")
+    expect(vercelScheduleContents).toContain("authorization !== `Bearer ${cronSecret}`")
     expect(vercelConsumerConfig.experimentalTriggers?.[0]).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome-email_Swelcome-email_Dfunc",
       topic: "topic--77656c636f6d652d656d61696c",

@@ -10,16 +10,8 @@ function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
   return (plugin.resolveId as (id: string, importer?: string, options?: unknown) => unknown)("#vitehub/schedule/registry")
 }
 
-function resolveScheduleTargets(plugin: ReturnType<typeof hubSchedule>) {
-  return (plugin.resolveId as (id: string, importer?: string, options?: unknown) => unknown)("#vitehub/schedule/targets")
-}
-
 async function loadScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
   return await (plugin.load as (id: string, options?: unknown) => string | Promise<string>)("\0#vitehub/schedule/registry")
-}
-
-async function loadScheduleTargets(plugin: ReturnType<typeof hubSchedule>) {
-  return await (plugin.load as (id: string, options?: unknown) => string | Promise<string>)("\0#vitehub/schedule/targets")
 }
 
 function resolvePluginConfig(plugin: ReturnType<typeof hubSchedule>, root: string) {
@@ -41,22 +33,6 @@ describe("Vite schedule integration", () => {
     expect(registry).toContain("\"cleanup\": async () => import(")
     expect(registry).toContain("\"daily-reports\": async () => import(")
     expect(registry).toContain("../../src/cleanup.schedule.ts")
-  })
-
-  it("serves generated runtime schedule target names behind a stable import", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-targets-"))
-    await mkdir(join(root, "src"), { recursive: true })
-    await writeFile(join(root, "src", "cleanup.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {})\n", "utf8")
-    await writeFile(join(root, "src", "reports.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { id: \"daily-reports\", allowRuntimeSchedules: true })\n", "utf8")
-
-    const plugin = hubSchedule()
-    resolvePluginConfig(plugin, root)
-    const targets = await loadScheduleTargets(plugin)
-
-    expect(resolveScheduleTargets(plugin)).toBe("\0#vitehub/schedule/targets")
-    expect(targets).toContain("export const scheduleTargetNames = [\"daily-reports\"];")
-    expect(targets).not.toContain("export type")
-    expect(targets).not.toContain("\"cleanup\"")
   })
 
   it("serves an empty registry without special cases", async () => {

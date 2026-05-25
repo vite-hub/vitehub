@@ -262,8 +262,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { blob, chatTitle, db, inputCommands, kv, mcp, sandbox, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
-export type { ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
+export { blob, chatSummary, chatTitle, db, inputCommands, kv, mcp, sandbox, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
+export type { ChatSummaryCommandOptions, ChatSummaryExecuteInput, ChatSummaryExecuteResult, ChatSummaryOptions, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {

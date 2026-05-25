@@ -9,7 +9,6 @@ import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vitehub/internal/build/paths"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
 import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
-import { findIdentifierCalls } from "@vitehub/internal/source-scanner"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
@@ -23,16 +22,9 @@ const generatedRegistryFileName = "registry.mjs"
 export function resolveScheduleRuntimeEntry(metaUrl = import.meta.url) {
   const file = fileURLToPath(metaUrl)
   const normalizedFile = file.replace(/\\/g, "/")
-  if (normalizedFile.endsWith("/src/internal/provider-output.ts")) {
-    return resolve(dirname(file), "../runtime/execute.ts")
-  }
-  if (normalizedFile.match(/\/dist\/[^/]+\.js$/)) {
-    return resolve(dirname(file), "runtime/execute.js")
-  }
-  if (normalizedFile.endsWith("/internal/provider-output.js") && !normalizedFile.endsWith("/dist/internal/provider-output.js")) {
-    return resolve(dirname(file), "../src/runtime/execute.ts")
-  }
-  return resolve(dirname(file), "../runtime/execute.js")
+  return normalizedFile.endsWith("/src/internal/provider-output.ts")
+    ? resolve(dirname(file), "../runtime/execute.ts")
+    : resolve(dirname(file), "../runtime/execute.js")
 }
 
 const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()
@@ -84,8 +76,8 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
   const source = readFileSync(file, "utf8")
-  const args = findIdentifierCalls(source, "defineSchedule")[0]?.arguments ?? []
-  const cron = (args[0] ? readStringLiteral(args[0]) : undefined)
+  const defineScheduleArgument = source.match(/\bexport\s+default\s+defineSchedule\s*\(\s*([^,]+?)\s*,/)?.[1]
+  const cron = (defineScheduleArgument ? readStringLiteral(defineScheduleArgument) : undefined)
     ?? source.match(/\bexport\s+default\s*\{[\s\S]*?\bcron\s*:\s*(["'`])([^"'`]+)\1/)?.[2]
   if (!cron) {
     throw new Error(`Schedule "${scheduleName}" must declare a static cron string for provider wake output.`)
@@ -273,7 +265,6 @@ async function writeCloudflareScheduleOutput(options: {
     bundleEsmEntry(options.bundleEntry, resolve(outputRoot, main), {
       alias: options.bundleAlias,
       conditions: ["workerd", "worker", "browser", "default"],
-      external: ["node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
       format: "esm",
       platform: "neutral",
     }),

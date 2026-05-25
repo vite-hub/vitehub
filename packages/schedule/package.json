@@ -24,7 +24,6 @@
   "exports": {
     ".": "./dist/index.js",
     "./nitro": "./dist/nitro.js",
-    "./runtime": "./dist/runtime.js",
     "./runtime/execute": "./dist/runtime/execute.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
@@ -36,7 +35,6 @@
   "scripts": {
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
-    "test:e2e": "node ./test/e2e-live.mjs",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "pnpm --dir . build && vitest run"
   },
