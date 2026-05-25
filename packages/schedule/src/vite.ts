@@ -21,6 +21,16 @@ const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
 export type ScheduleVitePlugin = Plugin & { nitro: unknown }
 
+function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
+  const aliases: Record<string, string> = {}
+  for (const alias of config.resolve.alias) {
+    if (typeof alias.find === "string" && typeof alias.replacement === "string") {
+      aliases[alias.find] = alias.replacement
+    }
+  }
+  return aliases
+}
+
 export function hubSchedule(): ScheduleVitePlugin {
   let resolved: ResolvedConfig | undefined
 
@@ -94,6 +104,7 @@ export function hubSchedule(): ScheduleVitePlugin {
         return
       }
       await generateProviderOutputs({
+        bundleAlias: resolveStringAliases(resolved),
         clientOutDir: resolved.build.outDir,
         rootDir: resolved.root,
       })

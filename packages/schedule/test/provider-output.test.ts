@@ -229,6 +229,26 @@ describe("schedule provider output", () => {
     await expect(readFile(join(outputRoot, "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")).resolves.toContain("nitro-alias-marker")
   })
 
+  it("uses Vite aliases when bundling provider output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-vite-alias-")
+    const aliasFile = join(rootDir, "schedule-helper.mjs")
+    await writeFile(aliasFile, "export const marker = 'vite-alias-marker'\n", "utf8")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "import { marker } from '#schedule-helper'",
+      "export default { cron: '0 0 * * *', handler: () => marker }",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      bundleAlias: { "#schedule-helper": aliasFile },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(rootDir), "index.js"), "utf8")).resolves.toContain("vite-alias-marker")
+    await expect(readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")).resolves.toContain("vite-alias-marker")
+  })
+
   it("rejects sanitized Vercel function path collisions", async () => {
     const rootDir = await createTempProject("vitehub-schedule-vercel-collision-")
     const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
@@ -246,6 +266,26 @@ describe("schedule provider output", () => {
     }, new Map([
       ["daily?report", "0 0 * * *"],
       ["daily:report", "0 0 * * *"],
+    ]))).rejects.toThrow(/same Vercel function path/)
+  })
+
+  it("rejects normalized Vercel function path collisions", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-vercel-normalized-collision-")
+    const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
+    await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
+    await writeFile(registryFile, "export default {}\n", "utf8")
+
+    await expect(writeVercelScheduleFunctions({
+      definitions: [
+        { handler: join(rootDir, "src", "cleanup.schedule.ts"), name: "reports/daily" },
+        { handler: join(rootDir, "src", "cleanup.schedule.ts"), name: "reports//daily" },
+      ],
+      outputRoot: join(rootDir, ".vercel", "output"),
+      registryFile,
+      rootDir,
+    }, new Map([
+      ["reports/daily", "0 0 * * *"],
+      ["reports//daily", "0 0 * * *"],
     ]))).rejects.toThrow(/same Vercel function path/)
   })
 
