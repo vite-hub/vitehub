@@ -362,7 +362,7 @@ function scheduleCapabilityCallPattern(capabilityName: string): string {
   return capabilityName.split(".").map(escapeRegExp).join("\\s*\\.\\s*")
 }
 
-function parseInlineAgentScheduleEntries(source: string, capabilityNames = parseScheduleCapabilityNames(source)): Array<{ cron: string, id: string }> {
+function parseInlineAgentScheduleEntries(source: string, capabilityNames = parseScheduleCapabilityNames(stripComments(source))): Array<{ cron: string, id: string }> {
   const stripped = stripComments(source)
   const entries: Array<{ cron: string, id: string }> = []
   for (const capabilityName of capabilityNames) {

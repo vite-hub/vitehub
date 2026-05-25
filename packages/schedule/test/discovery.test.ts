@@ -136,6 +136,26 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("ignores commented schedule capability imports", async () => {
+    const viteRootDir = await createTempDir("vitehub-agent-schedule-commented-import-")
+    await mkdir(join(viteRootDir, "src"), { recursive: true })
+    await writeFile(join(viteRootDir, "src", "support.agent.ts"), [
+      "import { defineAgent } from '@vitehub/agent'",
+      "// import { schedule } from '@vitehub/agent'",
+      "function schedule(options: { schedules: string[] }) {",
+      "  return { kind: 'local-helper', ...options }",
+      "}",
+      "export default defineAgent({",
+      "  capabilities: [schedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([])
+  })
+
   it("discovers inline Agent Schedules from aliased schedule capabilities", async () => {
     const viteRootDir = await createTempDir("vitehub-agent-schedule-alias-")
     await mkdir(join(viteRootDir, "src"), { recursive: true })
