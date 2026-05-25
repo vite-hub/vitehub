@@ -9,6 +9,7 @@ import {
   resolveDefinitionScanRoots,
 } from "@vitehub/internal/definition-catalog"
 import {
+  findMatching,
   findIdentifierCalls,
   splitTopLevel,
 } from "@vitehub/internal/source-scanner"
@@ -17,8 +18,59 @@ import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
-function isExportDefaultCall(source: string, start: number) {
-  return /(?:^|[^\w$])export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)|\()*$/.test(source.slice(0, start))
+function findQuotedStringEnd(source: string, start: number) {
+  const quote = source[start]
+  let index = start + 1
+  while (index < source.length) {
+    if (source[index] === "\\") {
+      index += 2
+      continue
+    }
+    if (source[index] === quote) {
+      return index + 1
+    }
+    index += 1
+  }
+  return source.length
+}
+
+function findTemplateLiteralEnd(source: string, start: number) {
+  let expressionDepth = 0
+  let index = start + 1
+  while (index < source.length) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (char === "\\") {
+      index += 2
+      continue
+    }
+    if (char === "`") {
+      if (expressionDepth === 0) return index + 1
+      index = findTemplateLiteralEnd(source, index)
+      continue
+    }
+    if (char === "\"" || char === "'") {
+      index = findQuotedStringEnd(source, index)
+      continue
+    }
+    if (char === "$" && next === "{") {
+      expressionDepth += 1
+      index += 2
+      continue
+    }
+    if (char === "{" && expressionDepth > 0) {
+      expressionDepth += 1
+      index += 1
+      continue
+    }
+    if (char === "}" && expressionDepth > 0) {
+      expressionDepth -= 1
+      index += 1
+      continue
+    }
+    index += 1
+  }
+  return source.length
 }
 
 function maskCommentsAndStrings(source: string) {
@@ -40,28 +92,27 @@ function maskCommentsAndStrings(source: string) {
       index = nextIndex
       continue
     }
-    if (char === "\"" || char === "'" || char === "`") {
-      const quote = char
-      const start = index
-      index += 1
-      while (index < source.length) {
-        if (source[index] === "\\") {
-          index += 2
-          continue
-        }
-        if (source[index] === quote) {
-          index += 1
-          break
-        }
-        index += 1
-      }
-      masked += " ".repeat(index - start)
+    if (char === "\"" || char === "'") {
+      const nextIndex = findQuotedStringEnd(source, index)
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
+      continue
+    }
+    if (char === "`") {
+      const nextIndex = findTemplateLiteralEnd(source, index)
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
       continue
     }
     masked += char
     index += 1
   }
   return masked
+}
+
+function isExportDefaultCall(source: string, start: number) {
+  const code = maskCommentsAndStrings(source.slice(0, start))
+  return /(?:^|[^\w$])export\s+default(?:\s|\()*$/.test(code)
 }
 
 function readDefaultExportIdentifier(source: string) {
@@ -153,18 +204,51 @@ function readTopLevelStringProperty(source: string, property: string): string | 
   }
 }
 
-function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
-  const objectSource = source.trim()
+function readTopLevelObjectProperty(source: string, property: string): string | undefined {
+  const objectSource = stripBoundaryComments(source)
   if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
 
   for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
     const [key, ...valueParts] = splitTopLevel(entry, ":")
-    const normalizedKey = key?.trim().replace(/^(['"])(.*)\1$/, "$2")
+    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
     if (normalizedKey !== property) continue
-    const value = valueParts.join(":").trim()
+    const value = stripBoundaryComments(valueParts.join(":"))
+    return value.startsWith("{") && value.endsWith("}") ? value : undefined
+  }
+}
+
+function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
+  const objectSource = stripBoundaryComments(source)
+  if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
+
+  for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
+    const [key, ...valueParts] = splitTopLevel(entry, ":")
+    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
+    if (normalizedKey !== property) continue
+    const value = stripBoundaryComments(valueParts.join(":"))
     if (value === "true") return true
     if (value === "false") return false
   }
+}
+
+function readObjectLiteralAt(source: string, openBrace: number): string | undefined {
+  const closeBrace = findMatching(source, openBrace, "{", "}")
+  return closeBrace === undefined ? undefined : source.slice(openBrace, closeBrace + 1)
+}
+
+function readDefaultExportObject(source: string): string | undefined {
+  const code = maskCommentsAndStrings(source)
+  const directExport = /\bexport\s+default\s*\{/.exec(code)
+  if (directExport) {
+    return readObjectLiteralAt(source, directExport.index + directExport[0].lastIndexOf("{"))
+  }
+
+  const defaultExportName = readDefaultExportIdentifier(source)
+  if (!defaultExportName) return undefined
+
+  const declarationPattern = new RegExp(`(?:^|[;\\n])\\s*(?:export\\s+)?(?:const|let|var)\\s+${defaultExportName}\\b[^=]*=\\s*\\{`, "m")
+  const declaration = declarationPattern.exec(code)
+  return declaration ? readObjectLiteralAt(source, declaration.index + declaration[0].lastIndexOf("{")) : undefined
 }
 
 function readScheduleIdOverride(file: string): string | undefined {
@@ -173,8 +257,13 @@ function readScheduleIdOverride(file: string): string | undefined {
 }
 
 function readAllowRuntimeSchedules(file: string): boolean {
-  const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
-  return options ? readTopLevelBooleanProperty(options, "allowRuntimeSchedules") === true : false
+  const source = readFileSync(file, "utf8")
+  const options = readDefineScheduleOptions(source)
+  if (options && readTopLevelBooleanProperty(options, "allowRuntimeSchedules") === true) return true
+
+  const objectSchedule = readDefaultExportObject(source)
+  const objectOptions = objectSchedule ? readTopLevelObjectProperty(objectSchedule, "options") : undefined
+  return objectOptions ? readTopLevelBooleanProperty(objectOptions, "allowRuntimeSchedules") === true : false
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {
