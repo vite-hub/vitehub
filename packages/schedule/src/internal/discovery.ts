@@ -163,7 +163,7 @@ function discoverNamedAgentExports(file: string): Array<{ exportName: string, na
   const locals = new Map<string, string>()
   const definitions = new Map<string, { exportName: string, name: string, source: string }>()
 
-  for (const match of source.matchAll(/\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g)) {
+  for (const match of source.matchAll(/\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=/g)) {
     const localName = match[1]!
     const callSource = findDefineAgentCall(source, match.index! + match[0].length)
     if (!callSource) continue
