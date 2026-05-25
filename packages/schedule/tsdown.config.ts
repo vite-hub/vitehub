@@ -7,12 +7,14 @@ export default defineConfig({
   ],
   deps: {
     alwaysBundle: [/^@vitehub\/internal/],
+    neverBundle: ["esbuild"],
     onlyBundle: false,
   },
   dts: true,
   entry: [
     "src/index.ts",
     "src/nitro.ts",
+    "src/runtime/execute.ts",
     "src/vite.ts",
   ],
   exports: {
