@@ -270,6 +270,20 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["reports/daily"])
   })
 
+  it("decodes escaped explicit ids with JavaScript string literal semantics", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-escaped-explicit-id-")
+    await writeFile(
+      join(viteRootDir, "daily.schedule.ts"),
+      String.raw`export default defineSchedule('0 9 * * *', () => {}, { id: '\u0072eports\/daily' })` + "\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    }).map(definition => definition.name)).toEqual(["reports/daily"])
+  })
+
   it("preserves regex literals while reading defineSchedule options", async () => {
     const viteRootDir = await createTempDir("vitehub-schedule-regex-literal-")
     await writeFile(

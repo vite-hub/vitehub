@@ -92,6 +92,51 @@ function stripBoundaryComments(source: string) {
     .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
 }
 
+function decodeStringLiteralValue(value: string) {
+  let decoded = ""
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index]
+    if (char !== "\\") {
+      decoded += char
+      continue
+    }
+    const next = value[++index]
+    if (next === undefined) {
+      decoded += "\\"
+      continue
+    }
+    if (next === "u") {
+      const hex = value.slice(index + 1, index + 5)
+      if (/^[\da-f]{4}$/i.test(hex)) {
+        decoded += String.fromCharCode(Number.parseInt(hex, 16))
+        index += 4
+        continue
+      }
+    }
+    if (next === "x") {
+      const hex = value.slice(index + 1, index + 3)
+      if (/^[\da-f]{2}$/i.test(hex)) {
+        decoded += String.fromCharCode(Number.parseInt(hex, 16))
+        index += 2
+        continue
+      }
+    }
+    decoded += ({
+      "\\": "\\",
+      "\"": "\"",
+      "'": "'",
+      "0": "\0",
+      b: "\b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      t: "\t",
+      v: "\v",
+    } as Record<string, string>)[next] ?? next
+  }
+  return decoded
+}
+
 function readTopLevelStringProperty(source: string, property: string): string | undefined {
   const objectSource = stripBoundaryComments(source)
   if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
@@ -103,7 +148,7 @@ function readTopLevelStringProperty(source: string, property: string): string | 
     const value = stripBoundaryComments(valueParts.join(":"))
     const match = value.match(/^(['"])((?:\\.|(?!\1).)*)\1$/)
     if (match) {
-      return match[2]?.replace(/\\(.)/g, "$1")
+      return decodeStringLiteralValue(match[2] ?? "")
     }
   }
 }

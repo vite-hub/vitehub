@@ -107,6 +107,11 @@ describe("source scanner", () => {
       `{ id: "daily" }`,
     ])
 
+    expect(splitTopLevel(`() => { if (url === "http://x") /\\)/.test(")") }, { id: "daily" }`)).toEqual([
+      `() => { if (url === "http://x") /\\)/.test(")") }`,
+      `{ id: "daily" }`,
+    ])
+
     expect(splitTopLevel(`() => { if (ready) /* hint */ /\\)/.test(")") }, { id: "daily" }`)).toEqual([
       `() => { if (ready) /* hint */ /\\)/.test(")") }`,
       `{ id: "daily" }`,
