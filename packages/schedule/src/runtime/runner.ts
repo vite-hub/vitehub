@@ -74,8 +74,21 @@ export function startScheduleRunner(options: ScheduleRunnerOptions = {}): Schedu
   const now = options.now ?? (() => new Date())
   let stopped = false
   let active = 0
+  const queuedRuns: Array<{ scheduledAt: Date, schedule: RuntimeScheduleRecord }> = []
+  const queuedRunIds = new Set<string>()
   let scanning = false
   let timer: ReturnType<typeof setInterval> | undefined
+
+  const pump = () => {
+    while (!stopped && active < concurrency) {
+      const next = queuedRuns.shift()
+      if (!next) {
+        return
+      }
+      queuedRunIds.delete(toRunId(next.schedule.id, next.scheduledAt))
+      dispatch(next.schedule, next.scheduledAt)
+    }
+  }
 
   const dispatch = (schedule: RuntimeScheduleRecord, scheduledAt: Date) => {
     active++
@@ -90,34 +103,36 @@ export function startScheduleRunner(options: ScheduleRunnerOptions = {}): Schedu
       })
       .finally(() => {
         active--
+        pump()
       })
   }
 
   const scan = () => {
-    if (stopped || scanning || active >= concurrency) {
+    if (stopped || scanning) {
       return
     }
 
     scanning = true
-    void Promise.resolve(runtimeScheduleStore.list())
+    void Promise.resolve().then(() => runtimeScheduleStore.list())
       .then(async schedules => {
         if (stopped) {
           return
         }
         const scheduledAt = floorUTCMinute(now())
         for (const schedule of schedules) {
-          if (stopped || active >= concurrency) {
+          if (stopped) {
             return
           }
           if (!schedule.enabled || !isDue(schedule, scheduledAt)) {
             continue
           }
-          if (await scheduleRunStore.getRun(toRunId(schedule.id, scheduledAt))) {
+          const runId = toRunId(schedule.id, scheduledAt)
+          if (queuedRunIds.has(runId) || await scheduleRunStore.getRun(runId)) {
             continue
           }
-          if (!stopped && active < concurrency) {
-            dispatch(schedule, scheduledAt)
-          }
+          queuedRunIds.add(runId)
+          queuedRuns.push({ scheduledAt, schedule })
+          pump()
         }
       })
       .catch(error => {

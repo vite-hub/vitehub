@@ -580,6 +580,11 @@ describe("Basic Self-Hosted Schedule Runner", () => {
 
     releaseFirst?.()
     await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushAsyncWork()
+    expect(secondCalls).toBe(1)
+    expect((await scheduleRunStore.getRun("srun_second_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
+
     await vi.advanceTimersByTimeAsync(10)
     await flushAsyncWork()
 
@@ -678,6 +683,27 @@ describe("Basic Self-Hosted Schedule Runner", () => {
       error: { message: "runner boom", name: "TypeError" },
       status: "failed",
     })
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(TypeError)
+    expect(runner.running).toBe(true)
+    runner.stop()
+  })
+
+  it("reports synchronous schedule list failures without crashing", async () => {
+    vi.useFakeTimers()
+    const errors: unknown[] = []
+    const baseStore = createMemoryRuntimeScheduleStore()
+    const runtimeScheduleStore = {
+      ...baseStore,
+      list() {
+        throw new TypeError("list boom")
+      },
+    }
+    const scheduleRunStore = createMemoryScheduleRunStore()
+
+    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+
     expect(errors).toHaveLength(1)
     expect(errors[0]).toBeInstanceOf(TypeError)
     expect(runner.running).toBe(true)
