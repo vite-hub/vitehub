@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vitehub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot } from "@vitehub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vitehub/internal/build/paths"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
@@ -216,33 +216,56 @@ export async function writeVercelScheduleFunctions(options: {
   await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
 }
 
+async function writeCloudflareScheduleOutput(options: {
+  bundleEntry: string
+  crons: string[]
+  rootDir: string
+}) {
+  const outputRoot = createDefaultCloudflareOutputRoot(options.rootDir)
+  await mkdir(outputRoot, { recursive: true })
+
+  const configFile = resolve(outputRoot, "wrangler.json")
+  let wranglerConfig: Record<string, unknown> = {}
+  try {
+    wranglerConfig = JSON.parse(await readFile(configFile, "utf8"))
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+
+  const existingTriggers = typeof wranglerConfig.triggers === "object" && wranglerConfig.triggers !== null
+    ? wranglerConfig.triggers as { crons?: string[] }
+    : {}
+  wranglerConfig = {
+    ...wranglerConfig,
+    compatibility_date: wranglerConfig.compatibility_date ?? defaultCloudflareCompatibilityDate,
+    compatibility_flags: wranglerConfig.compatibility_flags ?? ["nodejs_compat"],
+    main: wranglerConfig.main ?? "index.js",
+    observability: wranglerConfig.observability ?? { enabled: true },
+    triggers: {
+      ...existingTriggers,
+      crons: [...new Set([...(existingTriggers.crons ?? []), ...options.crons])],
+    },
+  }
+
+  await Promise.all([
+    bundleEsmEntry(options.bundleEntry, resolve(outputRoot, "index.js"), {
+      conditions: ["workerd", "worker", "browser", "default"],
+      external: ["node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
+      format: "esm",
+      platform: "neutral",
+    }),
+    writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8"),
+  ])
+}
+
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir)
   const crons = await readDefinitionCrons(artifacts.definitions)
-  await writeProviderDeploymentOutputs({
-    clientOutDir: options.clientOutDir,
-    cloudflare: {
-      bundleEntry: artifacts.cloudflareWorkerFile,
-      bundleOptions: {
-        conditions: ["workerd", "worker", "browser", "default"],
-        external: ["node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
-        format: "esm",
-        platform: "neutral",
-      },
-      wranglerConfig: {
-        compatibility_date: defaultCloudflareCompatibilityDate,
-        compatibility_flags: ["nodejs_compat"],
-        main: "index.js",
-        observability: { enabled: true },
-        triggers: { crons: [...new Set(crons.values())] },
-      },
-    },
+  await writeCloudflareScheduleOutput({
+    bundleEntry: artifacts.cloudflareWorkerFile,
+    crons: [...new Set(crons.values())],
     rootDir: options.rootDir,
-    vercel: {
-      bundleEntry: artifacts.vercelServerFile,
-      bundleOptions: { format: "esm", platform: "node" },
-      config: createVercelConfigJson(),
-    },
   })
   await writeVercelScheduleFunctions({
     definitions: artifacts.definitions,
