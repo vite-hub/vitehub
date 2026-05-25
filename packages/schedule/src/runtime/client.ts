@@ -100,6 +100,14 @@ export function validateRuntimeScheduleCron(cron: string): void {
 }
 
 async function assertRuntimeTarget(target: ScheduleTargetName): Promise<void> {
+  if (typeof target !== "string" || !target.trim()) {
+    throw new ScheduleError("Runtime Schedule target must be a non-empty string.", {
+      code: "SCHEDULE_INVALID_TARGET",
+      details: { target },
+      httpStatus: 400,
+    })
+  }
+
   const definition = await loadScheduleDefinition(target)
   if (!definition) {
     throw new ScheduleError(`Unknown Runtime Schedule target: ${target}`, {

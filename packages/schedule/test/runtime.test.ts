@@ -134,6 +134,24 @@ describe("Runtime Schedule helper", () => {
     })
   })
 
+  it("rejects non-string runtime targets", async () => {
+    setScheduleRuntimeRegistry({
+      "123": async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await expect(schedules.create({ cron: "0 9 * * *", target: 123 as never })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TARGET",
+    })
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "123" })
+    await expect(schedules.update("schedule-1", { target: 123 as never })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TARGET",
+    })
+  })
+
   it("fails clearly for schedule targets that did not opt in", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({

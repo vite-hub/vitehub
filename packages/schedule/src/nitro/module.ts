@@ -1,5 +1,6 @@
 import { resolve } from "node:path"
 
+import { createImportPath } from "@vitehub/internal/build/paths"
 import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, createRuntimeRegistryContents, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
@@ -31,13 +32,39 @@ function createNitroScheduleTargetsPath(rootDir: string, buildDir: string) {
   })
 }
 
+function createNitroSchedulePluginPath(rootDir: string, buildDir: string) {
+  return createNitroRuntimeFilePath(rootDir, {
+    buildDir,
+    fileName: "nitro-plugin.ts",
+    segments: ["vitehub", "schedule"],
+  })
+}
+
 function resolveNitroScheduleScanDirs(rootDir: string, scanDirs: string[] | undefined) {
   return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
 }
 
-async function writeNitroScheduleRuntimeFiles(nitro: Nitro): Promise<{ registryFile: string, targetsFile: string }> {
+function createNitroSchedulePluginContents(file: string, registryFile: string) {
+  return [
+    "import { definePlugin as defineNitroPlugin } from \"nitro\"",
+    "",
+    "import { setScheduleRuntimeRegistry } from \"@vitehub/schedule\"",
+    "",
+    `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    "",
+    "const scheduleNitroPlugin = defineNitroPlugin(() => {",
+    "  setScheduleRuntimeRegistry(scheduleRegistry)",
+    "})",
+    "",
+    "export default scheduleNitroPlugin",
+    "",
+  ].join("\n")
+}
+
+async function writeNitroScheduleRuntimeFiles(nitro: Nitro): Promise<{ pluginFile: string, registryFile: string, targetsFile: string }> {
   const registryFile = createNitroScheduleRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
   const targetsFile = createNitroScheduleTargetsPath(nitro.options.rootDir, nitro.options.buildDir)
+  const pluginFile = createNitroSchedulePluginPath(nitro.options.rootDir, nitro.options.buildDir)
   const definitions = discoverScheduleDefinitions({
     mode: "nitro-server-schedules",
     scanDirs: resolveNitroScheduleScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
@@ -46,9 +73,10 @@ async function writeNitroScheduleRuntimeFiles(nitro: Nitro): Promise<{ registryF
   await Promise.all([
     writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
     writeFileIfChanged(targetsFile, createScheduleTargetsContents(definitions)),
+    writeFileIfChanged(pluginFile, createNitroSchedulePluginContents(pluginFile, registryFile)),
   ])
 
-  return { registryFile, targetsFile }
+  return { pluginFile, registryFile, targetsFile }
 }
 
 const scheduleNitroModule: NitroModule = {
@@ -68,6 +96,11 @@ const scheduleNitroModule: NitroModule = {
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
     if (!importsExplicitlyDisabled) {
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, SCHEDULE_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
+    }
+
+    nitro.options.plugins ||= []
+    if (!nitro.options.plugins.includes(runtimeFiles.pluginFile)) {
+      nitro.options.plugins.push(runtimeFiles.pluginFile)
     }
 
     hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroScheduleRuntimeFiles(nitro), (nextRuntimeFiles) => {
