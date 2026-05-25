@@ -15,6 +15,7 @@ describe("Nitro schedule integration", () => {
         alias: {} as Record<string, string>,
         buildDir: join(root, ".nitro"),
         imports: undefined as { presets?: Array<{ from: string, imports: string[] }> } | undefined,
+        plugins: [] as string[],
         rootDir: root,
         scanDirs: [],
       },
@@ -23,8 +24,11 @@ describe("Nitro schedule integration", () => {
     await scheduleNitroModule.setup(nitro as never)
 
     const registryFile = join(root, ".nitro", "vitehub", "schedule", "nitro-registry.mjs")
+    const pluginFile = join(root, ".nitro", "vitehub", "schedule", "nitro-plugin.ts")
+    expect(nitro.options.plugins).toEqual([pluginFile])
     expect(nitro.options.alias["#vitehub/schedule/registry"]).toBe(registryFile)
     expect(nitro.options.alias["#vitehub/schedule/targets"]).toBe(join(root, ".nitro", "vitehub", "schedule", "targets.mjs"))
+    await expect(readFile(pluginFile, "utf8")).resolves.toContain("setScheduleRuntimeRegistry(scheduleRegistry)")
     expect(await readFile(registryFile, "utf8")).toBe([
       "",
       "const registry = {",

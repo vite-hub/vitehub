@@ -289,9 +289,46 @@ function readScheduleIdOverride(file: string): string | undefined {
   return options ? readTopLevelStringProperty(options, "id") : undefined
 }
 
+function splitTopLevelPropertyEntry(entry: string): [string, string] | undefined {
+  let depth = 0
+  let quote: string | undefined
+  for (let index = 0; index < entry.length; index++) {
+    const char = entry[index]
+    if (quote) {
+      if (char === "\\") {
+        index++
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "(" || char === "{" || char === "[") depth++
+    if (char === ")" || char === "}" || char === "]") depth--
+    if (char === ":" && depth === 0) return [entry.slice(0, index), entry.slice(index + 1)]
+  }
+}
+
+function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
+  const objectSource = source.trim()
+  if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
+
+  for (const entry of splitTopLevelArguments(objectSource.slice(1, -1))) {
+    const [key, valueSource] = splitTopLevelPropertyEntry(entry) ?? []
+    const normalizedKey = key?.trim().replace(/^(['"])(.*)\1$/, "$2")
+    if (normalizedKey !== property) continue
+    const value = valueSource?.trim()
+    if (value === "true") return true
+    if (value === "false") return false
+  }
+}
+
 function readAllowRuntimeSchedules(file: string): boolean {
   const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
-  return /\ballowRuntimeSchedules\s*:\s*true\b/.test(options ?? "")
+  return options ? readTopLevelBooleanProperty(options, "allowRuntimeSchedules") === true : false
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {

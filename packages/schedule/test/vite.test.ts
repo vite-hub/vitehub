@@ -60,6 +60,17 @@ describe("Vite schedule integration", () => {
     expect(targets).not.toContain("\"cleanup\"")
   })
 
+  it("ignores nested runtime eligibility options in schedule target names", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-targets-nested-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "reports.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { retry: { allowRuntimeSchedules: true } })\n", "utf8")
+
+    const plugin = hubSchedule()
+    resolvePluginConfig(plugin, root)
+
+    expect(await loadScheduleTargets(plugin)).toContain("export const scheduleTargetNames = [];")
+  })
+
   it("lowers inline Agent Schedules into generated schedule definitions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-registry-"))
     await mkdir(join(root, "src"), { recursive: true })
