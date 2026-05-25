@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks"
+
 import { createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./store.ts"
 
 import type { RuntimeScheduleStore, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunStore } from "../types.ts"
@@ -7,7 +9,11 @@ let runtimeStore: RuntimeScheduleStore | undefined
 let runtimeRegistryVersion = 0
 let runStore: ScheduleRunStore | undefined
 const loadedRegistryEntries = new Map<string, ScheduleDefinition | undefined>()
-const loadingRegistryEntries = new Map<string, Promise<ScheduleDefinition | undefined>>()
+const loadingRegistryEntries = new Map<string, {
+  promise: Promise<ScheduleDefinition | undefined>
+  version: number
+}>()
+const loadingRegistryStorage = new AsyncLocalStorage<Set<string>>()
 
 function isScheduleDefinition(value: unknown): value is ScheduleDefinition {
   return Boolean(value) && typeof value === "object" && typeof (value as ScheduleDefinition).handler === "function"
@@ -41,8 +47,8 @@ export function getScheduleRunStore(): ScheduleRunStore {
 }
 
 export async function loadScheduleDefinition(name: string): Promise<ScheduleDefinition | undefined> {
-  const entry = runtimeRegistry?.[name]
-  if (!entry) {
+  const entry = runtimeRegistry && Object.hasOwn(runtimeRegistry, name) ? runtimeRegistry[name] : undefined
+  if (typeof entry !== "function") {
     return undefined
   }
 
@@ -50,13 +56,18 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
     return loadedRegistryEntries.get(name)
   }
 
+  const activeLoads = loadingRegistryStorage.getStore()
   const inFlightEntry = loadingRegistryEntries.get(name)
   if (inFlightEntry) {
-    return await inFlightEntry
+    if (activeLoads?.has(name)) return undefined
+    const loaded = await inFlightEntry.promise
+    return inFlightEntry.version === runtimeRegistryVersion ? loaded : undefined
   }
 
   const loadingVersion = runtimeRegistryVersion
-  const loadingEntry = Promise.resolve().then(async () => {
+  const nextActiveLoads = new Set(activeLoads)
+  nextActiveLoads.add(name)
+  const loadingEntry = Promise.resolve().then(() => loadingRegistryStorage.run(nextActiveLoads, async () => {
     const loaded = await entry()
     if (isScheduleDefinition(loaded)) {
       return loaded
@@ -65,17 +76,18 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
       return loaded.default
     }
     return undefined
-  })
-  loadingRegistryEntries.set(name, loadingEntry)
+  }))
+  loadingRegistryEntries.set(name, { promise: loadingEntry, version: loadingVersion })
   try {
     const loaded = await loadingEntry
     if (loadingVersion === runtimeRegistryVersion) {
       loadedRegistryEntries.set(name, loaded)
+      return loaded
     }
-    return loaded
+    return undefined
   }
   finally {
-    if (loadingRegistryEntries.get(name) === loadingEntry) {
+    if (loadingRegistryEntries.get(name)?.promise === loadingEntry) {
       loadingRegistryEntries.delete(name)
     }
   }
@@ -83,6 +95,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
 
 export function resetScheduleRuntime(): void {
   runtimeRegistry = undefined
+  runtimeRegistryVersion++
   runtimeStore = undefined
   runStore = undefined
   loadedRegistryEntries.clear()

@@ -8,6 +8,7 @@ import type { RuntimeScheduleRecord, ScheduleDefinition, ScheduleRunAttemptRecor
 interface ExecuteScheduleOptions {
   definition: ScheduleDefinition
   scheduleId: string
+  source?: "direct" | "runtime" | "static"
   scheduledAt?: Date
   target: ScheduleTargetName
 }
@@ -24,8 +25,23 @@ interface ExecuteRuntimeScheduleOptions {
   scheduledAt?: Date
 }
 
-function toRunId(scheduleId: string, scheduledAt: Date): string {
-  return `srun_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
+function normalizeRunSource(source: ExecuteScheduleOptions["source"]): NonNullable<ExecuteScheduleOptions["source"]> {
+  return source ?? "direct"
+}
+
+function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: string, scheduledAt: Date): string {
+  return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
+}
+
+function validateScheduledAt(scheduledAt: Date): Date {
+  if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
+    throw new ScheduleError("Schedule Run scheduledAt must be a valid Date.", {
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+      details: { scheduledAt },
+      httpStatus: 400,
+    })
+  }
+  return scheduledAt
 }
 
 function toRunError(error: unknown): ScheduleRunError {
@@ -51,7 +67,7 @@ function requireUpdatedRun(run: ScheduleRunRecord | undefined): ScheduleRunRecor
 
 async function createOrGetRun(options: Omit<ExecuteScheduleOptions, "definition"> & { scheduledAt: Date }): Promise<{ created: boolean, run: ScheduleRunRecord }> {
   const store = getScheduleRunStore()
-  const id = toRunId(options.scheduleId, options.scheduledAt)
+  const id = toRunId(options.source, options.scheduleId, options.scheduledAt)
   const existing = await store.getRun(id)
   if (existing) {
     return { created: false, run: existing }
@@ -149,12 +165,12 @@ async function failRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord
 }
 
 export async function createScheduleRun(options: Omit<ExecuteScheduleOptions, "definition">): Promise<ScheduleRunRecord> {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
   return (await createOrGetRun({ ...options, scheduledAt })).run
 }
 
 export async function executeSchedule(options: ExecuteScheduleOptions): Promise<ScheduleRunRecord> {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
   const { created, run } = await createOrGetRun({ ...options, scheduledAt })
 
   // v1 policy is intentionally fixed: the deterministic run id dedupes repeated
@@ -178,8 +194,9 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   return await executeSchedule({
     definition: options.definition,
     scheduleId: options.definition.options?.id ?? options.name,
+    source: "static",
     scheduledAt: options.scheduledAt,
-    target: options.definition.options?.target ?? options.name,
+    target: options.name,
   })
 }
 
@@ -197,7 +214,12 @@ async function loadRequiredRuntimeSchedule(id: string): Promise<RuntimeScheduleR
 
 export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
   const id = typeof options === "string" ? options : options.id
-  const scheduledAt = typeof options === "string" ? undefined : options.scheduledAt
+  const scheduledAt = validateScheduledAt(typeof options === "string" ? new Date() : options.scheduledAt ?? new Date())
+  const existingRun = await getScheduleRunStore().getRun(toRunId("runtime", id, scheduledAt))
+  if (existingRun) {
+    return existingRun
+  }
+
   const schedule = await loadRequiredRuntimeSchedule(id)
   if (!schedule.enabled) {
     throw new ScheduleError(`Runtime Schedule is disabled: ${id}`, {
@@ -225,6 +247,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   return await executeSchedule({
     definition,
     scheduleId: schedule.id,
+    source: "runtime",
     scheduledAt,
     target: schedule.target,
   })

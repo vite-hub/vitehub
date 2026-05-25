@@ -1,6 +1,9 @@
 import { expectTypeOf, it } from "vitest"
 
 import { defineSchedule, schedules } from "../src/index.ts"
+import "../src/runtime.ts"
+import registry from "#vitehub/schedule/registry"
+import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
 import type { ScheduleRunContext } from "../src/index.ts"
 
@@ -38,4 +41,8 @@ it("types Runtime Schedule helper inputs", async () => {
 
   // @ts-expect-error update enabled must be boolean.
   await schedules.update("schedule-1", { enabled: "yes" })
+})
+
+it("types the generated schedule registry module", () => {
+  expectTypeOf(registry).toEqualTypeOf<ScheduleDefinitionRegistry>()
 })

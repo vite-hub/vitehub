@@ -4,7 +4,6 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { createScheduleRegistryContents } from "../src/registry-module.ts"
 import { hubSchedule } from "../src/vite.ts"
 
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
@@ -60,47 +59,18 @@ describe("Vite schedule integration", () => {
     expect(targets).not.toContain("\"cleanup\"")
   })
 
-  it("ignores nested runtime eligibility options in schedule target names", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-targets-nested-"))
+  it("discovers quoted runtime schedule opt-in keys and ignores commented opt-ins", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-targets-quoted-"))
     await mkdir(join(root, "src"), { recursive: true })
-    await writeFile(join(root, "src", "reports.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { retry: { allowRuntimeSchedules: true } })\n", "utf8")
+    await writeFile(join(root, "src", "commented.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { /* allowRuntimeSchedules: true */ id: \"commented\" })\n", "utf8")
+    await writeFile(join(root, "src", "quoted.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { \"allowRuntimeSchedules\": true })\n", "utf8")
 
     const plugin = hubSchedule()
     resolvePluginConfig(plugin, root)
+    const targets = await loadScheduleTargets(plugin)
 
-    expect(await loadScheduleTargets(plugin)).toContain("export const scheduleTargetNames = [];")
-  })
-
-  it("lowers inline Agent Schedules into generated schedule definitions", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-registry-"))
-    await mkdir(join(root, "src"), { recursive: true })
-    await writeFile(join(root, "src", "support.agent.ts"), [
-      "import { defineAgent, schedule } from '@vitehub/agent'",
-      "export default defineAgent({",
-      "  capabilities: [schedule({ schedules: [{ cron: '0 9 * * *', id: 'daily' }] })],",
-      "  run: () => 'ok',",
-      "})",
-    ].join("\n"), "utf8")
-
-    const plugin = hubSchedule()
-    resolvePluginConfig(plugin, root)
-    const registry = await loadScheduleRegistry(plugin)
-
-    expect(registry).toContain("import { runScheduledAgent } from \"@vitehub/agent\"")
-    expect(registry).toContain("\"support/daily\": async () => ({")
-    expect(registry).toContain("cron: \"0 9 * * *\"")
-    expect(registry).toContain("options: { id: \"support/daily\", target: \"support\" }")
-    expect(registry).toContain("handler: async (context) => runScheduledAgent(")
-  })
-
-  it("normalizes generated registry import specifiers", () => {
-    const registry = createScheduleRegistryContents("C:\\project\\.vitehub\\schedule\\registry.mjs", [{
-      handler: "C:\\project\\src\\daily.schedule.ts",
-      name: "daily",
-    }])
-
-    expect(registry).toContain("C:/project/src/daily.schedule.ts")
-    expect(registry).not.toContain("\\\\")
+    expect(targets).toContain("export const scheduleTargetNames = [\"quoted\"];")
+    expect(targets).not.toContain("\"commented\"")
   })
 
   it("serves an empty registry without special cases", async () => {

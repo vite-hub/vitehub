@@ -18,12 +18,14 @@
     "schedule",
     "cron"
   ],
+  "dependencies": {},
   "sideEffects": false,
   "type": "module",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
     "./nitro": "./dist/nitro.js",
+    "./runtime": "./dist/runtime.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
@@ -39,10 +41,14 @@
     "test": "pnpm --dir . build && vitest run"
   },
   "peerDependencies": {
+    "@vitehub/kv": "0.0.0",
     "nitro": "^3.0.0-0",
     "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
+    "@vitehub/kv": {
+      "optional": true
+    },
     "nitro": {
       "optional": true
     },
@@ -53,6 +59,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@vitehub/internal": "workspace:*",
+    "@vitehub/kv": "workspace:*",
     "nitro": "catalog:",
     "publint": "^0.3.15",
     "tsdown": "^0.21.8",

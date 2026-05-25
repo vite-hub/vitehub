@@ -12,7 +12,6 @@ export type ScheduleHandler<TResult = unknown> = (context: ScheduleRunContext) =
 export interface ScheduleDefinitionOptions {
   allowRuntimeSchedules?: boolean
   id?: string
-  target?: ScheduleTargetName
 }
 
 export interface ScheduleDefinition<TResult = unknown> {
@@ -108,10 +107,7 @@ export interface ScheduleRunStore {
 
 export interface DiscoveredScheduleDefinition {
   allowRuntimeSchedules?: boolean
-  agentExportName?: string
-  agentName?: string
-  cron?: string
   handler: string
   name: string
-  source?: "agent-inline-schedule" | "nitro-server-schedules" | "vite-suffix"
+  source?: "nitro-server-schedules" | "vite-suffix"
 }

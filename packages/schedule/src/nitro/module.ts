@@ -1,11 +1,10 @@
 import { resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
-import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
+import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, createRuntimeRegistryContents, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
-import { createScheduleRegistryContents } from "../registry-module.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "../targets-module.ts"
 
 import type { Nitro, NitroModule } from "nitro/types"
@@ -72,7 +71,7 @@ async function writeNitroScheduleRuntimeFiles(nitro: Nitro): Promise<{ pluginFil
   })
 
   await Promise.all([
-    writeFileIfChanged(registryFile, createScheduleRegistryContents(registryFile, definitions)),
+    writeFileIfChanged(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
     writeFileIfChanged(targetsFile, createScheduleTargetsContents(definitions)),
     writeFileIfChanged(pluginFile, createNitroSchedulePluginContents(pluginFile, registryFile)),
   ])
@@ -87,6 +86,7 @@ const scheduleNitroModule: NitroModule = {
 
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/schedule"] = resolveRuntimeEntry("../index", "@vitehub/schedule")
+    nitro.options.alias["@vitehub/schedule/runtime"] = resolveRuntimeEntry("../runtime", "@vitehub/schedule/runtime")
     nitro.options.alias["@vitehub/schedule/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/schedule/runtime/state")
 
     let runtimeFiles = await writeNitroScheduleRuntimeFiles(nitro)

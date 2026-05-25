@@ -1,355 +1,234 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
-import { basename, dirname, join, relative, resolve } from "node:path"
+import { readFileSync } from "node:fs"
 
 import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
-  mergeDefinitions,
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
 } from "@vitehub/internal/definition-catalog"
+import {
+  findIdentifierCalls,
+  splitTopLevel,
+} from "@vitehub/internal/source-scanner"
 
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
-const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
-const agentConfigPattern = /^config\.(?:c|m)?[jt]s$/i
-const sourceFileExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
-const ignoredViteInlineAgentScheduleDirs = new Set(["build", "coverage", "dist", "node_modules", ".output", ".vercel"])
 
-function normalizeScheduleCron(cron: string): string {
-  return cron.trim().replace(/\s+/g, " ")
+function findQuotedStringEnd(source: string, start: number) {
+  const quote = source[start]
+  let index = start + 1
+  while (index < source.length) {
+    if (source[index] === "\\") {
+      index += 2
+      continue
+    }
+    if (source[index] === quote) {
+      return index + 1
+    }
+    index += 1
+  }
+  return source.length
 }
 
-function scheduleIdFromCron(cron: string): string {
-  return `schedule-${normalizeScheduleCron(cron).replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase()}`
-}
-
-function isInlineScheduleObjectKey(source: string, stringEnd: number): boolean {
-  return /^\s*:/.test(source.slice(stringEnd))
-}
-
-function isInlineScheduleObjectValue(source: string, stringStart: number): boolean {
-  return /(?:^|[,{]\s*)(["'`])?(?:cron|id)\1?\s*:\s*$/u.test(source.slice(Math.max(0, stringStart - 24), stringStart))
-}
-
-function isInlineScheduleStringEntry(source: string, stringStart: number, stringEnd: number): boolean {
-  const before = source.slice(0, stringStart).trimEnd().at(-1)
-  const after = source.slice(stringEnd).trimStart()[0]
-  return (before === undefined || before === ",") && (after === "," || after === undefined)
-}
-
-function isStaticStringLiteral(quote: string, value: string): boolean {
-  return quote !== "`" || !value.includes("${")
-}
-
-function stripComments(source: string): string {
-  let stripped = ""
-  let quote: string | undefined
-  for (let index = 0; index < source.length; index++) {
+function findTemplateLiteralEnd(source: string, start: number) {
+  let expressionDepth = 0
+  let index = start + 1
+  while (index < source.length) {
     const char = source[index]
     const next = source[index + 1]
-    if (quote) {
-      stripped += char
-      if (char === "\\") {
-        stripped += next ?? ""
-        index++
-        continue
-      }
-      if (char === quote) quote = undefined
+    if (char === "\\") {
+      index += 2
       continue
     }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      stripped += char
+    if (char === "`") {
+      if (expressionDepth === 0) return index + 1
+      index = findTemplateLiteralEnd(source, index)
       continue
     }
+    if (char === "\"" || char === "'") {
+      index = findQuotedStringEnd(source, index)
+      continue
+    }
+    if (char === "$" && next === "{") {
+      expressionDepth += 1
+      index += 2
+      continue
+    }
+    if (char === "{" && expressionDepth > 0) {
+      expressionDepth += 1
+      index += 1
+      continue
+    }
+    if (char === "}" && expressionDepth > 0) {
+      expressionDepth -= 1
+      index += 1
+      continue
+    }
+    index += 1
+  }
+  return source.length
+}
+
+function maskCommentsAndStrings(source: string) {
+  let masked = ""
+  for (let index = 0; index < source.length;) {
+    const char = source[index]
+    const next = source[index + 1]
     if (char === "/" && next === "/") {
-      while (index < source.length && source[index] !== "\n") index++
-      stripped += "\n"
+      const end = source.indexOf("\n", index + 2)
+      const nextIndex = end === -1 ? source.length : end
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
       continue
     }
     if (char === "/" && next === "*") {
-      index += 2
-      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
-        if (source[index] === "\n") stripped += "\n"
-        index++
-      }
-      index++
+      const end = source.indexOf("*/", index + 2)
+      const nextIndex = end === -1 ? source.length : end + 2
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
       continue
     }
-    stripped += char
-  }
-  return stripped
-}
-
-function maskStringContents(source: string): string {
-  let masked = ""
-  let quote: string | undefined
-  for (let index = 0; index < source.length; index++) {
-    const char = source[index]
-    const next = source[index + 1]
-    if (quote) {
-      masked += char === quote ? char : char === "\n" ? "\n" : " "
-      if (char === "\\") {
-        masked += next === "\n" ? "\n" : " "
-        index++
-        continue
-      }
-      if (char === quote) quote = undefined
+    if (char === "\"" || char === "'") {
+      const nextIndex = findQuotedStringEnd(source, index)
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
       continue
     }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      masked += char
+    if (char === "`") {
+      const nextIndex = findTemplateLiteralEnd(source, index)
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
       continue
     }
     masked += char
+    index += 1
   }
   return masked
 }
 
-function readBalancedArguments(source: string, openParen: number): string | undefined {
-  let depth = 0
-  let quote: string | undefined
-  let previousSignificant = ""
-  for (let index = openParen; index < source.length; index++) {
-    const char = source[index]
-    if (quote) {
-      if (char === "\\") {
-        index++
-        continue
-      }
-      if (char === quote) quote = undefined
-      continue
-    }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "/" && previousSignificant && /[({[=,:!&|?;>]/.test(previousSignificant)) {
-      index++
-      while (index < source.length) {
-        const current = source[index]
-        if (current === "\\") {
-          index += 2
-          continue
-        }
-        if (current === "/") break
-        index++
-      }
-      while (/[a-z]/i.test(source[index + 1] ?? "")) index++
-      previousSignificant = "/"
-      continue
-    }
-    if (char === "(" || char === "{" || char === "[") {
-      depth++
-      previousSignificant = char
-      continue
-    }
-    if (char === ")" || char === "}" || char === "]") {
-      depth--
-      if (depth === 0) return source.slice(openParen + 1, index)
-      previousSignificant = char
-      continue
-    }
-    if (!/\s/.test(char ?? "")) {
-      previousSignificant = char ?? ""
-    }
-  }
+function isExportDefaultCall(source: string, start: number) {
+  const code = maskCommentsAndStrings(source.slice(0, start))
+  return /(?:^|[^\w$])export\s+default(?:\s|\()*$/.test(code)
 }
 
-function splitTopLevelArguments(source: string): string[] {
-  const args: string[] = []
-  let depth = 0
-  let quote: string | undefined
-  let previousSignificant = ""
-  let start = 0
-  for (let index = 0; index < source.length; index++) {
-    const char = source[index]
-    if (quote) {
-      if (char === "\\") {
-        index++
-        continue
-      }
-      if (char === quote) quote = undefined
-      continue
-    }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "/" && previousSignificant && /[({[=,:!&|?;>]/.test(previousSignificant)) {
-      index++
-      while (index < source.length) {
-        const current = source[index]
-        if (current === "\\") {
-          index += 2
-          continue
-        }
-        if (current === "/") break
-        index++
-      }
-      while (/[a-z]/i.test(source[index + 1] ?? "")) index++
-      previousSignificant = "/"
-      continue
-    }
-    if (char === "(" || char === "{" || char === "[") {
-      depth++
-      previousSignificant = char
-      continue
-    }
-    if (char === ")" || char === "}" || char === "]") {
-      depth--
-      previousSignificant = char
-      continue
-    }
-    if (char === "," && depth === 0) {
-      args.push(source.slice(start, index))
-      start = index + 1
-    }
-    if (!/\s/.test(char ?? "")) {
-      previousSignificant = char ?? ""
-    }
-  }
-  args.push(source.slice(start))
-  return args
+function readDefaultExportIdentifier(source: string) {
+  const code = maskCommentsAndStrings(source)
+  return code.match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
+    ?? code.match(/\bexport\s*\{\s*([A-Za-z_$][\w$]*)\s+as\s+default\s*\}/)?.[1]
 }
 
-function findDefineScheduleOpenParen(source: string): number | undefined {
-  for (const match of source.matchAll(/\bdefineSchedule\b/g)) {
-    let index = match.index! + match[0].length
-    while (/\s/.test(source[index] ?? "")) index++
-    if (source[index] === "<") {
-      let depth = 0
-      for (; index < source.length; index++) {
-        if (source[index] === "<") depth++
-        if (source[index] === ">") {
-          depth--
-          if (depth === 0) {
-            index++
-            break
-          }
-        }
-      }
-      while (/\s/.test(source[index] ?? "")) index++
-    }
-    if (source[index] === "(") return index
-  }
+function readDefineScheduleBindingName(source: string, start: number) {
+  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n|$)\s*)*(?:\(\s*)*$/)?.[1]
 }
 
 function readDefineScheduleOptions(source: string): string | undefined {
-  const stripped = stripComments(source)
-  const openParen = findDefineScheduleOpenParen(stripped)
-  if (openParen === undefined) return undefined
-  return splitTopLevelArguments(readBalancedArguments(stripped, openParen) ?? "")[2]
+  const calls = findIdentifierCalls(source, "defineSchedule")
+  const directExportCall = calls.find(call => isExportDefaultCall(source, call.start))
+  if (directExportCall) return directExportCall.arguments[2]
+
+  const defaultExportName = readDefaultExportIdentifier(source)
+  const defaultExportBindingCall = defaultExportName
+    ? calls.find(call => readDefineScheduleBindingName(source, call.start) === defaultExportName)
+    : undefined
+  return (defaultExportBindingCall ?? calls[0])?.arguments[2]
+}
+
+function stripBoundaryComments(source: string) {
+  return source
+    .replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
+    .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
+}
+
+function decodeStringLiteralValue(value: string) {
+  let decoded = ""
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index]
+    if (char !== "\\") {
+      decoded += char
+      continue
+    }
+    const next = value[++index]
+    if (next === undefined) {
+      decoded += "\\"
+      continue
+    }
+    if (next === "u") {
+      if (value[index + 1] === "{") {
+        const end = value.indexOf("}", index + 2)
+        const hex = end === -1 ? "" : value.slice(index + 2, end)
+        if (/^[\da-f]+$/i.test(hex)) {
+          decoded += String.fromCodePoint(Number.parseInt(hex, 16))
+          index = end
+          continue
+        }
+      }
+      const hex = value.slice(index + 1, index + 5)
+      if (/^[\da-f]{4}$/i.test(hex)) {
+        decoded += String.fromCharCode(Number.parseInt(hex, 16))
+        index += 4
+        continue
+      }
+    }
+    if (next === "x") {
+      const hex = value.slice(index + 1, index + 3)
+      if (/^[\da-f]{2}$/i.test(hex)) {
+        decoded += String.fromCharCode(Number.parseInt(hex, 16))
+        index += 2
+        continue
+      }
+    }
+    decoded += ({
+      "\\": "\\",
+      "\"": "\"",
+      "'": "'",
+      "0": "\0",
+      b: "\b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      t: "\t",
+      v: "\v",
+    } as Record<string, string>)[next] ?? next
+  }
+  return decoded
 }
 
 function readTopLevelStringProperty(source: string, property: string): string | undefined {
-  return readTopLevelStaticStringProperty(source, property)?.value
+  const objectSource = stripBoundaryComments(source)
+  if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
+
+  for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
+    const [key, ...valueParts] = splitTopLevel(entry, ":")
+    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
+    if (normalizedKey !== property) continue
+    const value = stripBoundaryComments(valueParts.join(":"))
+    const match = value.match(/^(['"])((?:\\.|(?!\1).)*)\1$/)
+    if (match) {
+      return decodeStringLiteralValue(match[2] ?? "")
+    }
+  }
 }
 
-function readTopLevelStaticStringProperty(source: string, property: string): { quote: string, value: string } | undefined {
-  let depth = 0
-  let quote: string | undefined
-  for (let index = 0; index < source.length; index++) {
-    const char = source[index]
-    if (quote) {
-      if (char === "\\") {
-        index++
-        continue
-      }
-      if (char === quote) quote = undefined
-      continue
-    }
-    if (char === "{" || char === "[" || char === "(") {
-      depth++
-      continue
-    }
-    if (char === "}" || char === "]" || char === ")") {
-      depth--
-      continue
-    }
-    if (char === "\"" || char === "'" || char === "`") {
-      if (depth !== 1 || char === "`" || !source.startsWith(property, index + 1) || source[index + property.length + 1] !== char) {
-        quote = char
-        continue
-      }
-    }
-    if (depth !== 1) continue
-    let valueStart: number
-    if (source[index] === "\"" || source[index] === "'") {
-      valueStart = index + property.length + 2
-    }
-    else {
-      if (!source.startsWith(property, index)) continue
-      const before = source[index - 1] ?? ""
-      const after = source[index + property.length] ?? ""
-      if (/[\w$]/.test(before) || /[\w$]/.test(after)) continue
-      valueStart = index + property.length
-    }
-    while (/\s/.test(source[valueStart] ?? "")) valueStart++
-    if (source[valueStart] !== ":") continue
-    valueStart++
-    while (/\s/.test(source[valueStart] ?? "")) valueStart++
-    const valueQuote = source[valueStart]
-    if (valueQuote !== "\"" && valueQuote !== "'" && valueQuote !== "`") continue
-    let value = ""
-    for (let valueIndex = valueStart + 1; valueIndex < source.length; valueIndex++) {
-      const valueChar = source[valueIndex]
-      if (valueChar === "\\") {
-        value += source[valueIndex + 1] ?? ""
-        valueIndex++
-        continue
-      }
-      if (valueChar === valueQuote) return { quote: valueQuote, value }
-      value += valueChar
-    }
+function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
+  const objectSource = stripBoundaryComments(source)
+  if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
+
+  for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
+    const [key, ...valueParts] = splitTopLevel(entry, ":")
+    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
+    if (normalizedKey !== property) continue
+    const value = stripBoundaryComments(valueParts.join(":"))
+    if (value === "true") return true
+    if (value === "false") return false
   }
 }
 
 function readScheduleIdOverride(file: string): string | undefined {
   const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
   return options ? readTopLevelStringProperty(options, "id") : undefined
-}
-
-function splitTopLevelPropertyEntry(entry: string): [string, string] | undefined {
-  let depth = 0
-  let quote: string | undefined
-  for (let index = 0; index < entry.length; index++) {
-    const char = entry[index]
-    if (quote) {
-      if (char === "\\") {
-        index++
-        continue
-      }
-      if (char === quote) quote = undefined
-      continue
-    }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "(" || char === "{" || char === "[") depth++
-    if (char === ")" || char === "}" || char === "]") depth--
-    if (char === ":" && depth === 0) return [entry.slice(0, index), entry.slice(index + 1)]
-  }
-}
-
-function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
-  const objectSource = source.trim()
-  if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
-
-  for (const entry of splitTopLevelArguments(objectSource.slice(1, -1))) {
-    const [key, valueSource] = splitTopLevelPropertyEntry(entry) ?? []
-    const normalizedKey = key?.trim().replace(/^(['"])(.*)\1$/, "$2")
-    if (normalizedKey !== property) continue
-    const value = valueSource?.trim()
-    if (value === "true") return true
-    if (value === "false") return false
-  }
 }
 
 function readAllowRuntimeSchedules(file: string): boolean {
@@ -366,400 +245,6 @@ function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition
   })
 }
 
-function parseScheduleCapabilityNames(source: string): string[] {
-  const names = new Set<string>()
-  for (const match of source.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*(['"])@vitehub\/agent(?:\/capabilities)?\2/g)) {
-    for (const entry of match[1]!.split(",")) {
-      const [imported, local] = entry.trim().split(/\s+as\s+/)
-      if (imported?.trim() === "schedule") names.add((local || imported).trim())
-    }
-  }
-  for (const match of source.matchAll(/\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s*(['"])@vitehub\/agent(?:\/capabilities)?\2/g)) {
-    names.add(`${match[1]}.schedule`)
-  }
-  return [...names].filter(name => /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?$/.test(name))
-}
-
-function escapeRegExp(source: string): string {
-  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-function scheduleCapabilityCallPattern(capabilityName: string): string {
-  return capabilityName.split(".").map(escapeRegExp).join("\\s*\\.\\s*")
-}
-
-function parseInlineAgentScheduleEntries(source: string, capabilityNames = parseScheduleCapabilityNames(stripComments(source))): Array<{ cron: string, id: string }> {
-  const stripped = stripComments(source)
-  const searchable = maskStringContents(stripped)
-  const entries: Array<{ cron: string, id: string }> = []
-  for (const capabilityName of capabilityNames) {
-    const schedulesPattern = new RegExp(`\\b${scheduleCapabilityCallPattern(capabilityName)}\\s*\\(\\s*\\{[\\s\\S]*?\\bschedules\\s*:\\s*\\[([\\s\\S]*?)\\][\\s\\S]*?\\}\\s*\\)`, "g")
-    for (const match of searchable.matchAll(schedulesPattern)) {
-      const bodyStart = match.index! + match[0].indexOf(match[1]!)
-      const body = stripped.slice(bodyStart, bodyStart + match[1]!.length)
-      for (const entry of splitTopLevelArguments(body)) {
-        const trimmed = entry.trim()
-        const stringEntry = /^(["'`])([^"'`]+)\1$/.exec(trimmed)
-        if (stringEntry) {
-          if (!isStaticStringLiteral(stringEntry[1]!, stringEntry[2]!)) continue
-          const cron = normalizeScheduleCron(stringEntry[2]!)
-          entries.push({ cron, id: scheduleIdFromCron(cron) })
-          continue
-        }
-
-        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) continue
-        const cronProperty = readTopLevelStaticStringProperty(trimmed, "cron")
-        if (!cronProperty || !isStaticStringLiteral(cronProperty.quote, cronProperty.value)) continue
-        const cron = normalizeScheduleCron(cronProperty.value)
-        const idProperty = readTopLevelStaticStringProperty(trimmed, "id")
-        const id = idProperty && isStaticStringLiteral(idProperty.quote, idProperty.value)
-          ? idProperty.value
-          : scheduleIdFromCron(cron)
-        entries.push({ cron, id })
-      }
-    }
-  }
-  return entries
-}
-
-function inlineAgentSchedules(file: string, agentName: string, agentExportName?: string): DiscoveredScheduleDefinition[] {
-  return parseInlineAgentScheduleEntries(readFileSync(file, "utf8")).map(schedule => ({
-    agentExportName,
-    agentName,
-    cron: schedule.cron,
-    handler: file,
-    name: `${agentName}/${schedule.id}`,
-    source: "agent-inline-schedule" as const,
-  }))
-}
-
-function createInlineAgentSchedules(file: string, agentName: string, source: string, capabilityNames: string[], agentExportName?: string): DiscoveredScheduleDefinition[] {
-  return parseInlineAgentScheduleEntries(source, capabilityNames).map(schedule => ({
-    agentExportName,
-    agentName,
-    cron: schedule.cron,
-    handler: file,
-    name: `${agentName}/${schedule.id}`,
-    source: "agent-inline-schedule" as const,
-  }))
-}
-
-function parseAgentName(source: string): string | undefined {
-  const stripped = stripComments(source)
-  for (const match of stripped.matchAll(/\bdefineAgent\b/g)) {
-    const callSource = findDefineAgentCall(stripped, match.index!)
-    if (!callSource) continue
-    const firstArgument = splitTopLevelArguments(callSource.slice(1, -1))[0]?.trim()
-    if (!firstArgument?.startsWith("{") || !firstArgument.endsWith("}")) continue
-    for (const entry of splitTopLevelArguments(firstArgument.slice(1, -1))) {
-      const name = entry.match(/^(?:["'`]?name["'`]?)\s*:\s*["'`]([^"'`]+)["'`]\s*$/)?.[1]
-      if (name) return name
-    }
-  }
-}
-
-function readBalancedCall(source: string, openParen: number): string | undefined {
-  let depth = 0
-  let quote: string | undefined
-  let templateExpressionDepth = 0
-
-  for (let index = openParen; index < source.length; index++) {
-    const char = source[index]!
-    const next = source[index + 1]
-
-    if (quote) {
-      if (char === "\\") {
-        index++
-        continue
-      }
-      if (quote === "`" && char === "$" && next === "{") {
-        templateExpressionDepth++
-        index++
-        continue
-      }
-      if (quote === "`" && templateExpressionDepth > 0) {
-        if (char === "{") templateExpressionDepth++
-        if (char === "}") templateExpressionDepth--
-        continue
-      }
-      if (char === quote) quote = undefined
-      continue
-    }
-
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "(") depth++
-    if (char === ")") {
-      depth--
-      if (depth === 0) return source.slice(openParen, index + 1)
-    }
-  }
-}
-
-function findDefineAgentOpenParen(source: string, start: number): number | undefined {
-  let index = start
-  if (!source.slice(index).startsWith("defineAgent")) return
-  index += "defineAgent".length
-  while (/\s/.test(source[index] ?? "")) index++
-  if (source[index] === "<") {
-    let depth = 0
-    for (; index < source.length; index++) {
-      const char = source[index]!
-      if (char === "<") depth++
-      if (char === ">" && source[index - 1] !== "=") {
-        depth--
-        if (depth === 0) {
-          index++
-          break
-        }
-      }
-    }
-    while (/\s/.test(source[index] ?? "")) index++
-  }
-  return source[index] === "(" ? index : undefined
-}
-
-function findDefineAgentCall(source: string, initializerStart: number): string | undefined {
-  const initializer = source.slice(initializerStart)
-  const leadingWhitespace = initializer.match(/^\s*/)?.[0].length ?? 0
-  const openParen = findDefineAgentOpenParen(source, initializerStart + leadingWhitespace)
-  return openParen === undefined ? undefined : readBalancedCall(source, openParen)
-}
-
-function findNextTopLevelCommaOrSemicolon(source: string, start: number): number {
-  let depth = 0
-  let quote: string | undefined
-  let templateExpressionDepth = 0
-
-  for (let index = start; index < source.length; index++) {
-    const char = source[index]!
-    const next = source[index + 1]
-
-    if (quote) {
-      if (char === "\\") {
-        index++
-        continue
-      }
-      if (quote === "`" && char === "$" && next === "{") {
-        templateExpressionDepth++
-        index++
-        continue
-      }
-      if (quote === "`" && templateExpressionDepth > 0) {
-        if (char === "{") templateExpressionDepth++
-        if (char === "}") templateExpressionDepth--
-        continue
-      }
-      if (char === quote) quote = undefined
-      continue
-    }
-
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "(" || char === "[" || char === "{") depth++
-    if (char === ")" || char === "]" || char === "}") depth--
-    if (depth === 0 && (char === "," || char === ";")) return index
-  }
-  return source.length
-}
-
-function findDeclaratorInitializer(source: string, start: number): { initializerStart: number, localName: string } | undefined {
-  const match = /^[\s,]*([A-Za-z_$][\w$]*)/.exec(source.slice(start))
-  if (!match) return
-  const localName = match[1]!
-  let depth = 0
-  let quote: string | undefined
-  for (let index = start + match[0].length; index < source.length; index++) {
-    const char = source[index]!
-    const next = source[index + 1]
-
-    if (quote) {
-      if (char === "\\") {
-        index++
-        continue
-      }
-      if (quote === "`" && char === "$" && next === "{") {
-        depth++
-        index++
-        continue
-      }
-      if (quote === "`" && depth > 0) {
-        if (char === "{") depth++
-        if (char === "}") depth--
-        continue
-      }
-      if (char === quote) quote = undefined
-      continue
-    }
-
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "<" || char === "{" || char === "[" || char === "(") {
-      depth++
-      continue
-    }
-    if (char === ">" || char === "}" || char === "]" || char === ")") {
-      depth--
-      continue
-    }
-    if (depth === 0 && (char === "," || char === ";")) return
-    if (depth === 0 && char === "=") return { initializerStart: index + 1, localName }
-  }
-}
-
-function discoverVariableDeclarators(source: string): Array<{ exported: boolean, initializerStart: number, localName: string }> {
-  const declarators: Array<{ exported: boolean, initializerStart: number, localName: string }> = []
-  for (const match of source.matchAll(/\b(export\s+)?(?:const|let|var)\s+/g)) {
-    const exported = !!match[1]
-    let cursor = match.index! + match[0].length
-
-    while (cursor < source.length) {
-      const declarator = findDeclaratorInitializer(source, cursor)
-      if (!declarator) break
-      declarators.push({ exported, initializerStart: declarator.initializerStart, localName: declarator.localName })
-
-      const next = findNextTopLevelCommaOrSemicolon(source, declarator.initializerStart)
-      if (source[next] !== ",") break
-      cursor = next + 1
-    }
-  }
-  return declarators
-}
-
-function resolveSourceFile(fromFile: string, specifier: string): string | undefined {
-  if (!specifier.startsWith(".")) return undefined
-  const base = resolve(dirname(fromFile), specifier)
-  const candidates = [
-    ...sourceFileExtensions.map(extension => `${base}${extension}`),
-    ...sourceFileExtensions.map(extension => join(base, `index${extension}`)),
-    base,
-  ]
-  return candidates.find(candidate => existsSync(candidate) && statSync(candidate).isFile())
-}
-
-function discoverNamedAgentExports(file: string, seen = new Set<string>()): Array<{ capabilityNames: string[], exportName: string, name: string, source: string }> {
-  if (seen.has(file)) return []
-  seen.add(file)
-
-  const source = stripComments(readFileSync(file, "utf8"))
-  const capabilityNames = parseScheduleCapabilityNames(source)
-  const locals = new Map<string, string>()
-  const definitions = new Map<string, { capabilityNames: string[], exportName: string, name: string, source: string }>()
-
-  for (const declarator of discoverVariableDeclarators(source)) {
-    const callSource = findDefineAgentCall(source, declarator.initializerStart)
-    if (!callSource) continue
-    locals.set(declarator.localName, callSource)
-    if (declarator.exported) {
-      definitions.set(declarator.localName, { capabilityNames, exportName: declarator.localName, name: declarator.localName, source: callSource })
-    }
-  }
-
-  for (const match of source.matchAll(/\bexport\s+default\b/g)) {
-    const callSource = findDefineAgentCall(source, match.index! + match[0].length)
-    if (callSource) {
-      definitions.set("default", { capabilityNames, exportName: "default", name: "default", source: callSource })
-    }
-  }
-
-  for (const match of source.matchAll(/\bexport\s*\{([^}]+)\}\s*(?:from\s*(['"])([^'"]+)\2)?/g)) {
-    const importFile = match[3] ? resolveSourceFile(file, match[3]) : undefined
-    const importedDefinitions = importFile
-      ? new Map(discoverNamedAgentExports(importFile, new Set(seen)).map(definition => [definition.exportName, definition]))
-      : undefined
-    for (const entry of match[1]!.split(",")) {
-      const [left, right] = entry.trim().split(/\s+as\s+/)
-      const localName = (left || "").trim()
-      const exportName = (right || left || "").trim()
-      if (!localName || exportName === "default" || !/^[A-Za-z_$][\w$]*$/.test(exportName)) continue
-      const importedDefinition = importedDefinitions?.get(localName)
-      const callSource = importedDefinition?.source ?? locals.get(localName)
-      if (callSource) definitions.set(exportName, { capabilityNames: importedDefinition?.capabilityNames ?? capabilityNames, exportName, name: exportName, source: callSource })
-    }
-  }
-
-  return [...definitions.values()].sort((left, right) => left.exportName.localeCompare(right.exportName))
-}
-
-function discoverViteInlineAgentSchedules(rootDir: string, scanDirs?: string[]): DiscoveredScheduleDefinition[] {
-  const roots = resolveDefinitionScanRoots(rootDir, scanDirs)
-  const definitions: DiscoveredScheduleDefinition[] = []
-  const walk = (root: string, current: string) => {
-    let entries
-    try {
-      entries = readdirSync(current, { withFileTypes: true })
-    }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-      throw error
-    }
-    for (const entry of entries) {
-      const file = resolve(current, entry.name)
-      if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".") && !ignoredViteInlineAgentScheduleDirs.has(entry.name)) {
-        walk(root, file)
-        continue
-      }
-      if (!entry.isFile() || !agentSuffixPattern.test(basename(file))) continue
-      const name = normalizeSuffixDefinitionName(root, file, agentSuffixPattern, { stripPrefix: "src/" })
-      if (name && !name.startsWith("server/")) definitions.push(...inlineAgentSchedules(file, name))
-    }
-  }
-  for (const root of roots) walk(root, root)
-  return definitions
-}
-
-function discoverNitroInlineAgentSchedules(scanDirs: string[]): DiscoveredScheduleDefinition[] {
-  const definitions: DiscoveredScheduleDefinition[] = []
-  for (const scanDir of scanDirs) {
-    const aggregateFiles = sourceFileExtensions
-      .map(extension => resolve(scanDir, `agent${extension}`))
-      .filter(file => existsSync(file))
-    for (const file of aggregateFiles) {
-      for (const agent of discoverNamedAgentExports(file)) {
-        definitions.push(...createInlineAgentSchedules(file, agent.name, agent.source, agent.capabilityNames, agent.exportName))
-      }
-    }
-
-    const agentsRoot = resolve(scanDir, "agents")
-    const walk = (current: string) => {
-      let entries
-      try {
-        entries = readdirSync(current, { withFileTypes: true })
-      }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-        throw error
-      }
-      for (const entry of entries) {
-        const file = resolve(current, entry.name)
-        if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
-          walk(file)
-          continue
-        }
-        if (!entry.isFile()) continue
-        if (agentConfigPattern.test(basename(file))) {
-          const source = readFileSync(file, "utf8")
-          const agentName = parseAgentName(source) || relative(agentsRoot, dirname(file)).replace(/\\/g, "/")
-          if (agentName && agentName !== ".") definitions.push(...inlineAgentSchedules(file, agentName))
-          continue
-        }
-        if (/\.(?:c|m)?[jt]s$/i.test(basename(file))) {
-          const agentName = relative(agentsRoot, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "").replace(/\\/g, "/")
-          definitions.push(...inlineAgentSchedules(file, agentName))
-        }
-      }
-    }
-    walk(agentsRoot)
-  }
-  return definitions
-}
-
 function normalizeSuffixScheduleName(rootDir: string, file: string) {
   return readScheduleIdOverride(file)
     ?? normalizeSuffixDefinitionName(rootDir, file, scheduleSuffixPattern, { stripPrefix: "src/" })
@@ -774,19 +259,17 @@ export function discoverScheduleDefinitions(options:
   | { mode: "nitro-server-schedules", scanDirs: string[] }
 ): DiscoveredScheduleDefinition[] {
   if (options.mode === "nitro-server-schedules") {
-    const fileDefinitions = discoverDefinitions("schedule", [
+    return discoverDefinitions("schedule", [
       createDirectoryDefinitionSource("nitro-server-schedules", options.scanDirs, "schedules", {
         createDefinition: createDiscoveredScheduleDefinition("nitro-server-schedules"),
         normalizeName: normalizeDirectoryScheduleName,
       }),
     ])
-    return mergeDefinitions("schedule", fileDefinitions, discoverNitroInlineAgentSchedules(options.scanDirs))
   }
 
-  const fileDefinitions = discoverDefinitions("schedule", [
+  return discoverDefinitions("schedule", [
     createSuffixDefinitionSource("vite-suffix", resolveDefinitionScanRoots(options.rootDir, options.scanDirs), scheduleSuffixPattern, normalizeSuffixScheduleName, {
       createDefinition: createDiscoveredScheduleDefinition("vite-suffix"),
     }),
   ])
-  return mergeDefinitions("schedule", fileDefinitions, discoverViteInlineAgentSchedules(options.rootDir, options.scanDirs))
 }

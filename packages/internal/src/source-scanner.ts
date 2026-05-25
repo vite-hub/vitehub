@@ -1,0 +1,393 @@
+export interface IdentifierCall {
+  arguments: string[]
+  closeParen: number
+  name: string
+  openParen: number
+  start: number
+}
+
+function isQuote(char: string | undefined) {
+  return char === "\"" || char === "'" || char === "`"
+}
+
+function skipQuoted(source: string, index: number) {
+  const quote = source[index]
+  if (quote === "`") return skipTemplateLiteral(source, index)
+  index += 1
+  while (index < source.length) {
+    if (source[index] === "\\") {
+      index += 2
+      continue
+    }
+    if (source[index] === quote) {
+      return index + 1
+    }
+    index += 1
+  }
+  return index
+}
+
+function skipTemplateLiteral(source: string, index: number): number {
+  index += 1
+  let expressionDepth = 0
+  while (index < source.length) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (char === "\\") {
+      index += 2
+      continue
+    }
+    if (expressionDepth === 0) {
+      if (char === "`") return index + 1
+      if (char === "$" && next === "{") {
+        expressionDepth = 1
+        index += 2
+        continue
+      }
+      index += 1
+      continue
+    }
+    if (char === "\"" || char === "'") {
+      index = skipQuoted(source, index)
+      continue
+    }
+    if (char === "`") {
+      index = skipTemplateLiteral(source, index)
+      continue
+    }
+    if (char === "/" && next === "/") {
+      index = skipLineComment(source, index)
+      continue
+    }
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    if (char === "{") expressionDepth += 1
+    if (char === "}") expressionDepth -= 1
+    index += 1
+  }
+  return index
+}
+
+function skipLineComment(source: string, index: number) {
+  const end = source.indexOf("\n", index + 2)
+  return end === -1 ? source.length : end + 1
+}
+
+function skipBlockComment(source: string, index: number) {
+  const end = source.indexOf("*/", index + 2)
+  return end === -1 ? source.length : end + 2
+}
+
+function isIdentifierChar(char: string | undefined) {
+  return !!char && /[\w$]/.test(char)
+}
+
+function isRegexLiteralStart(previousSignificant: string) {
+  const token = previousSignificant.trimEnd()
+  return !token || /[({[=,:!&|?;>+\-*%^~]/.test(token) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(token)
+}
+
+function findLineCommentStart(source: string, start: number, end: number) {
+  for (let index = start; index <= end;) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (isQuote(char)) {
+      index = skipQuoted(source, index)
+      continue
+    }
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    if (char === "/" && next === "/") return index
+    index += 1
+  }
+  return -1
+}
+
+function previousCodeIndex(source: string, index: number) {
+  let current = index
+  while (current >= 0) {
+    while (/\s/.test(source[current] ?? "")) current--
+    if (source[current] === "/" && source[current - 1] === "*") {
+      const start = source.lastIndexOf("/*", current - 2)
+      if (start === -1) return current
+      current = start - 1
+      continue
+    }
+    const lineStart = source.lastIndexOf("\n", current) + 1
+    const lineComment = findLineCommentStart(source, lineStart, current)
+    if (lineComment !== -1 && lineComment <= current) {
+      current = lineStart - 1
+      continue
+    }
+    return current
+  }
+  return current
+}
+
+function isControlFlowRegexStart(source: string, index: number) {
+  const closeParen = previousCodeIndex(source, index - 1)
+  if (source[closeParen] !== ")") return false
+
+  for (let current = closeParen; current >= 0; current--) {
+    if (source[current] !== "(") continue
+    if (findMatching(source, current, "(", ")") !== closeParen) continue
+    const head = source.slice(0, current).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ")
+    return /(?:^|[^\w$])(?:catch|for|if|while|with)\s*$/.test(head)
+  }
+
+  return false
+}
+
+function skipRegexLiteral(source: string, index: number) {
+  index += 1
+  while (index < source.length) {
+    const char = source[index]
+    if (char === "\\") {
+      index += 2
+      continue
+    }
+    if (char === "[") {
+      index += 1
+      while (index < source.length) {
+        if (source[index] === "\\") {
+          index += 2
+          continue
+        }
+        if (source[index] === "]") break
+        index += 1
+      }
+    }
+    if (char === "/") {
+      index += 1
+      while (/[a-z]/i.test(source[index] ?? "")) index += 1
+      return index
+    }
+    index += 1
+  }
+  return index
+}
+
+function trackSignificant(previousSignificant: string, char: string | undefined) {
+  if (/[a-z$]/i.test(char ?? "")) {
+    return /[\w$]$/.test(previousSignificant) ? previousSignificant + char : char ?? ""
+  }
+  if (/\s/.test(char ?? "")) {
+    return /[\w$]$/.test(previousSignificant) ? `${previousSignificant} ` : previousSignificant
+  }
+  if (!/\s/.test(char ?? "")) {
+    return char ?? ""
+  }
+  return previousSignificant
+}
+
+function isFunctionDeclarationName(source: string, index: number) {
+  return /(?:^|[^\w$])(?:async\s+)?function\s*\*?\s*$/.test(source.slice(0, index))
+}
+
+function previousNonWhitespace(source: string, index: number) {
+  let current = index - 1
+  while (/\s/.test(source[current] ?? "")) current -= 1
+  return source[current]
+}
+
+function nextNonWhitespace(source: string, index: number) {
+  return source[skipWhitespaceAndComments(source, index)]
+}
+
+function skipWhitespaceAndComments(source: string, index: number) {
+  while (index < source.length) {
+    if (/\s/.test(source[index] ?? "")) {
+      index += 1
+      continue
+    }
+    if (source[index] === "/" && source[index + 1] === "/") {
+      index = skipLineComment(source, index)
+      continue
+    }
+    if (source[index] === "/" && source[index + 1] === "*") {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    return index
+  }
+  return index
+}
+
+function isMethodDeclarationName(source: string, index: number, closeParen: number) {
+  const previous = previousNonWhitespace(source, index)
+  return source[skipWhitespaceAndComments(source, closeParen + 1)] === "{"
+    && previous !== "("
+    && previous !== "="
+    && previous !== ","
+    && previous !== ":"
+}
+
+function isMemberAccessName(source: string, index: number) {
+  return previousNonWhitespace(source, index) === "."
+}
+
+export function findMatching(source: string, index: number, open: string, close: string): number | undefined {
+  let depth = 0
+  let previousSignificant = ""
+  for (let current = index; current < source.length; current++) {
+    const char = source[current]
+    const next = source[current + 1]
+    if (isQuote(char)) {
+      current = skipQuoted(source, current) - 1
+      continue
+    }
+    if (char === "/" && next === "/") {
+      current = skipLineComment(source, current) - 1
+      continue
+    }
+    if (char === "/" && next === "*") {
+      current = skipBlockComment(source, current) - 1
+      continue
+    }
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, current))) {
+      current = skipRegexLiteral(source, current) - 1
+      previousSignificant = "/"
+      continue
+    }
+    if (char === open) {
+      depth += 1
+      previousSignificant = char
+      continue
+    }
+    if (char === close && !(open === "<" && close === ">" && source[current - 1] === "=")) {
+      depth -= 1
+      if (depth === 0) return current
+      previousSignificant = char
+      continue
+    }
+    previousSignificant = trackSignificant(previousSignificant, char)
+  }
+}
+
+export function splitTopLevel(source: string, separator = ",") {
+  const parts: string[] = []
+  let depth = 0
+  let previousSignificant = ""
+  let start = 0
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (isQuote(char)) {
+      index = skipQuoted(source, index) - 1
+      continue
+    }
+    if (char === "/" && next === "/") {
+      index = skipLineComment(source, index) - 1
+      continue
+    }
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index) - 1
+      continue
+    }
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
+      index = skipRegexLiteral(source, index) - 1
+      previousSignificant = "/"
+      continue
+    }
+    if (char === "<") {
+      const genericEnd = findMatching(source, index, "<", ">")
+      if (genericEnd !== undefined && nextNonWhitespace(source, genericEnd + 1) === "(") {
+        index = genericEnd
+        previousSignificant = ">"
+        continue
+      }
+    }
+    if (char === "(" || char === "{" || char === "[") {
+      depth += 1
+      previousSignificant = char
+      continue
+    }
+    if (char === ")" || char === "}" || char === "]") {
+      depth -= 1
+      previousSignificant = char
+      continue
+    }
+    if (char === separator && depth === 0) {
+      parts.push(source.slice(start, index).trim())
+      start = index + 1
+      continue
+    }
+    previousSignificant = trackSignificant(previousSignificant, char)
+  }
+  parts.push(source.slice(start).trim())
+  return parts
+}
+
+export function findIdentifierCalls(source: string, name: string): IdentifierCall[] {
+  const calls: IdentifierCall[] = []
+  let previousSignificant = ""
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (isQuote(char)) {
+      index = skipQuoted(source, index) - 1
+      continue
+    }
+    if (char === "/" && next === "/") {
+      index = skipLineComment(source, index) - 1
+      continue
+    }
+    if (char === "/" && next === "*") {
+      index = skipBlockComment(source, index) - 1
+      continue
+    }
+    if (char === "/" && (isRegexLiteralStart(previousSignificant) || isControlFlowRegexStart(source, index))) {
+      index = skipRegexLiteral(source, index) - 1
+      previousSignificant = "/"
+      continue
+    }
+    if (
+      !source.startsWith(name, index)
+      || isIdentifierChar(source[index - 1])
+      || isIdentifierChar(source[index + name.length])
+      || isFunctionDeclarationName(source, index)
+      || isMemberAccessName(source, index)
+    ) {
+      previousSignificant = trackSignificant(previousSignificant, char)
+      continue
+    }
+
+    let openParen = skipWhitespaceAndComments(source, index + name.length)
+    if (source[openParen] === "<") {
+      const genericEnd = findMatching(source, openParen, "<", ">")
+      if (genericEnd === undefined) {
+        previousSignificant = trackSignificant(previousSignificant, char)
+        continue
+      }
+      openParen = skipWhitespaceAndComments(source, genericEnd + 1)
+    }
+    if (source[openParen] !== "(") {
+      previousSignificant = trackSignificant(previousSignificant, char)
+      continue
+    }
+
+    const closeParen = findMatching(source, openParen, "(", ")")
+    if (closeParen === undefined) {
+      previousSignificant = trackSignificant(previousSignificant, char)
+      continue
+    }
+    if (isMethodDeclarationName(source, index, closeParen)) {
+      previousSignificant = trackSignificant(previousSignificant, char)
+      continue
+    }
+    calls.push({
+      arguments: splitTopLevel(source.slice(openParen + 1, closeParen)),
+      closeParen,
+      name,
+      openParen,
+      start: index,
+    })
+    previousSignificant = ")"
+    index = closeParen
+  }
+  return calls
+}
