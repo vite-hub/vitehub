@@ -228,6 +228,7 @@ jobs:
         if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
         env:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          VITEHUB_HOSTING: cloudflare
         run: pnpm --dir playground/nitro exec nitro build --preset cloudflare-module
 
       - name: Assert Nitro Cloudflare bindings
@@ -236,6 +237,9 @@ jobs:
           node <<'NODE'
           const { readFileSync } = require("node:fs")
           const wrangler = JSON.parse(readFileSync("playground/nitro/.output/server/wrangler.json", "utf8"))
+          if (!Array.isArray(wrangler.triggers?.crons) || !wrangler.triggers.crons.includes("* * * * *")) {
+            throw new Error("Expected Nitro Cloudflare wrangler.json to include the daily-marker schedule cron trigger.")
+          }
           if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
             throw new Error("Expected Nitro Cloudflare wrangler.json to include kv_namespaces.")
           }
@@ -279,10 +283,30 @@ jobs:
           VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VITEHUB_HOSTING: vercel
         run: |
           APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           VITEHUB_WORKSPACE_BLOB_PREFIX="vitehub/workspace-e2e/${{ matrix.framework }}" \
             npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm exec nitro build --preset vercel
+
+      - name: Assert Nitro Vercel schedule artifacts
+        if: matrix.framework == 'nitro' && matrix.provider == 'vercel'
+        run: |
+          node <<'NODE'
+          const { existsSync, readFileSync } = require("node:fs")
+          const config = JSON.parse(readFileSync("playground/nitro/.vercel/output/config.json", "utf8"))
+          const expected = { path: "/api/vitehub/schedules/vercel/daily-marker", schedule: "* * * * *" }
+          if (!Array.isArray(config.crons) || !config.crons.some(cron => cron.path === expected.path && cron.schedule === expected.schedule)) {
+            throw new Error(`Expected Nitro Vercel config.json crons to include ${JSON.stringify(expected)}.`)
+          }
+          const functionFile = "playground/nitro/.vercel/output/functions/api/vitehub/schedules/vercel/daily-marker.func/index.mjs"
+          if (!existsSync(functionFile)) {
+            throw new Error(`Expected generated Nitro Vercel schedule function at ${functionFile}.`)
+          }
+          if (!readFileSync(functionFile, "utf8").includes("executeStaticSchedule")) {
+            throw new Error("Expected Nitro Vercel schedule function to execute the static schedule handler.")
+          }
+          NODE
 
       - name: Build Vite E2E (cloudflare)
         if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
@@ -312,6 +336,9 @@ jobs:
             throw new Error("Cloudflare Vite bundle must not include bare @cloudflare/sandbox imports.")
           }
           const wrangler = JSON.parse(readFileSync("playground/vite/dist/vite/wrangler.json", "utf8"))
+          if (!Array.isArray(wrangler.triggers?.crons) || !wrangler.triggers.crons.includes("* * * * *")) {
+            throw new Error("Expected Vite Cloudflare wrangler.json to include the daily-marker schedule cron trigger.")
+          }
           if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
             throw new Error("Expected Vite Cloudflare wrangler.json to include kv_namespaces.")
           }
@@ -347,13 +374,25 @@ jobs:
         if: matrix.framework == 'vite' && matrix.provider == 'vercel'
         run: |
           node <<'NODE'
-          const { readFileSync } = require("node:fs")
+          const { existsSync, readFileSync } = require("node:fs")
           const bundle = readFileSync("playground/vite/.vercel/output/functions/__server.func/index.mjs", "utf8")
           if (/createCloudflareArtifactsWorkspaceStore|isomorphic-git/.test(bundle)) {
             throw new Error("Vercel Vite bundle must not include the Cloudflare Artifacts store implementation.")
           }
           if (/cloudflare:workers|@cloudflare\/sandbox/.test(bundle)) {
             throw new Error("Vercel Vite bundle must not include Cloudflare-only sandbox runtime code.")
+          }
+          const config = JSON.parse(readFileSync("playground/vite/.vercel/output/config.json", "utf8"))
+          const expected = { path: "/api/vitehub/schedules/vercel/daily-marker", schedule: "* * * * *" }
+          if (!Array.isArray(config.crons) || !config.crons.some(cron => cron.path === expected.path && cron.schedule === expected.schedule)) {
+            throw new Error(`Expected Vite Vercel config.json crons to include ${JSON.stringify(expected)}.`)
+          }
+          const functionFile = "playground/vite/.vercel/output/functions/api/vitehub/schedules/vercel/daily-marker.func/index.mjs"
+          if (!existsSync(functionFile)) {
+            throw new Error(`Expected generated Vite Vercel schedule function at ${functionFile}.`)
+          }
+          if (!readFileSync(functionFile, "utf8").includes("executeStaticSchedule")) {
+            throw new Error("Expected Vite Vercel schedule function to execute the static schedule handler.")
           }
           NODE
 
@@ -416,6 +455,10 @@ jobs:
       - name: Queue Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
         timeout-minutes: 5
         run: node packages/queue/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
+
+      - name: Schedule Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
+        timeout-minutes: 5
+        run: pnpm --dir packages/schedule test:e2e --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}" --timeout 270000
 
       - name: Sandbox Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
         run: pnpm --dir packages/sandbox test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "${{ steps.url.outputs.url }}"

@@ -36,6 +36,7 @@
   "scripts": {
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
+    "test:e2e": "node ./test/e2e-live.mjs",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "pnpm --dir . build && vitest run"
   },
