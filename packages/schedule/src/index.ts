@@ -4,7 +4,7 @@ export type {} from "./registry-module.d.ts"
 export { ScheduleError } from "./errors.ts"
 export { createScheduleRun, executeRuntimeSchedule, executeSchedule, executeStaticSchedule } from "./runtime/execute.ts"
 export { schedules, validateRuntimeScheduleCron } from "./runtime/client.ts"
-export { createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./runtime/store.ts"
+export { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./runtime/store.ts"
 export {
   getRuntimeScheduleStore,
   getScheduleRunStore,
@@ -15,6 +15,11 @@ export {
   setScheduleRunStore,
   setScheduleRuntimeRegistry,
 } from "./runtime/state.ts"
+
+export type {
+  KVScheduleStoreOptions,
+  ScheduleKVStorage,
+} from "./runtime/store.ts"
 
 export type {
   DiscoveredScheduleDefinition,
