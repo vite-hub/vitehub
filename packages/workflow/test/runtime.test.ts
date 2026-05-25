@@ -320,6 +320,34 @@ describe("workflow runtime", () => {
     expect(inline).toHaveBeenCalledTimes(1)
   })
 
+  it("consumes inline fallback definitions after binding them to discovered entries", async () => {
+    const first = vi.fn(async () => "first")
+    const second = vi.fn(async () => "second")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      first: async () => {
+        const workflow = createWorkflow("legacy-name", first)
+        return { workflow }
+      },
+      second: async () => {
+        const workflow = createWorkflow("legacy-name", second)
+        return { workflow }
+      },
+    })
+
+    const firstRun = await runWorkflow("first", undefined, { id: "first" })
+    const secondRun = await runWorkflow("second", undefined, { id: "second" })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("first", firstRun.id)).resolves.toMatchObject({ result: "first" })
+      await expect(getWorkflowRun("second", secondRun.id)).resolves.toMatchObject({ result: "second" })
+    })
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).toHaveBeenCalledTimes(1)
+    expect(getInlineWorkflowDefinitions().has("legacy-name")).toBe(false)
+  })
+
   it("does not resolve discovered workflows to unexported helper handles", async () => {
     const helper = vi.fn(async () => "helper")
 

@@ -103,6 +103,12 @@ export function takeInlineWorkflowDefinitionForModule(name: string, loaded: unkn
   return match.definition
 }
 
+function consumeInlineWorkflowDefinition(name: string): WorkflowDefinition | undefined {
+  const definition = inlineRegistry.get(name)
+  inlineRegistry.delete(name)
+  return definition
+}
+
 export function registerInlineWorkflowDefinition(name: string, definition: WorkflowDefinition): void {
   if (!name || typeof name !== "string") {
     throw new TypeError("`createWorkflow()` requires a workflow name.")
@@ -163,18 +169,24 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
   const loadingEntry = Promise.resolve().then(() => loadingRegistryStorage.run(nextActiveLoads, async () => {
     const loadingInlineDefinitions = new Map<string, WorkflowDefinition>()
     const loaded = await loadingInlineRegistryStorage.run(loadingInlineDefinitions, entry)
-    const registeredInlineDefinition = inlineRegistry.get(name)
+    const registeredInlineDefinition = consumeInlineWorkflowDefinition(name)
     if (registeredInlineDefinition) {
       return registeredInlineDefinition
     }
     if (!loaded || typeof loaded !== "object") {
-      return loadingInlineDefinitions.size === 1 ? [...loadingInlineDefinitions.values()][0] : undefined
+      const onlyInlineDefinitionName = loadingInlineDefinitions.size === 1
+        ? loadingInlineDefinitions.keys().next().value
+        : undefined
+      return onlyInlineDefinitionName === undefined
+        ? undefined
+        : consumeInlineWorkflowDefinition(onlyInlineDefinitionName)
     }
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
     if (definition && typeof definition.handler === "function") {
       return definition
     }
-    return findExportedInlineWorkflowDefinition(name, loaded, loadingInlineDefinitions)?.definition
+    const exportedInlineDefinition = findExportedInlineWorkflowDefinition(name, loaded, loadingInlineDefinitions)
+    return exportedInlineDefinition ? consumeInlineWorkflowDefinition(exportedInlineDefinition.name) : undefined
   }))
   loadingRegistryEntries.set(name, loadingEntry)
   try {
