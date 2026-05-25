@@ -65,6 +65,44 @@ export function takeInlineWorkflowDefinition(name: string): WorkflowDefinition |
   return definition
 }
 
+function isWorkflowHandle(value: unknown): value is { name: string } {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as { name?: unknown }).name === "string"
+    && typeof (value as { defer?: unknown }).defer === "function"
+    && typeof (value as { getRun?: unknown }).getRun === "function"
+    && typeof (value as { run?: unknown }).run === "function"
+}
+
+function findExportedInlineWorkflowDefinition(
+  name: string,
+  loaded: unknown,
+  definitions: ReadonlyMap<string, WorkflowDefinition>,
+): { definition: WorkflowDefinition, name: string } | undefined {
+  const namedDefinition = definitions.get(name)
+  if (namedDefinition) return { definition: namedDefinition, name }
+
+  if (!loaded || typeof loaded !== "object") return undefined
+
+  const matches = new Map<string, WorkflowDefinition>()
+  for (const value of Object.values(loaded)) {
+    if (!isWorkflowHandle(value)) continue
+    const definition = definitions.get(value.name)
+    if (definition) matches.set(value.name, definition)
+  }
+
+  if (matches.size !== 1) return undefined
+  const [matchedName, definition] = matches.entries().next().value!
+  return { definition, name: matchedName }
+}
+
+export function takeInlineWorkflowDefinitionForModule(name: string, loaded: unknown): WorkflowDefinition | undefined {
+  const match = findExportedInlineWorkflowDefinition(name, loaded, inlineRegistry)
+  if (!match) return undefined
+  inlineRegistry.delete(match.name)
+  return match.definition
+}
+
 export function registerInlineWorkflowDefinition(name: string, definition: WorkflowDefinition): void {
   if (!name || typeof name !== "string") {
     throw new TypeError("`createWorkflow()` requires a workflow name.")
@@ -136,7 +174,7 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
     if (definition && typeof definition.handler === "function") {
       return definition
     }
-    return loadingInlineDefinitions.size === 1 ? [...loadingInlineDefinitions.values()][0] : undefined
+    return findExportedInlineWorkflowDefinition(name, loaded, loadingInlineDefinitions)?.definition
   }))
   loadingRegistryEntries.set(name, loadingEntry)
   try {

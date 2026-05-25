@@ -113,10 +113,10 @@ describe("createRuntimeRegistryContents", () => {
       steps: ["/root/server/workflows/chat/01.reply.ts"],
     }])
 
-    expect(contents).toContain('import { takeInlineWorkflowDefinition } from "@vitehub/workflow/runtime/state"')
+    expect(contents).toContain('import { takeInlineWorkflowDefinitionForModule } from "@vitehub/workflow/runtime/state"')
     expect(contents).toContain("const registryEntryCache = new Map()")
     expect(contents).toContain('const cached = registryEntryCache.get("server/workflows/chat")')
-    expect(contents).toContain('takeInlineWorkflowDefinition("server/workflows/chat")')
+    expect(contents).toContain('takeInlineWorkflowDefinitionForModule("server/workflows/chat", index)')
     expect(contents).toContain('registryEntryCache.set("server/workflows/chat", entry)')
   })
 })

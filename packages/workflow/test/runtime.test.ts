@@ -7,7 +7,7 @@ import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
-import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
+import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
 
 const openWorkflowMock = vi.hoisted(() => {
   const runs = new Map<string, any>()
@@ -307,8 +307,8 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       "server/workflows/chat": async () => {
-        createWorkflow("legacy-chat-name", inline)
-        return {}
+        const chat = createWorkflow("legacy-chat-name", inline)
+        return { chat }
       },
     })
 
@@ -318,6 +318,21 @@ describe("workflow runtime", () => {
       await expect(getWorkflowRun("server/workflows/chat", run.id)).resolves.toMatchObject({ result: "inline" })
     })
     expect(inline).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not resolve discovered workflows to unexported helper handles", async () => {
+    const helper = vi.fn(async () => "helper")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      "server/workflows/chat": async () => {
+        createWorkflow("helper", helper)
+        return {}
+      },
+    })
+
+    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow(/Unknown workflow definition/)
+    expect(helper).not.toHaveBeenCalled()
   })
 
   it("prefers discovered default exports over helper inline handles", async () => {
@@ -351,16 +366,16 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       alpha: async () => {
-        createWorkflow("legacy-alpha", alpha)
+        const workflow = createWorkflow("legacy-alpha", alpha)
         await alphaReady
-        return {}
+        return { workflow }
       },
       beta: async () => ({}),
     })
 
     const alphaRun = runWorkflow("alpha", undefined, { id: "alpha" })
     await vi.waitFor(() => {
-      expect(takeInlineWorkflowDefinition("legacy-alpha")).toBeDefined()
+      expect(getInlineWorkflowDefinitions().has("legacy-alpha")).toBe(true)
     })
     await expect(runWorkflow("beta", undefined, { id: "beta" })).rejects.toThrow(/Unknown workflow definition: beta/)
     releaseAlpha()

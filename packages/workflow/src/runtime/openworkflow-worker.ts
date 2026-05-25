@@ -27,9 +27,9 @@ async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {
   const definitions = new Map<string, WorkflowDefinition>()
   for (const name of Object.keys(registry).sort()) {
     const loaded = await registry[name]?.()
-    const definition = loaded && typeof loaded === "object" && "default" in loaded
+    const definition = (loaded && typeof loaded === "object" && "default" in loaded
       ? loaded.default
-      : loaded
+      : loaded) as WorkflowDefinition | undefined
     if (definition && typeof definition === "object" && "handler" in definition && typeof definition.handler === "function") {
       definitions.set(name, definition)
     }
