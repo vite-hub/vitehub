@@ -51,27 +51,6 @@ interface GenerateProviderOutputsOptions {
 
 const cronFieldPattern = /^[*,/\-0-9]+$/
 
-function readStringLiteral(source: string): string | undefined {
-  const quote = source.trim()[0]
-  if (quote !== "\"" && quote !== "'" && quote !== "`") return undefined
-  const trimmed = source.trim()
-  let value = ""
-  for (let index = 1; index < trimmed.length; index++) {
-    const char = trimmed[index]
-    if (char === "\\") {
-      value += trimmed[index + 1] ?? ""
-      index++
-      continue
-    }
-    if (char === quote) {
-      if (trimmed.slice(index + 1).trim()) return undefined
-      if (quote === "`" && value.includes("${")) return undefined
-      return value
-    }
-    value += char
-  }
-}
-
 export function validateProviderCron(cron: string, scheduleName: string): void {
   const fields = cron.trim().split(/\s+/)
   const hasVercelDayConflict = fields[2] !== "*" && fields[4] !== "*"
@@ -82,13 +61,344 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
   const source = readFileSync(file, "utf8")
-  const defineScheduleArgument = source.match(/\bexport\s+default\s+defineSchedule\s*\(\s*([^,]+?)\s*,/)?.[1]
-  const cron = (defineScheduleArgument ? readStringLiteral(defineScheduleArgument) : undefined)
-    ?? source.match(/\bexport\s+default\s*\{[\s\S]*?\bcron\s*:\s*(["'`])([^"'`]+)\1/)?.[2]
+  const cron = readDefaultDefineScheduleCron(source) ?? readDefaultObjectCron(source)
   if (!cron) {
     throw new Error(`Schedule "${scheduleName}" must declare a static cron string for provider wake output.`)
   }
   return cron
+}
+
+function skipQuoted(source: string, index: number): number {
+  const quote = source[index]
+  if (quote === "`") return skipTemplateLiteral(source, index)
+
+  index += 1
+  while (index < source.length) {
+    if (source[index] === "\\") {
+      index += 2
+      continue
+    }
+    if (source[index] === quote) {
+      return index + 1
+    }
+    index += 1
+  }
+  return index
+}
+
+function skipTemplateExpression(source: string, index: number): number {
+  let depth = 1
+  while (index < source.length) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipQuoted(source, index)
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index)
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    if (char === "/" && canStartRegexLiteral(source, index)) {
+      index = skipRegexLiteral(source, index)
+      continue
+    }
+    if (char === "{") depth += 1
+    if (char === "}") {
+      depth -= 1
+      if (depth === 0) return index + 1
+    }
+    index += 1
+  }
+  return index
+}
+
+function skipTemplateLiteral(source: string, index: number): number {
+  index += 1
+  while (index < source.length) {
+    if (source[index] === "\\") {
+      index += 2
+      continue
+    }
+    if (source[index] === "`") {
+      return index + 1
+    }
+    if (source.startsWith("${", index)) {
+      index = skipTemplateExpression(source, index + 2)
+      continue
+    }
+    index += 1
+  }
+  return index
+}
+
+function skipLineComment(source: string, index: number): number {
+  const newline = source.indexOf("\n", index + 2)
+  return newline === -1 ? source.length : newline + 1
+}
+
+function skipBlockComment(source: string, index: number): number {
+  const close = source.indexOf("*/", index + 2)
+  return close === -1 ? source.length : close + 2
+}
+
+function isInsideNonCode(source: string, targetIndex: number): boolean {
+  for (let index = 0; index < targetIndex; index += 1) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      const quotedEnd = skipQuoted(source, index)
+      if (targetIndex < quotedEnd) return true
+      index = quotedEnd - 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      const commentEnd = skipLineComment(source, index)
+      if (targetIndex < commentEnd) return true
+      index = commentEnd - 1
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      const commentEnd = skipBlockComment(source, index)
+      if (targetIndex < commentEnd) return true
+      index = commentEnd - 1
+    }
+  }
+  return false
+}
+
+function skipIgnorable(source: string, index: number): number {
+  while (index < source.length) {
+    if (/\s/.test(source[index]!)) {
+      index += 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index)
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    break
+  }
+  return index
+}
+
+function previousSignificantToken(source: string, index: number): string {
+  let cursor = index - 1
+  while (cursor >= 0 && /\s/.test(source[cursor]!)) cursor -= 1
+  if (cursor < 0) return ""
+
+  const wordEnd = cursor + 1
+  while (cursor >= 0 && /[$\w]/.test(source[cursor]!)) cursor -= 1
+  if (cursor < wordEnd - 1) return source.slice(cursor + 1, wordEnd)
+
+  return source[cursor]!
+}
+
+function canStartRegexLiteral(source: string, index: number): boolean {
+  const token = previousSignificantToken(source, index)
+  return token === ""
+    || token === "await"
+    || token === "case"
+    || token === "delete"
+    || token === "return"
+    || token === "throw"
+    || token === "typeof"
+    || token === "void"
+    || /^[({[=,:;!&|?+\-*%^~<>]$/.test(token)
+}
+
+function skipRegexLiteral(source: string, index: number): number {
+  let inCharacterClass = false
+  for (let cursor = index + 1; cursor < source.length; cursor += 1) {
+    const char = source[cursor]
+    if (char === "\\") {
+      cursor += 1
+      continue
+    }
+    if (char === "[") {
+      inCharacterClass = true
+      continue
+    }
+    if (char === "]") {
+      inCharacterClass = false
+      continue
+    }
+    if (char === "/" && !inCharacterClass) {
+      cursor += 1
+      while (/[a-z]/i.test(source[cursor] ?? "")) cursor += 1
+      return cursor
+    }
+  }
+  return source.length
+}
+
+function readBalancedObject(source: string, openIndex: number): string | undefined {
+  if (source[openIndex] !== "{") return undefined
+
+  let depth = 0
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipQuoted(source, index) - 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index) - 1
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index) - 1
+      continue
+    }
+    if (char === "/" && canStartRegexLiteral(source, index)) {
+      index = skipRegexLiteral(source, index) - 1
+      continue
+    }
+    if (char === "{") depth += 1
+    if (char === "}") {
+      depth -= 1
+      if (depth === 0) {
+        return source.slice(openIndex + 1, index)
+      }
+    }
+  }
+}
+
+function splitTopLevelProperties(source: string): string[] {
+  const properties: string[] = []
+  let depth = 0
+  let start = 0
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipQuoted(source, index) - 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index) - 1
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index) - 1
+      continue
+    }
+    if (char === "/" && canStartRegexLiteral(source, index)) {
+      index = skipRegexLiteral(source, index) - 1
+      continue
+    }
+    if (char === "{" || char === "[" || char === "(") depth += 1
+    if (char === "}" || char === "]" || char === ")") depth -= 1
+    if (char === "," && depth === 0) {
+      properties.push(source.slice(start, index))
+      start = index + 1
+    }
+  }
+
+  properties.push(source.slice(start))
+  return properties
+}
+
+function readStaticStringLiteral(source: string): string | undefined {
+  const value = source.trim()
+  const quote = value[0]
+  if (quote !== "\"" && quote !== "'" && quote !== "`") return undefined
+
+  let result = ""
+  for (let index = 1; index < value.length; index += 1) {
+    const char = value[index]
+    if (char === "\\") {
+      result += value[index + 1] ?? ""
+      index += 1
+      continue
+    }
+    if (char === quote) {
+      if (skipIgnorable(value, index + 1) !== value.length) {
+        return undefined
+      }
+      return result
+    }
+    result += char
+  }
+}
+
+function readTopLevelCronProperty(objectSource: string): string | undefined {
+  for (const property of splitTopLevelProperties(objectSource)) {
+    const colon = property.indexOf(":")
+    if (colon === -1) continue
+
+    const keyStart = skipIgnorable(property, 0)
+    const key = property.slice(keyStart, colon).trim().replace(/^["'`](.*)["'`]$/s, "$1")
+    if (key !== "cron") continue
+
+    const cron = readStaticStringLiteral(property.slice(colon + 1))
+    if (!cron) {
+      throw new Error("Schedule must declare a static cron string for provider wake output.")
+    }
+    return cron
+  }
+}
+
+function readDefineScheduleObjectAfterDefault(source: string, index: number): string | undefined {
+  let cursor = skipIgnorable(source, index)
+  let openParens = 0
+  while (source[cursor] === "(") {
+    openParens += 1
+    cursor = skipIgnorable(source, cursor + 1)
+  }
+
+  if (!source.startsWith("defineSchedule", cursor)) return undefined
+  cursor += "defineSchedule".length
+
+  cursor = skipIgnorable(source, cursor)
+  if (source[cursor] === "<") {
+    const close = source.indexOf(">", cursor + 1)
+    if (close === -1) return undefined
+    cursor = skipIgnorable(source, close + 1)
+  }
+
+  if (source[cursor] !== "(") return undefined
+  cursor = skipIgnorable(source, cursor + 1)
+  const objectSource = readBalancedObject(source, cursor)
+  if (!objectSource) return undefined
+
+  let afterObject = skipIgnorable(source, cursor + objectSource.length + 2)
+  if (source[afterObject] === ")") afterObject = skipIgnorable(source, afterObject + 1)
+  while (openParens > 0 && source[afterObject] === ")") {
+    openParens -= 1
+    afterObject = skipIgnorable(source, afterObject + 1)
+  }
+  return openParens === 0 ? objectSource : undefined
+}
+
+function readDefaultDefineScheduleCron(source: string): string | undefined {
+  let match: RegExpExecArray | null
+  const pattern = /\bexport\s+default\b/g
+  while ((match = pattern.exec(source))) {
+    if (isInsideNonCode(source, match.index)) continue
+
+    const objectSource = readDefineScheduleObjectAfterDefault(source, match.index + match[0].length)
+    if (!objectSource) continue
+    return readTopLevelCronProperty(objectSource)
+  }
+}
+
+function readDefaultObjectCron(source: string): string | undefined {
+  let match: RegExpExecArray | null
+  const pattern = /\bexport\s+default\b/g
+  while ((match = pattern.exec(source))) {
+    if (isInsideNonCode(source, match.index)) continue
+
+    const objectStart = skipIgnorable(source, match.index + match[0].length)
+    const objectSource = readBalancedObject(source, objectStart)
+    if (objectSource) return readTopLevelCronProperty(objectSource)
+  }
 }
 
 function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string) {

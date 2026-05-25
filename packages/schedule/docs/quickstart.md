@@ -46,8 +46,11 @@ export default defineNitroConfig({
 ```ts [src/daily-report.schedule.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
-  console.log(`Run daily report at ${context.scheduledAt.toISOString()}`)
+export default defineSchedule({
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log(`Run daily report at ${context.scheduledAt.toISOString()}`)
+  },
 })
 ```
 ::
@@ -56,8 +59,11 @@ export default defineSchedule('0 9 * * *', async (context) => {
 ```ts [server/schedules/daily-report.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
-  console.log(`Run daily report at ${context.scheduledAt.toISOString()}`)
+export default defineSchedule({
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log(`Run daily report at ${context.scheduledAt.toISOString()}`)
+  },
 })
 ```
 ::
@@ -66,4 +72,4 @@ export default defineSchedule('0 9 * * *', async (context) => {
 
 ## Verify
 
-The schedule is available through the generated registry. Provider builds can lower discovered static schedules into Cloudflare or Vercel cron output.
+The schedule is discovered as `daily-report` from its file path. Provider builds can lower discovered static schedules into Cloudflare or Vercel cron output.

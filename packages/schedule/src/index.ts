@@ -31,7 +31,7 @@ export type {
   ScheduleRunAttemptRecord,
   ScheduleRunAttemptStatus,
   ScheduleDefinition,
-  ScheduleDefinitionOptions,
+  ScheduleDefinitionInput,
   ScheduleDefinitionRegistry,
   ScheduleHandler,
   ScheduleRunContext,
