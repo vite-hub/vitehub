@@ -342,7 +342,7 @@ function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition
 
 function parseScheduleCapabilityNames(source: string): string[] {
   const names = new Set(["schedule"])
-  for (const match of source.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*(['"])@vitehub\/agent\2/g)) {
+  for (const match of source.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*(['"])@vitehub\/agent(?:\/capabilities)?\2/g)) {
     for (const entry of match[1]!.split(",")) {
       const [imported, local] = entry.trim().split(/\s+as\s+/)
       if (imported?.trim() === "schedule") names.add((local || imported).trim())

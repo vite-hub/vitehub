@@ -140,7 +140,8 @@ describe("discoverScheduleDefinitions", () => {
     const viteRootDir = await createTempDir("vitehub-agent-schedule-alias-")
     await mkdir(join(viteRootDir, "src"), { recursive: true })
     await writeFile(join(viteRootDir, "src", "support.agent.ts"), [
-      "import { defineAgent, schedule as agentSchedule } from '@vitehub/agent'",
+      "import { defineAgent } from '@vitehub/agent'",
+      "import { schedule as agentSchedule } from '@vitehub/agent/capabilities'",
       "export default defineAgent({",
       "  capabilities: [agentSchedule({ schedules: ['0 9 * * *'] })],",
       "})",
