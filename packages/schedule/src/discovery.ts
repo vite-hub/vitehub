@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
-import { basename, dirname, relative, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 
 import {
   createDirectoryDefinitionSource,
@@ -509,7 +509,21 @@ function discoverVariableDeclarators(source: string): Array<{ exported: boolean,
   return declarators
 }
 
-function discoverNamedAgentExports(file: string): Array<{ exportName: string, name: string, source: string }> {
+function resolveSourceFile(fromFile: string, specifier: string): string | undefined {
+  if (!specifier.startsWith(".")) return undefined
+  const base = resolve(dirname(fromFile), specifier)
+  const candidates = [
+    base,
+    ...sourceFileExtensions.map(extension => `${base}${extension}`),
+    ...sourceFileExtensions.map(extension => join(base, `index${extension}`)),
+  ]
+  return candidates.find(candidate => existsSync(candidate))
+}
+
+function discoverNamedAgentExports(file: string, seen = new Set<string>()): Array<{ exportName: string, name: string, source: string }> {
+  if (seen.has(file)) return []
+  seen.add(file)
+
   const source = stripComments(readFileSync(file, "utf8"))
   const locals = new Map<string, string>()
   const definitions = new Map<string, { exportName: string, name: string, source: string }>()
@@ -523,13 +537,17 @@ function discoverNamedAgentExports(file: string): Array<{ exportName: string, na
     }
   }
 
-  for (const match of source.matchAll(/\bexport\s*\{([^}]+)\}/g)) {
+  for (const match of source.matchAll(/\bexport\s*\{([^}]+)\}\s*(?:from\s*(['"])([^'"]+)\2)?/g)) {
+    const importFile = match[3] ? resolveSourceFile(file, match[3]) : undefined
+    const importedDefinitions = importFile
+      ? new Map(discoverNamedAgentExports(importFile, new Set(seen)).map(definition => [definition.exportName, definition.source]))
+      : undefined
     for (const entry of match[1]!.split(",")) {
       const [left, right] = entry.trim().split(/\s+as\s+/)
       const localName = (left || "").trim()
       const exportName = (right || left || "").trim()
       if (!localName || exportName === "default" || !/^[A-Za-z_$][\w$]*$/.test(exportName)) continue
-      const callSource = locals.get(localName)
+      const callSource = importedDefinitions?.get(localName) ?? locals.get(localName)
       if (callSource) definitions.set(exportName, { exportName, name: exportName, source: callSource })
     }
   }
