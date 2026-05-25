@@ -3,6 +3,7 @@ export { discoverScheduleDefinitions } from "./discovery.ts"
 export type {} from "./registry-module.d.ts"
 export { ScheduleError } from "./errors.ts"
 export { createScheduleRun, executeRuntimeSchedule, executeSchedule, executeStaticSchedule } from "./runtime/execute.ts"
+export { startScheduleRunner } from "./runtime/runner.ts"
 export { schedules, validateRuntimeScheduleCron } from "./runtime/client.ts"
 export { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./runtime/store.ts"
 export {
@@ -41,3 +42,8 @@ export type {
   ScheduleRunStore,
   ScheduleTargetName,
 } from "./types.ts"
+
+export type {
+  ScheduleRunnerController,
+  ScheduleRunnerOptions,
+} from "./runtime/runner.ts"

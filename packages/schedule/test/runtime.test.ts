@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, ScheduleError, schedules } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, ScheduleError, schedules, startScheduleRunner } from "../src/index.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 import type { KVStorage } from "@vitehub/kv"
 
@@ -60,6 +60,7 @@ async function flushAsyncWork(): Promise<void> {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   resetScheduleRuntime()
 })
 
@@ -719,6 +720,409 @@ describe("Schedule Run bookkeeping", () => {
     run!.error!.message = "mutated"
 
     expect((await schedules.getRun(run!.id))!.error).toMatchObject({ message: "boom" })
+  })
+})
+
+describe("Basic Self-Hosted Schedule Runner", () => {
+  it("does not let slow handlers block later scans when capacity is available", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:15.000Z"))
+
+    let releaseSlow: (() => void) | undefined
+    let fastCalls = 0
+    setScheduleRuntimeRegistry({
+      fast: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          fastCalls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+      slow: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          await new Promise<void>(resolve => { releaseSlow = resolve })
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "slow", target: "slow", updatedAt: now })
+
+    const runner = startScheduleRunner({ concurrency: 2, intervalMs: 10, runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "fast", target: "fast", updatedAt: now })
+    await vi.advanceTimersByTimeAsync(10)
+    await flushAsyncWork()
+
+    expect(fastCalls).toBe(1)
+    expect((await scheduleRunStore.getRun("srun_runtime_fast_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
+
+    runner.stop()
+    releaseSlow?.()
+    await flushAsyncWork()
+  })
+
+  it("bounds dispatched work by concurrency", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    let releaseFirst: (() => void) | undefined
+    let secondCalls = 0
+    setScheduleRuntimeRegistry({
+      first: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          await new Promise<void>(resolve => { releaseFirst = resolve })
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+      second: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          secondCalls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "first", target: "first", updatedAt: now })
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "second", target: "second", updatedAt: now })
+
+    const runner = startScheduleRunner({ concurrency: 1, intervalMs: 10, runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(10)
+    await flushAsyncWork()
+
+    expect(secondCalls).toBe(0)
+    expect(await scheduleRunStore.getRun("srun_runtime_second_2026-05-23T09:00:00.000Z")).toBeUndefined()
+
+    releaseFirst?.()
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushAsyncWork()
+    expect(secondCalls).toBe(1)
+    expect((await scheduleRunStore.getRun("srun_runtime_second_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
+
+    await vi.advanceTimersByTimeAsync(10)
+    await flushAsyncWork()
+
+    expect(secondCalls).toBe(1)
+    runner.stop()
+  })
+
+  it("dedupes repeated same-minute scans with deterministic Schedule Run ids", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:10.000Z"))
+
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "report", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(30)
+    await flushAsyncWork()
+
+    expect(calls).toBe(1)
+    expect(await scheduleRunStore.listRuns()).toHaveLength(1)
+    expect((await scheduleRunStore.listRuns())[0]?.id).toBe("srun_runtime_report_2026-05-23T09:00:00.000Z")
+    runner.stop()
+  })
+
+  it("matches runner cron expressions against UTC fields", async () => {
+    const previousTZ = process.env.TZ
+    process.env.TZ = "America/New_York"
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-03-08T02:30:00.000Z"))
+
+    try {
+      let calls = 0
+      setScheduleRuntimeRegistry({
+        report: async () => ({
+          cron: "30 2 * * *",
+          handler: async () => {
+            calls++
+          },
+          options: { allowRuntimeSchedules: true },
+        }),
+      })
+      const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+      const scheduleRunStore = createMemoryScheduleRunStore()
+      const now = new Date("2026-03-08T02:00:00.000Z")
+      await runtimeScheduleStore.create({ createdAt: now, cron: "30 2 * * *", enabled: true, id: "report", target: "report", updatedAt: now })
+
+      const runner = startScheduleRunner({ intervalMs: 10, runtimeScheduleStore, scheduleRunStore })
+      await flushAsyncWork()
+      await vi.advanceTimersByTimeAsync(0)
+      await flushAsyncWork()
+
+      expect(calls).toBe(1)
+      expect((await scheduleRunStore.listRuns())[0]?.id).toBe("srun_runtime_report_2026-03-08T02:30:00.000Z")
+      runner.stop()
+    }
+    finally {
+      process.env.TZ = previousTZ
+    }
+  })
+
+  it("stops future scans and reports running state", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "report", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, runtimeScheduleStore, scheduleRunStore })
+    expect(runner.running).toBe(true)
+    await flushAsyncWork()
+    runner.stop()
+    expect(runner.running).toBe(false)
+
+    vi.setSystemTime(new Date("2026-05-23T09:01:00.000Z"))
+    await vi.advanceTimersByTimeAsync(30)
+    await flushAsyncWork()
+
+    expect(calls).toBe(1)
+  })
+
+  it("records handler failures and calls onError without crashing", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    const errors: unknown[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          throw new TypeError("runner boom")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "report", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(10)
+    await flushAsyncWork()
+
+    const run = await scheduleRunStore.getRun("srun_runtime_report_2026-05-23T09:00:00.000Z")
+    expect(run).toMatchObject({
+      error: { message: "runner boom", name: "TypeError" },
+      status: "failed",
+    })
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(TypeError)
+    expect(runner.running).toBe(true)
+    runner.stop()
+  })
+
+  it("isolates rejected async onError hooks", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    let reported = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          throw new TypeError("runner boom")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "report", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({
+      intervalMs: 10,
+      onError: async () => {
+        reported++
+        throw new TypeError("onError boom")
+      },
+      runtimeScheduleStore,
+      scheduleRunStore,
+    })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(10)
+    await flushAsyncWork()
+
+    expect(reported).toBe(1)
+    expect(runner.running).toBe(true)
+    runner.stop()
+  })
+
+  it("isolates malformed cron records while scanning due schedules", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    const errors: unknown[] = []
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "bad cron", enabled: true, id: "bad", target: "report", updatedAt: now })
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "report", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushAsyncWork()
+
+    expect(calls).toBe(1)
+    expect(errors).toHaveLength(1)
+    expect((await scheduleRunStore.getRun("srun_runtime_report_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
+    runner.stop()
+  })
+
+  it("rejects six-field cron records while scanning due schedules", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    const errors: unknown[] = []
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "30 * * * * *", enabled: true, id: "seconds", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushAsyncWork()
+
+    expect(calls).toBe(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(TypeError)
+    runner.stop()
+  })
+
+  it("isolates run-store lookup failures while scanning due schedules", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    const errors: unknown[] = []
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const baseRunStore = createMemoryScheduleRunStore()
+    const scheduleRunStore = {
+      ...baseRunStore,
+      async getRun(id: string) {
+        if (id.includes("bad")) throw new TypeError("getRun boom")
+        return await baseRunStore.getRun(id)
+      },
+    }
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "bad", target: "report", updatedAt: now })
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "report", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushAsyncWork()
+
+    expect(calls).toBe(1)
+    expect(errors).toHaveLength(1)
+    expect((await baseRunStore.getRun("srun_runtime_report_2026-05-23T09:00:00.000Z"))?.status).toBe("succeeded")
+    runner.stop()
+  })
+
+  it("does not parse disabled Runtime Schedule cron records", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    const errors: unknown[] = []
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "bad cron", enabled: false, id: "disabled", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+
+    expect(errors).toEqual([])
+    runner.stop()
+  })
+
+  it("reports synchronous schedule list failures without crashing", async () => {
+    vi.useFakeTimers()
+    const errors: unknown[] = []
+    const baseStore = createMemoryRuntimeScheduleStore()
+    const runtimeScheduleStore = {
+      ...baseStore,
+      list() {
+        throw new TypeError("list boom")
+      },
+    }
+    const scheduleRunStore = createMemoryScheduleRunStore()
+
+    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(TypeError)
+    expect(runner.running).toBe(true)
+    runner.stop()
   })
 })
 

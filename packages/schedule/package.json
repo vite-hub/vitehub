@@ -18,7 +18,9 @@
     "schedule",
     "cron"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "cron-schedule": "^6.0.0"
+  },
   "sideEffects": false,
   "type": "module",
   "types": "./dist/index.d.ts",
