@@ -13,6 +13,7 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/nitro.ts",
+    "src/runtime.ts",
     "src/runtime/state.ts",
     "src/vite.ts",
   ],
