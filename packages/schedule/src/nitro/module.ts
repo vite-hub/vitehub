@@ -48,7 +48,7 @@ function createNitroSchedulePluginContents(file: string, registryFile: string) {
   return [
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
     "",
-    "import { setScheduleRuntimeRegistry } from \"@vitehub/schedule\"",
+    "import { setScheduleRuntimeRegistry } from \"@vitehub/schedule/runtime/state\"",
     "",
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",

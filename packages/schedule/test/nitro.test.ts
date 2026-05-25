@@ -37,6 +37,7 @@ describe("Nitro schedule integration", () => {
       "",
     ].join("\n"))
     await expect(readFile(pluginFile, "utf8")).resolves.toContain("setScheduleRuntimeRegistry(scheduleRegistry)")
+    await expect(readFile(pluginFile, "utf8")).resolves.toContain("@vitehub/schedule/runtime/state")
   })
 
   it("auto-imports only the schedule definition boundary helper", async () => {
