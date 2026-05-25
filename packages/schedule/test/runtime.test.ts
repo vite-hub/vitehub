@@ -36,6 +36,23 @@ function createTestKVStore(): KVStorage {
   }
 }
 
+function createDelayedHasKVStore(): KVStorage & { releaseHas: () => void } {
+  const store = createTestKVStore()
+  let releaseHas: (() => void) | undefined
+  return {
+    ...store,
+    async has(key) {
+      if (!releaseHas) {
+        await new Promise<void>(resolve => { releaseHas = resolve })
+      }
+      return await store.has(key)
+    },
+    releaseHas() {
+      releaseHas?.()
+    },
+  }
+}
+
 async function flushAsyncWork(): Promise<void> {
   await Promise.resolve()
   await Promise.resolve()
@@ -265,6 +282,9 @@ describe("KV Runtime Schedule Store", () => {
     expect(updated?.createdAt).toEqual(createdAt)
     expect(updated?.updatedAt).toEqual(changedAt)
 
+    const unchanged = await store.update("schedule/1", { cron: undefined, target: undefined, updatedAt: changedAt } as never)
+    expect(unchanged).toMatchObject({ cron: "30 10 * * *", target: "daily/report" })
+
     await expect(store.create({
       createdAt,
       cron: "0 9 * * *",
@@ -277,6 +297,30 @@ describe("KV Runtime Schedule Store", () => {
     await expect(store.delete("missing")).resolves.toBe(false)
     await expect(store.delete("schedule/1")).resolves.toBe(true)
     await expect(store.get("schedule/1")).resolves.toBeUndefined()
+  })
+
+  it("serializes concurrent creates for the same KV runtime schedule key", async () => {
+    const kvStore = createDelayedHasKVStore()
+    const store = createKVRuntimeScheduleStore({ kvStore, prefix: "tests/schedules-lock" })
+    const createdAt = new Date("2026-05-23T09:00:00.000Z")
+    const record = {
+      createdAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "schedule/1",
+      target: "daily/report",
+      updatedAt: createdAt,
+    }
+
+    const first = store.create(record)
+    const second = store.create(record)
+    await flushAsyncWork()
+    kvStore.releaseHas()
+
+    const results = await Promise.allSettled([first, second])
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
+    await expect(store.get("schedule/1")).resolves.toMatchObject({ id: "schedule/1" })
   })
 })
 
@@ -806,14 +850,50 @@ describe("KV Schedule Run Store", () => {
     expect(failedAttempt?.startedAt).toEqual(startedAt)
     expect(failedAttempt?.updatedAt).toEqual(updatedAt)
 
+    error.message = "mutated source"
+    expect((await store.getRun(run.id))?.error).toMatchObject({ message: "boom" })
+    expect((await store.getAttempt(attempt.id))?.error).toMatchObject({ message: "boom" })
+
     failedRun!.error!.message = "mutated"
     failedAttempt!.error!.message = "mutated"
     expect((await store.getRun(run.id))?.error).toMatchObject({ message: "boom" })
+    expect((await store.getAttempt(attempt.id))?.error).toMatchObject({ message: "boom" })
+    const listedRun = (await store.listRuns())[0]
+    listedRun!.error!.message = "listed mutation"
+    expect((await store.getRun(run.id))?.error).toMatchObject({ message: "boom" })
+    const listedAttempt = (await store.listAttempts(run.id))[0]
+    listedAttempt!.error!.message = "listed mutation"
     expect((await store.getAttempt(attempt.id))?.error).toMatchObject({ message: "boom" })
 
     await expect(store.createRun(run)).rejects.toThrow("Schedule Run already exists: run/1")
     await expect(store.createAttempt(attempt)).rejects.toThrow("Schedule Run Attempt already exists: attempt/1")
     await expect(store.updateRun("missing", { status: "failed", updatedAt })).resolves.toBeUndefined()
     await expect(store.updateAttempt("missing", { status: "failed", updatedAt })).resolves.toBeUndefined()
+  })
+
+  it("serializes concurrent creates for the same KV schedule run key", async () => {
+    const kvStore = createDelayedHasKVStore()
+    const store = createKVScheduleRunStore({ kvStore, prefix: "tests/runs-lock" })
+    const createdAt = new Date("2026-05-23T09:00:00.000Z")
+    const run = {
+      attemptCount: 0,
+      createdAt,
+      id: "run/1",
+      scheduleId: "schedule/1",
+      scheduledAt: createdAt,
+      status: "pending" as const,
+      target: "daily/report",
+      updatedAt: createdAt,
+    }
+
+    const first = store.createRun(run)
+    const second = store.createRun(run)
+    await flushAsyncWork()
+    kvStore.releaseHas()
+
+    const results = await Promise.allSettled([first, second])
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
+    await expect(store.getRun("run/1")).resolves.toMatchObject({ id: "run/1" })
   })
 })
