@@ -117,6 +117,20 @@ await schedules.delete(created.id)
 
 Runtime Schedule records are recurring cron records. `create()` does not create a one-time or deferred run.
 
+## Start Automatic Execution
+
+Runtime Schedules do not execute automatically until a process starts the [Basic Self-Hosted Schedule Runner](./runner).
+
+```ts
+import { startScheduleRunner } from '@vitehub/schedule'
+
+const runner = startScheduleRunner()
+
+process.once('SIGTERM', () => runner.stop())
+```
+
+Read [Boundaries](./boundaries) before running more than one process against the same schedule store.
+
 ## Use Agent Schedules
 
 Use inline Agent Schedules when the Agent Definition itself should be invoked on recurring cron entries:
@@ -183,6 +197,7 @@ Schedule v1 intentionally excludes:
 - One-time or deferred schedules.
 - Timezone options beyond five-field UTC cron.
 - Standalone Runtime Schedule target definitions.
+- Distributed runner leases or leader election.
 - Backfill.
 - Configurable retry, overlap, or dedupe policy.
 

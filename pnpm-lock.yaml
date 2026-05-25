@@ -878,6 +878,10 @@ importers:
         version: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
   packages/schedule:
+    dependencies:
+      cron-schedule:
+        specifier: ^6.0.0
+        version: 6.0.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
