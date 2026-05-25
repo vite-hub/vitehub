@@ -9,9 +9,14 @@ export interface ScheduleRunContext {
 
 export type ScheduleHandler<TResult = unknown> = (context: ScheduleRunContext) => TResult | Promise<TResult>
 
+export interface ScheduleDefinitionInput<TResult = unknown> {
+  allowRuntimeSchedules?: boolean
+  cron: string
+  handler: ScheduleHandler<TResult>
+}
+
 export interface ScheduleDefinitionOptions {
   allowRuntimeSchedules?: boolean
-  id?: string
 }
 
 export interface ScheduleDefinition<TResult = unknown> {

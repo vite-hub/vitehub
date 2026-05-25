@@ -38,6 +38,13 @@ Use this page to find package-specific Vercel guidance in ViteHub.
 
 - Setup overview: [Queue overview](/docs/vite/queue)
 - Provider details: [Queue on Vercel](/docs/vite/queue/providers/vercel)
+
+### Schedule
+
+`@vitehub/schedule` supports Vercel Provider Output on Vite and Nitro when the Vite Integration or Nitro Integration discovers Static Schedule Definitions.
+
+- Setup overview: [Schedule overview](/docs/vite/schedule)
+- Provider details: ViteHub writes Vercel cron entries to `.vercel/output/config.json` and generated functions under `/api/vitehub/schedules/vercel/<name>` during the manual deploy build.
 ::
 
 ::fw{id="nitro:dev nitro:build"}
@@ -54,8 +61,17 @@ Use this page to find package-specific Vercel guidance in ViteHub.
 
 - Setup overview: [Queue overview](/docs/nitro/queue)
 - Provider details: [Queue on Vercel](/docs/nitro/queue/providers/vercel)
+
+### Schedule
+
+`@vitehub/schedule` supports Vercel Provider Output on Vite and Nitro when the Vite Integration or Nitro Integration discovers Static Schedule Definitions.
+
+- Setup overview: [Schedule overview](/docs/nitro/schedule)
+- Provider details: ViteHub writes Vercel cron entries to `.vercel/output/config.json` and generated functions under `/api/vitehub/schedules/vercel/<name>` during the manual deploy build.
 ::
 
 ## What stays package-specific
 
 Environment variables, fallback behavior, and exact config examples live with the package docs. Use this section as a routing page, not as the source of truth for package setup.
+
+Schedule Runtime Helpers are separate from Provider Output. Creating or changing a Runtime Schedule does not automatically provision Vercel cron configuration; provider cron paths come from Static Schedule Definitions discovered at build time.

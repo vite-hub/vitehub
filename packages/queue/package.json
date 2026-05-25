@@ -42,7 +42,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --dir ../blob build && pnpm --dir ../kv build && pnpm --dir . build && pnpm --dir ../sandbox build && pnpm --dir ../workflow build && vitest run"
+    "test": "pnpm --dir ../blob build && pnpm --dir ../kv build && pnpm --dir ../schedule build && pnpm --dir . build && pnpm --dir ../sandbox build && pnpm --dir ../workflow build && vitest run"
   },
   "dependencies": {
     "@vercel/functions": "catalog:",

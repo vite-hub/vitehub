@@ -83,6 +83,8 @@ describe("schedule provider output", () => {
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/runtime/static.ts")
     expect(resolveScheduleRuntimeEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/runtime/static.ts")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
+    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
+    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/nitro.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
     expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vitehub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vitehub/schedule/dist/runtime/static.js")
   })
 
@@ -108,7 +110,7 @@ describe("schedule provider output", () => {
     const rootDir = await createTempProject("vitehub-schedule-output-dynamic-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
       "const suffix = '0'",
-      "export default defineSchedule('0 0 * * *' + suffix, () => 'ok')",
+      "export default defineSchedule({ cron: '0 0 * * *' + suffix, handler: () => 'ok' })",
       "",
     ].join("\n"), "utf8")
 
@@ -118,11 +120,216 @@ describe("schedule provider output", () => {
     })).rejects.toThrow(/must declare a static cron string/)
   })
 
+  it("reads cron from the top-level schedule object", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-top-level-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule({",
+      "  handler: () => ({ cron: '0 1 * * *' }),",
+      "  cron: '0 2 * * *',",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const vercelConfig = join(rootDir, ".vercel", "output", "config.json")
+    expect(JSON.parse(await readFile(vercelConfig, "utf8")).crons).toEqual([{
+      path: "/api/vitehub/schedules/vercel/cleanup",
+      schedule: "0 2 * * *",
+    }])
+  })
+
+  it("reads cron from a top-level property with leading comments", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-commented-property-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule({",
+      "  handler: () => 'ok',",
+      "  /* schedule */ cron: '0 2 * * *',",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const vercelConfig = join(rootDir, ".vercel", "output", "config.json")
+    expect(JSON.parse(await readFile(vercelConfig, "utf8")).crons).toEqual([{
+      path: "/api/vitehub/schedules/vercel/cleanup",
+      schedule: "0 2 * * *",
+    }])
+  })
+
+  it("balances regex literals while reading top-level provider cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-regex-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule({",
+      "  handler: () => /}/.test('x'),",
+      "  cron: '0 2 * * *',",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
+  it("balances regex literals after await while reading top-level provider cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-await-regex-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule({",
+      "  handler: async () => { await /}/.test('x') },",
+      "  cron: '0 2 * * *',",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
+  it("balances regex literals after throw while reading top-level provider cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-throw-regex-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule({",
+      "  handler: () => { throw /}/.test('x') },",
+      "  cron: '0 2 * * *',",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
+  it("balances regex literals after unary keywords while reading top-level provider cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-unary-regex-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule({",
+      "  handler: () => { void /}/.test('x'); return typeof /}/ },",
+      "  cron: '0 2 * * *',",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
+  it("balances template interpolation while reading top-level provider cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-template-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule({",
+      "  handler: () => `${`x`}`,",
+      "  cron: '0 2 * * *',",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
   it("ignores commented defineSchedule examples when reading static provider cron", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-commented-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
-      "// defineSchedule('0 1 * * *', () => 'docs')",
-      "export default defineSchedule('0 2 * * *', () => 'ok')",
+      "// export default defineSchedule({ cron: '0 1 * * *', handler: () => 'docs' })",
+      "export default defineSchedule({ cron: '0 2 * * *', handler: () => 'ok' })",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
+  it("ignores quoted defineSchedule examples when reading static provider cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-quoted-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "const docs = \"export default defineSchedule({ cron: '0 1 * * *', handler: () => 'docs' })\"",
+      "export default defineSchedule({ cron: '0 2 * * *', handler: () => 'ok' })",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
+  it("reads static provider cron from generic defineSchedule exports", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-generic-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule<string>({ cron: '0 2 * * *', handler: () => 'ok' })",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
+  it("reads static provider cron from parenthesized defineSchedule exports", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-parenthesized-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default ((defineSchedule({ cron: '0 2 * * *', handler: () => 'ok' })))",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
+  it("continues to later object default exports when earlier defaults are not objects", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-later-object-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "const docs = 'export default helper'",
+      "export default { cron: '0 2 * * *', handler: () => 'ok' }",
       "",
     ].join("\n"), "utf8")
 
