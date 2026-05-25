@@ -159,10 +159,29 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
   })
 
+  it("balances regex literals after await while reading top-level provider cron", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-await-regex-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule({",
+      "  handler: async () => { await /}/.test('x') },",
+      "  cron: '0 2 * * *',",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+  })
+
   it("ignores commented defineSchedule examples when reading static provider cron", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-commented-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
-      "// defineSchedule({ cron: '0 1 * * *', handler: () => 'docs' })",
+      "// export default defineSchedule({ cron: '0 1 * * *', handler: () => 'docs' })",
       "export default defineSchedule({ cron: '0 2 * * *', handler: () => 'ok' })",
       "",
     ].join("\n"), "utf8")

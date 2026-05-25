@@ -88,6 +88,28 @@ function skipBlockComment(source: string, index: number): number {
   return close === -1 ? source.length : close + 2
 }
 
+function isInsideComment(source: string, targetIndex: number): boolean {
+  for (let index = 0; index < targetIndex; index += 1) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipQuoted(source, index) - 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      const commentEnd = skipLineComment(source, index)
+      if (targetIndex < commentEnd) return true
+      index = commentEnd - 1
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      const commentEnd = skipBlockComment(source, index)
+      if (targetIndex < commentEnd) return true
+      index = commentEnd - 1
+    }
+  }
+  return false
+}
+
 function skipIgnorable(source: string, index: number): number {
   while (index < source.length) {
     if (/\s/.test(source[index]!)) {
@@ -121,7 +143,7 @@ function previousSignificantToken(source: string, index: number): string {
 
 function canStartRegexLiteral(source: string, index: number): boolean {
   const token = previousSignificantToken(source, index)
-  return token === "" || token === "return" || token === "case" || /^[({[=,:;!&|?+\-*%^~<>]$/.test(token)
+  return token === "" || token === "return" || token === "case" || token === "await" || /^[({[=,:;!&|?+\-*%^~<>]$/.test(token)
 }
 
 function skipRegexLiteral(source: string, index: number): number {
@@ -256,12 +278,15 @@ function readTopLevelCronProperty(objectSource: string): string | undefined {
 }
 
 function readDefaultDefineScheduleCron(source: string): string | undefined {
-  const match = /\bexport\s+default\s+defineSchedule\s*\(/.exec(source)
-  if (!match) return undefined
+  let match: RegExpExecArray | null
+  const pattern = /\bexport\s+default\s+defineSchedule\s*\(/g
+  while ((match = pattern.exec(source))) {
+    if (isInsideComment(source, match.index)) continue
 
-  const objectStart = skipIgnorable(source, match.index + match[0].length)
-  const objectSource = readBalancedObject(source, objectStart)
-  return objectSource ? readTopLevelCronProperty(objectSource) : undefined
+    const objectStart = skipIgnorable(source, match.index + match[0].length)
+    const objectSource = readBalancedObject(source, objectStart)
+    return objectSource ? readTopLevelCronProperty(objectSource) : undefined
+  }
 }
 
 function readDefaultObjectCron(source: string): string | undefined {
