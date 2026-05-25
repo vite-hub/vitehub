@@ -144,7 +144,16 @@ export function startScheduleRunner(options: ScheduleRunnerOptions = {}): Schedu
             continue
           }
           const runId = toRunId(schedule.id, scheduledAt)
-          if (queuedRunIds.has(runId) || await scheduleRunStore.getRun(runId)) {
+          if (queuedRunIds.has(runId)) {
+            continue
+          }
+          try {
+            if (await scheduleRunStore.getRun(runId)) {
+              continue
+            }
+          }
+          catch (error) {
+            reportError(error, options.onError)
             continue
           }
           queuedRunIds.add(runId)
