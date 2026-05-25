@@ -14,7 +14,6 @@ Use this page after the [Quickstart](./quickstart).
 Agents are discovered from Nitro server files.
 
 ```txt
-server/agent.ts
 server/agents/triager.ts
 server/agents/context/config.ts
 server/agents/support/reviewer.ts
@@ -32,17 +31,7 @@ export default defineAgent({
 })
 ```
 
-Use named exports when one file owns several agents:
-
-```ts [server/agent.ts]
-import { defineAgent } from '@vitehub/agent'
-
-export const triager = defineAgent({
-  instructions: 'Triage support requests.',
-  model,
-  adapter: 'ai-sdk',
-})
-```
+The discovered agent name comes from the file or folder path. `defineAgent({ name })` can describe runtime metadata, but it does not rename a discovered agent.
 
 ## Evaluate an agent
 

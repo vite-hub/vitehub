@@ -29,49 +29,14 @@ function hasDefineAgentChat(source: string): boolean {
     || /\bdefineAgent\s*\(\s*\{[\s\S]*?\bcapabilities\s*:\s*\[[\s\S]*?\bchat\s*\(/.test(stripped)
 }
 
-function parseAgentName(source: string): string | undefined {
-  const match = stripComments(source).match(/\bname\s*:\s*["'`]([^"'`]+)["'`]/)
-  return match?.[1]
-}
-
 function hasWorkspaceAgent(source: string): boolean {
   return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(source))
-}
-
-function discoverNamedAgentChatExports(file: string): DiscoveredChatDefinition[] {
-  const source = readFileSync(file, "utf8")
-  if (!hasDefineAgentChat(source)) return []
-
-  const names = new Set<string>()
-  for (const match of stripComments(source).matchAll(/\bexport\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*defineAgent\s*\(\s*\{[\s\S]*?\bchat\s*:/g)) {
-    names.add(match[1]!)
-  }
-
-  const definitions: DiscoveredChatDefinition[] = [...names].sort().map(name => ({
-    exportName: name,
-    handler: file,
-    name,
-    source: "nitro-server-agent-chat",
-  }))
-  if (/\bexport\s+default\s+defineAgent\s*\(\s*\{[\s\S]*?\bchat\s*:/.test(stripComments(source))) {
-    definitions.unshift({
-      handler: file,
-      name: "chat",
-      source: "nitro-server-agent-chat",
-    })
-  }
-  return definitions
 }
 
 function discoverAgentChatDefinitions(scanDirs: string[]): DiscoveredChatDefinition[] {
   const definitions: DiscoveredChatDefinition[] = []
 
   for (const scanDir of scanDirs) {
-    for (const extension of sourceFileExtensions) {
-      const file = resolve(scanDir, `agent${extension}`)
-      if (existsSync(file)) definitions.push(...discoverNamedAgentChatExports(file))
-    }
-
     const agentsRoot = resolve(scanDir, "agents")
     const walk = (current: string) => {
       let entries
@@ -95,11 +60,10 @@ function discoverAgentChatDefinitions(scanDirs: string[]): DiscoveredChatDefinit
           const source = readFileSync(file, "utf8")
           if (!hasDefineAgentChat(source)) continue
           const agentName = relative(agentsRoot, dirname(file)).replace(/\\/g, "/")
-          const name = parseAgentName(source) || agentName
-          if (name && name !== ".") {
+          if (agentName && agentName !== ".") {
             definitions.push({
               handler: file,
-              name,
+              name: agentName,
               source: "nitro-server-agent-chat",
               workspace: hasWorkspaceAgent(source) ? agentName : undefined,
             })
@@ -111,7 +75,7 @@ function discoverAgentChatDefinitions(scanDirs: string[]): DiscoveredChatDefinit
         if (file.endsWith(".d.ts") || file.endsWith(".d.mts") || file.endsWith(".d.cts")) continue
         const source = readFileSync(file, "utf8")
         if (!hasDefineAgentChat(source)) continue
-        const name = parseAgentName(source) || relative(agentsRoot, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "").replace(/\\/g, "/")
+        const name = relative(agentsRoot, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "").replace(/\\/g, "/")
         if (name && name !== ".") {
           definitions.push({ handler: file, name, source: "nitro-server-agent-chat" })
         }
