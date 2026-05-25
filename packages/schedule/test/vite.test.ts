@@ -55,7 +55,7 @@ describe("Vite schedule integration", () => {
 
     expect(resolveScheduleTargets(plugin)).toBe("\0#vitehub/schedule/targets")
     expect(targets).toContain("export const scheduleTargetNames = [\"daily-reports\"];")
-    expect(targets).toContain("export type ScheduleTargetName = \"daily-reports\";")
+    expect(targets).not.toContain("export type")
     expect(targets).not.toContain("\"cleanup\"")
   })
 
