@@ -15,6 +15,10 @@ import {
   resolveDefinitionScanRoots,
   sortDefinitions,
 } from "@vitehub/internal/definition-catalog"
+import {
+  findIdentifierCalls,
+  splitTopLevel,
+} from "@vitehub/internal/source-scanner"
 
 import type { DiscoveredWorkflowDefinition } from "./types.ts"
 
@@ -22,8 +26,6 @@ const workflowSuffixPattern = /\.workflow\.(?:c|m)?[jt]s$/i
 const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
 const stepFilePattern = /^\d+[.-].*\.(?:c|m)?[jt]s$/i
-const createWorkflowPattern = /\bcreateWorkflow\b/g
-
 function normalizeSuffixWorkflowName(rootDir: string, file: string) {
   return normalizeSuffixDefinitionName(rootDir, file, workflowSuffixPattern, { stripPrefix: "src/" })
 }
@@ -116,99 +118,9 @@ function discoverFlatServerWorkflowDefinitions(scanDirs: string[], source: NonNu
   ])
 }
 
-function isQuote(char: string) {
-  return char === "\"" || char === "'" || char === "`"
-}
-
-function skipQuoted(source: string, index: number) {
-  const quote = source[index]
-  index += 1
-  while (index < source.length) {
-    if (source[index] === "\\") {
-      index += 2
-      continue
-    }
-    if (source[index] === quote) {
-      return index + 1
-    }
-    index += 1
-  }
-  return index
-}
-
-function findMatching(source: string, index: number, open: string, close: string) {
-  let depth = 0
-  for (let current = index; current < source.length; current++) {
-    const char = source[current]
-    if (isQuote(char)) {
-      current = skipQuoted(source, current) - 1
-      continue
-    }
-    if (char === open) {
-      depth += 1
-    }
-    else if (char === close && !(open === "<" && close === ">" && source[current - 1] === "=")) {
-      depth -= 1
-      if (depth === 0) {
-        return current
-      }
-    }
-  }
-}
-
-function splitTopLevel(source: string, separator = ",") {
-  const parts: string[] = []
-  let depth = 0
-  let start = 0
-  for (let index = 0; index < source.length; index++) {
-    const char = source[index]
-    if (isQuote(char)) {
-      index = skipQuoted(source, index) - 1
-      continue
-    }
-    if (char === "(" || char === "{" || char === "[") {
-      depth += 1
-    }
-    else if (char === ")" || char === "}" || char === "]") {
-      depth -= 1
-    }
-    else if (char === separator && depth === 0) {
-      parts.push(source.slice(start, index).trim())
-      start = index + 1
-    }
-  }
-  parts.push(source.slice(start).trim())
-  return parts
-}
-
 function readStringLiteral(source: string) {
   const match = source.trim().match(/^(['"])([^'"]+)\1$/)
   return match?.[2]
-}
-
-function findCallArguments(source: string, start: number) {
-  let index = start + "createWorkflow".length
-  while (/\s/.test(source[index] || "")) {
-    index += 1
-  }
-  if (source[index] === "<") {
-    const genericEnd = findMatching(source, index, "<", ">")
-    if (genericEnd === undefined) {
-      return
-    }
-    index = genericEnd + 1
-  }
-  while (/\s/.test(source[index] || "")) {
-    index += 1
-  }
-  if (source[index] !== "(") {
-    return
-  }
-  const callEnd = findMatching(source, index, "(", ")")
-  if (callEnd === undefined) {
-    return
-  }
-  return splitTopLevel(source.slice(index + 1, callEnd))
 }
 
 function readObjectWorkflowName(argument: string) {
@@ -236,43 +148,10 @@ function isOptionsOnlyWorkflowCall(argumentsList: string[]) {
   return argumentsList.length === 2 && argumentsList[1]?.trim().startsWith("{")
 }
 
-function isInsideComment(source: string, offset: number) {
-  let index = 0
-  while (index < offset) {
-    const char = source[index]
-    const next = source[index + 1]
-    if (isQuote(char)) {
-      index = skipQuoted(source, index)
-      continue
-    }
-    if (char === "/" && next === "/") {
-      const end = source.indexOf("\n", index + 2)
-      if (end === -1 || end >= offset) {
-        return true
-      }
-      index = end + 1
-      continue
-    }
-    if (char === "/" && next === "*") {
-      const end = source.indexOf("*/", index + 2)
-      if (end === -1 || end + 2 > offset) {
-        return true
-      }
-      index = end + 2
-      continue
-    }
-    index += 1
-  }
-  return false
-}
-
 function discoverInlineWorkflowNames(source: string) {
   const names: string[] = []
-  for (const match of source.matchAll(createWorkflowPattern)) {
-    if (isInsideComment(source, match.index!)) {
-      continue
-    }
-    const argumentsList = findCallArguments(source, match.index!)
+  for (const call of findIdentifierCalls(source, "createWorkflow")) {
+    const argumentsList = call.arguments
     if (!argumentsList?.length) {
       continue
     }
