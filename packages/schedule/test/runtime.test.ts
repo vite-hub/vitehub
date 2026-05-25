@@ -199,6 +199,42 @@ describe("Runtime Schedule helper", () => {
     expect(newLoadCount).toBe(1)
   })
 
+  it("does not return stale in-flight registry loads to waiters after registry replacement", async () => {
+    let finishOld: (() => void) | undefined
+
+    setScheduleRuntimeRegistry({
+      report: async () => {
+        await new Promise<void>(resolve => { finishOld = resolve })
+        return { cron: "0 9 * * *", handler: async () => {} }
+      },
+    })
+    void loadScheduleDefinition("report")
+    await Promise.resolve()
+    const staleWaiter = loadScheduleDefinition("report")
+
+    setScheduleRuntimeRegistry({
+      report: async () => ({ cron: "0 10 * * *", handler: async () => {} }),
+    })
+    finishOld?.()
+
+    await expect(staleWaiter).resolves.toBeUndefined()
+    await expect(loadScheduleDefinition("report")).resolves.toMatchObject({ cron: "0 10 * * *" })
+  })
+
+  it("ignores inherited runtime registry entries", async () => {
+    const inheritedRegistry = {}
+    Object.defineProperty(inheritedRegistry, "__proto__", {
+      value: async () => ({ cron: "0 9 * * *", handler: async () => {}, options: { allowRuntimeSchedules: true } }),
+    })
+    const registry = Object.create(inheritedRegistry) as Record<string, () => unknown>
+    registry.report = async () => ({ cron: "0 9 * * *", handler: async () => {}, options: { allowRuntimeSchedules: true } })
+    setScheduleRuntimeRegistry(registry as Parameters<typeof setScheduleRuntimeRegistry>[0])
+
+    await expect(schedules.create({ cron: "0 9 * * *", target: "__proto__" })).rejects.toMatchObject({
+      code: "SCHEDULE_TARGET_NOT_FOUND",
+    })
+  })
+
   it("returns early for recursive loads of the same runtime target", async () => {
     setScheduleRuntimeRegistry({
       report: async () => {
