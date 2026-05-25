@@ -17,8 +17,59 @@ import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
-function isExportDefaultCall(source: string, start: number) {
-  return /(?:^|[^\w$])export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)|\()*$/.test(source.slice(0, start))
+function findQuotedStringEnd(source: string, start: number) {
+  const quote = source[start]
+  let index = start + 1
+  while (index < source.length) {
+    if (source[index] === "\\") {
+      index += 2
+      continue
+    }
+    if (source[index] === quote) {
+      return index + 1
+    }
+    index += 1
+  }
+  return source.length
+}
+
+function findTemplateLiteralEnd(source: string, start: number) {
+  let expressionDepth = 0
+  let index = start + 1
+  while (index < source.length) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (char === "\\") {
+      index += 2
+      continue
+    }
+    if (char === "`") {
+      if (expressionDepth === 0) return index + 1
+      index = findTemplateLiteralEnd(source, index)
+      continue
+    }
+    if (char === "\"" || char === "'") {
+      index = findQuotedStringEnd(source, index)
+      continue
+    }
+    if (char === "$" && next === "{") {
+      expressionDepth += 1
+      index += 2
+      continue
+    }
+    if (char === "{" && expressionDepth > 0) {
+      expressionDepth += 1
+      index += 1
+      continue
+    }
+    if (char === "}" && expressionDepth > 0) {
+      expressionDepth -= 1
+      index += 1
+      continue
+    }
+    index += 1
+  }
+  return source.length
 }
 
 function maskCommentsAndStrings(source: string) {
@@ -40,22 +91,16 @@ function maskCommentsAndStrings(source: string) {
       index = nextIndex
       continue
     }
-    if (char === "\"" || char === "'" || char === "`") {
-      const quote = char
-      const start = index
-      index += 1
-      while (index < source.length) {
-        if (source[index] === "\\") {
-          index += 2
-          continue
-        }
-        if (source[index] === quote) {
-          index += 1
-          break
-        }
-        index += 1
-      }
-      masked += " ".repeat(index - start)
+    if (char === "\"" || char === "'") {
+      const nextIndex = findQuotedStringEnd(source, index)
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
+      continue
+    }
+    if (char === "`") {
+      const nextIndex = findTemplateLiteralEnd(source, index)
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
       continue
     }
     masked += char
@@ -64,12 +109,19 @@ function maskCommentsAndStrings(source: string) {
   return masked
 }
 
+function isExportDefaultCall(source: string, start: number) {
+  const code = maskCommentsAndStrings(source.slice(0, start))
+  return /(?:^|[^\w$])export\s+default(?:\s|\()*$/.test(code)
+}
+
 function readDefaultExportIdentifier(source: string) {
-  return maskCommentsAndStrings(source).match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
+  const code = maskCommentsAndStrings(source)
+  return code.match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
+    ?? code.match(/\bexport\s*\{\s*([A-Za-z_$][\w$]*)\s+as\s+default\s*\}/)?.[1]
 }
 
 function readDefineScheduleBindingName(source: string, start: number) {
-  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n|$)\s*)*$/)?.[1]
+  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n|$)\s*)*$/)?.[1]
 }
 
 function readDefineScheduleOptions(source: string): string | undefined {
@@ -90,6 +142,51 @@ function stripBoundaryComments(source: string) {
     .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
 }
 
+function decodeStringLiteralValue(value: string) {
+  let decoded = ""
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index]
+    if (char !== "\\") {
+      decoded += char
+      continue
+    }
+    const next = value[++index]
+    if (next === undefined) {
+      decoded += "\\"
+      continue
+    }
+    if (next === "u") {
+      const hex = value.slice(index + 1, index + 5)
+      if (/^[\da-f]{4}$/i.test(hex)) {
+        decoded += String.fromCharCode(Number.parseInt(hex, 16))
+        index += 4
+        continue
+      }
+    }
+    if (next === "x") {
+      const hex = value.slice(index + 1, index + 3)
+      if (/^[\da-f]{2}$/i.test(hex)) {
+        decoded += String.fromCharCode(Number.parseInt(hex, 16))
+        index += 2
+        continue
+      }
+    }
+    decoded += ({
+      "\\": "\\",
+      "\"": "\"",
+      "'": "'",
+      "0": "\0",
+      b: "\b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      t: "\t",
+      v: "\v",
+    } as Record<string, string>)[next] ?? next
+  }
+  return decoded
+}
+
 function readTopLevelStringProperty(source: string, property: string): string | undefined {
   const objectSource = stripBoundaryComments(source)
   if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
@@ -101,7 +198,7 @@ function readTopLevelStringProperty(source: string, property: string): string | 
     const value = stripBoundaryComments(valueParts.join(":"))
     const match = value.match(/^(['"])((?:\\.|(?!\1).)*)\1$/)
     if (match) {
-      return match[2]?.replace(/\\(.)/g, "$1")
+      return decodeStringLiteralValue(match[2] ?? "")
     }
   }
 }
