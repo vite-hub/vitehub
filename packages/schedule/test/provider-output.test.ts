@@ -50,6 +50,29 @@ describe("schedule provider output", () => {
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
   })
 
+  it("preserves existing provider output files when adding schedule output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-preserve-")
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const vercelRoot = join(rootDir, ".vercel", "output")
+    await mkdir(cloudflareRoot, { recursive: true })
+    await mkdir(vercelRoot, { recursive: true })
+    await writeFile(join(cloudflareRoot, "existing.txt"), "keep\n", "utf8")
+    await writeFile(join(vercelRoot, "existing.txt"), "keep\n", "utf8")
+    await writeFile(join(cloudflareRoot, "wrangler.json"), JSON.stringify({
+      main: "index.js",
+      triggers: { crons: ["0 1 * * *"] },
+    }), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    await expect(readFile(join(cloudflareRoot, "existing.txt"), "utf8")).resolves.toBe("keep\n")
+    await expect(readFile(join(vercelRoot, "existing.txt"), "utf8")).resolves.toBe("keep\n")
+    expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual(["0 1 * * *", "0 0 * * *"])
+  })
+
   it("reports provider cron syntax limitations before output generation", () => {
     expect(() => validateProviderCron("0 0 1 1 * 2026", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
     expect(() => validateProviderCron("0 0 * JAN *", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
