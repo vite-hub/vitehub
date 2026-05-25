@@ -1,10 +1,11 @@
-import { createMemoryRuntimeScheduleStore } from "./store.ts"
+import { createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./store.ts"
 
-import type { RuntimeScheduleStore, ScheduleDefinition, ScheduleDefinitionRegistry } from "../types.ts"
+import type { RuntimeScheduleStore, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunStore } from "../types.ts"
 
 let runtimeRegistry: ScheduleDefinitionRegistry | undefined
 let runtimeStore: RuntimeScheduleStore | undefined
 let runtimeRegistryVersion = 0
+let runStore: ScheduleRunStore | undefined
 const loadedRegistryEntries = new Map<string, ScheduleDefinition | undefined>()
 const loadingRegistryEntries = new Map<string, Promise<ScheduleDefinition | undefined>>()
 
@@ -29,6 +30,14 @@ export function setRuntimeScheduleStore(store: RuntimeScheduleStore | undefined)
 
 export function getRuntimeScheduleStore(): RuntimeScheduleStore {
   return runtimeStore ??= createMemoryRuntimeScheduleStore()
+}
+
+export function setScheduleRunStore(store: ScheduleRunStore | undefined): void {
+  runStore = store
+}
+
+export function getScheduleRunStore(): ScheduleRunStore {
+  return runStore ??= createMemoryScheduleRunStore()
 }
 
 export async function loadScheduleDefinition(name: string): Promise<ScheduleDefinition | undefined> {
@@ -75,6 +84,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
 export function resetScheduleRuntime(): void {
   runtimeRegistry = undefined
   runtimeStore = undefined
+  runStore = undefined
   loadedRegistryEntries.clear()
   loadingRegistryEntries.clear()
 }

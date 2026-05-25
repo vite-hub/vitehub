@@ -1,9 +1,10 @@
 import { randomId } from "@vitehub/internal/runtime/random"
 
 import { ScheduleError } from "../errors.ts"
-import { getRuntimeScheduleStore, loadScheduleDefinition } from "./state.ts"
+import { executeRuntimeSchedule } from "./execute.ts"
+import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
-import type { RuntimeScheduleCreateInput, RuntimeScheduleRecord, RuntimeScheduleUpdateInput, ScheduleTargetName } from "../types.ts"
+import type { RuntimeScheduleCreateInput, RuntimeScheduleRecord, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleTargetName } from "../types.ts"
 
 const cronRange = {
   dayOfMonth: { max: 31, min: 1 },
@@ -202,8 +203,20 @@ export const schedules = {
   async get(id: string): Promise<RuntimeScheduleRecord | undefined> {
     return await getRuntimeScheduleStore().get(id)
   },
+  async getRun(id: string): Promise<ScheduleRunRecord | undefined> {
+    return await getScheduleRunStore().getRun(id)
+  },
   async list(): Promise<RuntimeScheduleRecord[]> {
     return await getRuntimeScheduleStore().list()
+  },
+  async listAttempts(runId: string): Promise<ScheduleRunAttemptRecord[]> {
+    return await getScheduleRunStore().listAttempts(runId)
+  },
+  async listRuns(): Promise<ScheduleRunRecord[]> {
+    return await getScheduleRunStore().listRuns()
+  },
+  async run(id: string, options: { scheduledAt?: Date } = {}): Promise<ScheduleRunRecord> {
+    return await executeRuntimeSchedule({ id, scheduledAt: options.scheduledAt })
   },
   async update<TTarget extends ScheduleTargetName>(id: string, input: RuntimeScheduleUpdateInput<TTarget>): Promise<RuntimeScheduleRecord> {
     return await updateRuntimeSchedule(id, input)

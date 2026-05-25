@@ -1,6 +1,6 @@
 import { ScheduleError } from "../errors.ts"
 
-import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleUpdateInput } from "../types.ts"
+import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
 
 function cloneRuntimeSchedule(record: RuntimeScheduleRecord): RuntimeScheduleRecord {
   return {
@@ -56,6 +56,93 @@ export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
       })
       records.set(id, next)
       return cloneRuntimeSchedule(next)
+    },
+  }
+}
+
+function cloneScheduleRun(record: ScheduleRunRecord): ScheduleRunRecord {
+  return {
+    ...record,
+    completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
+    createdAt: new Date(record.createdAt),
+    scheduledAt: new Date(record.scheduledAt),
+    error: record.error ? { ...record.error } : undefined,
+    startedAt: record.startedAt ? new Date(record.startedAt) : undefined,
+    updatedAt: new Date(record.updatedAt),
+  }
+}
+
+function cloneScheduleRunAttempt(record: ScheduleRunAttemptRecord): ScheduleRunAttemptRecord {
+  return {
+    ...record,
+    completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
+    createdAt: new Date(record.createdAt),
+    error: record.error ? { ...record.error } : undefined,
+    startedAt: new Date(record.startedAt),
+    updatedAt: new Date(record.updatedAt),
+  }
+}
+
+export function createMemoryScheduleRunStore(): ScheduleRunStore {
+  const runs = new Map<string, ScheduleRunRecord>()
+  const attempts = new Map<string, ScheduleRunAttemptRecord>()
+
+  return {
+    createAttempt(attempt) {
+      if (attempts.has(attempt.id)) {
+        throw new Error(`Schedule Run Attempt already exists: ${attempt.id}`)
+      }
+      attempts.set(attempt.id, cloneScheduleRunAttempt(attempt))
+      return cloneScheduleRunAttempt(attempt)
+    },
+    createRun(run) {
+      if (runs.has(run.id)) {
+        throw new Error(`Schedule Run already exists: ${run.id}`)
+      }
+      runs.set(run.id, cloneScheduleRun(run))
+      return cloneScheduleRun(run)
+    },
+    getAttempt(id) {
+      const attempt = attempts.get(id)
+      return attempt ? cloneScheduleRunAttempt(attempt) : undefined
+    },
+    getRun(id) {
+      const run = runs.get(id)
+      return run ? cloneScheduleRun(run) : undefined
+    },
+    listAttempts(runId) {
+      return [...attempts.values()]
+        .filter(attempt => attempt.runId === runId)
+        .map(cloneScheduleRunAttempt)
+    },
+    listRuns() {
+      return [...runs.values()].map(cloneScheduleRun)
+    },
+    updateAttempt(id, patch) {
+      const existing = attempts.get(id)
+      if (!existing) {
+        return undefined
+      }
+      const next = cloneScheduleRunAttempt({
+        ...existing,
+        ...patch,
+        updatedAt: patch.updatedAt,
+      })
+      attempts.set(id, next)
+      return cloneScheduleRunAttempt(next)
+    },
+    updateRun(id, patch) {
+      const existing = runs.get(id)
+      if (!existing) {
+        return undefined
+      }
+      const next = cloneScheduleRun({
+        ...existing,
+        ...patch,
+        updatedAt: patch.updatedAt,
+      })
+      runs.set(id, next)
+      return cloneScheduleRun(next)
     },
   }
 }
