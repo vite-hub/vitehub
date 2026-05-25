@@ -320,6 +320,53 @@ describe("workflow runtime", () => {
     expect(inline).toHaveBeenCalledTimes(1)
   })
 
+  it("prefers discovered default exports over helper inline handles", async () => {
+    const discovered = vi.fn(async () => "discovered")
+    const helper = vi.fn(async () => "helper")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      mixed: async () => {
+        createWorkflow("helper", helper)
+        return { default: { handler: discovered } }
+      },
+    })
+
+    const run = await runWorkflow("mixed", undefined, { id: "mixed" })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("mixed", run.id)).resolves.toMatchObject({ result: "discovered" })
+    })
+    expect(discovered).toHaveBeenCalledTimes(1)
+    expect(helper).not.toHaveBeenCalled()
+  })
+
+  it("keeps inline fallbacks scoped to their own discovered entry load", async () => {
+    const alpha = vi.fn(async () => "alpha")
+    let releaseAlpha!: () => void
+    const alphaReady = new Promise<void>(resolve => {
+      releaseAlpha = resolve
+    })
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      alpha: async () => {
+        createWorkflow("legacy-alpha", alpha)
+        await alphaReady
+        return {}
+      },
+      beta: async () => ({}),
+    })
+
+    const alphaRun = runWorkflow("alpha", undefined, { id: "alpha" })
+    await vi.waitFor(() => {
+      expect(takeInlineWorkflowDefinition("legacy-alpha")).toBeDefined()
+    })
+    await expect(runWorkflow("beta", undefined, { id: "beta" })).rejects.toThrow(/Unknown workflow definition: beta/)
+    releaseAlpha()
+    await alphaRun
+  })
+
   it("wraps Cloudflare workflow handlers with provider steps", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
     const step = { do: stepDo } as WorkflowProviderStep

@@ -13,6 +13,7 @@ const loadedRegistryEntries = new Map<string, WorkflowDefinition | undefined>()
 let fallbackEvent: unknown
 const eventStorage = new AsyncLocalStorage<unknown>()
 const loadingRegistryStorage = new AsyncLocalStorage<Set<string>>()
+const loadingInlineRegistryStorage = new AsyncLocalStorage<Map<string, WorkflowDefinition>>()
 
 export interface WorkflowRunState<TResult = unknown> {
   error?: unknown
@@ -75,6 +76,7 @@ export function registerInlineWorkflowDefinition(name: string, definition: Workf
   }
 
   inlineRegistry.set(name, definition)
+  loadingInlineRegistryStorage.getStore()?.set(name, definition)
 }
 
 export function enterWorkflowRuntimeEvent(event: unknown): void {
@@ -121,22 +123,20 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
   const nextActiveLoads = new Set(activeLoads)
   nextActiveLoads.add(name)
   const loadingEntry = Promise.resolve().then(() => loadingRegistryStorage.run(nextActiveLoads, async () => {
-    const previousInlineNames = new Set(inlineRegistry.keys())
-    const loaded = await entry()
+    const loadingInlineDefinitions = new Map<string, WorkflowDefinition>()
+    const loaded = await loadingInlineRegistryStorage.run(loadingInlineDefinitions, entry)
     const registeredInlineDefinition = inlineRegistry.get(name)
     if (registeredInlineDefinition) {
       return registeredInlineDefinition
     }
-    const registeredDefinitions = [...inlineRegistry.entries()]
-      .filter(([registeredName]) => !previousInlineNames.has(registeredName))
-    if (registeredDefinitions.length === 1) {
-      return registeredDefinitions[0]![1]
-    }
     if (!loaded || typeof loaded !== "object") {
-      return undefined
+      return loadingInlineDefinitions.size === 1 ? [...loadingInlineDefinitions.values()][0] : undefined
     }
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
-    return definition && typeof definition.handler === "function" ? definition : undefined
+    if (definition && typeof definition.handler === "function") {
+      return definition
+    }
+    return loadingInlineDefinitions.size === 1 ? [...loadingInlineDefinitions.values()][0] : undefined
   }))
   loadingRegistryEntries.set(name, loadingEntry)
   try {
