@@ -135,6 +135,26 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("uses Nitro config path names when defineAgent options omit a name", async () => {
+    const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-path-name-")
+    await mkdir(join(nitroScanDir, "agents", "support"), { recursive: true })
+    await writeFile(join(nitroScanDir, "agents", "support", "config.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export default defineAgent({",
+      "  model: { name: 'wrong-model-name' },",
+      "  capabilities: [schedule({ schedules: ['0 12 * * *'] })],",
+      "  run: () => 'ok',",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "nitro-server-schedules",
+      scanDirs: [nitroScanDir],
+    })).toEqual([
+      expect.objectContaining({ agentName: "support", cron: "0 12 * * *", name: "support/schedule-0-12", source: "agent-inline-schedule" }),
+    ])
+  })
+
   it("ignores quoted object keys in inline Agent Schedules", async () => {
     const viteRootDir = await createTempDir("vitehub-agent-schedule-quoted-")
     await mkdir(join(viteRootDir, "src"), { recursive: true })

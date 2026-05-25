@@ -128,7 +128,17 @@ function createInlineAgentSchedules(file: string, agentName: string, source: str
 }
 
 function parseAgentName(source: string): string | undefined {
-  return stripComments(source).match(/\bname\s*:\s*["'`]([^"'`]+)["'`]/)?.[1]
+  const stripped = stripComments(source)
+  for (const match of stripped.matchAll(/\bdefineAgent\b/g)) {
+    const callSource = findDefineAgentCall(stripped, match.index!)
+    if (!callSource) continue
+    const firstArgument = splitTopLevelScheduleEntries(callSource.slice(1, -1))[0]?.trim()
+    if (!firstArgument?.startsWith("{") || !firstArgument.endsWith("}")) continue
+    for (const entry of splitTopLevelScheduleEntries(firstArgument.slice(1, -1))) {
+      const name = entry.match(/^(?:["'`]?name["'`]?)\s*:\s*["'`]([^"'`]+)["'`]\s*$/)?.[1]
+      if (name) return name
+    }
+  }
 }
 
 function readBalancedCall(source: string, openParen: number): string | undefined {

@@ -1,4 +1,4 @@
-import { normalize } from "node:path"
+import { normalize, resolve } from "node:path"
 
 import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
 
@@ -34,7 +34,10 @@ export function hubSchedule(): ScheduleVitePlugin {
 
   function createRegistryContents() {
     const definitions = discoverViteSchedules()
-    return createScheduleRegistryContents(SCHEDULE_REGISTRY_ID, definitions)
+    const registryFile = resolved
+      ? resolve(resolved.root, ".vitehub", "schedule", "registry.mjs")
+      : SCHEDULE_REGISTRY_ID
+    return createScheduleRegistryContents(registryFile, definitions)
   }
 
   function createTargetsContents() {
