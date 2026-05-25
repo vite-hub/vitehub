@@ -102,6 +102,28 @@ function omitUndefinedPatch(patch: RuntimeScheduleUpdateInput): RuntimeScheduleU
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as RuntimeScheduleUpdateInput
 }
 
+const keyLocks = new Map<string, Promise<void>>()
+
+async function withKVKeyLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = keyLocks.get(key) ?? Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>(resolve => {
+    release = resolve
+  })
+  keyLocks.set(key, previous.then(() => current, () => current))
+
+  await previous
+  try {
+    return await operation()
+  }
+  finally {
+    release()
+    if (keyLocks.get(key) === current) {
+      keyLocks.delete(key)
+    }
+  }
+}
+
 export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
   const records = new Map<string, RuntimeScheduleRecord>()
 
@@ -155,15 +177,17 @@ export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions = {
     async create(record) {
       const store = await getKVStore()
       const key = runtimeScheduleKey(prefix, record.id)
-      if (await store.has(key)) {
-        throw new ScheduleError(`Runtime Schedule already exists: ${record.id}`, {
-          code: "SCHEDULE_ALREADY_EXISTS",
-          details: { id: record.id },
-          httpStatus: 409,
-        })
-      }
-      await store.set(key, serializeRuntimeSchedule(record))
-      return cloneRuntimeSchedule(record)
+      return await withKVKeyLock(key, async () => {
+        if (await store.has(key)) {
+          throw new ScheduleError(`Runtime Schedule already exists: ${record.id}`, {
+            code: "SCHEDULE_ALREADY_EXISTS",
+            details: { id: record.id },
+            httpStatus: 409,
+          })
+        }
+        await store.set(key, serializeRuntimeSchedule(record))
+        return cloneRuntimeSchedule(record)
+      })
     },
     async delete(id) {
       const store = await getKVStore()
@@ -356,11 +380,13 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions = {}): 
     async createRun(run) {
       const store = await getKVStore()
       const key = scheduleRunKey(prefix, run.id)
-      if (await store.has(key)) {
-        throw new Error(`Schedule Run already exists: ${run.id}`)
-      }
-      await store.set(key, serializeScheduleRun(run))
-      return cloneScheduleRun(run)
+      return await withKVKeyLock(key, async () => {
+        if (await store.has(key)) {
+          throw new Error(`Schedule Run already exists: ${run.id}`)
+        }
+        await store.set(key, serializeScheduleRun(run))
+        return cloneScheduleRun(run)
+      })
     },
     async getAttempt(id) {
       const attempt = await (await getKVStore()).get<StoredScheduleRunAttemptRecord>(scheduleRunAttemptKey(prefix, id))
