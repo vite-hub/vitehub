@@ -22,7 +22,8 @@ const generatedRegistryFileName = "registry.mjs"
 
 export function resolveScheduleRuntimeEntry(metaUrl = import.meta.url) {
   const file = fileURLToPath(metaUrl)
-  return file.endsWith("/src/internal/provider-output.ts")
+  const normalizedFile = file.replace(/\\/g, "/")
+  return normalizedFile.endsWith("/src/internal/provider-output.ts")
     ? resolve(dirname(file), "../runtime/execute.ts")
     : resolve(dirname(file), "../runtime/execute.js")
 }
@@ -237,11 +238,14 @@ async function writeCloudflareScheduleOutput(options: {
   const existingTriggers = typeof wranglerConfig.triggers === "object" && wranglerConfig.triggers !== null
     ? wranglerConfig.triggers as { crons?: string[] }
     : {}
+  const main = typeof wranglerConfig.main === "string" && wranglerConfig.main
+    ? wranglerConfig.main
+    : "index.js"
   wranglerConfig = {
     ...wranglerConfig,
     compatibility_date: wranglerConfig.compatibility_date ?? defaultCloudflareCompatibilityDate,
     compatibility_flags: wranglerConfig.compatibility_flags ?? ["nodejs_compat"],
-    main: wranglerConfig.main ?? "index.js",
+    main,
     observability: wranglerConfig.observability ?? { enabled: true },
     triggers: {
       ...existingTriggers,
@@ -250,7 +254,7 @@ async function writeCloudflareScheduleOutput(options: {
   }
 
   await Promise.all([
-    bundleEsmEntry(options.bundleEntry, resolve(outputRoot, "index.js"), {
+    bundleEsmEntry(options.bundleEntry, resolve(outputRoot, main), {
       conditions: ["workerd", "worker", "browser", "default"],
       format: "esm",
       platform: "neutral",
