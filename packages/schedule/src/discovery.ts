@@ -41,15 +41,21 @@ function readDefineScheduleOptions(source: string): string | undefined {
   return (defaultExportBindingCall ?? calls[0])?.arguments[2]
 }
 
+function stripBoundaryComments(source: string) {
+  return source
+    .replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
+    .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
+}
+
 function readTopLevelStringProperty(source: string, property: string): string | undefined {
-  const objectSource = source.trim()
+  const objectSource = stripBoundaryComments(source)
   if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
 
   for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
     const [key, ...valueParts] = splitTopLevel(entry, ":")
-    const normalizedKey = key?.trim().replace(/^(['"])(.*)\1$/, "$2")
+    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
     if (normalizedKey !== property) continue
-    const value = valueParts.join(":").trim()
+    const value = stripBoundaryComments(valueParts.join(":"))
     const match = value.match(/^(['"])((?:\\.|(?!\1).)*)\1$/)
     if (match) {
       return match[2]?.replace(/\\(.)/g, "$1")
