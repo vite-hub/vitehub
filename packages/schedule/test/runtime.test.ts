@@ -64,6 +64,29 @@ describe("Runtime Schedule helper", () => {
     expect(await schedules.get("schedule-1")).toBeUndefined()
   })
 
+  it("ignores undefined fields when updating runtime schedules", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    const created = await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const updated = await schedules.update("schedule-1", {
+      cron: undefined,
+      enabled: false,
+      target: undefined,
+    } as Parameters<typeof schedules.update>[1])
+
+    expect(updated).toMatchObject({
+      cron: created.cron,
+      enabled: false,
+      target: created.target,
+    })
+  })
+
   it("fails clearly for invalid cron strings", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({

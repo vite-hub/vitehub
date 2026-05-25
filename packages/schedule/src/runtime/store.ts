@@ -35,10 +35,13 @@ export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
         return undefined
       }
 
+      const definedPatch = Object.fromEntries(
+        Object.entries(patch).filter(([, value]) => value !== undefined),
+      ) as RuntimeScheduleUpdateInput & { updatedAt: Date }
       const next = cloneRuntimeSchedule({
         ...existing,
-        ...patch,
-        updatedAt: patch.updatedAt,
+        ...definedPatch,
+        updatedAt: definedPatch.updatedAt,
       })
       records.set(id, next)
       return cloneRuntimeSchedule(next)

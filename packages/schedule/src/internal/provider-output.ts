@@ -19,9 +19,14 @@ import type { DiscoveredScheduleDefinition } from "../types.ts"
 export const schedulePackageName = "@vitehub/schedule"
 const productName = "schedule"
 const generatedRegistryFileName = "registry.mjs"
-const scheduleRuntimeEntry = import.meta.url.includes("/src/")
-  ? resolve(dirname(fileURLToPath(import.meta.url)), "../runtime/execute.ts")
-  : resolve(dirname(fileURLToPath(import.meta.url)), "runtime/execute.js")
+
+export function resolveScheduleRuntimeEntry(metaUrl = import.meta.url) {
+  return metaUrl.includes("/src/")
+    ? resolve(dirname(fileURLToPath(metaUrl)), "../runtime/execute.ts")
+    : resolve(dirname(fileURLToPath(metaUrl)), "../runtime/execute.js")
+}
+
+const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()
 
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
@@ -36,7 +41,7 @@ interface GenerateProviderOutputsOptions {
   rootDir: string
 }
 
-const cronFieldPattern = /^[*,/\-0-9A-Za-z]+$/
+const cronFieldPattern = /^[*,/\-0-9]+$/
 
 function readStringLiteral(source: string): string | undefined {
   const quote = source.trim()[0]
@@ -60,8 +65,9 @@ function readStringLiteral(source: string): string | undefined {
 }
 
 export function validateProviderCron(cron: string, scheduleName: string): void {
-  const fields = cron.split(/\s+/)
-  if (fields.length !== 5 || !fields.every(field => cronFieldPattern.test(field))) {
+  const fields = cron.trim().split(/\s+/)
+  const hasVercelDayConflict = fields[2] !== "*" && fields[4] !== "*"
+  if (fields.length !== 5 || !fields.every(field => cronFieldPattern.test(field)) || hasVercelDayConflict) {
     throw new Error(`Schedule "${scheduleName}" uses cron "${cron}", but provider wake output only supports five-field UTC cron syntax compatible with Cloudflare and Vercel.`)
   }
 }
