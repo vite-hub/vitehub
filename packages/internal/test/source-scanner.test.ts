@@ -126,6 +126,11 @@ describe("source scanner", () => {
       `() => { if (ready) /* hint */ /\\)/.test(")") }`,
       `{ id: "daily" }`,
     ])
+
+    expect(splitTopLevel(`() => { try {} catch (error) /\\)/.test(")") }, { id: "daily" }`)).toEqual([
+      `() => { try {} catch (error) /\\)/.test(")") }`,
+      `{ id: "daily" }`,
+    ])
   })
 
   it("ignores member calls with matching names", () => {

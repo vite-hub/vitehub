@@ -136,7 +136,7 @@ function isControlFlowRegexStart(source: string, index: number) {
     if (source[current] !== "(") continue
     if (findMatching(source, current, "(", ")") !== closeParen) continue
     const head = source.slice(0, current).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ")
-    return /(?:^|[^\w$])(?:if|while|for|with)\s*$/.test(head)
+    return /(?:^|[^\w$])(?:catch|for|if|while|with)\s*$/.test(head)
   }
 
   return false
