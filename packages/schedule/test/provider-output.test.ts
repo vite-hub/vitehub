@@ -118,6 +118,28 @@ describe("schedule provider output", () => {
     })).rejects.toThrow(/must declare a static cron string/)
   })
 
+  it("reads cron from the top-level schedule object", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-top-level-cron-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "export default defineSchedule({",
+      "  handler: () => ({ cron: '0 1 * * *' }),",
+      "  cron: '0 2 * * *',",
+      "})",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const vercelConfig = join(rootDir, ".vercel", "output", "config.json")
+    expect(JSON.parse(await readFile(vercelConfig, "utf8")).crons).toEqual([{
+      path: "/api/vitehub/schedules/vercel/cleanup",
+      schedule: "0 2 * * *",
+    }])
+  })
+
   it("ignores commented defineSchedule examples when reading static provider cron", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-commented-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [

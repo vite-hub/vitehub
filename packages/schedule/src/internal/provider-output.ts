@@ -55,13 +55,172 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
   const source = readFileSync(file, "utf8")
-  const defineScheduleCron = source.match(/\bexport\s+default\s+defineSchedule\s*\(\s*\{[\s\S]*?\bcron\s*:\s*(["'`])([^"'`]+)\1\s*(?:,|\})/)?.[2]
-  const cron = defineScheduleCron
-    ?? source.match(/\bexport\s+default\s*\{[\s\S]*?\bcron\s*:\s*(["'`])([^"'`]+)\1\s*(?:,|\})/)?.[2]
+  const cron = readDefaultDefineScheduleCron(source) ?? readDefaultObjectCron(source)
   if (!cron) {
     throw new Error(`Schedule "${scheduleName}" must declare a static cron string for provider wake output.`)
   }
   return cron
+}
+
+function skipQuoted(source: string, index: number): number {
+  const quote = source[index]
+  index += 1
+  while (index < source.length) {
+    if (source[index] === "\\") {
+      index += 2
+      continue
+    }
+    if (source[index] === quote) {
+      return index + 1
+    }
+    index += 1
+  }
+  return index
+}
+
+function skipLineComment(source: string, index: number): number {
+  const newline = source.indexOf("\n", index + 2)
+  return newline === -1 ? source.length : newline + 1
+}
+
+function skipBlockComment(source: string, index: number): number {
+  const close = source.indexOf("*/", index + 2)
+  return close === -1 ? source.length : close + 2
+}
+
+function skipIgnorable(source: string, index: number): number {
+  while (index < source.length) {
+    if (/\s/.test(source[index]!)) {
+      index += 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index)
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    break
+  }
+  return index
+}
+
+function readBalancedObject(source: string, openIndex: number): string | undefined {
+  if (source[openIndex] !== "{") return undefined
+
+  let depth = 0
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipQuoted(source, index) - 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index) - 1
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index) - 1
+      continue
+    }
+    if (char === "{") depth += 1
+    if (char === "}") {
+      depth -= 1
+      if (depth === 0) {
+        return source.slice(openIndex + 1, index)
+      }
+    }
+  }
+}
+
+function splitTopLevelProperties(source: string): string[] {
+  const properties: string[] = []
+  let depth = 0
+  let start = 0
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipQuoted(source, index) - 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index) - 1
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index) - 1
+      continue
+    }
+    if (char === "{" || char === "[" || char === "(") depth += 1
+    if (char === "}" || char === "]" || char === ")") depth -= 1
+    if (char === "," && depth === 0) {
+      properties.push(source.slice(start, index))
+      start = index + 1
+    }
+  }
+
+  properties.push(source.slice(start))
+  return properties
+}
+
+function readStaticStringLiteral(source: string): string | undefined {
+  const value = source.trim()
+  const quote = value[0]
+  if (quote !== "\"" && quote !== "'" && quote !== "`") return undefined
+
+  let result = ""
+  for (let index = 1; index < value.length; index += 1) {
+    const char = value[index]
+    if (char === "\\") {
+      result += value[index + 1] ?? ""
+      index += 1
+      continue
+    }
+    if (char === quote) {
+      if (skipIgnorable(value, index + 1) !== value.length) {
+        return undefined
+      }
+      return result
+    }
+    result += char
+  }
+}
+
+function readTopLevelCronProperty(objectSource: string): string | undefined {
+  for (const property of splitTopLevelProperties(objectSource)) {
+    const colon = property.indexOf(":")
+    if (colon === -1) continue
+
+    const key = property.slice(0, colon).trim().replace(/^["'`](.*)["'`]$/s, "$1")
+    if (key !== "cron") continue
+
+    const cron = readStaticStringLiteral(property.slice(colon + 1))
+    if (!cron) {
+      throw new Error("Schedule must declare a static cron string for provider wake output.")
+    }
+    return cron
+  }
+}
+
+function readDefaultDefineScheduleCron(source: string): string | undefined {
+  const match = /\bexport\s+default\s+defineSchedule\s*\(/.exec(source)
+  if (!match) return undefined
+
+  const objectStart = skipIgnorable(source, match.index + match[0].length)
+  const objectSource = readBalancedObject(source, objectStart)
+  return objectSource ? readTopLevelCronProperty(objectSource) : undefined
+}
+
+function readDefaultObjectCron(source: string): string | undefined {
+  const match = /\bexport\s+default\b/.exec(source)
+  if (!match) return undefined
+
+  const objectStart = skipIgnorable(source, match.index + match[0].length)
+  const objectSource = readBalancedObject(source, objectStart)
+  return objectSource ? readTopLevelCronProperty(objectSource) : undefined
 }
 
 function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string) {

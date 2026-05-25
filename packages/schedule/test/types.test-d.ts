@@ -33,5 +33,5 @@ it("types the defineSchedule helper signature", () => {
 })
 
 it("types the generated schedule registry module", () => {
-  expectTypeOf(registry).toEqualTypeOf<ScheduleDefinitionRegistry>()
+  expectTypeOf(registry).toEqualTypeOf({} as ScheduleDefinitionRegistry)
 })
