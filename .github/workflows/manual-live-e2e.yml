@@ -52,7 +52,7 @@ jobs:
     needs: setup-cloudflare
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
