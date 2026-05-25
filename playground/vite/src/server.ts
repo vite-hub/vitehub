@@ -67,7 +67,7 @@ app.post("/api/tests/queue", async (event) => {
 })
 
 app.get("/api/tests/schedule", async () => {
-  const marker = globalThis.__vitehubScheduleMarker ?? await kv.get(scheduleMarkerKey)
+  const marker = await kv.get(scheduleMarkerKey) ?? globalThis.__vitehubScheduleMarker
   return {
     ok: true,
     key: scheduleMarkerKey,
