@@ -25,6 +25,7 @@ describe("Nitro schedule integration", () => {
     const registryFile = join(root, ".nitro", "vitehub", "schedule", "nitro-registry.mjs")
     expect(nitro.options.alias["#vitehub/schedule/registry"]).toBe(registryFile)
     expect(nitro.options.alias["#vitehub/schedule/targets"]).toBe(join(root, ".nitro", "vitehub", "schedule", "targets.mjs"))
+    expect(nitro.options.alias["@vitehub/schedule/runtime"]).toContain("/src/runtime")
     expect(await readFile(registryFile, "utf8")).toBe([
       "",
       "const registry = {",

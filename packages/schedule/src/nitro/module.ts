@@ -101,6 +101,7 @@ const scheduleNitroModule: NitroModule = {
 
     nitro.options.alias ||= {}
     nitro.options.alias["@vitehub/schedule"] = resolveRuntimeEntry("../index", "@vitehub/schedule")
+    nitro.options.alias["@vitehub/schedule/runtime"] = resolveRuntimeEntry("../runtime", "@vitehub/schedule/runtime")
 
     let runtimeFiles = await writeNitroScheduleRuntimeFiles(nitro)
     applyNitroRuntimeAliases(nitro, {
