@@ -407,6 +407,87 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("preserves stream result methods when adding chat title data to full streams", async () => {
+    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class StreamResult {
+      metadata = { id: "stream-result-1" }
+      fullStream = (async function* () {
+        yield { text: "hello", type: "text-delta" }
+      })()
+
+      toTextStreamResponse() {
+        return new Response("native")
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Preserved title" })],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => new StreamResult(),
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as StreamResult
+    const events = []
+    for await (const event of result.fullStream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { data: { title: "Preserved title", type: "chat-title" }, type: "data" },
+      { text: "hello", type: "text-delta" },
+    ])
+    expect(result).toBeInstanceOf(StreamResult)
+    expect(result.metadata).toEqual({ id: "stream-result-1" })
+    expect(result.toTextStreamResponse).toEqual(expect.any(Function))
+    await expect(result.toTextStreamResponse().text()).resolves.toBe("native")
+    expect(finish.mock.calls[0]![0].result).toBe(result)
+  })
+
+  it("preserves text stream result metadata when adding chat title data", async () => {
+    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class TextStreamResult {
+      metadata = { usage: "kept" }
+      textStream = (async function* () {
+        yield "hello"
+      })()
+
+      toTextStreamResponse() {
+        return new Response("native text")
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Metadata title" })],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => new TextStreamResult(),
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as TextStreamResult & { fullStream?: AsyncIterable<unknown> }
+    const events = []
+    for await (const event of result.fullStream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { data: { title: "Metadata title", type: "chat-title" }, type: "data" },
+      { text: "hello", type: "text-delta" },
+    ])
+    expect(result).toBeInstanceOf(TextStreamResult)
+    expect(result.metadata).toEqual({ usage: "kept" })
+    expect(result.textStream).toBeDefined()
+    expect(result.fullStream).toBeDefined()
+    await expect(result.toTextStreamResponse().text()).resolves.toBe("native text")
+    expect(finish.mock.calls[0]![0].result).toBe(result)
+  })
+
   it("exposes chat title finish extension without registering command metadata", async () => {
     const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

@@ -114,6 +114,31 @@ function isStreamTextResult(value: unknown): value is { fullStream?: AsyncIterab
     && (isAsyncIterable((value as { fullStream?: unknown }).fullStream) || isAsyncIterable((value as { textStream?: unknown }).textStream))
 }
 
+function cloneStreamTextResult<T extends { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }>(
+  result: T,
+  streams: { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> },
+): T {
+  const clone = Object.create(Object.getPrototypeOf(result))
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
+  if (streams.fullStream) {
+    Object.defineProperty(clone, "fullStream", {
+      configurable: true,
+      enumerable: true,
+      value: streams.fullStream,
+      writable: true,
+    })
+  }
+  if (streams.textStream) {
+    Object.defineProperty(clone, "textStream", {
+      configurable: true,
+      enumerable: true,
+      value: streams.textStream,
+      writable: true,
+    })
+  }
+  return clone
+}
+
 export function chatTitle(options: ChatTitleOptions = {}): AgentCapabilityDefinition {
   return defineCapability({
     id: options.id || "chat-title",
@@ -140,8 +165,16 @@ export function chatTitle(options: ChatTitleOptions = {}): AgentCapabilityDefini
       })
       context.output.render((result) => {
         if (isStreamTextResult(result)) {
-          if (result.fullStream) return { ...result, fullStream: withChatTitleFullStream(result.fullStream, getTitle()) }
-          if (result.textStream) return withChatTitleTextStream(result.textStream, getTitle())
+          if (result.fullStream) {
+            return cloneStreamTextResult(result, {
+              fullStream: withChatTitleFullStream(result.fullStream, getTitle()),
+            })
+          }
+          if (result.textStream) {
+            return cloneStreamTextResult(result, {
+              fullStream: withChatTitleTextStream(result.textStream, getTitle()),
+            })
+          }
         }
         if (!isAsyncIterable(result)) return result
         return withChatTitleEvent(result, getTitle())
