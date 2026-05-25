@@ -131,6 +131,13 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
         ].join("\n")
       : [
           "export default async function scheduleHandler(req, res) {",
+          "  const cronSecret = process.env.CRON_SECRET",
+          "  const authorization = req.headers?.authorization || req.headers?.Authorization",
+          "  if (cronSecret && authorization !== `Bearer ${cronSecret}`) {",
+          "    res.statusCode = 401",
+          "    res.end('Unauthorized.')",
+          "    return",
+          "  }",
           "  const url = new URL(req.url || '/', 'https://vitehub.local')",
           "  const prefix = '/api/vitehub/schedules/vercel/'",
           scheduleName === undefined

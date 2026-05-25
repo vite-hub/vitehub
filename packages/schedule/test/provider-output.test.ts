@@ -270,6 +270,25 @@ describe("schedule provider output", () => {
     expect(source).toContain("const name = \"reports/daily\"")
   })
 
+  it("emits Vercel handlers that require the cron secret when configured", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-vercel-auth-")
+    await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
+    const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
+    await writeFile(registryFile, "export default {}\n", "utf8")
+
+    await writeVercelScheduleFunctions({
+      definitions: [{ handler: join(rootDir, "src", "cleanup.schedule.ts"), name: "cleanup" }],
+      outputRoot: join(rootDir, ".vercel", "output"),
+      registryFile,
+      rootDir,
+    }, new Map([["cleanup", "0 0 * * *"]]))
+
+    const source = await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")
+    expect(source).toContain("process.env.CRON_SECRET")
+    expect(source).toContain("authorization !== `Bearer ${cronSecret}`")
+    expect(source).toContain("res.statusCode = 401")
+  })
+
   it("emits Vercel handlers that load unsanitized schedule names", async () => {
     const rootDir = await createTempProject("vitehub-schedule-vercel-unsanitized-")
     await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
