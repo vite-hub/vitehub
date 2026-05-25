@@ -609,6 +609,24 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.definitions.has("inline-worker")).toBe(true)
   })
 
+  it("registers exported inline handles under discovered names in OpenWorkflow workers", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    setWorkflowRuntimeRegistry({
+      "server/workflows/chat": async () => {
+        const workflow = createWorkflow("legacy-chat-name", async () => ({ ok: true }))
+        return { workflow }
+      },
+    })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("server/workflows/chat")).toBe(true)
+    expect(openWorkflowMock.definitions.has("legacy-chat-name")).toBe(false)
+  })
+
   it("registers wrapped inline folder workflows in OpenWorkflow workers", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
