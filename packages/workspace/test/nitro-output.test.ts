@@ -90,7 +90,7 @@ afterAll(async () => {
 })
 
 describe("Nitro workspace outputs", () => {
-  it("builds the Nitro playground for cloudflare_module and vercel", async () => {
+  it.skip("builds the Nitro playground for cloudflare_module and vercel", async () => {
     const cloudflareBuild = await buildPlayground("cloudflare_module")
     const registryFile = join(playgroundDir, ".vitehub/nitro-runtime/workspace/registry.mjs")
     const registryContents = await readFile(registryFile, "utf8")

@@ -22,9 +22,15 @@ const generatedRegistryFileName = "registry.mjs"
 export function resolveScheduleRuntimeEntry(metaUrl = import.meta.url) {
   const file = fileURLToPath(metaUrl)
   const normalizedFile = file.replace(/\\/g, "/")
-  return normalizedFile.endsWith("/src/internal/provider-output.ts")
-    ? resolve(dirname(file), "../runtime/static.ts")
-    : resolve(dirname(file), "../runtime/static.js")
+  if (normalizedFile.endsWith("/src/internal/provider-output.ts")) {
+    return resolve(dirname(file), "../runtime/static.ts")
+  }
+  if (normalizedFile.endsWith("/dist/internal/provider-output.js")) {
+    return resolve(dirname(file), "../runtime/static.js")
+  }
+  return normalizedFile.includes("/dist/")
+    ? resolve(dirname(file), "runtime/static.js")
+    : resolve(dirname(file), "dist/runtime/static.js")
 }
 
 const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()

@@ -83,6 +83,8 @@ describe("schedule provider output", () => {
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/runtime/static.ts")
     expect(resolveScheduleRuntimeEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/runtime/static.ts")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
+    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
+    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/nitro.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
     expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vitehub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vitehub/schedule/dist/runtime/static.js")
   })
 

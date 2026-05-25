@@ -167,7 +167,7 @@ function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareP
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
       conditions: ["workerd", "worker", "browser", "default"],
-      external: ["@vercel/queue", "node:async_hooks"],
+      external: ["@vercel/queue", "node:async_hooks", "node:fs", "node:fs/promises", "node:path", "node:url"],
       format: "esm",
       platform: "neutral",
     },
