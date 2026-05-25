@@ -5,14 +5,14 @@ export interface ScheduleRunContext {
 
 export type ScheduleHandler<TResult = unknown> = (context: ScheduleRunContext) => TResult | Promise<TResult>
 
-export interface ScheduleDefinitionOptions {
-  id?: string
+export interface ScheduleDefinitionInput<TResult = unknown> {
+  cron: string
+  handler: ScheduleHandler<TResult>
 }
 
 export interface ScheduleDefinition<TResult = unknown> {
   cron: string
   handler: ScheduleHandler<TResult>
-  options?: ScheduleDefinitionOptions
 }
 
 export interface ScheduleDefinitionRegistry {

@@ -108,7 +108,7 @@ describe("schedule provider output", () => {
     const rootDir = await createTempProject("vitehub-schedule-output-dynamic-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
       "const suffix = '0'",
-      "export default defineSchedule('0 0 * * *' + suffix, () => 'ok')",
+      "export default defineSchedule({ cron: '0 0 * * *' + suffix, handler: () => 'ok' })",
       "",
     ].join("\n"), "utf8")
 
@@ -121,8 +121,8 @@ describe("schedule provider output", () => {
   it("ignores commented defineSchedule examples when reading static provider cron", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-commented-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
-      "// defineSchedule('0 1 * * *', () => 'docs')",
-      "export default defineSchedule('0 2 * * *', () => 'ok')",
+      "// defineSchedule({ cron: '0 1 * * *', handler: () => 'docs' })",
+      "export default defineSchedule({ cron: '0 2 * * *', handler: () => 'ok' })",
       "",
     ].join("\n"), "utf8")
 

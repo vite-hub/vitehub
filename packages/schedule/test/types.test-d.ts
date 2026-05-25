@@ -5,7 +5,7 @@ import registry from "#vitehub/schedule/registry"
 import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
 it("infers schedule handler result types", () => {
-  const schedule = defineSchedule("0 9 * * *", async context => context.id)
+  const schedule = defineSchedule({ cron: "0 9 * * *", handler: async context => context.id })
 
   expectTypeOf(schedule.handler).parameters.toEqualTypeOf<[{
     id: string
@@ -15,18 +15,21 @@ it("infers schedule handler result types", () => {
 })
 
 it("types the defineSchedule helper signature", () => {
-  defineSchedule("0 9 * * *", async (context) => {
-    expectTypeOf(context.scheduledAt).toEqualTypeOf<Date>()
-  }, { id: "daily-report" })
+  defineSchedule({
+    cron: "0 9 * * *",
+    handler: async (context) => {
+      expectTypeOf(context.scheduledAt).toEqualTypeOf<Date>()
+    },
+  })
 
   // @ts-expect-error cron is required.
-  defineSchedule(async () => {})
+  defineSchedule({ handler: async () => {} })
 
   // @ts-expect-error handler is required.
-  defineSchedule("0 9 * * *")
+  defineSchedule({ cron: "0 9 * * *" })
 
-  // @ts-expect-error options.id must be a string when provided.
-  defineSchedule("0 9 * * *", () => {}, { id: 123 })
+  // @ts-expect-error id is not a schedule definition option.
+  defineSchedule({ cron: "0 9 * * *", handler: () => {}, id: "daily-report" })
 })
 
 it("types the generated schedule registry module", () => {

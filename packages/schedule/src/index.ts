@@ -6,7 +6,7 @@ export { createScheduleRun, executeStaticSchedule } from "./runtime/execute.ts"
 export type {
   DiscoveredScheduleDefinition,
   ScheduleDefinition,
-  ScheduleDefinitionOptions,
+  ScheduleDefinitionInput,
   ScheduleDefinitionRegistry,
   ScheduleHandler,
   ScheduleRunContext,

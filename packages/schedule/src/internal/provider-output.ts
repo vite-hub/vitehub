@@ -45,27 +45,6 @@ interface GenerateProviderOutputsOptions {
 
 const cronFieldPattern = /^[*,/\-0-9]+$/
 
-function readStringLiteral(source: string): string | undefined {
-  const quote = source.trim()[0]
-  if (quote !== "\"" && quote !== "'" && quote !== "`") return undefined
-  const trimmed = source.trim()
-  let value = ""
-  for (let index = 1; index < trimmed.length; index++) {
-    const char = trimmed[index]
-    if (char === "\\") {
-      value += trimmed[index + 1] ?? ""
-      index++
-      continue
-    }
-    if (char === quote) {
-      if (trimmed.slice(index + 1).trim()) return undefined
-      if (quote === "`" && value.includes("${")) return undefined
-      return value
-    }
-    value += char
-  }
-}
-
 export function validateProviderCron(cron: string, scheduleName: string): void {
   const fields = cron.trim().split(/\s+/)
   const hasVercelDayConflict = fields[2] !== "*" && fields[4] !== "*"
@@ -76,9 +55,9 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
   const source = readFileSync(file, "utf8")
-  const defineScheduleArgument = source.match(/\bexport\s+default\s+defineSchedule\s*\(\s*([^,]+?)\s*,/)?.[1]
-  const cron = (defineScheduleArgument ? readStringLiteral(defineScheduleArgument) : undefined)
-    ?? source.match(/\bexport\s+default\s*\{[\s\S]*?\bcron\s*:\s*(["'`])([^"'`]+)\1/)?.[2]
+  const defineScheduleCron = source.match(/\bexport\s+default\s+defineSchedule\s*\(\s*\{[\s\S]*?\bcron\s*:\s*(["'`])([^"'`]+)\1\s*(?:,|\})/)?.[2]
+  const cron = defineScheduleCron
+    ?? source.match(/\bexport\s+default\s*\{[\s\S]*?\bcron\s*:\s*(["'`])([^"'`]+)\1\s*(?:,|\})/)?.[2]
   if (!cron) {
     throw new Error(`Schedule "${scheduleName}" must declare a static cron string for provider wake output.`)
   }

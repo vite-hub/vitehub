@@ -23,7 +23,7 @@ describe("Vite schedule integration", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vite-"))
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default null\n", "utf8")
-    await writeFile(join(root, "src", "reports.schedule.ts"), "defineSchedule(\"0 0 * * *\", () => {}, { id: \"daily-reports\" })\n", "utf8")
+    await writeFile(join(root, "src", "reports.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {} })\n", "utf8")
 
     const plugin = hubSchedule()
     resolvePluginConfig(plugin, root)
@@ -31,7 +31,7 @@ describe("Vite schedule integration", () => {
 
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     expect(registry).toContain("\"cleanup\": async () => import(")
-    expect(registry).toContain("\"daily-reports\": async () => import(")
+    expect(registry).toContain("\"reports\": async () => import(")
     expect(registry).toContain("../../src/cleanup.schedule.ts")
   })
 
