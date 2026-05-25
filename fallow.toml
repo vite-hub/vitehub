@@ -26,6 +26,7 @@ dynamicallyLoaded = [
   "packages/schedule/examples/**/src/server.ts",
   "packages/schedule/examples/**/src/**/*.schedule.ts",
   "packages/schedule/src/targets-module.ts",
+  "packages/schedule/src/runtime/static.ts",
   "packages/queue/examples/**/nitro.config.ts",
   "packages/queue/examples/**/server/**",
   "packages/queue/examples/**/src/server.ts",

@@ -878,10 +878,6 @@ importers:
         version: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
   packages/schedule:
-    dependencies:
-      esbuild:
-        specifier: 'catalog:'
-        version: 0.28.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -889,6 +885,9 @@ importers:
       '@vitehub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vitehub/kv':
+        specifier: workspace:*
+        version: link:../kv
       nitro:
         specifier: 'catalog:'
         version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.6.1)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.2.2))(vite@8.0.8)
@@ -18191,7 +18190,7 @@ snapshots:
       devframe: 0.4.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(crossws@0.4.5(srvx@0.11.15))(typescript@6.0.2)
       diff: 9.0.0
       get-port-please: 3.2.0
-      h3: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
+      h3: 2.0.1-rc.22(crossws@0.4.5(srvx@0.11.15))
       mlly: 1.8.2
       mrmime: 2.0.1
       nostics: 0.2.0
@@ -18337,7 +18336,7 @@ snapshots:
       birpc: 4.0.0
       cac: 7.0.0
       devframe: 0.4.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.1))(crossws@0.4.5(srvx@0.11.15))(typescript@6.0.2)
-      h3: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
+      h3: 2.0.1-rc.22(crossws@0.4.5(srvx@0.11.15))
       mlly: 1.8.2
       nostics: 0.2.0
       obug: 2.1.1
@@ -19890,7 +19889,7 @@ snapshots:
       '@valibot/to-json-schema': 1.7.0(valibot@1.4.0(typescript@6.0.2))
       birpc: 4.0.0
       cac: 7.0.0
-      h3: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
+      h3: 2.0.1-rc.22(crossws@0.4.5(srvx@0.11.15))
       mrmime: 2.0.1
       nostics: 0.2.0
       pathe: 2.0.3
