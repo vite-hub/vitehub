@@ -340,31 +340,44 @@ function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition
   })
 }
 
+function parseScheduleCapabilityNames(source: string): string[] {
+  const names = new Set(["schedule"])
+  for (const match of source.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*(['"])@vitehub\/agent\2/g)) {
+    for (const entry of match[1]!.split(",")) {
+      const [imported, local] = entry.trim().split(/\s+as\s+/)
+      if (imported?.trim() === "schedule") names.add((local || imported).trim())
+    }
+  }
+  return [...names].filter(name => /^[A-Za-z_$][\w$]*$/.test(name))
+}
+
 function parseInlineAgentScheduleEntries(source: string): Array<{ cron: string, id: string }> {
   const stripped = stripComments(source)
   const entries: Array<{ cron: string, id: string }> = []
-  const schedulesPattern = /\bschedule\s*\(\s*\{[\s\S]*?\bschedules\s*:\s*\[([\s\S]*?)\][\s\S]*?\}\s*\)/g
-  for (const match of stripped.matchAll(schedulesPattern)) {
-    const body = match[1]!
-    for (const entry of splitTopLevelArguments(body)) {
-      const trimmed = entry.trim()
-      const stringEntry = /^(["'`])([^"'`]+)\1$/.exec(trimmed)
-      if (stringEntry) {
-        if (!isStaticStringLiteral(stringEntry[1]!, stringEntry[2]!)) continue
-        const cron = normalizeScheduleCron(stringEntry[2]!)
-        entries.push({ cron, id: scheduleIdFromCron(cron) })
-        continue
-      }
+  for (const capabilityName of parseScheduleCapabilityNames(stripped)) {
+    const schedulesPattern = new RegExp(`\\b${capabilityName}\\s*\\(\\s*\\{[\\s\\S]*?\\bschedules\\s*:\\s*\\[([\\s\\S]*?)\\][\\s\\S]*?\\}\\s*\\)`, "g")
+    for (const match of stripped.matchAll(schedulesPattern)) {
+      const body = match[1]!
+      for (const entry of splitTopLevelArguments(body)) {
+        const trimmed = entry.trim()
+        const stringEntry = /^(["'`])([^"'`]+)\1$/.exec(trimmed)
+        if (stringEntry) {
+          if (!isStaticStringLiteral(stringEntry[1]!, stringEntry[2]!)) continue
+          const cron = normalizeScheduleCron(stringEntry[2]!)
+          entries.push({ cron, id: scheduleIdFromCron(cron) })
+          continue
+        }
 
-      if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) continue
-      const cronProperty = readTopLevelStaticStringProperty(trimmed, "cron")
-      if (!cronProperty || !isStaticStringLiteral(cronProperty.quote, cronProperty.value)) continue
-      const cron = normalizeScheduleCron(cronProperty.value)
-      const idProperty = readTopLevelStaticStringProperty(trimmed, "id")
-      const id = idProperty && isStaticStringLiteral(idProperty.quote, idProperty.value)
-        ? idProperty.value
-        : scheduleIdFromCron(cron)
-      entries.push({ cron, id })
+        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) continue
+        const cronProperty = readTopLevelStaticStringProperty(trimmed, "cron")
+        if (!cronProperty || !isStaticStringLiteral(cronProperty.quote, cronProperty.value)) continue
+        const cron = normalizeScheduleCron(cronProperty.value)
+        const idProperty = readTopLevelStaticStringProperty(trimmed, "id")
+        const id = idProperty && isStaticStringLiteral(idProperty.quote, idProperty.value)
+          ? idProperty.value
+          : scheduleIdFromCron(cron)
+        entries.push({ cron, id })
+      }
     }
   }
   return entries
@@ -574,6 +587,13 @@ function discoverNamedAgentExports(file: string, seen = new Set<string>()): Arra
     locals.set(declarator.localName, callSource)
     if (declarator.exported) {
       definitions.set(declarator.localName, { exportName: declarator.localName, name: declarator.localName, source: callSource })
+    }
+  }
+
+  for (const match of source.matchAll(/\bexport\s+default\b/g)) {
+    const callSource = findDefineAgentCall(source, match.index! + match[0].length)
+    if (callSource) {
+      definitions.set("default", { exportName: "default", name: "default", source: callSource })
     }
   }
 

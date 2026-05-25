@@ -136,6 +136,24 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("discovers inline Agent Schedules from aliased schedule capabilities", async () => {
+    const viteRootDir = await createTempDir("vitehub-agent-schedule-alias-")
+    await mkdir(join(viteRootDir, "src"), { recursive: true })
+    await writeFile(join(viteRootDir, "src", "support.agent.ts"), [
+      "import { defineAgent, schedule as agentSchedule } from '@vitehub/agent'",
+      "export default defineAgent({",
+      "  capabilities: [agentSchedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([
+      expect.objectContaining({ cron: "0 9 * * *", name: "support/schedule-0-9" }),
+    ])
+  })
+
   it("skips dependency directories during Vite inline Agent Schedule discovery", async () => {
     const viteRootDir = await createTempDir("vitehub-agent-schedule-skip-deps-")
     await mkdir(join(viteRootDir, "src"), { recursive: true })
@@ -204,6 +222,26 @@ describe("discoverScheduleDefinitions", () => {
     await writeFile(join(nitroScanDir, "support.ts"), [
       "import { defineAgent, schedule } from '@vitehub/agent'",
       "export const Support = defineAgent({",
+      "  capabilities: [schedule({ schedules: ['0 9 * * *'] })],",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "nitro-server-schedules",
+      scanDirs: [nitroScanDir],
+    })).toEqual([
+      expect.objectContaining({ agentExportName: "Support", agentName: "Support", cron: "0 9 * * *", name: "Support/schedule-0-9" }),
+    ])
+  })
+
+  it("discovers Nitro aggregate inline Agent Schedules from default re-exported agents", async () => {
+    const nitroScanDir = await createTempDir("vitehub-agent-schedule-nitro-default-re-export-")
+    await writeFile(join(nitroScanDir, "agent.ts"), [
+      "export { default as Support } from './support'",
+    ].join("\n"), "utf8")
+    await writeFile(join(nitroScanDir, "support.ts"), [
+      "import { defineAgent, schedule } from '@vitehub/agent'",
+      "export default defineAgent({",
       "  capabilities: [schedule({ schedules: ['0 9 * * *'] })],",
       "})",
     ].join("\n"), "utf8")
