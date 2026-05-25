@@ -109,6 +109,18 @@ describe("source scanner", () => {
     expect(calls[0]?.arguments).toEqual(["\"real\""])
   })
 
+  it("finds identifier calls separated from parentheses by comments", () => {
+    const calls = findIdentifierCalls([
+      `const first = defineThing/* @__PURE__ */("commented")`,
+      `const second = defineThing<string>// generic hint`,
+      `("generic")`,
+    ].join("\n"), "defineThing")
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0]?.arguments).toEqual(["\"commented\""])
+    expect(calls[1]?.arguments).toEqual(["\"generic\""])
+  })
+
   it("does not treat division operators as regex literals after identifiers", () => {
     expect(splitTopLevel(`() => { const ratio = a / b }, { id: "daily" }`)).toEqual([
       `() => { const ratio = a / b }`,
