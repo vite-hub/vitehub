@@ -116,6 +116,22 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("reads runtime opt-in from parenthesized defineSchedule calls", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-runtime-parenthesized-opt-in-")
+    await writeFile(
+      join(rootDir, "daily.schedule.ts"),
+      "export default ((defineSchedule({ cron: '0 9 * * *', handler: () => 'ok', allowRuntimeSchedules: true })))\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir,
+    }).map(definition => [definition.name, definition.allowRuntimeSchedules])).toEqual([
+      ["daily", true],
+    ])
+  })
+
   it("balances regex literals while reading runtime opt-in", async () => {
     const rootDir = await createTempDir("vitehub-schedule-runtime-regex-opt-in-")
     await writeFile(

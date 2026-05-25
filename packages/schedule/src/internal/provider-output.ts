@@ -339,14 +339,45 @@ function readTopLevelCronProperty(objectSource: string): string | undefined {
   }
 }
 
+function readDefineScheduleObjectAfterDefault(source: string, index: number): string | undefined {
+  let cursor = skipIgnorable(source, index)
+  let openParens = 0
+  while (source[cursor] === "(") {
+    openParens += 1
+    cursor = skipIgnorable(source, cursor + 1)
+  }
+
+  if (!source.startsWith("defineSchedule", cursor)) return undefined
+  cursor += "defineSchedule".length
+
+  cursor = skipIgnorable(source, cursor)
+  if (source[cursor] === "<") {
+    const close = source.indexOf(">", cursor + 1)
+    if (close === -1) return undefined
+    cursor = skipIgnorable(source, close + 1)
+  }
+
+  if (source[cursor] !== "(") return undefined
+  cursor = skipIgnorable(source, cursor + 1)
+  const objectSource = readBalancedObject(source, cursor)
+  if (!objectSource) return undefined
+
+  let afterObject = skipIgnorable(source, cursor + objectSource.length + 2)
+  if (source[afterObject] === ")") afterObject = skipIgnorable(source, afterObject + 1)
+  while (openParens > 0 && source[afterObject] === ")") {
+    openParens -= 1
+    afterObject = skipIgnorable(source, afterObject + 1)
+  }
+  return openParens === 0 ? objectSource : undefined
+}
+
 function readDefaultDefineScheduleCron(source: string): string | undefined {
   let match: RegExpExecArray | null
-  const pattern = /\bexport\s+default\s+defineSchedule(?:\s*<[^>]+>)?\s*\(/g
+  const pattern = /\bexport\s+default\b/g
   while ((match = pattern.exec(source))) {
     if (isInsideNonCode(source, match.index)) continue
 
-    const objectStart = skipIgnorable(source, match.index + match[0].length)
-    const objectSource = readBalancedObject(source, objectStart)
+    const objectSource = readDefineScheduleObjectAfterDefault(source, match.index + match[0].length)
     if (!objectSource) continue
     return readTopLevelCronProperty(objectSource)
   }
