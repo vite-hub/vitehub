@@ -21,9 +21,24 @@ function isExportDefaultCall(source: string, start: number) {
   return /(?:^|[^\w$])export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)|\()*$/.test(source.slice(0, start))
 }
 
+function readDefaultExportIdentifier(source: string) {
+  return source.match(/\bexport\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
+}
+
+function readDefineScheduleBindingName(source: string, start: number) {
+  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n|$)\s*)*$/)?.[1]
+}
+
 function readDefineScheduleOptions(source: string): string | undefined {
   const calls = findIdentifierCalls(source, "defineSchedule")
-  return (calls.find(call => isExportDefaultCall(source, call.start)) ?? calls[0])?.arguments[2]
+  const directExportCall = calls.find(call => isExportDefaultCall(source, call.start))
+  if (directExportCall) return directExportCall.arguments[2]
+
+  const defaultExportName = readDefaultExportIdentifier(source)
+  const defaultExportBindingCall = defaultExportName
+    ? calls.find(call => readDefineScheduleBindingName(source, call.start) === defaultExportName)
+    : undefined
+  return (defaultExportBindingCall ?? calls[0])?.arguments[2]
 }
 
 function readTopLevelStringProperty(source: string, property: string): string | undefined {
@@ -42,17 +57,23 @@ function readTopLevelStringProperty(source: string, property: string): string | 
   }
 }
 
+function stripBoundaryComments(source: string) {
+  return source
+    .replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
+    .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
+}
+
 function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
   const objectSource = source.trim()
   if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
 
   for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
     const [key, ...valueParts] = splitTopLevel(entry, ":")
-    const normalizedKey = key?.trim().replace(/^(['"])(.*)\1$/, "$2")
+    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
     if (normalizedKey !== property) continue
-    const value = valueParts.join(":").trim()
-    if (/^true(?:\s*(?:\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/))*\s*$/.test(value)) return true
-    if (/^false(?:\s*(?:\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/))*\s*$/.test(value)) return false
+    const value = stripBoundaryComments(valueParts.join(":"))
+    if (value === "true") return true
+    if (value === "false") return false
   }
 }
 

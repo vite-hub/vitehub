@@ -9,7 +9,10 @@ let runtimeStore: RuntimeScheduleStore | undefined
 let runtimeRegistryVersion = 0
 let runStore: ScheduleRunStore | undefined
 const loadedRegistryEntries = new Map<string, ScheduleDefinition | undefined>()
-const loadingRegistryEntries = new Map<string, Promise<ScheduleDefinition | undefined>>()
+const loadingRegistryEntries = new Map<string, {
+  promise: Promise<ScheduleDefinition | undefined>
+  version: number
+}>()
 const loadingRegistryStorage = new AsyncLocalStorage<Set<string>>()
 
 function isScheduleDefinition(value: unknown): value is ScheduleDefinition {
@@ -44,8 +47,8 @@ export function getScheduleRunStore(): ScheduleRunStore {
 }
 
 export async function loadScheduleDefinition(name: string): Promise<ScheduleDefinition | undefined> {
-  const entry = runtimeRegistry?.[name]
-  if (!entry) {
+  const entry = runtimeRegistry && Object.hasOwn(runtimeRegistry, name) ? runtimeRegistry[name] : undefined
+  if (typeof entry !== "function") {
     return undefined
   }
 
@@ -56,7 +59,9 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
   const activeLoads = loadingRegistryStorage.getStore()
   const inFlightEntry = loadingRegistryEntries.get(name)
   if (inFlightEntry) {
-    return activeLoads?.has(name) ? undefined : await inFlightEntry
+    if (activeLoads?.has(name)) return undefined
+    const loaded = await inFlightEntry.promise
+    return inFlightEntry.version === runtimeRegistryVersion ? loaded : undefined
   }
 
   const loadingVersion = runtimeRegistryVersion
@@ -72,7 +77,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
     }
     return undefined
   }))
-  loadingRegistryEntries.set(name, loadingEntry)
+  loadingRegistryEntries.set(name, { promise: loadingEntry, version: loadingVersion })
   try {
     const loaded = await loadingEntry
     if (loadingVersion === runtimeRegistryVersion) {
@@ -82,7 +87,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
     return undefined
   }
   finally {
-    if (loadingRegistryEntries.get(name) === loadingEntry) {
+    if (loadingRegistryEntries.get(name)?.promise === loadingEntry) {
       loadingRegistryEntries.delete(name)
     }
   }
