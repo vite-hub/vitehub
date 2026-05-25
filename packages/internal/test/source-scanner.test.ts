@@ -45,12 +45,22 @@ describe("source scanner", () => {
     const calls = findIdentifierCalls([
       `class Fixture {`,
       `  defineThing(value: string) { return value }`,
+      `  defineThingWithComment(value: string) /* hint */ { return value }`,
       `}`,
       `const real = defineThing("real")`,
+      `const commented = defineThingWithComment("real")`,
     ].join("\n"), "defineThing")
+    const commentedCalls = findIdentifierCalls([
+      `class Fixture {`,
+      `  defineThingWithComment(value: string) /* hint */ { return value }`,
+      `}`,
+      `const real = defineThingWithComment("real")`,
+    ].join("\n"), "defineThingWithComment")
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.arguments).toEqual(["\"real\""])
+    expect(commentedCalls).toHaveLength(1)
+    expect(commentedCalls[0]?.arguments).toEqual(["\"real\""])
   })
 
   it("keeps generic arrow function commas inside one argument", () => {
