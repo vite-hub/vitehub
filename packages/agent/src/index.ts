@@ -271,8 +271,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { agentScheduleIdFromCron, blob, db, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
-export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
+export { agentScheduleIdFromCron, blob, chatTitle, db, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
+export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -985,6 +985,9 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
   if (type === "text-delta" || type === "text") {
     return { id: value.id as string | undefined, text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
+  if (type === "data") {
+    return { data: value.data, id: value.id as string | undefined, messageId: value.messageId as string | undefined, type: "data" }
+  }
   if (type === "tool-input-start") {
     return { id: String(value.id || value.toolCallId), input: value.input, name: String(value.toolName || value.name), type: "tool-input-start" }
   }
@@ -1003,6 +1006,9 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
   }
   if (type === "finish") {
     return { reason: typeof value.finishReason === "string" ? value.finishReason : undefined, type: "finish" }
+  }
+  if (type === "data") {
+    return { data: value.data, type: "data" }
   }
   return undefined
 }
@@ -1245,6 +1251,14 @@ export async function runAgent<
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
+    try {
+      if (isAsyncIterable(result)) {
+        result = await applyOutputRenderers(result, runContext.outputRenderers)
+      }
+    }
+    catch (error) {
+      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
+    }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       return { finishResult: rendered, value: rendered }
@@ -1312,6 +1326,14 @@ export async function streamAgent<
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
+    try {
+      if (isAsyncIterable(result)) {
+        result = await applyOutputRenderers(result, runContext.outputRenderers)
+      }
+    }
+    catch (error) {
+      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
+    }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       return { finishResult: rendered, value: rendered }
@@ -1327,6 +1349,14 @@ export async function streamAgent<
     result = resolved.stream
       ? await resolved.stream(toAgentAdapterRunContext(adapterContext) as never)
       : await resolved.generate(toAgentAdapterRunContext(adapterContext) as never)
+  }
+  catch (error) {
+    return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
+  }
+  try {
+    if (isAsyncIterable(result)) {
+      result = await applyOutputRenderers(result, adapterContext.outputRenderers)
+    }
   }
   catch (error) {
     return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")

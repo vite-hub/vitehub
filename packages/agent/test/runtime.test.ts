@@ -335,6 +335,238 @@ describe("agent message protocol", () => {
     expect(order).toEqual(["stream:done", "finish"])
   })
 
+  it("runs finish lifecycle when async stream output renderer setup fails", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const renderError = new Error("render failed")
+    const agent = defineAgent({
+      capabilities: [{
+        id: "broken-renderer",
+        output(context) {
+          context.output.render(() => {
+            throw renderError
+          })
+        },
+      }],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => (async function* () {
+        yield "hello"
+      })(),
+    })
+
+    await expect(streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow("render failed")
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      error: renderError,
+    }))
+  })
+
+  it("emits chat title data for the first user message in streams", async () => {
+    const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+    const execute = vi.fn(({ text }) => `Title: ${text}`)
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute })],
+      run: () => (async function* () {
+        yield { text: "hello", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [
+        createMessage({ id: "assistant-1", role: "assistant", text: "Earlier reply" }),
+        createMessage({ id: "user-1", role: "user", text: "First user request" }),
+        createMessage({ id: "user-2", role: "user", text: "Latest user request" }),
+      ],
+    })
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.objectContaining({ id: "user-1" }),
+      text: "First user request",
+    }))
+    expect(events[0]).toEqual({
+      data: { title: "Title: First user request", type: "chat-title" },
+      type: "data",
+    })
+    expect(events.slice(1)).toEqual([
+      { text: "hello", type: "text-delta" },
+      { type: "finish" },
+    ])
+  })
+
+  it("keeps streaming when chat title generation fails", async () => {
+    const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => { throw new Error("title failed") } })],
+      run: () => (async function* () {
+        yield { text: "hello", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    })
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "hello", type: "text-delta" },
+      { type: "finish" },
+    ])
+  })
+
+  it("emits chat title data for adapter text streams", async () => {
+    vi.doMock("ai", () => ({
+      ToolLoopAgent: class {
+        async generate() {
+          return { finishReason: "stop", text: "ok" }
+        }
+        async stream() {
+          return {
+            textStream: (async function* () {
+              yield "hello"
+            })(),
+          }
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+      const agent = defineAgent({
+        adapter: "ai-sdk",
+        capabilities: [chatTitle({ execute: () => "Adapter title" })],
+        model: {} as never,
+      })
+
+      const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+        messages: [createMessage({ role: "user", text: "First user request" })],
+      })
+      const events = []
+      for await (const event of stream as AsyncIterable<unknown>) {
+        events.push(event)
+      }
+
+      expect(events).toEqual([
+        { data: { title: "Adapter title", type: "chat-title" }, type: "data" },
+        { text: "hello", type: "text-delta" },
+      ])
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("preserves stream result methods when adding chat title data to full streams", async () => {
+    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class StreamResult {
+      metadata = { id: "stream-result-1" }
+      fullStream = (async function* () {
+        yield { text: "hello", type: "text-delta" }
+      })()
+
+      toTextStreamResponse() {
+        return new Response("native")
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Preserved title" })],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => new StreamResult(),
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as StreamResult
+    const events = []
+    for await (const event of result.fullStream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { data: { title: "Preserved title", type: "chat-title" }, type: "data" },
+      { text: "hello", type: "text-delta" },
+    ])
+    expect(result).toBeInstanceOf(StreamResult)
+    expect(result.metadata).toEqual({ id: "stream-result-1" })
+    expect(result.toTextStreamResponse).toEqual(expect.any(Function))
+    await expect(result.toTextStreamResponse().text()).resolves.toBe("native")
+    expect(finish.mock.calls[0]![0].result).toBe(result)
+  })
+
+  it("preserves text stream result metadata when adding chat title data", async () => {
+    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    class TextStreamResult {
+      metadata = { usage: "kept" }
+      textStream = (async function* () {
+        yield "hello"
+      })()
+
+      toTextStreamResponse() {
+        return new Response("native text")
+      }
+    }
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Metadata title" })],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => new TextStreamResult(),
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as TextStreamResult & { fullStream?: AsyncIterable<unknown> }
+    const events = []
+    for await (const event of result.fullStream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { data: { title: "Metadata title", type: "chat-title" }, type: "data" },
+      { text: "hello", type: "text-delta" },
+    ])
+    expect(result).toBeInstanceOf(TextStreamResult)
+    expect(result.metadata).toEqual({ usage: "kept" })
+    expect(result.textStream).toBeDefined()
+    expect(result.fullStream).toBeDefined()
+    await expect(result.toTextStreamResponse().text()).resolves.toBe("native text")
+    expect(finish.mock.calls[0]![0].result).toBe(result)
+  })
+
+  it("exposes chat title finish extension without registering command metadata", async () => {
+    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: ({ text }) => ({ title: `Title: ${text}` }) })],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "ok" }),
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain invoices" })],
+    })
+
+    const event = finish.mock.calls[0]![0]
+    expect(event.extensions.get("chat-title")).toEqual({ title: "Title: Explain invoices" })
+    expect(agent.capabilities?.[0]?.metadata).toBeUndefined()
+  })
+
   it("runs agent finish hooks after Response bodies are read", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
