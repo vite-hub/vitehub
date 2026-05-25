@@ -1287,11 +1287,12 @@ export async function runScheduledAgent(
   agent: AgentInput<AgentRuntimeContext>,
   context: ScheduleRunContextLike,
 ): Promise<unknown> {
+  const runId = context.runId || context.id
   return await runAgent(agent, {
     memo(_key, create) {
       return create()
     },
-    run: { runId: context.runId || context.id },
+    run: { runId },
     runtime: "unknown",
     waitUntil() {},
   }, {
@@ -1299,7 +1300,7 @@ export async function runScheduledAgent(
       schedule: {
         id: context.id,
         kind: "schedule",
-        runId: context.runId,
+        runId,
         scheduleId: context.scheduleId,
         scheduledAt: context.scheduledAt,
         target: context.target,

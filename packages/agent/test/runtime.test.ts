@@ -64,6 +64,32 @@ describe("agent message protocol", () => {
     }])
   })
 
+  it("uses the schedule id as run id when scheduled context omits provider run id", async () => {
+    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const seen: unknown[] = []
+    const agent = defineAgent({
+      run: context => {
+        seen.push(context.input)
+        return "ok"
+      },
+    })
+
+    await expect(runScheduledAgent(agent, {
+      id: "srun_schedule_2026-05-23T09:00:00.000Z",
+      scheduleId: "schedule-0-9",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    })).resolves.toBe("ok")
+
+    expect(seen).toEqual([{
+      context: {
+        schedule: expect.objectContaining({
+          id: "srun_schedule_2026-05-23T09:00:00.000Z",
+          runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+        }),
+      },
+    }])
+  })
+
   it("converts ViteHub messages to model messages internally", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
