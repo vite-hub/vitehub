@@ -77,8 +77,9 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleDefi
     const loaded = await loadingEntry
     if (loadingVersion === runtimeRegistryVersion) {
       loadedRegistryEntries.set(name, loaded)
+      return loaded
     }
-    return loaded
+    return undefined
   }
   finally {
     if (loadingRegistryEntries.get(name) === loadingEntry) {

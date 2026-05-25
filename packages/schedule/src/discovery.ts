@@ -51,8 +51,8 @@ function readTopLevelBooleanProperty(source: string, property: string): boolean 
     const normalizedKey = key?.trim().replace(/^(['"])(.*)\1$/, "$2")
     if (normalizedKey !== property) continue
     const value = valueParts.join(":").trim()
-    if (value === "true") return true
-    if (value === "false") return false
+    if (/^true(?:\s*(?:\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/))*\s*$/.test(value)) return true
+    if (/^false(?:\s*(?:\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/))*\s*$/.test(value)) return false
   }
 }
 
