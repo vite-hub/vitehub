@@ -197,12 +197,14 @@ export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions = {
     async delete(id) {
       const store = await getKVStore()
       const key = runtimeScheduleKey(prefix, id)
-      const exists = await store.has(key)
-      if (!exists) {
-        return false
-      }
-      await store.del(key)
-      return true
+      return await withKVKeyLock(key, async () => {
+        const exists = await store.has(key)
+        if (!exists) {
+          return false
+        }
+        await store.del(key)
+        return true
+      })
     },
     async get(id) {
       const record = await (await getKVStore()).get<StoredRuntimeScheduleRecord>(runtimeScheduleKey(prefix, id))

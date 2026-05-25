@@ -370,6 +370,45 @@ describe("KV Runtime Schedule Store", () => {
     expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
     await expect(store.get("schedule/1")).resolves.toMatchObject({ id: "schedule/1" })
   })
+
+  it("keeps KV runtime schedule deletes serialized with concurrent updates", async () => {
+    const kvStore = createTestKVStore()
+    const originalSet = kvStore.set.bind(kvStore)
+    let releaseUpdateSet: (() => void) | undefined
+    let pauseUpdateSet = false
+    kvStore.set = async (key, value) => {
+      if (pauseUpdateSet && key.includes("runtime-schedules")) {
+        await new Promise<void>(resolve => { releaseUpdateSet = resolve })
+      }
+      await originalSet(key, value)
+    }
+
+    const store = createKVRuntimeScheduleStore({ kvStore, prefix: "tests/schedules-delete-lock" })
+    const createdAt = new Date("2026-05-23T09:00:00.000Z")
+    await store.create({
+      createdAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "schedule/1",
+      target: "daily/report",
+      updatedAt: createdAt,
+    })
+
+    pauseUpdateSet = true
+    const updating = store.update("schedule/1", {
+      enabled: false,
+      updatedAt: new Date("2026-05-23T10:00:00.000Z"),
+    })
+    await flushAsyncWork()
+
+    const deleting = store.delete("schedule/1")
+    await flushAsyncWork()
+    releaseUpdateSet?.()
+
+    await expect(updating).resolves.toMatchObject({ enabled: false })
+    await expect(deleting).resolves.toBe(true)
+    await expect(store.get("schedule/1")).resolves.toBeUndefined()
+  })
 })
 
 describe("Schedule Run bookkeeping", () => {
