@@ -56,6 +56,8 @@ function readStaticValue(node: ts.Expression): unknown {
     return null
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(node.operand))
     return -Number(node.operand.text)
+  if (ts.isParenthesizedExpression(node))
+    return readStaticValue(node.expression)
   if (ts.isArrayLiteralExpression(node))
     return node.elements.map((element) => {
       if (!ts.isExpression(element))

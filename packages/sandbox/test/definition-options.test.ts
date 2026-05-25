@@ -80,4 +80,23 @@ describe("extractSandboxDefinitionOptions", () => {
       timeout: 30000,
     })
   })
+
+  it("preserves parenthesized static literal option values", async () => {
+    const file = await writeDefinition([
+      `import { defineSandbox } from "@vitehub/sandbox"`,
+      ``,
+      `export default defineSandbox(async () => null, {`,
+      `  env: { MODE: ("test") },`,
+      `  runtime: { command: ("node"), args: [("worker.mjs")] },`,
+      `  timeout: (30_000),`,
+      `})`,
+      ``,
+    ].join("\n"))
+
+    await expect(extractSandboxDefinitionOptions(file)).resolves.toEqual({
+      env: { MODE: "test" },
+      runtime: { command: "node", args: ["worker.mjs"] },
+      timeout: 30000,
+    })
+  })
 })
