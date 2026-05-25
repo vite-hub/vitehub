@@ -60,6 +60,17 @@ describe("source scanner", () => {
     ])
   })
 
+  it("keeps comparison operators structural while splitting arguments", () => {
+    expect(splitTopLevel(`() => a < b, { id: "daily" }`)).toEqual([
+      `() => a < b`,
+      `{ id: "daily" }`,
+    ])
+    expect(splitTopLevel(`() => a > b, { id: "daily" }`)).toEqual([
+      `() => a > b`,
+      `{ id: "daily" }`,
+    ])
+  })
+
   it("keeps regex literals non-structural while splitting arguments", () => {
     expect(splitTopLevel(`() => { return /\\)/.test(")") }, { id: "daily" }`)).toEqual([
       `() => { return /\\)/.test(")") }`,

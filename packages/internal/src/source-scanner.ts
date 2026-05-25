@@ -171,12 +171,20 @@ export function splitTopLevel(source: string, separator = ",") {
       previousSignificant = "/"
       continue
     }
-    if (char === "(" || char === "{" || char === "[" || char === "<") {
+    if (char === "<") {
+      const genericEnd = findMatching(source, index, "<", ">")
+      if (genericEnd !== undefined && nextNonWhitespace(source, genericEnd + 1) === "(") {
+        index = genericEnd
+        previousSignificant = ">"
+        continue
+      }
+    }
+    if (char === "(" || char === "{" || char === "[") {
       depth += 1
       previousSignificant = char
       continue
     }
-    if (char === ")" || char === "}" || char === "]" || (char === ">" && source[index - 1] !== "=")) {
+    if (char === ")" || char === "}" || char === "]") {
       depth -= 1
       previousSignificant = char
       continue
