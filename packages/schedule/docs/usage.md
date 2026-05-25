@@ -11,17 +11,14 @@ After the quickstart works, most Schedule code falls into four patterns: define 
 
 ## Define Static Schedules
 
-Default-export `defineSchedule({ cron, handler })` from a discovered schedule file.
+Default-export `defineSchedule(cron, handler, options?)` from a discovered schedule file.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/reports/daily.schedule.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule({
-  cron: '0 9 * * *',
-  handler: async (context) => {
-    console.log(context.scheduleId, context.scheduledAt)
-  },
+export default defineSchedule('0 9 * * *', async (context) => {
+  console.log(context.scheduleId, context.scheduledAt)
 })
 ```
 ::
@@ -30,18 +27,15 @@ export default defineSchedule({
 ```ts [server/schedules/reports/daily.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule({
-  cron: '0 9 * * *',
-  handler: async (context) => {
-    console.log(context.scheduleId, context.scheduledAt)
-  },
+export default defineSchedule('0 9 * * *', async (context) => {
+  console.log(context.scheduleId, context.scheduledAt)
 })
 ```
 ::
 
 Cron expressions are five-field UTC cron strings: minute, hour, day of month, month, and day of week.
 
-## Schedule Ids
+## Control Schedule Ids
 
 By default, ids come from discovered file names:
 
@@ -55,16 +49,20 @@ By default, ids come from discovered file names:
 - `server/schedules/reports/daily.ts` becomes `reports/daily`
 ::
 
-Schedule ids are derived from discovered file names. Move a schedule file intentionally because its public id moves with it.
+Use `options.id` when the public id should stay stable while a file moves:
+
+```ts
+export default defineSchedule('0 9 * * *', handler, {
+  id: 'daily-digest',
+})
+```
 
 ## Allow Runtime Schedules
 
 Runtime Schedules can only target discovered definitions that opt in:
 
 ```ts
-export default defineSchedule({
-  cron: '0 9 * * *',
-  handler,
+export default defineSchedule('0 9 * * *', handler, {
   allowRuntimeSchedules: true,
 })
 ```
