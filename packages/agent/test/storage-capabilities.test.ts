@@ -64,6 +64,8 @@ describe("storage capabilities", () => {
     await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", operation: "create", target: "private" })).rejects.toThrow("allowlist")
     await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", operation: "create", target: "reports", timezone: "UTC" } as never)).rejects.toThrow()
     await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", enabled: "false", operation: "create", target: "reports" } as never)).rejects.toThrow("enabled must be a boolean")
+    await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", id: 123, operation: "create", target: "reports" } as never)).rejects.toThrow("id must be a non-empty Runtime Schedule id")
+    await expect(tools.schedule_edit!.execute?.({ cron: "0 8 * * *", id: "", operation: "create", target: "reports" })).rejects.toThrow("id must be a non-empty Runtime Schedule id")
     await tools.schedule_edit!.execute?.({ cron: "30 9 * * *", id: "daily", operation: "update" })
     expect(schedules.update).toHaveBeenCalledWith("daily", { cron: "30 9 * * *" })
     await expect(tools.schedule_edit!.execute?.({ enabled: "false", id: "daily", operation: "update" } as never)).rejects.toThrow("enabled must be a boolean")

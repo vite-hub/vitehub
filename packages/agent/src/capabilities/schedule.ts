@@ -183,6 +183,11 @@ function assertRuntimeScheduleId(id: unknown, label: string): string {
   return id
 }
 
+function assertOptionalRuntimeScheduleId(id: unknown, label: string): string | undefined {
+  if (id === undefined) return undefined
+  return assertRuntimeScheduleId(id, label)
+}
+
 function assertRuntimeScheduleCron(cron: unknown, label: string): string {
   if (typeof cron !== "string" || !cron.trim()) {
     throw new TypeError(`[vitehub] ${label} cron must be a five-field UTC cron expression.`)
@@ -295,7 +300,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
             return await client.create({
               cron: assertRuntimeScheduleCron(input.cron, "schedule_edit create"),
               enabled: assertOptionalRuntimeScheduleEnabled(input.enabled, "schedule_edit create"),
-              id: typeof input.id === "string" && input.id.trim() ? input.id : undefined,
+              id: assertOptionalRuntimeScheduleId(input.id, "schedule_edit create"),
               target: assertAllowedRuntimeScheduleTarget(input.target, options, "schedule_edit create"),
             })
           }
