@@ -212,9 +212,37 @@ function readTopLevelStringProperty(source: string, property: string): string | 
   }
 }
 
+function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
+  const objectSource = stripBoundaryComments(source)
+  if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
+
+  for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
+    const [key, ...valueParts] = splitTopLevel(entry, ":")
+    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
+    if (normalizedKey !== property) continue
+    const value = stripBoundaryComments(valueParts.join(":"))
+    if (value === "true") return true
+    if (value === "false") return false
+  }
+}
+
 function readScheduleIdOverride(file: string): string | undefined {
   const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
   return options ? readTopLevelStringProperty(options, "id") : undefined
+}
+
+function readAllowRuntimeSchedules(file: string): boolean {
+  const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
+  return options ? readTopLevelBooleanProperty(options, "allowRuntimeSchedules") === true : false
+}
+
+function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {
+  return (context: { file: string, name: string }): DiscoveredScheduleDefinition => ({
+    allowRuntimeSchedules: readAllowRuntimeSchedules(context.file),
+    handler: context.file,
+    name: context.name,
+    source,
+  })
 }
 
 function normalizeSuffixScheduleName(rootDir: string, file: string) {
@@ -233,12 +261,15 @@ export function discoverScheduleDefinitions(options:
   if (options.mode === "nitro-server-schedules") {
     return discoverDefinitions("schedule", [
       createDirectoryDefinitionSource("nitro-server-schedules", options.scanDirs, "schedules", {
+        createDefinition: createDiscoveredScheduleDefinition("nitro-server-schedules"),
         normalizeName: normalizeDirectoryScheduleName,
       }),
     ])
   }
 
   return discoverDefinitions("schedule", [
-    createSuffixDefinitionSource("vite-suffix", resolveDefinitionScanRoots(options.rootDir, options.scanDirs), scheduleSuffixPattern, normalizeSuffixScheduleName),
+    createSuffixDefinitionSource("vite-suffix", resolveDefinitionScanRoots(options.rootDir, options.scanDirs), scheduleSuffixPattern, normalizeSuffixScheduleName, {
+      createDefinition: createDiscoveredScheduleDefinition("vite-suffix"),
+    }),
   ])
 }
