@@ -121,7 +121,7 @@ function readDefaultExportIdentifier(source: string) {
 }
 
 function readDefineScheduleBindingName(source: string, start: number) {
-  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n|$)\s*)*$/)?.[1]
+  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n|$)\s*)*(?:\(\s*)*$/)?.[1]
 }
 
 function readDefineScheduleOptions(source: string): string | undefined {
