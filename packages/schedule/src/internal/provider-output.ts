@@ -64,6 +64,8 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
 
 function skipQuoted(source: string, index: number): number {
   const quote = source[index]
+  if (quote === "`") return skipTemplateLiteral(source, index)
+
   index += 1
   while (index < source.length) {
     if (source[index] === "\\") {
@@ -72,6 +74,55 @@ function skipQuoted(source: string, index: number): number {
     }
     if (source[index] === quote) {
       return index + 1
+    }
+    index += 1
+  }
+  return index
+}
+
+function skipTemplateExpression(source: string, index: number): number {
+  let depth = 1
+  while (index < source.length) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipQuoted(source, index)
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index)
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    if (char === "/" && canStartRegexLiteral(source, index)) {
+      index = skipRegexLiteral(source, index)
+      continue
+    }
+    if (char === "{") depth += 1
+    if (char === "}") {
+      depth -= 1
+      if (depth === 0) return index + 1
+    }
+    index += 1
+  }
+  return index
+}
+
+function skipTemplateLiteral(source: string, index: number): number {
+  index += 1
+  while (index < source.length) {
+    if (source[index] === "\\") {
+      index += 2
+      continue
+    }
+    if (source[index] === "`") {
+      return index + 1
+    }
+    if (source.startsWith("${", index)) {
+      index = skipTemplateExpression(source, index + 2)
+      continue
     }
     index += 1
   }
