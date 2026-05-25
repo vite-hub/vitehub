@@ -23,8 +23,8 @@ export function resolveScheduleRuntimeEntry(metaUrl = import.meta.url) {
   const file = fileURLToPath(metaUrl)
   const normalizedFile = file.replace(/\\/g, "/")
   return normalizedFile.endsWith("/src/internal/provider-output.ts")
-    ? resolve(dirname(file), "../runtime/execute.ts")
-    : resolve(dirname(file), "../runtime/execute.js")
+    ? resolve(dirname(file), "../runtime/static.ts")
+    : resolve(dirname(file), "../runtime/static.js")
 }
 
 const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()

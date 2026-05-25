@@ -90,6 +90,66 @@ describe("agent message protocol", () => {
     }])
   })
 
+  it("memoizes scheduled agent runtime values by key", async () => {
+    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const create = vi.fn(() => ({ ok: true }))
+    const agent = defineAgent({
+      run: context => [
+        context.memo("resource", create),
+        context.memo("resource", create),
+      ],
+    })
+
+    const result = await runScheduledAgent(agent, {
+      attemptId: "attempt-1",
+      id: "srun_schedule_2026-05-23T09:00:00.000Z",
+      runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+      scheduleId: "schedule-0-9",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      target: "support",
+    })
+
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(result).toEqual([{ ok: true }, { ok: true }])
+    expect((result as unknown[])[0]).toBe((result as unknown[])[1])
+  })
+
+  it("runs scheduled agents with host runtime context", async () => {
+    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const waitUntil = vi.fn()
+    const seen: unknown[] = []
+    const agent = defineAgent({
+      run: context => {
+        seen.push({
+          run: context.run,
+          runtime: context.runtime,
+          waitUntil: context.waitUntil,
+        })
+        return "ok"
+      },
+    })
+
+    await expect(runScheduledAgent(agent, {
+      attemptId: "attempt-1",
+      id: "srun_schedule_2026-05-23T09:00:00.000Z",
+      runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+      scheduleId: "schedule-0-9",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      target: "support",
+    }, {
+      run: { platform: "cloudflare", runId: "host-run" },
+      runtime: "nitro",
+      runtimeConfig: { region: "iad" },
+      waitUntil,
+    })).resolves.toBe("ok")
+
+    expect(seen).toEqual([{
+      run: { platform: "cloudflare", runId: "srun_schedule_2026-05-23T09:00:00.000Z" },
+      runtime: "nitro",
+      waitUntil,
+    }])
+  })
+
   it("converts ViteHub messages to model messages internally", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 

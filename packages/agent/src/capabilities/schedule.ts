@@ -194,6 +194,14 @@ function assertRuntimeScheduleCron(cron: unknown, label: string): string {
   return normalized
 }
 
+function assertOptionalRuntimeScheduleEnabled(enabled: unknown, label: string): boolean | undefined {
+  if (enabled === undefined) return undefined
+  if (typeof enabled !== "boolean") {
+    throw new TypeError(`[vitehub] ${label} enabled must be a boolean.`)
+  }
+  return enabled
+}
+
 function assertRuntimeScheduleInputKeys(input: Record<string, unknown> | undefined, allowed: string[], label: string): void {
   if (!input || typeof input !== "object") return
   for (const key of Object.keys(input)) {
@@ -286,7 +294,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
           if (operation === "create") {
             return await client.create({
               cron: assertRuntimeScheduleCron(input.cron, "schedule_edit create"),
-              enabled: input.enabled,
+              enabled: assertOptionalRuntimeScheduleEnabled(input.enabled, "schedule_edit create"),
               id: typeof input.id === "string" && input.id.trim() ? input.id : undefined,
               target: assertAllowedRuntimeScheduleTarget(input.target, options, "schedule_edit create"),
             })
@@ -296,7 +304,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
             await requireScopedRuntimeSchedule(client, id, options)
             const update: { cron?: string, enabled?: boolean, target?: string } = {}
             if (input.cron !== undefined) update.cron = assertRuntimeScheduleCron(input.cron, "schedule_edit update")
-            if (input.enabled !== undefined) update.enabled = input.enabled
+            if (input.enabled !== undefined) update.enabled = assertOptionalRuntimeScheduleEnabled(input.enabled, "schedule_edit update")
             if (input.target !== undefined) update.target = assertAllowedRuntimeScheduleTarget(input.target, options, "schedule_edit update")
             return await client.update(id, update)
           }
