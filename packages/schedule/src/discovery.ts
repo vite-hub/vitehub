@@ -21,8 +21,51 @@ function isExportDefaultCall(source: string, start: number) {
   return /(?:^|[^\w$])export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)|\()*$/.test(source.slice(0, start))
 }
 
+function maskCommentsAndStrings(source: string) {
+  let masked = ""
+  for (let index = 0; index < source.length;) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (char === "/" && next === "/") {
+      const end = source.indexOf("\n", index + 2)
+      const nextIndex = end === -1 ? source.length : end
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
+      continue
+    }
+    if (char === "/" && next === "*") {
+      const end = source.indexOf("*/", index + 2)
+      const nextIndex = end === -1 ? source.length : end + 2
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      const quote = char
+      const start = index
+      index += 1
+      while (index < source.length) {
+        if (source[index] === "\\") {
+          index += 2
+          continue
+        }
+        if (source[index] === quote) {
+          index += 1
+          break
+        }
+        index += 1
+      }
+      masked += " ".repeat(index - start)
+      continue
+    }
+    masked += char
+    index += 1
+  }
+  return masked
+}
+
 function readDefaultExportIdentifier(source: string) {
-  return source.match(/\bexport\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
+  return maskCommentsAndStrings(source).match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
 }
 
 function readDefineScheduleBindingName(source: string, start: number) {

@@ -89,9 +89,29 @@ function isRegexLiteralStart(previousSignificant: string) {
   return !token || /[({[=,:!&|?;>+\-*%^~]/.test(token) || /\b(?:await|case|delete|do|else|in|instanceof|return|throw|typeof|void|yield)$/.test(token)
 }
 
+function previousCodeIndex(source: string, index: number) {
+  let current = index
+  while (current >= 0) {
+    while (/\s/.test(source[current] ?? "")) current--
+    if (source[current] === "/" && source[current - 1] === "*") {
+      const start = source.lastIndexOf("/*", current - 2)
+      if (start === -1) return current
+      current = start - 1
+      continue
+    }
+    const lineStart = source.lastIndexOf("\n", current) + 1
+    const lineComment = source.indexOf("//", lineStart)
+    if (lineComment !== -1 && lineComment <= current) {
+      current = lineStart - 1
+      continue
+    }
+    return current
+  }
+  return current
+}
+
 function isControlFlowRegexStart(source: string, index: number) {
-  let closeParen = index - 1
-  while (/\s/.test(source[closeParen] ?? "")) closeParen -= 1
+  const closeParen = previousCodeIndex(source, index - 1)
   if (source[closeParen] !== ")") return false
 
   for (let current = closeParen; current >= 0; current--) {
