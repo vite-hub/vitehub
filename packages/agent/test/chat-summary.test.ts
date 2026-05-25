@@ -198,4 +198,30 @@ describe("chatSummary", () => {
 
     expect(finish.mock.calls[0]![0].extensions.get("chat-summary")).toBeUndefined()
   })
+
+  it("does not expose a generated summary reused by a later run", async () => {
+    const { chatSummary } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [chatSummary({ execute: () => "Generated summary." })],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "ok" }),
+    })
+
+    await runAgent(agent, runtime(), {
+      messages: [createMessage({ role: "user", text: "/summary" })],
+    })
+    const generatedSummary = finish.mock.calls[0]![0].extensions.get("chat-summary")
+    expect(generatedSummary).toEqual({ summary: "Generated summary." })
+
+    await runAgent(agent, runtime(), {
+      context: { "chat-summary:summary": generatedSummary },
+      messages: [createMessage({ role: "user", text: "No command here" })],
+    })
+
+    expect(finish.mock.calls[1]![0].extensions.get("chat-summary")).toBeUndefined()
+  })
 })
