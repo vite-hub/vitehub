@@ -18,7 +18,7 @@ import type { DiscoveredScheduleDefinition } from "./types.ts"
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
 function isExportDefaultCall(source: string, start: number) {
-  return /(?:^|[^\w$])export\s+default\s*$/.test(source.slice(0, start))
+  return /(?:^|[^\w$])export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)|\()*$/.test(source.slice(0, start))
 }
 
 function readDefineScheduleOptions(source: string): string | undefined {
