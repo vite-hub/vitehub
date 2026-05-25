@@ -222,6 +222,10 @@ function readDefineScheduleOptions(source: string): string | undefined {
 }
 
 function readTopLevelStringProperty(source: string, property: string): string | undefined {
+  return readTopLevelStaticStringProperty(source, property)?.value
+}
+
+function readTopLevelStaticStringProperty(source: string, property: string): { quote: string, value: string } | undefined {
   let depth = 0
   let quote: string | undefined
   for (let index = 0; index < source.length; index++) {
@@ -265,7 +269,7 @@ function readTopLevelStringProperty(source: string, property: string): string | 
     valueStart++
     while (/\s/.test(source[valueStart] ?? "")) valueStart++
     const valueQuote = source[valueStart]
-    if (valueQuote !== "\"" && valueQuote !== "'") continue
+    if (valueQuote !== "\"" && valueQuote !== "'" && valueQuote !== "`") continue
     let value = ""
     for (let valueIndex = valueStart + 1; valueIndex < source.length; valueIndex++) {
       const valueChar = source[valueIndex]
@@ -274,10 +278,10 @@ function readTopLevelStringProperty(source: string, property: string): string | 
         valueIndex++
         continue
       }
-      if (valueChar === valueQuote) return value
+      if (valueChar === valueQuote) return { quote: valueQuote, value }
       value += valueChar
     }
-}
+  }
 }
 
 function readScheduleIdOverride(file: string): string | undefined {
@@ -305,19 +309,21 @@ function parseInlineAgentScheduleEntries(source: string): Array<{ cron: string, 
   const schedulesPattern = /\bschedule\s*\(\s*\{[\s\S]*?\bschedules\s*:\s*\[([\s\S]*?)\][\s\S]*?\}\s*\)/g
   for (const match of stripped.matchAll(schedulesPattern)) {
     const body = match[1]!
-    for (const stringEntry of body.matchAll(/(["'`])([^"'`]+)\1/g)) {
-      if (!isStaticStringLiteral(stringEntry[1]!, stringEntry[2]!)) continue
-      if (isInlineScheduleObjectKey(body, stringEntry.index! + stringEntry[0].length)) continue
-      if (isInlineScheduleObjectValue(body, stringEntry.index!)) continue
-      if (!isInlineScheduleStringEntry(body, stringEntry.index!, stringEntry.index! + stringEntry[0].length)) continue
-      const cron = normalizeScheduleCron(stringEntry[2]!)
-      entries.push({ cron, id: scheduleIdFromCron(cron) })
-    }
-    for (const objectEntry of body.matchAll(/\{[\s\S]*?(["'`])?cron\1?\s*:\s*(["'`])([^"'`]+)\2[\s\S]*?\}/g)) {
-      if (!isStaticStringLiteral(objectEntry[2]!, objectEntry[3]!)) continue
-      const objectSource = objectEntry[0]
-      const cron = normalizeScheduleCron(objectEntry[3]!)
-      const id = objectSource.match(/(["'`])?id\1?\s*:\s*(["'`])([^"'`]+)\2/)?.[3] || scheduleIdFromCron(cron)
+    for (const entry of splitTopLevelArguments(body)) {
+      const trimmed = entry.trim()
+      const stringEntry = /^(["'`])([^"'`]+)\1$/.exec(trimmed)
+      if (stringEntry) {
+        if (!isStaticStringLiteral(stringEntry[1]!, stringEntry[2]!)) continue
+        const cron = normalizeScheduleCron(stringEntry[2]!)
+        entries.push({ cron, id: scheduleIdFromCron(cron) })
+        continue
+      }
+
+      if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) continue
+      const cronProperty = readTopLevelStaticStringProperty(trimmed, "cron")
+      if (!cronProperty || !isStaticStringLiteral(cronProperty.quote, cronProperty.value)) continue
+      const cron = normalizeScheduleCron(cronProperty.value)
+      const id = readTopLevelStringProperty(trimmed, "id") || scheduleIdFromCron(cron)
       entries.push({ cron, id })
     }
   }
@@ -438,6 +444,52 @@ function findNextTopLevelCommaOrSemicolon(source: string, start: number): number
   return source.length
 }
 
+function findDeclaratorInitializer(source: string, start: number): { initializerStart: number, localName: string } | undefined {
+  const match = /^[\s,]*([A-Za-z_$][\w$]*)/.exec(source.slice(start))
+  if (!match) return
+  const localName = match[1]!
+  let depth = 0
+  let quote: string | undefined
+  for (let index = start + match[0].length; index < source.length; index++) {
+    const char = source[index]!
+    const next = source[index + 1]
+
+    if (quote) {
+      if (char === "\\") {
+        index++
+        continue
+      }
+      if (quote === "`" && char === "$" && next === "{") {
+        depth++
+        index++
+        continue
+      }
+      if (quote === "`" && depth > 0) {
+        if (char === "{") depth++
+        if (char === "}") depth--
+        continue
+      }
+      if (char === quote) quote = undefined
+      continue
+    }
+
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "<" || char === "{" || char === "[" || char === "(") {
+      depth++
+      continue
+    }
+    if (char === ">" || char === "}" || char === "]" || char === ")") {
+      depth--
+      continue
+    }
+    if (depth === 0 && (char === "," || char === ";")) return
+    if (depth === 0 && char === "=") return { initializerStart: index + 1, localName }
+  }
+}
+
 function discoverVariableDeclarators(source: string): Array<{ exported: boolean, initializerStart: number, localName: string }> {
   const declarators: Array<{ exported: boolean, initializerStart: number, localName: string }> = []
   for (const match of source.matchAll(/\b(export\s+)?(?:const|let|var)\s+/g)) {
@@ -445,13 +497,11 @@ function discoverVariableDeclarators(source: string): Array<{ exported: boolean,
     let cursor = match.index! + match[0].length
 
     while (cursor < source.length) {
-      const declarator = /^[\s,]*([A-Za-z_$][\w$]*)(?:\s*:[^=,;]+)?\s*=/.exec(source.slice(cursor))
+      const declarator = findDeclaratorInitializer(source, cursor)
       if (!declarator) break
-      const localName = declarator[1]!
-      const initializerStart = cursor + declarator[0].length
-      declarators.push({ exported, initializerStart, localName })
+      declarators.push({ exported, initializerStart: declarator.initializerStart, localName: declarator.localName })
 
-      const next = findNextTopLevelCommaOrSemicolon(source, initializerStart)
+      const next = findNextTopLevelCommaOrSemicolon(source, declarator.initializerStart)
       if (source[next] !== ",") break
       cursor = next + 1
     }
