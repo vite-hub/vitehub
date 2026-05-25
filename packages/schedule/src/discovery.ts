@@ -17,8 +17,59 @@ import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
-function isExportDefaultCall(source: string, start: number) {
-  return /(?:^|[^\w$])export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)|\()*$/.test(source.slice(0, start))
+function findQuotedStringEnd(source: string, start: number) {
+  const quote = source[start]
+  let index = start + 1
+  while (index < source.length) {
+    if (source[index] === "\\") {
+      index += 2
+      continue
+    }
+    if (source[index] === quote) {
+      return index + 1
+    }
+    index += 1
+  }
+  return source.length
+}
+
+function findTemplateLiteralEnd(source: string, start: number) {
+  let expressionDepth = 0
+  let index = start + 1
+  while (index < source.length) {
+    const char = source[index]
+    const next = source[index + 1]
+    if (char === "\\") {
+      index += 2
+      continue
+    }
+    if (char === "`") {
+      if (expressionDepth === 0) return index + 1
+      index = findTemplateLiteralEnd(source, index)
+      continue
+    }
+    if (char === "\"" || char === "'") {
+      index = findQuotedStringEnd(source, index)
+      continue
+    }
+    if (char === "$" && next === "{") {
+      expressionDepth += 1
+      index += 2
+      continue
+    }
+    if (char === "{" && expressionDepth > 0) {
+      expressionDepth += 1
+      index += 1
+      continue
+    }
+    if (char === "}" && expressionDepth > 0) {
+      expressionDepth -= 1
+      index += 1
+      continue
+    }
+    index += 1
+  }
+  return source.length
 }
 
 function maskCommentsAndStrings(source: string) {
@@ -40,28 +91,27 @@ function maskCommentsAndStrings(source: string) {
       index = nextIndex
       continue
     }
-    if (char === "\"" || char === "'" || char === "`") {
-      const quote = char
-      const start = index
-      index += 1
-      while (index < source.length) {
-        if (source[index] === "\\") {
-          index += 2
-          continue
-        }
-        if (source[index] === quote) {
-          index += 1
-          break
-        }
-        index += 1
-      }
-      masked += " ".repeat(index - start)
+    if (char === "\"" || char === "'") {
+      const nextIndex = findQuotedStringEnd(source, index)
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
+      continue
+    }
+    if (char === "`") {
+      const nextIndex = findTemplateLiteralEnd(source, index)
+      masked += " ".repeat(nextIndex - index)
+      index = nextIndex
       continue
     }
     masked += char
     index += 1
   }
   return masked
+}
+
+function isExportDefaultCall(source: string, start: number) {
+  const code = maskCommentsAndStrings(source.slice(0, start))
+  return /(?:^|[^\w$])export\s+default(?:\s|\()*$/.test(code)
 }
 
 function readDefaultExportIdentifier(source: string) {
