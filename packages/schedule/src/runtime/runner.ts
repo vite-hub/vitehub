@@ -58,7 +58,9 @@ function reportError(error: unknown, onError: ((error: unknown) => void) | undef
     return
   }
   try {
-    onError(error)
+    void Promise.resolve(onError(error)).catch(() => {
+      // The runner owns error isolation; user error hooks must not crash scans.
+    })
   }
   catch {
     // The runner owns error isolation; user error hooks must not crash scans.

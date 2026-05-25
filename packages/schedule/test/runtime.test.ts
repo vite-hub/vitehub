@@ -948,6 +948,43 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     runner.stop()
   })
 
+  it("isolates rejected async onError hooks", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
+
+    let reported = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "* * * * *",
+        handler: async () => {
+          throw new TypeError("runner boom")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-05-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "report", target: "report", updatedAt: now })
+
+    const runner = startScheduleRunner({
+      intervalMs: 10,
+      onError: async () => {
+        reported++
+        throw new TypeError("onError boom")
+      },
+      runtimeScheduleStore,
+      scheduleRunStore,
+    })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(10)
+    await flushAsyncWork()
+
+    expect(reported).toBe(1)
+    expect(runner.running).toBe(true)
+    runner.stop()
+  })
+
   it("isolates malformed cron records while scanning due schedules", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
