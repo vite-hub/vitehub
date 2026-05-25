@@ -217,17 +217,19 @@ export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions = {
     async update(id, patch) {
       const store = await getKVStore()
       const key = runtimeScheduleKey(prefix, id)
-      const existing = await store.get<StoredRuntimeScheduleRecord>(key)
-      if (!existing) {
-        return undefined
-      }
-      const next = cloneRuntimeSchedule({
-        ...deserializeRuntimeSchedule(existing),
-        ...omitUndefinedPatch(patch),
-        updatedAt: patch.updatedAt,
+      return await withKVKeyLock(key, async () => {
+        const existing = await store.get<StoredRuntimeScheduleRecord>(key)
+        if (!existing) {
+          return undefined
+        }
+        const next = cloneRuntimeSchedule({
+          ...deserializeRuntimeSchedule(existing),
+          ...omitUndefinedPatch(patch),
+          updatedAt: patch.updatedAt,
+        })
+        await store.set(key, serializeRuntimeSchedule(next))
+        return cloneRuntimeSchedule(next)
       })
-      await store.set(key, serializeRuntimeSchedule(next))
-      return cloneRuntimeSchedule(next)
     },
   }
 }
