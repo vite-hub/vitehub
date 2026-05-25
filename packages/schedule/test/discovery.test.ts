@@ -81,6 +81,23 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["reports/daily"])
   })
 
+  it("ignores commented schedule ids and runtime flags", async () => {
+    const viteRootDir = await createTempDir("vitehub-schedule-commented-options-")
+    await writeFile(join(viteRootDir, "daily.schedule.ts"), [
+      "export default defineSchedule('0 9 * * *', () => {}, {",
+      "  // id: 'reports/daily',",
+      "  // allowRuntimeSchedules: true,",
+      "})",
+    ].join("\n"), "utf8")
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir: viteRootDir,
+    })).toEqual([
+      expect.objectContaining({ allowRuntimeSchedules: false, name: "daily" }),
+    ])
+  })
+
   it("discovers inline Agent Schedules from Agent capabilities", async () => {
     const viteRootDir = await createTempDir("vitehub-agent-schedule-vite-")
     await mkdir(join(viteRootDir, "src"), { recursive: true })

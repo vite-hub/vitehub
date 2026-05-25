@@ -64,13 +64,13 @@ function splitTopLevelScheduleEntries(source: string): string[] {
 }
 
 function readScheduleIdOverride(file: string): string | undefined {
-  const source = readFileSync(file, "utf8")
+  const source = stripComments(readFileSync(file, "utf8"))
   const match = source.match(/\bdefineSchedule\s*(?:<[^>]+>\s*)?\([\s\S]*?,[\s\S]*?,\s*\{[\s\S]*?\bid\s*:\s*(["'])([^"']+)\1/)
   return match?.[2]
 }
 
 function readAllowRuntimeSchedules(file: string): boolean {
-  const source = readFileSync(file, "utf8")
+  const source = stripComments(readFileSync(file, "utf8"))
   return /\bdefineSchedule\s*(?:<[^>]+>\s*)?\([\s\S]*?,[\s\S]*?,\s*\{[\s\S]*?\ballowRuntimeSchedules\s*:\s*true\b/.test(source)
 }
 
