@@ -555,6 +555,10 @@ describe("KV Schedule Run Store", () => {
     expect(failedAttempt?.startedAt).toEqual(startedAt)
     expect(failedAttempt?.updatedAt).toEqual(updatedAt)
 
+    error.message = "mutated source"
+    expect((await store.getRun(run.id))?.error).toMatchObject({ message: "boom" })
+    expect((await store.getAttempt(attempt.id))?.error).toMatchObject({ message: "boom" })
+
     failedRun!.error!.message = "mutated"
     failedAttempt!.error!.message = "mutated"
     expect((await store.getRun(run.id))?.error).toMatchObject({ message: "boom" })

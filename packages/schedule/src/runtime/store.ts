@@ -231,6 +231,7 @@ function serializeScheduleRun(record: ScheduleRunRecord): StoredScheduleRunRecor
     ...record,
     completedAt: record.completedAt?.toISOString(),
     createdAt: record.createdAt.toISOString(),
+    error: record.error ? { ...record.error } : undefined,
     scheduledAt: record.scheduledAt.toISOString(),
     startedAt: record.startedAt?.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -254,6 +255,7 @@ function serializeScheduleRunAttempt(record: ScheduleRunAttemptRecord): StoredSc
     ...record,
     completedAt: record.completedAt?.toISOString(),
     createdAt: record.createdAt.toISOString(),
+    error: record.error ? { ...record.error } : undefined,
     startedAt: record.startedAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   }
