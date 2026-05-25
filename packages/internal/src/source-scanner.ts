@@ -157,6 +157,25 @@ function nextNonWhitespace(source: string, index: number) {
   return source[current]
 }
 
+function skipWhitespaceAndComments(source: string, index: number) {
+  while (index < source.length) {
+    if (/\s/.test(source[index] ?? "")) {
+      index += 1
+      continue
+    }
+    if (source[index] === "/" && source[index + 1] === "/") {
+      index = skipLineComment(source, index)
+      continue
+    }
+    if (source[index] === "/" && source[index + 1] === "*") {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    return index
+  }
+  return index
+}
+
 function isMethodDeclarationName(source: string, index: number, closeParen: number) {
   const previous = previousNonWhitespace(source, index)
   return nextNonWhitespace(source, closeParen + 1) === "{"
@@ -296,16 +315,14 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
       continue
     }
 
-    let openParen = index + name.length
-    while (/\s/.test(source[openParen] ?? "")) openParen += 1
+    let openParen = skipWhitespaceAndComments(source, index + name.length)
     if (source[openParen] === "<") {
       const genericEnd = findMatching(source, openParen, "<", ">")
       if (genericEnd === undefined) {
         previousSignificant = trackSignificant(previousSignificant, char)
         continue
       }
-      openParen = genericEnd + 1
-      while (/\s/.test(source[openParen] ?? "")) openParen += 1
+      openParen = skipWhitespaceAndComments(source, genericEnd + 1)
     }
     if (source[openParen] !== "(") {
       previousSignificant = trackSignificant(previousSignificant, char)
