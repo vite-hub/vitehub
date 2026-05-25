@@ -41,6 +41,25 @@ describe("source scanner", () => {
     expect(streamCalls[0]?.arguments).toEqual([""])
   })
 
+  it("ignores method declarations with matching names", () => {
+    const calls = findIdentifierCalls([
+      `class Fixture {`,
+      `  defineThing(value: string) { return value }`,
+      `}`,
+      `const real = defineThing("real")`,
+    ].join("\n"), "defineThing")
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.arguments).toEqual(["\"real\""])
+  })
+
+  it("keeps generic arrow function commas inside one argument", () => {
+    expect(splitTopLevel(`<T, U>(ctx: T) => ctx, { id: "daily" }`)).toEqual([
+      `<T, U>(ctx: T) => ctx`,
+      `{ id: "daily" }`,
+    ])
+  })
+
   it("keeps regex literals non-structural while splitting arguments", () => {
     expect(splitTopLevel(`() => { return /\\)/.test(")") }, { id: "daily" }`)).toEqual([
       `() => { return /\\)/.test(")") }`,

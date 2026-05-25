@@ -87,6 +87,27 @@ function isFunctionDeclarationName(source: string, index: number) {
   return /(?:^|[^\w$])(?:async\s+)?function\s*\*?\s*$/.test(source.slice(0, index))
 }
 
+function previousNonWhitespace(source: string, index: number) {
+  let current = index - 1
+  while (/\s/.test(source[current] ?? "")) current -= 1
+  return source[current]
+}
+
+function nextNonWhitespace(source: string, index: number) {
+  let current = index
+  while (/\s/.test(source[current] ?? "")) current += 1
+  return source[current]
+}
+
+function isMethodDeclarationName(source: string, index: number, closeParen: number) {
+  const previous = previousNonWhitespace(source, index)
+  return nextNonWhitespace(source, closeParen + 1) === "{"
+    && previous !== "("
+    && previous !== "="
+    && previous !== ","
+    && previous !== ":"
+}
+
 export function findMatching(source: string, index: number, open: string, close: string): number | undefined {
   let depth = 0
   let previousSignificant = ""
@@ -150,12 +171,12 @@ export function splitTopLevel(source: string, separator = ",") {
       previousSignificant = "/"
       continue
     }
-    if (char === "(" || char === "{" || char === "[") {
+    if (char === "(" || char === "{" || char === "[" || char === "<") {
       depth += 1
       previousSignificant = char
       continue
     }
-    if (char === ")" || char === "}" || char === "]") {
+    if (char === ")" || char === "}" || char === "]" || (char === ">" && source[index - 1] !== "=")) {
       depth -= 1
       previousSignificant = char
       continue
@@ -222,6 +243,10 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
 
     const closeParen = findMatching(source, openParen, "(", ")")
     if (closeParen === undefined) {
+      previousSignificant = trackSignificant(previousSignificant, char)
+      continue
+    }
+    if (isMethodDeclarationName(source, index, closeParen)) {
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }
