@@ -25,6 +25,16 @@ interface ExecuteRuntimeScheduleOptions {
   scheduledAt?: Date
 }
 
+function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is ExecuteRuntimeScheduleOptions {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw new ScheduleError("Runtime Schedule execute options must be a schedule id or options object.", {
+      code: "SCHEDULE_INVALID_INPUT",
+      details: { options },
+      httpStatus: 400,
+    })
+  }
+}
+
 function normalizeRunSource(source: ExecuteScheduleOptions["source"]): NonNullable<ExecuteScheduleOptions["source"]> {
   return source ?? "direct"
 }
@@ -213,8 +223,10 @@ async function loadRequiredRuntimeSchedule(id: string): Promise<RuntimeScheduleR
 }
 
 export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
-  const id = typeof options === "string" ? options : options.id
-  const scheduledAt = validateScheduledAt(typeof options === "string" ? new Date() : options.scheduledAt ?? new Date())
+  const runtimeOptions = typeof options === "string" ? { id: options } : options
+  assertRuntimeExecuteOptionsObject(runtimeOptions)
+  const id = runtimeOptions.id
+  const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt ?? new Date())
   const existingRun = await getScheduleRunStore().getRun(toRunId("runtime", id, scheduledAt))
   if (existingRun) {
     return existingRun
