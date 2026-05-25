@@ -78,6 +78,28 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["daily"])
   })
 
+  it("reads runtime opt-in from object-shaped defineSchedule calls", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-runtime-opt-in-")
+    await writeFile(
+      join(rootDir, "daily.schedule.ts"),
+      "export default defineSchedule({ cron: '0 9 * * *', handler: () => {}, allowRuntimeSchedules: true /* runtime target */ })\n",
+      "utf8",
+    )
+    await writeFile(
+      join(rootDir, "weekly.schedule.ts"),
+      "export default defineSchedule({ cron: '0 9 * * 1', handler: () => {}, allowRuntimeSchedules: true // runtime target\n})\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir,
+    }).map(definition => [definition.name, definition.allowRuntimeSchedules])).toEqual([
+      ["daily", true],
+      ["weekly", true],
+    ])
+  })
+
   it("reports duplicate discovery identities from location", async () => {
     const rootDir = await createTempDir("vitehub-schedule-duplicates-")
     const scanDir = await createTempDir("vitehub-schedule-duplicates-scan-")

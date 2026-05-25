@@ -79,11 +79,11 @@ describe("schedule provider output", () => {
     expect(() => validateProviderCron("0 0 1 * 1", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
   })
 
-  it("resolves the runtime execute entry from package source and dist layouts", () => {
-    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/runtime/execute.ts")
-    expect(resolveScheduleRuntimeEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/runtime/execute.ts")
-    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/runtime/execute.js")
-    expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vitehub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vitehub/schedule/dist/runtime/execute.js")
+  it("resolves the static schedule runtime entry from package source and dist layouts", () => {
+    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/runtime/static.ts")
+    expect(resolveScheduleRuntimeEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/runtime/static.ts")
+    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
+    expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vitehub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vitehub/schedule/dist/runtime/static.js")
   })
 
   it("writes Cloudflare schedule output to an existing Wrangler main", async () => {

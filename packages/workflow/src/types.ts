@@ -146,7 +146,7 @@ export interface WorkflowDeferOptions extends WorkflowStartOptions {
 }
 
 export interface WorkflowDefinitionRegistry {
-  [name: string]: () => Promise<{ default?: WorkflowDefinition } | WorkflowDefinition>
+  [name: string]: () => Promise<{ default?: WorkflowDefinition, [exportName: string]: unknown } | WorkflowDefinition>
 }
 
 export interface DiscoveredWorkflowDefinition {

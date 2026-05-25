@@ -7,7 +7,7 @@ import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
-import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
+import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
 
 const openWorkflowMock = vi.hoisted(() => {
   const runs = new Map<string, any>()
@@ -301,6 +301,183 @@ describe("workflow runtime", () => {
     expect(discovered).not.toHaveBeenCalled()
   })
 
+  it("uses a single inline definition registered by a discovered location entry", async () => {
+    const inline = vi.fn(async () => "inline")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      "server/workflows/chat": async () => {
+        const chat = createWorkflow("legacy-chat-name", inline)
+        return { chat }
+      },
+    })
+
+    const run = await runWorkflow("server/workflows/chat", undefined, { id: "chat" })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("server/workflows/chat", run.id)).resolves.toMatchObject({ result: "inline" })
+    })
+    expect(inline).toHaveBeenCalledTimes(1)
+  })
+
+  it("prefers default exported inline handles when modules export helpers too", async () => {
+    const inline = vi.fn(async () => "inline")
+    const helper = vi.fn(async () => "helper")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      "server/workflows/chat": async () => {
+        const chat = createWorkflow("legacy-chat-name", inline)
+        const helperWorkflow = createWorkflow("helper", helper)
+        return { default: chat, helperWorkflow } as never
+      },
+    })
+
+    const run = await runWorkflow("server/workflows/chat", undefined, { id: "chat" })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("server/workflows/chat", run.id)).resolves.toMatchObject({ result: "inline" })
+    })
+    expect(inline).toHaveBeenCalledTimes(1)
+    expect(helper).not.toHaveBeenCalled()
+  })
+
+  it("consumes inline fallback definitions after binding them to discovered entries", async () => {
+    const first = vi.fn(async () => "first")
+    const second = vi.fn(async () => "second")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      first: async () => {
+        const workflow = createWorkflow("legacy-name", first)
+        return { workflow }
+      },
+      second: async () => {
+        const workflow = createWorkflow("legacy-name", second)
+        return { workflow }
+      },
+    })
+
+    const firstRun = await runWorkflow("first", undefined, { id: "first" })
+    const secondRun = await runWorkflow("second", undefined, { id: "second" })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("first", firstRun.id)).resolves.toMatchObject({ result: "first" })
+      await expect(getWorkflowRun("second", secondRun.id)).resolves.toMatchObject({ result: "second" })
+    })
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).toHaveBeenCalledTimes(1)
+    expect(getInlineWorkflowDefinitions().has("legacy-name")).toBe(false)
+  })
+
+  it("loads matching legacy inline names concurrently for distinct discovered entries", async () => {
+    const first = vi.fn(async () => "first")
+    const second = vi.fn(async () => "second")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      first: async () => {
+        const workflow = createWorkflow("legacy-name", first)
+        await Promise.resolve()
+        return { workflow }
+      },
+      second: async () => {
+        const workflow = createWorkflow("legacy-name", second)
+        await Promise.resolve()
+        return { workflow }
+      },
+    })
+
+    const [firstRun, secondRun] = await Promise.all([
+      runWorkflow("first", undefined, { id: "first" }),
+      runWorkflow("second", undefined, { id: "second" }),
+    ])
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("first", firstRun.id)).resolves.toMatchObject({ result: "first" })
+      await expect(getWorkflowRun("second", secondRun.id)).resolves.toMatchObject({ result: "second" })
+    })
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not resolve discovered workflows to unexported helper handles", async () => {
+    const helper = vi.fn(async () => "helper")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      "server/workflows/chat": async () => {
+        createWorkflow("helper", helper)
+        return {}
+      },
+    })
+
+    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow(/Unknown workflow definition/)
+    expect(helper).not.toHaveBeenCalled()
+  })
+
+  it("does not resolve non-object module loads to unexported inline handles", async () => {
+    const helper = vi.fn(async () => "helper")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      "server/workflows/chat": async () => {
+        createWorkflow("helper", helper)
+        return undefined as never
+      },
+    })
+
+    await expect(runWorkflow("server/workflows/chat", undefined, { id: "chat" })).rejects.toThrow(/Unknown workflow definition/)
+    expect(helper).not.toHaveBeenCalled()
+  })
+
+  it("prefers discovered default exports over helper inline handles", async () => {
+    const discovered = vi.fn(async () => "discovered")
+    const helper = vi.fn(async () => "helper")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      mixed: async () => {
+        createWorkflow("helper", helper)
+        return { default: { handler: discovered } }
+      },
+    })
+
+    const run = await runWorkflow("mixed", undefined, { id: "mixed" })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("mixed", run.id)).resolves.toMatchObject({ result: "discovered" })
+    })
+    expect(discovered).toHaveBeenCalledTimes(1)
+    expect(helper).not.toHaveBeenCalled()
+  })
+
+  it("keeps inline fallbacks scoped to their own discovered entry load", async () => {
+    const alpha = vi.fn(async () => "alpha")
+    let releaseAlpha!: () => void
+    const alphaReady = new Promise<void>(resolve => {
+      releaseAlpha = resolve
+    })
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      alpha: async () => {
+        const workflow = createWorkflow("legacy-alpha", alpha)
+        await alphaReady
+        return { workflow }
+      },
+      beta: async () => ({}),
+    })
+
+    const alphaRun = runWorkflow("alpha", undefined, { id: "alpha" })
+    await vi.waitFor(() => {
+      expect(getInlineWorkflowDefinitions().has("legacy-alpha")).toBe(true)
+    })
+    await expect(runWorkflow("beta", undefined, { id: "beta" })).rejects.toThrow(/Unknown workflow definition: beta/)
+    releaseAlpha()
+    await alphaRun
+  })
+
   it("wraps Cloudflare workflow handlers with provider steps", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
     const step = { do: stepDo } as WorkflowProviderStep
@@ -498,6 +675,24 @@ describe("workflow runtime", () => {
     await createOpenWorkflowWorker()
 
     expect(openWorkflowMock.definitions.has("inline-worker")).toBe(true)
+  })
+
+  it("registers exported inline handles under discovered names in OpenWorkflow workers", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    setWorkflowRuntimeRegistry({
+      "server/workflows/chat": async () => {
+        const workflow = createWorkflow("legacy-chat-name", async () => ({ ok: true }))
+        return { workflow }
+      },
+    })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("server/workflows/chat")).toBe(true)
+    expect(openWorkflowMock.definitions.has("legacy-chat-name")).toBe(false)
   })
 
   it("registers wrapped inline folder workflows in OpenWorkflow workers", async () => {

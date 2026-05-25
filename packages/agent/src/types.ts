@@ -62,6 +62,15 @@ export interface AgentRunInput<CALL_OPTIONS = unknown> {
   timeout?: number
 }
 
+export interface AgentScheduleInvocationInput {
+  id: string
+  kind: "schedule"
+  runId?: string
+  scheduleId?: string
+  scheduledAt: Date
+  target?: string
+}
+
 export interface AgentRunMetadata {
   channelId?: string
   messageId?: string

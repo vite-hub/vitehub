@@ -1,7 +1,7 @@
 import type { ScheduleDefinition, ScheduleDefinitionInput } from "./types.ts"
 
 const cronFieldPattern = /^[^\s]+$/
-const scheduleDefinitionKeys = new Set(["cron", "handler"])
+const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "cron", "handler"])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -34,5 +34,16 @@ export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput
     throw new TypeError("`defineSchedule()` requires a schedule handler.")
   }
 
-  return { cron: input.cron, handler: input.handler }
+  if (typeof input.allowRuntimeSchedules !== "undefined" && typeof input.allowRuntimeSchedules !== "boolean") {
+    throw new TypeError("`defineSchedule()` allowRuntimeSchedules must be a boolean.")
+  }
+
+  const definition: ScheduleDefinition<TResult> = {
+    cron: input.cron,
+    handler: input.handler,
+  }
+  if (typeof input.allowRuntimeSchedules !== "undefined") {
+    definition.options = { allowRuntimeSchedules: input.allowRuntimeSchedules }
+  }
+  return definition
 }
