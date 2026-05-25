@@ -136,7 +136,8 @@ describe("chatSummary", () => {
     const replaceInput = defineCapability({
       id: "replace-input",
       input(context) {
-        context.input.set({ ...context.input.get(), metadata: { replaced: true } })
+        const input = context.input.get()
+        context.input.set({ ...input, context: { ...input.context, replaced: true } })
       },
     })
     const agent = defineAgent({
