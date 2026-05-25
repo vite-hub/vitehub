@@ -320,6 +320,28 @@ describe("workflow runtime", () => {
     expect(inline).toHaveBeenCalledTimes(1)
   })
 
+  it("prefers default exported inline handles when modules export helpers too", async () => {
+    const inline = vi.fn(async () => "inline")
+    const helper = vi.fn(async () => "helper")
+
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeRegistry({
+      "server/workflows/chat": async () => {
+        const chat = createWorkflow("legacy-chat-name", inline)
+        const helperWorkflow = createWorkflow("helper", helper)
+        return { default: chat, helperWorkflow } as never
+      },
+    })
+
+    const run = await runWorkflow("server/workflows/chat", undefined, { id: "chat" })
+
+    await vi.waitFor(async () => {
+      await expect(getWorkflowRun("server/workflows/chat", run.id)).resolves.toMatchObject({ result: "inline" })
+    })
+    expect(inline).toHaveBeenCalledTimes(1)
+    expect(helper).not.toHaveBeenCalled()
+  })
+
   it("consumes inline fallback definitions after binding them to discovered entries", async () => {
     const first = vi.fn(async () => "first")
     const second = vi.fn(async () => "second")

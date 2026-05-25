@@ -84,6 +84,11 @@ function findExportedInlineWorkflowDefinition(
 
   if (!loaded || typeof loaded !== "object") return undefined
 
+  if ("default" in loaded && isWorkflowHandle(loaded.default)) {
+    const definition = definitions.get(loaded.default.name)
+    if (definition) return { definition, name: loaded.default.name }
+  }
+
   const matches = new Map<string, WorkflowDefinition>()
   for (const value of Object.values(loaded)) {
     if (!isWorkflowHandle(value)) continue
