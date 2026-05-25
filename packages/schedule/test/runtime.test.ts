@@ -412,6 +412,27 @@ describe("Schedule Run bookkeeping", () => {
     })
   })
 
+  it("returns an existing run before revalidating a Runtime Schedule", async () => {
+    const calls: string[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls.push("run")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.delete("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+    expect(calls).toEqual(["run"])
+  })
+
   it("uses the same bookkeeping path for static provider-triggered schedules", async () => {
     const scheduledAt = new Date("2026-05-23T10:00:00.000Z")
     const run = await executeStaticSchedule({
@@ -660,5 +681,29 @@ describe("KV Schedule Run Store", () => {
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
     expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
     await expect(store.getRun("run/1")).resolves.toMatchObject({ id: "run/1" })
+  })
+
+  it("serializes concurrent creates for the same KV schedule run attempt key", async () => {
+    const kvStore = createDelayedHasKVStore()
+    const store = createKVScheduleRunStore({ kvStore, prefix: "tests/run-attempts-lock" })
+    const createdAt = new Date("2026-05-23T09:00:00.000Z")
+    const attempt = {
+      createdAt,
+      id: "attempt/1",
+      runId: "run/1",
+      startedAt: createdAt,
+      status: "running" as const,
+      updatedAt: createdAt,
+    }
+
+    const first = store.createAttempt(attempt)
+    const second = store.createAttempt(attempt)
+    await flushAsyncWork()
+    kvStore.releaseHas()
+
+    const results = await Promise.allSettled([first, second])
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
+    await expect(store.getAttempt("attempt/1")).resolves.toMatchObject({ id: "attempt/1" })
   })
 })

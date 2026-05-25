@@ -198,6 +198,13 @@ async function loadRequiredRuntimeSchedule(id: string): Promise<RuntimeScheduleR
 export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
   const id = typeof options === "string" ? options : options.id
   const scheduledAt = typeof options === "string" ? undefined : options.scheduledAt
+  if (scheduledAt) {
+    const existingRun = await getScheduleRunStore().getRun(toRunId(id, scheduledAt))
+    if (existingRun) {
+      return existingRun
+    }
+  }
+
   const schedule = await loadRequiredRuntimeSchedule(id)
   if (!schedule.enabled) {
     throw new ScheduleError(`Runtime Schedule is disabled: ${id}`, {

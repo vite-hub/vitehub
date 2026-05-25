@@ -372,11 +372,13 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions = {}): 
     async createAttempt(attempt) {
       const store = await getKVStore()
       const key = scheduleRunAttemptKey(prefix, attempt.id)
-      if (await store.has(key)) {
-        throw new Error(`Schedule Run Attempt already exists: ${attempt.id}`)
-      }
-      await store.set(key, serializeScheduleRunAttempt(attempt))
-      return cloneScheduleRunAttempt(attempt)
+      return await withKVKeyLock(key, async () => {
+        if (await store.has(key)) {
+          throw new Error(`Schedule Run Attempt already exists: ${attempt.id}`)
+        }
+        await store.set(key, serializeScheduleRunAttempt(attempt))
+        return cloneScheduleRunAttempt(attempt)
+      })
     },
     async createRun(run) {
       const store = await getKVStore()
