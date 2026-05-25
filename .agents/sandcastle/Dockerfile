@@ -18,7 +18,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 ARG AGENT_UID=1000
 ARG AGENT_GID=1000
 
-RUN groupmod -g $AGENT_GID node && usermod -u $AGENT_UID -g $AGENT_GID -d /home/agent -m -l agent node
+RUN if getent group "$AGENT_GID" > /dev/null; then \
+    usermod -u "$AGENT_UID" -g "$AGENT_GID" -d /home/agent -m -l agent node; \
+  else \
+    groupmod -g "$AGENT_GID" node \
+    && usermod -u "$AGENT_UID" -g "$AGENT_GID" -d /home/agent -m -l agent node; \
+  fi
 
 RUN npm install -g @openai/codex
 
