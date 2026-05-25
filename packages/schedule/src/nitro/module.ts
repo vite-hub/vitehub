@@ -45,6 +45,13 @@ function resolveNitroScheduleScanDirs(rootDir: string, scanDirs: string[] | unde
   return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
 }
 
+function registerNitroSchedulePlugin(nitro: Nitro, pluginFile: string) {
+  nitro.options.plugins ||= []
+  if (!nitro.options.plugins.includes(pluginFile)) {
+    nitro.options.plugins.push(pluginFile)
+  }
+}
+
 function createNitroSchedulePluginContents(file: string, registryFile: string) {
   return [
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
@@ -115,10 +122,7 @@ const scheduleNitroModule: NitroModule = {
     }
 
     if (runtimeFiles.definitions.length) {
-      nitro.options.plugins ||= []
-      if (!nitro.options.plugins.includes(runtimeFiles.pluginFile)) {
-        nitro.options.plugins.push(runtimeFiles.pluginFile)
-      }
+      registerNitroSchedulePlugin(nitro, runtimeFiles.pluginFile)
     }
 
     if (nitro.options.preset?.includes("cloudflare")) {
@@ -138,6 +142,9 @@ const scheduleNitroModule: NitroModule = {
         "#vitehub/schedule/registry": runtimeFiles.registryFile,
         [SCHEDULE_TARGETS_ID]: runtimeFiles.targetsFile,
       })
+      if (runtimeFiles.definitions.length) {
+        registerNitroSchedulePlugin(nitro, runtimeFiles.pluginFile)
+      }
     })
     nitro.hooks.hook("compiled", async (currentNitro: Nitro) => {
       if (!currentNitro.options.preset?.includes("vercel")) {

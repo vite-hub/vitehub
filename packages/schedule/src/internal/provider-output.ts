@@ -21,9 +21,10 @@ const productName = "schedule"
 const generatedRegistryFileName = "registry.mjs"
 
 export function resolveScheduleRuntimeEntry(metaUrl = import.meta.url) {
-  return metaUrl.includes("/src/")
-    ? resolve(dirname(fileURLToPath(metaUrl)), "../runtime/execute.ts")
-    : resolve(dirname(fileURLToPath(metaUrl)), "../runtime/execute.js")
+  const file = fileURLToPath(metaUrl)
+  return file.endsWith("/src/internal/provider-output.ts")
+    ? resolve(dirname(file), "../runtime/execute.ts")
+    : resolve(dirname(file), "../runtime/execute.js")
 }
 
 const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()
