@@ -46,7 +46,7 @@ await run({
   promptFile: "./.sandcastle/prompt.md",
   hooks: {
     sandbox: {
-      onSandboxReady: [{ command: "corepack pnpm install --frozen-lockfile" }],
+      onSandboxReady: [{ command: "corepack pnpm install --frozen-lockfile", timeoutMs: 300000 }],
     },
   },
 })
