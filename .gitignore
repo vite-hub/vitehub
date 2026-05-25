@@ -12,6 +12,7 @@ test-results
 .cache
 .generated
 .vitehub
+.sandcastle
 .fallow
 .wrangler
 **/.nuxt

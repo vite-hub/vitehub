@@ -18,12 +18,16 @@
     "build": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run build",
     "playground:vite:build": "pnpm --dir playground/vite build",
     "docs:dev": "pnpm --dir docs dev",
-    "docs:build": "pnpm --dir docs build"
+    "docs:build": "pnpm --dir docs build",
+    "sandcastle": "tsx .sandcastle/main.ts",
+    "sandcastle:build-image": "sandcastle docker build-image --image-name vitehub-sandcastle"
   },
   "devDependencies": {
+    "@ai-hero/sandcastle": "catalog:",
     "@types/node": "catalog:",
     "fallow": "2.41.0",
     "oxlint": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
