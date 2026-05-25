@@ -316,6 +316,29 @@ describe("Schedule Run bookkeeping", () => {
     ])
   })
 
+  it("fails clearly for invalid scheduledAt dates", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+
+    await expect(schedules.run("schedule-1", { scheduledAt: new Date("bad") })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+    })
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "report",
+      scheduledAt: new Date("bad"),
+    })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+    })
+  })
+
   it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({

@@ -63,14 +63,8 @@ function readTopLevelStringProperty(source: string, property: string): string | 
   }
 }
 
-function stripBoundaryComments(source: string) {
-  return source
-    .replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
-    .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
-}
-
 function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
-  const objectSource = source.trim()
+  const objectSource = stripBoundaryComments(source)
   if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
 
   for (const entry of splitTopLevel(objectSource.slice(1, -1))) {

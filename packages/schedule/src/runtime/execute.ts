@@ -31,6 +31,17 @@ function toRunId(source: ScheduleRunSource, scheduleId: string, scheduledAt: Dat
   return `srun_${source}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`
 }
 
+function validateScheduledAt(scheduledAt: Date): Date {
+  if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
+    throw new ScheduleError("Schedule Run scheduledAt must be a valid Date.", {
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+      details: { scheduledAt },
+      httpStatus: 400,
+    })
+  }
+  return scheduledAt
+}
+
 function toRunError(error: unknown): ScheduleRunError {
   if (error instanceof Error) {
     return {
@@ -161,12 +172,12 @@ async function failRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord
 }
 
 export async function createScheduleRun(options: Omit<ExecuteScheduleOptions, "definition">): Promise<ScheduleRunRecord> {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
   return (await createOrGetRun({ ...options, scheduledAt, source: options.source ?? "direct" })).run
 }
 
 export async function executeSchedule(options: ExecuteScheduleOptions): Promise<ScheduleRunRecord> {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
   const { created, run } = await createOrGetRun({ ...options, scheduledAt, source: options.source ?? "direct" })
 
   // v1 policy is intentionally fixed: the deterministic run id dedupes repeated
@@ -210,7 +221,7 @@ async function loadRequiredRuntimeSchedule(id: string): Promise<RuntimeScheduleR
 
 export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
   const id = typeof options === "string" ? options : options.id
-  const scheduledAt = typeof options === "string" ? new Date() : options.scheduledAt ?? new Date()
+  const scheduledAt = validateScheduledAt(typeof options === "string" ? new Date() : options.scheduledAt ?? new Date())
   const existing = await getExistingRuntimeRun(id, scheduledAt)
   if (existing) {
     return existing
