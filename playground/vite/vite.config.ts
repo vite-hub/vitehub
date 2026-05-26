@@ -18,9 +18,34 @@ const VITEHUB_MODES = {
 
 type ViteHubMode = typeof VITEHUB_MODES[keyof typeof VITEHUB_MODES]
 
+function isViteCli(argv: string[]): boolean {
+  return argv.some(arg => /(?:^|[/\\])vite(?:\.[cm]?js)?$/.test(arg) || arg === "vite")
+}
+
+function getViteCliMode(argv: string[] = process.argv): ViteHubMode | undefined {
+  if (!isViteCli(argv)) {
+    return undefined
+  }
+
+  const modes = new Set<string>(Object.values(VITEHUB_MODES))
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    const mode = arg === "--mode" || arg === "-m"
+      ? argv[index + 1]
+      : arg.startsWith("--mode=")
+        ? arg.slice("--mode=".length)
+        : undefined
+    if (mode && modes.has(mode)) {
+      return mode as ViteHubMode
+    }
+  }
+}
+
 function getViteMode(): ViteHubMode | undefined {
   const mode = process.env.VITEHUB_VITE_MODE
-  return Object.values(VITEHUB_MODES).includes(mode as ViteHubMode) ? mode as ViteHubMode : undefined
+  return Object.values(VITEHUB_MODES).includes(mode as ViteHubMode)
+    ? mode as ViteHubMode
+    : getViteCliMode()
 }
 
 const buildMode: ViteHubMode = getViteMode() || VITEHUB_MODES.queue
