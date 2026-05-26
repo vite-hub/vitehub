@@ -1,10 +1,14 @@
-import { readFile, writeFile } from "node:fs/promises"
+import { writeFile } from "node:fs/promises"
 
-const configPath = new URL("../dist/vite/wrangler.json", import.meta.url)
 const rootConfigPath = new URL("../../../wrangler.json", import.meta.url)
-const config = JSON.parse(await readFile(configPath, "utf8"))
 
-config.name = "vitehub-chat-devtools"
-config.main = "playground/vite/dist/vite/index.js"
+const config = {
+  name: "vitehub-chat-devtools",
+  compatibility_date: "2026-05-26",
+  assets: {
+    directory: "./playground/vite/dist/client",
+    not_found_handling: "single-page-application",
+  },
+}
 
 await writeFile(rootConfigPath, `${JSON.stringify(config, null, 2)}\n`, "utf8")
