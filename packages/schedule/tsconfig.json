@@ -9,7 +9,7 @@
         "packages/kv/src/index.ts"
       ],
       "@vitehub/internal/*": [
-        "packages/internal/src/*"
+        "packages/internal/src/*.ts"
       ]
     }
   },

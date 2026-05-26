@@ -24,7 +24,7 @@
         "packages/workspace/src/runtime/empty-registry.ts"
       ],
       "@vitehub/internal/*": [
-        "packages/internal/src/*"
+        "packages/internal/src/*.ts"
       ],
       "@vitehub/agent": [
         "packages/agent/src/index.ts"

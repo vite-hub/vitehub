@@ -9,7 +9,7 @@
     "baseUrl": "../..",
     "paths": {
       "@vitehub/internal/*": [
-        "packages/internal/src/*"
+        "packages/internal/src/*.ts"
       ]
     }
   },
