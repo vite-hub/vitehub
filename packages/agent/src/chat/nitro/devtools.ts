@@ -445,14 +445,9 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
           const emitState = () => emit({ type: "state" as const, state: adapter.getDevtoolsState(input.chat) })
           const message = adapter.createDevtoolsMessage(text, input.chat)
           emitState()
-          const interval = setInterval(emitState, 250)
-          signal.addEventListener("abort", () => clearInterval(interval), { once: true })
-          try {
-            await chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
-          }
-          finally {
-            clearInterval(interval)
-          }
+          if (signal.aborted) return
+          await chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
+          if (signal.aborted) return
           emitState()
         })
       }
@@ -504,19 +499,10 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
     if (action === "send") {
       if (body.stream) {
         return createChatDevtoolsStreamResponse(async (emit, signal) => {
-          const selected = body.chat || getChatNames(state)[0]
-          const emitState = async () => emit({ type: "state" as const, state: await serializeState(state, selected) })
-          const interval = setInterval(() => {
-            void emitState()
-          }, 250)
-          signal.addEventListener("abort", () => clearInterval(interval), { once: true })
-          try {
-            const finalState = await sendDevtoolsMessage(event, state, body, next => emit({ type: "state", state: next }))
-            emit({ type: "state", state: finalState })
-          }
-          finally {
-            clearInterval(interval)
-          }
+          const finalState = await sendDevtoolsMessage(event, state, body, (next) => {
+            if (!signal.aborted) emit({ type: "state", state: next })
+          })
+          if (!signal.aborted) emit({ type: "state", state: finalState })
         })
       }
       return await sendDevtoolsMessage(event, state, body)

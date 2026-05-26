@@ -1028,6 +1028,60 @@ describe("agent message protocol", () => {
     expect(state.tools).toEqual([{ name: "reserved-chat-tool" }])
   })
 
+  it("streams DevTools sends without timer state polling and returns final assistant state", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineChat } = await import("../src/chat/index.ts")
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval")
+    const app = createApp()
+    app.use(defineChatDevtoolsRegistryHandler({
+      support: async () => defineChat({
+        adapters: {},
+        onDirectMessage: async ({ thread }) => {
+          await thread.startTyping("thinking")
+          await thread.post("final answer")
+        },
+        state: {} as never,
+      }),
+    }))
+
+    try {
+      const response = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "send", chat: "support", stream: true, text: "hello" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      const events = (await response.text()).trim().split("\n").map(line => JSON.parse(line) as { state?: { chats: Array<{ messages: Array<{ loading?: boolean, role: string, text: string }> }> }, type: string })
+      const states = events.filter(event => event.type === "state").map(event => event.state)
+
+      expect(response.status).toBe(200)
+      expect(setIntervalSpy).not.toHaveBeenCalled()
+      expect(events.at(-1)).toEqual({ type: "done" })
+      expect(states.map(state => state?.chats[0]?.messages.map(message => ({
+        loading: message.loading,
+        role: message.role,
+        text: message.text,
+      })))).toEqual([
+        [{ loading: undefined, role: "user", text: "hello" }],
+        [
+          { loading: undefined, role: "user", text: "hello" },
+          { loading: true, role: "assistant", text: "thinking" },
+        ],
+        [
+          { loading: undefined, role: "user", text: "hello" },
+          { loading: false, role: "assistant", text: "final answer" },
+        ],
+        [
+          { loading: undefined, role: "user", text: "hello" },
+          { loading: false, role: "assistant", text: "final answer" },
+        ],
+      ])
+    }
+    finally {
+      setIntervalSpy.mockRestore()
+    }
+  })
+
   it("returns a bad request for malformed text chat devtools payloads", async () => {
     const { createApp, toWebHandler } = await import("h3")
     const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")

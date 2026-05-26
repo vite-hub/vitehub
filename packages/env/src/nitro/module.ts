@@ -43,10 +43,12 @@ function createPluginContents(file: string, registryFile: string): string {
 
 async function writeNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): Promise<string[]> {
   const dtsPath = resolve(nitro.options.buildDir, "types", "vitehub-env.d.ts")
+  const runtimeDtsPath = resolve(nitro.options.buildDir, "types", "vitehub-env-runtime.d.ts")
   const integrationsDtsPath = resolve(nitro.options.buildDir, "types", "vitehub-env-integrations.d.ts")
   await writeFileIfChanged(dtsPath, createNitroServerTypes(registry))
+  await writeFileIfChanged(runtimeDtsPath, createNitroRuntimeServerTypes(registry))
   await writeFileIfChanged(integrationsDtsPath, createNitroIntegrationTypes(registry))
-  return [dtsPath, integrationsDtsPath]
+  return [dtsPath, runtimeDtsPath, integrationsDtsPath]
 }
 
 async function installNitroTypes(nitro: Nitro, registry: EnvRuntimeRegistry): Promise<void> {
@@ -80,10 +82,25 @@ function createNitroServerTypes(registry: EnvRuntimeRegistry): string {
   ].join("\n")
 }
 
+function createNitroRuntimeServerTypes(registry: EnvRuntimeRegistry): string {
+  const fields = createTypeFields(registry, 4, "RuntimeSecretEnv")
+  return [
+    "import type { SecretEnv as RuntimeSecretEnv } from \"@vitehub/env/runtime/server\"",
+    "import \"@vitehub/env/runtime/server\"",
+    "",
+    "declare module \"@vitehub/env/runtime/server\" {",
+    "  export interface ServerEnv {",
+    ...fields,
+    "  }",
+    "}",
+    "",
+  ].join("\n")
+}
+
 function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
   const fields = createTypeFields(registry, 4)
   return [
-    "import type { SecretEnv } from \"#vitehub/env/server\"",
+    "import type { SecretEnv } from \"@vitehub/env/runtime/server\"",
     "import \"nitro/types\"",
     "",
     "declare module \"nitro/types\" {",
@@ -97,27 +114,27 @@ function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
   ].join("\n")
 }
 
-function createTypeFields(registry: EnvRuntimeRegistry, indent: number): string[] {
+function createTypeFields(registry: EnvRuntimeRegistry, indent: number, secretTypeName = "SecretEnv"): string[] {
   const prefix = " ".repeat(indent)
   return Object.entries(registry).flatMap(([key, entry]) => {
     if (isRegistryEntry(entry)) {
-      return [`${prefix}${JSON.stringify(key)}: ${resolveTypeName(entry)}`]
+      return [`${prefix}${JSON.stringify(key)}: ${resolveTypeName(entry, secretTypeName)}`]
     }
     if (isLiteralEntry(entry)) {
       return [`${prefix}${JSON.stringify(key)}: ${resolveLiteralTypeName(entry.value)}`]
     }
     return [
       `${prefix}${JSON.stringify(key)}: {`,
-      ...createTypeFields(entry, indent + 2),
+      ...createTypeFields(entry, indent + 2, secretTypeName),
       `${prefix}}`,
     ]
   })
 }
 
-function resolveTypeName(entry: EnvRegistryEntry): string {
+function resolveTypeName(entry: EnvRegistryEntry, secretTypeName = "SecretEnv"): string {
   if (entry.secret) {
     const valueType = entry.type ?? "string"
-    const typeName = `SecretEnv<${valueType}>`
+    const typeName = `${secretTypeName}<${valueType}>`
     return entry.required || typeof entry.default !== "undefined" ? typeName : `${typeName} | undefined`
   }
   if (entry.type) {
@@ -165,6 +182,7 @@ export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
       await writeFileIfChanged(pluginFile, createPluginContents(pluginFile, registryFile))
 
       nitro.options.alias ||= {}
+      nitro.options.alias["@vitehub/env/runtime/server"] = resolveEntry("../runtime/server", "@vitehub/env/runtime/server")
       nitro.options.alias["@vitehub/env"] = resolveEntry("../index", "@vitehub/env")
       nitro.options.alias["#vitehub/env/server"] = resolveEntry("../runtime/server", "@vitehub/env/runtime/server")
       nitro.options.alias["#vitehub/env/registry"] = registryFile

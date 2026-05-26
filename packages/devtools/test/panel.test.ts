@@ -37,13 +37,14 @@ describe("hubDevtools", () => {
 
     hubDevtools().devtools?.setup?.(ctx as never)
 
+    expect(viteHubDevtoolsDefaultUrl).toBe("https://devtools.vitehub.dev/chat")
     expect(ctx.views.hostStatic).not.toHaveBeenCalled()
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
       id: viteHubDevtoolsPanelId,
       remote: true,
       title: "ViteHub",
       type: "iframe",
-      url: viteHubDevtoolsDefaultUrl,
+      url: "https://devtools.vitehub.dev/chat",
     }))
     expect(ctx.rpc.register).toHaveBeenCalledWith(expect.objectContaining({
       name: viteHubDevtoolsGetFeaturesRpc,

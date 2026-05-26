@@ -19,7 +19,7 @@ export interface HubDevtoolsOptions {
 
 export const viteHubDevtoolsPanelId = "@vitehub/devtools"
 export const viteHubDevtoolsTitle = "ViteHub"
-export const viteHubDevtoolsDefaultUrl = "https://devtools.vitehub.dev/"
+export const viteHubDevtoolsDefaultUrl = "https://devtools.vitehub.dev/chat"
 const viteHubDevtoolsUrlEnv = "VITEHUB_DEVTOOLS_URL"
 export const viteHubDevtoolsGetFeaturesRpc = "@vitehub/devtools:get-features"
 
