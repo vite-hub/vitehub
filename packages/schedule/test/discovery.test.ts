@@ -116,6 +116,22 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("reads runtime opt-in from defineSchedule generics with arrow function types", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-runtime-arrow-generic-opt-in-")
+    await writeFile(
+      join(rootDir, "daily.schedule.ts"),
+      "export default defineSchedule<{ f: (x: string) => string }>({ cron: '0 9 * * *', handler: () => 'ok', allowRuntimeSchedules: true })\n",
+      "utf8",
+    )
+
+    expect(discoverScheduleDefinitions({
+      mode: "vite-suffix",
+      rootDir,
+    }).map(definition => [definition.name, definition.allowRuntimeSchedules])).toEqual([
+      ["daily", true],
+    ])
+  })
+
   it("reads runtime opt-in from parenthesized defineSchedule calls", async () => {
     const rootDir = await createTempDir("vitehub-schedule-runtime-parenthesized-opt-in-")
     await writeFile(

@@ -345,6 +345,20 @@ function readTopLevelCronProperty(objectSource: string): string | undefined {
   }
 }
 
+function findTypeParametersEnd(source: string, index: number): number {
+  let depth = 0
+  for (let cursor = index; cursor < source.length; cursor += 1) {
+    const char = source[cursor]
+    if (char === "<") depth += 1
+    if (char === ">" && source[cursor - 1] === "=") continue
+    if (char === ">") {
+      depth -= 1
+      if (depth === 0) return cursor
+    }
+  }
+  return -1
+}
+
 function readDefineScheduleObjectAfterDefault(source: string, index: number): string | undefined {
   let cursor = skipIgnorable(source, index)
   let openParens = 0
@@ -358,7 +372,7 @@ function readDefineScheduleObjectAfterDefault(source: string, index: number): st
 
   cursor = skipIgnorable(source, cursor)
   if (source[cursor] === "<") {
-    const close = source.indexOf(">", cursor + 1)
+    const close = findTypeParametersEnd(source, cursor)
     if (close === -1) return undefined
     cursor = skipIgnorable(source, close + 1)
   }
