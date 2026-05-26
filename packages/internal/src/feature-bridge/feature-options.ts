@@ -1,4 +1,4 @@
-import { isPlainObject } from '@vitehub/internal/object'
+import { isPlainObject } from '../object.ts'
 
 function cloneFeatureOptions<T extends object>(feature: string, options: T): T {
   if (!isPlainObject(options))
