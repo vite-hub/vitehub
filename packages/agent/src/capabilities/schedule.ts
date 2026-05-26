@@ -228,6 +228,18 @@ function visibleRuntimeSchedules(records: RuntimeScheduleRecordLike[], options: 
   })
 }
 
+function visibleRuntimeScheduleTargets(options: Pick<RuntimeScheduleCapabilityOptions, "allowSelfTarget" | "selfTarget" | "targets">): readonly string[] | undefined {
+  return options.targets?.filter((target) => {
+    try {
+      assertAllowedRuntimeScheduleTarget(target, options, "schedule_read")
+      return true
+    }
+    catch {
+      return false
+    }
+  })
+}
+
 async function requireScopedRuntimeSchedule(client: RuntimeScheduleClientLike, id: string, options: Pick<RuntimeScheduleCapabilityOptions, "allowSelfTarget" | "selfTarget" | "targets">): Promise<RuntimeScheduleRecordLike> {
   const record = await client.get(id)
   if (!record) throw new Error(`[vitehub] Runtime Schedule not found: ${id}`)
@@ -275,7 +287,7 @@ function runtimeScheduleTools(options: NormalizedRuntimeScheduleCapabilityOption
         async execute(input: RuntimeScheduleReadInput = {}) {
           assertRuntimeScheduleInputKeys(input as Record<string, unknown>, ["id", "operation"], "schedule_read")
           const operation = input.operation || "list"
-          if (operation === "targets") return { targets: options.targets }
+          if (operation === "targets") return { targets: visibleRuntimeScheduleTargets(options) }
           if (operation === "get") {
             const record = await client.get(assertRuntimeScheduleId(input.id, "schedule_read"))
             if (!record) return undefined

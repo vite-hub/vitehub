@@ -104,6 +104,7 @@ describe("storage capabilities", () => {
       },
     })
 
+    await expect(tools.schedule_read!.execute?.({ operation: "targets" })).resolves.toEqual({ targets: ["reports"] })
     await expect(tools.schedule_read!.execute?.({ operation: "list" })).resolves.toEqual([records[1]])
   })
 
