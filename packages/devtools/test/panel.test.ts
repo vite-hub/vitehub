@@ -6,6 +6,7 @@ import {
   registerViteHubDevtoolsFeature,
   viteHubDevtoolsDefaultUrl,
   viteHubDevtoolsGetFeaturesRpc,
+  viteHubDevtoolsHostedUrl,
   viteHubDevtoolsPanelId,
 } from "../src/index.ts"
 
@@ -32,19 +33,19 @@ function createContext() {
 }
 
 describe("hubDevtools", () => {
-  it("registers the hosted ViteHub DevTools shell", () => {
+  it("registers the same-origin ViteHub DevTools shell by default", () => {
     const ctx = createContext()
 
     hubDevtools().devtools?.setup?.(ctx as never)
 
-    expect(viteHubDevtoolsDefaultUrl).toBe("https://devtools.vitehub.dev/chat")
+    expect(viteHubDevtoolsDefaultUrl).toBe("/__vitehub/devtools/chat/")
     expect(ctx.views.hostStatic).not.toHaveBeenCalled()
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
       id: viteHubDevtoolsPanelId,
-      remote: true,
+      remote: false,
       title: "ViteHub",
       type: "iframe",
-      url: "https://devtools.vitehub.dev/chat",
+      url: "/__vitehub/devtools/chat/",
     }))
     expect(ctx.rpc.register).toHaveBeenCalledWith(expect.objectContaining({
       name: viteHubDevtoolsGetFeaturesRpc,
@@ -62,6 +63,19 @@ describe("hubDevtools", () => {
     expect(ctx.views.hostStatic).not.toHaveBeenCalled()
     expect(ctx.docks.register).toHaveBeenCalledTimes(1)
     expect(ctx.rpc.register).toHaveBeenCalledTimes(1)
+  })
+
+  it("allows an explicit hosted shell URL override", () => {
+    const ctx = createContext()
+
+    hubDevtools({ url: viteHubDevtoolsHostedUrl }).devtools?.setup?.(ctx as never)
+
+    expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
+      id: viteHubDevtoolsPanelId,
+      remote: true,
+      type: "iframe",
+      url: "https://devtools.vitehub.dev/chat/",
+    }))
   })
 
   it("allows an internal hosted shell URL override for local client development", () => {

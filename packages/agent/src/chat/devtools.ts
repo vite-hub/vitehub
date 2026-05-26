@@ -519,6 +519,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     const tools = message.tools ||= []
     const next = { ...tool, updatedAt: new Date().toISOString() }
     const existing = tools.find(item => item.id === tool.id)
+      || (tool.id ? undefined : tools.find(item => item.name === tool.name && item.text === tool.text))
     if (existing) {
       Object.assign(existing, {
         ...next,
@@ -527,6 +528,33 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
       })
     }
     else tools.push(next)
+    for (let index = tools.length - 1; index >= 0; index--) {
+      const current = tools[index]
+      if (!current || current.text !== current.name) continue
+      if (tools.some(item => item.name === current.name && item.text !== item.name)) {
+        tools.splice(index, 1)
+      }
+    }
+    for (let index = 0; index < tools.length; index++) {
+      const current = tools[index]
+      if (!current || current.text === current.name) continue
+      const duplicateIndex = tools.findIndex((item, itemIndex) =>
+        itemIndex > index
+        && item.name === current.name
+        && item.text === current.text
+      )
+      if (duplicateIndex === -1) continue
+      const duplicate = tools[duplicateIndex]
+      Object.assign(current, {
+        ...current,
+        input: current.input ?? duplicate.input,
+        output: current.output ?? duplicate.output,
+        status: current.status === "running" || duplicate.status === "running" ? "running" : duplicate.status,
+        updatedAt: duplicate.updatedAt > current.updatedAt ? duplicate.updatedAt : current.updatedAt,
+      })
+      tools.splice(duplicateIndex, 1)
+      index--
+    }
     message.loading = typingMessageIds.get(threadId) === message.id || tools.some(item => item.status === "running")
     return true
   }
@@ -538,7 +566,9 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
       typingMessageIds.delete(threadId)
       if (existing) {
         existing.loading = false
-        existing.text = text
+        if (!existing.text || isGenericTypingText(existing.text) || !isGenericTypingText(text)) {
+          existing.text = text
+        }
         return existing
       }
     }

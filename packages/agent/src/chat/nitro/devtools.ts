@@ -1,17 +1,22 @@
 import { Chat, Message, parseMarkdown, toPlainText } from "chat"
 import { createError, defineEventHandler, readBody, setHeader } from "h3"
+import { readUIMessageStream } from "ai"
 
+import { createMessage, getAgentFromRegistry, streamAgent } from "../../index.ts"
 import { chatDevtoolsAdapterName, createDevtoolsAdapter as createBaseDevtoolsAdapter } from "../devtools.ts"
 import { chatDevtoolsClearRpc, chatDevtoolsGetStateRpc, chatDevtoolsSendRpc } from "../devtools-shared.ts"
 import { resolveChat } from "../index.ts"
-import { createMemoryChatStateAdapter } from "../runtime/memory-state.ts"
+import { getChatDefinitionOptions } from "../runtime/definition.ts"
 import { getChatRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
+import { createMemoryChatStateAdapter } from "../runtime/memory-state.ts"
 import { toFetchRequest } from "./handler.ts"
 
 import type { Adapter, Chat as ChatInstance, Message as ChatMessage, RawMessage } from "chat"
 import type { EventHandler, H3Event } from "h3"
+import type { UIMessage } from "ai"
+import type { AgentRunInput, AgentRunMetadata } from "../../index.ts"
 import type { ChatDevtoolsAdapter, ChatDevtoolsConversation, ChatDevtoolsMessage, ChatDevtoolsMetadata, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
-import type { ChatInput } from "../types.ts"
+import type { ChatAgentBindingOptions, ChatAgentHookArgs, ChatInput } from "../types.ts"
 import type { NitroChatRuntimeConfig, NitroChatRuntimeContext } from "./handler.ts"
 
 type ChatLoader = () => Promise<ChatInput>
@@ -28,6 +33,8 @@ interface ChatDevtoolsSession {
   name: string
   state: ReturnType<typeof createMemoryChatStateAdapter>
   typingMessageId?: string
+  thinkingFallback?: string | null
+  uiMessages: UIMessage[]
 }
 
 interface ChatDevtoolsHandlerState {
@@ -213,7 +220,7 @@ function getChatNames(state: ChatDevtoolsHandlerState): string[] {
 function getSession(state: ChatDevtoolsHandlerState, name: string): ChatDevtoolsSession {
   let session = state.sessions.get(name)
   if (!session) {
-    session = { messages: [], name, state: createMemoryChatStateAdapter() }
+    session = { messages: [], name, state: createMemoryChatStateAdapter(), uiMessages: [] }
     state.sessions.set(name, session)
   }
   return session
@@ -271,6 +278,7 @@ async function serializeState(state: ChatDevtoolsHandlerState, selected?: string
   const chats: ChatDevtoolsConversation[] = names.map(name => ({
     name,
     messages: [...getSession(state, name).messages],
+    uiMessages: [...getSession(state, name).uiMessages],
   }))
 
   const nextSelected = selected && names.includes(selected)
@@ -281,12 +289,15 @@ async function serializeState(state: ChatDevtoolsHandlerState, selected?: string
   state.selected = nextSelected || undefined
 
   const metadata = await metadataForChat(state.metadata, nextSelected)
+  const selectedSession = nextSelected ? getSession(state, nextSelected) : undefined
   return {
     chats,
     files: metadata.files,
     instructions: metadata.instructions,
     selected: nextSelected,
+    thinkingFallback: selectedSession?.thinkingFallback ?? null,
     tools: metadata.tools,
+    uiMessages: selectedSession ? [...selectedSession.uiMessages] : [],
   }
 }
 
@@ -325,6 +336,185 @@ async function sendDevtoolsMessage(
   await bot.handleIncomingMessage(adapter, message.threadId, message)
 
   return await serializeState(state, selected)
+}
+
+function normalizeDevtoolsAgentBinding(binding: unknown): ChatAgentBindingOptions {
+  if (typeof binding === "object" && binding !== null && "resolve" in binding && typeof (binding as { resolve?: unknown }).resolve === "function") {
+    return {
+      definition: binding as ChatAgentBindingOptions["definition"],
+      name: (binding as { name?: unknown }).name as string | undefined || "devtools-agent",
+    }
+  }
+  return typeof binding === "string" ? { name: binding } : binding as ChatAgentBindingOptions
+}
+
+function createRunMetadata(session: ChatDevtoolsSession, userMessageId: string): AgentRunMetadata {
+  return {
+    channelId: `devtools:${session.name}`,
+    messageId: userMessageId,
+    platform: "devtools",
+    runId: globalThis.crypto?.randomUUID?.() || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
+    threadId: `devtools:${session.name}:thread`,
+  }
+}
+
+function createUserUIMessage(text: string): UIMessage {
+  return {
+    id: `devtools-user-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    role: "user",
+    parts: [{ type: "text", text }],
+  }
+}
+
+function uiMessageText(message: UIMessage): string {
+  return message.parts
+    .filter((part): part is { text: string, type: "text" } => part.type === "text" && typeof (part as { text?: unknown }).text === "string")
+    .map(part => part.text)
+    .join("")
+}
+
+function uiMessagesToViteHubMessages(messages: UIMessage[]) {
+  return messages.map((message, index) => createMessage({
+    id: message.id || `devtools-ui-message-${index}`,
+    metadata: { source: "chat" },
+    parts: [uiMessageText(message)].filter(Boolean),
+    role: message.role === "assistant" ? "assistant" : "user",
+  }))
+}
+
+function createDevtoolsHookArgs(
+  run: AgentRunMetadata,
+  history: ReturnType<typeof uiMessagesToViteHubMessages>,
+  userMessage: UIMessage,
+): ChatAgentHookArgs {
+  const text = uiMessageText(userMessage)
+  return {
+    bot: undefined as never,
+    channel: { id: run.channelId } as never,
+    context: undefined,
+    history,
+    message: {
+      id: userMessage.id,
+      metadata: { dateSent: new Date().toISOString() },
+      text,
+    } as never,
+    run,
+    thread: { id: run.threadId } as never,
+    workflow: undefined as never,
+  }
+}
+
+async function resolveThinkingFallback(
+  fallback: unknown,
+  args: ChatAgentHookArgs,
+): Promise<string | null> {
+  if (fallback === undefined) return null
+  if (fallback === null || typeof fallback === "string") return fallback
+  if (typeof fallback === "function") {
+    return await fallback(args) || null
+  }
+  return null
+}
+
+async function sendDevtoolsUIMessage(
+  event: H3Event,
+  state: ChatDevtoolsHandlerState,
+  input: { chat?: string, stream?: boolean, text?: string },
+  onChange?: (next: ChatDevtoolsStateResult) => void | Promise<void>,
+): Promise<ChatDevtoolsStateResult> {
+  if (!input.stream) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "AI SDK Chat DevTools sends require stream: true.",
+    })
+  }
+
+  const text = input.text?.trim()
+  if (!text) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "Missing chat message text.",
+    })
+  }
+
+  const selected = input.chat || getChatNames(state)[0]
+  if (!selected) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: "No chats are registered for DevTools.",
+    })
+  }
+
+  const loader = state.registry[selected]
+  if (!loader) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: `Unknown chat: ${selected}`,
+    })
+  }
+
+  const chat = resolveRegistryModule(await loader())
+  const options = getChatDefinitionOptions(chat)
+  const agentBinding = options?.agent
+  if (!agentBinding) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "AI SDK Chat DevTools requires defineChat({ agent }).",
+    })
+  }
+
+  const binding = normalizeDevtoolsAgentBinding(agentBinding)
+  const session = getSession(state, selected)
+  state.selected = selected
+  const userMessage = createUserUIMessage(text)
+  const baseMessages = [...session.uiMessages, userMessage]
+  session.uiMessages = baseMessages
+  await onChange?.(await serializeState(state, selected))
+
+  const run = createRunMetadata(session, userMessage.id)
+  const history = uiMessagesToViteHubMessages(baseMessages)
+  const baseArgs = createDevtoolsHookArgs(run, history, userMessage)
+  session.thinkingFallback = await resolveThinkingFallback(options.fallbackStreamingPlaceholderText, baseArgs)
+  await onChange?.(await serializeState(state, selected))
+
+  let agentInput: AgentRunInput | undefined
+  try {
+    agentInput = binding.hooks?.prepareInput
+      ? await binding.hooks.prepareInput(baseArgs as never)
+      : {
+          context: {
+            chat: {
+              channelId: run.channelId,
+              messageId: run.messageId,
+              platform: "devtools",
+              runId: run.runId,
+              source: "chat",
+              threadId: run.threadId,
+            },
+          },
+          messages: history,
+          timeout: 90_000,
+        }
+    agentInput = await binding.hooks?.beforeRun?.({ ...baseArgs, input: agentInput } as never) || agentInput
+    const runtimeContext = { ...createRuntimeContext(event), run }
+    const agent = binding.definition || await getAgentFromRegistry(binding.name, runtimeContext as never)
+    const stream = await streamAgent(agent as never, runtimeContext as never, agentInput, { output: "ui-message-stream" }) as ReadableStream<never>
+    let latestAssistant: UIMessage | undefined
+    for await (const assistantMessage of readUIMessageStream({ stream })) {
+      latestAssistant = assistantMessage as UIMessage
+      session.uiMessages = [...baseMessages, latestAssistant]
+      await onChange?.(await serializeState(state, selected))
+    }
+    await binding.hooks?.afterRun?.({ ...baseArgs, input: agentInput, result: latestAssistant } as never)
+    return await serializeState(state, selected)
+  }
+  catch (error) {
+    if (binding.hooks?.error) {
+      await binding.hooks.error({ ...baseArgs, error, input: agentInput } as never)
+      return await serializeState(state, selected)
+    }
+    throw error
+  }
 }
 
 function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void, signal: AbortSignal) => Promise<void>): Response {
@@ -520,15 +710,18 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
       return await serializeState(state, body.chat)
     }
     if (action === "send") {
-      if (body.stream) {
-        return createChatDevtoolsStreamResponse(async (emit, signal) => {
-          const finalState = await sendDevtoolsMessage(event, state, body, (next) => {
-            if (!signal.aborted) emit({ type: "state", state: next })
-          })
-          if (!signal.aborted) emit({ type: "state", state: finalState })
+      if (!body.stream) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: "AI SDK Chat DevTools sends require stream: true.",
         })
       }
-      return await sendDevtoolsMessage(event, state, body)
+      return createChatDevtoolsStreamResponse(async (emit, signal) => {
+        const finalState = await sendDevtoolsUIMessage(event, state, body, (next) => {
+          if (!signal.aborted) emit({ type: "state", state: next })
+        })
+        if (!signal.aborted) emit({ type: "state", state: finalState })
+      })
     }
     if (action === "clear") {
       return await clearDevtoolsMessages(state, body)

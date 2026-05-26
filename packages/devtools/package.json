@@ -25,11 +25,12 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "devtools/chat/.output/public",
     "dist",
     "package.json"
   ],
   "scripts": {
-    "build": "pnpm build:code",
+    "build": "pnpm build:code && pnpm build:chat",
     "build:chat": "nuxi generate devtools/chat",
     "build:code": "tsdown --tsconfig tsconfig.json",
     "dev:chat": "nuxi dev devtools/chat --port 3300",

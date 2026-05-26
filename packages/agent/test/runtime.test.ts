@@ -1029,18 +1029,37 @@ describe("agent message protocol", () => {
   })
 
   it("streams DevTools sends without timer state polling and returns final assistant state", async () => {
+    const { createUIMessageStream } = await import("ai")
     const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineChat } = await import("../src/chat/index.ts")
     const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const setIntervalSpy = vi.spyOn(globalThis, "setInterval")
     const app = createApp()
+    const agent = defineAgent({
+      async run() {
+        return {
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: "assistant-1" })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: "final answer" })
+                writer.write({ type: "tool-input-available", input: { query: "users" }, toolCallId: "tool-1", toolName: "search" })
+                writer.write({ type: "tool-output-available", output: "42", toolCallId: "tool-1" })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }
+      },
+    })
     app.use(defineChatDevtoolsRegistryHandler({
       support: async () => defineChat({
+        agent: { definition: agent, name: "support-agent" },
         adapters: {},
-        onDirectMessage: async ({ thread }) => {
-          await thread.startTyping("thinking")
-          await thread.post("final answer")
-        },
+        fallbackStreamingPlaceholderText: "Thinking from config...",
         state: {} as never,
       }),
     }))
@@ -1051,35 +1070,77 @@ describe("agent message protocol", () => {
         headers: { "content-type": "application/json" },
         method: "POST",
       }))
-      const events = (await response.text()).trim().split("\n").map(line => JSON.parse(line) as { state?: { chats: Array<{ messages: Array<{ loading?: boolean, role: string, text: string }> }> }, type: string })
+      const events = (await response.text()).trim().split("\n").map(line => JSON.parse(line) as {
+        state?: {
+          chats: Array<{
+            messages: Array<{ loading?: boolean, role: string, text: string }>
+            uiMessages?: Array<{ parts: Array<{ text?: string, toolCallId?: string, type: string }>, role: string }>
+          }>
+          thinkingFallback?: string | null
+          uiMessages?: Array<{ parts: Array<{ text?: string, toolCallId?: string, type: string }>, role: string }>
+        }
+        type: string
+      })
       const states = events.filter(event => event.type === "state").map(event => event.state)
+      const finalState = states.at(-1)
+      const stateResponse = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "get-state", chat: "support" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      const state = await stateResponse.json() as { thinkingFallback?: string | null, uiMessages?: Array<{ parts: Array<{ type: string }> }> }
 
       expect(response.status).toBe(200)
       expect(setIntervalSpy).not.toHaveBeenCalled()
       expect(events.at(-1)).toEqual({ type: "done" })
-      expect(states.map(state => state?.chats[0]?.messages.map(message => ({
-        loading: message.loading,
+      expect(states.map(state => state?.thinkingFallback)).toContain("Thinking from config...")
+      expect(finalState?.uiMessages?.map(message => ({
+        parts: message.parts.map(part => part.type),
         role: message.role,
-        text: message.text,
-      })))).toEqual([
-        [{ loading: undefined, role: "user", text: "hello" }],
-        [
-          { loading: undefined, role: "user", text: "hello" },
-          { loading: true, role: "assistant", text: "thinking" },
-        ],
-        [
-          { loading: undefined, role: "user", text: "hello" },
-          { loading: false, role: "assistant", text: "final answer" },
-        ],
-        [
-          { loading: undefined, role: "user", text: "hello" },
-          { loading: false, role: "assistant", text: "final answer" },
-        ],
+      }))).toEqual([
+        { parts: ["text"], role: "user" },
+        { parts: ["text", "tool-search"], role: "assistant" },
       ])
+      expect(finalState?.uiMessages?.[1]?.parts.filter(part => part.type === "tool-search")).toHaveLength(1)
+      expect(state.thinkingFallback).toBe("Thinking from config...")
+      expect(state.uiMessages?.[1]?.parts.map(part => part.type)).toEqual(["text", "tool-search"])
     }
     finally {
       setIntervalSpy.mockRestore()
     }
+  })
+
+  it("requires streaming for registry DevTools sends through the AI SDK path", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChat } = await import("../src/chat/index.ts")
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    app.use(defineChatDevtoolsRegistryHandler({
+      support: async () => defineChat({
+        agent: {
+          definition: defineAgent({
+            async run() {
+              throw new Error("streaming-only test should not run the agent")
+            },
+          }),
+          name: "support-agent",
+        },
+        adapters: {},
+        state: {} as never,
+      }),
+    }))
+
+    const response = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "send", chat: "support", stream: false, text: "hello" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+
+    await expect(response.json()).resolves.toMatchObject({
+      message: expect.stringContaining("require stream"),
+    })
+    expect(response.status).toBe(400)
   })
 
   it("streams singleton DevTools adapter updates without timer state polling", async () => {

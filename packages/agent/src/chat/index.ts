@@ -3,7 +3,7 @@ import { isResolvable, resolveRuntimeContext, resolveRuntimeValue } from "@viteh
 
 import { createAgentDirectMessageHook } from "./agent-handoff.ts"
 import { chatDevtoolsAdapterName, observeChatDevtoolsStream } from "./devtools.ts"
-import { isChatDefinition } from "./runtime/definition.ts"
+import { chatDefinitionOptions, isChatDefinition } from "./runtime/definition.ts"
 
 import type {
   ChatActionHookInput,
@@ -466,9 +466,10 @@ export function defineChat<
   options: DefineChatOptions<TRuntimeConfig, TWorkflow>,
 ): ChatDefinition<TRuntimeConfig> {
   const memoKey = `vitehub:chat:${++definitionId}`
-  return {
+  const definition = {
+    [chatDefinitionOptions]: options,
     lifecycleHooks: options.lifecycleHooks,
-    resolve(context, resolveOptions) {
+    resolve(context: ChatRuntimeContext<TRuntimeConfig>, resolveOptions?: ResolveChatOptions) {
       if (resolveOptions?.adapters) {
         return createChat(options, context, resolveOptions)
       }
@@ -476,6 +477,7 @@ export function defineChat<
       return context.memo(`${memoKey}:${nameKey}`, () => createChat(options, context, resolveOptions))
     },
   }
+  return definition as ChatDefinition<TRuntimeConfig>
 }
 
 export async function resolveChat<TContext extends ChatRuntimeContext>(

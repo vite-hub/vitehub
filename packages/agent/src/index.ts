@@ -964,6 +964,43 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
 }
 
+function isUIMessageStreamResult(value: unknown): value is { toUIMessageStream: () => ReadableStream<unknown> } {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
+}
+
+function withReadableStreamCleanup<T>(stream: ReadableStream<T>, cleanup: (error?: unknown) => Promise<void>): ReadableStream<T> {
+  const reader = stream.getReader()
+  let cleaned = false
+  const runCleanup = async (error?: unknown) => {
+    if (cleaned) return
+    cleaned = true
+    await cleanup(error)
+  }
+  return new ReadableStream<T>({
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (result.done) {
+          await runCleanup()
+          controller.close()
+          return
+        }
+        controller.enqueue(result.value)
+      }
+      catch (error) {
+        await runCleanup(error)
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason)
+      await runCleanup(reason)
+    },
+  })
+}
+
 function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
 ): agent is AgentDefinition<TRuntimeConfig, any> & { run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> } {
@@ -1321,7 +1358,9 @@ export async function streamAgent<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  options: { output?: "events" | "ui-message-stream" } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  const output = options.output || "events"
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createAgentInvocationContext(agent, context, input)
     runContext.close = once(runContext.close)
@@ -1342,6 +1381,20 @@ export async function streamAgent<
     }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
+      if (output === "ui-message-stream") {
+        if (!isUIMessageStreamResult(rendered)) {
+          throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
+        }
+        const stream = rendered.toUIMessageStream()
+        const shouldWrapOutput = runContext.hasCapabilityCleanup || hasFinishWork(runContext)
+        return {
+          deferFinish: shouldWrapOutput,
+          finishResult: rendered,
+          value: shouldWrapOutput
+            ? withReadableStreamCleanup(stream, error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
+            : stream,
+        }
+      }
       return { finishResult: rendered, value: rendered }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.")
   }
@@ -1369,6 +1422,20 @@ export async function streamAgent<
   }
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
+    if (output === "ui-message-stream") {
+      if (!isUIMessageStreamResult(rendered)) {
+        throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
+      }
+      const stream = rendered.toUIMessageStream()
+      const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
+      return {
+        deferFinish: shouldWrapOutput,
+        finishResult: rendered,
+        value: shouldWrapOutput
+          ? withReadableStreamCleanup(stream, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error))
+          : stream,
+      }
+    }
     const events = streamTextResultToEvents(rendered)
     const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
     return {
