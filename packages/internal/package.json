@@ -41,7 +41,7 @@
   },
   "scripts": {
     "build": "tsdown --tsconfig tsconfig.json",
-    "test": "pnpm --filter @vitehub/runtime build && vitest run",
+    "test": "pnpm --filter @vitehub/runtime build && pnpm build && vitest run",
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
