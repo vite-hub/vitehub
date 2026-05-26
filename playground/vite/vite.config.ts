@@ -1,8 +1,27 @@
 import { resolve } from "node:path"
 
-import { getViteMode, VITEHUB_MODES, type ViteHubMode } from "@vitehub/internal/build/mode"
 import { defineConfig } from "vite"
-import { createViteE2EComposer, resolveViteE2EOptions } from "./build/vite-e2e"
+
+const VITEHUB_MODES = {
+  e2e: "e2e",
+  blob: "blob",
+  chat: "chat",
+  db: "db",
+  env: "env",
+  kv: "kv",
+  queue: "queue",
+  schedule: "schedule",
+  sandbox: "sandbox",
+  workspace: "workspace",
+  workflow: "workflow",
+} as const
+
+type ViteHubMode = typeof VITEHUB_MODES[keyof typeof VITEHUB_MODES]
+
+function getViteMode(): ViteHubMode | undefined {
+  const mode = process.env.VITEHUB_VITE_MODE
+  return Object.values(VITEHUB_MODES).includes(mode as ViteHubMode) ? mode as ViteHubMode : undefined
+}
 
 const buildMode: ViteHubMode = getViteMode() || VITEHUB_MODES.queue
 
@@ -72,6 +91,7 @@ export default defineConfig(async () => {
       import("@vitehub/workspace/vite"),
       import("@vitehub/workflow/vite"),
     ])
+    const { createViteE2EComposer, resolveViteE2EOptions } = await import("./build/vite-e2e")
     const composerOptions = resolveViteE2EOptions(import.meta.dirname, hosting)
 
     return {

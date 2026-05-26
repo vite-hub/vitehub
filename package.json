@@ -17,6 +17,8 @@
     "test": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test",
     "build": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run build",
     "playground:vite:build": "pnpm --dir playground/vite build",
+    "playground:vite:build:cloudflare": "pnpm build && pnpm playground:vite:build && pnpm playground:vite:prepare-cloudflare-root",
+    "playground:vite:prepare-cloudflare-root": "node ./playground/vite/build/prepare-cloudflare-root-config.mjs",
     "docs:dev": "pnpm --dir docs dev",
     "docs:build": "pnpm --dir docs build"
   },
