@@ -16,7 +16,7 @@ async function createTempProject(prefix: string) {
   await mkdir(join(rootDir, "src"), { recursive: true })
   await mkdir(join(rootDir, "dist", "client"), { recursive: true })
   await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
-    "export default { cron: '0 0 * * *', handler: () => 'ok' }",
+    "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
     "",
   ].join("\n"), "utf8")
   return rootDir
@@ -325,21 +325,18 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
   })
 
-  it("continues to later object default exports when earlier defaults are not objects", async () => {
-    const rootDir = await createTempProject("vitehub-schedule-output-later-object-cron-")
+  it("rejects raw default objects for provider cron extraction", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-raw-object-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
       "const docs = 'export default helper'",
       "export default { cron: '0 2 * * *', handler: () => 'ok' }",
       "",
     ].join("\n"), "utf8")
 
-    await generateProviderOutputs({
+    await expect(generateProviderOutputs({
       clientOutDir: "dist/client",
       rootDir,
-    })
-
-    const cloudflareConfig = join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json")
-    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 2 * * *"])
+    })).rejects.toThrow(/must declare a static cron string/)
   })
 
   it("preserves existing Vercel output config when adding schedule crons", async () => {
@@ -411,7 +408,7 @@ describe("schedule provider output", () => {
     await writeFile(aliasFile, "export const marker = 'nitro-alias-marker'\n", "utf8")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
       "import { marker } from '#imports'",
-      "export default { cron: '0 0 * * *', handler: () => marker }",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => marker })",
       "",
     ].join("\n"), "utf8")
     await writeFile(registryFile, [
@@ -442,7 +439,7 @@ describe("schedule provider output", () => {
     await writeFile(aliasFile, "export const marker = 'vite-alias-marker'\n", "utf8")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
       "import { marker } from '#schedule-helper'",
-      "export default { cron: '0 0 * * *', handler: () => marker }",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => marker })",
       "",
     ].join("\n"), "utf8")
 

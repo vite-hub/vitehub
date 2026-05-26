@@ -61,7 +61,7 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
   const source = readFileSync(file, "utf8")
-  const cron = readDefaultDefineScheduleCron(source) ?? readDefaultObjectCron(source)
+  const cron = readDefaultDefineScheduleCron(source)
   if (!cron) {
     throw new Error(`Schedule "${scheduleName}" must declare a static cron string for provider wake output.`)
   }
@@ -400,18 +400,6 @@ function readDefaultDefineScheduleCron(source: string): string | undefined {
     const objectSource = readDefineScheduleObjectAfterDefault(source, match.index + match[0].length)
     if (!objectSource) continue
     return readTopLevelCronProperty(objectSource)
-  }
-}
-
-function readDefaultObjectCron(source: string): string | undefined {
-  let match: RegExpExecArray | null
-  const pattern = /\bexport\s+default\b/g
-  while ((match = pattern.exec(source))) {
-    if (isInsideNonCode(source, match.index)) continue
-
-    const objectStart = skipIgnorable(source, match.index + match[0].length)
-    const objectSource = readBalancedObject(source, objectStart)
-    if (objectSource) return readTopLevelCronProperty(objectSource)
   }
 }
 
