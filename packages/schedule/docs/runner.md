@@ -19,7 +19,6 @@ First define a runtime-eligible target.
 ```ts [src/reports/daily.schedule.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
 export default defineSchedule({
   allowRuntimeSchedules: true,
   cron: '0 9 * * *',
@@ -34,7 +33,6 @@ export default defineSchedule({
 ```ts [server/schedules/reports/daily.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
 export default defineSchedule({
   allowRuntimeSchedules: true,
   cron: '0 9 * * *',
