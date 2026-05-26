@@ -11,14 +11,17 @@ After the quickstart works, most Schedule code falls into four patterns: define 
 
 ## Define Static Schedules
 
-Default-export `defineSchedule(cron, handler, options?)` from a discovered schedule file.
+Default-export `defineSchedule({ cron, handler, allowRuntimeSchedules? })` from a discovered schedule file.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/reports/daily.schedule.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
-  console.log(context.scheduleId, context.scheduledAt)
+export default defineSchedule({
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log(context.scheduleId, context.scheduledAt)
+  },
 })
 ```
 ::
@@ -27,8 +30,11 @@ export default defineSchedule('0 9 * * *', async (context) => {
 ```ts [server/schedules/reports/daily.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
-  console.log(context.scheduleId, context.scheduledAt)
+export default defineSchedule({
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log(context.scheduleId, context.scheduledAt)
+  },
 })
 ```
 ::
@@ -49,12 +55,10 @@ By default, ids come from discovered file names:
 - `server/schedules/reports/daily.ts` becomes `reports/daily`
 ::
 
-Use `options.id` when the public id should stay stable while a file moves:
+Schedule v1 does not support overriding the discovered id. Keep the file path stable when Runtime Schedule targets depend on it.
 
 ```ts
-export default defineSchedule('0 9 * * *', handler, {
-  id: 'daily-digest',
-})
+// `src/reports/daily.schedule.ts` is discovered as `reports/daily`.
 ```
 
 ## Allow Runtime Schedules
@@ -62,8 +66,10 @@ export default defineSchedule('0 9 * * *', handler, {
 Runtime Schedules can only target discovered definitions that opt in:
 
 ```ts
-export default defineSchedule('0 9 * * *', handler, {
+export default defineSchedule({
   allowRuntimeSchedules: true,
+  cron: '0 9 * * *',
+  handler,
 })
 ```
 

@@ -16,9 +16,13 @@ The same definition shape works across providers:
 ```ts
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
-  console.log(context.id, context.scheduledAt)
-}, { allowRuntimeSchedules: true })
+export default defineSchedule({
+  allowRuntimeSchedules: true,
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log(context.id, context.scheduledAt)
+  },
+})
 ```
 
 The same Runtime Schedule client shape works in routes and server code:

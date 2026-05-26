@@ -14,7 +14,10 @@ frameworks: [vite, nitro]
 **Fix:** Use `minute hour day-of-month month day-of-week`:
 
 ```ts
-defineSchedule('0 9 * * *', handler)
+defineSchedule({
+  cron: '0 9 * * *',
+  handler,
+})
 ```
 
 Do not use `every`, seconds fields, one-time timestamps, or timezone options.
@@ -46,8 +49,10 @@ const target = 'daily-digest' satisfies ScheduleTargetName
 **Fix:** Add `allowRuntimeSchedules: true`:
 
 ```ts
-export default defineSchedule('0 9 * * *', handler, {
+export default defineSchedule({
   allowRuntimeSchedules: true,
+  cron: '0 9 * * *',
+  handler,
 })
 ```
 
@@ -55,12 +60,11 @@ export default defineSchedule('0 9 * * *', handler, {
 
 **Cause:** File-name ids are the default.
 
-**Fix:** Add an explicit id before moving or renaming the file:
+**Fix:** Keep the discovered file path stable, or update Runtime Schedule targets that reference the old file-derived id:
 
 ```ts
-export default defineSchedule('0 9 * * *', handler, {
-  id: 'daily-digest',
-})
+// `server/schedules/daily-digest.ts` is discovered as `daily-digest`.
+// Moving it to `server/schedules/reports/daily.ts` changes the target to `reports/daily`.
 ```
 
 ## `schedule_edit` cannot create a Runtime Schedule
