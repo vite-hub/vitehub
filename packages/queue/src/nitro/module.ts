@@ -7,7 +7,7 @@ import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 import { normalizeQueueOptions } from "../config.ts"
 import { discoverQueueDefinitions } from "../discovery.ts"
 import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../integrations/cloudflare.ts"
-import { generatedDirSegments, writeNitroVercelQueueOutputs } from "../internal/nitro-build.ts"
+import { queueGeneratedDirSegments, writeNitroVercelQueueOutputs } from "../internal/nitro-build.ts"
 import type { DiscoveredQueueDefinition, QueueModuleOptions, ResolvedQueueOptions } from "../types.ts"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
@@ -32,11 +32,11 @@ const QUEUE_NITRO_IMPORTS_PRESET = { from: "@vitehub/queue", imports: ["defineQu
 const QUEUE_VITE_PLUGIN_NAME = "@vitehub/queue/vite"
 
 function createNitroQueueRegistryPath(rootDir: string, buildDir: string) {
-  return createNitroRuntimeFilePath(rootDir, { buildDir, fileName: "nitro-registry.mjs", segments: generatedDirSegments })
+  return createNitroRuntimeFilePath(rootDir, { buildDir, fileName: "nitro-registry.mjs", segments: queueGeneratedDirSegments })
 }
 
 function createNitroQueuePluginPath(rootDir: string, buildDir: string) {
-  return createNitroRuntimeFilePath(rootDir, { buildDir, fileName: "nitro-plugin.ts", segments: generatedDirSegments })
+  return createNitroRuntimeFilePath(rootDir, { buildDir, fileName: "nitro-plugin.ts", segments: queueGeneratedDirSegments })
 }
 
 function resolveNitroQueueScanDirs(rootDir: string, scanDirs: string[] | undefined) {

@@ -1,6 +1,7 @@
-import { getNitroMode, getViteMode, VITEHUB_MODES } from "@vitehub/internal/build/mode"
+import { getViteMode, VITEHUB_MODES } from "@vitehub/internal/build/mode"
 import { defineNitroConfig } from "nitro/config"
 
+const getNitroMode = () => process.env.VITEHUB_NITRO_MODE
 const mode = getNitroMode() || getViteMode()
 const chatEnabled = mode === VITEHUB_MODES.chat
 const scheduleEnabled = getNitroMode() === VITEHUB_MODES.schedule || getViteMode() === VITEHUB_MODES.schedule

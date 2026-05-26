@@ -13,7 +13,7 @@ interface SharedDeploymentOptions {
   rootDir: string
 }
 
-export interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
+interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   bundleEntry: string
   bundleOptions: BundleOptions
   bundleOutfileName?: string
@@ -22,7 +22,7 @@ export interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptio
   wranglerConfig: object
 }
 
-export interface VercelDeploymentOutputOptions extends SharedDeploymentOptions {
+interface VercelDeploymentOutputOptions extends SharedDeploymentOptions {
   bundleEntry: string
   bundleOptions: BundleOptions
   config?: object
@@ -35,7 +35,7 @@ export interface VercelDeploymentOutputOptions extends SharedDeploymentOptions {
 export type CloudflareProviderDeploymentOutput = Omit<CloudflareDeploymentOutputOptions, keyof SharedDeploymentOptions>
 export type VercelProviderDeploymentOutput = Omit<VercelDeploymentOutputOptions, keyof SharedDeploymentOptions>
 
-export interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
+interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
   cloudflare: CloudflareProviderDeploymentOutput
   vercel: VercelProviderDeploymentOutput
 }
@@ -61,7 +61,7 @@ export function createDefaultCloudflareOutputRoot(rootDir: string): string {
   return resolve(rootDir, "dist", toSafeAppName(rootDir))
 }
 
-export function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
+function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
   return resolve(rootDir, "dist", "client")
 }
 
@@ -69,7 +69,7 @@ export function createDefaultVercelOutputRoot(rootDir: string): string {
   return resolve(rootDir, ".vercel", "output")
 }
 
-export async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions): Promise<void> {
+async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions): Promise<void> {
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
   const workerOutfile = resolve(outputRoot, options.bundleOutfileName ?? "index.js")
@@ -86,7 +86,7 @@ export async function writeCloudflareDeploymentOutput(options: CloudflareDeploym
   ])
 }
 
-export async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOptions): Promise<void> {
+async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOptions): Promise<void> {
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
   const serverFunctionName = options.serverFunctionName ?? "__server.func"

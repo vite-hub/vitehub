@@ -3,7 +3,7 @@ import { relative, resolve } from "node:path"
 
 import { build as bundle } from "esbuild"
 
-import { computePackageDir, createImportPath, generatedDirSegments as sharedGeneratedDirSegments, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
+import { computePackageDir, createImportPath, generatedDirSegments, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
 import { createNodeFunctionConfig } from "@vitehub/internal/build/vercel-config"
 
 import { normalizeQueueOptions } from "../config.ts"
@@ -12,7 +12,7 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
 import type { QueueModuleOptions } from "../types.ts"
 
-export const generatedDirSegments = sharedGeneratedDirSegments("queue")
+export const queueGeneratedDirSegments = generatedDirSegments("queue")
 
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)

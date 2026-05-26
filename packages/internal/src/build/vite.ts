@@ -1,4 +1,4 @@
-export type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
+type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 
 export function createNoExternalMerger(packageName: string) {
   return (current: NoExternalValue): NoExternalValue => {
