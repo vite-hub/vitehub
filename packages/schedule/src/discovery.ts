@@ -8,232 +8,272 @@ import {
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
 } from "@vitehub/internal/definition-catalog"
-import {
-  findIdentifierCalls,
-  splitTopLevel,
-} from "@vitehub/internal/source-scanner"
 
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
-function findQuotedStringEnd(source: string, start: number) {
-  const quote = source[start]
-  let index = start + 1
+function skipLineComment(source: string, index: number): number {
+  const newline = source.indexOf("\n", index + 2)
+  return newline === -1 ? source.length : newline + 1
+}
+
+function skipBlockComment(source: string, index: number): number {
+  const close = source.indexOf("*/", index + 2)
+  return close === -1 ? source.length : close + 2
+}
+
+function skipQuoted(source: string, index: number): number {
+  const quote = source[index]
+  index += 1
   while (index < source.length) {
     if (source[index] === "\\") {
       index += 2
       continue
     }
-    if (source[index] === quote) {
-      return index + 1
-    }
+    if (source[index] === quote) return index + 1
     index += 1
   }
   return source.length
 }
 
-function findTemplateLiteralEnd(source: string, start: number) {
-  let expressionDepth = 0
-  let index = start + 1
+function skipIgnorable(source: string, index: number): number {
   while (index < source.length) {
-    const char = source[index]
-    const next = source[index + 1]
+    if (/\s/.test(source[index]!)) {
+      index += 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index)
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index)
+      continue
+    }
+    break
+  }
+  return index
+}
+
+function previousSignificantToken(source: string, index: number): string {
+  let cursor = index - 1
+  while (cursor >= 0 && /\s/.test(source[cursor]!)) cursor -= 1
+  if (cursor < 0) return ""
+
+  const wordEnd = cursor + 1
+  while (cursor >= 0 && /[$\w]/.test(source[cursor]!)) cursor -= 1
+  if (cursor < wordEnd - 1) return source.slice(cursor + 1, wordEnd)
+
+  return source[cursor]!
+}
+
+function canStartRegexLiteral(source: string, index: number): boolean {
+  const token = previousSignificantToken(source, index)
+  return token === ""
+    || token === "await"
+    || token === "case"
+    || token === "delete"
+    || token === "return"
+    || token === "throw"
+    || token === "typeof"
+    || token === "void"
+    || /^[({[=,:;!&|?+\-*%^~<>]$/.test(token)
+}
+
+function skipRegexLiteral(source: string, index: number): number {
+  let inCharacterClass = false
+  for (let cursor = index + 1; cursor < source.length; cursor += 1) {
+    const char = source[cursor]
     if (char === "\\") {
-      index += 2
+      cursor += 1
       continue
     }
-    if (char === "`") {
-      if (expressionDepth === 0) return index + 1
-      index = findTemplateLiteralEnd(source, index)
+    if (char === "[") {
+      inCharacterClass = true
       continue
     }
-    if (char === "\"" || char === "'") {
-      index = findQuotedStringEnd(source, index)
+    if (char === "]") {
+      inCharacterClass = false
       continue
     }
-    if (char === "$" && next === "{") {
-      expressionDepth += 1
-      index += 2
-      continue
+    if (char === "/" && !inCharacterClass) {
+      cursor += 1
+      while (/[a-z]/i.test(source[cursor] ?? "")) cursor += 1
+      return cursor
     }
-    if (char === "{" && expressionDepth > 0) {
-      expressionDepth += 1
-      index += 1
-      continue
-    }
-    if (char === "}" && expressionDepth > 0) {
-      expressionDepth -= 1
-      index += 1
-      continue
-    }
-    index += 1
   }
   return source.length
 }
 
-function maskCommentsAndStrings(source: string) {
-  let masked = ""
-  for (let index = 0; index < source.length;) {
+function isInsideNonCode(source: string, targetIndex: number): boolean {
+  for (let index = 0; index < targetIndex; index += 1) {
     const char = source[index]
-    const next = source[index + 1]
-    if (char === "/" && next === "/") {
-      const end = source.indexOf("\n", index + 2)
-      const nextIndex = end === -1 ? source.length : end
-      masked += " ".repeat(nextIndex - index)
-      index = nextIndex
+    if (char === "\"" || char === "'" || char === "`") {
+      const quotedEnd = skipQuoted(source, index)
+      if (targetIndex < quotedEnd) return true
+      index = quotedEnd - 1
       continue
     }
-    if (char === "/" && next === "*") {
-      const end = source.indexOf("*/", index + 2)
-      const nextIndex = end === -1 ? source.length : end + 2
-      masked += " ".repeat(nextIndex - index)
-      index = nextIndex
+    if (source.startsWith("//", index)) {
+      const commentEnd = skipLineComment(source, index)
+      if (targetIndex < commentEnd) return true
+      index = commentEnd - 1
       continue
     }
-    if (char === "\"" || char === "'") {
-      const nextIndex = findQuotedStringEnd(source, index)
-      masked += " ".repeat(nextIndex - index)
-      index = nextIndex
-      continue
+    if (source.startsWith("/*", index)) {
+      const commentEnd = skipBlockComment(source, index)
+      if (targetIndex < commentEnd) return true
+      index = commentEnd - 1
     }
-    if (char === "`") {
-      const nextIndex = findTemplateLiteralEnd(source, index)
-      masked += " ".repeat(nextIndex - index)
-      index = nextIndex
-      continue
-    }
-    masked += char
-    index += 1
   }
-  return masked
+  return false
 }
 
-function isExportDefaultCall(source: string, start: number) {
-  const code = maskCommentsAndStrings(source.slice(0, start))
-  return /(?:^|[^\w$])export\s+default(?:\s|\()*$/.test(code)
-}
+function readBalancedObject(source: string, openIndex: number): string | undefined {
+  if (source[openIndex] !== "{") return undefined
 
-function readDefaultExportIdentifier(source: string) {
-  const code = maskCommentsAndStrings(source)
-  return code.match(/\bexport\s+default\s+([A-Za-z_$][\w$]*)\b(?!\s*(?:<|\())/)?.[1]
-    ?? code.match(/\bexport\s*\{\s*([A-Za-z_$][\w$]*)\s+as\s+default\s*\}/)?.[1]
-}
-
-function readDefineScheduleBindingName(source: string, start: number) {
-  return source.slice(0, start).match(/(?:^|[;\n])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?:\s*:[^=]+)?\s*=\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n|$)\s*)*(?:\(\s*)*$/)?.[1]
-}
-
-function readDefineScheduleOptions(source: string): string | undefined {
-  const calls = findIdentifierCalls(source, "defineSchedule")
-  const directExportCall = calls.find(call => isExportDefaultCall(source, call.start))
-  if (directExportCall) return directExportCall.arguments[2]
-
-  const defaultExportName = readDefaultExportIdentifier(source)
-  const defaultExportBindingCall = defaultExportName
-    ? calls.find(call => readDefineScheduleBindingName(source, call.start) === defaultExportName)
-    : undefined
-  return (defaultExportBindingCall ?? calls[0])?.arguments[2]
-}
-
-function stripBoundaryComments(source: string) {
-  return source
-    .replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
-    .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
-}
-
-function decodeStringLiteralValue(value: string) {
-  let decoded = ""
-  for (let index = 0; index < value.length; index++) {
-    const char = value[index]
-    if (char !== "\\") {
-      decoded += char
+  let depth = 0
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipQuoted(source, index) - 1
       continue
     }
-    const next = value[++index]
-    if (next === undefined) {
-      decoded += "\\"
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index) - 1
       continue
     }
-    if (next === "u") {
-      if (value[index + 1] === "{") {
-        const end = value.indexOf("}", index + 2)
-        const hex = end === -1 ? "" : value.slice(index + 2, end)
-        if (/^[\da-f]+$/i.test(hex)) {
-          decoded += String.fromCodePoint(Number.parseInt(hex, 16))
-          index = end
-          continue
-        }
-      }
-      const hex = value.slice(index + 1, index + 5)
-      if (/^[\da-f]{4}$/i.test(hex)) {
-        decoded += String.fromCharCode(Number.parseInt(hex, 16))
-        index += 4
-        continue
-      }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index) - 1
+      continue
     }
-    if (next === "x") {
-      const hex = value.slice(index + 1, index + 3)
-      if (/^[\da-f]{2}$/i.test(hex)) {
-        decoded += String.fromCharCode(Number.parseInt(hex, 16))
-        index += 2
-        continue
-      }
+    if (char === "/" && canStartRegexLiteral(source, index)) {
+      index = skipRegexLiteral(source, index) - 1
+      continue
     }
-    decoded += ({
-      "\\": "\\",
-      "\"": "\"",
-      "'": "'",
-      "0": "\0",
-      b: "\b",
-      f: "\f",
-      n: "\n",
-      r: "\r",
-      t: "\t",
-      v: "\v",
-    } as Record<string, string>)[next] ?? next
-  }
-  return decoded
-}
-
-function readTopLevelStringProperty(source: string, property: string): string | undefined {
-  const objectSource = stripBoundaryComments(source)
-  if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
-
-  for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
-    const [key, ...valueParts] = splitTopLevel(entry, ":")
-    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
-    if (normalizedKey !== property) continue
-    const value = stripBoundaryComments(valueParts.join(":"))
-    const match = value.match(/^(['"])((?:\\.|(?!\1).)*)\1$/)
-    if (match) {
-      return decodeStringLiteralValue(match[2] ?? "")
+    if (char === "{") depth += 1
+    if (char === "}") {
+      depth -= 1
+      if (depth === 0) return source.slice(openIndex + 1, index)
     }
   }
 }
 
-function readTopLevelBooleanProperty(source: string, property: string): boolean | undefined {
-  const objectSource = stripBoundaryComments(source)
-  if (!objectSource.startsWith("{") || !objectSource.endsWith("}")) return undefined
+function splitTopLevelProperties(source: string): string[] {
+  const properties: string[] = []
+  let depth = 0
+  let start = 0
 
-  for (const entry of splitTopLevel(objectSource.slice(1, -1))) {
-    const [key, ...valueParts] = splitTopLevel(entry, ":")
-    const normalizedKey = stripBoundaryComments(key ?? "").replace(/^(['"])(.*)\1$/, "$2")
-    if (normalizedKey !== property) continue
-    const value = stripBoundaryComments(valueParts.join(":"))
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === "\"" || char === "'" || char === "`") {
+      index = skipQuoted(source, index) - 1
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = skipLineComment(source, index) - 1
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = skipBlockComment(source, index) - 1
+      continue
+    }
+    if (char === "/" && canStartRegexLiteral(source, index)) {
+      index = skipRegexLiteral(source, index) - 1
+      continue
+    }
+    if (char === "{" || char === "[" || char === "(") depth += 1
+    if (char === "}" || char === "]" || char === ")") depth -= 1
+    if (char === "," && depth === 0) {
+      properties.push(source.slice(start, index))
+      start = index + 1
+    }
+  }
+
+  properties.push(source.slice(start))
+  return properties
+}
+
+function readTopLevelBooleanProperty(objectSource: string, propertyName: string): boolean | undefined {
+  for (const property of splitTopLevelProperties(objectSource)) {
+    const colon = property.indexOf(":")
+    if (colon === -1) continue
+
+    const key = stripBoundaryComments(property.slice(0, colon)).replace(/^["'`](.*)["'`]$/s, "$1")
+    if (key !== propertyName) continue
+
+    const value = stripBoundaryComments(property.slice(colon + 1))
     if (value === "true") return true
     if (value === "false") return false
   }
 }
 
-function readScheduleIdOverride(file: string): string | undefined {
-  const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
-  return options ? readTopLevelStringProperty(options, "id") : undefined
+function stripBoundaryComments(source: string): string {
+  return source
+    .replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
+    .replace(/(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+$/, "")
+}
+
+function findTypeParametersEnd(source: string, index: number): number {
+  let depth = 0
+  for (let cursor = index; cursor < source.length; cursor += 1) {
+    const char = source[cursor]
+    if (char === "<") depth += 1
+    if (char === ">" && source[cursor - 1] === "=") continue
+    if (char === ">") {
+      depth -= 1
+      if (depth === 0) return cursor
+    }
+  }
+  return -1
+}
+
+function readDefineScheduleObjectAfterDefault(source: string, index: number): string | undefined {
+  let cursor = skipIgnorable(source, index)
+  let openParens = 0
+  while (source[cursor] === "(") {
+    openParens += 1
+    cursor = skipIgnorable(source, cursor + 1)
+  }
+
+  if (!source.startsWith("defineSchedule", cursor)) return undefined
+  cursor += "defineSchedule".length
+
+  cursor = skipIgnorable(source, cursor)
+  if (source[cursor] === "<") {
+    const close = findTypeParametersEnd(source, cursor)
+    if (close === -1) return undefined
+    cursor = skipIgnorable(source, close + 1)
+  }
+
+  if (source[cursor] !== "(") return undefined
+  cursor = skipIgnorable(source, cursor + 1)
+  const objectSource = readBalancedObject(source, cursor)
+  if (!objectSource) return undefined
+
+  let afterObject = skipIgnorable(source, cursor + objectSource.length + 2)
+  if (source[afterObject] === ")") afterObject = skipIgnorable(source, afterObject + 1)
+  while (openParens > 0 && source[afterObject] === ")") {
+    openParens -= 1
+    afterObject = skipIgnorable(source, afterObject + 1)
+  }
+  return openParens === 0 ? objectSource : undefined
+}
+
+function readDefaultDefineScheduleObject(source: string): string | undefined {
+  let match: RegExpExecArray | null
+  const pattern = /\bexport\s+default\b/g
+  while ((match = pattern.exec(source))) {
+    if (isInsideNonCode(source, match.index)) continue
+    const objectSource = readDefineScheduleObjectAfterDefault(source, match.index + match[0].length)
+    if (objectSource) return objectSource
+  }
 }
 
 function readAllowRuntimeSchedules(file: string): boolean {
-  const options = readDefineScheduleOptions(readFileSync(file, "utf8"))
-  return options ? readTopLevelBooleanProperty(options, "allowRuntimeSchedules") === true : false
+  const objectSource = readDefaultDefineScheduleObject(readFileSync(file, "utf8"))
+  return objectSource ? readTopLevelBooleanProperty(objectSource, "allowRuntimeSchedules") === true : false
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {
@@ -246,12 +286,11 @@ function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition
 }
 
 function normalizeSuffixScheduleName(rootDir: string, file: string) {
-  return readScheduleIdOverride(file)
-    ?? normalizeSuffixDefinitionName(rootDir, file, scheduleSuffixPattern, { stripPrefix: "src/" })
+  return normalizeSuffixDefinitionName(rootDir, file, scheduleSuffixPattern, { stripPrefix: "src/" })
 }
 
 function normalizeDirectoryScheduleName(directory: string, file: string) {
-  return readScheduleIdOverride(file) ?? normalizePathDefinitionName(directory, file)
+  return normalizePathDefinitionName(directory, file)
 }
 
 export function discoverScheduleDefinitions(options:

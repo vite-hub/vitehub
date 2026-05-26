@@ -1,0 +1,78 @@
+{
+  "label": "Schedule",
+  "docsPath": "schedule",
+  "icon": "i-lucide-calendar-clock",
+  "order": 5,
+  "defaultPhase": "define",
+  "providers": [
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  schedule: {\n    provider: 'cloudflare',\n  },"
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "darkInvert": true,
+      "configOverride": "  schedule: {\n    provider: 'vercel',\n  },"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/daily-report.schedule.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "src/database-cleanup.schedule.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/daily-report.schedule.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "src/database-cleanup.schedule.ts",
+            "package.json"
+          ]
+        }
+      }
+    },
+    "nitro": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/schedules/daily-report.ts",
+            "run": "server/api/schedules/index.post.ts"
+          },
+          "supplementalFiles": [
+            "server/schedules/database-cleanup.ts",
+            "server/api/schedules/index.get.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "nitro.config.ts",
+            "define": "server/schedules/daily-report.ts",
+            "run": "server/api/schedules/index.post.ts"
+          },
+          "supplementalFiles": [
+            "server/schedules/database-cleanup.ts",
+            "server/api/schedules/index.get.ts",
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}

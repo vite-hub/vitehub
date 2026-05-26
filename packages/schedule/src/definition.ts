@@ -1,6 +1,7 @@
-import type { ScheduleDefinition, ScheduleDefinitionOptions, ScheduleHandler } from "./types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionInput } from "./types.ts"
 
 const cronFieldPattern = /^[^\s]+$/
+const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "cron", "handler"])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -17,28 +18,32 @@ function validateCron(cron: string): void {
   }
 }
 
-export function defineSchedule<TResult = unknown>(
-  cron: string,
-  handler: ScheduleHandler<TResult>,
-  options?: ScheduleDefinitionOptions,
-): ScheduleDefinition<TResult> {
-  validateCron(cron)
+export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>): ScheduleDefinition<TResult> {
+  if (!isPlainObject(input)) {
+    throw new TypeError("`defineSchedule()` expects an object with `cron` and `handler`.")
+  }
 
-  if (typeof handler !== "function") {
+  const unknownKey = Object.keys(input).find(key => !scheduleDefinitionKeys.has(key))
+  if (unknownKey) {
+    throw new TypeError(`\`defineSchedule()\` does not support the "${unknownKey}" option.`)
+  }
+
+  validateCron(input.cron)
+
+  if (typeof input.handler !== "function") {
     throw new TypeError("`defineSchedule()` requires a schedule handler.")
   }
 
-  if (typeof options !== "undefined" && !isPlainObject(options)) {
-    throw new TypeError("`defineSchedule()` options must be a plain object.")
+  if (typeof input.allowRuntimeSchedules !== "undefined" && typeof input.allowRuntimeSchedules !== "boolean") {
+    throw new TypeError("`defineSchedule()` allowRuntimeSchedules must be a boolean.")
   }
 
-  if (typeof options?.id !== "undefined" && (typeof options.id !== "string" || options.id.length === 0)) {
-    throw new TypeError("`defineSchedule()` options.id must be a non-empty string.")
+  const definition: ScheduleDefinition<TResult> = {
+    cron: input.cron,
+    handler: input.handler,
   }
-
-  if (typeof options?.allowRuntimeSchedules !== "undefined" && typeof options.allowRuntimeSchedules !== "boolean") {
-    throw new TypeError("`defineSchedule()` options.allowRuntimeSchedules must be a boolean.")
+  if (typeof input.allowRuntimeSchedules !== "undefined") {
+    definition.options = { allowRuntimeSchedules: input.allowRuntimeSchedules }
   }
-
-  return { cron, handler, options }
+  return definition
 }

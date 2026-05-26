@@ -5,5 +5,6 @@ export default defineEventHandler(() => ({
   chat: "nitro-playground",
   env: true,
   queue: "welcome",
+  schedule: "daily-marker",
   workflow: "welcome",
 }))

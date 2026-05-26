@@ -62,6 +62,15 @@ export interface AgentRunInput<CALL_OPTIONS = unknown> {
   timeout?: number
 }
 
+export interface AgentScheduleInvocationInput {
+  id: string
+  kind: "schedule"
+  runId?: string
+  scheduleId?: string
+  scheduledAt: Date
+  target?: string
+}
+
 export interface AgentRunMetadata {
   channelId?: string
   messageId?: string
@@ -150,7 +159,7 @@ export type AgentToolResolverWithWorkspace<
 export type AgentCapabilityMode = "read" | "write"
 
 export interface AgentCapabilityRequirement {
-  primitive?: "workspace-shell" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "skills" | "workspace" | (string & {})
+  primitive?: "workspace-shell" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "schedule" | "skills" | "workspace" | (string & {})
   workspace?: {
     mode?: AgentCapabilityMode
     paths?: string[]

@@ -19,6 +19,7 @@
     "@vitehub/internal": "workspace:*",
     "@vitehub/kv": "workspace:*",
     "@vitehub/queue": "workspace:*",
+    "@vitehub/schedule": "workspace:*",
     "@vitehub/sandbox": "workspace:*",
     "@vitehub/workspace": "workspace:*",
     "@vitehub/workflow": "workspace:*",

@@ -29,6 +29,7 @@
     "./nitro": "./dist/nitro.js",
     "./runtime": "./dist/runtime.js",
     "./runtime/state": "./dist/runtime/state.js",
+    "./runtime/static": "./dist/runtime/static.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },

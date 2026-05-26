@@ -38,6 +38,13 @@ Use this page to find package-specific Cloudflare guidance in ViteHub.
 
 - Setup overview: [Queue overview](/docs/vite/queue)
 - Provider details: [Queue on Cloudflare](/docs/vite/queue/providers/cloudflare)
+
+### Schedule
+
+`@vitehub/schedule` supports Cloudflare Provider Output on Vite and Nitro when the Vite Integration or Nitro Integration discovers Static Schedule Definitions.
+
+- Setup overview: [Schedule overview](/docs/vite/schedule)
+- Provider details: ViteHub writes worker cron triggers to `wrangler.json`; Cloudflare scheduled events wake the deployed worker and run matching Schedule Definitions.
 ::
 
 ::fw{id="nitro:dev nitro:build"}
@@ -54,8 +61,17 @@ Use this page to find package-specific Cloudflare guidance in ViteHub.
 
 - Setup overview: [Queue overview](/docs/nitro/queue)
 - Provider details: [Queue on Cloudflare](/docs/nitro/queue/providers/cloudflare)
+
+### Schedule
+
+`@vitehub/schedule` supports Cloudflare Provider Output on Vite and Nitro when the Vite Integration or Nitro Integration discovers Static Schedule Definitions.
+
+- Setup overview: [Schedule overview](/docs/nitro/schedule)
+- Provider details: ViteHub writes worker cron triggers to `wrangler.json`; Cloudflare scheduled events wake the deployed worker and run matching Schedule Definitions.
 ::
 
 ## What stays package-specific
 
 Bindings, namespace IDs, and exact config examples live with the package docs. Use this section as a routing page, not as the source of truth for package setup.
+
+Schedule Runtime Helpers are separate from Provider Output. Creating or changing a Runtime Schedule does not automatically provision Cloudflare cron triggers; worker cron configuration comes from Static Schedule Definitions discovered at build time.

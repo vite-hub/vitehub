@@ -5,6 +5,7 @@ import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, createRuntimeRegi
 import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
+import { readDefinitionCrons, writeVercelScheduleFunctions } from "../internal/provider-output.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "../targets-module.ts"
 
 import type { Nitro, NitroModule } from "nitro/types"
@@ -44,16 +45,38 @@ function resolveNitroScheduleScanDirs(rootDir: string, scanDirs: string[] | unde
   return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
 }
 
+function registerNitroSchedulePlugin(nitro: Nitro, pluginFile: string) {
+  nitro.options.plugins ||= []
+  if (!nitro.options.plugins.includes(pluginFile)) {
+    nitro.options.plugins.push(pluginFile)
+  }
+}
+
 function createNitroSchedulePluginContents(file: string, registryFile: string) {
   return [
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
     "",
+    "import { executeStaticSchedule } from \"@vitehub/schedule\"",
     "import { setScheduleRuntimeRegistry } from \"@vitehub/schedule/runtime/state\"",
     "",
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
-    "const scheduleNitroPlugin = defineNitroPlugin(() => {",
+    "async function loadScheduleDefinition(name: string) {",
+    "  const loader = scheduleRegistry[name]",
+    "  if (!loader) return undefined",
+    "  const loaded = await loader()",
+    "  return loaded?.default ?? loaded",
+    "}",
+    "",
+    "const scheduleNitroPlugin = defineNitroPlugin((nitroApp: any) => {",
     "  setScheduleRuntimeRegistry(scheduleRegistry)",
+    "  nitroApp.hooks.hook(\"cloudflare:scheduled\", async ({ event }: { event: { cron: string, scheduledTime: number } }) => {",
+    "    await Promise.all(Object.keys(scheduleRegistry).map(async (name) => {",
+    "      const definition = await loadScheduleDefinition(name)",
+    "      if (!definition || definition.cron !== event.cron) return",
+    "      await executeStaticSchedule({ cron: event.cron, definition, name, scheduledAt: new Date(event.scheduledTime) })",
+    "    }))",
+    "  })",
     "})",
     "",
     "export default scheduleNitroPlugin",
@@ -100,9 +123,21 @@ const scheduleNitroModule: NitroModule = {
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, SCHEDULE_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
     }
 
-    nitro.options.plugins ||= []
-    if (!nitro.options.plugins.includes(runtimeFiles.pluginFile)) {
-      nitro.options.plugins.push(runtimeFiles.pluginFile)
+    registerNitroSchedulePlugin(nitro, runtimeFiles.pluginFile)
+
+    if (nitro.options.preset?.includes("cloudflare")) {
+      const definitions = discoverScheduleDefinitions({
+        mode: "nitro-server-schedules",
+        scanDirs: resolveNitroScheduleScanDirs(nitro.options.rootDir, nitro.options.scanDirs),
+      })
+      const crons = await readDefinitionCrons(definitions)
+      if (crons.size) {
+        nitro.options.cloudflare ||= {}
+        nitro.options.cloudflare.wrangler ||= {}
+        nitro.options.cloudflare.wrangler.triggers ||= { crons: [] }
+        const existing = nitro.options.cloudflare.wrangler.triggers.crons || []
+        nitro.options.cloudflare.wrangler.triggers.crons = [...new Set([...existing, ...crons.values()])]
+      }
     }
 
     hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroScheduleRuntimeFiles(nitro), (nextRuntimeFiles) => {
@@ -111,6 +146,25 @@ const scheduleNitroModule: NitroModule = {
         "#vitehub/schedule/registry": runtimeFiles.registryFile,
         [SCHEDULE_TARGETS_ID]: runtimeFiles.targetsFile,
       })
+      registerNitroSchedulePlugin(nitro, runtimeFiles.pluginFile)
+    })
+
+    nitro.hooks.hook("compiled", async (currentNitro: Nitro) => {
+      if (!currentNitro.options.preset?.includes("vercel")) {
+        return
+      }
+      const definitions = discoverScheduleDefinitions({
+        mode: "nitro-server-schedules",
+        scanDirs: resolveNitroScheduleScanDirs(currentNitro.options.rootDir, currentNitro.options.scanDirs),
+      })
+      const crons = await readDefinitionCrons(definitions)
+      await writeVercelScheduleFunctions({
+        bundleAlias: currentNitro.options.alias,
+        definitions,
+        outputRoot: currentNitro.options.output.dir,
+        registryFile: runtimeFiles.registryFile,
+        rootDir: currentNitro.options.rootDir,
+      }, crons)
     })
   },
 }

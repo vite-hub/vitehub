@@ -5,6 +5,151 @@ import { createMessage } from "@vitehub/agent"
 import type { ChatInput } from "../src/chat/types.ts"
 
 describe("agent message protocol", () => {
+  it("creates inline schedule capabilities without requiring chat history", async () => {
+    const { defineAgent, schedule } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      capabilities: [schedule({ schedules: ["0   9 * * *", { cron: "15 10 * * 1-5", id: "weekday-digest" }] })],
+      run: () => "ok",
+    })
+
+    expect(agent.capabilities).toEqual([
+      expect.objectContaining({
+        id: "schedule",
+        metadata: {
+          kind: "schedule",
+          schedules: [
+            { cron: "0 9 * * *", id: "schedule-0-9" },
+            { cron: "15 10 * * 1-5", id: "weekday-digest" },
+          ],
+        },
+      }),
+    ])
+    expect(agent.chat).toBeUndefined()
+  })
+
+  it("runs scheduled agents with schedule-owned input metadata and no synthetic messages", async () => {
+    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const seen: unknown[] = []
+    const agent = defineAgent({
+      run: context => {
+        seen.push({ input: context.input, messages: context.messages })
+        return "ok"
+      },
+    })
+
+    await expect(runScheduledAgent(agent, {
+      attemptId: "attempt-1",
+      id: "srun_schedule_2026-05-23T09:00:00.000Z",
+      runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+      scheduleId: "schedule-0-9",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      target: "support",
+    })).resolves.toBe("ok")
+
+    expect(seen).toEqual([{
+      input: {
+        context: {
+          schedule: {
+            id: "srun_schedule_2026-05-23T09:00:00.000Z",
+            kind: "schedule",
+            runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+            scheduleId: "schedule-0-9",
+            scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+            target: "support",
+          },
+        },
+      },
+      messages: [],
+    }])
+  })
+
+  it("uses the schedule id as run id when scheduled context omits provider run id", async () => {
+    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const seen: unknown[] = []
+    const agent = defineAgent({
+      run: context => {
+        seen.push(context.input)
+        return "ok"
+      },
+    })
+
+    await expect(runScheduledAgent(agent, {
+      id: "srun_schedule_2026-05-23T09:00:00.000Z",
+      scheduleId: "schedule-0-9",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    })).resolves.toBe("ok")
+
+    expect(seen).toEqual([{
+      context: {
+        schedule: expect.objectContaining({
+          id: "srun_schedule_2026-05-23T09:00:00.000Z",
+          runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+        }),
+      },
+    }])
+  })
+
+  it("memoizes scheduled agent runtime values by key", async () => {
+    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const create = vi.fn(() => ({ ok: true }))
+    const agent = defineAgent({
+      run: context => [
+        context.memo("resource", create),
+        context.memo("resource", create),
+      ],
+    })
+
+    const result = await runScheduledAgent(agent, {
+      attemptId: "attempt-1",
+      id: "srun_schedule_2026-05-23T09:00:00.000Z",
+      runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+      scheduleId: "schedule-0-9",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      target: "support",
+    })
+
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(result).toEqual([{ ok: true }, { ok: true }])
+    expect((result as unknown[])[0]).toBe((result as unknown[])[1])
+  })
+
+  it("runs scheduled agents with host runtime context", async () => {
+    const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
+    const waitUntil = vi.fn()
+    const seen: unknown[] = []
+    const agent = defineAgent({
+      run: context => {
+        seen.push({
+          run: context.run,
+          runtime: context.runtime,
+          waitUntil: context.waitUntil,
+        })
+        return "ok"
+      },
+    })
+
+    await expect(runScheduledAgent(agent, {
+      attemptId: "attempt-1",
+      id: "srun_schedule_2026-05-23T09:00:00.000Z",
+      runId: "srun_schedule_2026-05-23T09:00:00.000Z",
+      scheduleId: "schedule-0-9",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      target: "support",
+    }, {
+      run: { platform: "cloudflare", runId: "host-run" },
+      runtime: "nitro",
+      runtimeConfig: { region: "iad" },
+      waitUntil,
+    })).resolves.toBe("ok")
+
+    expect(seen).toEqual([{
+      run: { platform: "cloudflare", runId: "srun_schedule_2026-05-23T09:00:00.000Z" },
+      runtime: "nitro",
+      waitUntil,
+    }])
+  })
+
   it("converts ViteHub messages to model messages internally", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 

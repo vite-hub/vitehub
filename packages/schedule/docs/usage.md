@@ -1,26 +1,27 @@
 ---
 title: Schedule usage
-description: Practical patterns for schedule definitions, Runtime Schedules, runtime-eligible targets, and run inspection.
+description: Practical patterns for Static Schedule Definitions, Runtime Schedules, Agent Schedules, and v1 boundaries.
 navigation.title: Usage
 navigation.order: 3
-icon: i-lucide-calendar-plus
+icon: i-lucide-workflow
 frameworks: [vite, nitro]
 ---
 
-After Schedule discovery is configured, most application code falls into three patterns: define a schedule target, create or update Runtime Schedules, and inspect run records.
+After the quickstart works, most Schedule code falls into four patterns: define a Static Schedule Definition, opt in Runtime Schedule targets, manage Runtime Schedule records, and attach Agent Schedules or Schedule Capability tools.
 
-## Define a runtime-eligible target
+## Define Static Schedules
 
-Runtime Schedules can only target definitions that opt in with `allowRuntimeSchedules: true`.
+Default-export `defineSchedule({ cron, handler, allowRuntimeSchedules? })` from a discovered schedule file.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/reports/daily.schedule.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
-  console.log('daily report', context.scheduleId, context.scheduledAt)
-}, {
-  allowRuntimeSchedules: true,
+export default defineSchedule({
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log(context.scheduleId, context.scheduledAt)
+  },
 })
 ```
 ::
@@ -29,59 +30,94 @@ export default defineSchedule('0 9 * * *', async (context) => {
 ```ts [server/schedules/reports/daily.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
-  console.log('daily report', context.scheduleId, context.scheduledAt)
-}, {
-  allowRuntimeSchedules: true,
+export default defineSchedule({
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log(context.scheduleId, context.scheduledAt)
+  },
 })
 ```
 ::
 
-The cron string on the definition still describes the static schedule. Runtime Schedules store their own cron expression and use the definition as the target handler.
+Cron expressions are five-field UTC cron strings: minute, hour, day of month, month, and day of week.
 
-## Create a Runtime Schedule
+## Control Schedule Ids
 
-Use `schedules.create()` from server code after validating the caller is allowed to create recurring work.
+By default, ids come from discovered file names:
+
+::fw{id="vite:dev vite:build"}
+- `src/daily-digest.schedule.ts` becomes `daily-digest`
+- `src/reports/daily.schedule.ts` becomes `reports/daily`
+::
+
+::fw{id="nitro:dev nitro:build"}
+- `server/schedules/daily-digest.ts` becomes `daily-digest`
+- `server/schedules/reports/daily.ts` becomes `reports/daily`
+::
+
+Schedule v1 does not support overriding the discovered id. Keep the file path stable when Runtime Schedule targets depend on it.
+
+```ts
+// `src/reports/daily.schedule.ts` is discovered as `reports/daily`.
+```
+
+## Allow Runtime Schedules
+
+Runtime Schedules can only target discovered definitions that opt in:
+
+```ts
+export default defineSchedule({
+  allowRuntimeSchedules: true,
+  cron: '0 9 * * *',
+  handler,
+})
+```
+
+The integration generates typed Runtime Schedule Targets from those opted-in definitions. Application code can import the generated type from the stable ViteHub import path:
+
+```ts
+import { schedules } from '@vitehub/schedule'
+import type { ScheduleTargetName } from '#vitehub/schedule/targets'
+
+const target = 'daily-digest' satisfies ScheduleTargetName
+
+await schedules.create({
+  cron: '0 9 * * *',
+  target,
+})
+```
+
+Runtime Schedule target names are not standalone definitions in v1. They come from Static Schedule Definitions with `allowRuntimeSchedules: true`.
+
+## Manage Runtime Schedules
+
+Use `schedules` from `@vitehub/schedule` to manage recurring Runtime Schedule records:
 
 ```ts
 import { schedules } from '@vitehub/schedule'
 
-const runtimeSchedule = await schedules.create({
+const created = await schedules.create({
   cron: '0 9 * * *',
-  id: 'daily-report',
-  target: 'reports/daily',
-})
-```
-
-Runtime Schedule cron expressions are five-field UTC cron expressions. The helper rejects unknown targets and targets that did not set `allowRuntimeSchedules: true`.
-
-## Update and disable schedules
-
-```ts
-await schedules.update('daily-report', {
-  cron: '30 9 * * 1-5',
+  enabled: true,
+  id: 'daily-digest-9am',
+  target: 'daily-digest',
 })
 
-await schedules.disable('daily-report')
-await schedules.enable('daily-report')
-await schedules.delete('daily-report')
-```
+const all = await schedules.list()
+const same = await schedules.get(created.id)
 
-Disabling a Runtime Schedule prevents automatic runner dispatch and direct `schedules.run(id)` execution.
-
-## Run one schedule manually
-
-Use `schedules.run()` when an explicit action should execute a Runtime Schedule now or for a known scheduled minute.
-
-```ts
-const run = await schedules.run('daily-report', {
-  scheduledAt: new Date('2026-05-24T09:00:00.000Z'),
+await schedules.update(created.id, {
+  cron: '15 9 * * *',
 })
+
+await schedules.disable(created.id)
+await schedules.enable(created.id)
+await schedules.delete(created.id)
 ```
 
-Each run is keyed by Runtime Schedule id and scheduled minute. Re-running the same id for the same `scheduledAt` returns the existing run instead of creating another attempt.
+Runtime Schedule records are recurring cron records. `create()` does not create a one-time or deferred run.
 
-## Start automatic execution
+## Start Automatic Execution
 
 Runtime Schedules do not execute automatically until a process starts the [Basic Self-Hosted Schedule Runner](./runner).
 
@@ -95,12 +131,74 @@ process.once('SIGTERM', () => runner.stop())
 
 Read [Boundaries](./boundaries) before running more than one process against the same schedule store.
 
-## Inspect runs
+## Use Agent Schedules
+
+Use inline Agent Schedules when the Agent Definition itself should be invoked on recurring cron entries:
 
 ```ts
-const runs = await schedules.listRuns()
-const run = await schedules.getRun('srun_daily-report_2026-05-24T09:00:00.000Z')
-const attempts = await schedules.listAttempts(run!.id)
+import { defineAgent, schedule } from '@vitehub/agent'
+
+export default defineAgent({
+  capabilities: [
+    schedule({
+      schedules: [
+        '0 9 * * *',
+        { cron: '0 17 * * 1-5', id: 'weekday-summary' },
+      ],
+    }),
+  ],
+  model,
+  adapter: 'ai-sdk',
+})
 ```
 
-Run status values are `pending`, `running`, `succeeded`, and `failed`. Attempt status values are `running`, `succeeded`, and `failed`.
+String entries get ids from the cron expression, such as `schedule-0-9`. Object entries can set an explicit `id`.
+
+## Expose Schedule Capability Tools
+
+Use `schedule({ mode, policy })` when the model should read or manage scoped Runtime Schedules:
+
+```ts
+import { defineAgent, schedule } from '@vitehub/agent'
+import type { ScheduleTargetName } from '#vitehub/schedule/targets'
+
+export default defineAgent({
+  capabilities: [
+    schedule<ScheduleTargetName>({
+      mode: 'write',
+      policy: 'require-approval',
+      targets: ['daily-digest'],
+    }),
+  ],
+  model,
+  adapter: 'ai-sdk',
+})
+```
+
+`mode: 'read'` exposes `schedule_read`. `mode: 'write'` also exposes `schedule_edit`, which can create, update, enable, disable, and delete Runtime Schedules inside the target allowlist.
+
+Self-targeting Runtime Schedules require explicit permission:
+
+```ts
+schedule({
+  allowSelfTarget: true,
+  mode: 'write',
+  policy: 'require-approval',
+  selfTarget: 'agent/digest',
+  targets: ['agent/digest'],
+})
+```
+
+## V1 Boundaries
+
+Schedule v1 intentionally excludes:
+
+- `every` interval syntax.
+- One-time or deferred schedules.
+- Timezone options beyond five-field UTC cron.
+- Standalone Runtime Schedule target definitions.
+- Distributed runner leases or leader election.
+- Backfill.
+- Configurable retry, overlap, or dedupe policy.
+
+Use provider docs for provider-specific scheduling behavior. General Schedule code should stay provider-neutral.

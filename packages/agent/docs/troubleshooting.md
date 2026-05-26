@@ -13,11 +13,12 @@ Use this page when an agent cannot be discovered or called.
 
 Cause: the generated registry does not contain the requested name.
 
-Fix: check the file path or named export.
+Fix: check the file path.
 
 ```txt
 server/agents/triager.ts -> triager
 server/agents/support/reviewer.ts -> support/reviewer
+server/agents/docs/config.ts -> docs
 ```
 
 ## No generated route

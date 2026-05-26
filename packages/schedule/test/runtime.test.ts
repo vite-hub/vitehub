@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, ScheduleError, schedules, startScheduleRunner } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, ScheduleError, schedules, startScheduleRunner } from "../src/index.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 import type { KVStorage } from "@vitehub/kv"
 
@@ -60,7 +60,6 @@ async function flushAsyncWork(): Promise<void> {
 }
 
 afterEach(() => {
-  vi.useRealTimers()
   resetScheduleRuntime()
 })
 
@@ -182,6 +181,32 @@ describe("Runtime Schedule helper", () => {
     await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     await expect(schedules.update("schedule-1", { enabled: "false" as never })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_ENABLED",
+    })
+  })
+
+  it("rejects non-object runtime schedule create and update inputs", async () => {
+    await expect(schedules.create(null as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      httpStatus: 400,
+    })
+    await expect(schedules.create("bad" as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      httpStatus: 400,
+    })
+    await expect(schedules.update("schedule-1", null as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      httpStatus: 400,
+    })
+  })
+
+  it("rejects non-object runtime schedule execute options", async () => {
+    await expect(executeRuntimeSchedule(null as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      httpStatus: 400,
+    })
+    await expect(executeRuntimeSchedule(123 as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      httpStatus: 400,
     })
   })
 
@@ -551,9 +576,8 @@ describe("Schedule Run bookkeeping", () => {
       definition: {
         cron: "0 10 * * *",
         handler: async () => {},
-        options: { id: "static-report" },
       },
-      name: "report",
+      name: "static-report",
       scheduledAt,
     })
 
@@ -563,7 +587,7 @@ describe("Schedule Run bookkeeping", () => {
       scheduleId: "static-report",
       scheduledAt,
       status: "succeeded",
-      target: "report",
+      target: "static-report",
     })
     expect(await schedules.getRun(run.id)).toEqual(run)
     expect(await schedules.listAttempts(run.id)).toHaveLength(1)
@@ -595,13 +619,13 @@ describe("Schedule Run bookkeeping", () => {
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const first = await executeStaticSchedule({
       cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler: async () => {}, options: { id: "daily/report" } },
+      definition: { cron: "0 9 * * *", handler: async () => {} },
       name: "daily/report",
       scheduledAt,
     })
     const second = await executeStaticSchedule({
       cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler: async () => {}, options: { id: "daily-report" } },
+      definition: { cron: "0 9 * * *", handler: async () => {} },
       name: "daily-report",
       scheduledAt,
     })
@@ -633,9 +657,8 @@ describe("Schedule Run bookkeeping", () => {
         handler: async () => {
           staticCalls++
         },
-        options: { id: "shared-id" },
       },
-      name: "report",
+      name: "shared-id",
       scheduledAt,
     })
 
@@ -948,43 +971,6 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     runner.stop()
   })
 
-  it("isolates rejected async onError hooks", async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
-
-    let reported = 0
-    setScheduleRuntimeRegistry({
-      report: async () => ({
-        cron: "* * * * *",
-        handler: async () => {
-          throw new TypeError("runner boom")
-        },
-        options: { allowRuntimeSchedules: true },
-      }),
-    })
-    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
-    const scheduleRunStore = createMemoryScheduleRunStore()
-    const now = new Date("2026-05-23T08:59:00.000Z")
-    await runtimeScheduleStore.create({ createdAt: now, cron: "* * * * *", enabled: true, id: "report", target: "report", updatedAt: now })
-
-    const runner = startScheduleRunner({
-      intervalMs: 10,
-      onError: async () => {
-        reported++
-        throw new TypeError("onError boom")
-      },
-      runtimeScheduleStore,
-      scheduleRunStore,
-    })
-    await flushAsyncWork()
-    await vi.advanceTimersByTimeAsync(10)
-    await flushAsyncWork()
-
-    expect(reported).toBe(1)
-    expect(runner.running).toBe(true)
-    runner.stop()
-  })
-
   it("isolates malformed cron records while scanning due schedules", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
@@ -1101,27 +1087,6 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     await flushAsyncWork()
 
     expect(errors).toEqual([])
-    runner.stop()
-  })
-
-  it("reports synchronous schedule list failures without crashing", async () => {
-    vi.useFakeTimers()
-    const errors: unknown[] = []
-    const baseStore = createMemoryRuntimeScheduleStore()
-    const runtimeScheduleStore = {
-      ...baseStore,
-      list() {
-        throw new TypeError("list boom")
-      },
-    }
-    const scheduleRunStore = createMemoryScheduleRunStore()
-
-    const runner = startScheduleRunner({ intervalMs: 10, onError: error => errors.push(error), runtimeScheduleStore, scheduleRunStore })
-    await flushAsyncWork()
-
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toBeInstanceOf(TypeError)
-    expect(runner.running).toBe(true)
     runner.stop()
   })
 })

@@ -1,83 +1,78 @@
 ---
 title: Schedule
-description: Define cron schedules and manage Runtime Schedules with explicit self-hosted runner boundaries.
+description: Define recurring cron work for Vite and Nitro apps.
 navigation.title: Overview
 navigation.order: 0
 icon: i-lucide-calendar-clock
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/schedule` gives Vite and Nitro apps one way to define named cron work, create user-managed Runtime Schedules, and execute them from a process that you own.
+`@vitehub/schedule` defines recurring cron schedules that can run in Vite and Nitro apps. A Schedule Definition keeps the cron expression and handler together so provider output can discover it.
 
-Use Schedule when recurring work should call a discovered handler. Static schedules live in code. Runtime Schedules live in a store and target definitions that explicitly opt in with `allowRuntimeSchedules: true`.
+Use Schedule when an app needs named recurring work such as daily reports, cleanup jobs, or provider-triggered maintenance tasks.
 
-::code-group
-```ts [server/schedules/reports.ts]
+```ts [server/schedules/daily-report.ts]
 import { defineSchedule } from '@vitehub/schedule'
 
-export default defineSchedule('0 9 * * *', async (context) => {
-  console.log('Running report for', context.scheduledAt.toISOString())
-}, {
-  allowRuntimeSchedules: true,
+export default defineSchedule({
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log(`Run daily report at ${context.scheduledAt.toISOString()}`)
+  },
 })
 ```
 
-```ts [server/api/schedules.post.ts]
-import { schedules } from '@vitehub/schedule'
+The discovered Schedule name comes from the file path. For example, `server/schedules/daily-report.ts` is discovered as `daily-report`.
 
-export default defineEventHandler(async () => {
-  return await schedules.create({
-    cron: '0 9 * * *',
-    id: 'daily-report',
-    target: 'reports',
-  })
-})
-```
+## What Schedule Owns
+
+::card-group
+  :::card
+  ---
+  icon: i-lucide-calendar-clock
+  title: Schedule definitions
+  ---
+  Keep recurring cron handlers in `defineSchedule()`.
+  :::
+
+  :::card
+  ---
+  icon: i-lucide-cloud
+  title: Provider output
+  ---
+  Emit Cloudflare and Vercel cron output from discovered definitions.
+  :::
+
+  :::card
+  ---
+  icon: i-lucide-play-circle
+  title: Runtime runner
+  ---
+  Execute Runtime Schedules from one self-hosted process.
+  :::
 ::
 
-## Discovery model
-
-::fw{id="vite:dev vite:build"}
-Vite discovers schedule definitions from `src/**/*.schedule.ts`.
-
-The schedule name comes from the path under `src`, without the `.schedule` suffix. `src/reports/daily.schedule.ts` becomes `reports/daily`.
-::
-
-::fw{id="nitro:dev nitro:build"}
-Nitro discovers schedule definitions from `server/schedules/**`.
-
-The schedule name comes from the path under `server/schedules`, without the file extension. `server/schedules/reports/daily.ts` becomes `reports/daily`.
-::
-
-## Runtime Schedules
-
-Runtime Schedules are persisted records with an id, cron expression, enabled flag, and target. They are useful when users or application state decide which recurring work should exist.
-
-Only targets that set `allowRuntimeSchedules: true` can be used by Runtime Schedules. This keeps runtime-created records from calling every static schedule handler by accident.
-
-Start with [Usage](./usage), then add the [Basic Self-Hosted Schedule Runner](./runner) when Runtime Schedules need automatic execution.
-
-## Next steps
+## Start Here
 
 ::u-page-grid{class="pb-2"}
   :::u-page-card
   ---
-  title: Usage
-  description: Define schedules, create Runtime Schedules, and inspect runs.
-  to: ./usage
+  title: Quickstart
+  description: Register Schedule and define a first cron handler.
+  to: ./quickstart
   ---
   :::
   :::u-page-card
   ---
   title: Basic Runner
-  description: Start the self-hosted runner from a Node, Nitro, or server entry point.
+  description: Start the self-hosted runner for Runtime Schedules.
   to: ./runner
   ---
   :::
   :::u-page-card
   ---
   title: Boundaries
-  description: Review current runner limits and out-of-scope production provider behavior.
+  description: Review runner limits and current scheduling non-goals.
   to: ./boundaries
   ---
   :::

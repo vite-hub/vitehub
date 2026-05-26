@@ -147,7 +147,7 @@ const payload = await readValidatedPayload(request, schema)
 
 ## `createWorkflow(options)`
 
-Defines an inline workflow and returns a typed handle for starting and observing runs.
+Creates an explicit workflow handle for starting and observing runs. Framework discovery does not scan `createWorkflow()` calls; discovered workflow names come from workflow files or folders.
 
 ```ts
 const chatReply = createWorkflow<ChatReplyPayload, ChatReplyResult>({

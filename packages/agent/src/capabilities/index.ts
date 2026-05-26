@@ -1,4 +1,7 @@
 export {
+  chatSummary,
+} from "./chat-summary.ts"
+export {
   chatTitle,
 } from "./chat-title.ts"
 export {
@@ -10,6 +13,10 @@ export {
 export {
   sandbox,
 } from "./sandbox.ts"
+export {
+  agentScheduleIdFromCron,
+  schedule,
+} from "./schedule.ts"
 export {
   skills,
 } from "./skills.ts"
@@ -42,6 +49,12 @@ export {
 } from "./web-search/index.ts"
 
 export type {
+  ChatSummaryCommandOptions,
+  ChatSummaryExecuteInput,
+  ChatSummaryExecuteResult,
+  ChatSummaryOptions,
+} from "./chat-summary.ts"
+export type {
   ChatTitleExecuteInput,
   ChatTitleExecuteResult,
   ChatTitleOptions,
@@ -63,6 +76,14 @@ export type {
   InputCommandRunInput,
   InputCommandsOptions,
 } from "./input-commands.ts"
+export type {
+  AgentScheduleCapabilityMetadata,
+  AgentScheduleCapabilityOptions,
+  AgentScheduleEntry,
+  RuntimeScheduleCapabilityMetadata,
+  RuntimeScheduleCapabilityOptions,
+  ScheduleCapabilityToolPolicy,
+} from "./schedule.ts"
 export type {
   TranscribeExecuteInput,
   TranscribeExecuteResult,

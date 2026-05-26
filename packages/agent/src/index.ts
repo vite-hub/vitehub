@@ -52,6 +52,7 @@ import type {
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  AgentScheduleInvocationInput,
   AgentSettings,
   AgentUsageCost,
   AgentUsageRecord,
@@ -185,6 +186,14 @@ type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
   chat: AgentChatOptions<TRuntimeConfig>
   kind: "chat"
 }
+interface ScheduleRunContextLike {
+  attemptId?: string
+  id: string
+  runId?: string
+  scheduleId?: string
+  scheduledAt: Date
+  target?: string
+}
 
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -262,8 +271,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { blob, chatTitle, db, inputCommands, kv, mcp, sandbox, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
-export type { ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
+export { agentScheduleIdFromCron, blob, chatSummary, chatTitle, db, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
+export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, ChatSummaryCommandOptions, ChatSummaryExecuteInput, ChatSummaryExecuteResult, ChatSummaryOptions, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -1272,6 +1281,37 @@ export async function runAgent<
     const runResult = toAgentRunResult(rendered)
     return { finishResult: rendered, value: runResult }
   }, "[vitehub] Agent run failed and finish lifecycle also failed.")
+}
+
+export async function runScheduledAgent(
+  agent: AgentInput<AgentRuntimeContext>,
+  context: ScheduleRunContextLike,
+  runtimeContext: Partial<ResolvedAgentRuntimeContext> = {},
+): Promise<unknown> {
+  const memoValues = new Map<string, unknown>()
+  const runId = context.runId || context.id
+
+  return await runAgent(agent, {
+    ...runtimeContext,
+    memo(key, create) {
+      if (!memoValues.has(key)) memoValues.set(key, create())
+      return memoValues.get(key) as never
+    },
+    run: { ...runtimeContext.run, runId },
+    runtime: runtimeContext.runtime ?? "unknown",
+    waitUntil: runtimeContext.waitUntil ?? (() => {}),
+  }, {
+    context: {
+      schedule: {
+        id: context.id,
+        kind: "schedule",
+        runId,
+        scheduleId: context.scheduleId,
+        scheduledAt: context.scheduledAt,
+        target: context.target,
+      },
+    },
+  })
 }
 
 export async function streamAgent<

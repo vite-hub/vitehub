@@ -15,6 +15,7 @@ export default defineConfig({
     "src/nitro.ts",
     "src/runtime.ts",
     "src/runtime/state.ts",
+    "src/runtime/static.ts",
     "src/vite.ts",
   ],
   exports: {

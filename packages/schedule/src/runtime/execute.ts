@@ -28,6 +28,16 @@ interface ExecuteRuntimeScheduleOptions {
   scheduleRunStore?: ScheduleRunStore
 }
 
+function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is ExecuteRuntimeScheduleOptions {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw new ScheduleError("Runtime Schedule execute options must be a schedule id or options object.", {
+      code: "SCHEDULE_INVALID_INPUT",
+      details: { options },
+      httpStatus: 400,
+    })
+  }
+}
+
 function normalizeRunSource(source: ExecuteScheduleOptions["source"]): NonNullable<ExecuteScheduleOptions["source"]> {
   return source ?? "direct"
 }
@@ -194,7 +204,7 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<ScheduleRunRecord> {
   return await executeSchedule({
     definition: options.definition,
-    scheduleId: options.definition.options?.id ?? options.name,
+    scheduleId: options.name,
     source: "static",
     scheduledAt: options.scheduledAt,
     target: options.name,
@@ -214,10 +224,12 @@ async function loadRequiredRuntimeSchedule(id: string, store: RuntimeScheduleSto
 }
 
 export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
-  const id = typeof options === "string" ? options : options.id
-  const scheduledAt = validateScheduledAt(typeof options === "string" ? new Date() : options.scheduledAt ?? new Date())
-  const runtimeScheduleStore = typeof options === "string" ? undefined : options.runtimeScheduleStore
-  const scheduleRunStore = typeof options === "string" ? undefined : options.scheduleRunStore
+  const runtimeOptions = typeof options === "string" ? { id: options } : options
+  assertRuntimeExecuteOptionsObject(runtimeOptions)
+  const id = runtimeOptions.id
+  const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt ?? new Date())
+  const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
+  const scheduleRunStore = runtimeOptions.scheduleRunStore
   const existingRun = await (scheduleRunStore ?? getScheduleRunStore()).getRun(toRunId("runtime", id, scheduledAt))
   if (existingRun) {
     return existingRun

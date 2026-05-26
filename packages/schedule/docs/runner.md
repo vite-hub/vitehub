@@ -20,9 +20,12 @@ First define a runtime-eligible target.
 import { defineSchedule } from '@vitehub/schedule'
 
 export default defineSchedule('0 9 * * *', async (context) => {
-  console.log('run daily report', context.scheduleId, context.scheduledAt.toISOString())
-}, {
+export default defineSchedule({
   allowRuntimeSchedules: true,
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log('run daily report', context.scheduleId, context.scheduledAt.toISOString())
+  },
 })
 ```
 ::
@@ -32,9 +35,12 @@ export default defineSchedule('0 9 * * *', async (context) => {
 import { defineSchedule } from '@vitehub/schedule'
 
 export default defineSchedule('0 9 * * *', async (context) => {
-  console.log('run daily report', context.scheduleId, context.scheduledAt.toISOString())
-}, {
+export default defineSchedule({
   allowRuntimeSchedules: true,
+  cron: '0 9 * * *',
+  handler: async (context) => {
+    console.log('run daily report', context.scheduleId, context.scheduledAt.toISOString())
+  },
 })
 ```
 ::
