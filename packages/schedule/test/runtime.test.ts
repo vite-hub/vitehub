@@ -904,6 +904,35 @@ describe("Basic Self-Hosted Schedule Runner", () => {
     }
   })
 
+  it("matches runner cron months as one-based UTC values", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-01-23T09:00:00.000Z"))
+
+    let calls = 0
+    setScheduleRuntimeRegistry({
+      january: async () => ({
+        cron: "0 9 * 1 *",
+        handler: async () => {
+          calls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const now = new Date("2026-01-23T08:59:00.000Z")
+    await runtimeScheduleStore.create({ createdAt: now, cron: "0 9 * 1 *", enabled: true, id: "january", target: "january", updatedAt: now })
+
+    const runner = startScheduleRunner({ intervalMs: 10, runtimeScheduleStore, scheduleRunStore })
+    await flushAsyncWork()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushAsyncWork()
+
+    expect(calls).toBe(1)
+    expect((await scheduleRunStore.listRuns())[0]?.id).toBe("srun_runtime_january_2026-01-23T09:00:00.000Z")
+    runner.stop()
+  })
+
   it("stops future scans and reports running state", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-05-23T09:00:00.000Z"))
