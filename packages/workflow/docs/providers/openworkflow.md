@@ -55,8 +55,6 @@ export default defineConfig({
 })
 ```
 
-`provider: 'node'` is accepted as an alias for `openworkflow`.
-
 ## Runtime model
 
 OpenWorkflow stores run state and step history in Postgres. The web app starts workflows by writing runs to the database. One or more worker processes poll Postgres, claim work, execute workflow handlers, and persist completed steps.

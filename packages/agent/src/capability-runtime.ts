@@ -57,11 +57,6 @@ export interface ResolvedAgentCapabilities {
   tools?: AgentToolSet
 }
 
-export interface ResolvedAgentStaticCapabilities {
-  toolTransforms: AgentToolTransform[]
-  tools?: AgentToolSet
-}
-
 function assertCapabilityId(id: unknown): asserts id is string {
   if (typeof id !== "string" || !id.trim()) {
     throw new TypeError("[vitehub] Capability definitions require a non-empty string id.")
@@ -323,7 +318,7 @@ export async function resolveAgentCapabilities<
   }
 }
 
-export async function resolveAgentStaticCapabilities<
+export async function resolveStaticCapabilityTools<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(
@@ -331,11 +326,10 @@ export async function resolveAgentStaticCapabilities<
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   workspace?: ReadonlyWorkspaceFacade<Name>,
   workspaceMode: AgentCapabilityMode = "read",
-): Promise<ResolvedAgentStaticCapabilities> {
+): Promise<AgentToolSet | undefined> {
   const runtimeContext = toAgentCallbackContext(runtime)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let tools: AgentToolSet | undefined
-  const toolTransforms: AgentToolTransform[] = []
 
   for (const capability of capabilities) {
     await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
@@ -351,10 +345,7 @@ export async function resolveAgentStaticCapabilities<
     if (isToolSet(resolved)) tools = { ...tools, ...resolved }
   }
 
-  return {
-    toolTransforms,
-    tools,
-  }
+  return tools
 }
 
 function isToolSet(value: unknown): value is AgentToolSet {

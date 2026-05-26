@@ -1,5 +1,6 @@
 import { defu } from "defu"
 
+import { normalizeHosting } from "@vitehub/internal/feature-bridge/hosting"
 import { isPlainObject } from "@vitehub/internal/object"
 
 import type { OpenWorkflowPostgresOptions, OpenWorkflowWorkerOptions, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowSharedOptions } from "./types.ts"
@@ -8,11 +9,7 @@ interface WorkflowResolutionInput {
   hosting?: string
 }
 
-const knownProviders = new Set(["cloudflare", "node", "openworkflow", "vercel"])
-
-function normalizeHosting(hosting: string | undefined): string {
-  return hosting?.trim().toLowerCase().replaceAll("_", "-") || ""
-}
+const knownProviders = new Set(["cloudflare", "openworkflow", "vercel"])
 
 function readString(value: unknown, label: string): string | undefined {
   if (typeof value === "undefined") {
@@ -82,9 +79,6 @@ function hasOpenWorkflowPostgresConfig(options: Record<string, unknown>): boolea
 }
 
 function inferProvider(provider: unknown, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
-  if (provider === "node") {
-    return "openworkflow"
-  }
   if (provider === "cloudflare" || provider === "openworkflow" || provider === "vercel") {
     return provider
   }
@@ -109,7 +103,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
   const provider = options.provider
 
   if (typeof provider === "string" && !knownProviders.has(provider)) {
-    throw new TypeError(`Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", "node", or "vercel".`)
+    throw new TypeError(`Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", or "vercel".`)
   }
 
   const resolved = inferProviderFromOptions(options, hosting)
