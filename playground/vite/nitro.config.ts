@@ -3,11 +3,13 @@ import { defineNitroConfig } from "nitro/config"
 
 const mode = getNitroMode() || getViteMode()
 const chatEnabled = mode === VITEHUB_MODES.chat
+const scheduleEnabled = getNitroMode() === VITEHUB_MODES.schedule || getViteMode() === VITEHUB_MODES.schedule
 const workflowEnabled = getNitroMode() === VITEHUB_MODES.workflow || getViteMode() === VITEHUB_MODES.workflow
 const modules = chatEnabled
   ? ["@vitehub/agent/chat/nitro"]
   : [
       "@vitehub/queue/nitro",
+      "@vitehub/schedule/nitro",
       "@vitehub/kv/nitro",
       "@vitehub/sandbox/nitro",
       "@vitehub/workspace/nitro",
@@ -26,6 +28,7 @@ export default defineNitroConfig({
       }
     : false,
   queue: {},
+  schedule: scheduleEnabled ? {} : false,
   sandbox: {},
   serverDir: "./server",
   workspace: {},

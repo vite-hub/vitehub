@@ -14,7 +14,6 @@ Use this page after the [Quickstart](./quickstart).
 Agents are discovered from Nitro server files.
 
 ```txt
-server/agent.ts
 server/agents/triager.ts
 server/agents/context/config.ts
 server/agents/support/reviewer.ts
@@ -32,17 +31,7 @@ export default defineAgent({
 })
 ```
 
-Use named exports when one file owns several agents:
-
-```ts [server/agent.ts]
-import { defineAgent } from '@vitehub/agent'
-
-export const triager = defineAgent({
-  instructions: 'Triage support requests.',
-  model,
-  adapter: 'ai-sdk',
-})
-```
+The discovered agent name comes from the file or folder path. `defineAgent({ name })` can describe runtime metadata, but it does not rename a discovered agent.
 
 ## Evaluate an agent
 
@@ -203,6 +192,26 @@ export default defineAgent({
 })
 ```
 
+## Transcribe audio input
+
+Use `transcribe()` when an agent should receive audio message parts as text before the model or custom `run` handler executes. The capability appends transcript text to the same ViteHub message, so downstream code can keep reading text parts.
+
+```ts [server/agents/support.ts]
+import { defineAgent, transcribe } from '@vitehub/agent'
+
+export default defineAgent({
+  capabilities: [
+    transcribe({
+      execute: async () => 'Transcribed demo audio.',
+    }),
+  ],
+  model,
+  adapter: 'ai-sdk',
+})
+```
+
+Pass an AI SDK transcription `model` to let ViteHub call `experimental_transcribe()` for each audio part. Use `execute` for deterministic demos, tests, or provider-specific transcription.
+
 ## Customize a run
 
 Use `run` when the default model call is not the right shape.
@@ -287,12 +296,12 @@ export default defineChat({
 
 Use `defineAgent()` with a `workspace` option from a colocated agent config when an agent answers from ViteHub Workspace sources. `workspace` mounts the sources only; it does not expose model tools by itself.
 
-Add `bash()` when the model should inspect the mounted files:
+Add `workspaceShell()` when the model should inspect the mounted files:
 
 ```ts [server/agents/data-sources/config.ts]
 import { defineAgent } from '@vitehub/agent'
-import { bash } from '@vitehub/agent/capabilities'
-import * as source from '@vitehub/workspace/source'
+import { workspaceShell } from '@vitehub/agent/capabilities'
+import { source } from '@vitehub/workspace'
 
 export default defineAgent({
   workspace: {
@@ -301,7 +310,7 @@ export default defineAgent({
     },
   },
   capabilities: [
-    bash(),
+    workspaceShell(),
   ],
   model,
   adapter: 'ai-sdk',
@@ -318,7 +327,7 @@ export default defineAgent({
     },
   },
   capabilities: [
-    bash(),
+    workspaceShell(),
   ],
   instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
   model,
@@ -332,7 +341,7 @@ Instruction parts can also be composed with an array:
 export default defineAgent({
   workspace: {},
   capabilities: [
-    bash(),
+    workspaceShell(),
   ],
   instructions: [
     'Answer only from inspected workspace evidence.',
@@ -349,19 +358,56 @@ Workspace sources do not imply model tools. Replace older workspace agents that 
 
 ```diff
  import { defineAgent } from '@vitehub/agent'
-+import { bash } from '@vitehub/agent/capabilities'
++import { workspaceShell } from '@vitehub/agent/capabilities'
 
  export default defineAgent({
    workspace: { sources },
 +  capabilities: [
-+    bash(),
++    workspaceShell(),
 +  ],
 +  model,
 +  adapter: 'ai-sdk',
  })
 ```
 
-Use `bash({ mode: 'write' })` only with `workspace.mode: 'write'`. Raw tools should be wrapped in inline or factory capabilities.
+Use `workspaceShell({ mode: 'write' })` only with `workspace.mode: 'write'`. Raw tools should be wrapped in inline or factory capabilities.
+
+## Use fetch capabilities
+
+Use `fetch()` when the model should call declared read-oriented HTTP tools. It supports JSON and text resources in v1:
+
+```ts [server/agents/status/config.ts]
+import { defineAgent } from '@vitehub/agent'
+import { fetch } from '@vitehub/agent/capabilities'
+import { useServerEnv } from '#vitehub/env/server'
+
+export default defineAgent({
+  capabilities: [
+    fetch({
+      tools: {
+        checkRegionStatus: {
+          description: 'Fetch current service status for a region.',
+          request: ({ region }) => {
+            const env = useServerEnv()
+            return {
+              url: 'https://status.example.com/api/region',
+              query: { region },
+              headers: {
+                authorization: `Bearer ${env.status.token.unseal()}`,
+              },
+            }
+          },
+          responseType: 'json',
+        },
+      },
+    }),
+  ],
+  model,
+  adapter: 'ai-sdk',
+})
+```
+
+The fetch Capability is query-only. Use it for stable read-style `GET`, `HEAD`, and `POST` requests; side-effectful API calls need a separate Capability design with explicit policy.
 
 ## Use durable memory
 

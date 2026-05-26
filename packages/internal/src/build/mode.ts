@@ -10,6 +10,7 @@ export const VITEHUB_MODES = {
   env: "env",
   kv: "kv",
   queue: "queue",
+  schedule: "schedule",
   sandbox: "sandbox",
   workspace: "workspace",
   workflow: "workflow",
@@ -17,8 +18,31 @@ export const VITEHUB_MODES = {
 
 export type ViteHubMode = typeof VITEHUB_MODES[keyof typeof VITEHUB_MODES]
 
+function isViteCli(argv: string[]): boolean {
+  return argv.some(arg => /(?:^|[/\\])vite(?:\.[cm]?js)?$/.test(arg) || arg === "vite")
+}
+
+function getViteCliMode(argv: string[] = process.argv): ViteHubMode | undefined {
+  if (!isViteCli(argv)) {
+    return undefined
+  }
+
+  const modes = new Set<string>(Object.values(VITEHUB_MODES))
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    const mode = arg === "--mode" || arg === "-m"
+      ? argv[index + 1]
+      : arg.startsWith("--mode=")
+        ? arg.slice("--mode=".length)
+        : undefined
+    if (mode && modes.has(mode)) {
+      return mode as ViteHubMode
+    }
+  }
+}
+
 export function getViteMode(env: NodeJS.ProcessEnv = process.env): ViteHubMode | undefined {
-  return env[VITEHUB_VITE_MODE_KEY] as ViteHubMode | undefined
+  return (env[VITEHUB_VITE_MODE_KEY] as ViteHubMode | undefined) ?? getViteCliMode()
 }
 
 export function getNitroMode(env: NodeJS.ProcessEnv = process.env): ViteHubMode | undefined {

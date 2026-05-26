@@ -1,3 +1,4 @@
+import { transcribe } from "@vitehub/agent"
 import { defineChat } from "@vitehub/agent/chat"
 import { createMemoryChatStateAdapter } from "@vitehub/agent/chat/runtime/memory-state"
 
@@ -107,6 +108,11 @@ const adapter = createPlaygroundMockAgentAdapter({
 })
 
 const agent = {
+  capabilities: [
+    transcribe({
+      execute: () => "Transcribed playground voice input.",
+    }),
+  ],
   chat: {
     fallbackStreamingPlaceholderText: "Thinking...",
     history: { maxMessages: 8, source: "thread" },

@@ -9,9 +9,9 @@ frameworks: [vite, nitro]
 
 After the quickstart works, most Workflow code falls into four patterns: define a typed flow, start it from request code, choose whether dispatch is awaited or deferred, and check the normalized run later.
 
-## Define inline workflows
+## Create explicit workflow handles
 
-Use `createWorkflow(name, handler)` when the workflow belongs to integration code or only needs one durable unit of work.
+Use `createWorkflow(name, handler)` when explicit integration code constructs the workflow handle itself. Framework-discovered workflows should use files or folders; discovery does not scan `createWorkflow()` calls.
 
 ```ts
 import { createWorkflow } from '@vitehub/workflow'

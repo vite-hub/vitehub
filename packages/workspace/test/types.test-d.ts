@@ -5,15 +5,15 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   defineWorkspace,
-  loader,
-  publish,
   useWorkspace,
 } from "../src/index.ts"
 import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type WorkspaceShellResult } from "../src/ai.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
-import * as source from "../src/source.ts"
+import * as loader from "../src/loader.ts"
+import * as publish from "../src/publish.ts"
+import { source } from "../src/index.ts"
 import { hubWorkspace } from "../src/vite.ts"
-import type { WorkspaceModuleOptions, WorkspacePlugin, WorkspaceWriteInput } from "../src/types.ts"
+import type { WorkspaceModuleOptions, WorkspacePlugin, WorkspaceWriteInput } from "../src/core/types.ts"
 
 declare global {
   interface ViteHubWorkspaceAssetMap {
@@ -69,37 +69,58 @@ describe("workspace types", () => {
       include: "**/*.md",
       prefix: "content",
     })
+    source.fetch({
+      schema: {
+        "~standard": {
+          validate: (input: unknown) => ({ value: input as { status: string } }),
+        },
+      },
+      transform(data) {
+        expectTypeOf(data.status).toEqualTypeOf<string>()
+        return { ok: data.status === "ok" }
+      },
+      url: "https://status.example.com/api/summary",
+    })
+    // @ts-expect-error source.fetch does not expose public lifecycle hooks
+    source.fetch({ url: "https://status.example.com/api/summary", beforeRequest() {} })
+    // @ts-expect-error source.fetch uses path as its only Workspace-facing address
+    source.fetch({ url: "https://status.example.com/api/summary", mount: "status" })
+    // @ts-expect-error source.fetch does not expose generic source validation mode
+    source.fetch({ url: "https://status.example.com/api/summary", validate: "request" })
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
       name: "typed",
     })
 
     const readonly = useWorkspace("typed")
-    const writable = useWorkspace("typed", { allowWrite: true })
+    const writable = useWorkspace("typed", { mode: "write" })
 
     expectTypeOf(definition).toMatchTypeOf<object>()
     expectTypeOf(createWorkspaceTools(createWorkspaceAssets({
       "README.md": { load: async () => "# Docs\n" },
     })).shell).toMatchTypeOf<object>()
     expectTypeOf(readonly.tools).toMatchTypeOf<ToolSet>()
+    expectTypeOf(readonly.tools.shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(readonly.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(readonly.tools.inspect({ materialize: true }).materialize_sources).toMatchTypeOf<Tool<{ path?: string, sources?: string[] }, WorkspaceMaterializeSourcesResult>>()
     expectTypeOf(readonly.tools.none()).toMatchTypeOf<ToolSet>()
+    // @ts-expect-error workspace tools are no longer callable aliases
+    readonly.tools()
     // @ts-expect-error read-only facade does not expose executable write sessions
-    readonly.open()
+    readonly.startSession()
     expectTypeOf(writable.tools).toMatchTypeOf<ToolSet>()
+    expectTypeOf(writable.tools.writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(writable.tools.write().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
-    expectTypeOf(writable.open).toBeFunction()
+    expectTypeOf(writable.startSession).toBeFunction()
     const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
     // @ts-expect-error syncOnBuild was removed in favor of assets
     const removedOptions: WorkspaceModuleOptions = { syncOnBuild: true }
     expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceModuleOptions>()
-    const session = null as unknown as Awaited<ReturnType<import("../src/types.ts").Workspace["open"]>>
-    const workspace = null as unknown as import("../src/types.ts").Workspace
+    const session = null as unknown as Awaited<ReturnType<typeof writable.startSession>>
     // @ts-expect-error runtime selection belongs in workspace config, not open options
-    await workspace.open({ runtime: "local" })
+    await writable.startSession({ runtime: "local" })
     expectTypeOf(session.exec).toBeFunction()
     expectTypeOf(session.commit).toBeFunction()
     expectTypeOf(session.close).toBeFunction()

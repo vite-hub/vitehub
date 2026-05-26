@@ -1,0 +1,90 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { describe, expect, it } from "vitest"
+
+import { hubSchedule } from "../src/vite.ts"
+
+function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
+  return (plugin.resolveId as (id: string, importer?: string, options?: unknown) => unknown)("#vitehub/schedule/registry")
+}
+
+function resolveScheduleTargets(plugin: ReturnType<typeof hubSchedule>) {
+  return (plugin.resolveId as (id: string, importer?: string, options?: unknown) => unknown)("#vitehub/schedule/targets")
+}
+
+async function loadScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
+  return await (plugin.load as (id: string, options?: unknown) => string | Promise<string>)("\0#vitehub/schedule/registry")
+}
+
+async function loadScheduleTargets(plugin: ReturnType<typeof hubSchedule>) {
+  return await (plugin.load as (id: string, options?: unknown) => string | Promise<string>)("\0#vitehub/schedule/targets")
+}
+
+function resolvePluginConfig(plugin: ReturnType<typeof hubSchedule>, root: string) {
+  ;(plugin.configResolved as (config: { root: string }) => void)({ root })
+}
+
+describe("Vite schedule integration", () => {
+  it("serves a stable lazy registry for discovered schedule files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vite-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default null\n", "utf8")
+    await writeFile(join(root, "src", "reports.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {} })\n", "utf8")
+
+    const plugin = hubSchedule()
+    resolvePluginConfig(plugin, root)
+    const registry = await loadScheduleRegistry(plugin)
+
+    expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
+    expect(registry).toContain("\"cleanup\": async () => import(")
+    expect(registry).toContain("\"reports\": async () => import(")
+    expect(registry).toContain("../../src/cleanup.schedule.ts")
+  })
+
+  it("serves generated runtime schedule target names behind a stable import", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-targets-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {} })\n", "utf8")
+    await writeFile(join(root, "src", "reports.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {}, allowRuntimeSchedules: true })\n", "utf8")
+
+    const plugin = hubSchedule()
+    resolvePluginConfig(plugin, root)
+    const targets = await loadScheduleTargets(plugin)
+
+    expect(resolveScheduleTargets(plugin)).toBe("\0#vitehub/schedule/targets")
+    expect(targets).toContain("export const scheduleTargetNames = [\"reports\"];")
+    expect(targets).not.toContain("export type")
+    expect(targets).not.toContain("\"cleanup\"")
+  })
+
+  it("discovers quoted runtime schedule opt-in keys and ignores commented opt-ins", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-targets-quoted-"))
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "commented.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {}, /* allowRuntimeSchedules: true */ })\n", "utf8")
+    await writeFile(join(root, "src", "quoted.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {}, \"allowRuntimeSchedules\": true })\n", "utf8")
+
+    const plugin = hubSchedule()
+    resolvePluginConfig(plugin, root)
+    const targets = await loadScheduleTargets(plugin)
+
+    expect(targets).toContain("export const scheduleTargetNames = [\"quoted\"];")
+    expect(targets).not.toContain("\"commented\"")
+  })
+
+  it("serves an empty registry without special cases", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vite-empty-"))
+    const plugin = hubSchedule()
+    resolvePluginConfig(plugin, root)
+
+    expect(await loadScheduleRegistry(plugin)).toBe([
+      "",
+      "const registry = {",
+      "}",
+      "",
+      "export default registry",
+      "",
+    ].join("\n"))
+  })
+})

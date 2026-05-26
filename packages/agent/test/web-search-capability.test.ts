@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { resolveAgentCapabilities, resolveStaticCapabilityTools } from "../src/capability-runtime.ts"
+import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 import { webSearch } from "../src/capabilities.ts"
 import { resolveWebSearchProvider } from "../src/capabilities/web-search/credentials.ts"
 
@@ -20,13 +20,13 @@ describe("webSearch capability", () => {
   })
 
   it("adds search and read tools in tool mode", async () => {
-    const tools = await resolveStaticCapabilityTools({
+    const resolved = await resolveAgentCapabilities({
       capabilities: [webSearch({ mode: "tool", provider: "exa" })],
-    }, runtime())
+    }, runtime(), {})
 
-    expect(Object.keys(tools || {}).sort()).toEqual(["web_read", "web_search"])
-    expect(tools?.web_read.name).toBe("web_read")
-    expect(tools?.web_search.name).toBe("web_search")
+    expect(Object.keys(resolved.tools || {}).sort()).toEqual(["web_read", "web_search"])
+    expect(resolved.tools?.web_read.name).toBe("web_read")
+    expect(resolved.tools?.web_search.name).toBe("web_search")
   })
 
   it("resolves tool-mode credentials in documented order", () => {
@@ -65,11 +65,11 @@ describe("webSearch capability", () => {
   })
 
   it("fails clearly for unsupported tool input options", async () => {
-    const tools = await resolveStaticCapabilityTools({
+    const resolved = await resolveAgentCapabilities({
       capabilities: [webSearch({ mode: "tool", provider: "exa" })],
-    }, runtime())
+    }, runtime(), {})
 
-    await expect(tools?.web_search.execute?.({
+    await expect(resolved.tools?.web_search.execute?.({
       query: "vitehub",
       rawHtml: true,
     })).rejects.toThrow("does not support option")

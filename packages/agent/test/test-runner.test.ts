@@ -20,13 +20,16 @@ vi.mock("ai", () => ({
 }))
 
 vi.mock("@vitehub/workspace", () => ({
-  registerWorkspace: vi.fn(),
   useWorkspace: vi.fn(() => ({
     fs: { list, readFile },
     tools: {
       inspect: inspectTools,
     },
   })),
+}))
+
+vi.mock("@vitehub/workspace/test", () => ({
+  registerWorkspace: vi.fn(),
 }))
 
 describe("agent test runner", () => {
@@ -76,7 +79,7 @@ describe("agent test runner", () => {
   })
 
   it("applies workspace defaults and collects workspace tool steps", async () => {
-    const { registerWorkspace } = await import("@vitehub/workspace")
+    const { registerWorkspace } = await import("@vitehub/workspace/test")
     const execute = vi.fn(async () => "workspace result")
     inspectTools.mockReturnValueOnce({
       shell: { execute },
@@ -92,7 +95,7 @@ describe("agent test runner", () => {
       workspace: {},
       adapter: "ai-sdk",
       model: {} as never,
-      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
       name: "support",
       runtimeConfig: {},
@@ -161,6 +164,40 @@ describe("agent test runner", () => {
       await this.settings.tools.shell.execute({ command: "undefined" })
       await this.settings.tools.shell.execute({ command: "symbol" })
       await this.settings.tools.shell.execute({ command: "rg customer ." })
+      return { finishReason: "stop", text: "answer" }
+    })
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(defineAgent({
+      workspace: {},
+      adapter: "ai-sdk",
+      model: {} as never,
+      capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
+    }), {
+      name: "support",
+      runtimeConfig: {},
+      workspace: "docs",
+    })
+
+    await expect(runner.run({ prompt: "Find evidence" }))
+      .resolves.toMatchObject({ text: "answer" })
+  })
+
+  it("does not count shell output text as workspace inspection guardrails without metadata", async () => {
+    const execute = vi.fn(async () => ({
+      event: "command_exit",
+      exitCode: 0,
+      stderr: "",
+      stdout: "Workspace search is too broad\nSearch returned no matches\n",
+    }))
+    inspectTools.mockReturnValueOnce({
+      shell: { execute },
+    })
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      for (let index = 0; index < 4; index++) {
+        await this.settings.tools.shell.execute({ command: "cat packages/shell/test/workspace-inspection.test.ts" })
+      }
       return { finishReason: "stop", text: "answer" }
     })
     const { defineAgent } = await import("../src/index.ts")

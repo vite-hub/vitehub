@@ -1,0 +1,449 @@
+import {
+  createWorkspaceTools,
+  type ShellEnabled,
+  type WorkspaceMaterializeSourcesResult,
+  type WorkspaceReadOperations,
+  type WorkspaceShellResult,
+  type WorkspaceWriteOperations,
+  type WorkspaceWriteToolMap,
+} from "../ai.ts"
+import { useWorkspaceAssets } from "../asset-registry.ts"
+import { WorkspaceNotFoundError } from "./errors.ts"
+import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
+import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
+import { useRegisteredWorkspace } from "./registry.ts"
+
+import type { Tool, ToolSet } from "ai"
+import type {
+  GlobOptions,
+  ListOptions,
+  MkdirOptions,
+  ReadFileOptions,
+  ReadFileResult,
+  RmOptions,
+  Workspace,
+  WorkspaceAssetPath,
+  WorkspaceAssets,
+  WorkspaceContent,
+  WorkspaceEntry,
+  WorkspaceSessionOptions,
+  WorkspaceName,
+  WorkspaceSearchHit,
+  WorkspaceSearchQuery,
+  WorkspaceSession,
+  WorkspaceStat,
+  WriteFileOptions,
+} from "./types.ts"
+
+type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
+
+export interface UseWorkspaceOptions {
+  mode?: "read" | "write"
+}
+
+export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
+  broadSearchPaths?: string[]
+  cwd?: string
+  maxShellCalls?: number
+  maxOutputLength?: number
+  timeout?: number
+}
+
+export interface WritableWorkspaceFacadeToolOptions extends WorkspaceFacadeToolOptions, WorkspaceWriteOperations {}
+
+type EnabledWriteCapability<Options, Key extends keyof WorkspaceWriteOperations> = Options extends Record<Key, infer Value>
+  ? Value extends false ? false : true
+  : true
+
+export type WorkspaceReadTools<Options = undefined> = ((ShellEnabled<Options> extends true
+  ? { shell: Tool<{ command: string }, WorkspaceShellResult> }
+  : {}) & (Options extends { materialize: true }
+    ? { materialize_sources: Tool<{ path?: string, sources?: string[] }, WorkspaceMaterializeSourcesResult> }
+    : {}) & ToolSet)
+
+export type WorkspaceWriteTools<Options = undefined> = WorkspaceReadTools<Options> & {
+  [Key in keyof WorkspaceWriteToolMap as EnabledWriteCapability<Options, Key> extends true ? Key : never]: WorkspaceWriteToolMap[Key]
+} & ToolSet
+
+export type WorkspaceReadToolSet = WorkspaceReadTools & {
+  inspect: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
+  none: () => ToolSet
+}
+
+export type WorkspaceWriteToolSet = WorkspaceWriteTools & {
+  inspect: <Options extends WorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceReadTools<Options>
+  none: () => ToolSet
+  write: <Options extends WritableWorkspaceFacadeToolOptions | undefined = undefined>(options?: Options) => WorkspaceWriteTools<Options>
+}
+
+export type ReadonlyWorkspaceFs<Name extends WorkspaceName = WorkspaceName> = WorkspaceAssets<WorkspaceAssetPath<Name>>
+
+export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName> {
+  readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: WorkspaceWritablePath<Name>, options?: TOptions): Promise<ReadFileResult<TOptions>>
+  writeFile(path: WorkspaceWritablePath<Name>, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
+  appendFile(path: WorkspaceWritablePath<Name>, content: string): Promise<void>
+  stat(path: WorkspaceWritablePath<Name>): Promise<WorkspaceStat>
+  exists(path: WorkspaceWritablePath<Name>): Promise<boolean>
+  list(path?: WorkspaceWritablePath<Name> | "", options?: ListOptions): Promise<WorkspaceEntry[]>
+  glob(pattern: WorkspaceWritablePath<Name> | Array<WorkspaceWritablePath<Name>>, options?: GlobOptions): Promise<WorkspaceEntry[]>
+  search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
+  mkdir(path: WorkspaceWritablePath<Name>, options?: MkdirOptions): Promise<void>
+  rm(path: WorkspaceWritablePath<Name>, options?: RmOptions): Promise<void>
+  movePath(from: WorkspaceWritablePath<Name>, to: WorkspaceWritablePath<Name>, options?: { overwrite?: boolean }): Promise<void>
+  copyPath(from: WorkspaceWritablePath<Name>, to: WorkspaceWritablePath<Name>, options?: { overwrite?: boolean }): Promise<void>
+}
+
+export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
+  fs: ReadonlyWorkspaceFs<Name>
+  tools: WorkspaceReadToolSet
+}
+
+export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
+  fs: WritableWorkspaceFs<Name>
+  startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
+  tools: WorkspaceWriteToolSet
+}
+
+export type WorkspaceFacade<Name extends WorkspaceName = WorkspaceName, Mode extends UseWorkspaceOptions["mode"] = "read"> =
+  Mode extends "write" ? WritableWorkspaceFacade<Name> : ReadonlyWorkspaceFacade<Name>
+
+function normalizePath(path: string, allowEmpty = false) {
+  return normalizeSafeWorkspacePath(path, { allowEmpty })
+}
+
+function normalizeListPath(path = "") {
+  return normalizePath(path, true)
+}
+
+function normalizePattern(pattern: string | string[]) {
+  return Array.isArray(pattern) ? pattern.map(normalizeSafeWorkspacePattern) : normalizeSafeWorkspacePattern(pattern)
+}
+
+function createLazyWorkspace(name: WorkspaceName): Workspace {
+  let workspacePromise: Promise<Workspace> | undefined
+  let syncPromise: Promise<void> | undefined
+
+  async function resolveWorkspace() {
+    workspacePromise ||= useRegisteredWorkspace(name)
+    return await workspacePromise
+  }
+
+  async function resolveSyncedWorkspace() {
+    const workspace = await resolveWorkspace()
+    if (!syncPromise) {
+      const next = workspace.sync()
+      syncPromise = next
+      next.catch(() => { syncPromise = undefined })
+    }
+    await syncPromise
+    return workspace
+  }
+
+  const workspace = {
+    name,
+    async sync(options) {
+      const resolved = await resolveWorkspace()
+      const next = resolved.sync(options)
+      syncPromise = next
+      next.catch(() => { syncPromise = undefined })
+      await next
+    },
+    async readFile(path, options) {
+      return await (await resolveSyncedWorkspace()).readFile(normalizePath(path), options as never)
+    },
+    async writeFile(path, content, options) {
+      await (await resolveSyncedWorkspace()).writeFile(normalizePath(path), content, options)
+    },
+    async list(path, options) {
+      return await (await resolveSyncedWorkspace()).list(path ? normalizeListPath(path) : "", options)
+    },
+    async glob(pattern, options) {
+      return await (await resolveSyncedWorkspace()).glob(normalizePattern(pattern), options)
+    },
+    async search(query) {
+      return await (await resolveSyncedWorkspace()).search({
+        ...query,
+        cwd: query.cwd ? normalizeListPath(query.cwd) : query.cwd,
+        paths: query.paths?.map(path => normalizeListPath(path)),
+      })
+    },
+    async stat(path) {
+      return await (await resolveSyncedWorkspace()).stat(normalizePath(path))
+    },
+    async exists(path) {
+      return await (await resolveSyncedWorkspace()).exists(normalizePath(path))
+    },
+    async mkdir(path, options) {
+      await (await resolveSyncedWorkspace()).mkdir(normalizePath(path), options)
+    },
+    async rm(path, options) {
+      await (await resolveSyncedWorkspace()).rm(normalizePath(path), options)
+    },
+    async materializeSources(options) {
+      return await (await resolveSyncedWorkspace()).materializeSources?.(options) ?? {
+        bytes: 0,
+        directories: 0,
+        durationMs: 0,
+        files: 0,
+        path: options?.path || "",
+        sources: [],
+      }
+    },
+    async snapshot(options) {
+      return await (await resolveSyncedWorkspace()).snapshot(options)
+    },
+    async diff(options) {
+      return await (await resolveSyncedWorkspace()).diff(options)
+    },
+    async startSession(options) {
+      return await (await resolveSyncedWorkspace()).startSession(options)
+    },
+    mount(options) {
+      const mode = options?.mode || "read-only"
+      return {
+        workspace,
+        mode,
+        target: options?.target || "/workspace",
+        async diff() {
+          return await (await resolveSyncedWorkspace()).mount(options).diff()
+        },
+        async commit(commitOptions) {
+          await (await resolveSyncedWorkspace()).mount(options).commit(commitOptions)
+        },
+        async export() {
+          return await (await resolveSyncedWorkspace()).mount(options).export()
+        },
+      }
+    },
+  } as Workspace
+
+  return workspace
+}
+
+function createWritableFs<Name extends WorkspaceName>(workspace: Workspace): WritableWorkspaceFs<Name> {
+  return {
+    readFile: async (path, options) => await workspace.readFile(normalizePath(path), options as never),
+    writeFile: async (path, content, options) => await workspace.writeFile(normalizePath(path), content, options),
+    appendFile: async (path, content) => await appendWorkspaceFile(workspace, normalizePath(path), content),
+    stat: async path => await workspace.stat(normalizePath(path)),
+    exists: async path => await workspace.exists(normalizePath(path)),
+    list: async (path, options) => await workspace.list(path ? normalizeListPath(path) : "", options),
+    glob: async (pattern, options) => await workspace.glob(normalizePattern(pattern as string | string[]), options),
+    search: async query => await workspace.search({
+      ...query,
+      cwd: query.cwd ? normalizeListPath(query.cwd) : query.cwd,
+      paths: query.paths?.map(path => normalizeListPath(path)),
+    }),
+    mkdir: async (path, options) => await workspace.mkdir(normalizePath(path), options),
+    rm: async (path, options) => await workspace.rm(normalizePath(path), options),
+    movePath: async (from, to, options) => {
+      const source = normalizePath(from)
+      await copyWorkspacePath(workspace, source, normalizePath(to), options?.overwrite)
+      await workspace.rm(source, { recursive: true, force: true })
+    },
+    copyPath: async (from, to, options) => await copyWorkspacePath(workspace, normalizePath(from), normalizePath(to), options?.overwrite),
+  }
+}
+
+function useOptionalWorkspaceAssets<Name extends WorkspaceName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> | undefined {
+  try {
+    return useWorkspaceAssets(name)
+  }
+  catch (error) {
+    if (error instanceof WorkspaceNotFoundError) return undefined
+    throw error
+  }
+}
+
+async function ignoreMissingWorkspace<T>(operation: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await operation()
+  }
+  catch (error) {
+    if (isMissingWorkspaceRead(error)) return undefined
+    throw error
+  }
+}
+
+function isMissingWorkspaceRead(error: unknown) {
+  return error instanceof WorkspaceNotFoundError
+    || (error instanceof Error && error.message.includes("Workspace file does not exist:"))
+    || (error instanceof Error && error.message.includes("Workspace path does not exist:"))
+}
+
+function mergeEntries(primary: WorkspaceEntry[] = [], fallback: WorkspaceEntry[] = []) {
+  const entries = new Map<string, WorkspaceEntry>()
+  for (const entry of fallback) entries.set(entry.path, entry)
+  for (const entry of primary) entries.set(entry.path, entry)
+  return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function mergeSearchHits(primary: WorkspaceSearchHit[] = [], fallback: WorkspaceSearchHit[] = []) {
+  const seen = new Set<string>()
+  return [...primary, ...fallback].filter((hit) => {
+    const key = `${hit.path}:${hit.line}:${hit.column}:${hit.text}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function createReadonlyFs<Name extends WorkspaceName>(
+  name: Name,
+  workspace: Workspace,
+): ReadonlyWorkspaceFs<Name> {
+  const assets = useOptionalWorkspaceAssets(name)
+
+  return {
+    readFile: async (path, options) => {
+      const normalized = normalizePath(path)
+      try {
+        return await workspace.readFile(normalized, options as never)
+      }
+      catch (error) {
+        if (assets && isMissingWorkspaceRead(error)) {
+          return await assets.readFile(normalized as WorkspaceAssetPath<Name>, options as never)
+        }
+        throw error
+      }
+    },
+    stat: async (path) => {
+      const normalized = normalizePath(path)
+      try {
+        return await workspace.stat(normalized)
+      }
+      catch (error) {
+        if (assets && isMissingWorkspaceRead(error)) {
+          return await assets.stat(normalized as WorkspaceAssetPath<Name>)
+        }
+        throw error
+      }
+    },
+    exists: async (path) => {
+      const normalized = normalizePath(path)
+      return await ignoreMissingWorkspace(() => workspace.exists(normalized))
+        ?? (assets ? await assets.exists(normalized as WorkspaceAssetPath<Name>) : false)
+    },
+    list: async (path, options) => {
+      const normalized = path ? normalizeListPath(path) : ""
+      const workspaceEntries = await ignoreMissingWorkspace(() => workspace.list(normalized, options)) ?? []
+      if (normalized && workspaceEntries.length) return workspaceEntries
+      let assetEntries = assets ? await assets.list(normalized as WorkspaceAssetPath<Name>, options) : []
+      if (!normalized && options?.recursive && workspaceEntries.length) {
+        const workspaceRoots = new Set(workspaceEntries.filter(entry => entry.type === "directory").map(entry => entry.path.split("/")[0]))
+        assetEntries = assetEntries.filter(entry => !workspaceRoots.has(entry.path.split("/")[0]))
+      }
+      return mergeEntries(assetEntries, workspaceEntries)
+    },
+    glob: async (pattern, options) => {
+      const normalized = normalizePattern(pattern as string | string[])
+      const assetEntries = assets ? await assets.glob(normalized as WorkspaceAssetPath<Name>, options) : []
+      const workspaceEntries = await ignoreMissingWorkspace(() => workspace.glob(normalized, options)) ?? []
+      return mergeEntries(assetEntries, workspaceEntries)
+    },
+    search: async (query) => {
+      const normalized = {
+        ...query,
+        cwd: query.cwd ? normalizeListPath(query.cwd) : query.cwd,
+        paths: query.paths?.map(path => normalizeListPath(path)),
+      }
+      const limit = normalized.limit ?? 100
+      const assetHits = assets ? await assets.search(normalized) : []
+      const workspaceHits = await ignoreMissingWorkspace(() => workspace.search(normalized)) ?? []
+      return mergeSearchHits(assetHits, workspaceHits).slice(0, limit)
+    },
+    materializeSources: async options => await workspace.materializeSources?.(options) ?? {
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 0,
+      path: options?.path || "",
+      sources: [],
+    },
+  }
+}
+
+function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {
+  return { list: options?.list, materialize: options?.materialize ?? true, read: options?.read, search: options?.search }
+}
+
+function toWriteOperations(options: WritableWorkspaceFacadeToolOptions | undefined) {
+  return {
+    ...toReadOperations(options),
+    write: {
+      appendFile: options?.appendFile !== false,
+      copyPath: options?.copyPath !== false,
+      deletePath: options?.deletePath !== false,
+      makeDir: options?.makeDir !== false,
+      movePath: options?.movePath !== false,
+      writeFile: options?.writeFile !== false,
+    },
+  }
+}
+
+function createDefaultToolSet<TOptions, TDefaultTools extends ToolSet>(
+  createTools: (options?: TOptions) => ToolSet,
+) {
+  return createTools() as TDefaultTools
+}
+
+function emptyTools(): ToolSet {
+  return {}
+}
+
+export function useWorkspace<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFacade<Name>
+export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { mode: "read" }): ReadonlyWorkspaceFacade<Name>
+export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { mode: "write" }): WritableWorkspaceFacade<Name>
+export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
+  if (options?.mode === "write") {
+    const workspace = createLazyWorkspace(name)
+    const createTools = (opts?: WritableWorkspaceFacadeToolOptions) => createWorkspaceTools(workspace, {
+      broadSearchPaths: opts?.broadSearchPaths,
+      cwd: opts?.cwd,
+      maxShellCalls: opts?.maxShellCalls,
+      maxOutputLength: opts?.maxOutputLength,
+      operations: toWriteOperations(opts),
+      timeout: opts?.timeout,
+    })
+    const createReadTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(createReadonlyFs(name, workspace), {
+      broadSearchPaths: opts?.broadSearchPaths,
+      cwd: opts?.cwd,
+      maxShellCalls: opts?.maxShellCalls,
+      maxOutputLength: opts?.maxOutputLength,
+      operations: toReadOperations(opts),
+      timeout: opts?.timeout,
+    })
+    const tools = createDefaultToolSet<
+      WritableWorkspaceFacadeToolOptions,
+      WorkspaceWriteTools
+    >(createTools) as WritableWorkspaceFacade<Name>["tools"]
+    tools.inspect = createReadTools as WritableWorkspaceFacade<Name>["tools"]["inspect"]
+    tools.write = createTools as WritableWorkspaceFacade<Name>["tools"]["write"]
+    tools.none = emptyTools
+    return {
+      fs: createWritableFs<Name>(workspace),
+      startSession: async options => await workspace.startSession(options),
+      tools,
+    }
+  }
+
+  const fs = createReadonlyFs(name, createLazyWorkspace(name))
+  const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
+    broadSearchPaths: opts?.broadSearchPaths,
+    cwd: opts?.cwd,
+    maxShellCalls: opts?.maxShellCalls,
+    maxOutputLength: opts?.maxOutputLength,
+    operations: toReadOperations(opts),
+    timeout: opts?.timeout,
+  })
+  const tools = createDefaultToolSet<
+    WorkspaceFacadeToolOptions,
+    WorkspaceReadTools
+  >(createTools) as ReadonlyWorkspaceFacade<Name>["tools"]
+  tools.inspect = createTools as ReadonlyWorkspaceFacade<Name>["tools"]["inspect"]
+  tools.none = emptyTools
+  return {
+    fs,
+    tools,
+  }
+}

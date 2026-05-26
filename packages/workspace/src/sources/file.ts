@@ -1,6 +1,6 @@
 import { file as createFileSource, type FileSourceOptions as UnsourceFileSourceOptions } from "@vitehub/unsource"
 
-import type { WorkspaceSource } from "../types.ts"
+import type { WorkspaceSource } from "../core/types.ts"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "validate">
 

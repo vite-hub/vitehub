@@ -2,13 +2,13 @@ import { resolve } from "node:path"
 
 import { isPlainObject } from "@vitehub/internal/object"
 
-import { normalizeWorkspaceStoreOptions } from "./store-provider.ts"
+import { normalizeWorkspaceStoreOptions } from "./storage/provider.ts"
 
 import type {
   ResolvedWorkspaceModuleOptions,
   WorkspaceModuleOptions,
-} from "./types.ts"
-import type { WorkspaceResolutionInput } from "./store-provider.ts"
+} from "./core/types.ts"
+import type { WorkspaceResolutionInput } from "./storage/provider.ts"
 
 export {
   MASKED_WORKSPACE_RUNTIME_VALUE,
@@ -18,7 +18,7 @@ export {
   resolveCloudflareArtifactsStore,
   resolveRuntimeVercelBlobWorkspaceStore,
   resolveVercelBlobWorkspaceStore,
-} from "./store-provider.ts"
+} from "./storage/provider.ts"
 
 export function normalizeWorkspaceOptions(
   options: false | WorkspaceModuleOptions | undefined,

@@ -10,18 +10,42 @@ export default defineConfig({
   entry: [
     "src/ai.ts",
     "src/index.ts",
+    "src/loader.ts",
     "src/nitro.ts",
-    "src/source.ts",
+    "src/publish.ts",
     "src/runtime/empty-assets-registry.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/assets.ts",
     "src/runtime/nitro-plugin.ts",
     "src/runtime/state.ts",
-    "src/stores/cloudflare-artifacts.ts",
-    "src/stores/vercel-blob.ts",
+    "src/providers/cloudflare/artifacts-store.ts",
+    "src/providers/vercel/blob-store.ts",
+    "src/test.ts",
     "src/vite.ts",
   ],
   exports: {
+    exclude: [
+      "runtime/assets",
+      "runtime/empty-assets-registry",
+      "runtime/empty-registry",
+      "runtime/nitro-plugin",
+      "runtime/state",
+      "providers/cloudflare/artifacts-store",
+      "providers/vercel/blob-store",
+    ],
+    customExports(exports) {
+      exports["./internal/runtime/assets"] = "./dist/runtime/assets.js"
+      exports["./internal/runtime/empty-assets-registry"] =
+        "./dist/runtime/empty-assets-registry.js"
+      exports["./internal/runtime/empty-registry"] = "./dist/runtime/empty-registry.js"
+      exports["./internal/runtime/nitro-plugin"] = "./dist/runtime/nitro-plugin.js"
+      exports["./internal/runtime/state"] = "./dist/runtime/state.js"
+      exports["./internal/stores/cloudflare-artifacts"] =
+        "./dist/providers/cloudflare/artifacts-store.js"
+      exports["./internal/stores/vercel-blob"] = "./dist/providers/vercel/blob-store.js"
+
+      return exports
+    },
     inlinedDependencies: false,
   },
   format: ["esm"],

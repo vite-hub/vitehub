@@ -52,6 +52,7 @@ import type {
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  AgentScheduleInvocationInput,
   AgentSettings,
   AgentUsageCost,
   AgentUsageRecord,
@@ -185,6 +186,14 @@ type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
   chat: AgentChatOptions<TRuntimeConfig>
   kind: "chat"
 }
+interface ScheduleRunContextLike {
+  attemptId?: string
+  id: string
+  runId?: string
+  scheduleId?: string
+  scheduledAt: Date
+  target?: string
+}
 
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -262,7 +271,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { bash, blob, db, kv, mcp, sandbox, skills } from "./capabilities.ts"
+export { agentScheduleIdFromCron, blob, chatSummary, chatTitle, db, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
+export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, ChatSummaryCommandOptions, ChatSummaryExecuteInput, ChatSummaryExecuteResult, ChatSummaryOptions, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -281,8 +291,8 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
   const capabilities = normalizeCapabilities(options.capabilities)
   const workspaceMode = workspaceModeFromOptions(options)
   for (const capability of capabilities) {
-    if (capability.id === "bash" && normalizeMode(capability.mode, "Bash") === "write" && workspaceMode !== "write") {
-      throw new Error("[vitehub] bash({ mode: \"write\" }) requires workspace.mode: \"write\".")
+    if (capability.id === "workspace-shell" && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
+      throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
     }
     if (capability.id === "sandbox") {
       validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
@@ -293,15 +303,16 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
   if (hasWorkspace) return
   for (const capability of capabilities) {
-    if (capability.id === "bash" || capability.id === "sandbox") {
-      throw new Error(`[vitehub] ${capability.id}() requires an explicit workspace.`)
+    if (capability.id === "workspace-shell" || capability.id === "sandbox") {
+      const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
+      throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }
   }
 }
 
 function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtoolsToolDefinition | undefined {
-  if (capability.id === "bash") {
-    const mode = normalizeMode(capability.mode, "Bash")
+  if (capability.id === "workspace-shell") {
+    const mode = normalizeMode(capability.mode, "Workspace Shell")
     return {
       category: "workspace",
       commands: mode === "write" ? writeCommands : readCommands,
@@ -309,7 +320,7 @@ function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtools
         ? "Run curated workspace read and write shell operations."
         : "Run curated workspace read shell operations.",
       icon: "i-lucide-terminal",
-      name: "bash",
+      name: "workspaceShell",
       status: "available",
     }
   }
@@ -361,6 +372,11 @@ export {
   usageTelemetry,
   vercelAiGatewayPricing,
 } from "./capabilities/usage-telemetry.ts"
+export type {
+  InputCommand,
+  InputCommandRunInput,
+  InputCommandsOptions,
+} from "./capabilities.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,
@@ -969,6 +985,9 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
   if (type === "text-delta" || type === "text") {
     return { id: value.id as string | undefined, text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
+  if (type === "data") {
+    return { data: value.data, id: value.id as string | undefined, messageId: value.messageId as string | undefined, type: "data" }
+  }
   if (type === "tool-input-start") {
     return { id: String(value.id || value.toolCallId), input: value.input, name: String(value.toolName || value.name), type: "tool-input-start" }
   }
@@ -987,6 +1006,9 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
   }
   if (type === "finish") {
     return { reason: typeof value.finishReason === "string" ? value.finishReason : undefined, type: "finish" }
+  }
+  if (type === "data") {
+    return { data: value.data, type: "data" }
   }
   return undefined
 }
@@ -1079,7 +1101,7 @@ async function createAgentInvocationContext<
   const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
   const workspace = workspaceName
     ? workspaceMode === "write"
-      ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { allowWrite: true })
+      ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { mode: "write" })
       : (await import("@vitehub/workspace")).useWorkspace(workspaceName)
     : undefined
   const capabilityOptions = workspaceOptions && workspace
@@ -1229,6 +1251,14 @@ export async function runAgent<
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
+    try {
+      if (isAsyncIterable(result)) {
+        result = await applyOutputRenderers(result, runContext.outputRenderers)
+      }
+    }
+    catch (error) {
+      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
+    }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       return { finishResult: rendered, value: rendered }
@@ -1253,6 +1283,37 @@ export async function runAgent<
   }, "[vitehub] Agent run failed and finish lifecycle also failed.")
 }
 
+export async function runScheduledAgent(
+  agent: AgentInput<AgentRuntimeContext>,
+  context: ScheduleRunContextLike,
+  runtimeContext: Partial<ResolvedAgentRuntimeContext> = {},
+): Promise<unknown> {
+  const memoValues = new Map<string, unknown>()
+  const runId = context.runId || context.id
+
+  return await runAgent(agent, {
+    ...runtimeContext,
+    memo(key, create) {
+      if (!memoValues.has(key)) memoValues.set(key, create())
+      return memoValues.get(key) as never
+    },
+    run: { ...runtimeContext.run, runId },
+    runtime: runtimeContext.runtime ?? "unknown",
+    waitUntil: runtimeContext.waitUntil ?? (() => {}),
+  }, {
+    context: {
+      schedule: {
+        id: context.id,
+        kind: "schedule",
+        runId: context.runId,
+        scheduleId: context.scheduleId,
+        scheduledAt: context.scheduledAt,
+        target: context.target,
+      },
+    },
+  })
+}
+
 export async function streamAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1267,6 +1328,14 @@ export async function streamAgent<
     let result: unknown
     try {
       result = await agent.run(runContext)
+    }
+    catch (error) {
+      return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
+    }
+    try {
+      if (isAsyncIterable(result)) {
+        result = await applyOutputRenderers(result, runContext.outputRenderers)
+      }
     }
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
@@ -1286,6 +1355,14 @@ export async function streamAgent<
     result = resolved.stream
       ? await resolved.stream(toAgentAdapterRunContext(adapterContext) as never)
       : await resolved.generate(toAgentAdapterRunContext(adapterContext) as never)
+  }
+  catch (error) {
+    return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
+  }
+  try {
+    if (isAsyncIterable(result)) {
+      result = await applyOutputRenderers(result, adapterContext.outputRenderers)
+    }
   }
   catch (error) {
     return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")

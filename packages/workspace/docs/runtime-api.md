@@ -25,7 +25,7 @@ import { hubWorkspace } from '@vitehub/workspace/vite'
 The workspace handle is file-tree oriented:
 
 ```ts
-const workspace = useWorkspace('docs', { allowWrite: true })
+const workspace = useWorkspace('docs', { mode: "write" })
 
 await workspace.fs.writeFile('generated/context.md', 'Context')
 
@@ -36,11 +36,11 @@ const hits = await workspace.fs.search({ pattern: 'Context', paths: ['generated'
 
 ## Sessions
 
-`workspace.open()` derives runtime behavior from the workspace definition and app-level config. It does not accept provider selection options:
+`workspace.startSession()` derives runtime behavior from the workspace definition and app-level config. It does not accept provider selection options:
 
 ```ts
-const workspace = useWorkspace('docs', { allowWrite: true })
-const session = await workspace.open()
+const workspace = useWorkspace('docs', { mode: "write" })
+const session = await workspace.startSession()
 
 await session.exec('pnpm', ['test'])
 await session.commit({ message: 'Persist sandbox changes' })
@@ -82,7 +82,7 @@ Use explicit tool presets when an AI runtime needs workspace files:
 ```ts
 const readOnlyTools = useWorkspace('docs').tools.inspect()
 const noTools = useWorkspace('docs').tools.none()
-const writableTools = useWorkspace('docs', { allowWrite: true }).tools.write()
+const writableTools = useWorkspace('docs', { mode: "write" }).tools.write()
 ```
 
 `inspect()` exposes the restricted read-only `shell` inspection tool. `none()` returns no tools. `write()` requires a writable facade and exposes structured mutation tools intentionally.

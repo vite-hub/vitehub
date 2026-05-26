@@ -1,5 +1,5 @@
 import { getOpenWorkflowRuntime, registerOpenWorkflowDefinition } from "./openworkflow.ts"
-import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
+import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinitionForModule } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
 
@@ -27,11 +27,16 @@ async function loadRegistryDefinitions(registry: WorkflowDefinitionRegistry) {
   const definitions = new Map<string, WorkflowDefinition>()
   for (const name of Object.keys(registry).sort()) {
     const loaded = await registry[name]?.()
-    const definition = loaded && typeof loaded === "object" && "default" in loaded
+    const definition = (loaded && typeof loaded === "object" && "default" in loaded
       ? loaded.default
-      : loaded
+      : loaded) as WorkflowDefinition | undefined
     if (definition && typeof definition === "object" && "handler" in definition && typeof definition.handler === "function") {
       definitions.set(name, definition)
+      continue
+    }
+    const inlineDefinition = takeInlineWorkflowDefinitionForModule(name, loaded)
+    if (inlineDefinition) {
+      definitions.set(name, inlineDefinition)
     }
   }
   return definitions

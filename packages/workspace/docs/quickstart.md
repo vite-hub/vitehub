@@ -51,7 +51,7 @@ Use it from a server route:
 ```ts
 import { useWorkspace } from '@vitehub/workspace'
 
-const workspace = useWorkspace('docs', { allowWrite: true })
+const workspace = useWorkspace('docs', { mode: "write" })
 
 await workspace.fs.writeFile('generated/notes.md', 'Generated notes')
 

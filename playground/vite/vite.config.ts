@@ -14,6 +14,7 @@ const inputByMode: Record<ViteHubMode, string> = {
   env: "src/server-env.ts",
   kv: "src/server.ts",
   queue: "src/server.ts",
+  schedule: "src/daily-marker.schedule.ts",
   sandbox: "src/server.ts",
   workspace: "src/server-workspace.ts",
   workflow: "src/server-workflow.ts",
@@ -54,17 +55,19 @@ export default defineConfig(async () => {
     build: {
       outDir: "dist/client",
       rollupOptions: {
+        external: ["askweb"],
         input: resolve(import.meta.dirname, input),
       },
     },
   }
 
   if (buildMode === VITEHUB_MODES.e2e) {
-    const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSandbox }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
+    const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSchedule }, { hubSandbox }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
       import("@vitehub/blob/vite"),
       import("@vitehub/db/vite"),
       import("@vitehub/kv/vite"),
       import("@vitehub/queue/vite"),
+      import("@vitehub/schedule/vite"),
       import("@vitehub/sandbox/vite"),
       import("@vitehub/workspace/vite"),
       import("@vitehub/workflow/vite"),
@@ -79,6 +82,7 @@ export default defineConfig(async () => {
           ...baseConfig.build.rollupOptions,
           external: [
             "@cloudflare/sandbox",
+            "askweb",
             "cloudflare:workers",
             "workflow",
             "workflow/api",
@@ -92,6 +96,7 @@ export default defineConfig(async () => {
       kv: {},
       plugins: [
         hubQueue(),
+        hubSchedule(),
         hubKv(),
         hubWorkflow(),
         hubBlob(),
@@ -164,6 +169,22 @@ export default defineConfig(async () => {
       ...baseConfig,
       plugins: [hubWorkflow()],
       workflow: {},
+    }
+  }
+
+  if (buildMode === VITEHUB_MODES.schedule) {
+    const [{ hubKv }, { hubSchedule }] = await Promise.all([
+      import("@vitehub/kv/vite"),
+      import("@vitehub/schedule/vite"),
+    ])
+    return {
+      ...baseConfig,
+      build: {
+        ...baseConfig.build,
+        ssr: true,
+      },
+      kv: {},
+      plugins: [hubSchedule(), hubKv()],
     }
   }
 

@@ -1,8 +1,8 @@
 import { posix } from "node:path"
 
-import { WorkspaceError } from "./errors.ts"
+import { WorkspaceError } from "./core/errors.ts"
 
-import type { Workspace } from "./types.ts"
+import type { Workspace } from "./core/types.ts"
 
 export async function ensureMissingOrReplaceable(workspace: Workspace, path: string, overwrite = false): Promise<void> {
   if (!await workspace.exists(path)) return

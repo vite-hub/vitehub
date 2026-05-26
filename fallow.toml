@@ -19,6 +19,14 @@ dynamicallyLoaded = [
   "packages/env/examples/**/server/**",
   "packages/queue/test/e2e-live.mjs",
   "packages/queue/test/**/*.test-d.ts",
+  "packages/schedule/test/e2e-live.mjs",
+  "packages/schedule/test/**/*.test-d.ts",
+  "packages/schedule/examples/**/nitro.config.ts",
+  "packages/schedule/examples/**/server/**",
+  "packages/schedule/examples/**/src/server.ts",
+  "packages/schedule/examples/**/src/**/*.schedule.ts",
+  "packages/schedule/src/targets-module.ts",
+  "packages/schedule/src/runtime/static.ts",
   "packages/queue/examples/**/nitro.config.ts",
   "packages/queue/examples/**/server/**",
   "packages/queue/examples/**/src/server.ts",
@@ -52,8 +60,8 @@ dynamicallyLoaded = [
   "packages/sandbox/examples/**/src/**/*.sandbox.ts",
   "packages/workspace/test/e2e.ts",
   "packages/workspace/test/**/*.test-d.ts",
-  "packages/workspace/src/stores/cloudflare-artifacts.ts",
-  "packages/workspace/src/stores/vercel-blob.ts",
+  "packages/workspace/src/providers/cloudflare/artifacts-store.ts",
+  "packages/workspace/src/providers/vercel/blob-store.ts",
   "packages/workspace/examples/**/nitro.config.ts",
   "packages/workspace/examples/**/server/**",
   "packages/workspace/examples/**/src/server.ts",
@@ -74,6 +82,7 @@ dynamicallyLoaded = [
   "playground/vite/src/server-workflow.ts",
   "playground/vite/src/db/**",
   "playground/vite/workspaces/**",
+  "playground/vite/src/**/*.schedule.ts",
   "playground/vite/src/**/*.queue.ts",
   "playground/vite/src/**/*.workflow.ts",
 ]
@@ -101,6 +110,7 @@ ignoreDependencies = [
 publicPackages = [
   "@vitehub/agent",
   "@vitehub/sandbox",
+  "@vitehub/schedule",
   "@vitehub/shell",
   "@vitehub/workspace",
 ]
@@ -117,5 +127,9 @@ files = [
 rules = { "unused-class-members" = "off" }
 
 [[overrides]]
-files = ["packages/workspace/src/stores/memory-fs.ts"]
+files = ["packages/workspace/src/storage/memory-fs.ts"]
+rules = { "unused-class-members" = "off" }
+
+[[overrides]]
+files = ["packages/shell/test/workspace-test-utils.ts"]
 rules = { "unused-class-members" = "off" }

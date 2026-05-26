@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace } from "../src/index.ts"
-import { createWorkspace } from "../src/workspace.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
 import { setSandboxRuntimeConfig } from "@vitehub/sandbox/runtime/state"
 
 type FakeEntry = { content?: string | Uint8Array, type: "directory" | "file" }
@@ -149,7 +149,7 @@ describe("sandbox workspace runtime", () => {
     await workspace.sync()
     await workspace.writeFile("README.md", "# Docs\n")
 
-    const session = await workspace.open()
+    const session = await workspace.startSession()
     await expect(session.readFile("README.md")).resolves.toBe("# Docs\n")
     await expect(session.exec("pnpm", ["test"])).resolves.toMatchObject({ exitCode: 0, stdout: "ok\n" })
     await session.writeFile("generated/result.txt", "done")
@@ -188,7 +188,7 @@ describe("sandbox workspace runtime", () => {
     await workspace.mkdir("empty", { recursive: true })
     await workspace.writeFile("README.md", "# Docs\n")
 
-    const session = await workspace.open()
+    const session = await workspace.startSession()
 
     expect((await session.list("", { recursive: true })).map(entry => entry.path).sort()).toEqual(["README.md", "empty"].sort())
     expect((await session.diff()).entries).toEqual([])
@@ -224,14 +224,14 @@ describe("sandbox workspace runtime", () => {
     })
     await workspace.sync()
 
-    const session = await workspace.open()
+    const session = await workspace.startSession()
 
     await expect(session.readFile("docs/README.md")).rejects.toThrow("does not exist")
     expect((await session.diff()).entries).toEqual([])
     await session.close()
 
     await workspace.materializeSources?.()
-    const materialized = await workspace.open()
+    const materialized = await workspace.startSession()
 
     await expect(materialized.readFile("docs/README.md")).resolves.toBe("# Lazy docs\n")
     expect((await materialized.diff()).entries).toEqual([])
@@ -255,7 +255,7 @@ describe("sandbox workspace runtime", () => {
     await workspace.sync()
     await workspace.writeFile("asset.bin", input)
 
-    const session = await workspace.open()
+    const session = await workspace.startSession()
 
     await expect(session.readFile("asset.bin", { encoding: "binary" })).resolves.toEqual(input)
     expect((await session.diff()).entries).toEqual([])
@@ -281,7 +281,7 @@ describe("sandbox workspace runtime", () => {
     await workspace.sync()
     await workspace.writeFile("asset.json", "{\"ok\":false}\n", { mediaType: "application/json" })
 
-    const session = await workspace.open()
+    const session = await workspace.startSession()
     await session.writeFile("asset.json", "{\"ok\":true}\n")
     await session.commit()
 
@@ -304,7 +304,7 @@ describe("sandbox workspace runtime", () => {
     })
     await workspace.sync()
 
-    const session = await workspace.open()
+    const session = await workspace.startSession()
     await session.writeFile("generated/asset.svg", "<svg />\n", { mediaType: "image/svg+xml" })
     await session.commit()
 
@@ -329,7 +329,7 @@ describe("sandbox workspace runtime", () => {
     await workspace.writeFile("docs/a.md", "target\n")
     await workspace.writeFile("notes/b.md", "target\n")
 
-    const session = await workspace.open()
+    const session = await workspace.startSession()
 
     expect(await session.search({ cwd: "docs", pattern: "target" })).toEqual([
       expect.objectContaining({ path: "docs/a.md" }),
@@ -369,7 +369,7 @@ describe("sandbox workspace runtime", () => {
     })
     await workspace.sync()
 
-    const session = await workspace.open()
+    const session = await workspace.startSession()
     await session.writeFile("docs/README.md", "# Edited\n")
 
     await expect(session.commit()).rejects.toThrow("Source-backed workspace paths are read-only")
@@ -394,7 +394,7 @@ describe("sandbox workspace runtime", () => {
     await workspace.sync()
     await workspace.writeFile("target", "file\n")
 
-    const session = await workspace.open()
+    const session = await workspace.startSession()
     await fake.sandbox.deleteFile("/workspace/target")
     await fake.sandbox.mkdir("/workspace/target")
     await fake.sandbox.writeFile("/workspace/target/nested.txt", "nested\n")
@@ -411,7 +411,7 @@ describe("sandbox workspace runtime", () => {
       store: { provider: "memory" },
     })
 
-    const session = await workspace.open()
+    const session = await workspace.startSession()
 
     expect(session.exec).toBeTypeOf("function")
     expect(session.commit).toBeTypeOf("function")

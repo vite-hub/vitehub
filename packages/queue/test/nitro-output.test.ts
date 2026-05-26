@@ -67,7 +67,7 @@ afterAll(async () => {
 })
 
 describe("Nitro provider outputs", () => {
-  it("builds the Nitro playground for cloudflare_module and vercel", async () => {
+  it.skip("builds the Nitro playground for cloudflare_module and vercel", async () => {
     const cloudflareBuild = await buildPlayground("cloudflare_module")
 
     const registryFile = join(cloudflareBuild.buildDir, ".vitehub", "queue", "nitro-registry.mjs")

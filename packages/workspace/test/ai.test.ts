@@ -4,7 +4,7 @@ import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
 import { useWorkspace } from "../src/index.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
-import { createWorkspace } from "../src/workspace.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
 
 function createAssets(files: Record<string, string | Uint8Array>) {
   return createWorkspaceAssets(Object.fromEntries(
@@ -38,7 +38,11 @@ describe("createWorkspaceTools", () => {
 
     await expect(runShell(tools, "pwd")).resolves.toMatchObject({ exitCode: 0, stdout: "/workspace\n" })
     await expect(runShell(tools, "ls models")).resolves.toMatchObject({ exitCode: 0, stdout: "customers.sql\norders.sql\n" })
-    await expect(runShell(tools, "find . -name '*.sql'")).resolves.toMatchObject({ exitCode: 0, stdout: "./models/customers.sql\n./models/orders.sql\n" })
+    await expect(runShell(tools, "find . -name '*.sql'")).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stdout: expect.stringContaining("Workspace search is too broad"),
+    })
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
     await expect(runShell(tools, "cat models/orders.sql | head -n 1")).resolves.toMatchObject({ exitCode: 0, stdout: "select * from orders\n" })
     await expect(runShell(tools, "cat models/orders.sql | tail -n 1")).resolves.toMatchObject({ exitCode: 0, stdout: "where id is not null\n" })
@@ -51,8 +55,9 @@ describe("createWorkspaceTools", () => {
       stdout: "docs/customers.md:1:Customer docs\nmodels/customers.sql:1:select * from customers\n",
     })
     await expect(runShell(tools, "grep -ri \"customer\" . | head -n 1")).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "docs/customers.md:Customer docs\n",
+      event: "policy_denied",
+      exitCode: 126,
+      stdout: expect.stringContaining("Workspace search is too broad"),
     })
     await expect(runShell(tools, "cd /workspace && rg orders models")).resolves.toMatchObject({
       exitCode: 0,
@@ -263,5 +268,6 @@ describe("useWorkspace facade tools", () => {
 
     expect("shell" in workspace.tools.inspect()).toBe(true)
     expect(workspace.tools.none()).toEqual({})
+    expect("shell" in workspace.tools).toBe(true)
   })
 })
