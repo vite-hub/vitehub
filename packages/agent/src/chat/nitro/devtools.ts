@@ -400,6 +400,26 @@ function getSingletonDevtoolsAdapter(): { adapter: ChatDevtoolsAdapter, chat: Ch
   return { adapter, chat }
 }
 
+function createStreamingDevtoolsAdapter(adapter: ChatDevtoolsAdapter, onChange: () => void | Promise<void>): ChatDevtoolsAdapter {
+  return {
+    ...adapter,
+    editMessage: async (threadId, messageId, message) => {
+      const result = await adapter.editMessage(threadId, messageId, message)
+      await onChange()
+      return result
+    },
+    postMessage: async (threadId, message) => {
+      const result = await adapter.postMessage(threadId, message)
+      await onChange()
+      return result
+    },
+    startTyping: async (threadId, status) => {
+      await adapter.startTyping(threadId, status)
+      await onChange()
+    },
+  }
+}
+
 function parseChatDevtoolsBridgeBody(rawBody: ChatDevtoolsBridgeBody | string | undefined): ChatDevtoolsBridgeBody | undefined {
   if (typeof rawBody !== "string") {
     return rawBody
@@ -443,10 +463,20 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
       if (input.stream) {
         return createChatDevtoolsStreamResponse(async (emit, signal) => {
           const emitState = () => emit({ type: "state" as const, state: adapter.getDevtoolsState(input.chat) })
-          const message = adapter.createDevtoolsMessage(text, input.chat)
+          const streamTasks: Promise<unknown>[] = []
+          const streamingAdapter = createStreamingDevtoolsAdapter(adapter, async () => {
+            if (!signal.aborted) emitState()
+          })
+          const message = streamingAdapter.createDevtoolsMessage(text, input.chat)
           emitState()
           if (signal.aborted) return
-          await chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
+          chat.processMessage(streamingAdapter, message.threadId, message, {
+            waitUntil: (task) => {
+              streamTasks.push(Promise.resolve(task))
+              event.waitUntil(task)
+            },
+          })
+          await Promise.all(streamTasks)
           if (signal.aborted) return
           emitState()
         })
