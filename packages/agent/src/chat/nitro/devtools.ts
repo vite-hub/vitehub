@@ -463,27 +463,20 @@ export function defineChatDevtoolsSingletonHandler(): EventHandler {
       if (input.stream) {
         return createChatDevtoolsStreamResponse(async (emit, signal) => {
           const emitState = () => emit({ type: "state" as const, state: adapter.getDevtoolsState(input.chat) })
-          const streamTasks: Promise<unknown>[] = []
           const streamingAdapter = createStreamingDevtoolsAdapter(adapter, async () => {
             if (!signal.aborted) emitState()
           })
           const message = streamingAdapter.createDevtoolsMessage(text, input.chat)
           emitState()
           if (signal.aborted) return
-          chat.processMessage(streamingAdapter, message.threadId, message, {
-            waitUntil: (task) => {
-              streamTasks.push(Promise.resolve(task))
-              event.waitUntil(task)
-            },
-          })
-          await Promise.all(streamTasks)
+          await chat.handleIncomingMessage(streamingAdapter, message.threadId, message)
           if (signal.aborted) return
           emitState()
         })
       }
 
       const message = adapter.createDevtoolsMessage(text, input.chat)
-      await chat.processMessage(adapter, message.threadId, message, { waitUntil: task => event.waitUntil(task) })
+      await chat.handleIncomingMessage(adapter, message.threadId, message)
       return adapter.getDevtoolsState(input.chat)
     }
 

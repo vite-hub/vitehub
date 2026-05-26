@@ -1097,6 +1097,7 @@ describe("agent message protocol", () => {
     })
     chat.onDirectMessage(async (thread) => {
       await thread.startTyping("thinking")
+      await new Promise(resolve => setTimeout(resolve, 0))
       await thread.post("final answer")
     })
     chat.registerSingleton()
