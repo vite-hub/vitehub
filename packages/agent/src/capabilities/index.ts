@@ -80,6 +80,9 @@ export type {
   AgentScheduleCapabilityMetadata,
   AgentScheduleCapabilityOptions,
   AgentScheduleEntry,
+  RuntimeScheduleCapabilityMetadata,
+  RuntimeScheduleCapabilityOptions,
+  ScheduleCapabilityToolPolicy,
 } from "./schedule.ts"
 export type {
   TranscribeExecuteInput,
