@@ -1093,6 +1093,7 @@ describe("agent message protocol", () => {
       expect(response.status).toBe(200)
       expect(setIntervalSpy).not.toHaveBeenCalled()
       expect(events.at(-1)).toEqual({ type: "done" })
+      expect(states[0]?.thinkingFallback).toBe("Thinking from config...")
       expect(states.map(state => state?.thinkingFallback)).toContain("Thinking from config...")
       expect(finalState?.uiMessages?.map(message => ({
         parts: message.parts.map(part => part.type),
@@ -1108,6 +1109,73 @@ describe("agent message protocol", () => {
     finally {
       setIntervalSpy.mockRestore()
     }
+  })
+
+  it("passes prior DevTools UI messages back into follow-up AI SDK sends", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChat } = await import("../src/chat/index.ts")
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    const seenHistory: Array<Array<{ role: string, text: string }>> = []
+    const agent = defineAgent({
+      async run() {
+        return {
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: `assistant-${seenHistory.length}` })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: `answer ${seenHistory.length}` })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }
+      },
+    })
+    app.use(defineChatDevtoolsRegistryHandler({
+      support: async () => defineChat({
+        agent: {
+          definition: agent,
+          hooks: {
+            beforeRun(args) {
+              seenHistory.push((args.input.messages || []).map(message => ({
+                role: message.role,
+                text: message.parts
+                  .filter((part): part is { text: string, type: "text" } => part.type === "text")
+                  .map(part => part.text)
+                  .join(""),
+              })))
+            },
+          },
+          name: "support-agent",
+        },
+        adapters: {},
+        state: {} as never,
+      }),
+    }))
+
+    for (const text of ["first request", "what was my first request?"]) {
+      const response = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "send", chat: "support", stream: true, text }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      expect(response.status).toBe(200)
+      await response.text()
+    }
+
+    expect(seenHistory).toEqual([
+      [{ role: "user", text: "first request" }],
+      [
+        { role: "user", text: "first request" },
+        { role: "assistant", text: "answer 1" },
+        { role: "user", text: "what was my first request?" },
+      ],
+    ])
   })
 
   it("requires streaming for registry DevTools sends through the AI SDK path", async () => {

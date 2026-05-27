@@ -468,13 +468,11 @@ async function sendDevtoolsUIMessage(
   state.selected = selected
   const userMessage = createUserUIMessage(text)
   const baseMessages = [...session.uiMessages, userMessage]
-  session.uiMessages = baseMessages
-  await onChange?.(await serializeState(state, selected))
-
   const run = createRunMetadata(session, userMessage.id)
   const history = uiMessagesToViteHubMessages(baseMessages)
   const baseArgs = createDevtoolsHookArgs(run, history, userMessage)
   session.thinkingFallback = await resolveThinkingFallback(options.fallbackStreamingPlaceholderText, baseArgs)
+  session.uiMessages = baseMessages
   await onChange?.(await serializeState(state, selected))
 
   let agentInput: AgentRunInput | undefined

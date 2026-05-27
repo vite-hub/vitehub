@@ -97,7 +97,19 @@ const state = ref<ChatDevtoolsStateResult>({
   tools: previewTools,
 })
 const messages = ref<ChatMessage[]>([])
-const chatMessages = computed(() => messages.value as never)
+const loadingAssistantMessageId = "vitehub-devtools-loading-assistant"
+const chatMessages = computed(() => {
+  const next = [...messages.value]
+  const latest = next.at(-1)
+  if (status.value === "streaming" && (!latest || latest.role !== "assistant" || (uiMessageContent(latest).trim() || hasToolParts(latest.parts)))) {
+    next.push({
+      id: loadingAssistantMessageId,
+      role: "assistant",
+      parts: [],
+    })
+  }
+  return next as never
+})
 const pendingUserMessage = ref<ChatMessage | undefined>()
 const expandedFilePaths = ref(new Set<string>())
 const selectedFilePath = ref<string | undefined>()
@@ -396,7 +408,7 @@ function isLoadingMessage(message: unknown) {
   const typed = message as UIMessage | undefined
   return status.value === "streaming"
     && typed?.role === "assistant"
-    && messages.value.at(-1)?.id === typed.id
+    && (typed.id === loadingAssistantMessageId || messages.value.at(-1)?.id === typed.id)
     && !uiMessageContent(typed).trim()
 }
 
@@ -948,7 +960,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
         <section class="flex min-h-0 flex-col overflow-hidden">
           <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-2">
             <UChatMessages
-              v-if="messages.length"
+              v-if="chatMessages.length"
               :messages="chatMessages"
               :should-auto-scroll="status === 'streaming'"
               compact
