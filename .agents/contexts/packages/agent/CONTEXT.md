@@ -24,27 +24,37 @@ _Avoid_: `defineAgent({ name })`, display name
 The package boundary where provider-specific model adapters meet ViteHub Agent runtime behavior.
 _Avoid_: Provider package, model package
 
+**Agent Trigger API**:
+The Agent Package public surface that composes Capability-owned Agent Trigger behavior from Agent Definitions.
+_Avoid_: Chat adapter API, DevTools bridge API, client SDK
+
 ## Relationships
 
 - The **Agent Package** owns Agent Definition shape.
 - The **Agent Package** owns Agent invocation handling.
+- The **Agent Package** owns the **Agent Trigger API** that resolves trigger contributions from Agent Capabilities.
 - The **Agent Package** owns Agent capability composition.
 - The **Agent Package** owns chat behavior after the **Chat Package Migration**.
 - An **Agent File Name** provides Discovery Identity for discovered Agent Definitions.
 - The **Agent Route Owner** is the Agent Package when generated Agent routes are enabled.
-- The **Agent Adapter Boundary** keeps provider-specific model options behind Agent behavior.
+- The legacy **Agent Adapter Boundary** is removed from the public Agent Definition shape while AI SDK is the only model execution path.
 - Shared runtime capabilities, approvals, and tracing belong to the Runtime Package.
 
 ## Example Dialogue
 
 > **Dev:** "Should a model provider decide how ViteHub resolves workspace tools?"
 > **Domain expert:** "No. That crosses the **Agent Adapter Boundary**. The provider handles model calls; the **Agent Package** owns Agent runtime behavior."
+>
+> **Dev:** "Should Chat DevTools expose the reusable server-side send primitive?"
+> **Domain expert:** "No. The **Agent Trigger API** belongs to the **Agent Package**; the Chat Capability contributes the trigger and Chat DevTools consumes it."
 
 ## Flagged Ambiguities
 
 - Agent routes were considered generic Nitro routes - resolved: generated Agent routes belong to the **Agent Package**.
 - Provider adapters were considered owners of runtime behavior - resolved: adapters sit behind the **Agent Adapter Boundary**.
+- The public `adapter` option was considered necessary for future model-provider flexibility - resolved: remove it for now and let AI SDK be the only supported model execution path until another adapter has proven product value.
 - Standalone chat and messages packages were considered compatibility boundaries - resolved: remove them during the **Chat Package Migration** rather than keeping wrappers.
 - `defineAgent({ name })` was considered a discovered Agent identity override - resolved: use **Agent File Name** for discovered Agent identity.
 - `server/agents/<name>/config.ts` was considered invalid under filename-derived identity - resolved: it remains valid because the agent folder name is the Discovery Identity and supports Colocated Workspace Definition behavior.
 - Named exports from aggregate agent files were considered a discovered Agent identity source - resolved: remove aggregate named-export discovery immediately with no backwards compatibility.
+- Agent Trigger behavior was considered a DevTools bridge concern - resolved: compose it through the **Agent Package** from Capability-owned trigger contributions, with DevTools consuming the resolved trigger surface.

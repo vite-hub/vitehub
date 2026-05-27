@@ -72,7 +72,6 @@ describe("agent public types", () => {
           },
         },
       ],
-      adapter: "ai-sdk",
       model: {} as never,
       workspace: { mode: "read" },
     })
@@ -83,13 +82,7 @@ describe("agent public types", () => {
     // @ts-expect-error tool mode requires one explicit provider
     webSearch({ mode: "tool" })
 
-    // @ts-expect-error model agents must select an explicit adapter
     defineAgent({
-      model: {} as never,
-    })
-
-    defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
       hooks: {
         "agent:finish"(event) {
@@ -107,26 +100,22 @@ describe("agent public types", () => {
           context.extensions.provide("agent:finish", "ok")
         },
       }],
-      adapter: "ai-sdk",
       model: {} as never,
     })
 
     defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
       // @ts-expect-error root-level tools are not public API
       tools: {},
     })
 
     defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
       // @ts-expect-error workspace mode must be read or write
       workspace: { mode: "mutable" },
     })
 
     defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
       // @ts-expect-error adapter settings belong under adapterOptions
       temperature: 0.2,
@@ -155,7 +144,6 @@ describe("agent public types", () => {
     const scorer: AgentScorer = textContains("ok")
     const definition: AgentEvalDefinition = {
       agent: defineAgent({
-        adapter: "ai-sdk",
         model: {} as never,
       }),
       scenarios: [{
@@ -189,7 +177,6 @@ describe("agent public types", () => {
     }
 
     const agent = defineAgent<TestRuntimeConfig>({
-      adapter: "ai-sdk",
       model: ({ runtimeConfig }: AgentRuntimeContext<TestRuntimeConfig> & { runtimeConfig: TestRuntimeConfig }) => {
         runtimeConfig.service.token.toUpperCase()
         return {} as never
@@ -213,7 +200,6 @@ describe("agent public types", () => {
     defineEval<TestRuntimeConfig>({
       // @ts-expect-error eval agent runtime config must match the eval runtime config
       agent: defineAgent<{ other: string }>({
-        adapter: "ai-sdk",
         model: {} as never,
         workspace: { mode: "read" },
       }),

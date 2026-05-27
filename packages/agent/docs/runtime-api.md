@@ -65,14 +65,13 @@ defineAgent({
   hooks?: AgentInvocationHooks
   instructions?: AgentAdapterInstructions
   model?: unknown
-  adapter?: 'ai-sdk' | 'tanstack-ai' | string
   adapterOptions?: Record<string, unknown>
   run?: AgentRunHandler
   workspace?: string | ({ mode?: 'read' | 'write' } & WorkspaceAgentWorkspaceOptions)
 })
 ```
 
-Capabilities are the public model-facing extension surface. `adapter` explicitly selects the model adapter; ViteHub does not infer it from installed packages or model object shape.
+Capabilities are the public model-facing extension surface. `defineAgent({ model })` uses the AI SDK execution path.
 
 ```ts
 defineAgent({
@@ -85,7 +84,6 @@ defineAgent({
   ],
   instructions: 'Use workspace sources.',
   model,
-  adapter: 'ai-sdk',
   adapterOptions: {
     providerOptions: {
       openai: { reasoningEffort: 'medium' },
@@ -106,7 +104,6 @@ defineAgent({
   ],
   instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
   model,
-  adapter: 'ai-sdk',
 })
 ```
 
@@ -126,7 +123,6 @@ defineAgent({
     }),
   ],
   model,
-  adapter: 'ai-sdk',
 })
 ```
 

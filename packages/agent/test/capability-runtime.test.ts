@@ -206,7 +206,6 @@ describe("agent capability runtime", () => {
           id: "tracked",
         }],
         model: {} as never,
-        adapter: "ai-sdk",
       })
 
       await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({ text: "ok" })
@@ -238,7 +237,6 @@ describe("agent capability runtime", () => {
           id: "tracked",
         }],
         model: {} as never,
-        adapter: "ai-sdk",
       })
 
       await expect(runAgent(agent, runtime(), {})).rejects.toThrow("cleanup failed")
@@ -269,7 +267,6 @@ describe("agent capability runtime", () => {
           resolve: () => { order.push("resolve") },
         }],
         model: {} as never,
-        adapter: "ai-sdk",
       })
 
       await resolveAgent(agent, runtime())

@@ -230,7 +230,6 @@ describe("agent eval", () => {
       agent: defineAgent({
         instructions: "Base instructions.",
         model: baseModel as never,
-        adapter: "ai-sdk",
         workspace: {},
       }),
       name: "support",

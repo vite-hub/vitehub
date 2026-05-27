@@ -19,6 +19,7 @@ import type {
   AgentToolSet,
   AgentToolTransform,
   MaybePromise,
+  ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
 import type { Message } from "./messages.ts"
@@ -36,6 +37,7 @@ export interface AgentCapabilityRegistries {
   outputRenderers: ResolvedAgentOutputRenderer[]
   providerTools: AgentProviderToolContribution[]
   stateRequirements: Array<{ name: string, optional?: boolean }>
+  triggers: ResolvedAgentTriggerDefinition[]
 }
 
 export interface AgentCapabilityOptions<
@@ -63,6 +65,15 @@ function assertCapabilityId(id: unknown): asserts id is string {
   }
   if (!/^[a-z][a-z0-9-_.]*$/i.test(id)) {
     throw new TypeError(`[vitehub] Capability id "${id}" must be a stable identifier.`)
+  }
+}
+
+function assertTriggerName(name: unknown, capabilityId: string): asserts name is string {
+  if (typeof name !== "string" || !name.trim()) {
+    throw new TypeError(`[vitehub] Capability "${capabilityId}" trigger names must be non-empty strings.`)
+  }
+  if (!/^[a-z][a-z0-9-_]*$/i.test(name)) {
+    throw new TypeError(`[vitehub] Capability "${capabilityId}" trigger "${name}" must be a stable local identifier.`)
   }
 }
 
@@ -192,6 +203,7 @@ export async function resolveAgentCapabilities<
     outputRenderers: [],
     providerTools: [],
     stateRequirements: [],
+    triggers: [],
   }
 
   async function closeRegisteredCallbacks() {
@@ -271,6 +283,29 @@ export async function resolveAgentCapabilities<
         },
         workspace,
       } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name>
+
+      for (const [name, trigger] of Object.entries(capability.triggers || {})) {
+        assertTriggerName(name, capability.id)
+        const id = `${capability.id}.${name}` as const
+        registries.triggers.push({
+          capabilityId: capability.id,
+          definition: trigger as never,
+          devtools: trigger.devtools,
+          id,
+          input: trigger.input,
+          invoke: input => trigger.invoke({
+            ...runtimeContext,
+            capability,
+            trigger: {
+              capabilityId: capability.id,
+              id,
+              name,
+            },
+          }, input as never),
+          name,
+          output: trigger.output,
+        })
+      }
 
       closeCallbacks.push(async () => {
         await callHooks("capability:close", capabilityContext, options?.hooks)

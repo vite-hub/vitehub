@@ -69,7 +69,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "agent-skills/support" })],
-      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })
@@ -86,7 +85,6 @@ describe("defineAgent workspace option", () => {
         id: "docs",
         requires: [{ primitive: "workspace", workspace: { paths: ["CONTEXT.md"], required: true } }],
       }],
-      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })
@@ -102,7 +100,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "agent-skills/support" })],
-      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })
@@ -119,7 +116,6 @@ describe("defineAgent workspace option", () => {
         sources: {},
       },
       description: "Answer from workspace context",
-      adapter: "ai-sdk",
       model: {} as never,
     })
 
@@ -134,7 +130,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: "Use workspace sources.",
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -149,7 +144,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: [" First ", "", "Second"],
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -168,7 +162,6 @@ describe("defineAgent workspace option", () => {
         "Use workspace sources.",
         async ({ fs }) => await fs.readFile("AGENTS.md"),
       ],
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -185,7 +178,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -211,7 +203,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -229,7 +220,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       adapterOptions: {
         experimental_telemetry: experimental_telemetry as never,
         maxOutputTokens: 100,
@@ -259,7 +249,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       capabilities: [webSearch({ mode: "model" })],
       model: {} as never,
     }), { workspace: "docs" })
@@ -300,7 +289,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instrumentModel,
-      adapter: "ai-sdk",
       adapterOptions: {
         onStepFinish: vi.fn(),
       },
@@ -338,7 +326,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       adapterOptions: {
         experimental_onToolCallFinish: experimental_onToolCallFinish as never,
         experimental_onToolCallStart: experimental_onToolCallStart as never,
@@ -384,7 +371,6 @@ describe("defineAgent workspace option", () => {
         expect(fs).toBe(workspace.fs)
         return "workspace instructions"
       },
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -399,7 +385,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -416,7 +401,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: ({ fs }) => fs.readFile("MISSING.md"),
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -428,7 +412,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -449,7 +432,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-tools", tools: toolResolver as never }],
     }), { workspace: "docs" })
@@ -476,7 +458,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -513,7 +494,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -550,7 +530,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -572,7 +551,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -600,7 +578,6 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -633,7 +610,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -650,7 +626,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -679,7 +654,6 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -726,7 +700,6 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -760,7 +733,6 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })

@@ -1,5 +1,5 @@
 import agentRegistry from "#vitehub/agent/registry"
-import { getMessageText } from "./messages.ts"
+import { createMessage, getMessageText } from "./messages.ts"
 import {
   ApprovalRequiredError,
   resolveRuntimeContext,
@@ -39,15 +39,16 @@ import type {
   AgentDefinition,
   AgentFinishEvent,
   AgentChatOptions,
+  AgentChatAgentHookArgs,
   AgentInput,
   AgentInstructionBlock,
-  AgentModelAdapter,
   AgentInvocationHooks,
   AgentRegistry,
   AgentRegistryModule,
   AgentRequestBody,
   AgentRunContext,
   AgentRunInput,
+  AgentRunMetadata,
   AgentRunResult,
   AgentRuntimeBinding,
   AgentRuntimeConfig,
@@ -59,7 +60,9 @@ import type {
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
   AgentChatAgentHooks,
+  AgentTriggerDefinition,
   MaybePromise,
+  ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
@@ -109,11 +112,10 @@ export type {
   AgentInvocationExtensions,
   AgentInvocationHooks,
   AgentIntegrationsOptions,
+  AgentModelResolver,
   AgentModelInput,
   AgentModelInstrumentation,
   AgentModelInstrumentationContext,
-  AgentModelAdapter,
-  AgentModelResolver,
   AgentModuleOptions,
   AgentProvidersOptions,
   AgentRegistryHandlerOptions,
@@ -143,6 +145,9 @@ export type {
   AgentToolPolicyContext,
   AgentToolPolicyDecision,
   AgentStateProviderOptions,
+  AgentTriggerContext,
+  AgentTriggerDefinition,
+  AgentTriggerInvokeResult,
   AgentToolResolver,
   AgentToolStep,
   AgentWaitUntil,
@@ -152,6 +157,7 @@ export type {
   MaybeResolvable,
   Resolvable,
   ResolvedAgentModuleOptions,
+  ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
@@ -185,6 +191,19 @@ type AgentDefinitionWithBaseResolve<
 type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
   chat: AgentChatOptions<TRuntimeConfig>
   kind: "chat"
+}
+type UIMessageLike = {
+  createdAt?: Date | string
+  id?: string
+  metadata?: unknown
+  parts?: Array<{ text?: string, type?: string } | Record<string, unknown>>
+  role?: string
+}
+export interface AgentChatMessageTriggerInput {
+  history?: AgentChatOptions["history"]
+  messages: UIMessageLike[]
+  run?: AgentRunMetadata
+  timeout?: number
 }
 interface ScheduleRunContextLike {
   attemptId?: string
@@ -351,6 +370,99 @@ function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
     ?.metadata?.chat as AgentChatOptions<TRuntimeConfig> | undefined
 }
 
+function uiMessageText(message: UIMessageLike): string {
+  const parts = Array.isArray(message.parts) ? message.parts : []
+  return parts
+    .filter((part): part is { text: string } => typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string")
+    .map(part => part.text)
+    .join("")
+}
+
+function uiMessagesToAgentMessages(messages: UIMessageLike[]): Message[] {
+  return messages.map((message, index) => {
+    const role = message.role === "assistant" || message.role === "system" || message.role === "tool" || message.role === "user"
+      ? message.role
+      : "user"
+    return createMessage({
+      createdAt: message.createdAt,
+      id: message.id || `ui-${index}`,
+      metadata: typeof message.metadata === "object" && message.metadata !== null ? message.metadata as Record<string, unknown> : undefined,
+      role,
+      text: uiMessageText(message),
+    })
+  })
+}
+
+function selectChatHistory(messages: UIMessageLike[], history: AgentChatOptions["history"]): UIMessageLike[] {
+  if (history === false || history === "none") return messages.slice(-1)
+  if (typeof history === "object" && history.source === "thread" && typeof history.maxMessages === "number") {
+    return messages.slice(-Math.max(1, history.maxMessages))
+  }
+  return messages
+}
+
+function createChatTriggerHookArgs(
+  messages: UIMessageLike[],
+  run: AgentRunMetadata | undefined,
+): AgentChatAgentHookArgs {
+  const message = messages.at(-1)
+  return {
+    history: uiMessagesToAgentMessages(messages),
+    message: {
+      id: message?.id,
+      text: message ? uiMessageText(message) : "",
+    },
+    run,
+    thread: {
+      post: async () => undefined,
+    },
+  }
+}
+
+async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig>,
+  args: AgentChatAgentHookArgs<TRuntimeConfig>,
+): Promise<string | undefined> {
+  const fallback = options.fallbackStreamingPlaceholderText
+  if (fallback === null) return undefined
+  if (typeof fallback === "function") {
+    const resolved = await fallback(args)
+    return resolved || undefined
+  }
+  if (typeof fallback === "string") return fallback
+  return "Thinking..."
+}
+
+function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: AgentChatOptions<TRuntimeConfig>,
+): AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, AgentChatMessageTriggerInput> {
+  return {
+    devtools: true,
+    input: "ui-message[]",
+    output: "ui-message-stream",
+    async invoke(_context, triggerInput) {
+      const messages = Array.isArray(triggerInput?.messages) ? triggerInput.messages : []
+      if (!messages.length) {
+        throw new TypeError("[vitehub] chat.message trigger requires at least one UI message.")
+      }
+      const selectedMessages = selectChatHistory(messages, triggerInput.history ?? options.history)
+      const hookArgs = createChatTriggerHookArgs(selectedMessages, triggerInput.run)
+      const input = {
+        context: { chat: { message: hookArgs.message, run: triggerInput.run } },
+        messages: uiMessagesToAgentMessages(selectedMessages),
+        timeout: triggerInput.timeout,
+      } satisfies AgentRunInput
+      return {
+        input,
+        metadata: {
+          thinkingFallback: await resolveChatThinkingFallback(options, hookArgs),
+        },
+        run: triggerInput.run,
+      }
+    },
+  }
+}
+
 export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig>,
 ): AgentCapabilityDefinition<TRuntimeConfig> {
@@ -362,6 +474,9 @@ export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
     } satisfies ChatCapabilityMetadata<TRuntimeConfig>,
     prepare(context) {
       context.state.require("chat-history", { optional: true })
+    },
+    triggers: {
+      message: createChatMessageTrigger(options),
     },
   })
 }
@@ -385,42 +500,22 @@ export type {
   VercelAiGatewayPricingOptions,
 } from "./capabilities/usage-telemetry.ts"
 
-async function resolveModelAdapter<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
-  adapter: AgentModelAdapter,
-  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
-): Promise<AgentAdapter<CALL_OPTIONS>> {
-  if (adapter === "ai-sdk") {
-    return (await import("./ai-sdk.ts")).createAiSdkAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
-  }
-  if (adapter === "tanstack-ai") {
-    return (await import("./tanstack-ai.ts")).createTanStackAiAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
-  }
-  throw new Error(`[vitehub] Unsupported agent model adapter "${adapter}".`)
-}
-
 function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
-  if ("model" in (options as Record<string, unknown>) && !("adapter" in (options as Record<string, unknown>))) {
-    throw new Error("[vitehub] defineAgent({ model }) requires an explicit adapter, for example adapter: \"ai-sdk\".")
-  }
-
   const { capabilities, description, hooks, run, runtime, workspace } = options
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = "model" in options
-      ? await resolveModelAdapter((options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { adapter: AgentModelAdapter }).adapter, options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>)
+      ? (await import("./ai-sdk.ts")).createAiSdkAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
       : undefined
     if (!resolvedAdapter) {
-      throw new Error("[vitehub] Agent model and adapter are required unless the agent defines a custom run() handler.")
+      throw new Error("[vitehub] Agent model is required unless the agent defines a custom run() handler.")
     }
     const resolvedContext = createResolvedRuntimeContext(context)
     return typeof resolvedAdapter === "function"
@@ -942,6 +1037,118 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
   }
 
   return agent
+}
+
+function agentCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+): AgentCapabilityDefinition<TRuntimeConfig>[] {
+  if (!hasAgentDefinition(agent)) return []
+  const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition<TRuntimeConfig>>
+  const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig> | undefined
+  return (workspaceOptions?.capabilities || agent.capabilities || []) as AgentCapabilityDefinition<TRuntimeConfig>[]
+}
+
+export async function resolveAgentTriggers<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+): Promise<Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>>> {
+  const runtimeContext = createAgentCallbackContext(context)
+  const capabilities = normalizeCapabilities(agentCapabilityOptions(agent) as never) as AgentCapabilityDefinition<TRuntimeConfig>[]
+  const triggers: Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>> = {}
+  for (const capability of capabilities) {
+    for (const [name, trigger] of Object.entries(capability.triggers || {})) {
+      const id = `${capability.id}.${name}` as const
+      triggers[id] = {
+        capabilityId: capability.id,
+        definition: trigger as never,
+        devtools: trigger.devtools,
+        id,
+        input: trigger.input,
+        invoke: input => trigger.invoke({
+          ...runtimeContext,
+          capability,
+          trigger: {
+            capabilityId: capability.id,
+            id,
+            name,
+          },
+        }, input as never),
+        name,
+        output: trigger.output,
+      }
+    }
+  }
+  return triggers
+}
+
+export interface ResolvedAgentTriggerInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  input: AgentRunInput<CALL_OPTIONS>
+  metadata?: Record<string, unknown>
+  run?: AgentRunMetadata
+  trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, unknown, CALL_OPTIONS>
+}
+
+export async function resolveAgentTriggerInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  triggerId: string,
+  input: TInput,
+): Promise<ResolvedAgentTriggerInvocation<TRuntimeConfig, CALL_OPTIONS>> {
+  const triggers = await resolveAgentTriggers(agent, context)
+  const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
+  if (!trigger) {
+    throw new Error(`[vitehub] Agent trigger "${triggerId}" is not defined by this agent.`)
+  }
+  const invocation = await trigger.invoke(input)
+  return {
+    input: invocation.input,
+    metadata: invocation.metadata,
+    run: invocation.run,
+    trigger: trigger as never,
+  }
+}
+
+export async function runAgentTrigger<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  triggerId: string,
+  input: TInput,
+): Promise<Response | AgentRunResult | unknown> {
+  const invocation = await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input)
+  return await runAgent(agent, { ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.input)
+}
+
+export async function streamAgentTrigger<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  triggerId: string,
+  input: TInput,
+  options: {
+    onInvocation?: (invocation: ResolvedAgentTriggerInvocation<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
+    output?: "events" | "ui-message-stream"
+  } = {},
+): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  const invocation = await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input)
+  await options.onInvocation?.(invocation)
+  const output = options.output || (invocation.trigger.output === "ui-message-stream" ? "ui-message-stream" : "events")
+  return await streamAgent(agent, { ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.input, { output })
 }
 
 function toAgentRunResult(value: unknown): AgentRunResult {

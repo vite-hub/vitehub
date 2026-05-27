@@ -93,7 +93,6 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
@@ -133,7 +132,6 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
@@ -171,7 +169,6 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
@@ -205,7 +202,6 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
@@ -294,7 +290,6 @@ describe("agent test runner", () => {
     try {
       const runner = createAgentTestRunner(defineAgent({
         workspace: {},
-        adapter: "ai-sdk",
         model: {} as never,
         capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
       }), {
@@ -325,7 +320,6 @@ describe("agent test runner", () => {
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
       instrumentModel: agentInstrumentation,
-      adapter: "ai-sdk",
       model: baseModel as never,
     }), {
       instrumentModel: testInstrumentation,

@@ -37,7 +37,6 @@ export default defineConfig({
     "src/runtime/empty-registry.ts",
     "src/runtime/chat-devtools-handler.ts",
     "src/runtime/nitro-runtime-config.ts",
-    "src/tanstack-ai.ts",
     "src/test.ts",
     "src/vercel.ts",
     "src/vite.ts",

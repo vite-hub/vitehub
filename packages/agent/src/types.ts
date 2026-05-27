@@ -79,6 +79,51 @@ export interface AgentRunMetadata {
   threadId?: string
 }
 
+export interface AgentTriggerInvokeResult<CALL_OPTIONS = unknown> {
+  input: AgentRunInput<CALL_OPTIONS>
+  metadata?: Record<string, unknown>
+  run?: AgentRunMetadata
+}
+
+export interface AgentTriggerContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends AgentCallbackContext<TRuntimeConfig> {
+  capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
+  trigger: {
+    capabilityId: string
+    id: `${string}.${string}`
+    name: string
+  }
+}
+
+export interface AgentTriggerDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+> {
+  devtools?: boolean | Record<string, unknown>
+  input?: unknown
+  invoke: (context: AgentTriggerContext<TRuntimeConfig, Name>, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
+  output?: "events" | "ui-message-stream" | (string & {})
+}
+
+export interface ResolvedAgentTriggerDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+> {
+  capabilityId: string
+  definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS>
+  devtools?: boolean | Record<string, unknown>
+  id: `${string}.${string}`
+  input?: unknown
+  invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
+  name: string
+  output?: "events" | "ui-message-stream" | (string & {})
+}
+
 export interface AgentRunCallbackContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -264,6 +309,7 @@ export interface AgentCapabilityDefinition<
   requires?: AgentCapabilityRequirement[]
   resolve?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   tools?: AgentCapabilityToolResolver<TRuntimeConfig, Name>
+  triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, Name, any, any>>
 }
 
 export type AgentCapabilityInput<
@@ -311,7 +357,6 @@ export type AgentModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig 
 type AgentSettingsBase<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > = {
-  adapter?: AgentModelAdapter
   adapterOptions?: Record<string, unknown>
   description?: string
   hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
@@ -332,7 +377,6 @@ export type AgentSettings<
   }
   | {
     model: NonNullable<AgentSettingsBase<TRuntimeConfig>["model"]>
-    adapter: NonNullable<AgentSettingsBase<TRuntimeConfig>["adapter"]>
     run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )
@@ -360,8 +404,6 @@ export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = Agen
 
 export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
-
-export type AgentModelAdapter = "ai-sdk" | "tanstack-ai" | (string & {})
 
 export interface AgentStateProviderOptions {
   provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})

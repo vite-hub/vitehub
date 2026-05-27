@@ -27,7 +27,6 @@ import { defineAgent } from '@vitehub/agent'
 export default defineAgent({
   instructions: 'Triage support requests.',
   model,
-  adapter: 'ai-sdk',
 })
 ```
 
@@ -206,7 +205,6 @@ export default defineAgent({
     }),
   ],
   model,
-  adapter: 'ai-sdk',
 })
 ```
 
@@ -313,7 +311,6 @@ export default defineAgent({
     workspaceShell(),
   ],
   model,
-  adapter: 'ai-sdk',
 })
 ```
 
@@ -331,7 +328,6 @@ export default defineAgent({
   ],
   instructions: async ({ fs }) => await fs.readFile('AGENTS.md'),
   model,
-  adapter: 'ai-sdk',
 })
 ```
 
@@ -348,7 +344,6 @@ export default defineAgent({
     async ({ fs }) => await fs.readFile('AGENTS.md'),
   ],
   model,
-  adapter: 'ai-sdk',
 })
 ```
 
@@ -366,7 +361,6 @@ Workspace sources do not imply model tools. Replace older workspace agents that 
 +    workspaceShell(),
 +  ],
 +  model,
-+  adapter: 'ai-sdk',
  })
 ```
 
@@ -403,7 +397,6 @@ export default defineAgent({
     }),
   ],
   model,
-  adapter: 'ai-sdk',
 })
 ```
 
@@ -433,7 +426,6 @@ export default defineAgent({
     }),
   ],
   model,
-  adapter: 'ai-sdk',
 })
 ```
 

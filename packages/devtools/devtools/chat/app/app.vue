@@ -8,8 +8,6 @@ import {
   chatDevtoolsGetStateRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
-  type ChatDevtoolsFileTreeItem,
-  type ChatDevtoolsMessage,
   type ChatDevtoolsSendResult,
   type ChatDevtoolsStateResult,
   type ChatDevtoolsStreamEvent,
@@ -27,75 +25,12 @@ const status = ref<ChatStatus>("ready")
 const error = ref<string | undefined>()
 const connected = ref(false)
 const isBusy = computed(() => status.value !== "ready")
-const previewFiles: ChatDevtoolsFileTreeItem[] = [
-  {
-    kind: "directory",
-    label: "server",
-    path: "server",
-    children: [
-      { kind: "file", path: "server/agents/support.ts", updatedAt: "Preview" },
-    ],
-  },
-  {
-    kind: "directory",
-    label: "workspace",
-    path: "workspace",
-    children: [
-      {
-        kind: "directory",
-        label: "forecastingEngine",
-        materialize: "lazy",
-        materialized: false,
-        path: "workspace/forecasting-engine",
-        source: "forecastingEngine",
-        children: [
-          {
-            kind: "directory",
-            label: "services",
-            materialize: "lazy",
-            materialized: false,
-            path: "workspace/forecasting-engine/services",
-            source: "forecastingEngine",
-            children: [
-              {
-                kind: "file",
-                label: "planning.md",
-                materialize: "lazy",
-                materialized: false,
-                path: "workspace/forecasting-engine/services/planning.md",
-                source: "forecastingEngine",
-              },
-            ],
-          },
-        ],
-      },
-      { kind: "file", path: "workspace/AGENTS.md", updatedAt: "Preview" },
-    ],
-  },
-]
-const previewInstructions = [
-  {
-    content: "# System instructions\n\n- Use the workspace forecast files before answering.\n- Explain the planning assumptions clearly.",
-    label: "System instructions",
-    source: "system",
-  },
-]
-const previewTools: ChatDevtoolsToolDefinition[] = [
-  {
-    category: "workspace",
-    commands: ["readonly()"],
-    description: "Inspect workspace files from the ViteHub preset without mutating project state.",
-    name: "shell",
-    preset: "vitehub-workspace",
-    status: "available",
-  },
-]
 const state = ref<ChatDevtoolsStateResult>({
   chats: [],
-  files: previewFiles,
-  instructions: previewInstructions.map(instruction => instruction.content),
+  files: [],
+  instructions: [],
   selected: "",
-  tools: previewTools,
+  tools: [],
 })
 const messages = ref<ChatMessage[]>([])
 const loadingAssistantMessageId = "vitehub-devtools-loading-assistant"
@@ -117,11 +52,9 @@ const selectedFilePath = ref<string | undefined>()
 const sidebarWidth = ref(340)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
-let simulationRunId = 0
 let stopSidebarResize: (() => void) | undefined
 
-const standaloneStatusMessage = "Preview mode. Connect through Vite DevTools to inspect a real chat runtime."
-const simulationDelayMs = 360
+const disconnectedStatusMessage = "Connect through Vite DevTools to inspect a real chat runtime."
 const integrationTabs = [
   { icon: "i-lucide-files", label: "Files", slot: "files" as const },
   { icon: "i-lucide-wrench", label: "Tools", slot: "tools" as const },
@@ -173,27 +106,6 @@ function selectedChat(next = state.value) {
   return next.chats.find(chat => chat.name === next.selected) || next.chats[0]
 }
 
-function legacyMessageToUIMessage(message: ChatDevtoolsMessage): ChatMessage {
-  const parts: UIMessagePart<never, never>[] = []
-  if (message.text) {
-    parts.push({ type: "text", text: message.text })
-  }
-  for (const tool of message.tools || []) {
-    parts.push({
-      type: `tool-${tool.name}` as never,
-      toolCallId: tool.id,
-      state: tool.status === "running" ? "input-available" : "output-available",
-      input: tool.input,
-      output: tool.output ?? tool.text,
-    } as never)
-  }
-  return {
-    id: message.id,
-    role: message.role,
-    parts,
-  }
-}
-
 function applyState(next: ChatDevtoolsStateResult) {
   state.value = {
     files: next.files || [],
@@ -202,9 +114,7 @@ function applyState(next: ChatDevtoolsStateResult) {
     ...next,
   }
   const chat = selectedChat(next)
-  const serverMessages = chat?.uiMessages?.length || next.uiMessages?.length
-    ? chat?.uiMessages || next.uiMessages || []
-    : (chat?.messages || []).map(legacyMessageToUIMessage)
+  const serverMessages = chat?.uiMessages || next.uiMessages || []
   const nextMessages = [...serverMessages]
   const pending = pendingUserMessage.value
 
@@ -242,11 +152,18 @@ function uiMessageContent(message: UIMessage) {
 }
 
 function renderedMessageContent(content: unknown, message: { content?: unknown }) {
-  return typeof content === "string" && content.trim()
-    ? content
-    : typeof message.content === "string" && message.content.trim()
+  const partsText = uiMessageContent(message as UIMessage)
+  return partsText
+    || (typeof content === "string" && content.trim()
+      ? content
+      : typeof message.content === "string" && message.content.trim()
       ? message.content
-      : uiMessageContent(message as UIMessage) || undefined
+      : undefined)
+}
+
+function renderedMessageKey(content: unknown, message: { content?: unknown, id?: unknown }) {
+  const rendered = renderedMessageContent(content, message)
+  return `${typeof message.id === "string" ? message.id : "message"}:${rendered?.length ?? 0}:${rendered ?? ""}`
 }
 
 function commandFromTool(tool: ChatDevtoolsTool) {
@@ -516,15 +433,6 @@ function reasoningLabel(message: unknown, parts: unknown) {
   return toolsSummary(message, parts)
 }
 
-function appendOrUpdateMessage(message: ChatMessage) {
-  const index = messages.value.findIndex(item => item.id === message.id)
-  if (index >= 0) {
-    messages.value = messages.value.map(item => item.id === message.id ? message : item)
-    return
-  }
-  messages.value = [...messages.value, message]
-}
-
 function appendPendingUserMessage(text: string, chat: string | undefined) {
   pendingUserMessage.value = {
     chat,
@@ -533,10 +441,6 @@ function appendPendingUserMessage(text: string, chat: string | undefined) {
     parts: [{ type: "text", text }],
   }
   messages.value = [...messages.value, pendingUserMessage.value]
-}
-
-function wait(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function waitForFrame() {
@@ -555,132 +459,6 @@ function localBridgeRoute() {
 
 function shouldPreferRpcBridge() {
   return Boolean(parseRemoteConnection()?.origin)
-}
-
-async function runStandaloneSimulation(text: string) {
-  const runId = ++simulationRunId
-  const isCurrentRun = () => runId === simulationRunId
-  const now = Date.now()
-  state.value = {
-    chats: state.value.chats.length ? state.value.chats : [{ name: "preview", messages: [] }],
-    files: previewFiles,
-    selected: state.value.selected || "preview",
-    instructions: previewInstructions.map(instruction => instruction.content),
-    thinkingFallback: thinkingFallback.value || "Thinking...",
-    tools: previewTools,
-  }
-  const assistant: ChatMessage = {
-    id: `assistant-${now}`,
-    role: "assistant",
-    parts: [],
-  }
-  appendOrUpdateMessage({
-    id: `user-${now}`,
-    role: "user",
-    parts: [{ type: "text", text }],
-    metadata: { createdAt: new Date().toISOString() },
-  })
-  appendOrUpdateMessage(assistant)
-  status.value = "streaming"
-
-  const tools: ChatDevtoolsTool[] = [
-    {
-      id: `tool-${now}-workspace-search`,
-      input: {
-        command: `rg -n ${JSON.stringify(text)} data-sources`,
-      },
-      name: "shell",
-      status: "running",
-      text: "shell",
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: `tool-${now}-read-file`,
-      input: {
-        command: "cat data-sources/AGENTS.md",
-      },
-      name: "shell",
-      status: "running",
-      text: "shell",
-      updatedAt: new Date().toISOString(),
-    },
-  ]
-
-  await wait(simulationDelayMs)
-  if (!isCurrentRun()) return
-  assistant.parts = [{ type: "tool", tool: tools[0]! }]
-  appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
-
-  await wait(simulationDelayMs)
-  if (!isCurrentRun()) return
-  tools[0] = {
-    ...tools[0]!,
-    output: {
-      exitCode: 0,
-      stderr: "",
-      stdout: [
-        "data-sources/README.md:4:Repository inventory and workspace guidance",
-        "data-sources/forecasts.md:12:Forecasting and portal data source notes",
-        "",
-      ].join("\n"),
-    },
-    status: "completed",
-    updatedAt: new Date().toISOString(),
-  }
-  assistant.parts = [{ type: "tool", tool: tools[0]! }]
-  appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
-
-  await wait(simulationDelayMs)
-  if (!isCurrentRun()) return
-  assistant.parts = [
-    { type: "tool", tool: tools[0]! },
-    { type: "tool", tool: tools[1]! },
-  ]
-  appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
-
-  await wait(simulationDelayMs)
-  if (!isCurrentRun()) return
-  tools[1] = {
-    ...tools[1]!,
-    output: {
-      exitCode: 0,
-      stderr: "",
-      stdout: [
-        "# Quiver Chat Workspace",
-        "",
-        "Use workspace sources first. Keep shell inspection read-only unless a workflow explicitly enables writes.",
-        "",
-      ].join("\n"),
-    },
-    status: "completed",
-    updatedAt: new Date().toISOString(),
-  }
-  assistant.parts = [
-    { type: "tool", tool: tools[0]! },
-    { type: "tool", tool: tools[1]! },
-  ]
-  appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
-
-  const chunks = [
-    "I found the relevant workspace notes and traced the request through the Quiver Chat data sources. ",
-    "The likely next step is to answer from the repository context first, then cite which workspace files or source records were used. ",
-    "In a connected Vite DevTools session this same panel will show live Chat SDK tool calls alongside the answer.",
-  ]
-  for (const chunk of chunks) {
-    await wait(simulationDelayMs)
-    if (!isCurrentRun()) return
-    const textPart = assistant.parts.find((part): part is { type: "text", text: string } => part.type === "text")
-    if (textPart) {
-      textPart.text += chunk
-    }
-    else {
-      assistant.parts.push({ type: "text", text: chunk })
-    }
-    appendOrUpdateMessage({ ...assistant, parts: [...assistant.parts] })
-  }
-
-  if (!isCurrentRun()) return
-  error.value = undefined
 }
 
 async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
@@ -900,14 +678,9 @@ async function send() {
   }
   catch (cause) {
     const message = cause instanceof Error ? cause.message : "Chat DevTools send failed."
-    if (connected.value) {
-      clearPendingMessages()
-      error.value = message
-      return
-    }
-
     clearPendingMessages()
-    await runStandaloneSimulation(text)
+    error.value = message
+    connected.value = false
   }
   finally {
     currentReader = undefined
@@ -934,7 +707,6 @@ function submitComposer() {
 }
 
 async function clear() {
-  simulationRunId++
   try {
     currentReader?.cancel()
     currentReader = undefined
@@ -1065,7 +837,10 @@ onBeforeUnmount(() => stopSidebarResize?.())
                   <Suspense
                     v-if="renderedMessageContent(content, message)"
                   >
-                    <Comark class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5">
+                    <Comark
+                      :key="renderedMessageKey(content, message)"
+                      class="text-sm/5 text-pretty [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5"
+                    >
                       {{ renderedMessageContent(content, message) }}
                     </Comark>
                   </Suspense>
@@ -1087,7 +862,7 @@ onBeforeUnmount(() => stopSidebarResize?.())
               color="neutral"
               variant="soft"
               icon="i-lucide-info"
-              :title="standaloneStatusMessage"
+              :title="disconnectedStatusMessage"
               class="mb-1"
               :ui="{
                 root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0',
