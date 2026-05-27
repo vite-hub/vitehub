@@ -8,6 +8,7 @@ import {
   chatDevtoolsGetStateRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
+  type ChatDevtoolsFileTreeItem,
   type ChatDevtoolsSendResult,
   type ChatDevtoolsStateResult,
   type ChatDevtoolsStreamEvent,
@@ -149,6 +150,27 @@ function uiMessageContent(message: UIMessage) {
     .filter((part): part is { text: string, type: "text" } => part.type === "text" && typeof (part as { text?: unknown }).text === "string")
     .map(part => part.text)
     .join("")
+}
+
+function stateUiMessages(next: ChatDevtoolsStateResult, chatName: string | undefined) {
+  const chat = (chatName ? next.chats.find(item => item.name === chatName) : undefined) || next.chats[0]
+  return chat?.uiMessages || next.uiMessages || []
+}
+
+function hasCompletedResponse(next: ChatDevtoolsStateResult, chatName: string | undefined, text: string) {
+  const messages = stateUiMessages(next, chatName)
+  const userIndex = messages.findLastIndex(message => message.role === "user" && uiMessageContent(message) === text)
+  if (userIndex < 0) return false
+
+  return messages.slice(userIndex + 1).some(message =>
+    message.role === "assistant"
+    && !hasRunningTool(message.parts)
+    && !!uiMessageContent(message).trim(),
+  )
+}
+
+function hasCurrentUserMessage(next: ChatDevtoolsStateResult, chatName: string | undefined, text: string) {
+  return stateUiMessages(next, chatName).some(message => message.role === "user" && uiMessageContent(message) === text)
 }
 
 function renderedMessageContent(content: unknown, message: { content?: unknown }) {
@@ -526,6 +548,49 @@ async function refreshFromBridge(chat?: string) {
   await refresh()
 }
 
+async function pollFinalBridgeState(input: { chat?: string, text: string }, signal: AbortSignal) {
+  while (!signal.aborted) {
+    await new Promise(resolve => setTimeout(resolve, 700))
+    if (signal.aborted) break
+
+    const next = await callBridgeState({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) })
+    if (!next) continue
+
+    if (hasCurrentUserMessage(next, input.chat, input.text)) {
+      applyState(next)
+      error.value = undefined
+    }
+    if (hasCompletedResponse(next, input.chat, input.text)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+async function pollFinalRpcState(input: { chat?: string, text: string }, signal: AbortSignal) {
+  while (!signal.aborted) {
+    await new Promise(resolve => setTimeout(resolve, 700))
+    if (signal.aborted) break
+
+    try {
+      const next = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc)
+      if (hasCurrentUserMessage(next, input.chat, input.text)) {
+        applyState(next)
+        error.value = undefined
+      }
+      if (hasCompletedResponse(next, input.chat, input.text)) {
+        return true
+      }
+    }
+    catch {
+      if (signal.aborted) break
+    }
+  }
+
+  return false
+}
+
 async function readDirectBridgeStream(input: { chat?: string, text: string }): Promise<boolean> {
   const abortController = new AbortController()
   currentReader = { cancel: () => abortController.abort() }
@@ -563,7 +628,7 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
   const decoder = new TextDecoder()
   let pending = ""
 
-  const readStream = async () => {
+  const readStream = async (): Promise<"done" | "error" | false> => {
     try {
       for (;;) {
         const { done, value } = await reader.read()
@@ -575,23 +640,38 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
           if (!line.trim()) continue
           const event = JSON.parse(line) as ChatDevtoolsStreamEvent
           applyStreamEvent(event)
-          if (event.type === "error" || event.type === "done") return true
+          if (event.type === "error") return "error"
+          if (event.type === "done") return "done"
         }
       }
 
       const tail = pending.trim()
       if (tail) {
-        applyStreamEvent(JSON.parse(tail) as ChatDevtoolsStreamEvent)
+        const event = JSON.parse(tail) as ChatDevtoolsStreamEvent
+        applyStreamEvent(event)
+        if (event.type === "error") return "error"
+        if (event.type === "done") return "done"
       }
-      return true
+      return "done"
     }
     catch {
-      return abortController.signal.aborted
+      return abortController.signal.aborted ? "done" : false
     }
   }
 
   try {
-    return await readStream()
+    const outcome = await Promise.race([
+      readStream(),
+      pollFinalBridgeState(input, abortController.signal),
+    ])
+    if (outcome === "error") {
+      return true
+    }
+    if (!outcome || hasCompletedResponse(state.value, input.chat, input.text)) {
+      return Boolean(outcome)
+    }
+
+    return await pollFinalBridgeState(input, abortController.signal)
   }
   finally {
     abortController.abort()
@@ -605,7 +685,18 @@ async function readRpcStream(streamId: string, input: { chat?: string, text: str
     highWaterMark: 1024,
   })
   if (!reader) {
-    throw new Error("Chat DevTools streaming is unavailable.")
+    const timeout = setTimeout(() => abortController.abort(), 60_000)
+    try {
+      const completed = await pollFinalRpcState(input, abortController.signal)
+      if (!completed) {
+        throw new Error("Chat DevTools RPC polling timed out.")
+      }
+      return completed
+    }
+    finally {
+      clearTimeout(timeout)
+      abortController.abort()
+    }
   }
 
   currentReader = {
@@ -656,6 +747,9 @@ async function send() {
     const bridgeInput = { ...(chat ? { chat } : {}), text }
     if (!shouldPreferRpcBridge()) {
       if (await readDirectBridgeStream(bridgeInput)) {
+        if (error.value) {
+          return
+        }
         status.value = "ready"
         await refreshFromBridge(chat)
         return
