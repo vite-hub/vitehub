@@ -102,7 +102,7 @@ const loadingAssistantMessageId = "vitehub-devtools-loading-assistant"
 const chatMessages = computed(() => {
   const next = [...messages.value]
   const latest = next.at(-1)
-  if (status.value === "streaming" && (!latest || latest.role !== "assistant" || (uiMessageContent(latest).trim() || hasToolParts(latest.parts)))) {
+  if (status.value === "streaming" && thinkingFallback.value && (!latest || latest.role !== "assistant")) {
     next.push({
       id: loadingAssistantMessageId,
       role: "assistant",
@@ -141,7 +141,7 @@ const fileRows = computed<FileRow[]>(() => flattenFiles(state.value.files || [],
 const splitterStyle = computed(() => ({
   "--chat-devtools-sidebar-width": `${sidebarWidth.value}px`,
 }))
-const thinkingFallback = computed(() => state.value.thinkingFallback || "Thinking...")
+const thinkingFallback = computed(() => state.value.thinkingFallback || undefined)
 const recentTools = computed(() => {
   const tools = new Map<string, ChatDevtoolsTool>()
   for (const message of messages.value) {
@@ -432,12 +432,13 @@ function isLoadingMessage(message: unknown) {
   const typed = message as UIMessage | undefined
   return status.value === "streaming"
     && typed?.role === "assistant"
+    && Boolean(thinkingFallback.value)
     && (typed.id === loadingAssistantMessageId || messages.value.at(-1)?.id === typed.id)
     && !uiMessageContent(typed).trim()
 }
 
 function loadingMessageText() {
-  return thinkingFallback.value
+  return thinkingFallback.value || ""
 }
 
 function chatToolParts(parts: unknown): Array<{ type: "tool", tool: ChatDevtoolsTool }> {
@@ -487,13 +488,17 @@ function formatThoughtDuration(ms: number) {
 }
 
 function thoughtDuration(message: unknown, parts: unknown) {
-  const createdAt = Date.parse(((message as UIMessage | undefined)?.metadata as { createdAt?: string } | undefined)?.createdAt || "")
+  const metadata = (message as UIMessage | undefined)?.metadata as { completedAt?: string, createdAt?: string, updatedAt?: string } | undefined
+  const createdAt = Date.parse(metadata?.createdAt || "")
   if (!Number.isFinite(createdAt)) return undefined
 
   const toolTimes = chatToolParts(parts)
     .map(part => Date.parse(part.tool.updatedAt))
     .filter(Number.isFinite)
-  const endedAt = toolTimes.length ? Math.max(...toolTimes) : Date.now()
+  const metadataEndedAt = Date.parse(metadata?.completedAt || metadata?.updatedAt || "")
+  const endedAt = Number.isFinite(metadataEndedAt)
+    ? metadataEndedAt
+    : toolTimes.length ? Math.max(...toolTimes) : Date.now()
   return formatThoughtDuration(endedAt - createdAt)
 }
 
@@ -561,7 +566,7 @@ async function runStandaloneSimulation(text: string) {
     files: previewFiles,
     selected: state.value.selected || "preview",
     instructions: previewInstructions.map(instruction => instruction.content),
-    thinkingFallback,
+    thinkingFallback: thinkingFallback.value || "Thinking...",
     tools: previewTools,
   }
   const assistant: ChatMessage = {

@@ -476,6 +476,7 @@ async function sendDevtoolsUIMessage(
   const userMessage = createUserUIMessage(text)
   const baseMessages = [...session.uiMessages, userMessage]
   const run = createRunMetadata(session, userMessage.id)
+  const startedAt = new Date().toISOString()
   const history = uiMessagesToViteHubMessages(selectDevtoolsHistory(baseMessages, binding.history))
   const baseArgs = createDevtoolsHookArgs(run, history, userMessage)
   session.thinkingFallback = await resolveThinkingFallback(options.fallbackStreamingPlaceholderText, baseArgs)
@@ -507,7 +508,26 @@ async function sendDevtoolsUIMessage(
     const { readUIMessageStream } = await import("ai") as { readUIMessageStream: ReadUIMessageStream }
     let latestAssistant: UIMessage | undefined
     for await (const assistantMessage of readUIMessageStream({ stream })) {
-      latestAssistant = assistantMessage as UIMessage
+      const now = new Date().toISOString()
+      latestAssistant = {
+        ...assistantMessage as UIMessage,
+        metadata: {
+          ...((assistantMessage as UIMessage).metadata as Record<string, unknown> | undefined),
+          createdAt: startedAt,
+          updatedAt: now,
+        },
+      }
+      session.uiMessages = [...baseMessages, latestAssistant]
+      await onChange?.(await serializeState(state, selected))
+    }
+    if (latestAssistant) {
+      latestAssistant = {
+        ...latestAssistant,
+        metadata: {
+          ...(latestAssistant.metadata as Record<string, unknown> | undefined),
+          completedAt: new Date().toISOString(),
+        },
+      }
       session.uiMessages = [...baseMessages, latestAssistant]
       await onChange?.(await serializeState(state, selected))
     }
