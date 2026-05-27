@@ -67,7 +67,7 @@ import type {
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
-import type { Message, StreamEvent } from "./messages.ts"
+import type { Message, MessagePart, StreamEvent } from "./messages.ts"
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
@@ -378,6 +378,55 @@ function uiMessageText(message: UIMessageLike): string {
     .join("")
 }
 
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.length > 0)
+}
+
+function uiToolName(part: Record<string, unknown>): string {
+  if (part.type === "dynamic-tool") {
+    return firstString(part.toolName, part.name) || "tool"
+  }
+  return typeof part.type === "string" && part.type.startsWith("tool-")
+    ? part.type.slice("tool-".length)
+    : firstString(part.toolName, part.name) || "tool"
+}
+
+function uiToolId(part: Record<string, unknown>, name: string, index: number): string {
+  return firstString(part.toolCallId, part.id) || `${name}-${index + 1}`
+}
+
+function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart | string> {
+  const parts = Array.isArray(message.parts) ? message.parts : []
+  return parts.flatMap((part, index): Array<MessagePart | string> => {
+    if (!part || typeof part !== "object") return []
+    const record = part as Record<string, unknown>
+    if (record.type === "text" && typeof record.text === "string") return [record.text]
+    if (record.type === "dynamic-tool" || (typeof record.type === "string" && record.type.startsWith("tool-"))) {
+      const name = uiToolName(record)
+      const id = uiToolId(record, name, index)
+      const state = typeof record.state === "string" ? record.state : undefined
+      if (state === "output-available" || state === "output-denied" || record.output !== undefined) {
+        return [{
+          error: typeof record.errorText === "string" ? record.errorText : undefined,
+          id,
+          name,
+          output: record.output,
+          state: typeof record.errorText === "string" ? "failed" : "completed",
+          type: "tool-result",
+        }]
+      }
+      return [{
+        id,
+        input: record.input,
+        name,
+        state: state === "input-available" || state === "input-streaming" ? "proposed" : "running",
+        type: "tool-call",
+      }]
+    }
+    return []
+  })
+}
+
 function uiMessagesToAgentMessages(messages: UIMessageLike[]): Message[] {
   return messages.map((message, index) => {
     const role = message.role === "assistant" || message.role === "system" || message.role === "tool" || message.role === "user"
@@ -387,8 +436,8 @@ function uiMessagesToAgentMessages(messages: UIMessageLike[]): Message[] {
       createdAt: message.createdAt,
       id: message.id || `ui-${index}`,
       metadata: typeof message.metadata === "object" && message.metadata !== null ? message.metadata as Record<string, unknown> : undefined,
+      parts: uiMessagePartsToAgentParts(message),
       role,
-      text: uiMessageText(message),
     })
   })
 }
@@ -398,7 +447,7 @@ function selectChatHistory(messages: UIMessageLike[], history: AgentChatOptions[
   if (typeof history === "object" && history.source === "thread" && typeof history.maxMessages === "number") {
     return messages.slice(-Math.max(1, history.maxMessages))
   }
-  return messages
+  return messages.slice(-20)
 }
 
 function createChatTriggerHookArgs(
