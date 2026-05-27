@@ -1598,7 +1598,7 @@ export async function runScheduledAgent(
       schedule: {
         id: context.id,
         kind: "schedule",
-        runId: context.runId,
+        runId,
         scheduleId: context.scheduleId,
         scheduledAt: context.scheduledAt,
         target: context.target,

@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, inputCommands as rootInputCommands, type AgentRuntimeContext } from "../src/index.ts"
-import { blob, db, fetch, inputCommands, kv, mcp, sandbox, skills, webSearch, workspaceShell } from "../src/capabilities.ts"
+import { blob, db, fetch, inputCommands, kv, mcp, sandbox, schedule, skills, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -62,6 +62,8 @@ describe("agent public types", () => {
         }),
         skills(),
         sandbox({ commands: ["node"] }),
+        schedule({ mode: "read", targets: ["daily-reports"] as const }),
+        schedule({ allowSelfTarget: true, mode: "write", policy: "require-approval", selfTarget: "agent/digest", targets: ["agent/digest", "daily-reports"] as const }),
         webSearch({ mode: "tool", provider: "exa" }),
         webSearch({ mode: "model" }),
         {
@@ -75,6 +77,11 @@ describe("agent public types", () => {
       model: {} as never,
       workspace: { mode: "read" },
     })
+
+    type GeneratedScheduleTargetName = "daily-reports" | "weekly-cleanup"
+    schedule<GeneratedScheduleTargetName>({ mode: "write", targets: ["daily-reports"] })
+    // @ts-expect-error target allowlists are typed by generated Schedule Target Names where supplied
+    schedule<GeneratedScheduleTargetName>({ mode: "write", targets: ["missing"] })
 
     // @ts-expect-error web search mode is required
     webSearch({})

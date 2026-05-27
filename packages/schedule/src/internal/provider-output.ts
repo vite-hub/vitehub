@@ -61,7 +61,7 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
   const source = readFileSync(file, "utf8")
-  const cron = readDefaultDefineScheduleCron(source) ?? readDefaultObjectCron(source)
+  const cron = readDefaultDefineScheduleCron(source)
   if (!cron) {
     throw new Error(`Schedule "${scheduleName}" must declare a static cron string for provider wake output.`)
   }
@@ -345,6 +345,20 @@ function readTopLevelCronProperty(objectSource: string): string | undefined {
   }
 }
 
+function findTypeParametersEnd(source: string, index: number): number {
+  let depth = 0
+  for (let cursor = index; cursor < source.length; cursor += 1) {
+    const char = source[cursor]
+    if (char === "<") depth += 1
+    if (char === ">" && source[cursor - 1] === "=") continue
+    if (char === ">") {
+      depth -= 1
+      if (depth === 0) return cursor
+    }
+  }
+  return -1
+}
+
 function readDefineScheduleObjectAfterDefault(source: string, index: number): string | undefined {
   let cursor = skipIgnorable(source, index)
   let openParens = 0
@@ -358,7 +372,7 @@ function readDefineScheduleObjectAfterDefault(source: string, index: number): st
 
   cursor = skipIgnorable(source, cursor)
   if (source[cursor] === "<") {
-    const close = source.indexOf(">", cursor + 1)
+    const close = findTypeParametersEnd(source, cursor)
     if (close === -1) return undefined
     cursor = skipIgnorable(source, close + 1)
   }
@@ -386,18 +400,6 @@ function readDefaultDefineScheduleCron(source: string): string | undefined {
     const objectSource = readDefineScheduleObjectAfterDefault(source, match.index + match[0].length)
     if (!objectSource) continue
     return readTopLevelCronProperty(objectSource)
-  }
-}
-
-function readDefaultObjectCron(source: string): string | undefined {
-  let match: RegExpExecArray | null
-  const pattern = /\bexport\s+default\b/g
-  while ((match = pattern.exec(source))) {
-    if (isInsideNonCode(source, match.index)) continue
-
-    const objectStart = skipIgnorable(source, match.index + match[0].length)
-    const objectSource = readBalancedObject(source, objectStart)
-    if (objectSource) return readTopLevelCronProperty(objectSource)
   }
 }
 
