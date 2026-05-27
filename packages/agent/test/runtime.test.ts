@@ -1178,6 +1178,116 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("honors chat history limits for DevTools AI SDK sends", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChat } = await import("../src/chat/index.ts")
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    const seenHistory: Array<string[]> = []
+    const agent = defineAgent({
+      async run() {
+        return {
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: `assistant-${seenHistory.length}` })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: `answer ${seenHistory.length}` })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }
+      },
+    })
+    app.use(defineChatDevtoolsRegistryHandler({
+      support: async () => defineChat({
+        agent: {
+          definition: agent,
+          history: { maxMessages: 2, source: "thread" },
+          hooks: {
+            beforeRun(args) {
+              seenHistory.push((args.input.messages || []).map(message => message.parts
+                .filter((part): part is { text: string, type: "text" } => part.type === "text")
+                .map(part => part.text)
+                .join("")))
+            },
+          },
+          name: "support-agent",
+        },
+        adapters: {},
+        state: {} as never,
+      }),
+    }))
+
+    for (const text of ["first request", "second request", "third request"]) {
+      const response = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "send", chat: "support", stream: true, text }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      expect(response.status).toBe(200)
+      await response.text()
+    }
+
+    expect(seenHistory.at(-1)).toEqual(["answer 2", "third request"])
+  })
+
+  it("clears AI SDK DevTools UI message history", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChat } = await import("../src/chat/index.ts")
+    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    const agent = defineAgent({
+      async run() {
+        return {
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: "assistant-1" })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: "answer" })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }
+      },
+    })
+    app.use(defineChatDevtoolsRegistryHandler({
+      support: async () => defineChat({
+        agent: { definition: agent, name: "support-agent" },
+        adapters: {},
+        fallbackStreamingPlaceholderText: "Thinking from config...",
+        state: {} as never,
+      }),
+    }))
+
+    const sendResponse = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "send", chat: "support", stream: true, text: "hello" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    expect(sendResponse.status).toBe(200)
+    await sendResponse.text()
+
+    const clearResponse = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "clear", chat: "support" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    const state = await clearResponse.json() as { thinkingFallback?: string | null, uiMessages?: unknown[] }
+
+    expect(state.uiMessages).toEqual([])
+    expect(state.thinkingFallback).toBeNull()
+  })
+
   it("requires streaming for registry DevTools sends through the AI SDK path", async () => {
     const { createApp, toWebHandler } = await import("h3")
     const { defineAgent } = await import("../src/index.ts")
@@ -1209,6 +1319,37 @@ describe("agent message protocol", () => {
       message: expect.stringContaining("require stream"),
     })
     expect(response.status).toBe(400)
+  })
+
+  it("falls back to legacy DevTools sends for non-agent chats", async () => {
+    const { Chat } = await import("chat")
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineChatDevtoolsHandler } = await import("../src/chat/nitro/devtools.ts")
+    const { createMemoryChatStateAdapter } = await import("../src/chat/runtime/memory-state.ts")
+    const app = createApp()
+    const chat = new Chat({
+      adapters: {},
+      state: createMemoryChatStateAdapter(),
+      userName: "support",
+    })
+    chat.onDirectMessage(async (thread) => {
+      await thread.post("legacy answer")
+    })
+    app.use(defineChatDevtoolsHandler(chat as never))
+
+    const response = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "send", stream: true, text: "hello" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    const events = (await response.text()).trim().split("\n").map(line => JSON.parse(line) as { state?: { chats: Array<{ messages: Array<{ role: string, text: string }> }> }, type: string })
+    const finalState = events.filter(event => event.type === "state").at(-1)?.state
+
+    expect(response.status).toBe(200)
+    expect(finalState?.chats[0]?.messages.map(message => ({ role: message.role, text: message.text }))).toEqual([
+      { role: "user", text: "hello" },
+      { role: "assistant", text: "legacy answer" },
+    ])
   })
 
   it("streams singleton DevTools adapter updates without timer state polling", async () => {

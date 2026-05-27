@@ -1,6 +1,5 @@
 import { Chat, Message, parseMarkdown, toPlainText } from "chat"
 import { createError, defineEventHandler, readBody, setHeader } from "h3"
-import { readUIMessageStream } from "ai"
 
 import { createMessage, getAgentFromRegistry, streamAgent } from "../../index.ts"
 import { chatDevtoolsAdapterName, createDevtoolsAdapter as createBaseDevtoolsAdapter } from "../devtools.ts"
@@ -51,6 +50,7 @@ type ChatDevtoolsBridgeBody = {
   text?: string
 }
 type ChatDevtoolsAction = "clear" | "get-state" | "send"
+type ReadUIMessageStream = typeof import("ai").readUIMessageStream
 
 interface CloudflareRuntimeCarrier {
   context?: {
@@ -382,6 +382,13 @@ function uiMessagesToViteHubMessages(messages: UIMessage[]) {
   }))
 }
 
+function selectDevtoolsHistory(messages: UIMessage[], history: ChatAgentBindingOptions["history"]): UIMessage[] {
+  if (history === false || history === "none") return messages.slice(-1)
+  const maxMessages = typeof history === "object" && history ? history.maxMessages ?? 20 : 20
+  if (maxMessages <= 0) return messages.slice(-1)
+  return messages.slice(-maxMessages)
+}
+
 function createDevtoolsHookArgs(
   run: AgentRunMetadata,
   history: ReturnType<typeof uiMessagesToViteHubMessages>,
@@ -469,7 +476,7 @@ async function sendDevtoolsUIMessage(
   const userMessage = createUserUIMessage(text)
   const baseMessages = [...session.uiMessages, userMessage]
   const run = createRunMetadata(session, userMessage.id)
-  const history = uiMessagesToViteHubMessages(baseMessages)
+  const history = uiMessagesToViteHubMessages(selectDevtoolsHistory(baseMessages, binding.history))
   const baseArgs = createDevtoolsHookArgs(run, history, userMessage)
   session.thinkingFallback = await resolveThinkingFallback(options.fallbackStreamingPlaceholderText, baseArgs)
   session.uiMessages = baseMessages
@@ -497,6 +504,7 @@ async function sendDevtoolsUIMessage(
     const runtimeContext = { ...createRuntimeContext(event), run }
     const agent = binding.definition || await getAgentFromRegistry(binding.name, runtimeContext as never)
     const stream = await streamAgent(agent as never, runtimeContext as never, agentInput, { output: "ui-message-stream" }) as ReadableStream<never>
+    const { readUIMessageStream } = await import("ai") as { readUIMessageStream: ReadUIMessageStream }
     let latestAssistant: UIMessage | undefined
     for await (const assistantMessage of readUIMessageStream({ stream })) {
       latestAssistant = assistantMessage as UIMessage
@@ -679,7 +687,10 @@ async function clearDevtoolsMessages(state: ChatDevtoolsHandlerState, input: { c
   const selected = input.chat || getChatNames(state)[0]
   if (!selected) return await serializeState(state)
   state.selected = selected
-  getSession(state, selected).messages = []
+  const session = getSession(state, selected)
+  session.messages = []
+  session.uiMessages = []
+  session.thinkingFallback = null
   return await serializeState(state, selected)
 }
 
@@ -708,6 +719,20 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
       return await serializeState(state, body.chat)
     }
     if (action === "send") {
+      const loader = body.chat ? state.registry[body.chat] : state.registry[getChatNames(state)[0] || ""]
+      const chat = loader ? resolveRegistryModule(await loader()) : undefined
+      const isAgentChat = chat ? !!getChatDefinitionOptions(chat)?.agent : false
+
+      if (!isAgentChat) {
+        if (!body.stream) return await sendDevtoolsMessage(event, state, body)
+        return createChatDevtoolsStreamResponse(async (emit, signal) => {
+          const finalState = await sendDevtoolsMessage(event, state, body, (next) => {
+            if (!signal.aborted) emit({ type: "state", state: next })
+          })
+          if (!signal.aborted) emit({ type: "state", state: finalState })
+        })
+      }
+
       if (!body.stream) {
         throw createError({
           statusCode: 400,

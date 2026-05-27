@@ -9,6 +9,7 @@ import {
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   type ChatDevtoolsFileTreeItem,
+  type ChatDevtoolsMessage,
   type ChatDevtoolsSendResult,
   type ChatDevtoolsStateResult,
   type ChatDevtoolsStreamEvent,
@@ -172,6 +173,27 @@ function selectedChat(next = state.value) {
   return next.chats.find(chat => chat.name === next.selected) || next.chats[0]
 }
 
+function legacyMessageToUIMessage(message: ChatDevtoolsMessage): ChatMessage {
+  const parts: UIMessagePart<never, never>[] = []
+  if (message.text) {
+    parts.push({ type: "text", text: message.text })
+  }
+  for (const tool of message.tools || []) {
+    parts.push({
+      type: `tool-${tool.name}` as never,
+      toolCallId: tool.id,
+      state: tool.status === "running" ? "input-available" : "output-available",
+      input: tool.input,
+      output: tool.output ?? tool.text,
+    } as never)
+  }
+  return {
+    id: message.id,
+    role: message.role,
+    parts,
+  }
+}
+
 function applyState(next: ChatDevtoolsStateResult) {
   state.value = {
     files: next.files || [],
@@ -180,7 +202,9 @@ function applyState(next: ChatDevtoolsStateResult) {
     ...next,
   }
   const chat = selectedChat(next)
-  const serverMessages = chat?.uiMessages || next.uiMessages || []
+  const serverMessages = chat?.uiMessages?.length || next.uiMessages?.length
+    ? chat?.uiMessages || next.uiMessages || []
+    : (chat?.messages || []).map(legacyMessageToUIMessage)
   const nextMessages = [...serverMessages]
   const pending = pendingUserMessage.value
 
