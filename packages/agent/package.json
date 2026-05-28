@@ -103,7 +103,6 @@
   "devDependencies": {
     "@ai-sdk/mcp": "^1.0.36",
     "@types/node": "catalog:",
-    "@vitehub/internal": "workspace:*",
     "@vitejs/devtools-kit": "catalog:",
     "ai": "^6.0.172",
     "evalite": "catalog:",

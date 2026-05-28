@@ -1,8 +1,29 @@
-import type { ViteHubCliContext, ViteHubCliContributor } from "@vitehub/internal/cli"
 import type { AgentCliOptions, AgentEvalCliOptions } from "./types.ts"
 import type { runEvalite } from "evalite/runner"
 
 type EvaliteRunner = typeof runEvalite
+
+interface AgentCliContext {
+  cwd: string
+  env: NodeJS.ProcessEnv
+  rootDir: string
+  spawn?: unknown
+  stderr: { write: (chunk: string | Uint8Array) => unknown }
+  stdout: { write: (chunk: string | Uint8Array) => unknown }
+}
+
+interface AgentCliContributor {
+  namespaces: Array<{
+    description?: string
+    features: Array<{
+      description?: string
+      name: string
+      run: (args: string[], context: AgentCliContext) => Promise<number | void> | number | void
+      usage?: string
+    }>
+    name: string
+  }>
+}
 
 interface ParsedEvalArgs {
   help: boolean
@@ -22,7 +43,7 @@ const defaultAgentEvalOptions: Required<AgentEvalCliOptions> = {
   ],
 }
 
-function writeUsage(context: ViteHubCliContext): void {
+function writeUsage(context: AgentCliContext): void {
   context.stdout.write([
     "Usage: vitehub agent eval [path] [--watch] [--threshold <score>] [--output <path>] [--hide-table] [--no-cache]",
     "",
@@ -132,7 +153,7 @@ async function loadEvaliteRunner(): Promise<EvaliteRunner> {
 
 export async function runAgentEvalCli(
   args: string[],
-  context: ViteHubCliContext,
+  context: AgentCliContext,
   options: false | AgentCliOptions | undefined,
   runner?: EvaliteRunner,
 ): Promise<number> {
@@ -172,7 +193,7 @@ export async function runAgentEvalCli(
   return 0
 }
 
-export function createAgentCliContributor(options?: false | AgentCliOptions): ViteHubCliContributor | undefined {
+export function createAgentCliContributor(options?: false | AgentCliOptions): AgentCliContributor | undefined {
   if (options === false) return
   return {
     namespaces: [{

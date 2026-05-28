@@ -5,11 +5,16 @@ import agentNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
-import type { ViteHubCliContributingPlugin } from "@vitehub/internal/cli"
 import type { ChatDevToolsOptions, ChatDevToolsPlugin } from "./chat/devtools.ts"
 import type { AgentModuleOptions } from "./types.ts"
 
-export type AgentVitePlugin = Plugin & ViteHubCliContributingPlugin & { nitro: NitroModule }
+interface AgentCliContributingPlugin {
+  vitehub?: {
+    cli?: unknown
+  }
+}
+
+export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & { nitro: NitroModule }
 
 const agentPackageName = "@vitehub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
