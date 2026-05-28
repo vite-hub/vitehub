@@ -55,6 +55,8 @@ export interface RedactedHttpRequestSummary {
   url: string
 }
 
+type FetchBody = Exclude<NonNullable<Parameters<typeof fetch>[1]>["body"], null | undefined>
+
 export async function executeHttpRequest<TOutput = unknown>(
   definition: HttpRequestDefinition,
   options: HttpRequestExecutionOptions<TOutput> = {},
@@ -109,7 +111,7 @@ async function fetchOnce(definition: NormalizedHttpRequest): Promise<Response> {
   }
 }
 
-function serializeRequestBody(body: unknown, headers: Headers): BodyInit | undefined {
+function serializeRequestBody(body: unknown, headers: Headers): FetchBody | undefined {
   if (typeof body === "undefined") return undefined
   if (
     typeof body === "string"
@@ -121,7 +123,7 @@ function serializeRequestBody(body: unknown, headers: Headers): BodyInit | undef
     || typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams
     || typeof ReadableStream !== "undefined" && body instanceof ReadableStream
   ) {
-    return body as BodyInit
+    return body as FetchBody
   }
   if (!headers.has("content-type")) {
     headers.set("content-type", "application/json")
