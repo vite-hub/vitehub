@@ -60,6 +60,31 @@ That is the Agent file in three pieces:
 - **Workspace**: the named Sources the agent can inspect when a Capability
   exposes them.
 
+## Capabilities you can add
+
+The example starts with `chat()` and `workspaceShell()`. Every extra ability is
+another opt-in line in the Agent file.
+
+- `chat()` adds a chat entrypoint.
+- `workspaceShell()` reads or writes Workspace files.
+- `skills()` loads project instructions from `SKILL.md`.
+- `webSearch()` searches and reads the web.
+- `fetch()` wraps HTTP APIs as typed tools.
+- `mcp()` connects MCP server tools.
+- `sandbox()` runs approved commands in isolation.
+- `schedule()` declares cron work or schedule tools.
+- `inputCommands()` expands slash commands.
+- `transcribe()` converts audio to text.
+- `memory()` persists scoped Agent memory.
+- `kv()` reads or writes KV keys.
+- `blob()` reads or writes Blob objects.
+- `db()` queries or mutates a database.
+- `chatTitle()` generates conversation titles.
+- `chatSummary()` summarizes conversations.
+- `llmGate()` rejects unsafe or unwanted requests.
+- `llmRoute()` chooses the right path for a request.
+- `usageTelemetry()` records model usage and cost.
+
 ## One file you can review
 
 The Agent file should make a review easy. If a pull request changes the model,

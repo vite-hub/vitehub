@@ -19,8 +19,12 @@ type BlogAuthor = {
 
 type BlogPageMeta = {
   authors?: BlogAuthor[];
+  codeRail?: boolean;
   date?: string;
   image?: string;
+  meta?: {
+    codeRail?: boolean;
+  };
 };
 
 definePageMeta({
@@ -65,7 +69,17 @@ provide("codeTreeActive", activePath);
 const treeItems = computed(() => Object.entries(tree.value).map(([label, component]) => ({ label, component })));
 const { current: framework, switchTo } = useFrameworkPreference();
 const blogMeta = computed(() => rawDoc.value as unknown as BlogPageMeta | null);
+const usesCodeRail = computed(() => blogMeta.value?.codeRail !== false && blogMeta.value?.meta?.codeRail !== false);
 const publishedDate = computed(() => blogMeta.value?.date || "");
+const pageUi = computed(() => usesCodeRail.value
+  ? {
+      center: "lg:col-span-5 px-4 sm:px-6 lg:pl-8 lg:pr-0",
+      right: "lg:col-span-5",
+    }
+  : {
+      center: "mx-auto w-full max-w-3xl px-4 sm:px-6 lg:px-8",
+    });
+const pageClass = computed(() => usesCodeRail.value ? "lg:gap-8" : "");
 
 const formattedDate = computed(() => {
   if (!publishedDate.value) {
@@ -98,7 +112,7 @@ function selectFramework(fw: Framework) {
 </script>
 
 <template>
-  <UPage v-if="page" :ui="{ center: 'lg:col-span-5 px-4 sm:px-6 lg:pl-8 lg:pr-0', right: 'lg:col-span-5' }" class="lg:gap-8">
+  <UPage v-if="page" :ui="pageUi" :class="pageClass">
     <UPageHeader :title="page.title" :description="page.description" :ui="{ title: 'relative flex items-center' }">
       <template #headline>
         <div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -158,7 +172,7 @@ function selectFramework(fw: Framework) {
       <ContentRenderer :value="page" />
     </UPageBody>
 
-    <template #right>
+    <template v-if="usesCodeRail" #right>
       <div>
         <UContentToc :links="page.body?.toc?.links || []" class="z-2 lg:hidden mx-0!" />
         <nav class="hidden lg:block h-full sticky top-(--ui-header-height) max-h-[calc(100vh-var(--ui-header-height))]">
