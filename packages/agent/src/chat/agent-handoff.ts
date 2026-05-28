@@ -253,7 +253,7 @@ async function collectStreamText(stream: AsyncIterable<unknown>): Promise<string
       text += String((event as { text?: unknown }).text || "")
     }
   }
-  return text
+  return text.trim() || "I couldn't produce a final answer before the run ended."
 }
 
 function createDefaultAgentInput(args: ChatAgentHookArgs, platform?: string): AgentRunInput {

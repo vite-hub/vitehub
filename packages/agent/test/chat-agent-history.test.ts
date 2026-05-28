@@ -138,6 +138,47 @@ describe("chat agent history", () => {
     expect(messages?.map(message => message.id)).toEqual(["m2", "m3"])
   })
 
+  it("does not edit placeholders with empty text when the agent stream has no text deltas", async () => {
+    const edit = vi.fn(async (message: unknown) => {
+      if (message === "") {
+        throw new Error("empty placeholder edit")
+      }
+    })
+    const agent = {
+      generate: vi.fn(),
+      name: "stream-agent",
+      stream: vi.fn(async () => (async function* () {
+        yield { id: "call-1", input: { path: "README.md" }, name: "read_file", type: "tool-call" }
+        yield { id: "call-1", name: "read_file", output: "contents", type: "tool-result" }
+        yield { reason: "tool-calls", type: "finish" }
+      })()),
+    }
+    const thread = {
+      id: "thread-1",
+      post: vi.fn(async () => ({ edit })),
+    }
+    const hook = createAgentDirectMessageHook(
+      {} as never,
+      runtime(),
+      {
+        definition: agent as never,
+        name: "stream-agent",
+      },
+      undefined,
+      { fallbackStreamingPlaceholderText: "Thinking..." },
+    )
+
+    await hook({
+      bot: {} as never,
+      channel: { id: "channel-1" } as never,
+      message: chatMessage("m1", "help") as never,
+      thread: thread as never,
+      workflow: undefined,
+    })
+
+    expect(edit).toHaveBeenCalledWith(expect.stringMatching(/\S/))
+  })
+
   it("passes a devtools tool reporter and timeout to devtools chat agent runs", async () => {
     let timeout: number | undefined
     const statuses: string[] = []
