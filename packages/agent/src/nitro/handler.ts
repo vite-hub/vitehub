@@ -471,6 +471,21 @@ async function handleChatMessage(
   await postAgentResult(thread, result, placeholder)
 }
 
+async function runDirectMessageHook(
+  options: AgentChatOptions,
+  platform: string,
+  thread: Thread,
+  message: ChatMessage,
+  channel?: Channel,
+): Promise<void> {
+  await options.hooks?.onDirectMessage?.({
+    channel: { id: entityId(channel) || thread.channelId },
+    message: { text: typeof message.text === "string" ? message.text : "" },
+    platform,
+    thread: { id: entityId(thread) || thread.id },
+  })
+}
+
 async function createAgentChatBot(agent: AgentInput<NitroAgentRuntimeContext>, context: NitroAgentRuntimeContext, agentName: string, platform: string): Promise<Chat<Record<string, Adapter>>> {
   const triggers = await resolveAgentTriggers(agent, context)
   if (!triggers["chat.message"]) {
@@ -498,7 +513,10 @@ async function createAgentChatBot(agent: AgentInput<NitroAgentRuntimeContext>, c
 
   const state = await resolveChatState(options, context)
   const bot = new Chat(createChatSdkOptions(options, adapters, state, agentName))
-  bot.onDirectMessage((thread, message, channel) => handleChatMessage(agent, context, platform, options, thread, message, channel))
+  bot.onDirectMessage(async (thread, message, channel) => {
+    await runDirectMessageHook(options, platform, thread, message, channel)
+    await handleChatMessage(agent, context, platform, options, thread, message, channel)
+  })
   bot.onNewMention(async (thread, message) => {
     await thread.subscribe().catch(() => undefined)
     await handleChatMessage(agent, context, platform, options, thread, message, thread.channel)

@@ -10,7 +10,7 @@ frameworks: [vite]
 ## Install
 
 ```bash
-pnpm add @vitehub/database drizzle-orm h3 vite
+pnpm add @vitehub/cli @vitehub/database drizzle-kit drizzle-orm h3 vite
 ```
 
 ## Register

@@ -294,6 +294,14 @@ function getDefaultConnection(name: string) {
   }
 }
 
+function resolveDefinitionConnection(file: string, name: string) {
+  const connection = readDefinitionConnectionConfig(file)
+  const url = resolveConfigValue(connection?.url)
+  return typeof url === "string" && url.trim()
+    ? connection
+    : getDefaultConnection(name)
+}
+
 function createGeneratedSchemaFile(rootDir: string, name: string) {
   return createGeneratedDefinitionPath(rootDir, {
     fileName: `schema/${sanitizeDefinitionFilename(name)}.ts`,
@@ -324,7 +332,7 @@ export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = p
     generatedSchemaFilesByDatabase[definition.name] = generatedSchemaFile
     databases[definition.name] = {
       cloudflare: normalizeCloudflareConfig(readDefinitionCloudflareConfig(definition.handler), definition.name, migrationsDir),
-      connection: readDefinitionConnectionConfig(definition.handler) ?? getDefaultConnection(definition.name),
+      connection: resolveDefinitionConnection(definition.handler, definition.name),
       dialect: "sqlite",
       drizzle: {},
       generatedSchemaFile,

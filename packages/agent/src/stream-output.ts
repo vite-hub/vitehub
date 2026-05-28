@@ -12,6 +12,12 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
     && typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
 }
 
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return typeof value === "object"
+    && value !== null
+    && Symbol.asyncIterator in value
+}
+
 export function withReadableStreamCleanup<T>(stream: ReadableStream<T>, cleanup: (error?: unknown) => Promise<void>): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
@@ -50,18 +56,68 @@ function textFromRenderedOutput(rendered: unknown): string | undefined {
   return typeof record.text === "string" ? record.text : undefined
 }
 
+function streamEventType(event: unknown): string | undefined {
+  return typeof event === "object" && event !== null && typeof (event as { type?: unknown }).type === "string"
+    ? (event as { type: string }).type
+    : undefined
+}
+
+async function writeEventsToUiMessageStream(writer: { write: (event: never) => void }, events: AsyncIterable<unknown>) {
+  const messageId = crypto.randomUUID()
+  let textStarted = false
+  let finished = false
+  writer.write({ type: "start", messageId } as never)
+  for await (const event of events) {
+    const type = streamEventType(event)
+    if (type === "text-delta") {
+      const text = (event as { delta?: unknown, text?: unknown }).text ?? (event as { delta?: unknown }).delta
+      if (typeof text !== "string" || !text) continue
+      if (!textStarted) {
+        writer.write({ type: "text-start", id: messageId } as never)
+        textStarted = true
+      }
+      writer.write({ type: "text-delta", id: messageId, delta: text } as never)
+      continue
+    }
+    if (type === "tool-call") {
+      const tool = event as { id?: unknown, input?: unknown, name?: unknown }
+      writer.write({ type: "tool-input-available", toolCallId: tool.id, toolName: tool.name, input: tool.input } as never)
+      continue
+    }
+    if (type === "tool-result") {
+      const tool = event as { id?: unknown, output?: unknown }
+      writer.write({ type: "tool-output-available", toolCallId: tool.id, output: tool.output } as never)
+      continue
+    }
+    if (type === "finish") {
+      finished = true
+      break
+    }
+    if (type === "error") {
+      const error = event as { error?: unknown, message?: unknown }
+      throw error.error || new Error(typeof error.message === "string" ? error.message : "Agent stream failed.")
+    }
+  }
+  if (textStarted) writer.write({ type: "text-end", id: messageId } as never)
+  writer.write({ type: "finish", finishReason: finished ? "stop" : "unknown" } as never)
+}
+
 export async function finalizeUiMessageStreamOutput(
   rendered: unknown,
   shouldWrapOutput: boolean,
   finish: (error?: unknown) => MaybePromise<void>,
 ): Promise<FinalizedStreamOutput<unknown>> {
   const text = textFromRenderedOutput(rendered)
-  if (!isUIMessageStreamResult(rendered) && text === undefined) {
+  if (!isUIMessageStreamResult(rendered) && !isAsyncIterable(rendered) && text === undefined) {
     throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
   }
   const stream = isUIMessageStreamResult(rendered)
     ? rendered.toUIMessageStream()
-    : (await import("ai")).createUIMessageStream({
+    : isAsyncIterable(rendered)
+      ? (await import("ai")).createUIMessageStream({
+          execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered),
+        })
+      : (await import("ai")).createUIMessageStream({
         execute({ writer }) {
           const messageId = crypto.randomUUID()
           writer.write({ type: "start", messageId })

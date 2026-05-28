@@ -101,23 +101,27 @@ function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart |
       const name = uiToolName(record)
       const id = uiToolId(record, name, index)
       const state = typeof record.state === "string" ? record.state : undefined
-      if (state === "output-available" || state === "output-denied" || record.output !== undefined) {
-        return [{
-          error: typeof record.errorText === "string" ? record.errorText : undefined,
-          id,
-          name,
-          output: record.output,
-          state: typeof record.errorText === "string" ? "failed" : "completed",
-          type: "tool-result",
-        }]
-      }
-      return [{
+      const call = {
         id,
         input: record.input,
         name,
-        state: state === "input-available" || state === "input-streaming" ? "proposed" : "running",
+        state: state === "input-available" || state === "output-available" ? "proposed" : "running",
         type: "tool-call",
-      }]
+      } satisfies MessagePart
+      if (state === "output-available" || state === "output-denied" || record.output !== undefined) {
+        return [
+          call,
+          {
+            id,
+            name,
+            output: record.output,
+            state: typeof record.errorText === "string" ? "failed" : "completed",
+            type: "tool-result",
+            ...(typeof record.errorText === "string" ? { error: record.errorText } : {}),
+          },
+        ]
+      }
+      return [call]
     }
     return []
   })
@@ -262,7 +266,7 @@ function chatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegist
 }
 
 function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
-  options: AgentChatOptions<TRuntimeConfig>,
+  options: AgentChatOptions<TRuntimeConfig> = {},
 ): AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, AgentChatMessageTriggerInput> {
   return {
     devtools: true,
@@ -307,7 +311,7 @@ export function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConf
 }
 
 export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChatOptions<TRuntimeConfig>,
+  options: AgentChatOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
   return defineCapability({
     id: "chat",

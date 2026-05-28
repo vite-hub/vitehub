@@ -51,6 +51,7 @@
     "pathe": "catalog:"
   },
   "peerDependencies": {
+    "drizzle-kit": "catalog:",
     "drizzle-orm": "catalog:",
     "vite": ">=6.0.0"
   },

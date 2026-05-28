@@ -14,14 +14,17 @@ async function createTempProject() {
   return rootDir
 }
 
-async function writeDefinition(rootDir: string, path: string, tables = "notes") {
+async function writeDefinition(rootDir: string, path: string, tables = "notes", options: { connection?: string } = {}) {
   const file = join(rootDir, path)
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
     "import { defineDatabase } from '@vitehub/database'",
     "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     `const ${tables} = sqliteTable('${tables}', { title: text('title') })`,
-    `export default defineDatabase({ tables: { ${tables} } })`,
+    "export default defineDatabase({",
+    ...(options.connection ? ["  connection: {", options.connection, "  },"] : []),
+    `  tables: { ${tables} },`,
+    "})",
     "",
   ].join("\n"))
   return file
@@ -112,5 +115,33 @@ describe("resolveDBViteConfig", () => {
       migrationsDir: "server/databases/analytics/migrations",
       mode: "named",
     })
+  })
+
+  it("uses the local connection fallback when an env-only URL is unset", async () => {
+    const rootDir = await createTempProject()
+    const originalAuthToken = process.env.TURSO_AUTH_TOKEN
+    const originalUrl = process.env.TURSO_DATABASE_URL
+    delete process.env.TURSO_AUTH_TOKEN
+    delete process.env.TURSO_DATABASE_URL
+
+    try {
+      await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+        connection: [
+          "    authToken: process.env.TURSO_AUTH_TOKEN,",
+          "    url: process.env.TURSO_DATABASE_URL,",
+        ].join("\n"),
+      })
+
+      expect(resolveDBViteConfig(undefined, rootDir)?.databases.default.connection).toEqual({
+        authToken: undefined,
+        url: "file:.data/database/sqlite.db",
+      })
+    }
+    finally {
+      if (typeof originalAuthToken === "undefined") delete process.env.TURSO_AUTH_TOKEN
+      else process.env.TURSO_AUTH_TOKEN = originalAuthToken
+      if (typeof originalUrl === "undefined") delete process.env.TURSO_DATABASE_URL
+      else process.env.TURSO_DATABASE_URL = originalUrl
+    }
   })
 })

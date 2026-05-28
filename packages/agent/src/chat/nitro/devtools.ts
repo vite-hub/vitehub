@@ -8,7 +8,7 @@ import { toFetchRequest } from "../../nitro/handler.ts"
 
 import type { EventHandler, H3Event } from "h3"
 import type { UIMessage } from "ai"
-import type { AgentChatMessageTriggerInput, AgentInput, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext } from "../../index.ts"
+import type { AgentChatMessageTriggerInput, AgentInput, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext } from "../../index.ts"
 import type { ChatDevtoolsConversation, ChatDevtoolsMetadata, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
 
 type AgentLoader = () => Promise<AgentRegistryModule>
@@ -125,15 +125,16 @@ async function metadataForChat(metadata: ChatDevtoolsMetadataInput | undefined, 
   return await resolveDevtoolsMetadata(selected ? (metadata as Record<string, ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined>)[selected] : undefined)
 }
 
-async function firstChatCapableAgentRegistry(registry: AgentDevtoolsRegistry, context: NitroAgentDevtoolsRuntimeContext): Promise<AgentDevtoolsRegistry> {
+async function chatCapableAgentRegistry(registry: AgentDevtoolsRegistry, context: NitroAgentDevtoolsRuntimeContext): Promise<AgentDevtoolsRegistry> {
+  const result: AgentDevtoolsRegistry = {}
   for (const name of Object.keys(registry).sort()) {
     const agent = resolveRegistryModule(await registry[name]!())
     const triggers = await resolveAgentTriggers(agent as never, context as never)
     if (triggers["chat.message"]) {
-      return { [name]: registry[name]! }
+      result[name] = registry[name]!
     }
   }
-  return {}
+  return result
 }
 
 async function serializeState(state: ChatDevtoolsHandlerState, selected?: string): Promise<ChatDevtoolsStateResult> {
@@ -181,32 +182,6 @@ function createUserUIMessage(text: string): UIMessage {
     id: `devtools-user-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     role: "user",
     parts: [{ type: "text", text }],
-  }
-}
-
-function uiMessageText(message: UIMessage): string {
-  return message.parts
-    .filter((part): part is { text: string, type: "text" } => part.type === "text" && typeof (part as { text?: unknown }).text === "string")
-    .map(part => part.text)
-    .join("")
-}
-
-function createDevtoolsHookArgs(
-  run: AgentRunMetadata,
-  userMessage: UIMessage,
-  agentInput: AgentRunInput,
-) {
-  return {
-    channel: { id: run.channelId },
-    history: agentInput.messages || [],
-    input: agentInput,
-    message: {
-      id: userMessage.id,
-      metadata: { dateSent: new Date().toISOString() },
-      text: uiMessageText(userMessage),
-    },
-    run,
-    thread: { id: run.threadId },
   }
 }
 
@@ -258,56 +233,48 @@ async function sendDevtoolsUIMessage(
   session.thinkingFallback = null
   await onChange?.(await serializeState(state, selected))
 
-  let agentInput: AgentRunInput | undefined
-  try {
-    const runtimeContext = { ...createRuntimeContext(event), run }
-    const triggerInput: AgentChatMessageTriggerInput = {
-      messages: baseMessages,
-      run,
-      timeout: 90_000,
-    }
-    const stream = await streamAgentTrigger(agent as never, runtimeContext as never, "chat.message", triggerInput, {
-      output: "ui-message-stream",
-      async onInvocation(invocation) {
-        agentInput = invocation.input
-        const hookArgs = createDevtoolsHookArgs(run, userMessage, agentInput)
-        session.thinkingFallback = typeof invocation.metadata?.thinkingFallback === "string"
-          ? invocation.metadata.thinkingFallback
-          : null
-        await onChange?.(await serializeState(state, selected))
+  const runtimeContext = { ...createRuntimeContext(event), run }
+  const triggerInput: AgentChatMessageTriggerInput = {
+    messages: baseMessages,
+    run,
+    timeout: 90_000,
+  }
+  const stream = await streamAgentTrigger(agent as never, runtimeContext as never, "chat.message", triggerInput, {
+    output: "ui-message-stream",
+    async onInvocation(invocation) {
+      session.thinkingFallback = typeof invocation.metadata?.thinkingFallback === "string"
+        ? invocation.metadata.thinkingFallback
+        : null
+      await onChange?.(await serializeState(state, selected))
+    },
+  }) as ReadableStream<never>
+  const { readUIMessageStream } = await import("ai") as { readUIMessageStream: ReadUIMessageStream }
+  let latestAssistant: UIMessage | undefined
+  for await (const assistantMessage of readUIMessageStream({ stream })) {
+    const now = new Date().toISOString()
+    latestAssistant = {
+      ...assistantMessage as UIMessage,
+      metadata: {
+        ...((assistantMessage as UIMessage).metadata as Record<string, unknown> | undefined),
+        createdAt: startedAt,
+        updatedAt: now,
       },
-    }) as ReadableStream<never>
-    const { readUIMessageStream } = await import("ai") as { readUIMessageStream: ReadUIMessageStream }
-    let latestAssistant: UIMessage | undefined
-    for await (const assistantMessage of readUIMessageStream({ stream })) {
-      const now = new Date().toISOString()
-      latestAssistant = {
-        ...assistantMessage as UIMessage,
-        metadata: {
-          ...((assistantMessage as UIMessage).metadata as Record<string, unknown> | undefined),
-          createdAt: startedAt,
-          updatedAt: now,
-        },
-      }
-      session.uiMessages = [...baseMessages, latestAssistant]
-      await onChange?.(await serializeState(state, selected))
     }
-    if (latestAssistant) {
-      latestAssistant = {
-        ...latestAssistant,
-        metadata: {
-          ...(latestAssistant.metadata as Record<string, unknown> | undefined),
-          completedAt: new Date().toISOString(),
-        },
-      }
-      session.uiMessages = [...baseMessages, latestAssistant]
-      await onChange?.(await serializeState(state, selected))
+    session.uiMessages = [...baseMessages, latestAssistant]
+    await onChange?.(await serializeState(state, selected))
+  }
+  if (latestAssistant) {
+    latestAssistant = {
+      ...latestAssistant,
+      metadata: {
+        ...(latestAssistant.metadata as Record<string, unknown> | undefined),
+        completedAt: new Date().toISOString(),
+      },
     }
-    return await serializeState(state, selected)
+    session.uiMessages = [...baseMessages, latestAssistant]
+    await onChange?.(await serializeState(state, selected))
   }
-  catch (error) {
-    throw error
-  }
+  return await serializeState(state, selected)
 }
 
 function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void, signal: AbortSignal) => Promise<void>): Response {
@@ -393,7 +360,7 @@ export function defineAgentDevtoolsRegistryHandler(registry: AgentDevtoolsRegist
 
   return defineEventHandler(async (event) => {
     setHeader(event, "access-control-allow-origin", "*")
-    state.registry = await firstChatCapableAgentRegistry(registry, createRuntimeContext(event))
+    state.registry = await chatCapableAgentRegistry(registry, createRuntimeContext(event))
     const body = parseChatDevtoolsBridgeBody(await readBody<ChatDevtoolsBridgeBody | string>(event))
     if (!body || typeof body.action !== "string") {
       throw createError({

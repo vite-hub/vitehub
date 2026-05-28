@@ -115,18 +115,12 @@ export async function writeProviderDeploymentOutputs(options: ProviderDeployment
       rootDir: options.rootDir,
     }))
   }
-  else {
-    writes.push(rm(createDefaultCloudflareOutputRoot(options.rootDir), { force: true, recursive: true }))
-  }
   if (options.vercel) {
     writes.push(writeVercelDeploymentOutput({
       ...options.vercel,
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
     }))
-  }
-  else {
-    writes.push(rm(createDefaultVercelOutputRoot(options.rootDir), { force: true, recursive: true }))
   }
   await Promise.all(writes)
 }

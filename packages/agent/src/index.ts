@@ -62,7 +62,6 @@ import type {
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
-  AgentScheduleInvocationInput,
   AgentSettings,
   AgentUsageCost,
   AgentUsageRecord,
@@ -1102,6 +1101,7 @@ type AgentInvocationContext<
   startedAt: number
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
   workspaceDefinition?: WorkspaceDefinition
+  workspaceMode: AgentCapabilityMode
 }
 
 function toAgentAdapterRunContext<
@@ -1179,6 +1179,7 @@ async function createAgentInvocationContext<
     tools,
     workspace,
     workspaceDefinition: resolvedWorkspaceDefinition,
+    workspaceMode,
   }
 }
 
@@ -1195,6 +1196,7 @@ type InvocationRunContext<
   startedAt: number
   workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
   workspaceDefinition?: WorkspaceDefinition
+  workspaceMode: AgentCapabilityMode
 }
 
 function hasFinishWork<
@@ -1206,6 +1208,21 @@ function hasFinishWork<
 
 function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
   return Boolean(workspace && typeof workspace === "object" && "diff" in workspace && "snapshot" in workspace)
+}
+
+function hasWorkspaceAutoCommit<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
+  return context.workspaceMode === "write"
+    && Boolean(context.workspaceDefinition && isWritableWorkspaceFacade(context.workspace))
+}
+
+function shouldDeferFinish<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean }): boolean {
+  return context.hasCapabilityCleanup || hasFinishWork(context) || hasWorkspaceAutoCommit(context)
 }
 
 async function commitWorkspaceChanges<
@@ -1273,8 +1290,9 @@ async function finalizeAgentInvocationResult<
   result: unknown,
   finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, value: TResult }>,
   failureMessage: string,
+  options: { finalizeRawStreams?: boolean } = {},
 ): Promise<Response | AsyncIterable<unknown> | TResult> {
-  const shouldWrapOutput = context.hasCapabilityCleanup || hasFinishWork(context)
+  const shouldWrapOutput = shouldDeferFinish(context)
   let finishLifecycleStarted = false
   try {
     if (result instanceof Response) {
@@ -1282,7 +1300,7 @@ async function finalizeAgentInvocationResult<
       finishLifecycleStarted = shouldWrapOutput
       return response
     }
-    if (isAsyncIterable(result)) {
+    if (isAsyncIterable(result) && !options.finalizeRawStreams) {
       finishLifecycleStarted = shouldWrapOutput
       return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(context, error === undefined ? result : undefined, error)) : result
     }
@@ -1411,11 +1429,10 @@ export async function streamAgent<
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       if (output === "ui-message-stream") {
-        const shouldWrapOutput = runContext.hasCapabilityCleanup || hasFinishWork(runContext)
-        return finalizeUiMessageStreamOutput(rendered, shouldWrapOutput, error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
+        return finalizeUiMessageStreamOutput(rendered, shouldDeferFinish(runContext), error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
       }
       return { finishResult: rendered, value: rendered }
-    }, "[vitehub] Agent run failed and finish lifecycle also failed.")
+    }, "[vitehub] Agent run failed and finish lifecycle also failed.", { finalizeRawStreams: output === "ui-message-stream" })
   }
 
   const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
@@ -1442,17 +1459,16 @@ export async function streamAgent<
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
     if (output === "ui-message-stream") {
-      const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
-      return finalizeUiMessageStreamOutput(rendered, shouldWrapOutput, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error))
+      return finalizeUiMessageStreamOutput(rendered, shouldDeferFinish(adapterContext), error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error))
     }
     const events = streamTextResultToEvents(rendered)
-    const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
+    const shouldWrapOutput = shouldDeferFinish(adapterContext)
     return {
       deferFinish: shouldWrapOutput,
       finishResult: rendered,
       value: shouldWrapOutput ? withCapabilityCleanup(events, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error)) : events,
     }
-  }, "[vitehub] Agent stream failed and finish lifecycle also failed.")
+  }, "[vitehub] Agent stream failed and finish lifecycle also failed.", { finalizeRawStreams: output === "ui-message-stream" })
 }
 
 export async function getAgent<TContext extends AgentRuntimeContext>(

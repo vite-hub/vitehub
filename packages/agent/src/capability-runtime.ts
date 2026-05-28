@@ -560,8 +560,8 @@ export function withResponseCleanup(response: Response, close: (error?: unknown)
       try {
         const result = await reader.read()
         if (result.done) {
-          controller.close()
           await closeOnce()
+          controller.close()
           return
         }
         controller.enqueue(result.value)

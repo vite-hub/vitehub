@@ -176,6 +176,70 @@ describe("defineAgent workspace option", () => {
     expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive audio" })
   })
 
+  it("auto-commits write-mode workspace changes after raw stream results are consumed", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "inbox/stream.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive stream",
+      paths: ["inbox/stream.md"],
+    })
+    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        mode: "write",
+        rules: {
+          "inbox/**": { commit: "chore: archive stream", write: true },
+        },
+      },
+      run: async ({ workspace }) => {
+        await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/stream.md", "transcript")
+        return (async function* () {
+          yield { text: "ok", type: "text-delta" }
+        })()
+      },
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] }) as AsyncIterable<unknown>
+    expect(snapshot).not.toHaveBeenCalled()
+    for await (const _event of stream) {}
+
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive stream" })
+  })
+
+  it("auto-commits write-mode workspace changes after raw Response bodies are consumed", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "inbox/response.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive response",
+      paths: ["inbox/response.md"],
+    })
+    const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        mode: "write",
+        rules: {
+          "inbox/**": { commit: "chore: archive response", write: true },
+        },
+      },
+      run: async ({ workspace }) => {
+        await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/response.md", "transcript")
+        return new Response("ok")
+      },
+    }), { workspace: "docs" })
+
+    const response = await runAgent(agent, context(), { messages: [] }) as Response
+    expect(snapshot).not.toHaveBeenCalled()
+    await expect(response.text()).resolves.toBe("ok")
+
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive response" })
+  })
+
   it("uses string instructions", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 

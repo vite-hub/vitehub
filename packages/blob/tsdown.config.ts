@@ -33,6 +33,7 @@ export default defineConfig({
     "src/drivers/supabase.ts",
     "src/drivers/uploadthing.ts",
     "src/drivers/vercel.ts",
+    "src/drivers/vercel-bundled.ts",
     "src/index.ts",
     "src/nitro.ts",
     "src/vite.ts",

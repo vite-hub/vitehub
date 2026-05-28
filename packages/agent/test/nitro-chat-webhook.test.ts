@@ -179,12 +179,14 @@ describe("agent Nitro chat webhooks", () => {
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const seen: string[] = []
+    const onDirectMessage = vi.fn()
     const adapter = createWebhookAdapter(output)
     const handler = defineAgentChatWebhookRegistryHandler({
       support: async () => defineAgent({
         capabilities: [chat({
           adapters: () => ({ teams: adapter }),
           fallbackStreamingPlaceholderText: "Working...",
+          hooks: { onDirectMessage },
           state: () => createMemoryState(),
         })],
         run(context) {
@@ -214,6 +216,10 @@ describe("agent Nitro chat webhooks", () => {
 
     expect(response.status).toBe(200)
     expect(await response.text()).toBe("ok")
+    expect(onDirectMessage).toHaveBeenCalledWith(expect.objectContaining({
+      message: { text: "hello from Teams" },
+      platform: "teams",
+    }))
     expect(seen).toEqual(["hello from Teams"])
     expect(output.posts).toEqual(["Working..."])
     expect(output.edits).toEqual(["agent answer"])

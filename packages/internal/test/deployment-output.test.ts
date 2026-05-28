@@ -22,7 +22,7 @@ afterEach(async () => {
 })
 
 describe("provider deployment outputs", () => {
-  it("removes stale default output roots for omitted providers", async () => {
+  it("preserves default output roots for omitted providers", async () => {
     const rootDir = await createTempProject()
     const {
       createDefaultCloudflareOutputRoot,
@@ -45,7 +45,7 @@ describe("provider deployment outputs", () => {
       },
     })
 
-    expect(existsSync(cloudflareDir)).toBe(false)
+    expect(existsSync(cloudflareDir)).toBe(true)
     expect(existsSync(vercelDir)).toBe(true)
 
     await writeProviderDeploymentOutputs({
@@ -59,6 +59,6 @@ describe("provider deployment outputs", () => {
     })
 
     expect(existsSync(cloudflareDir)).toBe(true)
-    expect(existsSync(vercelDir)).toBe(false)
+    expect(existsSync(vercelDir)).toBe(true)
   })
 })
