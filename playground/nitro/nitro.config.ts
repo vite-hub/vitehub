@@ -3,6 +3,7 @@ import { createRequire } from "node:module"
 import { defineNitroConfig } from "nitro/config"
 
 const require = createRequire(import.meta.url)
+const cloudflareSandboxName = process.env.VITEHUB_CLOUDFLARE_SANDBOX_NAME
 
 export default defineNitroConfig({
   alias: {
@@ -25,7 +26,7 @@ export default defineNitroConfig({
   blob: {},
   queue: {},
   schedule: {},
-  sandbox: {},
+  sandbox: cloudflareSandboxName ? { name: cloudflareSandboxName } : {},
   serverDir: "./server",
   vercel: {
     functions: {

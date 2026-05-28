@@ -166,4 +166,46 @@ describe("hubSandbox", () => {
       key: "sandbox-provider-loader",
     }))
   })
+
+  it("passes explicit Cloudflare sandbox container names to Nitro targets", async () => {
+    const { createSandboxFeaturePlan } = await import("../src/feature.ts")
+    const { extendSandboxNitro } = await import("../src/nitro/setup.ts")
+    const target: Record<string, unknown> = {}
+    const plan = await createSandboxFeaturePlan({ provider: "cloudflare", name: "custom-sandbox" }, [], {
+      aliasPath: "/tmp/vitehub-sandbox/index.js",
+      nitroPlugin: "/tmp/vitehub-sandbox/runtime/nitro-plugin.js",
+    }, {})
+
+    expect(plan.extendNitro).toEqual(expect.any(Function))
+    if (!plan.extendNitro) throw new Error("Expected sandbox feature plan to expose extendNitro.")
+    plan.extendNitro(target as never, new Map())
+
+    expect(target).toMatchObject({
+      cloudflare: {
+        wrangler: {
+          containers: [
+            expect.objectContaining({ class_name: "Sandbox", name: "custom-sandbox" }),
+          ],
+        },
+      },
+    })
+
+    const nitroTarget = {
+      hooks: {
+        hook: () => undefined,
+      },
+      options: {},
+    }
+    extendSandboxNitro(nitroTarget as never, { provider: "cloudflare", name: "nitro-sandbox" }, {}, "cloudflare")
+
+    expect(nitroTarget.options).toMatchObject({
+      cloudflare: {
+        wrangler: {
+          containers: [
+            expect.objectContaining({ class_name: "Sandbox", name: "nitro-sandbox" }),
+          ],
+        },
+      },
+    })
+  })
 })

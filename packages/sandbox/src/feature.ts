@@ -223,6 +223,7 @@ export async function createSandboxFeaturePlan(
         binding: typeof defaultProvider.binding === 'string' ? defaultProvider.binding : defaultCloudflareSandboxBinding,
         className: typeof defaultProvider.className === 'string' ? defaultProvider.className : defaultCloudflareSandboxClassName,
         migrationTag: typeof defaultProvider.migrationTag === 'string' ? defaultProvider.migrationTag : defaultCloudflareSandboxMigrationTag,
+        name: typeof defaultProvider.name === 'string' ? defaultProvider.name : undefined,
       }
     : undefined
 

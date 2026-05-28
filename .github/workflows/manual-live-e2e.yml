@@ -7,6 +7,9 @@ concurrency:
   group: manual-live-e2e-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  VERCEL_CLI_VERSION: 54.5.1
+
 jobs:
   setup-cloudflare:
     name: setup
@@ -131,7 +134,7 @@ jobs:
           APP_DIR="playground/${{ matrix.framework }}"
           PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
 
-          npx vercel link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
+          npx --yes "vercel@$VERCEL_CLI_VERSION" link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
 
           readarray -t VERCEL_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$APP_DIR")
           VERCEL_ORG_ID="${VERCEL_CONFIG[0]}"
@@ -145,7 +148,7 @@ jobs:
           PULLED_ENV_FILE="$(mktemp)"
           trap 'rm -f "$PULLED_ENV_FILE"' EXIT
           VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-            npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+            npx --yes "vercel@$VERCEL_CLI_VERSION" env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
           find_project_blob_token() {
             local app_dir project_name env_name tmp value
@@ -153,13 +156,13 @@ jobs:
             app_dir="$1"
             project_name="$2"
 
-            npx vercel link --yes --cwd "$app_dir" --project "$project_name" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || return 1
+            npx --yes "vercel@$VERCEL_CLI_VERSION" link --yes --cwd "$app_dir" --project "$project_name" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || return 1
             readarray -t SEARCH_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$app_dir")
 
             for env_name in production preview development; do
               tmp="$(mktemp)"
               if VERCEL_ORG_ID="${SEARCH_CONFIG[0]}" VERCEL_PROJECT_ID="${SEARCH_CONFIG[1]}" \
-                npx vercel env pull "$tmp" --environment="$env_name" --yes --cwd "$app_dir" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
+                npx --yes "vercel@$VERCEL_CLI_VERSION" env pull "$tmp" --environment="$env_name" --yes --cwd "$app_dir" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
                 value="$(node .github/scripts/get-env-value.mjs "$tmp" BLOB_READ_WRITE_TOKEN)"
                 rm -f "$tmp"
                 if [ -n "$value" ]; then
@@ -200,10 +203,10 @@ jobs:
             if [ -n "$existing_blob_token" ]; then
               echo "::add-mask::$existing_blob_token"
               blob_token="$existing_blob_token"
-              printf '%s' "$existing_blob_token" | npx vercel env add BLOB_READ_WRITE_TOKEN production --force --sensitive --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+              printf '%s' "$existing_blob_token" | npx --yes "vercel@$VERCEL_CLI_VERSION" env add BLOB_READ_WRITE_TOKEN production --force --sensitive --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
             else
               create_log="$(mktemp)"
-              if ! npx vercel blob create-store "vitehub-workspace-${{ matrix.framework }}" --access private --region iad1 --yes --environment production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >"$create_log" 2>&1; then
+              if ! npx --yes "vercel@$VERCEL_CLI_VERSION" blob create-store "vitehub-workspace-${{ matrix.framework }}" --access private --region iad1 --yes --environment production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >"$create_log" 2>&1; then
                 if ! grep -q 'existing environment variable with name BLOB_READ_WRITE_TOKEN' "$create_log"; then
                   cat "$create_log" >&2
                   exit 1
@@ -212,7 +215,7 @@ jobs:
               rm -f "$create_log"
             fi
             VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-              npx vercel env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+              npx --yes "vercel@$VERCEL_CLI_VERSION" env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
             if [ -z "$blob_token" ]; then
               blob_token="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
             fi
@@ -262,6 +265,7 @@ jobs:
         if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
         env:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          VITEHUB_CLOUDFLARE_SANDBOX_NAME: vite-hub-vitehub-playground-nitro-sandbox
           VITEHUB_HOSTING: cloudflare
         run: pnpm --dir playground/nitro exec nitro build --preset cloudflare-module
 
@@ -326,7 +330,7 @@ jobs:
         run: |
           APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           VITEHUB_WORKSPACE_BLOB_PREFIX="vitehub/workspace-e2e/${{ matrix.framework }}" \
-            npx vercel env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm exec nitro build --preset vercel
+            npx --yes "vercel@$VERCEL_CLI_VERSION" env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm exec nitro build --preset vercel
 
       - name: Assert Nitro Vercel schedule artifacts
         if: matrix.framework == 'nitro' && matrix.provider == 'vercel'
@@ -505,7 +509,7 @@ jobs:
         run: |
           APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           set +e
-          DEPLOYMENT_OUTPUT=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" 2>&1)
+          DEPLOYMENT_OUTPUT=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx --yes "vercel@$VERCEL_CLI_VERSION" deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" 2>&1)
           DEPLOYMENT_STATUS=$?
           set -e
           printf '%s\n' "$DEPLOYMENT_OUTPUT"

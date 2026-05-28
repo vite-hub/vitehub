@@ -9,6 +9,7 @@ export interface CloudflareSandboxDefinitionProviderOptions {
   binding?: string
   className?: string
   migrationTag?: string
+  name?: string
   sandboxId?: string
   sleepAfter?: CloudflareSandboxOptions['sleepAfter']
   keepAlive?: CloudflareSandboxOptions['keepAlive']
@@ -21,7 +22,7 @@ export type SandboxDefinitionProviderOptions
 
 export type AgentSandboxConfig =
   | SandboxDefinitionProviderOptions
-  | { provider?: undefined }
+  | { provider?: undefined, name?: string }
 
 export interface SandboxDefinitionRuntime {
   command: string

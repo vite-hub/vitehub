@@ -66,6 +66,16 @@ async function assertRuntimeStore(name: string): Promise<void> {
 async function resolveStorage(name = "default") {
   const existing = storagePromises.get(name)
   if (existing) return existing
+  const env = typeof process !== "undefined" ? process.env : {}
+  if (inferHosting(env) === "vercel") {
+    const promise = resolveHostedConfig().then(config =>
+      name === "default"
+        ? createHostedKVStorage(config)
+        : createNamedHostedKVStorage(config, name),
+    )
+    storagePromises.set(name, promise)
+    return promise
+  }
   const storageName = name === "default" ? "kv" : `kv:${name}`
   const promise = assertRuntimeStore(name).then(() => import("nitro/storage"))
     .then(module => module.useStorage(storageName) as RuntimeStorage)

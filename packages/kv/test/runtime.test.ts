@@ -243,6 +243,21 @@ describe("kv runtime", () => {
     })
   })
 
+  it("uses hosted KV on Vercel even when Nitro storage is importable", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+
+    const { kv } = await import("../src/runtime/storage.ts")
+    await kv.set("notes/hello", "world")
+
+    expect(await kv.get("notes/hello")).toBe("world")
+    expect(mountedDrivers.upstash).toMatchObject({
+      driver: "upstash",
+      token: "upstash-token",
+      url: "https://upstash.example.com",
+    })
+  })
+
   it("does not initialize Upstash during plugin startup for non-KV requests", async () => {
     runtimeState.config = {
       kv: {
