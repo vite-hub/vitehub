@@ -145,8 +145,8 @@ function writeNamespaceHelp(namespace: ViteHubCliCommandNamespace, stdout: ViteH
   ].filter(Boolean).join("\n"))
 }
 
-function isHelp(args: string[]): boolean {
-  return args.includes("-h") || args.includes("--help")
+function isRootHelp(args: string[]): boolean {
+  return args[0] === "-h" || args[0] === "--help"
 }
 
 export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise<number> {
@@ -168,7 +168,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     stdout,
   }
 
-  if (!args.length || isHelp(args)) {
+  if (!args.length || isRootHelp(args)) {
     writeRootHelp(namespaces, stdout)
     return 0
   }

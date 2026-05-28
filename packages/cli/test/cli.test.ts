@@ -70,6 +70,29 @@ describe("ViteHub CLI", () => {
     expect(stdout.output()).toContain("eval")
   })
 
+  it("routes feature help to the package feature", async () => {
+    const run = vi.fn(() => 0)
+    const exitCode = await runViteHubCli({
+      args: ["agent", "eval", "--help"],
+      loadConfig: async () => ({
+        plugins: [{
+          vitehub: {
+            cli: {
+              namespaces: [{
+                features: [{ name: "eval", run }],
+                name: "agent",
+              }],
+            },
+          },
+        }],
+        root: "/repo",
+      }) as never,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(run).toHaveBeenCalledWith(["--help"], expect.objectContaining({ rootDir: "/repo" }))
+  })
+
   it("returns one for unknown namespaces", async () => {
     const stderr = stream()
     const exitCode = await runViteHubCli({
