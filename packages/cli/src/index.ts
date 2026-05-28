@@ -200,9 +200,9 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   runViteHubCli().then((exitCode) => {
-    process.exitCode = exitCode
+    process.exit(exitCode)
   }).catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : error)
-    process.exitCode = 1
+    process.exit(1)
   })
 }
