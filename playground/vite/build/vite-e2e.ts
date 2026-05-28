@@ -1165,7 +1165,7 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
 export function resolveViteE2EOptions(rootDir: string, hosting: string) {
   const provider = resolveHostedProvider(hosting)
   return {
-    blob: normalizeBlobOptions(undefined, { hosting }),
+    blob: normalizeBlobOptions(provider === "vercel" ? { access: "private", driver: "vercel-blob" } : undefined, { hosting }),
     db: resolveDBViteConfig(undefined, rootDir),
     hosting: provider,
     kv: normalizeKVOptions(undefined, { hosting }),

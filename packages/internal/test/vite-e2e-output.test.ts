@@ -183,6 +183,7 @@ describe("unified vite e2e hosted outputs", () => {
     expect(vercelServerContents).toContain("/api/blob")
     expect(vercelServerContents).toContain("/api/workflows/welcome")
     expect(vercelServerContents).toContain("vercel-blob")
+    expect(vercelServerContents).toContain('"access": "private",\n    "driver": "vercel-blob"')
     expect(vercelServerContents).not.toContain('import("files-sdk")')
     expect(vercelServerContents).not.toContain('import("files-sdk/vercel-blob")')
     expect(vercelServerContents).not.toContain("requires files-sdk")
