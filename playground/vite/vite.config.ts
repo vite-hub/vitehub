@@ -109,7 +109,9 @@ export default defineConfig(async () => {
         },
         ssr: true,
       },
-      blob: {},
+      blob: composerOptions.hosting.includes("vercel")
+        ? { access: "private", driver: "vercel-blob" }
+        : {},
       kv: {},
       plugins: [
         hubQueue(),
