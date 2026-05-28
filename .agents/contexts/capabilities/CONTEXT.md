@@ -112,10 +112,22 @@ _Avoid_: Slash Command, chat command, shell command, model tool
 A host-owned command that changes chat, session, UI, or product state around an Agent.
 _Avoid_: Input Command, Capability, model tool
 
+**Pre-Invocation Decision**:
+An internal structured decision made before the main Agent Invocation proceeds, used by Capabilities to record a typed context value, reject, or select Chat Session behavior.
+_Avoid_: Generic middleware, dynamic Capability, arbitrary input context
+
+**LLM Route Capability**:
+A Capability that asks an LLM to choose one developer-defined option and records the chosen route as a typed Pre-Invocation Decision.
+_Avoid_: Routing Capability, callback routing, model router
+
+**LLM Gate Capability**:
+A Capability that asks an LLM to classify a request against developer-defined allow and reject categories and may reject before the main Agent Invocation proceeds.
+_Avoid_: Gate, auth gate, security gate, deterministic guard
+
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, `db()`, and `webSearch()` create **Capability Definitions**.
+- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
 - Official helpers should map to product abilities rather than implementation mechanisms.
 - A **Capability Definition** may provide a **Capability Trigger Contribution** when the ability needs to start Agent Invocations from a product event.
 - A **Capability Trigger Contribution** is composed from `defineAgent({ capabilities })`, not registered through a separate helper.
@@ -123,6 +135,13 @@ _Avoid_: Input Command, Capability, model tool
 - A **Capability Trigger Contribution** maps product event input into Agent Invocation input and run metadata; Agent execution remains owned by the Agent Package.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
+- A **Pre-Invocation Decision** is an internal primitive used by Capabilities before the main Agent Invocation.
+- A **Pre-Invocation Decision** can expose a typed invocation context value, reject the invocation, record an inspectable decision, or select Chat Session behavior.
+- A **Pre-Invocation Decision** does not dynamically attach, remove, or grant **Capabilities**.
+- Pre-Invocation Decision ids are unique per Agent; duplicate ids fail early instead of merging, prioritizing, or using last-write-wins behavior.
+- An **LLM Route Capability** chooses one developer-defined option through an LLM and records the route decision. It does not apply route effects directly.
+- An **LLM Gate Capability** chooses one developer-defined allow or reject category through an LLM and may reject before the main Agent Invocation.
+- Deterministic or callback-based routing is not an official Capability in V1; users can define inline Capabilities or hooks that set named invocation context values.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - **Transcription** is an input-phase Official Capability.
@@ -175,6 +194,12 @@ _Avoid_: Input Command, Capability, model tool
 >
 > **Dev:** "Should Chat DevTools wire its own chat send helper?"
 > **Domain expert:** "No. The **Chat Capability** should provide a **Capability Trigger Contribution**, and DevTools should consume the resolved Agent Trigger."
+>
+> **Dev:** "Should we expose a callback routing Capability?"
+> **Domain expert:** "No. Use a user-defined **Capability Definition** or hook to set a named invocation context value; the official route helper is the **LLM Route Capability**."
+>
+> **Dev:** "Can an LLM route decision attach `workspaceShell()` for this one request?"
+> **Domain expert:** "No. **Capabilities** are static and validated early. A route can influence instructions or other conditional contributions, but it cannot grant a new Capability."
 
 ## Flagged Ambiguities
 
@@ -206,6 +231,11 @@ _Avoid_: Input Command, Capability, model tool
 - Capability-level name and description were considered separate display metadata - resolved: remove both as a breaking change and use **Capability** id as the only capability-level identity/display field.
 - Slash command was considered as the domain term - resolved: use **Input Command** for the Capability concept because it names the lifecycle position; slash syntax is only the initial invocation format.
 - Host/session commands were considered part of Input Commands - resolved: **Host Commands** are a separate future concern because they change chat, session, UI, or product state rather than Agent run input.
+- Generic `routing()` and `gate()` helpers were considered for LLM-backed decisions - resolved: use **LLM Route Capability** and **LLM Gate Capability** because the public names should make model use explicit and leave room for deterministic, auth, or security gates.
+- A callback routing official Capability was considered - resolved: deterministic context decisions remain user-defined inline Capabilities or hooks in V1.
+- Multiple route or gate decisions writing the same context key were considered for priority or merging - resolved: **Pre-Invocation Decision** ids are unique per Agent, with duplicate ids failing early.
+- Dynamic Capability activation through route decisions was considered - resolved: Pre-Invocation Decisions can influence conditional contributions but must not attach, remove, or grant **Capabilities** at runtime.
+- A generic `decisionPolicy()` helper and request-refinement Capability were considered - resolved: defer them until **LLM Route Capability**, **LLM Gate Capability**, and Chat Sessions prove the internal primitive.
 - Input Command display metadata was considered capability-level - resolved: Capability id owns identity, while command descriptions are the user-facing metadata hosts may render.
 - Requiring users to attach one Capability per internal mechanism was considered - resolved: users attach one Capability per product ability, and official Capabilities can own their natural Input Command surface when that command is part of the expected user experience.
 - Storage Capability options were described as access levels in an older PR - resolved: official primitive Capabilities use `mode` for read/write exposure, while `access` is older proposal language.

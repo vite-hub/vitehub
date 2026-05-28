@@ -5,6 +5,7 @@ import type {
   AgentCapabilityDefinition,
   AgentChatAgentHookArgs,
   AgentChatOptions,
+  AgentChatSessionOptions,
   AgentChatWebhookRegistrationDefinition,
   AgentRunInput,
   AgentRunMetadata,
@@ -32,7 +33,12 @@ export interface AgentChatMessageTriggerInput {
   history?: AgentChatOptions["history"]
   messages: UIMessageLike[]
   run?: AgentRunMetadata
+  session?: {
+    action?: "continue" | "new" | "switch"
+    id?: string
+  }
   timeout?: number
+  user?: Record<string, unknown>
 }
 
 function uiMessageText(message: UIMessageLike): string {
@@ -107,17 +113,86 @@ function uiMessagesToAgentMessages(messages: UIMessageLike[]): Message[] {
   })
 }
 
-function selectChatHistory(messages: UIMessageLike[], history: AgentChatOptions["history"]): UIMessageLike[] {
-  if (history === false || history === "none") return messages.slice(-1)
-  if (typeof history === "object" && history.source === "thread" && typeof history.maxMessages === "number") {
-    return messages.slice(-Math.max(1, history.maxMessages))
+function metadataRecord(message: UIMessageLike): Record<string, unknown> | undefined {
+  return typeof message.metadata === "object" && message.metadata !== null
+    ? message.metadata as Record<string, unknown>
+    : undefined
+}
+
+function nestedSessionId(metadata: Record<string, unknown> | undefined): string | undefined {
+  const chat = typeof metadata?.chat === "object" && metadata.chat !== null ? metadata.chat as Record<string, unknown> : undefined
+  const session = typeof metadata?.session === "object" && metadata.session !== null ? metadata.session as Record<string, unknown> : undefined
+  return firstString(
+    metadata?.sessionId,
+    metadata?.chatSessionId,
+    chat?.sessionId,
+    session?.id,
+  )
+}
+
+function uiMessageSessionId(message: UIMessageLike, metadataKey?: string): string | undefined {
+  const metadata = metadataRecord(message)
+  return firstString(
+    metadataKey ? metadata?.[metadataKey] : undefined,
+    nestedSessionId(metadata),
+  )
+}
+
+function uiMessageTime(message: UIMessageLike): number | undefined {
+  const metadata = metadataRecord(message)
+  const raw = message.createdAt || metadata?.createdAt || metadata?.updatedAt
+  const time = raw instanceof Date ? raw.getTime() : typeof raw === "string" ? Date.parse(raw) : undefined
+  return typeof time === "number" && Number.isFinite(time) ? time : undefined
+}
+
+function normalizeSessionOptions(sessions: AgentChatOptions["sessions"]): AgentChatSessionOptions | undefined {
+  if (!sessions) return undefined
+  return sessions === true ? { strategy: "manual" } : sessions
+}
+
+function selectManualSession(messages: UIMessageLike[], sessions: AgentChatSessionOptions, triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
+  if (triggerSession?.action === "new") return messages.slice(-1)
+  const selectedId = triggerSession?.id || uiMessageSessionId(messages.at(-1) || {}, sessions.metadataKey)
+  if (!selectedId) return messages
+  const filtered = messages.filter(message => uiMessageSessionId(message, sessions.metadataKey) === selectedId)
+  return filtered.length ? filtered : messages
+}
+
+function selectIdleSession(messages: UIMessageLike[], sessions: AgentChatSessionOptions): UIMessageLike[] {
+  const timeout = sessions.idleTimeoutMs
+  if (!timeout || timeout <= 0 || messages.length < 2) return messages
+  for (let index = messages.length - 1; index > 0; index--) {
+    const current = uiMessageTime(messages[index]!)
+    const previous = uiMessageTime(messages[index - 1]!)
+    if (current !== undefined && previous !== undefined && current - previous > timeout) {
+      return messages.slice(index)
+    }
   }
-  return messages.slice(-20)
+  return messages
+}
+
+function selectChatSession(messages: UIMessageLike[], sessions: AgentChatOptions["sessions"], triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
+  const options = normalizeSessionOptions(sessions)
+  if (!options) return messages
+  const strategy = options.strategy || (options.idleTimeoutMs ? "idle-timeout" : "manual")
+  if (strategy === "manual") return selectManualSession(messages, options, triggerSession)
+  if (strategy === "idle-timeout") return selectIdleSession(messages, options)
+  return selectIdleSession(selectManualSession(messages, options, triggerSession), options)
+}
+
+function selectChatHistory(messages: UIMessageLike[], history: AgentChatOptions["history"], sessions?: AgentChatOptions["sessions"], triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
+  const sessionMessages = selectChatSession(messages, sessions, triggerSession)
+  if (history === false || history === "none") return sessionMessages.slice(-1)
+  if (typeof history === "object" && history.source === "thread" && typeof history.maxMessages === "number") {
+    return sessionMessages.slice(-Math.max(1, history.maxMessages))
+  }
+  return sessionMessages.slice(-20)
 }
 
 function createChatTriggerHookArgs(
   messages: UIMessageLike[],
   run: AgentRunMetadata | undefined,
+  session: AgentChatMessageTriggerInput["session"] | undefined,
 ): AgentChatAgentHookArgs {
   const message = messages.at(-1)
   return {
@@ -127,6 +202,7 @@ function createChatTriggerHookArgs(
       text: message ? uiMessageText(message) : "",
     },
     run,
+    session,
     thread: {
       post: async () => undefined,
     },
@@ -173,10 +249,17 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
       if (!messages.length) {
         throw new TypeError("[vitehub] chat.message trigger requires at least one UI message.")
       }
-      const selectedMessages = selectChatHistory(messages, triggerInput.history ?? options.history)
-      const hookArgs = createChatTriggerHookArgs(selectedMessages, triggerInput.run)
+      const selectedMessages = selectChatHistory(messages, triggerInput.history ?? options.history, options.sessions, triggerInput.session)
+      const hookArgs = createChatTriggerHookArgs(selectedMessages, triggerInput.run, triggerInput.session)
       const input = {
-        context: { chat: { message: hookArgs.message, run: triggerInput.run } },
+        context: {
+          chat: {
+            message: hookArgs.message,
+            run: triggerInput.run,
+            session: triggerInput.session,
+            user: triggerInput.user,
+          },
+        },
         messages: uiMessagesToAgentMessages(selectedMessages),
         timeout: triggerInput.timeout,
       } satisfies AgentRunInput

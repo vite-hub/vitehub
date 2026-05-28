@@ -56,6 +56,14 @@ _Avoid_: Agent Memory, Agent Run State
 The bounded number of prior Chat History messages included in an Agent Invocation.
 _Avoid_: memory size, transcript limit, context length
 
+**Chat Session**:
+A host-visible conversation boundary inside Chat History that determines which messages are eligible for the Chat History Window.
+_Avoid_: Agent Memory, Agent Run State, hidden slice
+
+**Agent Invocation Context Value**:
+A typed value recorded for one Agent Invocation and exposed to later Agent and Capability callbacks through invocation context access.
+_Avoid_: Runtime Config, Agent Memory, dynamic Capability, arbitrary metadata
+
 **Agent Memory**:
 Durable knowledge or preferences an Agent can carry across Agent Invocations when explicitly configured.
 _Avoid_: Chat History, better chat state
@@ -105,9 +113,14 @@ _Avoid_: Fake agent, dummy model, test bot
 - Workspace Tools are derived from an Agent's Colocated Workspace Definition.
 - An **Agent Invocation** can create or update **Agent Run State**.
 - **Chat History** is conversation-scoped and is not **Agent Memory**.
+- A **Chat Session** is part of Chat History behavior and is not **Agent Memory**.
+- The Chat Capability resolves the active **Chat Session** before applying the **Chat History Window**.
 - A **Chat History Window** is configured by the Agent Definition when the application wants bounded Chat History.
 - The Chat Capability can require state for **Chat History** through the Agent State Provider.
 - Chat History is explicit application behavior and is not enabled by default.
+- **Agent Invocation Context Values** can be produced by Pre-Invocation Decisions and read by later Agent or Capability callbacks.
+- **Agent Invocation Context Values** do not grant Capabilities dynamically.
+- **Agent Invocation Context Value** ids must be unique per Agent so every invocation has one writer per context value.
 - **Agent Memory** can outlive one conversation.
 - A **Concurrent Invocation Guard** protects **Agent Run State**.
 - A **Development State Provider** is not acceptable for hosted production runtimes.
@@ -127,6 +140,12 @@ _Avoid_: Fake agent, dummy model, test bot
 >
 > **Dev:** "Should Chat DevTools own the server behavior for sending messages to an Agent?"
 > **Domain expert:** "No. Chat DevTools should consume an **Agent Trigger** primitive, just like an application server route or webhook would."
+>
+> **Dev:** "Should an instruction callback read a routing decision from arbitrary metadata?"
+> **Domain expert:** "No. Read it as an **Agent Invocation Context Value** produced by a Pre-Invocation Decision."
+>
+> **Dev:** "Is a new Chat Session the same as Agent Memory reset?"
+> **Domain expert:** "No. A **Chat Session** changes which Chat History messages enter the Chat History Window; **Agent Memory** is durable knowledge across invocations."
 
 ## Flagged Ambiguities
 
@@ -135,6 +154,9 @@ _Avoid_: Fake agent, dummy model, test bot
 - Evalite-backed checks were considered generic tests - resolved: use **Agent Eval** when the check runs an Agent Definition and scores Agent Invocation output.
 - Chat runtime state was considered a public Chat option - resolved: use **Agent Run State** for Agent-owned runtime state.
 - Chat History and Agent Memory were considered interchangeable - resolved: Chat History is conversation-scoped message history; Agent Memory is durable knowledge or preferences across invocations.
+- Chat Sessions were considered as Agent Memory or separate Chat Session Capabilities - resolved: **Chat Session** is Chat History behavior owned by the Chat Capability.
+- Hidden model-selected history slicing was considered - resolved: **Chat Session** selection is a host-visible boundary over preserved Chat History, not destructive message truncation.
+- Route and gate results were considered for ad hoc input context or metadata - resolved: expose them as typed **Agent Invocation Context Values**.
 - Chat state was considered separate from Agent State Provider - resolved: Chat History state is satisfied through the Agent State Provider when available.
 - Chat History was considered an implicit Chat Capability default - resolved: keep Chat History opt-in, aligned with Chat SDK-style application control.
 - Local and hosted state providers were considered equivalent - resolved: hosted production runtimes require a durable provider and a **Concurrent Invocation Guard**.

@@ -11,6 +11,11 @@ export {
   inputCommands,
 } from "./input-commands.ts"
 export {
+  LlmGateRejectedError,
+  llmGate,
+  llmRoute,
+} from "./llm-decisions.ts"
+export {
   sandbox,
 } from "./sandbox.ts"
 export {
@@ -76,6 +81,14 @@ export type {
   InputCommandRunInput,
   InputCommandsOptions,
 } from "./input-commands.ts"
+export type {
+  LlmDecisionChoiceDefinition,
+  LlmDecisionChoiceMap,
+  LlmGateDecision,
+  LlmGateOptions,
+  LlmRouteDecision,
+  LlmRouteOptions,
+} from "./llm-decisions.ts"
 export type {
   AgentScheduleCapabilityMetadata,
   AgentScheduleCapabilityOptions,

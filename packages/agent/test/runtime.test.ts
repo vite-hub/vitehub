@@ -1304,6 +1304,67 @@ describe("agent message protocol", () => {
     expect(seenHistory.at(-1)).toEqual(["answer 2", "third request"])
   })
 
+  it("selects chat history from the current idle-timeout session", async () => {
+    const { chat, defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chat({
+        history: { maxMessages: 10, source: "thread" },
+        sessions: { idleTimeoutMs: 30 * 60 * 1000, strategy: "idle-timeout" },
+      })],
+      run: () => "ok",
+    })
+
+    const invocation = await resolveAgentTriggerInvocation(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, "chat.message", {
+      messages: [
+        { createdAt: "2026-05-28T10:00:00.000Z", parts: [{ text: "old topic", type: "text" }], role: "user" },
+        { createdAt: "2026-05-28T10:00:10.000Z", parts: [{ text: "old answer", type: "text" }], role: "assistant" },
+        { createdAt: "2026-05-28T11:00:00.000Z", parts: [{ text: "new topic", type: "text" }], role: "user" },
+      ],
+    })
+
+    expect(invocation.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["new topic"])
+  })
+
+  it("selects chat history from the requested manual session", async () => {
+    const { chat, defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chat({
+        history: { maxMessages: 10, source: "thread" },
+        sessions: true,
+      })],
+      run: () => "ok",
+    })
+
+    const invocation = await resolveAgentTriggerInvocation(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, "chat.message", {
+      messages: [
+        { metadata: { sessionId: "a" }, parts: [{ text: "session a", type: "text" }], role: "user" },
+        { metadata: { sessionId: "b" }, parts: [{ text: "session b", type: "text" }], role: "user" },
+      ],
+      session: { id: "b" },
+      user: { id: "user_1" },
+    })
+
+    expect(invocation.input.context?.chat).toMatchObject({
+      session: { id: "b" },
+      user: { id: "user_1" },
+    })
+    expect(invocation.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["session b"])
+  })
+
   it("clears AI SDK DevTools UI message history", async () => {
     const { createUIMessageStream } = await import("ai")
     const { createApp, toWebHandler } = await import("h3")

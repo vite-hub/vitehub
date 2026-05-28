@@ -1,5 +1,6 @@
 import { resolveRuntimeValue } from "@vitehub/runtime"
 
+import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import type {
   AgentAdapterInstructionsValue,
   AgentCallbackContext,
@@ -12,6 +13,8 @@ import type {
   AgentFinishEvent,
   AgentFinishExtensionProvider,
   AgentInstructionBlock,
+  AgentInvocationContextStore,
+  AgentModelResolver,
   AgentOutputRenderer,
   AgentProviderToolContribution,
   AgentRunInput,
@@ -46,6 +49,14 @@ export interface AgentCapabilityOptions<
 > {
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
+}
+
+export interface AgentCapabilityInvocationOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> {
+  context?: AgentInvocationContextStore
+  model?: AgentModelResolver<TRuntimeConfig, Name>
 }
 
 export interface ResolvedAgentCapabilities {
@@ -189,8 +200,10 @@ export async function resolveAgentCapabilities<
   input: AgentRunInput,
   workspace?: ReadonlyWorkspaceFacade<Name>,
   workspaceMode: AgentCapabilityMode = "read",
+  invocationOptions: AgentCapabilityInvocationOptions<TRuntimeConfig, Name> = {},
 ): Promise<ResolvedAgentCapabilities> {
   const runtimeContext = toAgentCallbackContext(runtime)
+  const invocationContext = invocationOptions.context || createAgentInvocationContextStore(input.context)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let currentInput = input
   let messages = getRunMessages(currentInput)
@@ -223,10 +236,15 @@ export async function resolveAgentCapabilities<
   try {
     for (const capability of capabilities) {
       await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
-      const capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> = {
+      const metadataContext = {
         ...runtimeContext,
-        capability,
+        context: invocationContext,
         fs: workspace?.fs,
+        workspace,
+      }
+      const capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> = {
+        ...metadataContext,
+        capability,
         mode: capability.mode,
         instructions: {
           add(value, options) {
@@ -243,6 +261,15 @@ export async function resolveAgentCapabilities<
           setMessages(value) {
             messages = value
             currentInput = withMessages(currentInput, messages)
+          },
+        },
+        model: {
+          async resolve(model) {
+            const resolver = model ?? invocationOptions.model
+            if (resolver === undefined) {
+              throw new Error(`[vitehub] ${capability.id}() requires a model option or an agent model.`)
+            }
+            return await resolveRuntimeValue(resolver as never, metadataContext as never) as unknown
           },
         },
         output: {
@@ -363,6 +390,7 @@ export async function resolveStaticCapabilityTools<
   workspaceMode: AgentCapabilityMode = "read",
 ): Promise<AgentToolSet | undefined> {
   const runtimeContext = toAgentCallbackContext(runtime)
+  const invocationContext = createAgentInvocationContextStore()
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let tools: AgentToolSet | undefined
 
@@ -372,6 +400,7 @@ export async function resolveStaticCapabilityTools<
 
     const capabilityContext = {
       ...runtimeContext,
+      context: invocationContext,
       fs: workspace?.fs,
       mode: capability.mode,
       workspace,

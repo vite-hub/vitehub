@@ -108,6 +108,54 @@ describe("agent capability runtime", () => {
     await expect(applyOutputRenderers({ text: "base" }, resolved.registries.outputRenderers)).resolves.toEqual({ text: "base:rendered" })
   })
 
+  it("passes named invocation context values through capabilities and custom runs", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "mode",
+          configure(context) {
+            context.context.set("mode", { choice: "support" })
+          },
+        }),
+      ],
+      run(context) {
+        return {
+          chat: context.context.get("chat"),
+          mode: context.context.get("mode"),
+        }
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), {
+      context: { chat: { user: { id: "user_1" } } },
+    })).resolves.toEqual({
+      chat: { user: { id: "user_1" } },
+      mode: { choice: "support" },
+    })
+  })
+
+  it("rejects duplicate invocation context values", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "mode",
+          configure(context) {
+            context.context.set("mode", "support")
+          },
+        }),
+      ],
+      run: () => "ok",
+    })
+
+    await expect(runAgent(agent, runtime(), {
+      context: { mode: "technical" },
+    })).rejects.toThrow('Invocation context value "mode" is already set')
+  })
+
   it("closes streamed and Response outputs after consumption", async () => {
     const { defineAgent, runAgent, streamAgent } = await import("../src/index.ts")
     const order: string[] = []

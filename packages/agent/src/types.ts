@@ -53,6 +53,14 @@ export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig">
 
+export interface AgentInvocationContextStore {
+  entries: () => IterableIterator<[string, unknown]>
+  get: <T = unknown>(id: string) => T | undefined
+  has: (id: string) => boolean
+  set: (id: string, value: unknown) => void
+  toJSON: () => Record<string, unknown>
+}
+
 export interface AgentRunInput<CALL_OPTIONS = unknown> {
   abortSignal?: AbortSignal
   context?: Record<string, unknown>
@@ -143,6 +151,7 @@ export interface AgentRunCallbackContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
+  context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
 }
@@ -192,6 +201,7 @@ export interface AgentRunContext<
   CALL_OPTIONS = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
   adapter?: AgentAdapter<CALL_OPTIONS>
+  context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
   messages: Message[]
   prompt?: string
@@ -285,6 +295,9 @@ export interface AgentCapabilityRuntimeContext<
     set: (input: AgentRunInput) => void
     setMessages: (messages: Message[]) => void
   }
+  model: {
+    resolve: (model?: AgentModelResolver<TRuntimeConfig, Name>) => Promise<AgentModelInput>
+  }
   output: {
     render: (renderer: AgentOutputRenderer) => void
   }
@@ -362,6 +375,7 @@ export type AgentModelResolver<
 
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
+  context: AgentInvocationContextStore
   model: AgentModelInput
   run?: AgentRunMetadata
 }
@@ -520,6 +534,12 @@ export interface AgentChatAgentBindingOptions {
   hooks?: AgentChatAgentHooks
 }
 
+export interface AgentChatSessionOptions {
+  idleTimeoutMs?: number
+  metadataKey?: string
+  strategy?: "manual" | "idle-timeout" | "hybrid"
+}
+
 export interface AgentChatAgentHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
   thread: { post: (message: unknown) => MaybePromise<unknown> }
 }
@@ -548,6 +568,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   history?: AgentChatAgentBindingOptions["history"]
   hooks?: AgentChatEventHooks<TRuntimeConfig>
   lifecycleHooks?: Record<string, unknown>
+  sessions?: boolean | AgentChatSessionOptions
   state?: MaybeResolvable<unknown, AgentRuntimeContext<TRuntimeConfig>>
   webhooks?: {
     telegram?: AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[]
@@ -667,6 +688,7 @@ export interface AgentAdapterMetadataContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig> {
+  context: AgentInvocationContextStore
   fs: ReadonlyWorkspaceFacade<Name>["fs"]
   workspace: ReadonlyWorkspaceFacade<Name>
 }
@@ -678,6 +700,7 @@ export interface AgentAdapterRunContext<
 > {
   capabilityInstructions?: AgentInstructionBlock[]
   close?: () => Promise<void>
+  context: AgentInvocationContextStore
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>

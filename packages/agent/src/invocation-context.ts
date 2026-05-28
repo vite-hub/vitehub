@@ -1,0 +1,40 @@
+import type { AgentInvocationContextStore } from "./types.ts"
+
+function assertContextId(id: unknown): asserts id is string {
+  if (typeof id !== "string" || !id.trim()) {
+    throw new TypeError("[vitehub] Invocation context values require a non-empty string id.")
+  }
+  if (!/^[a-z][a-z0-9-_.:]*$/i.test(id)) {
+    throw new TypeError(`[vitehub] Invocation context id "${id}" must be a stable identifier.`)
+  }
+}
+
+export function createAgentInvocationContextStore(initial?: Record<string, unknown>): AgentInvocationContextStore {
+  const values = new Map<string, unknown>()
+
+  for (const [id, value] of Object.entries(initial || {})) {
+    values.set(id, value)
+  }
+
+  return {
+    entries() {
+      return values.entries()
+    },
+    get<T = unknown>(id: string): T | undefined {
+      return values.get(id) as T | undefined
+    },
+    has(id: string): boolean {
+      return values.has(id)
+    },
+    set(id: string, value: unknown): void {
+      assertContextId(id)
+      if (values.has(id)) {
+        throw new Error(`[vitehub] Invocation context value "${id}" is already set.`)
+      }
+      values.set(id, value)
+    },
+    toJSON(): Record<string, unknown> {
+      return Object.fromEntries(values)
+    },
+  }
+}

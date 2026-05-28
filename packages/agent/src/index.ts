@@ -5,6 +5,7 @@ import {
   resolveRuntimeContext,
 } from "@vitehub/runtime"
 import { chat, getChatCapabilityOptions } from "./chat-trigger.ts"
+import { createAgentInvocationContextStore } from "./invocation-context.ts"
 
 import {
   applyCapabilityToolTransforms,
@@ -50,6 +51,8 @@ import type {
   AgentInput,
   AgentInstructionBlock,
   AgentInvocationHooks,
+  AgentInvocationContextStore,
+  AgentModelResolver,
   AgentRegistry,
   AgentRegistryModule,
   AgentRequestBody,
@@ -107,6 +110,7 @@ export type {
   AgentChatEventHookArgs,
   AgentChatEventHooks,
   AgentChatOptions,
+  AgentChatSessionOptions,
   AgentRequestBody,
   AgentDefinition,
   AgentExecution,
@@ -117,11 +121,12 @@ export type {
   AgentInstructionBlock,
   AgentIntegrationOption,
   AgentInvocationExtensions,
+  AgentInvocationContextStore,
   AgentInvocationHooks,
   AgentIntegrationsOptions,
-  AgentModelResolver,
   AgentModelInput,
   AgentModelInstrumentation,
+  AgentModelResolver,
   AgentModelInstrumentationContext,
   AgentModuleOptions,
   AgentProvidersOptions,
@@ -185,6 +190,7 @@ export type {
 
 const syntheticWorkspaceRun = Symbol("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
+const baseAgentModel = Symbol("vitehub.baseAgentModel")
 const defaultWorkspaceName = "workspace"
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
@@ -196,6 +202,7 @@ type AgentDefinitionWithBaseResolve<
   CALL_OPTIONS = unknown,
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
+  [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
 }
 interface ScheduleRunContextLike {
   attemptId?: string
@@ -282,8 +289,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { agentScheduleIdFromCron, blob, chatSummary, chatTitle, db, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
-export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, ChatSummaryCommandOptions, ChatSummaryExecuteInput, ChatSummaryExecuteResult, ChatSummaryOptions, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
+export { agentScheduleIdFromCron, blob, chatSummary, chatTitle, db, inputCommands, kv, LlmGateRejectedError, llmGate, llmRoute, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
+export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, ChatSummaryCommandOptions, ChatSummaryExecuteInput, ChatSummaryExecuteResult, ChatSummaryOptions, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, LlmDecisionChoiceDefinition, LlmDecisionChoiceMap, LlmGateDecision, LlmGateOptions, LlmRouteDecision, LlmRouteOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
 export { chat }
 export type { AgentChatMessageTriggerInput, ResolvedAgentTriggerInvocation }
 export * from "./messages.ts"
@@ -400,6 +407,7 @@ function defineBaseAgent<
   }
 
   return {
+    ...("model" in options ? { [baseAgentModel]: options.model } : {}),
     [baseAgentResolve]: resolveBaseAgent,
     chat,
     description,
@@ -1121,6 +1129,7 @@ async function createAgentInvocationContext<
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
   const callbackContext = createAgentCallbackContext(context)
+  const invocationContext = createAgentInvocationContextStore(input.context)
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
   const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
   const workspaceName = workspaceOptions
@@ -1137,7 +1146,11 @@ async function createAgentInvocationContext<
     : definition?.capabilities?.length
       ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
       : undefined
-  const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never, workspaceMode)
+  const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
+  const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never, workspaceMode, {
+    context: invocationContext,
+    model: agentModel as never,
+  })
   const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
   const tools = Object.keys(transformedTools || {}).length
     ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
@@ -1147,6 +1160,7 @@ async function createAgentInvocationContext<
     ...callbackContext,
     capabilityInstructions: capabilities.capabilityInstructions,
     close: capabilities.close,
+    context: invocationContext,
     devtools: context.devtools,
     finishExtensionProviders: capabilities.registries.finishExtensionProviders,
     finishHook: definition?.hooks?.["agent:finish"] as never,
