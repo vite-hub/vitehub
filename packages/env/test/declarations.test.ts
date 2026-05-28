@@ -32,10 +32,6 @@ describe("env declarations", () => {
     })).toThrow("cannot use both optional and required")
   })
 
-  it("rejects legacy string arguments", () => {
-    expect(() => env("DATABASE_URL" as never)).toThrow("single options object")
-  })
-
   it("infers env sources from config paths and prefixes", () => {
     expect(resolveEnvSource(env(), "env.telegram.botToken")).toMatchObject({
       kind: "env",

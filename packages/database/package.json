@@ -1,0 +1,72 @@
+{
+  "name": "@vitehub/database",
+  "version": "0.0.0",
+  "description": "Vite-first Drizzle database primitives for ViteHub.",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/database"
+  },
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "keywords": [
+    "vitehub",
+    "vite",
+    "db",
+    "database",
+    "sqlite",
+    "drizzle"
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./cli": "./dist/cli.js",
+    "./drizzle": "./dist/drizzle.js",
+    "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
+    "./runtime/hosted": "./dist/runtime/hosted.js",
+    "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
+    "./virtual": "./dist/virtual.js",
+    "./vite": "./dist/vite.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsdown --tsconfig tsconfig.build.json",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "pnpm --filter @vitehub/database build && vitest run",
+    "test:e2e": "tsx ./test/e2e.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "catalog:",
+    "esbuild": "catalog:",
+    "h3": "catalog:",
+    "pathe": "catalog:"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "catalog:",
+    "vite": ">=6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@vitehub/internal": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "publint": "^0.3.15",
+    "tsdown": "^0.21.8",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

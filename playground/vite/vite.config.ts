@@ -81,7 +81,7 @@ export default defineConfig(async () => {
   if (buildMode === VITEHUB_MODES.e2e) {
     const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSchedule }, { hubSandbox }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
       import("@vitehub/blob/vite"),
-      import("@vitehub/db/vite"),
+      import("@vitehub/database/vite"),
       import("@vitehub/kv/vite"),
       import("@vitehub/queue/vite"),
       import("@vitehub/schedule/vite"),
@@ -210,7 +210,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.db) {
-    const { hubDb } = await import("@vitehub/db/vite")
+    const { hubDb } = await import("@vitehub/database/vite")
     return {
       ...baseConfig,
       plugins: [hubDb()],

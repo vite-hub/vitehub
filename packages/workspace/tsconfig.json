@@ -35,8 +35,8 @@
       "@vitehub/shell/workspace": [
         "packages/shell/src/workspace/index.ts"
       ],
-      "@vitehub/unsource": [
-        "packages/unsource/src/index.ts"
+      "@vitehub/source": [
+        "packages/source/src/index.ts"
       ]
     },
     "rootDir": "..",

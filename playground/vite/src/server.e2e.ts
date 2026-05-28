@@ -3,7 +3,7 @@ import { desc, sql } from "drizzle-orm"
 import * as v from "valibot"
 
 import { blob } from "@vitehub/blob"
-import { databases } from "@vitehub/db/drizzle"
+import { databases } from "@vitehub/database/drizzle"
 import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
 import { kv } from "@vitehub/kv"
 import { deferQueue, runQueue } from "@vitehub/queue"
@@ -169,20 +169,20 @@ app.get("/api/blob/serve", async (event) => {
   return await blob.serve(event, pathname)
 })
 
-app.get("/api/db", async () => {
+app.get("/api/database", async () => {
   await ensureNotesTable()
   const notes = await databases.primary.db.select().from(databases.primary.schema.notes).orderBy(desc(databases.primary.schema.notes.id))
   return { notes, ok: true }
 })
 
-app.post("/api/db", async (event) => {
+app.post("/api/database", async (event) => {
   await ensureNotesTable()
   const body = await readValidatedBody(event, noteBody)
   const result = await databases.primary.db.insert(databases.primary.schema.notes).values({ title: body.title }).returning()
   return { note: result[0], ok: true }
 })
 
-app.get("/api/db/analytics", async () => {
+app.get("/api/database/analytics", async () => {
   await ensureAnalyticsEventsTable()
   const events = await databases.analytics.db
     .select()
@@ -191,7 +191,7 @@ app.get("/api/db/analytics", async () => {
   return { events, ok: true }
 })
 
-app.post("/api/db/analytics", async (event) => {
+app.post("/api/database/analytics", async (event) => {
   await ensureAnalyticsEventsTable()
   const body = await readValidatedBody(event, analyticsEventBody)
   const result = await databases.analytics.db

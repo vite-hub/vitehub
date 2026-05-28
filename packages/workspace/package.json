@@ -62,7 +62,7 @@
   },
   "dependencies": {
     "@vitehub/shell": "workspace:*",
-    "@vitehub/unsource": "workspace:*",
+    "@vitehub/source": "workspace:*",
     "defu": "^6.1.4",
     "exsolve": "^1.0.8",
     "files-sdk": "catalog:",

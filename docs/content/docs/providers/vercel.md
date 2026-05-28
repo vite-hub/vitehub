@@ -20,10 +20,10 @@ Use this page to find package-specific Vercel guidance in ViteHub.
 ::fw{id="vite:dev vite:build"}
 ### DB
 
-`@vitehub/db` supports Vercel on Vite through hosted libSQL connections, including optional named databases behind the same runtime surface.
+`@vitehub/database` supports Vercel on Vite through hosted libSQL connections, including optional named databases behind the same runtime surface.
 
-- Setup overview: [DB overview](/docs/vite/db)
-- Provider details: [DB on Vercel](/docs/vite/db/providers/vercel)
+- Setup overview: [Database overview](/docs/vite/database)
+- Provider details: [Database on Vercel](/docs/vite/database/providers/vercel)
 
 ### Blob
 

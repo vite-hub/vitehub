@@ -20,10 +20,10 @@ Use this page to find package-specific Cloudflare guidance in ViteHub.
 ::fw{id="vite:dev vite:build"}
 ### DB
 
-`@vitehub/db` supports Cloudflare D1 bindings on Vite through a default database plus optional named databases.
+`@vitehub/database` supports Cloudflare D1 bindings on Vite through a default database plus optional named databases.
 
-- Setup overview: [DB overview](/docs/vite/db)
-- Provider details: [DB on Cloudflare](/docs/vite/db/providers/cloudflare)
+- Setup overview: [Database overview](/docs/vite/database)
+- Provider details: [Database on Cloudflare](/docs/vite/database/providers/cloudflare)
 
 ### Blob
 

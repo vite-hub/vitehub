@@ -136,13 +136,13 @@ function getDbFeatureImports(options: ViteHubOptions): ServerImport[] {
   const db = options.db as { orm?: string } | undefined
   if (db?.orm === 'prisma') {
     return [
-      { name: 'prisma', from: '@vitehub/db/prisma' },
+      { name: 'prisma', from: '@vitehub/database/prisma' },
     ]
   }
 
   return [
-    { name: 'db', from: '@vitehub/db/drizzle' },
-    { name: 'schema', from: '@vitehub/db/drizzle' },
+    { name: 'db', from: '@vitehub/database/drizzle' },
+    { name: 'schema', from: '@vitehub/database/drizzle' },
   ]
 }
 
@@ -152,7 +152,7 @@ const featureNitroModules: Partial<Record<ViteHubFeatureName, string>> = {
   browser: '@vitehub/browser/nitro',
   cache: '@vitehub/cache/nitro',
   cron: '@vitehub/cron/nitro',
-  db: '@vitehub/db/nitro',
+  db: '@vitehub/database/nitro',
   email: '@vitehub/email/nitro',
   kv: '@vitehub/kv/nitro',
   queue: '@vitehub/queue/nitro',

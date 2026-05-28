@@ -50,7 +50,7 @@ Choose the primitive for the runtime behavior you need. Provider setup comes aft
   title: DB
   description: Model relational app data with a default Drizzle database and optional named databases.
   icon: i-lucide-database
-  to: ../db
+  to: ../database
   ---
   :::
   :::u-page-card

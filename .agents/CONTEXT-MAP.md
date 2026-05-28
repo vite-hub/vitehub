@@ -17,7 +17,7 @@
 - [Schedule](./contexts/schedule/CONTEXT.md) - names future and recurring runtime work.
 - [Agent Package](./contexts/packages/agent/CONTEXT.md) - names ownership boundaries for `@vitehub/agent`.
 - [Blob Package](./contexts/packages/blob/CONTEXT.md) - names ownership boundaries for `@vitehub/blob`.
-- [DB Package](./contexts/packages/db/CONTEXT.md) - names ownership boundaries for `@vitehub/db`.
+- [Database Package](./contexts/packages/database/CONTEXT.md) - names ownership boundaries for `@vitehub/database`.
 - [DevTools Package](./contexts/packages/devtools/CONTEXT.md) - names ownership boundaries for `@vitehub/devtools`.
 - [Env Package](./contexts/packages/env/CONTEXT.md) - names ownership boundaries for `@vitehub/env`.
 - [KV Package](./contexts/packages/kv/CONTEXT.md) - names ownership boundaries for `@vitehub/kv`.
@@ -25,7 +25,7 @@
 - [Runtime Package](./contexts/packages/runtime/CONTEXT.md) - names ownership boundaries for `@vitehub/runtime`.
 - [Sandbox Package](./contexts/packages/sandbox/CONTEXT.md) - names ownership boundaries for `@vitehub/sandbox`.
 - [Shell Package](./contexts/packages/shell/CONTEXT.md) - names ownership boundaries for `@vitehub/shell`.
-- [Unsource Package](./contexts/packages/unsource/CONTEXT.md) - names ownership boundaries for `@vitehub/unsource`.
+- [Source Package](./contexts/packages/source/CONTEXT.md) - names ownership boundaries for `@vitehub/source`.
 - [Workflow Package](./contexts/packages/workflow/CONTEXT.md) - names ownership boundaries for `@vitehub/workflow`.
 - [Workspace Package](./contexts/packages/workspace/CONTEXT.md) - names ownership boundaries for `@vitehub/workspace`.
 

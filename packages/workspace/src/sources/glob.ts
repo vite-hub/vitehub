@@ -1,10 +1,10 @@
-import { glob as createGlobSource, type GlobSourceOptions as UnsourceGlobSourceOptions } from "@vitehub/unsource"
+import { glob as createGlobSource, type GlobSourceOptions as SourcePackageGlobSourceOptions } from "@vitehub/source"
 
 import type { WorkspaceSource } from "../core/types.ts"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "validate">
 
-export type GlobSourceOptions = UnsourceGlobSourceOptions & SourceRuntimeOptions
+export type GlobSourceOptions = SourcePackageGlobSourceOptions & SourceRuntimeOptions
 
 export function glob(options: GlobSourceOptions): WorkspaceSource {
   const source = createGlobSource({

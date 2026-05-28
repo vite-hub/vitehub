@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
 const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
-const workspacePackages = ["runtime", "shell", "unsource", "sandbox", "workspace", "agent", "blob", "ci", "cli", "db", "devtools", "env", "kv", "queue", "schedule", "workflow"] as const
+const workspacePackages = ["runtime", "shell", "source", "sandbox", "workspace", "agent", "blob", "ci", "cli", "database", "devtools", "env", "kv", "queue", "schedule", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
 
@@ -174,8 +174,8 @@ describe("unified vite e2e hosted outputs", () => {
     expect(vercelConfig).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
     expect(existsSync(vercelConsumer)).toBe(true)
-    expect(vercelServerContents).toContain("/api/db")
-    expect(vercelServerContents).toContain("/api/db/analytics")
+    expect(vercelServerContents).toContain("/api/database")
+    expect(vercelServerContents).toContain("/api/database/analytics")
     expect(vercelServerContents).toContain("/api/blob")
     expect(vercelServerContents).toContain("/api/workflows/welcome")
     expect(vercelConsumerContents).toContain("waitUntil")

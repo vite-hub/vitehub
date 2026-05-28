@@ -1,4 +1,4 @@
-import { markdown as createMarkdownSource } from "@vitehub/unsource"
+import { markdown as createMarkdownSource } from "@vitehub/source"
 
 import type { FileSourceOptions } from "./file.ts"
 import type { WorkspaceSource } from "../core/types.ts"

@@ -4,7 +4,8 @@ import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { normalizeBlobOptions } from "../../../packages/blob/src/config.ts"
-import { resolveDBViteConfig } from "../../../packages/db/src/config.ts"
+import { resolveConfigValue } from "../../../packages/database/src/config-value.ts"
+import { resolveDBViteConfig } from "../../../packages/database/src/config.ts"
 import { configureCloudflareKV } from "../../../packages/kv/src/integrations/cloudflare.ts"
 import { normalizeKVOptions } from "../../../packages/kv/src/config.ts"
 import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
@@ -35,7 +36,7 @@ import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/inter
 import { createRuntimeRegistryContents } from "@vitehub/internal/definition-discovery"
 
 import type { ResolvedBlobModuleOptions } from "../../../packages/blob/src/types.ts"
-import type { ResolvedDBViteConfig } from "../../../packages/db/src/types.ts"
+import type { ResolvedDBViteConfig } from "../../../packages/database/src/types.ts"
 import type { ResolvedKVModuleOptions } from "../../../packages/kv/src/types.ts"
 import type { ResolvedQueueOptions } from "../../../packages/queue/src/types.ts"
 import type { AgentSandboxConfig } from "../../../packages/sandbox/src/module-types.ts"
@@ -47,7 +48,7 @@ const currentDir = dirname(fileURLToPath(import.meta.url))
 const workspaceDir = resolve(currentDir, "../../..")
 const packagesDir = resolve(workspaceDir, "packages")
 const blobPackageDir = resolve(packagesDir, "blob")
-const dbPackageDir = resolve(packagesDir, "db")
+const dbPackageDir = resolve(packagesDir, "database")
 const kvPackageDir = resolve(packagesDir, "kv")
 const queuePackageDir = resolve(packagesDir, "queue")
 const schedulePackageDir = resolve(packagesDir, "schedule")
@@ -308,7 +309,7 @@ function renderWorkflowRuntimeModule(file: string) {
 function renderWorkspaceRuntimeModule(file: string) {
   return [
     `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/define.ts")))}`,
-    `export const source = { custom: source => source, file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options) }`,
+    `export const source = { custom: source => source, fetch: options => createHostedSourceStub("fetch", options), file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options) }`,
     `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/use.ts")))}`,
     `function createHostedSourceStub(kind, input) {`,
     `  return {`,
@@ -413,8 +414,8 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   }
 
   if (options.db) {
-    const dbRuntimeFile = resolve(generatedDir, "db-runtime.mjs")
-    alias["@vitehub/db/drizzle"] = dbRuntimeFile
+    const dbRuntimeFile = resolve(generatedDir, "database-runtime.mjs")
+    alias["@vitehub/database/drizzle"] = dbRuntimeFile
     runtimeWrites.push(writeFile(dbRuntimeFile, renderDbRuntimeModule(dbRuntimeFile, options.db), "utf8"))
   }
 
@@ -876,14 +877,14 @@ function createCloudflareD1Bindings(config: ResolvedDBViteConfig | undefined) {
 
   const bindings = config.databaseNames
     .map(name => config.databases[name]?.cloudflare)
-    .filter(database => Boolean(database?.databaseId))
+    .filter(database => Boolean(resolveConfigValue(database?.databaseId)))
     .map(database => ({
       binding: database!.binding,
-      database_id: database!.databaseId,
-      ...(database!.databaseName ? { database_name: database!.databaseName } : {}),
+      database_id: resolveConfigValue(database!.databaseId),
+      ...(resolveConfigValue(database!.databaseName) ? { database_name: resolveConfigValue(database!.databaseName) } : {}),
       ...(database!.migrationsDir ? { migrations_dir: database!.migrationsDir } : {}),
       ...(database!.migrationsTable ? { migrations_table: database!.migrationsTable } : {}),
-      ...(database!.previewDatabaseId ? { preview_database_id: database!.previewDatabaseId } : {}),
+      ...(resolveConfigValue(database!.previewDatabaseId) ? { preview_database_id: resolveConfigValue(database!.previewDatabaseId) } : {}),
     }))
 
   return bindings.length ? bindings : undefined

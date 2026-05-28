@@ -101,6 +101,7 @@ export default defineAgent({
 Attach the Chat Capability to the discovered Agent. DevTools and host routes consume the resulting `chat.message` Agent Trigger.
 
 ```ts [server/agents/triager.ts]
+import { gateway } from '@ai-sdk/gateway'
 import { chat, defineAgent } from '@vitehub/agent'
 
 export default defineAgent({

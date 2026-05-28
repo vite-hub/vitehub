@@ -4,4 +4,4 @@ Storage primitive Capabilities are first-class Agent Capabilities that wrap conf
 
 Blob ships as direct object storage for generated or uploaded artifacts even though Workspace may use Blob-backed persistence; Workspace remains the default model-facing file-tree boundary. DB separates data `mode` from `schemaMode`, requires single-statement SQL, gates writes behind approval by default, and can explicitly mutate the Live Database Schema without updating Database Schema Sources.
 
-The DB Capability consumes an agent-facing DB primitive handle from Capability context. It does not adapt the Drizzle Runtime Surface directly; a DB-owned adapter should provide that handle when `@vitehub/db` is the backing primitive.
+The DB Capability consumes an agent-facing DB primitive handle from Capability context. It does not adapt the Drizzle Runtime Surface directly; a Database-owned adapter should provide that handle when `@vitehub/database` is the backing primitive.

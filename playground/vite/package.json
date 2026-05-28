@@ -12,7 +12,7 @@
     "@vercel/sandbox": "catalog:",
     "@vitejs/devtools": "0.2.0",
     "@vitehub/agent": "workspace:*",
-    "@vitehub/db": "workspace:*",
+    "@vitehub/database": "workspace:*",
     "@vitehub/blob": "workspace:*",
     "@vitehub/devtools": "workspace:*",
     "@vitehub/env": "workspace:*",

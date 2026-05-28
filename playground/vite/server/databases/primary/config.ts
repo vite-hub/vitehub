@@ -1,4 +1,4 @@
-import { defineDatabase } from "@vitehub/db"
+import { defineDatabase } from "@vitehub/database"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 const notes = sqliteTable("notes", {

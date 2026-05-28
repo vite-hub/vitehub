@@ -1,10 +1,10 @@
-import { file as createFileSource, type FileSourceOptions as UnsourceFileSourceOptions } from "@vitehub/unsource"
+import { file as createFileSource, type FileSourceOptions as SourcePackageFileSourceOptions } from "@vitehub/source"
 
 import type { WorkspaceSource } from "../core/types.ts"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "validate">
 
-export type FileSourceOptions<TKey extends string = string> = UnsourceFileSourceOptions<TKey> & SourceRuntimeOptions
+export type FileSourceOptions<TKey extends string = string> = SourcePackageFileSourceOptions<TKey> & SourceRuntimeOptions
 export type FileSourceInput<TKey extends string = string> = FileSourceOptions<TKey> | TKey
 
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): WorkspaceSource {

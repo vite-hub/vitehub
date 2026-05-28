@@ -56,17 +56,6 @@ describe("agent discovery", () => {
     ])
   })
 
-  it("ignores server agent aggregate files", async () => {
-    const root = await createTempRoot("vitehub-agent-deprecated-")
-    await mkdir(join(root, "server"), { recursive: true })
-    await writeFile(join(root, "server", "agent.ts"), "export const support = {}", "utf8")
-
-    expect(discoverAgentDefinitions({
-      mode: "nitro-server-agents",
-      scanDirs: [join(root, "server")],
-    })).toEqual([])
-  })
-
   it("throws on duplicate Nitro agent names", async () => {
     const root = await createTempRoot("vitehub-agent-duplicate-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -274,12 +263,4 @@ describe("agent chat capability discovery", () => {
     ]))
   })
 
-  it("does not export legacy chat definition subpaths from the agent package build", async () => {
-    const packageJson = JSON.parse(await readFile(join(import.meta.dirname, "../package.json"), "utf8"))
-    const tsdownConfig = await readFile(join(import.meta.dirname, "../tsdown.config.ts"), "utf8")
-
-    expect(Object.keys(packageJson.exports).filter(key => key.startsWith("./chat"))).toEqual([])
-    expect(packageJson.imports["#vitehub/agent/chat/registry"]).toBeUndefined()
-    expect(tsdownConfig).not.toContain("src/chat/")
-  })
 })

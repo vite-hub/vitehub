@@ -39,11 +39,47 @@ const { page } = useDocsPage(
 
 const posts = computed(() => [
   {
-    title: "Build a Source-Aware AI Chatbot",
-    description: "Ground answers in your own docs, GitHub repos, and source files. One codebase ships to Telegram, Slack, Vite, Nitro, Cloudflare, and Vercel.",
-    image: "/images/tutorials/source-aware-chatbot.png",
+    title: "Introducing ViteHub",
+    description: "Server primitives for Vite and Nitro apps with good defaults, typed APIs, and provider choice.",
+    image: "/images/tutorials/vitehub-intro-flat.png",
     badge: {
-      label: "Blog",
+      label: "Overview",
+      color: "primary" as const,
+      variant: "soft" as const,
+    },
+    variant: "subtle" as const,
+    to: `/blogs/${routeState.meta.framework}/introducing-vitehub`,
+    ui: {
+      root: "overflow-hidden",
+      header: "aspect-[16/9]",
+      body: "p-5 sm:p-6 lg:px-0",
+      image: "object-cover object-center",
+    },
+  },
+  {
+    title: "Server primitives for any host",
+    description: "Use storage, background work, workflows, schedules, sandbox execution, and workspace state without locking application code to one provider.",
+    image: "/images/tutorials/server-primitives-flat.png",
+    badge: {
+      label: "Tutorial",
+      color: "primary" as const,
+      variant: "soft" as const,
+    },
+    variant: "subtle" as const,
+    to: `/blogs/${routeState.meta.framework}/server-primitives-any-host`,
+    ui: {
+      root: "overflow-hidden",
+      header: "aspect-[16/9]",
+      body: "p-5 sm:p-6 lg:px-0",
+      image: "object-cover object-center",
+    },
+  },
+  {
+    title: "Build an AI Agent in one file",
+    description: "Build a support Agent with model behavior, Capabilities, Workspace Sources, DevTools, and an Agent Eval.",
+    image: "/images/tutorials/agent-layers-flat.png",
+    badge: {
+      label: "Tutorial",
       color: "primary" as const,
       variant: "soft" as const,
     },
@@ -65,7 +101,7 @@ const posts = computed(() => [
 
     <UPageBody class="blogs-content pb-24">
       <p class="my-5 max-w-3xl leading-7 text-muted text-pretty">
-        Blogs show how ViteHub primitives fit together in real applications. Start here when you want an end-to-end feature instead of a single package reference.
+        These posts introduce ViteHub from the bottom up: the project direction, the server primitive layer, and the Agent layer.
       </p>
 
       <UBlogPosts orientation="vertical" class="mt-8 max-w-5xl pb-2">
