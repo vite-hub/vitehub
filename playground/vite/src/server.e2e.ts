@@ -3,7 +3,7 @@ import { desc, sql } from "drizzle-orm"
 import * as v from "valibot"
 
 import { blob } from "@vitehub/blob"
-import { databases, db, schema } from "@vitehub/db/drizzle"
+import { databases } from "@vitehub/db/drizzle"
 import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
 import { kv } from "@vitehub/kv"
 import { deferQueue, runQueue } from "@vitehub/queue"
@@ -88,7 +88,7 @@ function resolveSandboxHosting(event: { req: { runtime?: { name?: string }, wait
 }
 
 async function ensureNotesTable() {
-  await db.run(sql`
+  await databases.primary.db.run(sql`
     create table if not exists notes (
       id integer primary key autoincrement,
       title text not null
@@ -171,14 +171,14 @@ app.get("/api/blob/serve", async (event) => {
 
 app.get("/api/db", async () => {
   await ensureNotesTable()
-  const notes = await db.select().from(schema.notes).orderBy(desc(schema.notes.id))
+  const notes = await databases.primary.db.select().from(databases.primary.schema.notes).orderBy(desc(databases.primary.schema.notes.id))
   return { notes, ok: true }
 })
 
 app.post("/api/db", async (event) => {
   await ensureNotesTable()
   const body = await readValidatedBody(event, noteBody)
-  const result = await db.insert(schema.notes).values({ title: body.title }).returning()
+  const result = await databases.primary.db.insert(databases.primary.schema.notes).values({ title: body.title }).returning()
   return { note: result[0], ok: true }
 })
 

@@ -1,3 +1,4 @@
+import { defineCapability, normalizeMode } from "../../capability-runtime.ts"
 import {
   assertString,
   createTool,
@@ -23,6 +24,12 @@ export interface DBCapabilityOptions {
   mode?: AgentCapabilityMode
   policy?: StorageToolPolicy
   schemaMode?: AgentCapabilityMode
+}
+
+export function db(options: DBCapabilityOptions = {}): AgentCapabilityDefinition {
+  const mode = normalizeMode(options.mode, "DB")
+  const schemaMode = normalizeMode(options.schemaMode, "DB schema")
+  return defineCapability({ id: "db", mode, metadata: { schemaMode }, requires: [{ primitive: "db" }], tools: dbTools(mode, schemaMode, options) })
 }
 
 interface AgentDatabaseHandle {
@@ -89,7 +96,7 @@ function selectAgentDatabase(handle: unknown, database = "default"): unknown {
   return handle
 }
 
-export function dbTools(mode: AgentCapabilityMode, schemaMode: AgentCapabilityMode, options: DBCapabilityOptions): AgentCapabilityDefinition["tools"] {
+function dbTools(mode: AgentCapabilityMode, schemaMode: AgentCapabilityMode, options: DBCapabilityOptions): AgentCapabilityDefinition["tools"] {
   return (context) => {
     const databaseName = options.database || "default"
     const database = selectAgentDatabase(requirePrimitive(context as never, "db"), databaseName)

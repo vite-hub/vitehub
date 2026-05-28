@@ -76,6 +76,12 @@ export function getDocsPath(sectionId: string, framework: Framework, pageId = "i
     : `/docs/${framework}/${sectionId}/${pageId}`;
 }
 
+export function getDocsSourcePath(sectionId: string, pageId = "index") {
+  return pageId === "index"
+    ? `/docs/${sectionId}`
+    : `/docs/${sectionId}/${pageId}`;
+}
+
 export function getDocsPathMeta(path: string) {
   const parts = path.split("/").filter(Boolean);
 
@@ -92,6 +98,19 @@ export function getDocsPathMeta(path: string) {
     framework,
     section: parts[2] || "",
     page: parts.slice(3).join("/") || "index",
+  };
+}
+
+export function getDocsSourcePathMeta(path: string) {
+  const parts = path.split("/").filter(Boolean);
+
+  if (parts[0] !== "docs" || parts.length < 2) {
+    return null;
+  }
+
+  return {
+    section: parts[1] || "",
+    page: parts.slice(2).join("/") || "index",
   };
 }
 

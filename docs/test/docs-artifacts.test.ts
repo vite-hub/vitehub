@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { filterFwBlocksForFramework, rewriteFrameworkDocLinks, writeDocsArtifacts } from "../modules/vitehub-docs/artifacts";
+import { filterFwBlocksForFramework, getDocsContentSources, rewriteFrameworkDocLinks, writeDocsArtifacts } from "../modules/vitehub-docs/artifacts";
 
 function writeText(filePath: string, contents: string) {
   mkdirSync(dirname(filePath), { recursive: true });
@@ -136,6 +136,35 @@ describe("rewriteFrameworkDocLinks", () => {
 });
 
 describe("writeDocsArtifacts", () => {
+  it("maps editable docs directories to Nuxt Content local sources", () => {
+    const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-sources-"));
+    const docsRoot = resolve(rootDir, "docs");
+
+    try {
+      writeText(resolve(docsRoot, "content/docs/getting-started/index.md"), "# Start\n");
+      writeText(resolve(rootDir, "packages/demo/docs/index.md"), "# Demo\n");
+      writeJson(resolve(rootDir, "packages/demo/examples/showcase.json"), {
+        docsPath: "custom-demo",
+        frameworks: {},
+      });
+
+      expect(getDocsContentSources({ docsRoot, repoRoot: rootDir })).toEqual([
+        {
+          cwd: resolve(docsRoot, "content/docs/getting-started"),
+          include: "**/*.md",
+          prefix: "/docs/getting-started",
+        },
+        {
+          cwd: resolve(rootDir, "packages/demo/docs"),
+          include: "**/*.md",
+          prefix: "/docs/custom-demo",
+        },
+      ]);
+    } finally {
+      rmSync(rootDir, { force: true, recursive: true });
+    }
+  });
+
   it("normalizes flat showcase manifests and example package manifests", () => {
     const rootDir = mkdtempSync(resolve(tmpdir(), "vitehub-docs-artifacts-"));
     const docsRoot = resolve(rootDir, "docs");

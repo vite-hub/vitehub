@@ -1,6 +1,7 @@
 import type { AgentInput, AgentRequestBody, AgentRuntimeContext, CloudflareExportedHandlerFetchHandler } from "./types.ts"
 
 import { runAgent, streamAgent } from "./index.ts"
+import { toHttpErrorResponse } from "./http-error.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 
 type RouteAgentRequest = (request: Request, env: Record<string, unknown>, options?: Record<string, unknown>) => Promise<Response | undefined> | Response | undefined
@@ -93,13 +94,20 @@ export function defineCloudflareAgentHandler(
       runtime: "cloudflare-agents" as const,
       waitUntil: task => executionContext.waitUntil?.(task),
     })
-    const body = await readJsonBody(request.clone())
-    const stream = body.stream !== false
-    const result = stream
-      ? await streamAgent(agent, context, body)
-      : await runAgent(agent, context, body)
+    try {
+      const body = await readJsonBody(request.clone())
+      const stream = body.stream !== false
+      const result = stream
+        ? await streamAgent(agent, context, body)
+        : await runAgent(agent, context, body)
 
-    return toResponse(result, stream)
+      return toResponse(result, stream)
+    }
+    catch (error) {
+      const response = toHttpErrorResponse(error)
+      if (response) return response
+      throw error
+    }
   }
 }
 

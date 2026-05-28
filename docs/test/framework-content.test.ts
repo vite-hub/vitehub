@@ -85,6 +85,32 @@ describe("normalizeFrameworkPage", () => {
     ]);
   });
 
+  it("rewrites source-relative docs links to the active framework route", () => {
+    const page = {
+      path: "/docs/tutorials/build-ai-chatbot",
+      body: {
+        toc: { links: [] },
+        value: [
+          ["p", {}, ["a", { href: "../agent" }, "Agent"]],
+          ["u-page-card", { to: "../workspace" }, "Workspace"],
+        ],
+      },
+    };
+
+    const normalized = normalizeFrameworkPage(page, {
+      framework: "nitro",
+      mode: "dev",
+      renderMode: "single",
+      sourcePath: page.path,
+      tocMode: "current-selection",
+    });
+
+    expect(normalized?.body?.value).toEqual([
+      ["p", {}, ["a", { href: "/docs/nitro/agent" }, "Agent"]],
+      ["u-page-card", { to: "/docs/nitro/workspace" }, "Workspace"],
+    ]);
+  });
+
   it("expands shorthand framework props across usage modes", () => {
     expect(getFwVariantsFromProps({ ":nuxt": "true" })).toEqual([
       { framework: "nuxt", mode: "dev", id: "nuxt:dev" },

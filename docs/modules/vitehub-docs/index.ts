@@ -41,6 +41,26 @@ function removeDocusCatchAllPage(pages: Array<{ path?: string, file?: string }>)
   }
 }
 
+function shouldRegenerateDocsArtifacts(path: string) {
+  const normalized = path.replace(/\\/g, "/");
+
+  if (normalized.startsWith("content/docs/") || normalized.includes("/content/docs/")) {
+    return true;
+  }
+
+  if (normalized.endsWith("/pnpm-workspace.yaml") || normalized === "pnpm-workspace.yaml") {
+    return true;
+  }
+
+  if (!normalized.startsWith("packages/") && !normalized.includes("/packages/")) {
+    return false;
+  }
+
+  return normalized.includes("/docs/")
+    || normalized.includes("/examples/")
+    || normalized.endsWith("/package.json");
+}
+
 export default defineNuxtModule({
   meta: {
     name: "vitehub-docs",
@@ -57,9 +77,9 @@ export default defineNuxtModule({
     // Remove Docus catch-all page — ViteHub uses /docs/[framework]/[...slug] routing
     nuxt.hook("pages:extend", removeDocusCatchAllPage);
 
-    // Regenerate artifacts when showcase examples change (Content handles markdown HMR)
+    // Nuxt Content handles markdown HMR; these artifacts feed navigation and examples.
     nuxt.hook("builder:watch", async (_event, path) => {
-      if (!path.includes("/packages/") || !path.includes("/examples/")) return;
+      if (!shouldRegenerateDocsArtifacts(path)) return;
       writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
     });
   },

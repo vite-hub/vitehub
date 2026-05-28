@@ -11,8 +11,8 @@ Blogs show how ViteHub primitives fit together in real applications. Start here 
 ::u-blog-posts{orientation="vertical" class="not-prose mt-8 max-w-5xl pb-2"}
   :::u-blog-post{orientation="horizontal"}
   ---
-  title: Build a Source-Aware AI Chatbot
-  description: Ground answers in your own docs, GitHub repos, and source files. One codebase ships to Telegram, Slack, Vite, Nitro, Cloudflare, and Vercel.
+  title: Build an AI Agent with ViteHub
+  description: Learn the Agent, Capabilities, and Workspace layers by building a small support chat Agent.
   image: /images/tutorials/source-aware-chatbot.png
   badge:
     label: Tutorial

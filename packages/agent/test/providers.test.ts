@@ -65,6 +65,22 @@ describe("Vercel helpers", () => {
 
     await expect(response.json()).resolves.toMatchObject({ text: "still readable" })
   })
+
+  it("returns declared HTTP errors", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineVercelAgentHandler } = await import("../src/vercel.ts")
+    const error = new Error("Rejected")
+    ;(error as { statusCode?: number }).statusCode = 403
+    const handler = defineVercelAgentHandler(defineAgent({ run: () => { throw error } }) as never, { waitUntil: vi.fn() })
+
+    const response = await handler(new Request("https://example.com/agents/triager", {
+      body: JSON.stringify({ prompt: "blocked", stream: false }),
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: "Rejected" })
+  })
 })
 
 describe("Cloudflare helpers", () => {
@@ -82,6 +98,22 @@ describe("Cloudflare helpers", () => {
     }), {}, { waitUntil: vi.fn() })
 
     await expect(response.json()).resolves.toMatchObject({ text: "still readable" })
+  })
+
+  it("returns declared HTTP errors", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineCloudflareAgentHandler } = await import("../src/cloudflare.ts")
+    const error = new Error("Rejected")
+    ;(error as { statusCode?: number }).statusCode = 403
+    const handler = defineCloudflareAgentHandler(defineAgent({ run: () => { throw error } }) as never)
+
+    const response = await handler(new Request("https://example.com/agents/triager", {
+      body: JSON.stringify({ prompt: "blocked", stream: false }),
+      method: "POST",
+    }), {}, { waitUntil: vi.fn() })
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: "Rejected" })
   })
 
 })
@@ -153,6 +185,28 @@ describe("Nitro helpers", () => {
     const result = await handler(event as never)
 
     expect(result).toMatchObject({ text: "still readable" })
+  })
+
+  it("throws declared HTTP errors with the declared status", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentHandler } = await import("../src/nitro.ts")
+    const error = new Error("Rejected")
+    ;(error as { statusCode?: number }).statusCode = 403
+    const handler = defineAgentHandler(defineAgent({ run: () => { throw error } }) as never)
+    const event = {
+      req: {
+        headers: { host: "example.com" },
+        method: "POST",
+        url: "/agents/triager",
+      },
+      url: "https://example.com/agents/triager",
+      waitUntil: vi.fn(),
+    }
+
+    await expect(handler(event as never)).rejects.toMatchObject({
+      statusCode: 403,
+      statusMessage: "Rejected",
+    })
   })
 })
 

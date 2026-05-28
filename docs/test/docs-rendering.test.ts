@@ -13,12 +13,14 @@ describe("docs rendering state", () => {
   it("resolves route meta, manifest page, support, and source path together", () => {
     expect(resolveDocsRoute("/docs/vite/blob/quickstart")).toMatchObject({
       meta: { framework: "vite", section: "blob", page: "quickstart" },
-      sourcePath: "/docs/vite/blob/quickstart",
+      routePath: "/docs/vite/blob/quickstart",
+      sourcePath: "/docs/blob/quickstart",
       supported: true,
     });
 
     expect(resolveDocsRoute("/docs/nuxt/blob")).toMatchObject({
-      sourcePath: "/docs/nuxt/blob",
+      routePath: "/docs/nuxt/blob",
+      sourcePath: "/docs/blob",
       supported: false,
     });
   });

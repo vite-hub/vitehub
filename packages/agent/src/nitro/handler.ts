@@ -1,6 +1,7 @@
 import { createError, defineEventHandler, getRouterParam } from "h3"
 
 import { resolveAgent, runAgent, streamAgent } from "../index.ts"
+import { getHttpErrorMessage, getHttpErrorStatusCode } from "../http-error.ts"
 import { formatUnknownAgentMessage } from "../registry-error.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { getAgentRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
@@ -233,6 +234,13 @@ export function defineAgentHandler(
     }
     catch (error) {
       await hooks.error(error, context).catch(() => undefined)
+      const statusCode = getHttpErrorStatusCode(error)
+      if (statusCode) {
+        throw createError({
+          statusCode,
+          statusMessage: getHttpErrorMessage(error),
+        })
+      }
       throw error
     }
   })

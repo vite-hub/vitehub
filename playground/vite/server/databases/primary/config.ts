@@ -8,7 +8,7 @@ const notes = sqliteTable("notes", {
 
 export default defineDatabase({
   cloudflare: {
-    binding: "DB_PRIMARY",
+    binding: "DB",
     databaseName: process.env.VITEHUB_D1_DATABASE_NAME || "vitehub-playground-db",
     databaseId: process.env.VITEHUB_D1_DATABASE_ID,
     previewDatabaseId: process.env.VITEHUB_D1_PREVIEW_DATABASE_ID,

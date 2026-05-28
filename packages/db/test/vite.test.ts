@@ -56,6 +56,26 @@ describe("hubDb", () => {
     })
     await expect(readFile(join(rootDir, ".vitehub/db/schema/default.ts"), "utf8")).resolves.toContain("export const notes")
     await expect(readFile(join(rootDir, ".vitehub/db/drizzle.config.ts"), "utf8")).resolves.toContain("server/databases/migrations")
+    await expect(readFile(join(rootDir, ".vitehub/db/drizzle.config.ts"), "utf8")).resolves.toContain("dbCredentials")
+    await expect(readFile(join(rootDir, ".vitehub/db/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.data/db/sqlite.db")
+  })
+
+  it("writes one Drizzle config per named database migrations directory", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/analytics/config.ts", "events")
+    await writeDefinition(rootDir, "server/databases/primary/config.ts", "notes")
+
+    const plugin = hubDb()
+    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+    await configResolved({ db: undefined, root: rootDir } as never)
+
+    const analyticsConfig = await readFile(join(rootDir, ".vitehub/db/drizzle/analytics.config.ts"), "utf8")
+    const primaryConfig = await readFile(join(rootDir, ".vitehub/db/drizzle/primary.config.ts"), "utf8")
+
+    expect(analyticsConfig).toContain("server/databases/analytics/migrations")
+    expect(analyticsConfig).toContain("file:.data/db/analytics.sqlite.db")
+    expect(primaryConfig).toContain("server/databases/primary/migrations")
+    expect(primaryConfig).toContain("file:.data/db/primary.sqlite.db")
   })
 
   it("lets top-level config disable the database plugin", async () => {

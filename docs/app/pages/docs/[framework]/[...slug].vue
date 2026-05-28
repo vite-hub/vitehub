@@ -27,7 +27,7 @@ if (!routeState.page || !routeState.supported || !rawDoc.value) {
 }
 
 const { page } = useDocsPage(
-  routeState.sourcePath,
+  routeState.routePath,
   rawDoc,
   getDocsPageFallback(routeState.page),
 );

@@ -1,3 +1,5 @@
+import { getDocsSourcePathMeta } from "./docs";
+import { resolveFrameworkContentLink } from "./docs-links";
 import {
   createFwVariant,
   getFwVariantIdFromProps,
@@ -11,7 +13,13 @@ type NodeProps = Record<string, unknown>;
 type ContentNode = string | [string, NodeProps?, ...ContentNode[]];
 
 type TocLink = { id: string; depth: number; text: string; children?: TocLink[] };
-export type DocsRenderOptions = { framework: Framework; mode: UsageMode; renderMode: "single" | "all"; tocMode: "current-selection" };
+export type DocsRenderOptions = {
+  framework: Framework;
+  mode: UsageMode;
+  renderMode: "single" | "all";
+  sourcePath?: string;
+  tocMode: "current-selection";
+};
 
 type NormalizableBody = { value?: unknown[]; toc?: { links?: unknown[] } | null };
 type NormalizablePage = { body?: NormalizableBody | null };
@@ -39,10 +47,38 @@ function getChildren(node: ContentNode): ContentNode[] {
   return (hasProps(node) ? node.slice(2) : node.slice(1)) as ContentNode[];
 }
 
-function withChildren(node: ContentNode, children: ContentNode[]): ContentNode {
+function rewriteLinkProps(props: NodeProps, options: Pick<DocsRenderOptions, "framework" | "sourcePath">) {
+  const source = options.sourcePath ? getDocsSourcePathMeta(options.sourcePath) : null;
+  if (!source) {
+    return props;
+  }
+
+  let nextProps: NodeProps | null = null;
+
+  for (const key of ["href", "to"]) {
+    const value = props[key];
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const nextValue = resolveFrameworkContentLink(options.framework, source, value);
+    if (nextValue === value) {
+      continue;
+    }
+
+    nextProps ||= { ...props };
+    nextProps[key] = nextValue;
+  }
+
+  return nextProps || props;
+}
+
+function withPropsAndChildren(node: ContentNode, props: NodeProps, children: ContentNode[]): ContentNode {
   if (!isTuple(node)) return node;
   const [tag] = node;
-  return (hasProps(node) ? [tag, node[1], ...children] : [tag, ...children]) as ContentNode;
+  return hasProps(node)
+    ? [tag, props, ...children] as unknown as ContentNode
+    : [tag, ...children] as unknown as ContentNode;
 }
 
 // --- Node operations ---
@@ -93,7 +129,7 @@ function groupNodes(nodes: ContentNode[]) {
   return grouped;
 }
 
-function normalizeNodes(nodes: ContentNode[], options: Pick<DocsRenderOptions, "framework" | "mode" | "renderMode">): ContentNode[] {
+function normalizeNodes(nodes: ContentNode[], options: Pick<DocsRenderOptions, "framework" | "mode" | "renderMode" | "sourcePath">): ContentNode[] {
   const normalized: ContentNode[] = [];
   const currentVariant = createFwVariant(options.framework, options.mode);
 
@@ -108,7 +144,7 @@ function normalizeNodes(nodes: ContentNode[], options: Pick<DocsRenderOptions, "
       if (options.renderMode === "single" && !matchesFwVariant(variants, currentVariant)) continue;
     }
 
-    normalized.push(withChildren(node, children));
+    normalized.push(withPropsAndChildren(node, rewriteLinkProps(getProps(node), options), children));
   }
 
   return options.renderMode === "all" ? groupNodes(normalized) : normalized;

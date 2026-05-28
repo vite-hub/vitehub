@@ -110,18 +110,21 @@ describe("unified vite e2e hosted outputs", () => {
       binding: "BLOB",
       bucket_name: "assets",
     })
-    expect(cloudflareConfig.d1_databases).toEqual([
+    expect(cloudflareConfig.d1_databases).toHaveLength(2)
+    expect(cloudflareConfig.d1_databases).toEqual(expect.arrayContaining([
       expect.objectContaining({
         binding: "DB",
         database_name: "vitehub-playground-db",
         database_id: "primary-d1-id",
+        migrations_dir: "server/databases/primary/migrations",
       }),
       expect.objectContaining({
         binding: "DB_ANALYTICS",
         database_name: "vitehub-playground-analytics",
         database_id: "analytics-d1-id",
+        migrations_dir: "server/databases/analytics/migrations",
       }),
-    ])
+    ]))
     expect(cloudflareConfig.name).toBe("vitehub-playground-vite")
     expect(cloudflareConfig.containers).toContainEqual(expect.objectContaining({
       class_name: "Sandbox",

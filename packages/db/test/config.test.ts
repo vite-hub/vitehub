@@ -96,6 +96,7 @@ describe("resolveDBViteConfig", () => {
       name: "default",
       orm: "drizzle",
     })
+    expect(resolved?.generatedDrizzleConfigFilesByDatabase.default).toBe(join(rootDir, ".vitehub/db/drizzle/default.config.ts"))
     expect(resolved?.generatedSchemaFilesByDatabase.default).toBe(join(rootDir, ".vitehub/db/schema/default.ts"))
     expect(resolved?.generatedDrizzleConfigFile).toBe(join(rootDir, ".vitehub/db/drizzle.config.ts"))
   })

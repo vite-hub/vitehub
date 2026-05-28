@@ -110,7 +110,6 @@ export default defineConfig(async () => {
         ssr: true,
       },
       blob: {},
-      db: dbConfig,
       kv: {},
       plugins: [
         hubQueue(),

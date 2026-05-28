@@ -13,8 +13,10 @@ export {
 export {
   LlmGateRejectedError,
   llmGate,
+} from "./llm-gate.ts"
+export {
   llmRoute,
-} from "./llm-decisions.ts"
+} from "./llm-route.ts"
 export {
   sandbox,
 } from "./sandbox.ts"
@@ -32,17 +34,21 @@ export {
   workspaceShell,
 } from "./workspace-shell.ts"
 export {
-  blob,
-  db,
   kv,
-} from "./storage/index.ts"
+} from "./storage/kv.ts"
+export {
+  blob,
+} from "./storage/blob.ts"
+export {
+  db,
+} from "./storage/db.ts"
 export {
   memory,
   workspaceJsonlMemoryStore,
-} from "../memory.ts"
+} from "./memory.ts"
 export {
   mcp,
-} from "../mcp/capability.ts"
+} from "./mcp.ts"
 export {
   normalizeAgentUsage,
   staticModelPricing,
@@ -84,11 +90,15 @@ export type {
 export type {
   LlmDecisionChoiceDefinition,
   LlmDecisionChoiceMap,
+} from "./llm-decision-shared.ts"
+export type {
   LlmGateDecision,
   LlmGateOptions,
+} from "./llm-gate.ts"
+export type {
   LlmRouteDecision,
   LlmRouteOptions,
-} from "./llm-decisions.ts"
+} from "./llm-route.ts"
 export type {
   AgentScheduleCapabilityMetadata,
   AgentScheduleCapabilityOptions,
@@ -104,10 +114,16 @@ export type {
 } from "./transcribe.ts"
 export type {
   BlobCapabilityOptions,
+} from "./storage/blob.ts"
+export type {
   DBCapabilityOptions,
+} from "./storage/db.ts"
+export type {
   KVCapabilityOptions,
+} from "./storage/kv.ts"
+export type {
   StorageToolPolicy,
-} from "./storage/index.ts"
+} from "./storage/shared.ts"
 export type {
   MemoryAppendRequest,
   MemoryCapabilityInstructionsOption,
@@ -125,7 +141,7 @@ export type {
   MemoryStoreFactory,
   MemoryStoreOptions,
   WorkspaceJsonlMemoryStoreOptions,
-} from "../memory.ts"
+} from "./memory.ts"
 export type {
   McpCapabilityOptions,
   McpClient,

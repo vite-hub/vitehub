@@ -78,6 +78,7 @@ export interface ResolvedDBViteConfig {
   databases: Record<string, ResolvedDrizzleDatabaseConfig>
   definitions: DiscoveredDatabaseDefinition[]
   generatedDrizzleConfigFile: string
+  generatedDrizzleConfigFilesByDatabase: Record<string, string>
   generatedSchemaFilesByDatabase: Record<string, string>
   rootDir: string
 }

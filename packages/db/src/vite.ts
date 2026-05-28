@@ -105,7 +105,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     vitehub: {
       cli: async () => {
         const { createDbCliContributor } = await import(/* @vite-ignore */ "./cli.js")
-        return createDbCliContributor(options === false ? false : options?.cli)
+        return createDbCliContributor(options === false ? false : options?.cli, refreshRuntimeConfig)
       },
     },
     async configResolved(config) {

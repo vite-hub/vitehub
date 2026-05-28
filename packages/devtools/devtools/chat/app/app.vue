@@ -550,6 +550,9 @@ async function refreshFromBridge(chat?: string) {
 }
 
 async function pollFinalBridgeState(input: { chat?: string, text: string }, signal: AbortSignal) {
+  const startedAt = Date.now()
+  let sawSubmittedMessage = false
+
   while (!signal.aborted) {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
@@ -563,6 +566,7 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
     }
 
     if (hasCurrentUserMessage(next, input.chat, input.text)) {
+      sawSubmittedMessage = true
       if (!signal.aborted) {
         applyState(next)
         error.value = undefined
@@ -762,7 +766,7 @@ async function readRpcStream(streamId: string, input: { chat?: string, text: str
 
   try {
     const outcome = await readStream()
-    return Boolean(outcome)
+    return outcome !== "error"
   }
   finally {
     abortController.abort()

@@ -4,6 +4,7 @@ import {
   getDocsPage,
   getDocsPath,
   getDocsPathMeta,
+  getDocsSourcePath,
   isDocsPageSupported,
   type DocsPage,
   type DocsSection,
@@ -14,6 +15,7 @@ import type { Framework } from "./frameworks";
 type DocsRouteMeta = Omit<NonNullable<ReturnType<typeof getDocsPathMeta>>, "framework"> & { framework: Framework };
 
 type ContentPageInput = {
+  path?: unknown;
   title?: unknown;
   description?: string | null;
   seo?: { title?: string; description?: string };
@@ -38,6 +40,7 @@ export type DocsPageState<T extends ContentPageInput> = T & {
 type DocsResolvedRoute = {
   meta: DocsRouteMeta;
   page: DocsPage | null;
+  routePath: string;
   sourcePath: string;
   supported: boolean;
 };
@@ -59,11 +62,13 @@ export function resolveDocsRoute(path: string): DocsResolvedRoute | null {
 
   const framework = meta.framework as Framework;
   const page = getDocsPage(meta.section, meta.page);
-  const sourcePath = getDocsPath(meta.section, framework, meta.page);
+  const routePath = getDocsPath(meta.section, framework, meta.page);
+  const sourcePath = getDocsSourcePath(meta.section, meta.page);
 
   return {
     meta: { ...meta, framework },
     page,
+    routePath,
     sourcePath,
     supported: Boolean(page && isDocsPageSupported(meta.section, meta.page, framework)),
   };
@@ -79,7 +84,7 @@ export function getDocsPageFallback(page: DocsPage): DocsPageFallback {
 
 export function createDocsPageState<T extends ContentPageInput>(
   doc: T | null | undefined,
-  sourcePath: string,
+  routePath: string,
   fallback: DocsPageFallback,
 ) {
   if (!doc) return null;
@@ -89,7 +94,7 @@ export function createDocsPageState<T extends ContentPageInput>(
 
   return {
     ...doc,
-    path: sourcePath,
+    path: routePath,
     title,
     description,
     seo: {
@@ -102,11 +107,14 @@ export function createDocsPageState<T extends ContentPageInput>(
 
 export function renderDocsPage<T extends ContentPageInput>(
   doc: T | null | undefined,
-  sourcePath: string,
+  routePath: string,
   fallback: DocsPageFallback,
   options: DocsRenderOptions,
 ) {
-  return normalizeFrameworkPage(createDocsPageState(doc, sourcePath, fallback), options);
+  return normalizeFrameworkPage(createDocsPageState(doc, routePath, fallback), {
+    ...options,
+    sourcePath: typeof doc?.path === "string" ? doc.path : options.sourcePath,
+  });
 }
 
 function createNavigationGroup(title: string, items: ContentNavigationItem[], options: { defaultOpen?: boolean } = {}) {

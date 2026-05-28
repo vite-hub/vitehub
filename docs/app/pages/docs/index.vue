@@ -4,18 +4,15 @@ import { createError } from "#app/composables/error";
 import { definePageMeta } from "#app/composables/pages";
 import { computed } from "vue";
 import { useDocsPage } from "../../composables/useDocsPage";
-import { useFrameworkPreference } from "../../composables/useFrameworkPreference";
-import { getDocsPage, getDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { getDocsPage, getDocsSourcePath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { getDocsPageFallback } from "~~/modules/vitehub-docs/runtime/utils/docs-rendering";
 
 definePageMeta({
   layout: "docs",
 });
 
-const { current: framework } = useFrameworkPreference();
-
 const docsPage = getDocsPage("getting-started", "index");
-const sourcePath = computed(() => getDocsPath("getting-started", framework.value));
+const sourcePath = computed(() => getDocsSourcePath("getting-started"));
 const { data: rawDoc } = await useAsyncData(
   "docs:index",
   () => queryCollection("docs").path(sourcePath.value).first(),

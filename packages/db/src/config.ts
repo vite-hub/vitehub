@@ -281,6 +281,13 @@ function createGeneratedSchemaFile(rootDir: string, name: string) {
   })
 }
 
+function createGeneratedDrizzleConfigFile(rootDir: string, name: string) {
+  return createGeneratedDefinitionPath(rootDir, {
+    fileName: `drizzle/${sanitizeDefinitionFilename(name)}.config.ts`,
+    productName: "db",
+  })
+}
+
 export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = process.cwd()): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
@@ -288,10 +295,12 @@ export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = p
   if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = {}
+  const generatedDrizzleConfigFilesByDatabase: Record<string, string> = {}
   const generatedSchemaFilesByDatabase: Record<string, string> = {}
   for (const definition of definitions) {
     const migrationsDir = getDefaultMigrationsDir(rootDir, definition)
     const generatedSchemaFile = createGeneratedSchemaFile(rootDir, definition.name)
+    generatedDrizzleConfigFilesByDatabase[definition.name] = createGeneratedDrizzleConfigFile(rootDir, definition.name)
     generatedSchemaFilesByDatabase[definition.name] = generatedSchemaFile
     databases[definition.name] = {
       cloudflare: normalizeCloudflareConfig(readDefinitionCloudflareConfig(definition.handler), definition.name, migrationsDir),
@@ -314,6 +323,7 @@ export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = p
       fileName: "drizzle.config.ts",
       productName: "db",
     }),
+    generatedDrizzleConfigFilesByDatabase,
     generatedSchemaFilesByDatabase,
     rootDir,
   }

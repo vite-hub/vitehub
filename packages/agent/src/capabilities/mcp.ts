@@ -9,7 +9,7 @@ import type {
   AgentToolDefinition,
   AgentToolSet,
 } from "../types.ts"
-import type { McpCapabilityOptions, McpClient, McpClientConfig, McpServerConfig } from "./types.ts"
+import type { McpCapabilityOptions, McpClient, McpClientConfig, McpServerConfig } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vitehub/workspace"
 
 function normalizeMcpToolName(serverName: string, toolName: string) {
@@ -104,7 +104,7 @@ export function mcp<
           tools[name] = {
             ...definition,
             metadata: {
-              ...(definition.metadata || {}),
+              ...definition.metadata,
               mcp: metadata,
               mcpServer: serverName,
               originalName: toolName,
@@ -137,4 +137,4 @@ export type {
   McpClient,
   McpClientConfig,
   McpServerConfig,
-} from "./types.ts"
+} from "../mcp/types.ts"

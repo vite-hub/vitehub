@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { posix as pathPosix, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { listFiles, parseScalar, titleCase } from "./artifacts/common";
 import { parsePackageExamples } from "./artifacts/examples";
+import { resolveFrameworkDocLink } from "./runtime/utils/docs-links";
 import { usageModes } from "./runtime/utils/fw-variants";
 import { defaultFramework, frameworks as frameworkIds, type Framework } from "./runtime/utils/frameworks";
 
@@ -9,6 +10,12 @@ type DocsArtifactOptions = {
   docsRoot: string;
   repoRoot: string;
   outputDir: string;
+};
+
+type DocsContentSource = {
+  cwd: string;
+  include: string;
+  prefix: string;
 };
 
 function parseFrontmatter(source: string) {
@@ -120,44 +127,6 @@ export function filterFwBlocksForFramework(source: string, framework: Framework)
   return output.join("\n");
 }
 
-function splitLinkTarget(target: string) {
-  const suffixIndex = target.search(/[?#]/);
-
-  return suffixIndex === -1
-    ? { path: target, suffix: "" }
-    : { path: target.slice(0, suffixIndex), suffix: target.slice(suffixIndex) };
-}
-
-function resolveFrameworkDocLink(framework: Framework, sectionId: string, relativeFile: string, target: string) {
-  if (
-    !target
-    || target.startsWith("/")
-    || target.startsWith("#")
-    || /^[a-z][a-z0-9+.-]*:/i.test(target)
-  ) {
-    return target;
-  }
-
-  const { path, suffix } = splitLinkTarget(target);
-  if (!path.startsWith("./") && !path.startsWith("../")) {
-    return target;
-  }
-
-  const sourceRouteFile = pathPosix.join(sectionId, relativeFile);
-  const targetRouteFile = pathPosix.normalize(pathPosix.join(pathPosix.dirname(sourceRouteFile), path));
-  let pageId = targetRouteFile.replace(/\.md$/, "");
-
-  if (pageId === "." || pageId === "index") {
-    return `/docs/${framework}${suffix}`;
-  }
-
-  if (pageId.endsWith("/index")) {
-    pageId = pageId.slice(0, -"/index".length);
-  }
-
-  return `/docs/${framework}/${pageId}${suffix}`;
-}
-
 export function rewriteFrameworkDocLinks(source: string, framework: Framework, sectionId: string, relativeFile: string) {
   return source
     .replace(/(!?\[[^\]\n]+\]\()([^)]+)(\))/g, (match: string, prefix: string, target: string, suffix: string) => {
@@ -208,30 +177,6 @@ function collectPages(rootDir: string) {
   });
 }
 
-function renderFrameworkPageContents(page: ReturnType<typeof collectPages>[number], framework: Framework, sectionId: string) {
-  return rewriteFrameworkDocLinks(
-    filterFwBlocksForFramework(page.source, framework),
-    framework,
-    sectionId,
-    page.relativeFile,
-  );
-}
-
-function addGeneratedPages(
-  generatedPages: Array<{ filename: string; contents: string }>,
-  pages: ReturnType<typeof collectPages>,
-  sectionId: string,
-) {
-  for (const page of pages) {
-    for (const framework of page.frameworks) {
-      generatedPages.push({
-        filename: `docs-content/${framework}/${sectionId}/${page.relativeFile}`,
-        contents: renderFrameworkPageContents(page, framework, sectionId),
-      });
-    }
-  }
-}
-
 function serializeSectionPages(pages: ReturnType<typeof collectPages>) {
   return pages.map(({ pageId, title, sourceTitle, description, icon, group, frameworks }) => ({
     id: pageId,
@@ -267,12 +212,60 @@ function createDocsSection(
   };
 }
 
+function getShowcaseDocsPath(packagesRoot: string, packageName: string) {
+  const showcasePath = resolve(packagesRoot, packageName, "examples", "showcase.json");
+  if (!existsSync(showcasePath)) {
+    return packageName;
+  }
+
+  const showcase = JSON.parse(readFileSync(showcasePath, "utf8")) as { docsPath?: unknown };
+  return typeof showcase.docsPath === "string" && showcase.docsPath ? showcase.docsPath : packageName;
+}
+
+export function getDocsContentSources({ docsRoot, repoRoot }: Omit<DocsArtifactOptions, "outputDir">) {
+  const packagesRoot = resolve(repoRoot, "packages");
+  const localDocsRoot = resolve(docsRoot, "content", "docs");
+  const sources: DocsContentSource[] = [];
+
+  if (existsSync(localDocsRoot)) {
+    for (const entry of readdirSync(localDocsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      sources.push({
+        cwd: resolve(localDocsRoot, entry.name),
+        include: "**/*.md",
+        prefix: `/docs/${entry.name}`,
+      });
+    }
+  }
+
+  for (const entry of readdirSync(packagesRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const docsDir = resolve(packagesRoot, entry.name, "docs");
+    if (!existsSync(docsDir)) {
+      continue;
+    }
+
+    sources.push({
+      cwd: docsDir,
+      include: "**/*.md",
+      prefix: `/docs/${getShowcaseDocsPath(packagesRoot, entry.name)}`,
+    });
+  }
+
+  return sources;
+}
+
 export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifactOptions) {
   const packagesRoot = resolve(repoRoot, "packages");
   const localDocsRoot = resolve(docsRoot, "content", "docs");
   const examples = parsePackageExamples(packagesRoot);
   const exampleByPackage = new Map(examples.map(example => [example.pkg, example]));
-  const generatedPages: Array<{ filename: string; contents: string }> = [];
 
   const sections = [
     ...(existsSync(localDocsRoot)
@@ -281,7 +274,6 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
         .map((entry, index) => {
           const sectionId = entry.name;
           const pages = collectPages(resolve(localDocsRoot, sectionId));
-          addGeneratedPages(generatedPages, pages, sectionId);
 
           return createDocsSection(sectionId, pages, {
             source: "local",
@@ -299,7 +291,6 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
         const example = exampleByPackage.get(packageName);
         const sectionId = example?.docsPath || packageName;
         const pages = collectPages(resolve(packagesRoot, packageName, "docs"));
-        addGeneratedPages(generatedPages, pages, sectionId);
 
         return createDocsSection(sectionId, pages, {
           source: "package",
@@ -326,18 +317,7 @@ export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifa
   };
 
   mkdirSync(outputDir, { recursive: true });
-  const docsContentDir = resolve(outputDir, "docs-content");
-  mkdirSync(docsContentDir, { recursive: true });
-
-  const expectedPagePaths = new Set(generatedPages.map(page => resolve(outputDir, page.filename)));
-  for (const existingPath of listFiles(docsContentDir, "")) {
-    if (!expectedPagePaths.has(existingPath)) rmSync(existingPath, { force: true });
-  }
-  for (const page of generatedPages) {
-    const absolutePath = resolve(outputDir, page.filename);
-    mkdirSync(resolve(absolutePath, ".."), { recursive: true });
-    if (!existsSync(absolutePath) || readFileSync(absolutePath, "utf8") !== page.contents) writeFileSync(absolutePath, page.contents);
-  }
+  rmSync(resolve(outputDir, "docs-content"), { force: true, recursive: true });
 
   const manifestSource = `export const docsManifest = ${JSON.stringify(manifest, null, 2)};\n\nexport default docsManifest;\n`;
   const manifestPath = resolve(outputDir, "docs-manifest.mjs");
