@@ -555,7 +555,12 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
     if (signal.aborted) break
 
     const next = await callBridgeState({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }, signal)
-    if (!next) continue
+    if (!next) {
+      if (!sawSubmittedMessage && Date.now() - startedAt > 3_000) {
+        return false
+      }
+      continue
+    }
 
     if (hasCurrentUserMessage(next, input.chat, input.text)) {
       if (!signal.aborted) {
@@ -565,6 +570,33 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
     }
     if (hasCompletedResponse(next, input.chat, input.text)) {
       return true
+    }
+  }
+
+  return false
+}
+
+async function recoverTimedOutBridgeSend(input: { chat?: string, text: string }, signal: AbortSignal) {
+  const startedAt = Date.now()
+  let sawSubmittedMessage = false
+
+  while (!signal.aborted && Date.now() - startedAt < 60_000) {
+    await new Promise(resolve => setTimeout(resolve, 700))
+    if (signal.aborted) break
+
+    const next = await callBridgeState({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }, signal)
+    if (!next) continue
+
+    if (hasCurrentUserMessage(next, input.chat, input.text)) {
+      sawSubmittedMessage = true
+      applyState(next)
+      error.value = undefined
+    }
+    if (hasCompletedResponse(next, input.chat, input.text)) {
+      return true
+    }
+    if (!sawSubmittedMessage && Date.now() - startedAt > 3_000) {
+      return false
     }
   }
 
@@ -610,8 +642,22 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
       })
   }
   catch {
+    if (abortController.signal.aborted) {
+      currentReader = undefined
+      return true
+    }
+    if (timeoutSignal?.aborted) {
+      try {
+        return await recoverTimedOutBridgeSend(input, abortController.signal)
+      }
+      finally {
+        abortController.abort()
+        currentReader = undefined
+      }
+    }
+
     currentReader = undefined
-    return Boolean(timeoutSignal?.aborted)
+    return false
   }
 
   if (!response.ok || !response.body) {

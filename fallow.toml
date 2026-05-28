@@ -13,6 +13,7 @@ dynamicallyLoaded = [
   "packages/kv/test/**/*.test-d.ts",
   "packages/db/test/**/*.test-d.ts",
   "packages/env/test/**/*.test-d.ts",
+  "packages/db/examples/**/server/**",
   "packages/db/examples/**/src/server.ts",
   "packages/db/examples/**/src/db/**",
   "packages/env/examples/**/nitro.config.ts",

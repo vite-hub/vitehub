@@ -20,7 +20,6 @@ import type {
   ResolvedDrizzleDatabaseConfig,
 } from "./types.ts"
 
-const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
@@ -275,7 +274,7 @@ function getDefaultConnection(name: string) {
   }
 }
 
-export function createGeneratedSchemaFile(rootDir: string, name: string) {
+function createGeneratedSchemaFile(rootDir: string, name: string) {
   return createGeneratedDefinitionPath(rootDir, {
     fileName: `schema/${sanitizeDefinitionFilename(name)}.ts`,
     productName: "db",
@@ -318,12 +317,6 @@ export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = p
     generatedSchemaFilesByDatabase,
     rootDir,
   }
-}
-
-export function serializeConfigValue(value: DatabaseConfigValue | undefined): string | undefined {
-  if (typeof value === "undefined") return
-  if (typeof value === "string") return value
-  return undefined
 }
 
 export function normalizeDBOptions(options?: DBModulePublicOptions, rootDir = process.cwd()): ResolvedDrizzleDatabaseConfig | undefined {

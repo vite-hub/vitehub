@@ -9,7 +9,7 @@ function createTableExports(definition: DiscoveredDatabaseDefinition, definition
   return definition.tableNames.map(tableName => `export const ${tableName} = ${definitionVariable}.tables[${JSON.stringify(tableName)}]`)
 }
 
-export function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition) {
+function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition) {
   const definitionVariable = "databaseDefinition"
   return [
     `import ${definitionVariable} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
@@ -21,7 +21,7 @@ export function renderGeneratedDrizzleSchema(file: string, definition: Discovere
   ].join("\n")
 }
 
-export function renderGeneratedDrizzleConfig(config: ResolvedDBViteConfig) {
+function renderGeneratedDrizzleConfig(config: ResolvedDBViteConfig) {
   const schemaFiles = config.databaseNames.map(name => config.generatedSchemaFilesByDatabase[name]!)
   const out = config.databaseNames.length === 1
     ? config.databases[config.databaseNames[0]!]!.migrationsDir
