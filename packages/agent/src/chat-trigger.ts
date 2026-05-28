@@ -5,10 +5,12 @@ import type {
   AgentCapabilityDefinition,
   AgentChatAgentHookArgs,
   AgentChatOptions,
+  AgentChatWebhookRegistrationDefinition,
   AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
   AgentTriggerDefinition,
+  AgentWebhookRegistrationDefinition,
 } from "./types.ts"
 import type { Message, MessagePart } from "./messages.ts"
 import type { WorkspaceName } from "@vitehub/workspace"
@@ -145,6 +147,19 @@ async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeCo
   return "Thinking..."
 }
 
+function chatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
+  const telegram = options.webhooks?.telegram
+  if (!telegram) return undefined
+  const registrations = Array.isArray(telegram) ? telegram : [telegram]
+  return registrations.map((registration: AgentChatWebhookRegistrationDefinition, index) => ({
+    ...registration,
+    id: registration.id || (registrations.length > 1 ? `telegram-${index + 1}` : "telegram"),
+    method: registration.method || "POST",
+    provider: registration.provider || "telegram",
+    secretHeader: registration.secretHeader || "x-telegram-bot-api-secret-token",
+  }))
+}
+
 function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig>,
 ): AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, AgentChatMessageTriggerInput> {
@@ -152,6 +167,7 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
     devtools: true,
     input: "ui-message[]",
     output: "ui-message-stream",
+    webhooks: chatWebhookRegistrations(options),
     async invoke(_context, triggerInput) {
       const messages = Array.isArray(triggerInput?.messages) ? triggerInput.messages : []
       if (!messages.length) {

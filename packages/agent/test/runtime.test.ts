@@ -239,6 +239,38 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("exposes chat webhook registration metadata through agent triggers", async () => {
+    const { chat } = await import("../src/chat-trigger.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = {
+      capabilities: [
+        chat({
+          concurrency: "queue",
+          webhooks: {
+            telegram: {
+              path: "/api/webhooks/telegram",
+              secretToken: "secret-token",
+            },
+          },
+        }),
+      ],
+      resolve: vi.fn(),
+    }
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: [{
+          id: "telegram",
+          method: "POST",
+          path: "/api/webhooks/telegram",
+          provider: "telegram",
+          secretHeader: "x-telegram-bot-api-secret-token",
+          secretToken: "secret-token",
+        }],
+      },
+    })
+  })
+
   it("runs agent finish hooks for custom object results after extensions are resolved", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

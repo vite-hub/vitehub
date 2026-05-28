@@ -85,6 +85,19 @@ export interface AgentTriggerInvokeResult<CALL_OPTIONS = unknown> {
   run?: AgentRunMetadata
 }
 
+export interface AgentWebhookRegistrationDefinition {
+  id?: string
+  method?: "POST" | (string & {})
+  path?: string
+  provider: string
+  secretHeader?: string
+  secretToken?: string
+  url?: string
+}
+
+export type AgentChatWebhookRegistrationDefinition =
+  Omit<AgentWebhookRegistrationDefinition, "provider"> & { provider?: string }
+
 export interface AgentTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -107,6 +120,7 @@ export interface AgentTriggerDefinition<
   input?: unknown
   invoke: (context: AgentTriggerContext<TRuntimeConfig, Name>, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
+  webhooks?: AgentWebhookRegistrationDefinition[]
 }
 
 export interface ResolvedAgentTriggerDefinition<
@@ -122,6 +136,7 @@ export interface ResolvedAgentTriggerDefinition<
   invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   name: string
   output?: "events" | "ui-message-stream" | (string & {})
+  webhooks?: AgentWebhookRegistrationDefinition[]
 }
 
 export interface AgentRunCallbackContext<
@@ -534,6 +549,9 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   hooks?: AgentChatEventHooks<TRuntimeConfig>
   lifecycleHooks?: Record<string, unknown>
   state?: MaybeResolvable<unknown, AgentRuntimeContext<TRuntimeConfig>>
+  webhooks?: {
+    telegram?: AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[]
+  } & Record<string, unknown>
   workflow?: never
   [key: string]: unknown
 }

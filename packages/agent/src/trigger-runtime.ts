@@ -81,6 +81,7 @@ export async function resolveAgentTriggers<
         }, input as never),
         name,
         output: trigger.output,
+        webhooks: trigger.webhooks,
       }
     }
   }

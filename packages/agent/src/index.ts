@@ -143,6 +143,8 @@ export type {
   AgentUsage,
   AgentUsageCost,
   AgentUsageRecord,
+  AgentWebhookRegistrationDefinition,
+  AgentChatWebhookRegistrationDefinition,
   AgentWorkflowRuntimeBinding,
   AgentSandboxProviderOptions,
   AgentSchedulerProviderOptions,
