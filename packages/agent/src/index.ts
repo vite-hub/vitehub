@@ -288,8 +288,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { agentScheduleIdFromCron, blob, chatSummary, chatTitle, db, inputCommands, kv, LlmGateRejectedError, llmGate, llmRoute, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
-export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, ChatSummaryCommandOptions, ChatSummaryExecuteInput, ChatSummaryExecuteResult, ChatSummaryOptions, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, LlmDecisionChoiceDefinition, LlmDecisionChoiceMap, LlmGateDecision, LlmGateOptions, LlmRouteDecision, LlmRouteOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
+export { agentScheduleIdFromCron, audioBytes, audioExtensionFor, blob, chatSummary, chatTitle, db, getTranscriptionResults, inputCommands, kv, LlmGateRejectedError, llmGate, llmRoute, mcp, sandbox, schedule, skills, transcribe, TRANSCRIPTION_RESULTS_CONTEXT_KEY, webSearch, workspaceShell } from "./capabilities.ts"
+export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, ChatSummaryCommandOptions, ChatSummaryExecuteInput, ChatSummaryExecuteResult, ChatSummaryOptions, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, LlmDecisionChoiceDefinition, LlmDecisionChoiceMap, LlmGateDecision, LlmGateOptions, LlmRouteDecision, LlmRouteOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, TranscribeWorkspaceAudioOptions, TranscribeWorkspaceOptions, TranscribeWorkspaceTemplateInput, TranscribeWorkspaceTranscriptOptions, TranscriptionResult, WebSearchOptions } from "./capabilities.ts"
 export { chat }
 export type { AgentChatMessageTriggerInput, ResolvedAgentTriggerInvocation }
 export * from "./messages.ts"

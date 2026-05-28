@@ -28,6 +28,10 @@ export {
   skills,
 } from "./skills.ts"
 export {
+  audioBytes,
+  audioExtensionFor,
+  getTranscriptionResults,
+  TRANSCRIPTION_RESULTS_CONTEXT_KEY,
   transcribe,
 } from "./transcribe.ts"
 export {
@@ -108,9 +112,14 @@ export type {
   ScheduleCapabilityToolPolicy,
 } from "./schedule.ts"
 export type {
+  TranscribeWorkspaceAudioOptions,
+  TranscribeWorkspaceOptions,
+  TranscribeWorkspaceTemplateInput,
+  TranscribeWorkspaceTranscriptOptions,
   TranscribeExecuteInput,
   TranscribeExecuteResult,
   TranscribeOptions,
+  TranscriptionResult,
 } from "./transcribe.ts"
 export type {
   BlobCapabilityOptions,
