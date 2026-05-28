@@ -27,6 +27,11 @@ export default defineNitroConfig({
   schedule: {},
   sandbox: {},
   serverDir: "./server",
+  vercel: {
+    functions: {
+      runtime: "nodejs22.x",
+    },
+  },
   workspace: {},
   workflow: {},
 })

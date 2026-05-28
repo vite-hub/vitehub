@@ -135,6 +135,12 @@ function archiveRequestAuthorization() {
 }
 
 describe("sources, loaders, and publishers", () => {
+  it("keeps Vite out of statically bundled workspace runtime output", async () => {
+    const output = await readFile(join(import.meta.dirname, "../dist/index.js"), "utf8")
+
+    expect(output).not.toContain('import("vite")')
+  })
+
   it("lists GitHub files under the configured root with relative keys", async () => {
     stubGitHubSource({
       "dbt/dbt_project.yml": "name: app\n",

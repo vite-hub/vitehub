@@ -12,6 +12,9 @@ jobs:
     name: setup
     runs-on: ubuntu-latest
     environment: Production
+    outputs:
+      d1_analytics_database_id: ${{ steps.ensure_cloudflare.outputs.d1_analytics_database_id }}
+      d1_database_id: ${{ steps.ensure_cloudflare.outputs.d1_database_id }}
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
@@ -28,7 +31,8 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      - name: Ensure Cloudflare Queues
+      - name: Ensure Cloudflare Resources
+        id: ensure_cloudflare
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -46,6 +50,36 @@ jobs:
           if [ -n "$CLOUDFLARE_R2_BUCKET_NAME" ] && ! npx wrangler r2 bucket list | grep -q "$CLOUDFLARE_R2_BUCKET_NAME"; then
             npx wrangler r2 bucket create "$CLOUDFLARE_R2_BUCKET_NAME"
           fi
+
+          d1_id_for_name() {
+            npx wrangler d1 list --json | node -e '
+              const fs = require("node:fs")
+              const name = process.argv[1]
+              const databases = JSON.parse(fs.readFileSync(0, "utf8"))
+              const match = databases.find((database) => database.name === name)
+              process.stdout.write(match?.uuid || match?.database_id || match?.id || "")
+            ' "$1"
+          }
+
+          ensure_d1() {
+            local name id
+            name="$1"
+            id="$(d1_id_for_name "$name")"
+            if [ -z "$id" ]; then
+              npx wrangler d1 create "$name"
+              id="$(d1_id_for_name "$name")"
+            fi
+            if [ -z "$id" ]; then
+              echo "Failed to resolve Cloudflare D1 database id for $name." >&2
+              exit 1
+            fi
+            printf '%s' "$id"
+          }
+
+          primary_d1_id="$(ensure_d1 vitehub-playground-db)"
+          analytics_d1_id="$(ensure_d1 vitehub-playground-analytics)"
+          echo "d1_database_id=$primary_d1_id" >> "$GITHUB_OUTPUT"
+          echo "d1_analytics_database_id=$analytics_d1_id" >> "$GITHUB_OUTPUT"
 
   live-e2e:
     name: live e2e
@@ -259,6 +293,9 @@ jobs:
           visit(root)
           for (const file of files) {
             const source = readFileSync(file, "utf8")
+            if (source.includes("@vitejs/devtools")) {
+              throw new Error(`Nitro Cloudflare output must not bundle Vite DevTools runtime code: ${file}`)
+            }
             const imports = source.matchAll(/(?:from\s+|import\(|require\()\s*["']([^"']+)["']/g)
             for (const [, specifier] of imports) {
               if (specifier === "sprintf-js" || specifier === "turndown" || specifier === "@mixmark-io/domino") {
@@ -305,6 +342,14 @@ jobs:
           if (!readFileSync(functionFile, "utf8").includes("executeStaticSchedule")) {
             throw new Error("Expected Nitro Vercel schedule function to execute the static schedule handler.")
           }
+          const serverConfig = JSON.parse(readFileSync("playground/nitro/.vercel/output/functions/__server.func/.vc-config.json", "utf8"))
+          if (serverConfig.runtime !== "nodejs22.x") {
+            throw new Error(`Expected Nitro Vercel server runtime nodejs22.x, got ${serverConfig.runtime}.`)
+          }
+          const serverBundle = readFileSync("playground/nitro/.vercel/output/functions/__server.func/index.mjs", "utf8")
+          if (serverBundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(serverBundle)) {
+            throw new Error("Nitro Vercel server bundle must not include Vite or Vite DevTools runtime code.")
+          }
           NODE
 
       - name: Build Vite E2E (cloudflare)
@@ -314,6 +359,8 @@ jobs:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          VITEHUB_D1_ANALYTICS_DATABASE_ID: ${{ needs.setup-cloudflare.outputs.d1_analytics_database_id }}
+          VITEHUB_D1_DATABASE_ID: ${{ needs.setup-cloudflare.outputs.d1_database_id }}
           VITEHUB_CLOUDFLARE_WORKER_NAME: vitehub-playground-vite
           VITEHUB_HOSTING: cloudflare
           VITEHUB_VITE_MODE: e2e
@@ -333,6 +380,9 @@ jobs:
           }
           if (/from\s+["']@cloudflare\/sandbox["']/.test(bundle) || /require\(["']@cloudflare\/sandbox["']\)/.test(bundle) || /import\(["']@cloudflare\/sandbox["']\)/.test(bundle)) {
             throw new Error("Cloudflare Vite bundle must not include bare @cloudflare/sandbox imports.")
+          }
+          if (bundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(bundle)) {
+            throw new Error("Cloudflare Vite bundle must not include Vite or Vite DevTools runtime code.")
           }
           const wrangler = JSON.parse(readFileSync("playground/vite/dist/vite/wrangler.json", "utf8"))
           if (!Array.isArray(wrangler.triggers?.crons) || !wrangler.triggers.crons.includes("* * * * *")) {
@@ -380,6 +430,9 @@ jobs:
           }
           if (/cloudflare:workers|@cloudflare\/sandbox/.test(bundle)) {
             throw new Error("Vercel Vite bundle must not include Cloudflare-only sandbox runtime code.")
+          }
+          if (bundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(bundle)) {
+            throw new Error("Vercel Vite bundle must not include Vite or Vite DevTools runtime code.")
           }
           const config = JSON.parse(readFileSync("playground/vite/.vercel/output/config.json", "utf8"))
           const expected = { path: "/api/vitehub/schedules/vercel/daily-marker", schedule: "* * * * *" }

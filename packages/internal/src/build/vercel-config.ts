@@ -16,7 +16,7 @@ export function createVercelConfigJson(): VercelConfigJson {
 interface NodeFunctionConfig {
   handler: "index.mjs"
   launcherType: "Nodejs"
-  runtime: "nodejs24.x"
+  runtime: "nodejs22.x"
   shouldAddHelpers: false
   supportsResponseStreaming: true
   [key: string]: unknown
@@ -26,7 +26,7 @@ export function createNodeFunctionConfig(extra: Record<string, unknown> = {}): N
   return {
     handler: "index.mjs",
     launcherType: "Nodejs",
-    runtime: "nodejs24.x",
+    runtime: "nodejs22.x",
     shouldAddHelpers: false,
     supportsResponseStreaming: true,
     ...extra,
