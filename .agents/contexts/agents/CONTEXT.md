@@ -24,10 +24,6 @@ _Avoid_: Top-level Agent Definition fields, passthrough, provider options
 One runtime request to an Agent.
 _Avoid_: Chat message, webhook call
 
-**Agent Trigger**:
-Server-side host or integration behavior that starts an Agent Invocation for a specific product event.
-_Avoid_: Chat adapter, client integration, model adapter
-
 **Agent Invocation Lifecycle**:
 The ordered runtime moments that occur while one Agent Invocation is processed.
 _Avoid_: Capability Lifecycle, chat event hooks, request middleware
@@ -87,15 +83,9 @@ _Avoid_: Fake agent, dummy model, test bot
 ## Relationships
 
 - An **Agent Definition** declares one **Agent**.
-- An **Agent Definition** uses the AI SDK model execution path when it uses a model.
-- **Agent Adapter Options** are legacy multi-adapter language and should be removed with the adapter selector.
+- An **Agent Definition** selects one **Agent Model Adapter** when it uses a model.
+- **Agent Adapter Options** belong to the selected **Agent Model Adapter**.
 - An **Agent** receives zero or more **Agent Invocations**.
-- An **Agent Trigger** starts one or more **Agent Invocations**.
-- An **Agent Trigger** prepares **Agent Run State** and **Chat History** when the product event needs them.
-- An **Agent Trigger** may provide message-shaped input, but message-shaped input is not required for every Agent Trigger.
-- An **Agent Trigger** may pass host or client intent with the Agent Invocation, but it does not grant Capabilities dynamically.
-- An **Agent Trigger** is registered by a Capability when the trigger belongs to a Capability-owned product ability.
-- An **Agent Trigger** is not an **Agent Model Adapter**.
 - An **Agent Invocation** follows one **Agent Invocation Lifecycle**.
 - An **Agent Finish Hook** belongs to the **Agent Invocation Lifecycle**.
 - Capabilities can expose **Agent Invocation Extensions** on Agent Invocation Lifecycle events.
@@ -124,14 +114,10 @@ _Avoid_: Fake agent, dummy model, test bot
 >
 > **Dev:** "Should the playground call a real model provider just to test DevTools?"
 > **Domain expert:** "No. Use a **Mock Agent Adapter** when the goal is deterministic Agent behavior without token cost."
->
-> **Dev:** "Should Chat DevTools own the server behavior for sending messages to an Agent?"
-> **Domain expert:** "No. Chat DevTools should consume an **Agent Trigger** primitive, just like an application server route or webhook would."
 
 ## Flagged Ambiguities
 
 - Raw tools were considered as top-level Agent Definition fields - resolved: tools are contributed by Capabilities.
-- Multi-adapter support was considered part of Agent Definition shape - resolved: remove the adapter selector and make AI SDK the only model execution path for now.
 - Evalite-backed checks were considered generic tests - resolved: use **Agent Eval** when the check runs an Agent Definition and scores Agent Invocation output.
 - Chat runtime state was considered a public Chat option - resolved: use **Agent Run State** for Agent-owned runtime state.
 - Chat History and Agent Memory were considered interchangeable - resolved: Chat History is conversation-scoped message history; Agent Memory is durable knowledge or preferences across invocations.
@@ -140,7 +126,3 @@ _Avoid_: Fake agent, dummy model, test bot
 - Local and hosted state providers were considered equivalent - resolved: hosted production runtimes require a durable provider and a **Concurrent Invocation Guard**.
 - Model-free playground behavior was described as a dummy Agent - resolved: use **Mock Agent Adapter** for deterministic, cost-free Agent Invocations.
 - Callback runtime config was considered an Agent app configuration surface - resolved: app-owned Runtime Env belongs to Server Env, not Agent callback context.
-- Server-side chat integration was described as a chat adapter or client integration - resolved: use **Agent Trigger** for server-side behavior that starts Agent Invocations.
-- Agent Triggers were considered chat-only because chat is the first major use case - resolved: Chat can provide the first official Capability-owned trigger, but Agent Triggers remain general and do not require message-shaped input.
-- Chat helper APIs were considered the primary exposure path - resolved: Capability-owned trigger registration is the primary server-side path, with helpers only as optional callers or ergonomics around registered triggers.
-- Client-provided flags were considered Capability configuration - resolved: triggers may pass host or client intent with the Agent Invocation, while Capabilities remain server-configured Agent behavior and the exact input field name is not fixed yet.
