@@ -36,8 +36,8 @@ export type CloudflareProviderDeploymentOutput = Omit<CloudflareDeploymentOutput
 export type VercelProviderDeploymentOutput = Omit<VercelDeploymentOutputOptions, keyof SharedDeploymentOptions>
 
 interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
-  cloudflare: CloudflareProviderDeploymentOutput
-  vercel: VercelProviderDeploymentOutput
+  cloudflare?: CloudflareProviderDeploymentOutput
+  vercel?: VercelProviderDeploymentOutput
 }
 
 interface ResolvedClientOutput {
@@ -107,16 +107,20 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
 }
 
 export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {
-  await Promise.all([
-    writeCloudflareDeploymentOutput({
+  const writes: Array<Promise<void>> = []
+  if (options.cloudflare) {
+    writes.push(writeCloudflareDeploymentOutput({
       ...options.cloudflare,
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
-    }),
-    writeVercelDeploymentOutput({
+    }))
+  }
+  if (options.vercel) {
+    writes.push(writeVercelDeploymentOutput({
       ...options.vercel,
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
-    }),
-  ])
+    }))
+  }
+  await Promise.all(writes)
 }

@@ -239,12 +239,20 @@ function createVercelOutput(artifacts: GeneratedWorkflowArtifacts): VercelProvid
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedWorkflowArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow)
+  const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
+  const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
-    cloudflare: createCloudflareOutput(options.rootDir, artifacts),
+    ...(cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
+      ? { cloudflare: createCloudflareOutput(options.rootDir, artifacts) }
+      : {}),
     rootDir: options.rootDir,
-    vercel: createVercelOutput(artifacts),
+    ...(vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+      ? { vercel: createVercelOutput(artifacts) }
+      : {}),
   })
-  await writeCloudflareWorkflowWrapper(options.rootDir, artifacts)
+  if (cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare") {
+    await writeCloudflareWorkflowWrapper(options.rootDir, artifacts)
+  }
   return artifacts
 }
