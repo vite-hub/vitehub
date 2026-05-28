@@ -402,9 +402,6 @@ importers:
 
   packages/cli:
     dependencies:
-      '@vitehub/internal':
-        specifier: workspace:*
-        version: link:../internal
       pathe:
         specifier: 'catalog:'
         version: 2.0.3
