@@ -75,7 +75,7 @@ Agent does not own chat webhooks, Chat SDK adapters, workflow runs, runtime capa
 
 | Need | Use |
 | --- | --- |
-| Receive Slack, Discord, Telegram, or Teams events | `@vitehub/agent/chat` |
+| Receive chat messages through an Agent Trigger | `@vitehub/agent` with `chat()` |
 | Store or replay conversation state | `@vitehub/agent` |
 | Resolve shared capabilities, approvals, and trace context | `@vitehub/runtime` |
 | Coordinate durable work | `@vitehub/workflow` |

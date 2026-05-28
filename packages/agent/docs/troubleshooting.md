@@ -60,11 +60,11 @@ export default defineAgent({
 })
 ```
 
-## Chat hook conflict
+## Chat trigger missing
 
-Cause: a chat definition uses both `agent` and `onDirectMessage`.
+Cause: the selected Agent does not attach the Chat Capability.
 
-Fix: choose one owner. Use `agent` for the default handoff, or write `onDirectMessage` when you want to own the full flow.
+Fix: add `chat()` to `defineAgent({ capabilities })` so the Agent exposes `chat.message`.
 
 ## Cloudflare native routing fails
 

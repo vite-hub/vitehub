@@ -84,23 +84,6 @@ describe("Cloudflare helpers", () => {
     await expect(response.json()).resolves.toMatchObject({ text: "still readable" })
   })
 
-  it("flushes inline chat waitUntil tasks before returning unknown platform responses", async () => {
-    const { defineCloudflareChatHandler } = await import("../src/chat/cloudflare.ts")
-    const task = vi.fn()
-    const handler = defineCloudflareChatHandler({
-      async resolve(context) {
-        context.waitUntil(Promise.resolve().then(task))
-        return { webhooks: {} } as never
-      },
-    }, { platform: "unknown", processing: "inline" })
-
-    const response = await handler(new Request("https://example.com/api/webhooks/unknown", {
-      method: "POST",
-    }), {}, { waitUntil: vi.fn() })
-
-    expect(response.status).toBe(404)
-    expect(task).toHaveBeenCalled()
-  })
 })
 
 describe("Nitro helpers", () => {

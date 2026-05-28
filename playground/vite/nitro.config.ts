@@ -7,7 +7,7 @@ const chatEnabled = mode === VITEHUB_MODES.chat
 const scheduleEnabled = getNitroMode() === VITEHUB_MODES.schedule || getViteMode() === VITEHUB_MODES.schedule
 const workflowEnabled = getNitroMode() === VITEHUB_MODES.workflow || getViteMode() === VITEHUB_MODES.workflow
 const modules = chatEnabled
-  ? ["@vitehub/agent/chat/nitro"]
+  ? ["@vitehub/agent/nitro"]
   : [
       "@vitehub/queue/nitro",
       "@vitehub/schedule/nitro",
@@ -20,14 +20,7 @@ const modules = chatEnabled
 export default defineNitroConfig({
   modules,
   ignore: workflowEnabled || chatEnabled ? [] : ["api/workflows/**", "workflows/**"],
-  chat: chatEnabled
-    ? {
-        cloudflare: { durableObjectState: false },
-        dev: { initialize: false },
-        provider: "nitro",
-        webhook: false,
-      }
-    : false,
+  agent: chatEnabled ? {} : false,
   queue: {},
   schedule: scheduleEnabled ? {} : false,
   sandbox: {},

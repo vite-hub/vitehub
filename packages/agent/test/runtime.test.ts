@@ -2,8 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createMessage } from "@vitehub/agent"
 
-import type { ChatInput } from "../src/chat/types.ts"
-
 describe("agent message protocol", () => {
   it("creates inline schedule capabilities without requiring chat history", async () => {
     const { defineAgent, schedule } = await import("../src/index.ts")
@@ -1066,12 +1064,16 @@ describe("agent message protocol", () => {
     vi.resetModules()
   })
 
-  it("resolves registry metadata for chats with reserved metadata names", async () => {
+  it("resolves registry metadata for first chat-capable DevTools agent", async () => {
     const { createApp, toWebHandler } = await import("h3")
-    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
-    const handler = defineChatDevtoolsRegistryHandler({
-      files: async () => ({} as ChatInput),
+    const handler = defineAgentDevtoolsRegistryHandler({
+      files: async () => defineAgent({
+        capabilities: [chat({ concurrency: "queue" })],
+        run: () => "ok",
+      }),
     }, {
       metadata: {
         files: async () => ({
@@ -1095,8 +1097,7 @@ describe("agent message protocol", () => {
     const { createUIMessageStream } = await import("ai")
     const { createApp, toWebHandler } = await import("h3")
     const { chat, defineAgent } = await import("../src/index.ts")
-    const { defineChat } = await import("../src/chat/index.ts")
-    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const setIntervalSpy = vi.spyOn(globalThis, "setInterval")
     const app = createApp()
     const agent = defineAgent({
@@ -1119,14 +1120,8 @@ describe("agent message protocol", () => {
         }
       },
     })
-    app.use(defineChatDevtoolsRegistryHandler({
-      support: async () => defineChat({
-        concurrency: "queue",
-        agent: { definition: agent, name: "support-agent" },
-        adapters: {},
-        fallbackStreamingPlaceholderText: "Thinking from config...",
-        state: {} as never,
-      }),
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
     }))
 
     try {
@@ -1179,13 +1174,19 @@ describe("agent message protocol", () => {
     const { createUIMessageStream } = await import("ai")
     const { createApp, toWebHandler } = await import("h3")
     const { chat, defineAgent } = await import("../src/index.ts")
-    const { defineChat } = await import("../src/chat/index.ts")
-    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
     const seenHistory: Array<Array<{ role: string, text: string }>> = []
     const agent = defineAgent({
       capabilities: [chat({ concurrency: "queue" })],
-      async run() {
+      async run(context) {
+        seenHistory.push((context.messages || []).map(message => ({
+          role: message.role,
+          text: message.parts
+            .filter((part): part is { text: string, type: "text" } => part.type === "text")
+            .map(part => part.text)
+            .join(""),
+        })))
         return {
           toUIMessageStream() {
             return createUIMessageStream({
@@ -1201,27 +1202,8 @@ describe("agent message protocol", () => {
         }
       },
     })
-    app.use(defineChatDevtoolsRegistryHandler({
-      support: async () => defineChat({
-        concurrency: "queue",
-        agent: {
-          definition: agent,
-          hooks: {
-            beforeRun(args) {
-              seenHistory.push((args.input.messages || []).map(message => ({
-                role: message.role,
-                text: message.parts
-                  .filter((part): part is { text: string, type: "text" } => part.type === "text")
-                  .map(part => part.text)
-                  .join(""),
-              })))
-            },
-          },
-          name: "support-agent",
-        },
-        adapters: {},
-        state: {} as never,
-      }),
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
     }))
 
     for (const text of ["first request", "what was my first request?"]) {
@@ -1248,13 +1230,16 @@ describe("agent message protocol", () => {
     const { createUIMessageStream } = await import("ai")
     const { createApp, toWebHandler } = await import("h3")
     const { chat, defineAgent } = await import("../src/index.ts")
-    const { defineChat } = await import("../src/chat/index.ts")
-    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
     const seenHistory: Array<string[]> = []
     const agent = defineAgent({
       capabilities: [chat({ concurrency: "queue", history: { maxMessages: 2, source: "thread" } })],
-      async run() {
+      async run(context) {
+        seenHistory.push((context.messages || []).map(message => message.parts
+          .filter((part): part is { text: string, type: "text" } => part.type === "text")
+          .map(part => part.text)
+          .join("")))
         return {
           toUIMessageStream() {
             return createUIMessageStream({
@@ -1270,25 +1255,8 @@ describe("agent message protocol", () => {
         }
       },
     })
-    app.use(defineChatDevtoolsRegistryHandler({
-      support: async () => defineChat({
-        concurrency: "queue",
-        agent: {
-          definition: agent,
-          history: { maxMessages: 2, source: "thread" },
-          hooks: {
-            beforeRun(args) {
-              seenHistory.push((args.input.messages || []).map(message => message.parts
-                .filter((part): part is { text: string, type: "text" } => part.type === "text")
-                .map(part => part.text)
-                .join("")))
-            },
-          },
-          name: "support-agent",
-        },
-        adapters: {},
-        state: {} as never,
-      }),
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
     }))
 
     for (const text of ["first request", "second request", "third request"]) {
@@ -1308,8 +1276,7 @@ describe("agent message protocol", () => {
     const { createUIMessageStream } = await import("ai")
     const { createApp, toWebHandler } = await import("h3")
     const { chat, defineAgent } = await import("../src/index.ts")
-    const { defineChat } = await import("../src/chat/index.ts")
-    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
     const agent = defineAgent({
       capabilities: [chat({ concurrency: "queue", fallbackStreamingPlaceholderText: "Thinking from config..." })],
@@ -1329,14 +1296,8 @@ describe("agent message protocol", () => {
         }
       },
     })
-    app.use(defineChatDevtoolsRegistryHandler({
-      support: async () => defineChat({
-        concurrency: "queue",
-        agent: { definition: agent, name: "support-agent" },
-        adapters: {},
-        fallbackStreamingPlaceholderText: "Thinking from config...",
-        state: {} as never,
-      }),
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
     }))
 
     const sendResponse = await toWebHandler(app)(new Request("http://example.test", {
@@ -1361,24 +1322,16 @@ describe("agent message protocol", () => {
   it("requires streaming for registry DevTools sends through the AI SDK path", async () => {
     const { createApp, toWebHandler } = await import("h3")
     const { chat, defineAgent } = await import("../src/index.ts")
-    const { defineChat } = await import("../src/chat/index.ts")
-    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
-    app.use(defineChatDevtoolsRegistryHandler({
-      support: async () => defineChat({
-        concurrency: "queue",
-        agent: {
-          definition: defineAgent({
-            capabilities: [chat({ concurrency: "queue" })],
-            async run() {
-              throw new Error("streaming-only test should not run the agent")
-            },
-          }),
-          name: "support-agent",
-        },
-        adapters: {},
-        state: {} as never,
-      }),
+    const agent = defineAgent({
+      capabilities: [chat({ concurrency: "queue" })],
+      async run() {
+        throw new Error("streaming-only test should not run the agent")
+      },
+    })
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
     }))
 
     const response = await toWebHandler(app)(new Request("http://example.test", {
@@ -1393,21 +1346,12 @@ describe("agent message protocol", () => {
     expect(response.status).toBe(400)
   })
 
-  it("rejects DevTools sends for non-agent chats", async () => {
-    const { Chat } = await import("chat")
+  it("returns an error when no chat-capable DevTools agent exists", async () => {
     const { createApp, toWebHandler } = await import("h3")
-    const { defineChatDevtoolsHandler } = await import("../src/chat/nitro/devtools.ts")
-    const { createMemoryChatStateAdapter } = await import("../src/chat/runtime/memory-state.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
-    const chat = new Chat({
-      adapters: {},
-      state: createMemoryChatStateAdapter(),
-      userName: "support",
-    })
-    chat.onDirectMessage(async (thread) => {
-      await thread.post("legacy answer")
-    })
-    app.use(defineChatDevtoolsHandler(chat as never))
+    app.use(defineAgentDevtoolsHandler(defineAgent({ run: () => "legacy answer" })))
 
     const response = await toWebHandler(app)(new Request("http://example.test", {
       body: JSON.stringify({ action: "send", stream: true, text: "hello" }),
@@ -1415,21 +1359,20 @@ describe("agent message protocol", () => {
       method: "POST",
     }))
 
-    const events = (await response.text()).trim().split("\n").map(line => JSON.parse(line) as { message?: string, type: string })
-
     expect(response.status).toBe(200)
-    expect(events).toContainEqual({
-      message: "AI SDK Chat DevTools requires defineChat({ agent }).",
+    expect(await response.text()).toContain(JSON.stringify({
+      message: "No chats are registered for DevTools.",
       type: "error",
-    })
+    }))
   })
 
   it("returns a bad request for malformed text chat devtools payloads", async () => {
     const { createApp, toWebHandler } = await import("h3")
-    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
-    app.use(defineChatDevtoolsRegistryHandler({
-      support: async () => ({} as ChatInput),
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => defineAgent({ capabilities: [chat({ concurrency: "queue" })], run: () => "ok" }),
     }))
 
     const response = await toWebHandler(app)(new Request("http://example.test", {
@@ -1442,7 +1385,7 @@ describe("agent message protocol", () => {
   })
 
   it("converts Nitro request-like events to Fetch Request objects", async () => {
-    const { toFetchRequest } = await import("../src/chat/nitro/handler.ts")
+    const { toFetchRequest } = await import("../src/nitro/handler.ts")
     const body = new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode("hello"))

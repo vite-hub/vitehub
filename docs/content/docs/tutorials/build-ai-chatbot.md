@@ -20,13 +20,13 @@ Building source-aware assistants should not mean wiring a different bot for ever
 
 By the end of this tutorial, you'll have a working support chatbot with:
 
-- A Chat definition at `server/chat.ts` that handles messages through ViteHub
+- A discovered Agent at `server/agents/support.ts` that exposes chat through `chat()`
 - A live DevTools panel for testing without Telegram, Slack, or webhook setup
 - An Agent that replaces the dummy reply with a real model response
 - A Workspace that gives the agent file inspection tools for grounded answers
 - One code path that can run in Vite, Nitro, Cloudflare, and Vercel
 
-Each step adds one small piece, so you can see how Chat, Agent, Workspace, and Messages fit together before adding platform adapters.
+Each step adds one small piece, so you can see how Chat, Agent, Workspace, and Messages fit together.
 
 ## Prerequisites
 
@@ -47,13 +47,12 @@ pnpm add -D @vitejs/devtools
 ```
 ::
 
-Register the integration so ViteHub discovers `server/chat.ts` and your agents. Vite apps use plugins:
+Register the integration so ViteHub discovers your agents. Vite apps use plugins:
 
 ::fw{id="vite:dev vite:build"}
 ::code-tree-intersection
 ```ts [vite.config.ts]
-import { hubAgent } from '@vitehub/agent/vite'
-import { hubChat } from '@vitehub/agent/chat/vite'
+import { hubAgent, hubChatDevtools } from '@vitehub/agent/vite'
 import { hubWorkspace } from '@vitehub/workspace/vite'
 import { DevTools } from '@vitejs/devtools'
 import { nitro } from 'nitro/vite'
@@ -64,7 +63,7 @@ export default defineConfig({
     DevTools(),
     hubWorkspace(),
     hubAgent(),
-    hubChat(),
+    hubChatDevtools(),
     nitro(),
   ],
 })
@@ -83,51 +82,47 @@ export default defineNitroConfig({
   modules: [
     '@vitehub/workspace/nitro',
     '@vitehub/agent/nitro',
-    '@vitehub/agent/chat/nitro',
   ],
 })
 ```
 ::
 ::
 
-That's all the wiring you need. Chat handles provider events, Workspace handles files, and Agent handles the model loop. Nothing else hooks together until you ask it to.
+That's all the wiring you need. The Agent owns the model loop, Workspace handles files, and Chat is attached as a capability.
 
-## Step 1 — Define a chat with a dummy reply
+## Step 1 — Define a chat-capable Agent
 
-The fastest way to feel the loop is to skip the model entirely. Create `server/chat.ts` and echo whatever the user sends:
+The fastest way to feel the loop is to skip the model entirely. Create `server/agents/support.ts` and echo whatever the user sends:
 
 ::code-tree-intersection
-```ts [server/chat.ts]
-import { defineChat } from '@vitehub/agent/chat'
-import { createMemoryChatStateAdapter } from '@vitehub/agent/chat/runtime/memory-state'
-import { getMessageText } from '@vitehub/agent'
+```ts [server/agents/support.ts]
+import { chat, defineAgent } from '@vitehub/agent'
 
-const adapters = {}
-
-export default defineChat({
-  userName: 'Support Bot',
-  adapters,
-  state: createMemoryChatStateAdapter(),
-  onDirectMessage: async ({ message, thread }) => {
-    const text = getMessageText(message)
-    await thread.post(`You said: "${text}". I'll get smarter in step 3.`)
+export default defineAgent({
+  capabilities: [chat({ concurrency: 'queue', history: { source: 'thread', maxMessages: 20 } })],
+  async run({ messages }) {
+    const latest = messages.at(-1)
+    const text = latest?.parts.filter(part => part.type === 'text').map(part => part.text).join('') || ''
+    return {
+      text: `You said: "${text}". I'll get smarter in step 3.`,
+    }
   },
 })
 ```
 ::
 
-No model. No sources. No provider keys. Just a thread that posts a string. ViteHub still runs the full pipeline around this dummy reply.
+No model. No sources. No provider keys. Just an Agent with the Chat Capability.
 
 ## Step 2 — Send a message
 
-Send a direct message through your configured adapter. The same `server/chat.ts` will handle real provider events once you attach one.
+Send a message through DevTools. The same `server/agents/support.ts` will handle real chat input once you attach a real model.
 
 ::fw{id="vite:dev vite:build"}
 Vite picks up the panel through the `DevTools()` plugin you registered above. Start the dev server.
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Nitro mounts the chat webhook automatically when `@vitehub/agent/chat/nitro` is registered. Run the dev server and open the URL it prints.
+Run the Nitro dev server and open the URL it prints.
 ::
 
 ::code-tree-intersection
@@ -138,53 +133,29 @@ pnpm dev
 
 Open the DevTools URL printed at startup and switch to the **ViteHub Chat** panel. Type a message—you'll see the dummy reply stream back instantly, with thread state and timeline visible on the side.
 
-This is the loop you'll keep using. Every change to your chat, agent, or sources shows up in this panel within a hot reload—no tunneling, no webhook secrets, no platform setup.
+This is the loop you'll keep using. Every change to your agent or sources shows up in this panel within a hot reload.
 
 ## Step 3 — Add an Agent
 
-Time to swap the dummy reply for a real model. ViteHub agents live in `server/agents/<name>/config.ts`. Create the support chat agent:
+Time to swap the dummy reply for a real model. Update the support agent:
 
 ::code-tree-intersection
-```ts [server/agents/support/chat/config.ts]
+```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vitehub/agent'
+import { chat, defineAgent } from '@vitehub/agent'
 
 export default defineAgent({
+  capabilities: [chat({ concurrency: 'queue', history: { source: 'thread', maxMessages: 20 } })],
   description: 'Answer support chat messages.',
   instructions: 'You are a friendly support bot. Keep replies short and concrete.',
   model: gateway('openai/gpt-5.1-mini'),
-  provider: 'ai-sdk',
-})
-```
-::
-
-ViteHub discovers this file as the `support/chat` agent. Now hand the chat over to it—delete `onDirectMessage` and bind the agent by name:
-
-::code-tree-intersection
-```ts [server/chat.ts]
-import { defineChat } from '@vitehub/agent/chat'
-import { createMemoryChatStateAdapter } from '@vitehub/agent/chat/runtime/memory-state'
-
-const adapters = {}
-
-export default defineChat({
-  userName: 'Support Bot',
-  adapters,
-  state: createMemoryChatStateAdapter(),
-  agent: {
-    name: 'support/chat',
-    history: {
-      source: 'thread',
-      maxMessages: 20,
-    },
-  },
 })
 ```
 ::
 
 Reload the DevTools panel and send the same message. You'll see streamed model output instead of an echo. The thread history is preserved across messages because `history.source: 'thread'` replays the last 20 turns into the agent.
 
-Chat still owns provider events. Agent owns the model. They never reach across.
+Chat is still a capability on the Agent. The Agent remains the source of truth.
 
 ## Step 4 — Connect sources for grounded answers
 
@@ -237,7 +208,7 @@ Send a question that only your sources can answer—"What does our refund policy
 
 ## Step 5 — Deploy anywhere
 
-The same `server/chat.ts` and `server/agents/support/chat/config.ts` ship to every supported runtime. Pick the platform and ViteHub resolves state, webhooks, and bindings for you.
+The same `server/agents/support.ts` ships to every supported runtime. Pick the platform and ViteHub resolves the Agent runtime around it.
 
 ::u-page-grid{class="pb-2"}
   :::u-page-card
@@ -250,7 +221,7 @@ The same `server/chat.ts` and `server/agents/support/chat/config.ts` ship to eve
   :::u-page-card
   ---
   title: Vercel
-  description: Run the same Chat definition through Vercel Functions with one config switch.
+  description: Run the same chat-capable Agent through Vercel Functions with one config switch.
   icon: i-simple-icons-vercel
   ---
   :::

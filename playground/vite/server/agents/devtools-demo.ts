@@ -1,6 +1,4 @@
-import { transcribe } from "@vitehub/agent"
-import { defineChat } from "@vitehub/agent/chat"
-import { createMemoryChatStateAdapter } from "@vitehub/agent/chat/runtime/memory-state"
+import { chat, defineAgent, transcribe } from "@vitehub/agent"
 
 import type { AgentAdapter, AgentAdapterResult, AgentAdapterRunContext, MaybePromise, StreamEvent } from "@vitehub/agent"
 
@@ -76,8 +74,8 @@ const adapter = createPlaygroundMockAgentAdapter({
         exitCode: 0,
         stderr: "",
         stdout: [
-          "server/chat.ts:1:exports the deterministic DevTools Demo Agent",
-          "packages/agent/src/chat/agent-handoff.ts:149:reports Agent tool steps to Chat DevTools",
+          "server/agents/devtools-demo.ts:1:exports the deterministic DevTools Demo Agent",
+          "packages/agent/src/index.ts:527:contributes the chat.message trigger",
           "packages/devtools/devtools/chat/app/app.vue:tool stream renders inside the reasoning panel",
         ].join("\n"),
       },
@@ -107,29 +105,18 @@ const adapter = createPlaygroundMockAgentAdapter({
   },
 })
 
-const agent = {
+export default defineAgent({
   capabilities: [
+    chat({
+      concurrency: "queue",
+      fallbackStreamingPlaceholderText: "Thinking...",
+      history: { maxMessages: 8, source: "thread" },
+    }),
     transcribe({
       execute: () => "Transcribed playground voice input.",
     }),
   ],
-  chat: {
-    fallbackStreamingPlaceholderText: "Thinking...",
-    history: { maxMessages: 8, source: "thread" },
-    state: createMemoryChatStateAdapter(),
-  },
   async resolve() {
     return adapter
   },
-}
-
-export default defineChat({
-  adapters: {},
-  agent: {
-    definition: agent,
-    name: "playground-devtools-demo",
-  },
-  fallbackStreamingPlaceholderText: "Thinking...",
-  state: createMemoryChatStateAdapter(),
-  userName: "vite-playground",
 })

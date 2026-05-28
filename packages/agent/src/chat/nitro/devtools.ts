@@ -1,21 +1,20 @@
 import { createError, defineEventHandler, readBody, setHeader } from "h3"
 
-import { getAgentFromRegistry, streamAgentTrigger } from "../../index.ts"
+import { resolveAgentTriggers, streamAgentTrigger } from "../../index.ts"
 import { chatDevtoolsClearRpc, chatDevtoolsGetStateRpc, chatDevtoolsSendRpc } from "../devtools-shared.ts"
-import { getChatDefinitionOptions } from "../runtime/definition.ts"
-import { getChatRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 import { createMemoryChatStateAdapter } from "../runtime/memory-state.ts"
-import { toFetchRequest } from "./handler.ts"
+import { createAgentRuntimeContext } from "../../runtime/context.ts"
+import { getAgentRuntimeConfig } from "../../runtime/nitro-runtime-config.ts"
+import { toFetchRequest } from "../../nitro/handler.ts"
 
 import type { EventHandler, H3Event } from "h3"
 import type { UIMessage } from "ai"
-import type { AgentChatMessageTriggerInput, AgentRunInput, AgentRunMetadata } from "../../index.ts"
+import type { AgentChatMessageTriggerInput, AgentInput, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext } from "../../index.ts"
 import type { ChatDevtoolsConversation, ChatDevtoolsMessage, ChatDevtoolsMetadata, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
-import type { ChatAgentBindingOptions, ChatInput } from "../types.ts"
-import type { NitroChatRuntimeConfig, NitroChatRuntimeContext } from "./handler.ts"
 
-type ChatLoader = () => Promise<ChatInput>
-type ChatDevtoolsRegistry = Record<string, ChatLoader>
+type AgentLoader = () => Promise<AgentRegistryModule>
+type AgentDevtoolsRegistry = Record<string, AgentLoader>
+type AgentRegistryModule = { default?: AgentInput<NitroAgentDevtoolsRuntimeContext> } | AgentInput<NitroAgentDevtoolsRuntimeContext>
 type MaybePromise<T> = T | Promise<T>
 type ChatDevtoolsMetadataResolver = () => MaybePromise<ChatDevtoolsMetadata | undefined>
 type ChatDevtoolsMetadataInput =
@@ -34,9 +33,21 @@ interface ChatDevtoolsSession {
 
 interface ChatDevtoolsHandlerState {
   metadata: ChatDevtoolsMetadataInput
-  registry: ChatDevtoolsRegistry
+  registry: AgentDevtoolsRegistry
   sessions: Map<string, ChatDevtoolsSession>
   selected?: string
+}
+
+interface NitroAgentDevtoolsRuntimeConfig extends AgentRuntimeConfig {
+  agent?: unknown
+  hosting?: string
+}
+
+interface NitroAgentDevtoolsRuntimeContext extends AgentRuntimeContext<NitroAgentDevtoolsRuntimeConfig> {
+  event?: H3Event
+  request?: Request
+  runtime: "nitro"
+  runtimeConfig: NitroAgentDevtoolsRuntimeConfig
 }
 
 type ChatDevtoolsBridgeBody = {
@@ -48,55 +59,13 @@ type ChatDevtoolsBridgeBody = {
 type ChatDevtoolsAction = "clear" | "get-state" | "send"
 type ReadUIMessageStream = typeof import("ai").readUIMessageStream
 
-interface CloudflareRuntimeCarrier {
-  context?: {
-    cloudflare?: {
-      context?: unknown
-      env?: Record<string, unknown>
-    }
-  }
-  runtime?: {
-    cloudflare?: {
-      context?: unknown
-      env?: Record<string, unknown>
-    }
-  }
-}
-
-export interface ChatDevtoolsHandlerOptions {
+export interface AgentDevtoolsHandlerOptions {
   inferredName?: string
   metadata?: ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver
 }
 
-export interface ChatDevtoolsRegistryHandlerOptions {
+export interface AgentDevtoolsRegistryHandlerOptions {
   metadata?: ChatDevtoolsMetadataInput
-}
-
-function createMemo(): NitroChatRuntimeContext["memo"] {
-  const values = new Map<string, unknown>()
-  return (key, create) => {
-    if (!values.has(key)) values.set(key, create())
-    return values.get(key) as never
-  }
-}
-
-function getCloudflareRuntime(event: H3Event, runtimeConfig: NitroChatRuntimeConfig): NitroChatRuntimeContext["cloudflare"] | undefined {
-  const carrier = event as CloudflareRuntimeCarrier
-  const requestCarrier = event.req as unknown as CloudflareRuntimeCarrier
-  const runtime = carrier.context?.cloudflare
-    || carrier.runtime?.cloudflare
-    || requestCarrier.context?.cloudflare
-    || requestCarrier.runtime?.cloudflare
-
-  if (!runtime) {
-    return undefined
-  }
-
-  return {
-    context: runtime.context,
-    durableObjectStateName: (runtimeConfig.chat as { cloudflare?: { durableObjectState?: { name?: string } } } | undefined)?.cloudflare?.durableObjectState?.name,
-    env: runtime.env,
-  }
 }
 
 function normalizeChatDevtoolsAction(action: string): ChatDevtoolsAction | undefined {
@@ -105,25 +74,21 @@ function normalizeChatDevtoolsAction(action: string): ChatDevtoolsAction | undef
   if (action === "clear" || action === chatDevtoolsClearRpc) return "clear"
 }
 
-function createRuntimeContext(event: H3Event): NitroChatRuntimeContext {
-  const runtimeConfig = getChatRuntimeConfig(event) as NitroChatRuntimeConfig
-  return {
-    cloudflare: getCloudflareRuntime(event, runtimeConfig),
-    dev: true,
+function createRuntimeContext(event: H3Event): NitroAgentDevtoolsRuntimeContext {
+  const runtimeConfig = getAgentRuntimeConfig(event) as NitroAgentDevtoolsRuntimeConfig
+  return createAgentRuntimeContext({
     event,
-    memo: createMemo(),
-    platform: "devtools",
     request: toFetchRequest(event),
     runtime: "nitro",
     runtimeConfig,
     waitUntil: task => event.waitUntil(task),
-  }
+  }) as NitroAgentDevtoolsRuntimeContext
 }
 
-function resolveRegistryModule(module: unknown): ChatInput {
+function resolveRegistryModule(module: AgentRegistryModule): AgentInput<NitroAgentDevtoolsRuntimeContext> {
   return typeof module === "object" && module !== null && "default" in module
-    ? (module as { default: ChatInput }).default
-    : module as ChatInput
+    ? module.default as AgentInput<NitroAgentDevtoolsRuntimeContext>
+    : module as AgentInput<NitroAgentDevtoolsRuntimeContext>
 }
 
 function getChatNames(state: ChatDevtoolsHandlerState): string[] {
@@ -164,6 +129,17 @@ async function metadataForChat(metadata: ChatDevtoolsMetadataInput | undefined, 
   return await resolveDevtoolsMetadata(selected ? (metadata as Record<string, ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined>)[selected] : undefined)
 }
 
+async function firstChatCapableAgentRegistry(registry: AgentDevtoolsRegistry, context: NitroAgentDevtoolsRuntimeContext): Promise<AgentDevtoolsRegistry> {
+  for (const name of Object.keys(registry).sort()) {
+    const agent = resolveRegistryModule(await registry[name]!())
+    const triggers = await resolveAgentTriggers(agent as never, context as never)
+    if (triggers["chat.message"]) {
+      return { [name]: registry[name]! }
+    }
+  }
+  return {}
+}
+
 async function serializeState(state: ChatDevtoolsHandlerState, selected?: string): Promise<ChatDevtoolsStateResult> {
   const names = getChatNames(state)
   for (const name of names) getSession(state, name)
@@ -192,16 +168,6 @@ async function serializeState(state: ChatDevtoolsHandlerState, selected?: string
     tools: metadata.tools,
     uiMessages: selectedSession ? [...selectedSession.uiMessages] : [],
   }
-}
-
-function normalizeDevtoolsAgentBinding(binding: unknown): ChatAgentBindingOptions {
-  if (typeof binding === "object" && binding !== null && "resolve" in binding && typeof (binding as { resolve?: unknown }).resolve === "function") {
-    return {
-      definition: binding as ChatAgentBindingOptions["definition"],
-      name: (binding as { name?: unknown }).name as string | undefined || "devtools-agent",
-    }
-  }
-  return typeof binding === "string" ? { name: binding } : binding as ChatAgentBindingOptions
 }
 
 function createRunMetadata(session: ChatDevtoolsSession, userMessageId: string): AgentRunMetadata {
@@ -285,17 +251,7 @@ async function sendDevtoolsUIMessage(
     })
   }
 
-  const chat = resolveRegistryModule(await loader())
-  const options = getChatDefinitionOptions(chat)
-  const agentBinding = options?.agent
-  if (!agentBinding) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: "AI SDK Chat DevTools requires defineChat({ agent }).",
-    })
-  }
-
-  const binding = normalizeDevtoolsAgentBinding(agentBinding)
+  const agent = resolveRegistryModule(await loader())
   const session = getSession(state, selected)
   state.selected = selected
   const userMessage = createUserUIMessage(text)
@@ -309,9 +265,7 @@ async function sendDevtoolsUIMessage(
   let agentInput: AgentRunInput | undefined
   try {
     const runtimeContext = { ...createRuntimeContext(event), run }
-    const agent = binding.definition || await getAgentFromRegistry(binding.name, runtimeContext as never)
     const triggerInput: AgentChatMessageTriggerInput = {
-      history: binding.history,
       messages: baseMessages,
       run,
       timeout: 90_000,
@@ -321,20 +275,8 @@ async function sendDevtoolsUIMessage(
       async onInvocation(invocation) {
         agentInput = invocation.input
         const hookArgs = createDevtoolsHookArgs(run, userMessage, agentInput)
-        const prepared = await binding.hooks?.prepareInput?.(hookArgs as never)
-        if (prepared) {
-          invocation.input = prepared
-          agentInput = prepared
-        }
-        const beforeInput = await binding.hooks?.beforeRun?.({ ...hookArgs, input: agentInput } as never)
-        if (beforeInput) {
-          invocation.input = beforeInput
-          agentInput = beforeInput
-        }
         session.thinkingFallback = typeof invocation.metadata?.thinkingFallback === "string"
           ? invocation.metadata.thinkingFallback
-          : typeof options.fallbackStreamingPlaceholderText === "string"
-            ? options.fallbackStreamingPlaceholderText
           : null
         await onChange?.(await serializeState(state, selected))
       },
@@ -365,14 +307,9 @@ async function sendDevtoolsUIMessage(
       session.uiMessages = [...baseMessages, latestAssistant]
       await onChange?.(await serializeState(state, selected))
     }
-    await binding.hooks?.afterRun?.({ input: agentInput, result: latestAssistant, run } as never)
     return await serializeState(state, selected)
   }
   catch (error) {
-    if (binding.hooks?.error) {
-      await binding.hooks.error({ error, input: agentInput, run } as never)
-      return await serializeState(state, selected)
-    }
     throw error
   }
 }
@@ -452,7 +389,7 @@ async function clearDevtoolsMessages(state: ChatDevtoolsHandlerState, input: { c
   return await serializeState(state, selected)
 }
 
-export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry, options: ChatDevtoolsRegistryHandlerOptions = {}): EventHandler {
+export function defineAgentDevtoolsRegistryHandler(registry: AgentDevtoolsRegistry, options: AgentDevtoolsRegistryHandlerOptions = {}): EventHandler {
   const state: ChatDevtoolsHandlerState = {
     metadata: options.metadata || {},
     registry,
@@ -461,6 +398,7 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
 
   return defineEventHandler(async (event) => {
     setHeader(event, "access-control-allow-origin", "*")
+    state.registry = await firstChatCapableAgentRegistry(registry, createRuntimeContext(event))
     const body = parseChatDevtoolsBridgeBody(await readBody<ChatDevtoolsBridgeBody | string>(event))
     if (!body || typeof body.action !== "string") {
       throw createError({
@@ -501,9 +439,9 @@ export function defineChatDevtoolsRegistryHandler(registry: ChatDevtoolsRegistry
   })
 }
 
-export function defineChatDevtoolsHandler(chat: ChatInput, options: ChatDevtoolsHandlerOptions = {}): EventHandler {
+export function defineAgentDevtoolsHandler(agent: AgentInput<NitroAgentDevtoolsRuntimeContext>, options: AgentDevtoolsHandlerOptions = {}): EventHandler {
   const name = options.inferredName || "default"
-  return defineChatDevtoolsRegistryHandler({
-    [name]: async () => chat,
+  return defineAgentDevtoolsRegistryHandler({
+    [name]: async () => agent,
   }, { metadata: options.metadata })
 }

@@ -28,20 +28,6 @@
     "./ai-sdk": "./dist/ai-sdk.js",
     "./capabilities": "./dist/capabilities.js",
     "./capability-runtime": "./dist/capability-runtime.js",
-    "./chat": "./dist/chat/index.js",
-    "./chat/cloudflare": "./dist/chat/cloudflare.js",
-    "./chat/devtools": "./dist/chat/devtools.js",
-    "./chat/nitro": "./dist/chat/nitro.js",
-    "./chat/presets": "./dist/chat/presets.js",
-    "./chat/runtime/agent-chat": "./dist/chat/runtime/agent-chat.js",
-    "./chat/runtime/chat-devtools-handler": "./dist/chat/runtime/chat-devtools-handler.js",
-    "./chat/runtime/cloudflare-workers-dev": "./dist/chat/runtime/cloudflare-workers-dev.js",
-    "./chat/runtime/memory-state": "./dist/chat/runtime/memory-state.js",
-    "./chat/runtime/nitro-dev-initialize": "./dist/chat/runtime/nitro-dev-initialize.js",
-    "./chat/runtime/nitro-plugin": "./dist/chat/runtime/nitro-plugin.js",
-    "./chat/runtime/nitro-runtime-config": "./dist/chat/runtime/nitro-runtime-config.js",
-    "./chat/vercel": "./dist/chat/vercel.js",
-    "./chat/vite": "./dist/chat/vite.js",
     "./cloudflare": "./dist/cloudflare.js",
     "./eval": "./dist/eval.js",
     "./mcp": "./dist/mcp.js",
@@ -59,10 +45,6 @@
   },
   "imports": {
     "#vitehub/agent/registry": {
-      "types": "./dist/runtime/empty-registry.d.ts",
-      "default": "./dist/runtime/empty-registry.js"
-    },
-    "#vitehub/agent/chat/registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "default": "./dist/runtime/empty-registry.js"
     }

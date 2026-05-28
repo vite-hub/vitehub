@@ -6,26 +6,9 @@ import { describe, expect, it, vi } from "vitest"
 
 import { listViteHubDevtoolsFeatures } from "@vitehub/devtools"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
-import { discoverChatDefinitions } from "../src/chat/discovery.ts"
-
-import type { ConfigPluginContext } from "vite"
 
 async function createTempRoot(prefix: string) {
   return await mkdtemp(join(tmpdir(), prefix))
-}
-
-async function resolveChatViteConfig(input: Record<string, unknown> = {}) {
-  const plugin = (await import("../src/chat/vite.ts")).hubChat()
-  if (typeof plugin.config !== "function") {
-    throw new TypeError("hubChat config hook is not callable")
-  }
-
-  return await plugin.config.call({} as ConfigPluginContext, input, {
-    command: "serve",
-    isPreview: false,
-    isSsrBuild: false,
-    mode: "development",
-  }) as { resolve?: { alias?: Record<string, string> } }
 }
 
 describe("agent discovery", () => {
@@ -132,29 +115,8 @@ describe("agent Nitro runtime files", () => {
   })
 })
 
-describe("agent chat discovery", () => {
-  it("discovers agents that expose chat only through capabilities", async () => {
-    const root = await createTempRoot("vitehub-agent-chat-capability-")
-    await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support.ts"), [
-      "import { chat, defineAgent } from '@vitehub/agent'",
-      "export default defineAgent({",
-      "  capabilities: [chat({ concurrency: 'queue', events: ['directMessage'] })],",
-      "})",
-    ].join("\n"), "utf8")
-
-    expect(discoverChatDefinitions({
-      mode: "nitro-server-chats",
-      scanDirs: [join(root, "server")],
-    })).toEqual([
-      expect.objectContaining({
-        name: "support",
-        source: "nitro-server-agent-chat",
-      }),
-    ])
-  })
-
-  it("uses Agent file and folder identity for discovered Agent Chat definitions", async () => {
+describe("agent chat capability discovery", () => {
+  it("discovers chat-capable agents through normal Agent discovery", async () => {
     const root = await createTempRoot("vitehub-agent-chat-identity-")
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), [
@@ -177,52 +139,22 @@ describe("agent chat discovery", () => {
       "export const legacy = defineAgent({ capabilities: [chat({ concurrency: 'queue', events: ['directMessage'] })] })",
     ].join("\n"), "utf8")
 
-    expect(discoverChatDefinitions({
-      mode: "nitro-server-chats",
+    expect(discoverAgentDefinitions({
+      mode: "nitro-server-agents",
       scanDirs: [join(root, "server")],
     })).toEqual([
-      expect.objectContaining({ name: "docs", source: "nitro-server-agent-chat", workspace: "docs" }),
-      expect.objectContaining({ name: "support", source: "nitro-server-agent-chat" }),
+      expect.objectContaining({ name: "docs", source: "nitro-server-agent-workspace", workspace: "docs" }),
+      expect.objectContaining({ name: "support", source: "nitro-server-agents" }),
     ])
   })
 
-  it("generates package imports for workspace chat agents", async () => {
-    const root = await createTempRoot("vitehub-agent-chat-runtime-")
-    const buildDir = ".nitro"
-    await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, capabilities: [chat({ concurrency: 'queue', events: ['directMessage'] })], model })", "utf8")
-
-    const module = (await import("../src/chat/nitro/module.ts")).default
-    await module.setup({
-      hooks: {
-        hook() {},
-      },
-      options: {
-        buildDir,
-        chat: { webhook: true },
-        handlers: [],
-        imports: {},
-        rootDir: root,
-        runtimeConfig: {},
-        scanDirs: [join(root, "server")],
-      },
-    } as never)
-
-    const routeFile = join(root, buildDir, ".vitehub", "nitro-runtime", "chat", "webhook-handler.ts")
-
-    await expect(readFile(routeFile, "utf8")).resolves.toContain('from "@vitehub/agent"')
-  })
-
-  it("registers the chat devtools bridge through hubChat by default", async () => {
+  it("registers the chat devtools bridge through hubChatDevtools by default", async () => {
     const root = await createTempRoot("vitehub-agent-chat-devtools-")
     const buildDir = ".nitro"
-    const plugin = (await import("../src/chat/vite.ts")).hubChat()
-    const hooks: Array<() => Promise<void> | void> = []
+    const plugin = (await import("../src/vite.ts")).hubChatDevtools()
     const nitro = {
       hooks: {
-        hook(_name: string, handler: () => Promise<void> | void) {
-          hooks.push(handler)
-        },
+        hook: vi.fn(),
       },
       options: {
         buildDir,
@@ -243,112 +175,15 @@ describe("agent chat discovery", () => {
         route: "/__vitehub/agent/chat/devtools",
       }),
     ]))
-    expect(hooks.length).toBeGreaterThan(0)
-  })
-
-  it("generates the Nitro chat devtools bridge from the discovered chat registry", async () => {
-    const root = await createTempRoot("vitehub-agent-chat-nitro-devtools-")
-    const buildDir = ".nitro"
-    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), [
-      "import { chat, defineAgent } from '@vitehub/agent'",
-      "export default defineAgent({",
-      "  workspace: {},",
-      "  capabilities: [chat({ concurrency: 'queue', events: ['directMessage'] })],",
-      "  provider: 'ai-sdk',",
-      "})",
-    ].join("\n"), "utf8")
-
-    const module = (await import("../src/chat/nitro/module.ts")).default
-    const hooks: Array<() => Promise<void> | void> = []
-    const nitro = {
-      hooks: {
-        hook(_name: string, handler: () => Promise<void> | void) {
-          hooks.push(handler)
-        },
-      },
-      options: {
-        buildDir,
-        chat: {},
-        dev: true,
-        handlers: [],
-        imports: {},
-        rootDir: root,
-        runtimeConfig: {},
-        scanDirs: [join(root, "server")],
-      },
-    }
-
-    await module.setup?.(nitro as never)
-    for (const hook of hooks) await hook()
-
-    const devtoolsFile = join(root, buildDir, ".vitehub", "nitro-runtime", "chat", "devtools-handler.ts")
-    await expect(readFile(devtoolsFile, "utf8")).resolves.toContain("defineChatDevtoolsRegistryHandler")
-    await expect(readFile(devtoolsFile, "utf8")).resolves.toContain("./nitro-registry.ts")
-    expect(nitro.options.handlers).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        handler: devtoolsFile,
-        method: "POST",
-        route: "/__vitehub/agent/chat/devtools",
-      }),
-    ]))
-  })
-
-  it("does not register the generated chat devtools bridge outside Nitro dev mode", async () => {
-    const root = await createTempRoot("vitehub-agent-chat-nitro-prod-devtools-")
-    const buildDir = ".nitro"
-    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), [
-      "import { chat, defineAgent } from '@vitehub/agent'",
-      "export default defineAgent({",
-      "  capabilities: [chat({ concurrency: 'queue', events: ['directMessage'] })],",
-      "  provider: 'ai-sdk',",
-      "})",
-    ].join("\n"), "utf8")
-
-    const module = (await import("../src/chat/nitro/module.ts")).default
-    const hooks: Array<() => Promise<void> | void> = []
-    const nitro = {
-      hooks: {
-        hook(_name: string, handler: () => Promise<void> | void) {
-          hooks.push(handler)
-        },
-      },
-      options: {
-        buildDir,
-        chat: {},
-        dev: false,
-        handlers: [],
-        imports: {},
-        rootDir: root,
-        runtimeConfig: {},
-        scanDirs: [join(root, "server")],
-      },
-    }
-
-    await module.setup?.(nitro as never)
-    for (const hook of hooks) await hook()
-
-    expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        route: "/__vitehub/agent/chat/devtools",
-      }),
-    ]))
   })
 
   it("deduplicates chat devtools bridge handlers by method and route", async () => {
     const root = await createTempRoot("vitehub-agent-chat-devtools-dedupe-")
     const buildDir = ".nitro"
-    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ capabilities: [chat({ concurrency: 'queue', events: ['directMessage'] })] })", "utf8")
-
-    const module = (await import("../src/chat/nitro/module.ts")).default
-    const hooks: Array<() => Promise<void> | void> = []
+    const plugin = (await import("../src/vite.ts")).hubChatDevtools()
     const nitro = {
       hooks: {
-        hook(_name: string, handler: () => Promise<void> | void) {
-          hooks.push(handler)
-        },
+        hook: vi.fn(),
       },
       options: {
         buildDir,
@@ -366,14 +201,13 @@ describe("agent chat discovery", () => {
       },
     }
 
-    await module.setup?.(nitro as never)
-    for (const hook of hooks) await hook()
+    await plugin.nitro.setup?.(nitro as never)
 
     expect(nitro.options.handlers.filter(handler => handler.method === "POST" && handler.route === "/__vitehub/agent/chat/devtools")).toHaveLength(1)
   })
 
-  it("registers the chat devtools feature through hubChat by default", async () => {
-    const plugin = (await import("../src/chat/vite.ts")).hubChat()
+  it("registers the chat devtools feature through hubChatDevtools by default", async () => {
+    const plugin = (await import("../src/vite.ts")).hubChatDevtools()
     const ctx = {
       messages: {
         add: vi.fn(),
@@ -397,23 +231,10 @@ describe("agent chat discovery", () => {
     expect(ctx.rpc.register).toHaveBeenCalledTimes(3)
   })
 
-  it("keeps the dev config scoped to runtime aliases", async () => {
-    const config = await resolveChatViteConfig({
-      resolve: {
-        alias: {
-          vue: "/app/vue.js",
-        },
-      },
-    })
-
-    expect(config.resolve?.alias?.vue).toBeUndefined()
-    expect(config.resolve?.alias?.["cloudflare:workers"]).toContain("cloudflare-workers-dev")
-  })
-
   it("skips chat devtools feature and bridge when package-local devtools are disabled", async () => {
     const root = await createTempRoot("vitehub-agent-chat-devtools-disabled-")
     const buildDir = ".nitro"
-    const plugin = (await import("../src/chat/vite.ts")).hubChat({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubChatDevtools({ devtools: false })
     const ctx = {
       messages: {
         add: vi.fn(),
@@ -449,11 +270,12 @@ describe("agent chat discovery", () => {
     ]))
   })
 
-  it("exports chat presets from the agent package build", async () => {
+  it("does not export legacy chat definition subpaths from the agent package build", async () => {
     const packageJson = JSON.parse(await readFile(join(import.meta.dirname, "../package.json"), "utf8"))
     const tsdownConfig = await readFile(join(import.meta.dirname, "../tsdown.config.ts"), "utf8")
 
-    expect(packageJson.exports["./chat/presets"]).toBe("./dist/chat/presets.js")
-    expect(tsdownConfig).toContain('"src/chat/presets.ts"')
+    expect(Object.keys(packageJson.exports).filter(key => key.startsWith("./chat"))).toEqual([])
+    expect(packageJson.imports["#vitehub/agent/chat/registry"]).toBeUndefined()
+    expect(tsdownConfig).not.toContain("src/chat/")
   })
 })

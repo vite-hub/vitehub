@@ -96,18 +96,16 @@ export default defineAgent({
 ```
 ::
 
-### Call it from Chat
+### Add Chat
 
-`@vitehub/agent/chat` can route direct messages to a discovered agent by name.
+Attach the Chat Capability to the discovered Agent. DevTools and host routes consume the resulting `chat.message` Agent Trigger.
 
-```ts [server/chat.ts]
-import { defineChat } from '@vitehub/agent/chat'
+```ts [server/agents/triager.ts]
+import { chat, defineAgent } from '@vitehub/agent'
 
-export default defineChat({
-  adapters,
-  agent: 'triager',
-  state,
-  userName: 'Support Bot',
+export default defineAgent({
+  capabilities: [chat({ concurrency: 'queue', history: { source: 'thread', maxMessages: 20 } })],
+  model: gateway('openai/gpt-5.1-mini'),
 })
 ```
 

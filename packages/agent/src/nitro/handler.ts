@@ -84,7 +84,7 @@ function getRequestBody(method: string, req: RequestLike): RequestInit["body"] |
   return typeof req[Symbol.asyncIterator] === "function" ? req as RequestInit["body"] : undefined
 }
 
-function toFetchRequest(event: H3Event): Request {
+export function toFetchRequest(event: H3Event): Request {
   const candidate = event.req as unknown
   if (candidate instanceof Request) {
     return candidate

@@ -255,38 +255,23 @@ export default defineAgent({
 
 `run` receives resolved runtime context and the agent input. Use it as the escape hatch when an official library API is not covered by a ViteHub adapter yet.
 
-## Bind Chat to Agent
+## Add Chat
 
-Chat owns the webhook and thread. Agent owns the model work.
+Chat is an Agent Capability. Attach it to the discovered Agent; hosts and DevTools call its `chat.message` trigger through the Agent Trigger API.
 
-```ts [server/chat.ts]
-export default defineChat({
-  adapters,
-  agent: 'triager',
-  state,
-  userName: 'Support Bot',
+```ts [server/agents/triager.ts]
+export default defineAgent({
+  capabilities: [chat({ concurrency: 'queue' })],
+  model,
 })
 ```
 
-Use the object form to customize history, input, or response posting.
+Use the capability options to customize history.
 
-```ts [server/chat.ts]
-export default defineChat({
-  adapters,
-  agent: {
-    name: 'triager',
-    history: {
-      source: 'thread',
-      maxMessages: 20,
-    },
-    hooks: {
-      beforeRun({ input }) {
-        return input
-      },
-    },
-  },
-  state,
-  userName: 'Support Bot',
+```ts [server/agents/triager.ts]
+export default defineAgent({
+  capabilities: [chat({ concurrency: 'queue', history: { source: 'thread', maxMessages: 20 } })],
+  model,
 })
 ```
 

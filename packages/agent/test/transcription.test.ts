@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMessage, defineAgent, runAgent, transcribe } from "@vitehub/agent"
-import { toViteHubMessages } from "../src/chat/agent-handoff.ts"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -88,24 +87,4 @@ describe("agent transcription", () => {
     })).resolves.toMatchObject({ text: "please\nreview this" })
   })
 
-  it("preserves chat audio attachments as ViteHub audio parts", async () => {
-    const binary = new Uint8Array([1, 2, 3])
-
-    await expect(toViteHubMessages([
-      {
-        attachments: [
-          { data: "AAAA", mediaType: "audio/wav" },
-          { data: binary, type: "audio" },
-          { fetchData: async () => "BBBB", type: "audio" },
-        ],
-        id: "chat-1",
-        text: "please transcribe",
-      } as never,
-    ])).resolves.toEqual([expect.objectContaining({ parts: [
-      { id: "text-0", text: "please transcribe", type: "text" },
-      { data: "AAAA", id: "audio-0", mediaType: "audio/wav", type: "audio" },
-      { data: binary, id: "audio-1", mediaType: "audio/*", type: "audio" },
-      { data: "BBBB", id: "audio-2", mediaType: "audio/*", type: "audio" },
-    ] })])
-  })
 })

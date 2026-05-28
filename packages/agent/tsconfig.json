@@ -8,9 +8,6 @@
       "#vitehub/agent/registry": [
         "packages/agent/src/runtime/empty-registry.ts"
       ],
-      "#vitehub/agent/chat/registry": [
-        "packages/agent/src/runtime/empty-registry.ts"
-      ],
       "#vitehub-sandbox-provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],
@@ -31,12 +28,6 @@
       ],
       "@vitehub/agent/*": [
         "packages/agent/src/*"
-      ],
-      "@vitehub/agent/chat": [
-        "packages/agent/src/chat/index.ts"
-      ],
-      "@vitehub/agent/chat/runtime/nitro-dev-initialize": [
-        "packages/agent/src/chat/runtime/nitro-dev-initialize.ts"
       ],
       "@vitehub/devtools": [
         "packages/devtools/src/index.ts"
