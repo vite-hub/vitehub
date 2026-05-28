@@ -44,6 +44,18 @@ _Avoid_: Agent migration batch, SQL script
 A Capability that gives an Agent chat-oriented runtime behavior, including Chat History for the current stack.
 _Avoid_: Chat History Capability, Agent Memory
 
+**Chat Platform Adapter**:
+A ChatSDK adapter returned by Chat Capability configuration for an external chat platform such as Teams.
+_Avoid_: Agent Model Adapter, Agent Trigger, Nitro handler
+
+**Chat Adapter Callback**:
+The lazy Chat Capability option that returns the current request's Chat Platform Adapters.
+_Avoid_: Webhook registration helper, adapter registry, build-time adapter scan
+
+**Chat Webhook Autowiring**:
+ViteHub-owned server wiring that exposes Chat Platform Adapter webhooks from the Chat Capability without app route code.
+_Avoid_: Public registration function, local Teams route, manual webhook route
+
 **Workspace Capability**:
 A Capability that gives an Agent model-facing access to Workspace files.
 _Avoid_: Bash, raw workspace tools, built-in tool
@@ -144,6 +156,10 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Deterministic or callback-based routing is not an official Capability in V1; users can define inline Capabilities or hooks that set named invocation context values.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
+- A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
+- **Chat Platform Adapters** are platform integration adapters, not **Agent Model Adapters**.
+- **Chat Webhook Autowiring** is inferred from the Agent's attached **Chat Capability**; users do not attach a second Capability or call a webhook registration helper.
+- **Chat Webhook Autowiring** resolves the **Chat Adapter Callback** at request time so callbacks can read Server Env and other request-local server state.
 - **Transcription** is an input-phase Official Capability.
 - A **Workspace Capability** contributes Workspace tools without implying unrestricted process execution.
 - A **Workspace Shell Capability** contributes shell-shaped Workspace tools without implying Sandbox execution.
@@ -221,6 +237,8 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Chat-specific helpers were considered for server-side trigger behavior - resolved: use **Capability Trigger Contribution** so Chat and future user-defined Capabilities register Agent Triggers from the Agent config source of truth.
 - Grouping trigger contributions under a `server` bucket was considered - resolved: keep triggers directly capability-owned because Agent Triggers are server-authoritative by default and no broader server contribution group has been proven yet.
 - Trigger handlers were considered for direct Agent execution - resolved: trigger contributions map input and run metadata, while the Agent Package executes the Agent Invocation through the standard lifecycle.
+- Public chat webhook registration helpers were considered for platform adapters - resolved: use **Chat Webhook Autowiring** from the **Chat Capability** so adapter configuration remains the only source of truth.
+- Build-time Chat Platform Adapter detection was considered - resolved: resolve the **Chat Adapter Callback** at request time because platform credentials and adapter construction can depend on Server Env.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.

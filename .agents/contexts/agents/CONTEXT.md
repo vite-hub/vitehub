@@ -104,6 +104,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - An **Agent Trigger** may pass host or client intent with the Agent Invocation, but it does not grant Capabilities dynamically.
 - An **Agent Trigger** is registered by a Capability when the trigger belongs to a Capability-owned product ability.
 - An **Agent Trigger** is not an **Agent Model Adapter**.
+- An **Agent Trigger** is not a **Chat Platform Adapter**; Chat Platform Adapters receive platform events, while Agent Triggers start Agent Invocations.
 - An **Agent Invocation** follows one **Agent Invocation Lifecycle**.
 - An **Agent Finish Hook** belongs to the **Agent Invocation Lifecycle**.
 - Capabilities can expose **Agent Invocation Extensions** on Agent Invocation Lifecycle events.
@@ -163,6 +164,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - Model-free playground behavior was described as a dummy Agent - resolved: use **Mock Agent Adapter** for deterministic, cost-free Agent Invocations.
 - Callback runtime config was considered an Agent app configuration surface - resolved: app-owned Runtime Env belongs to Server Env, not Agent callback context.
 - Server-side chat integration was described as a chat adapter or client integration - resolved: use **Agent Trigger** for server-side behavior that starts Agent Invocations.
+- ChatSDK adapters were considered Agent Triggers - resolved: a Chat Platform Adapter receives platform webhook events, and generated Chat Webhook wiring bridges those events into the Chat Capability's Agent Trigger.
 - Agent Triggers were considered chat-only because chat is the first major use case - resolved: Chat can provide the first official Capability-owned trigger, but Agent Triggers remain general and do not require message-shaped input.
 - Chat helper APIs were considered the primary exposure path - resolved: Capability-owned trigger registration is the primary server-side path, with helpers only as optional callers or ergonomics around registered triggers.
 - Client-provided flags were considered Capability configuration - resolved: triggers may pass host or client intent with the Agent Invocation, while Capabilities remain server-configured Agent behavior and the exact input field name is not fixed yet.
