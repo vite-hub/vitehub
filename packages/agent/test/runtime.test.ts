@@ -1360,10 +1360,8 @@ describe("agent message protocol", () => {
     }))
 
     expect(response.status).toBe(200)
-    const errorEvent = (await response.text()).split("\n")
-      .find(line => line.includes("No chats are registered for DevTools."))
-    expect(errorEvent).toBeDefined()
-    expect(JSON.parse(errorEvent!)).toMatchObject({
+    const [event] = (await response.text()).trim().split("\n").map(line => JSON.parse(line))
+    expect(event).toEqual({
       message: "No chats are registered for DevTools.",
       type: "error",
     })

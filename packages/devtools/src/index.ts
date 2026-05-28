@@ -24,14 +24,14 @@ export interface HubDevtoolsOptions {
 
 export const viteHubDevtoolsPanelId = "@vitehub/devtools"
 export const viteHubDevtoolsTitle = "ViteHub"
-export const viteHubDevtoolsDefaultUrl = "/__vitehub/devtools/chat/"
-export const viteHubDevtoolsHostedUrl = "https://devtools.vitehub.dev/chat/"
+export const viteHubDevtoolsDefaultUrl = "/__vitehub/devtools/"
+export const viteHubDevtoolsHostedUrl = "https://devtools.vitehub.dev/"
 const viteHubDevtoolsUrlEnv = "VITEHUB_DEVTOOLS_URL"
 export const viteHubDevtoolsGetFeaturesRpc = "@vitehub/devtools:get-features"
 
-const chatShellPublicDirectory = fileURLToPath(new URL("../devtools/chat/.output/public", import.meta.url))
-const chatShellRoute = viteHubDevtoolsDefaultUrl
-const chatShellRouteWithoutSlash = chatShellRoute.replace(/\/$/, "")
+const devtoolsShellPublicDirectory = fileURLToPath(new URL("../devtools/chat/.output/public", import.meta.url))
+const devtoolsShellRoute = viteHubDevtoolsDefaultUrl
+const devtoolsShellRouteWithoutSlash = devtoolsShellRoute.replace(/\/$/, "")
 const textFileTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -85,28 +85,28 @@ function getContentType(filePath: string): string {
   return textFileTypes[extension] || binaryFileTypes[extension] || "application/octet-stream"
 }
 
-function rewriteChatShellIndex(html: string): string {
+function rewriteDevtoolsShellIndex(html: string): string {
   return html
-    .replaceAll('href="/_nuxt/', `href="${chatShellRoute}_nuxt/`)
-    .replaceAll('src="/_nuxt/', `src="${chatShellRoute}_nuxt/`)
-    .replaceAll('href:"/_nuxt/', `href:"${chatShellRoute}_nuxt/`)
-    .replaceAll('src:"/_nuxt/', `src:"${chatShellRoute}_nuxt/`)
-    .replace('baseURL:"/"', `baseURL:"${chatShellRoute}"`)
-    .replace('buildAssetsDir:"/_nuxt/"', `buildAssetsDir:"${chatShellRoute}_nuxt/"`)
+    .replaceAll('href="/_nuxt/', `href="${devtoolsShellRoute}_nuxt/`)
+    .replaceAll('src="/_nuxt/', `src="${devtoolsShellRoute}_nuxt/`)
+    .replaceAll('href:"/_nuxt/', `href:"${devtoolsShellRoute}_nuxt/`)
+    .replaceAll('src:"/_nuxt/', `src:"${devtoolsShellRoute}_nuxt/`)
+    .replace('baseURL:"/"', `baseURL:"${devtoolsShellRoute}"`)
+    .replace('buildAssetsDir:"/_nuxt/"', `buildAssetsDir:"${devtoolsShellRoute}_nuxt/"`)
 }
 
-function resolveChatShellFile(pathname: string): string | undefined {
-  if (pathname === chatShellRouteWithoutSlash || pathname === chatShellRoute) {
-    return join(chatShellPublicDirectory, "index.html")
+function resolveDevtoolsShellFile(pathname: string): string | undefined {
+  if (pathname === devtoolsShellRouteWithoutSlash || pathname === devtoolsShellRoute) {
+    return join(devtoolsShellPublicDirectory, "index.html")
   }
 
-  if (!pathname.startsWith(chatShellRoute)) {
+  if (!pathname.startsWith(devtoolsShellRoute)) {
     return undefined
   }
 
-  const requestedPath = decodeURIComponent(pathname.slice(chatShellRoute.length))
-  const filePath = resolve(chatShellPublicDirectory, requestedPath || "index.html")
-  const relativePath = relative(chatShellPublicDirectory, filePath)
+  const requestedPath = decodeURIComponent(pathname.slice(devtoolsShellRoute.length))
+  const filePath = resolve(devtoolsShellPublicDirectory, requestedPath || "index.html")
+  const relativePath = relative(devtoolsShellPublicDirectory, filePath)
   if (relativePath.startsWith("..") || relativePath === "" || resolve(relativePath) === relativePath) {
     return undefined
   }
@@ -114,7 +114,7 @@ function resolveChatShellFile(pathname: string): string | undefined {
   return filePath
 }
 
-function registerChatShellMiddleware(server: ViteDevServer): void {
+function registerDevtoolsShellMiddleware(server: ViteDevServer): void {
   server.middlewares.use(async (request, response, next) => {
     if (!request.url) {
       next()
@@ -122,7 +122,7 @@ function registerChatShellMiddleware(server: ViteDevServer): void {
     }
 
     const pathname = new URL(request.url, "http://vitehub.local").pathname
-    const filePath = resolveChatShellFile(pathname)
+    const filePath = resolveDevtoolsShellFile(pathname)
     if (!filePath) {
       next()
       return
@@ -139,7 +139,7 @@ function registerChatShellMiddleware(server: ViteDevServer): void {
       response.setHeader("content-type", getContentType(filePath))
       response.setHeader("cache-control", "no-cache")
       if (filePath.endsWith("index.html")) {
-        response.end(rewriteChatShellIndex(await readFile(filePath, "utf8")))
+        response.end(rewriteDevtoolsShellIndex(await readFile(filePath, "utf8")))
         return
       }
 
@@ -148,7 +148,7 @@ function registerChatShellMiddleware(server: ViteDevServer): void {
     catch (error) {
       if ((error as { code?: string }).code === "ENOENT") {
         response.statusCode = 404
-        response.end("ViteHub DevTools chat shell has not been built. Run `pnpm --filter @vitehub/devtools build:chat`.")
+        response.end("ViteHub DevTools shell has not been built. Run `pnpm --filter @vitehub/devtools build:chat`.")
         return
       }
 
@@ -239,7 +239,7 @@ export function hubDevtools(options: HubDevtoolsOptions = {}): Plugin {
         return
       }
 
-      registerChatShellMiddleware(server)
+      registerDevtoolsShellMiddleware(server)
     },
     devtools: {
       setup(ctx) {

@@ -1,9 +1,10 @@
 import agentRegistry from "#vitehub/agent/registry"
-import { createMessage, getMessageText } from "./messages.ts"
+import { getMessageText } from "./messages.ts"
 import {
   ApprovalRequiredError,
   resolveRuntimeContext,
 } from "@vitehub/runtime"
+import { chat, getChatCapabilityOptions } from "./chat-trigger.ts"
 
 import {
   applyCapabilityToolTransforms,
@@ -19,10 +20,17 @@ import {
 } from "./capability-runtime.ts"
 import type { ResolvedAgentFinishExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
+import { finalizeUiMessageStreamOutput } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
+import {
+  resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
+  resolveAgentTriggers as resolveAgentTriggersWithResolvedContext,
+  runAgentTriggerWith,
+  streamAgentTriggerWith,
+} from "./trigger-runtime.ts"
 
 import type {
   AgentAdapter,
@@ -39,7 +47,6 @@ import type {
   AgentDefinition,
   AgentFinishEvent,
   AgentChatOptions,
-  AgentChatAgentHookArgs,
   AgentInput,
   AgentInstructionBlock,
   AgentInvocationHooks,
@@ -48,7 +55,6 @@ import type {
   AgentRequestBody,
   AgentRunContext,
   AgentRunInput,
-  AgentRunMetadata,
   AgentRunResult,
   AgentRuntimeBinding,
   AgentRuntimeConfig,
@@ -60,14 +66,15 @@ import type {
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
   AgentChatAgentHooks,
-  AgentTriggerDefinition,
   MaybePromise,
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
-import type { Message, MessagePart, StreamEvent } from "./messages.ts"
+import type { Message, StreamEvent } from "./messages.ts"
+import type { AgentChatMessageTriggerInput } from "./chat-trigger.ts"
+import type { ResolvedAgentTriggerInvocation } from "./trigger-runtime.ts"
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
@@ -188,23 +195,6 @@ type AgentDefinitionWithBaseResolve<
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
 }
-type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
-  chat: AgentChatOptions<TRuntimeConfig>
-  kind: "chat"
-}
-type UIMessageLike = {
-  createdAt?: Date | string
-  id?: string
-  metadata?: unknown
-  parts?: Array<{ text?: string, type?: string } | Record<string, unknown>>
-  role?: string
-}
-export interface AgentChatMessageTriggerInput {
-  history?: AgentChatOptions["history"]
-  messages: UIMessageLike[]
-  run?: AgentRunMetadata
-  timeout?: number
-}
 interface ScheduleRunContextLike {
   attemptId?: string
   id: string
@@ -292,6 +282,8 @@ export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runti
 export { defineCapability } from "./capability-runtime.ts"
 export { agentScheduleIdFromCron, blob, chatSummary, chatTitle, db, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
 export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, ChatSummaryCommandOptions, ChatSummaryExecuteInput, ChatSummaryExecuteResult, ChatSummaryOptions, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
+export { chat }
+export type { AgentChatMessageTriggerInput, ResolvedAgentTriggerInvocation }
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -361,173 +353,6 @@ function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtools
         status: "available",
       }
     : undefined
-}
-
-function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
-  capabilities: NormalizedCapability[],
-): AgentChatOptions<TRuntimeConfig> | undefined {
-  return capabilities.find(capability => capability.id === "chat" && (capability.metadata as ChatCapabilityMetadata | undefined)?.kind === "chat")
-    ?.metadata?.chat as AgentChatOptions<TRuntimeConfig> | undefined
-}
-
-function uiMessageText(message: UIMessageLike): string {
-  const parts = Array.isArray(message.parts) ? message.parts : []
-  return parts
-    .filter((part): part is { text: string } => typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string")
-    .map(part => part.text)
-    .join("")
-}
-
-function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === "string" && value.length > 0)
-}
-
-function uiToolName(part: Record<string, unknown>): string {
-  if (part.type === "dynamic-tool") {
-    return firstString(part.toolName, part.name) || "tool"
-  }
-  return typeof part.type === "string" && part.type.startsWith("tool-")
-    ? part.type.slice("tool-".length)
-    : firstString(part.toolName, part.name) || "tool"
-}
-
-function uiToolId(part: Record<string, unknown>, name: string, index: number): string {
-  return firstString(part.toolCallId, part.id) || `${name}-${index + 1}`
-}
-
-function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart | string> {
-  const parts = Array.isArray(message.parts) ? message.parts : []
-  return parts.flatMap((part, index): Array<MessagePart | string> => {
-    if (!part || typeof part !== "object") return []
-    const record = part as Record<string, unknown>
-    if (record.type === "text" && typeof record.text === "string") return [record.text]
-    if (record.type === "dynamic-tool" || (typeof record.type === "string" && record.type.startsWith("tool-"))) {
-      const name = uiToolName(record)
-      const id = uiToolId(record, name, index)
-      const state = typeof record.state === "string" ? record.state : undefined
-      if (state === "output-available" || state === "output-denied" || record.output !== undefined) {
-        return [{
-          error: typeof record.errorText === "string" ? record.errorText : undefined,
-          id,
-          name,
-          output: record.output,
-          state: typeof record.errorText === "string" ? "failed" : "completed",
-          type: "tool-result",
-        }]
-      }
-      return [{
-        id,
-        input: record.input,
-        name,
-        state: state === "input-available" || state === "input-streaming" ? "proposed" : "running",
-        type: "tool-call",
-      }]
-    }
-    return []
-  })
-}
-
-function uiMessagesToAgentMessages(messages: UIMessageLike[]): Message[] {
-  return messages.map((message, index) => {
-    const role = message.role === "assistant" || message.role === "system" || message.role === "tool" || message.role === "user"
-      ? message.role
-      : "user"
-    return createMessage({
-      createdAt: message.createdAt,
-      id: message.id || `ui-${index}`,
-      metadata: typeof message.metadata === "object" && message.metadata !== null ? message.metadata as Record<string, unknown> : undefined,
-      parts: uiMessagePartsToAgentParts(message),
-      role,
-    })
-  })
-}
-
-function selectChatHistory(messages: UIMessageLike[], history: AgentChatOptions["history"]): UIMessageLike[] {
-  if (history === false || history === "none") return messages.slice(-1)
-  if (typeof history === "object" && history.source === "thread" && typeof history.maxMessages === "number") {
-    return messages.slice(-Math.max(1, history.maxMessages))
-  }
-  return messages.slice(-20)
-}
-
-function createChatTriggerHookArgs(
-  messages: UIMessageLike[],
-  run: AgentRunMetadata | undefined,
-): AgentChatAgentHookArgs {
-  const message = messages.at(-1)
-  return {
-    history: uiMessagesToAgentMessages(messages),
-    message: {
-      id: message?.id,
-      text: message ? uiMessageText(message) : "",
-    },
-    run,
-    thread: {
-      post: async () => undefined,
-    },
-  }
-}
-
-async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeConfig>(
-  options: AgentChatOptions<TRuntimeConfig>,
-  args: AgentChatAgentHookArgs<TRuntimeConfig>,
-): Promise<string | undefined> {
-  const fallback = options.fallbackStreamingPlaceholderText
-  if (fallback === null) return undefined
-  if (typeof fallback === "function") {
-    const resolved = await fallback(args)
-    return resolved || undefined
-  }
-  if (typeof fallback === "string") return fallback
-  return "Thinking..."
-}
-
-function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
-  options: AgentChatOptions<TRuntimeConfig>,
-): AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, AgentChatMessageTriggerInput> {
-  return {
-    devtools: true,
-    input: "ui-message[]",
-    output: "ui-message-stream",
-    async invoke(_context, triggerInput) {
-      const messages = Array.isArray(triggerInput?.messages) ? triggerInput.messages : []
-      if (!messages.length) {
-        throw new TypeError("[vitehub] chat.message trigger requires at least one UI message.")
-      }
-      const selectedMessages = selectChatHistory(messages, triggerInput.history ?? options.history)
-      const hookArgs = createChatTriggerHookArgs(selectedMessages, triggerInput.run)
-      const input = {
-        context: { chat: { message: hookArgs.message, run: triggerInput.run } },
-        messages: uiMessagesToAgentMessages(selectedMessages),
-        timeout: triggerInput.timeout,
-      } satisfies AgentRunInput
-      return {
-        input,
-        metadata: {
-          thinkingFallback: await resolveChatThinkingFallback(options, hookArgs),
-        },
-        run: triggerInput.run,
-      }
-    },
-  }
-}
-
-export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChatOptions<TRuntimeConfig>,
-): AgentCapabilityDefinition<TRuntimeConfig> {
-  return defineCapability({
-    id: "chat",
-    metadata: {
-      chat: options,
-      kind: "chat",
-    } satisfies ChatCapabilityMetadata<TRuntimeConfig>,
-    prepare(context) {
-      context.state.require("chat-history", { optional: true })
-    },
-    triggers: {
-      message: createChatMessageTrigger(options),
-    },
-  })
 }
 
 export {
@@ -1088,58 +913,13 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
   return agent
 }
 
-function agentCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-): AgentCapabilityDefinition<TRuntimeConfig>[] {
-  if (!hasAgentDefinition(agent)) return []
-  const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition<TRuntimeConfig>>
-  const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig> | undefined
-  return (workspaceOptions?.capabilities || agent.capabilities || []) as AgentCapabilityDefinition<TRuntimeConfig>[]
-}
-
 export async function resolveAgentTriggers<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): Promise<Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>>> {
-  const runtimeContext = createAgentCallbackContext(context)
-  const capabilities = normalizeCapabilities(agentCapabilityOptions(agent) as never) as AgentCapabilityDefinition<TRuntimeConfig>[]
-  const triggers: Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>> = {}
-  for (const capability of capabilities) {
-    for (const [name, trigger] of Object.entries(capability.triggers || {})) {
-      const id = `${capability.id}.${name}` as const
-      triggers[id] = {
-        capabilityId: capability.id,
-        definition: trigger as never,
-        devtools: trigger.devtools,
-        id,
-        input: trigger.input,
-        invoke: input => trigger.invoke({
-          ...runtimeContext,
-          capability,
-          trigger: {
-            capabilityId: capability.id,
-            id,
-            name,
-          },
-        }, input as never),
-        name,
-        output: trigger.output,
-      }
-    }
-  }
-  return triggers
-}
-
-export interface ResolvedAgentTriggerInvocation<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-> {
-  input: AgentRunInput<CALL_OPTIONS>
-  metadata?: Record<string, unknown>
-  run?: AgentRunMetadata
-  trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, unknown, CALL_OPTIONS>
+  return await resolveAgentTriggersWithResolvedContext(agent, createResolvedRuntimeContext(context))
 }
 
 export async function resolveAgentTriggerInvocation<
@@ -1152,18 +932,12 @@ export async function resolveAgentTriggerInvocation<
   triggerId: string,
   input: TInput,
 ): Promise<ResolvedAgentTriggerInvocation<TRuntimeConfig, CALL_OPTIONS>> {
-  const triggers = await resolveAgentTriggers(agent, context)
-  const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
-  if (!trigger) {
-    throw new Error(`[vitehub] Agent trigger "${triggerId}" is not defined by this agent.`)
-  }
-  const invocation = await trigger.invoke(input)
-  return {
-    input: invocation.input,
-    metadata: invocation.metadata,
-    run: invocation.run,
-    trigger: trigger as never,
-  }
+  return await resolveAgentTriggerInvocationWithResolvedContext<TRuntimeConfig, TInput, CALL_OPTIONS>(
+    agent,
+    createResolvedRuntimeContext(context),
+    triggerId,
+    input,
+  )
 }
 
 export async function runAgentTrigger<
@@ -1176,8 +950,7 @@ export async function runAgentTrigger<
   triggerId: string,
   input: TInput,
 ): Promise<Response | AgentRunResult | unknown> {
-  const invocation = await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input)
-  return await runAgent(agent, { ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.input)
+  return await runAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(runAgent, agent, createResolvedRuntimeContext(context), triggerId, input)
 }
 
 export async function streamAgentTrigger<
@@ -1194,10 +967,7 @@ export async function streamAgentTrigger<
     output?: "events" | "ui-message-stream"
   } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  const invocation = await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input)
-  await options.onInvocation?.(invocation)
-  const output = options.output || (invocation.trigger.output === "ui-message-stream" ? "ui-message-stream" : "events")
-  return await streamAgent(agent, { ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.input, { output })
+  return await streamAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(streamAgent, agent, createResolvedRuntimeContext(context), triggerId, input, options)
 }
 
 function toAgentRunResult(value: unknown): AgentRunResult {
@@ -1218,43 +988,6 @@ function toAgentRunResult(value: unknown): AgentRunResult {
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
-}
-
-function isUIMessageStreamResult(value: unknown): value is { toUIMessageStream: () => ReadableStream<unknown> } {
-  return typeof value === "object"
-    && value !== null
-    && typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
-}
-
-function withReadableStreamCleanup<T>(stream: ReadableStream<T>, cleanup: (error?: unknown) => Promise<void>): ReadableStream<T> {
-  const reader = stream.getReader()
-  let cleaned = false
-  const runCleanup = async (error?: unknown) => {
-    if (cleaned) return
-    cleaned = true
-    await cleanup(error)
-  }
-  return new ReadableStream<T>({
-    async pull(controller) {
-      try {
-        const result = await reader.read()
-        if (result.done) {
-          await runCleanup()
-          controller.close()
-          return
-        }
-        controller.enqueue(result.value)
-      }
-      catch (error) {
-        await runCleanup(error)
-        controller.error(error)
-      }
-    },
-    async cancel(reason) {
-      await reader.cancel(reason)
-      await runCleanup(reason)
-    },
-  })
 }
 
 function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
@@ -1638,18 +1371,8 @@ export async function streamAgent<
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       if (output === "ui-message-stream") {
-        if (!isUIMessageStreamResult(rendered)) {
-          throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
-        }
-        const stream = rendered.toUIMessageStream()
         const shouldWrapOutput = runContext.hasCapabilityCleanup || hasFinishWork(runContext)
-        return {
-          deferFinish: shouldWrapOutput,
-          finishResult: rendered,
-          value: shouldWrapOutput
-            ? withReadableStreamCleanup(stream, error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
-            : stream,
-        }
+        return finalizeUiMessageStreamOutput(rendered, shouldWrapOutput, error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
       }
       return { finishResult: rendered, value: rendered }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.")
@@ -1679,18 +1402,8 @@ export async function streamAgent<
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
     if (output === "ui-message-stream") {
-      if (!isUIMessageStreamResult(rendered)) {
-        throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
-      }
-      const stream = rendered.toUIMessageStream()
       const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
-      return {
-        deferFinish: shouldWrapOutput,
-        finishResult: rendered,
-        value: shouldWrapOutput
-          ? withReadableStreamCleanup(stream, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error))
-          : stream,
-      }
+      return finalizeUiMessageStreamOutput(rendered, shouldWrapOutput, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error))
     }
     const events = streamTextResultToEvents(rendered)
     const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)

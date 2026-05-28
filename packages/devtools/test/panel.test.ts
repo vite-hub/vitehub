@@ -38,14 +38,14 @@ describe("hubDevtools", () => {
 
     hubDevtools().devtools?.setup?.(ctx as never)
 
-    expect(viteHubDevtoolsDefaultUrl).toBe("/__vitehub/devtools/chat/")
+    expect(viteHubDevtoolsDefaultUrl).toBe("/__vitehub/devtools/")
     expect(ctx.views.hostStatic).not.toHaveBeenCalled()
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
       id: viteHubDevtoolsPanelId,
       remote: false,
       title: "ViteHub",
       type: "iframe",
-      url: "/__vitehub/devtools/chat/",
+      url: "/__vitehub/devtools/",
     }))
     expect(ctx.rpc.register).toHaveBeenCalledWith(expect.objectContaining({
       name: viteHubDevtoolsGetFeaturesRpc,
@@ -74,7 +74,7 @@ describe("hubDevtools", () => {
       id: viteHubDevtoolsPanelId,
       remote: true,
       type: "iframe",
-      url: "https://devtools.vitehub.dev/chat/",
+      url: "https://devtools.vitehub.dev/",
     }))
   })
 

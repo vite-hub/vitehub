@@ -2,7 +2,6 @@ import { createError, defineEventHandler, readBody, setHeader } from "h3"
 
 import { resolveAgentTriggers, streamAgentTrigger } from "../../index.ts"
 import { chatDevtoolsClearRpc, chatDevtoolsGetStateRpc, chatDevtoolsSendRpc } from "../devtools-shared.ts"
-import { createMemoryChatStateAdapter } from "../runtime/memory-state.ts"
 import { createAgentRuntimeContext } from "../../runtime/context.ts"
 import { getAgentRuntimeConfig } from "../../runtime/nitro-runtime-config.ts"
 import { toFetchRequest } from "../../nitro/handler.ts"
@@ -10,7 +9,7 @@ import { toFetchRequest } from "../../nitro/handler.ts"
 import type { EventHandler, H3Event } from "h3"
 import type { UIMessage } from "ai"
 import type { AgentChatMessageTriggerInput, AgentInput, AgentRunInput, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext } from "../../index.ts"
-import type { ChatDevtoolsConversation, ChatDevtoolsMessage, ChatDevtoolsMetadata, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
+import type { ChatDevtoolsConversation, ChatDevtoolsMetadata, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
 
 type AgentLoader = () => Promise<AgentRegistryModule>
 type AgentDevtoolsRegistry = Record<string, AgentLoader>
@@ -23,10 +22,7 @@ type ChatDevtoolsMetadataInput =
   | Record<string, ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined>
 
 interface ChatDevtoolsSession {
-  messages: ChatDevtoolsMessage[]
   name: string
-  state: ReturnType<typeof createMemoryChatStateAdapter>
-  typingMessageId?: string
   thinkingFallback?: string | null
   uiMessages: UIMessage[]
 }
@@ -98,7 +94,7 @@ function getChatNames(state: ChatDevtoolsHandlerState): string[] {
 function getSession(state: ChatDevtoolsHandlerState, name: string): ChatDevtoolsSession {
   let session = state.sessions.get(name)
   if (!session) {
-    session = { messages: [], name, state: createMemoryChatStateAdapter(), uiMessages: [] }
+    session = { name, uiMessages: [] }
     state.sessions.set(name, session)
   }
   return session
@@ -145,8 +141,8 @@ async function serializeState(state: ChatDevtoolsHandlerState, selected?: string
   for (const name of names) getSession(state, name)
 
   const chats: ChatDevtoolsConversation[] = names.map(name => ({
+    messages: [],
     name,
-    messages: [...getSession(state, name).messages],
     uiMessages: [...getSession(state, name).uiMessages],
   }))
 
@@ -383,7 +379,6 @@ async function clearDevtoolsMessages(state: ChatDevtoolsHandlerState, input: { c
   if (!selected) return await serializeState(state)
   state.selected = selected
   const session = getSession(state, selected)
-  session.messages = []
   session.uiMessages = []
   session.thinkingFallback = null
   return await serializeState(state, selected)
