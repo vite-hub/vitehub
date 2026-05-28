@@ -235,7 +235,7 @@ jobs:
         if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
         run: |
           node <<'NODE'
-          const { readFileSync } = require("node:fs")
+          const { existsSync, readFileSync, readdirSync, statSync } = require("node:fs")
           const wrangler = JSON.parse(readFileSync("playground/nitro/.output/server/wrangler.json", "utf8"))
           if (!Array.isArray(wrangler.triggers?.crons) || !wrangler.triggers.crons.includes("* * * * *")) {
             throw new Error("Expected Nitro Cloudflare wrangler.json to include the daily-marker schedule cron trigger.")
@@ -246,7 +246,6 @@ jobs:
           if (typeof wrangler.artifacts !== "undefined") {
             throw new Error("Nitro Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
           }
-          const { existsSync, readdirSync, readFileSync, statSync } = require("node:fs")
           const { join, posix, relative } = require("node:path")
           const root = "playground/nitro/.output/server"
           const files = []
@@ -478,4 +477,4 @@ jobs:
 
       - name: DB Live E2E (vite × ${{ matrix.provider }})
         if: matrix.framework == 'vite'
-        run: pnpm --dir packages/db test:e2e --url "${{ steps.url.outputs.url }}"
+        run: pnpm --dir packages/database test:e2e --url "${{ steps.url.outputs.url }}"

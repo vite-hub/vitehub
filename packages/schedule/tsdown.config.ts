@@ -7,6 +7,7 @@ export default defineConfig({
   ],
   deps: {
     alwaysBundle: [/^@vitehub\/internal/],
+    neverBundle: ["esbuild"],
     onlyBundle: false,
   },
   dts: true,

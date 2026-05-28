@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot } from "@vitehub/internal/build/deployment-output"
@@ -9,6 +10,7 @@ import { createDefaultCloudflareOutputRoot } from "@vitehub/internal/build/deplo
 import { generateProviderOutputs, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 
 const tempDirs: string[] = []
+const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 
 async function createTempProject(prefix: string) {
   const rootDir = await mkdtemp(join(tmpdir(), prefix))
@@ -27,6 +29,15 @@ afterAll(async () => {
 })
 
 describe("schedule provider output", () => {
+  it("keeps esbuild external in built provider output code", async () => {
+    const distDir = join(packageRoot, "dist")
+    const outputFiles = (await readdir(distDir)).filter(file => file.endsWith(".js"))
+    const output = (await Promise.all(outputFiles.map(file => readFile(join(distDir, file), "utf8")))).join("\n")
+
+    expect(output).not.toContain("The esbuild JavaScript API cannot be bundled")
+    expect(output).not.toContain("esbuildCommandAndArgs")
+  })
+
   it("emits Cloudflare and Vercel schedule provider wake output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-")
 

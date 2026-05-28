@@ -19,7 +19,8 @@
     "cron"
   ],
   "dependencies": {
-    "cron-schedule": "^6.0.0"
+    "cron-schedule": "^6.0.0",
+    "esbuild": "catalog:"
   },
   "sideEffects": false,
   "type": "module",
