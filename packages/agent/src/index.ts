@@ -80,6 +80,7 @@ import type { ResolvedAgentTriggerInvocation } from "./trigger-runtime.ts"
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
+  WorkspaceDefinition,
   WorkspaceEntry,
   WorkspaceName,
 } from "@vitehub/workspace"
@@ -529,7 +530,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
   >(
-    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
+    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { workspace?: never },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -1100,6 +1101,7 @@ type AgentInvocationContext<
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   startedAt: number
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
+  workspaceDefinition?: WorkspaceDefinition
 }
 
 function toAgentAdapterRunContext<
@@ -1134,6 +1136,9 @@ async function createAgentInvocationContext<
     ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults)
     : workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
   const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
+  const resolvedWorkspaceDefinition = workspaceOptions && workspaceName
+    ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
+    : undefined
   const workspace = workspaceName
     ? workspaceMode === "write"
       ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { mode: "write" })
@@ -1173,6 +1178,7 @@ async function createAgentInvocationContext<
     startedAt,
     tools,
     workspace,
+    workspaceDefinition: resolvedWorkspaceDefinition,
   }
 }
 
@@ -1187,6 +1193,8 @@ type InvocationRunContext<
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
   startedAt: number
+  workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
+  workspaceDefinition?: WorkspaceDefinition
 }
 
 function hasFinishWork<
@@ -1194,6 +1202,23 @@ function hasFinishWork<
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
   return Boolean(context.finishHook)
+}
+
+function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
+  return Boolean(workspace && typeof workspace === "object" && "diff" in workspace && "snapshot" in workspace)
+}
+
+async function commitWorkspaceChanges<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): Promise<void> {
+  if (!context.workspaceDefinition || !isWritableWorkspaceFacade(context.workspace)) return
+
+  const diff = await context.workspace.diff()
+  const { resolveWorkspaceAutoCommit } = await import("@vitehub/workspace")
+  const commit = resolveWorkspaceAutoCommit(context.workspaceDefinition, diff)
+  if (!commit) return
+  await context.workspace.snapshot({ name: commit.message })
 }
 
 async function finishAgentInvocation<
@@ -1205,6 +1230,7 @@ async function finishAgentInvocation<
   error?: unknown,
 ): Promise<void> {
   await context.close()
+  if (error === undefined) await commitWorkspaceChanges(context)
   if (!hasFinishWork(context)) return
 
   const eventBase = {

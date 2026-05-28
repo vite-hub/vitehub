@@ -29,7 +29,7 @@ export async function createSandboxClient(provider: SandboxProviderOptions): Pro
     throw new SandboxError(firstIssue?.message || `[${provider.provider}] invalid sandbox config`)
   }
 
-  const { createSandboxClient } = await import('#vitehub-sandbox-provider-loader').catch(() => {
+  const { createSandboxClient } = await import('vitehub-sandbox-provider-loader').catch(() => {
     return dynamicImport<ProviderLoaderModule>('@vitehub/sandbox/runtime/provider-loader')
   }).then(module => module.loadSandboxRuntimeProvider(provider.provider))
   return await createSandboxClient(provider)

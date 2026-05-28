@@ -6,8 +6,13 @@ import { resolve } from "node:path"
 import { normalizeAgentOptions } from "../config.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 
-import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
+import type { Nitro, NitroRuntimeConfig } from "nitro/types"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "../types.ts"
+
+export interface AgentNitroModule {
+  name: string
+  setup(this: void, nitro: unknown): void | Promise<void>
+}
 
 const AGENT_NITRO_IMPORTS_PRESET = {
   from: "@vitehub/agent",
@@ -193,10 +198,13 @@ function installChatWebhookRoute(nitro: Nitro, routeFile: string | undefined): v
   installPostRoute(nitro, AGENT_CHAT_WEBHOOK_ROUTE, routeFile)
 }
 
-const agentNitroModule: NitroModule = {
-  name: "@vitehub/agent",
-  async setup(nitro) {
-    const resolved = normalizeAgentOptions((nitro.options as typeof nitro.options & { agent?: false | AgentModuleOptions }).agent)
+export function agentNitro(options?: false | AgentModuleOptions): AgentNitroModule {
+  return {
+    name: "@vitehub/agent",
+    async setup(nitroInput) {
+      const nitro = nitroInput as Nitro
+      const configured = options ?? (nitro.options as typeof nitro.options & { agent?: false | AgentModuleOptions }).agent
+      const resolved = normalizeAgentOptions(configured)
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
     if (nitro.options.preset) runtimeConfig.hosting ||= nitro.options.preset
     runtimeConfig.agent = resolved || false
@@ -235,8 +243,11 @@ const agentNitroModule: NitroModule = {
         installChatWebhookRoute(nitro, runtimeFiles.chatWebhookRouteFile)
       }
     })
-  },
+    },
+  }
 }
+
+const agentNitroModule: AgentNitroModule = agentNitro()
 
 export default agentNitroModule
 

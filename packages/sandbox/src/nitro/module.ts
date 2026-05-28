@@ -4,11 +4,12 @@ import { hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from '@vitehub/in
 
 import { createSandboxProviderLoaderContents } from '../feature'
 import { hasInstalledDependency } from '../internal/shared/dependency'
+import { detectHosting } from '../internal/shared/hosting'
 import { normalizeSandboxPublicOptions } from '../integration'
 import { getSandboxFeatureProvider } from '../module-types'
 import { assignSandboxRuntimeConfig, resolveSandboxConfig } from './sandbox-config'
 import { writeNitroSandboxRuntimeFiles } from './runtime-files'
-import { addSandboxAliases, addSandboxImports, createSandboxProviderLoaderAliases, extendSandboxNitro } from './setup'
+import { addSandboxAliases, addSandboxImports, addSandboxProviderLoaderResolver, createSandboxProviderLoaderAliases, extendSandboxNitro } from './setup'
 
 import type { NitroModule, NitroRuntimeConfig } from 'nitro/types'
 import type { AgentSandboxConfig } from '../module-types'
@@ -32,7 +33,7 @@ const sandboxNitroModule: NitroModule = {
       return
     }
 
-    const hosting = nitro.options.preset
+    const hosting = detectHosting(nitro)
     if (hosting)
       runtimeConfig.hosting ||= hosting
 
@@ -45,6 +46,7 @@ const sandboxNitroModule: NitroModule = {
     const provider = getSandboxFeatureProvider(config)
     const providerLoader = createSandboxProviderLoaderAliases(nitro, provider?.provider, deps)
     addSandboxAliases(nitro, providerLoader.aliases)
+    addSandboxProviderLoaderResolver(nitro, providerLoader.aliases)
 
     if (providerLoader.providerLoaderPath && providerLoader.providerLoaderTarget)
       await writeFileIfChanged(providerLoader.providerLoaderPath, createSandboxProviderLoaderContents(providerLoader.providerLoaderTarget))

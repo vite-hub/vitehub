@@ -61,6 +61,38 @@ describe("agent transcription", () => {
     })
   })
 
+  it("resolves transcription options lazily", async () => {
+    const execute = vi.fn(async () => "lazy transcript")
+    const createOptions = vi.fn(() => ({ execute }))
+    const agent = defineAgent({
+      capabilities: [
+        transcribe(createOptions),
+      ],
+      run(context) {
+        const latest = context.messages.at(-1)
+        return {
+          text: latest?.parts
+            .filter(part => part.type === "text")
+            .map(part => part.text)
+            .join(""),
+        }
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), {
+      messages: [
+        createMessage({
+          parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
+          role: "user",
+        }),
+      ],
+    })).resolves.toMatchObject({ text: "lazy transcript" })
+    expect(createOptions).toHaveBeenCalledOnce()
+    expect(execute).toHaveBeenCalledWith({
+      audio: { data: "AAAA", mediaType: "audio/wav", type: "audio" },
+    })
+  })
+
   it("separates appended transcripts from existing text", async () => {
     const agent = defineAgent({
       capabilities: [

@@ -116,9 +116,9 @@ describe("agent public types", () => {
       tools: {},
     })
 
+    // @ts-expect-error workspace mode must be read or write
     defineAgent({
       model: {} as never,
-      // @ts-expect-error workspace mode must be read or write
       workspace: { mode: "mutable" },
     })
 

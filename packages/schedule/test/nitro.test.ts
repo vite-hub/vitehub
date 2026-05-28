@@ -38,8 +38,11 @@ describe("Nitro schedule integration", () => {
       "export default registry",
       "",
     ].join("\n"))
-    await expect(readFile(pluginFile, "utf8")).resolves.toContain("setScheduleRuntimeRegistry(scheduleRegistry)")
-    await expect(readFile(pluginFile, "utf8")).resolves.toContain("@vitehub/schedule/runtime/state")
+    const pluginContents = await readFile(pluginFile, "utf8")
+    expect(pluginContents).toContain("setScheduleRuntimeRegistry(scheduleRegistry)")
+    expect(pluginContents).toContain("@vitehub/schedule/runtime/state")
+    expect(pluginContents).toContain("const scheduledEvent = event ?? controller")
+    expect(pluginContents).toContain("scheduledEvent.scheduledTime")
   })
 
   it("auto-imports only the schedule definition boundary helper", async () => {

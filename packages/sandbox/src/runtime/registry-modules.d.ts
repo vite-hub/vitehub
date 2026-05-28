@@ -1,4 +1,4 @@
-declare module '#vitehub-sandbox-provider-loader' {
+declare module 'vitehub-sandbox-provider-loader' {
   import type { SandboxDefinitionOptions, SandboxDefinitionProviderOptions } from '../module-types'
   import type { SandboxClient, SandboxProvider, SandboxProviderOptions } from '../sandbox/types'
 
@@ -12,6 +12,14 @@ declare module '#vitehub-sandbox-provider-loader' {
     ) => Promise<SandboxProviderOptions>
     createSandboxClient: (provider: SandboxProviderOptions) => Promise<SandboxClient>
   }>
+}
+
+declare module 'virtual:vitehub-sandbox-provider-loader' {
+  export { loadSandboxRuntimeProvider } from 'vitehub-sandbox-provider-loader'
+}
+
+declare module '#vitehub-sandbox-provider-loader' {
+  export { loadSandboxRuntimeProvider } from 'vitehub-sandbox-provider-loader'
 }
 
 declare module '#vitehub-sandbox-registry' {

@@ -17,9 +17,11 @@ export interface TranscribeExecuteInput {
 
 export type TranscribeExecuteResult = AiSdkTranscriptionResult | string
 
-export type TranscribeOptions =
+type StaticTranscribeOptions =
   | (AiSdkTranscribeOptions & { execute?: never, instructions?: AgentCapabilityDefinition["instructions"] })
   | { execute: (input: TranscribeExecuteInput) => MaybePromise<TranscribeExecuteResult>, instructions?: AgentCapabilityDefinition["instructions"], model?: never }
+
+export type TranscribeOptions = StaticTranscribeOptions | (() => MaybePromise<StaticTranscribeOptions>)
 
 function isAudioPart(part: unknown): part is AudioPart {
   return !!part
@@ -39,15 +41,20 @@ function transcriptText(result: TranscribeExecuteResult): string {
   return typeof result === "string" ? result : result.text
 }
 
+async function resolveTranscribeOptions(options: TranscribeOptions): Promise<StaticTranscribeOptions> {
+  return typeof options === "function" ? await options() : options
+}
+
 async function runTranscription(options: TranscribeOptions, audio: AudioPart, abortSignal?: AbortSignal): Promise<string> {
-  if ("execute" in options && options.execute) {
-    return transcriptText(await options.execute({ audio }))
+  const resolvedOptions = await resolveTranscribeOptions(options)
+  if ("execute" in resolvedOptions && resolvedOptions.execute) {
+    return transcriptText(await resolvedOptions.execute({ audio }))
   }
 
   const {
     instructions: _instructions,
     ...transcribeOptions
-  } = options
+  } = resolvedOptions
   const { experimental_transcribe } = await import("ai")
   const result = await experimental_transcribe({
     ...transcribeOptions,
@@ -78,6 +85,6 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
       }
       context.input.setMessages(messages)
     },
-    instructions: options.instructions ?? false,
+    instructions: typeof options === "function" ? false : options.instructions ?? false,
   })
 }

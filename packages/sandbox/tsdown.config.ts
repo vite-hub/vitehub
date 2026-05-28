@@ -6,6 +6,9 @@ export default defineConfig({
     neverBundle: [
       "#vitehub-sandbox-provider-loader",
       "#vitehub-sandbox-registry",
+      "@vitehub/sandbox/runtime/provider-loader",
+      "vitehub-sandbox-provider-loader",
+      "virtual:vitehub-sandbox-provider-loader",
     ],
     onlyBundle: false,
     skipNodeModulesBundle: true,

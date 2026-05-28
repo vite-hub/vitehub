@@ -9,9 +9,18 @@ import { env } from "../core/declarations.ts"
 import { createRuntimeRegistry, isEnvVariableDeclaration, resolveEnvSource, validateEnvConfigShape } from "../core/resolve.ts"
 
 import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue } from "../types.ts"
-import type { Nitro, NitroModule } from "nitro/types"
+import type { Nitro } from "nitro/types"
 
 export { env }
+
+export interface EnvNitroModule {
+  name: string
+  setup(this: void, nitro: unknown): void | Promise<void>
+}
+
+export interface EnvNitroIntegrationOptions extends EnvIntegrationOptions {
+  env?: EnvNitroConfigOptions
+}
 
 const ENV_VITE_PLUGIN_NAME = "@vitehub/env/vite"
 const ENV_NITRO_IMPORTS_PRESET = { from: "#vitehub/env/server", imports: ["useServerEnv"] }
@@ -158,13 +167,14 @@ function resolveLiteralTypeName(value: unknown): string {
   }
 }
 
-export function envNitro(options: EnvIntegrationOptions = {}): NitroModule {
+export function envNitro(options: EnvNitroIntegrationOptions = {}): EnvNitroModule {
   return {
     name: "@vitehub/env",
-    async setup(nitro) {
+    async setup(nitroInput) {
+      const nitro = nitroInput as Nitro
       await assertNoVitePluginInNitro(nitro, ENV_VITE_PLUGIN_NAME, "@vitehub/env/nitro")
 
-      const config = (nitro.options as typeof nitro.options & EnvNitroUserConfig).env
+      const config = options.env ?? (nitro.options as typeof nitro.options & EnvNitroUserConfig).env
       validateEnvConfigShape(config, "nitro")
       const registry = createRuntimeRegistry(config, { prefix: options.prefix })
       configureCloudflareRequiredSecrets(nitro, config, options.prefix)
@@ -318,7 +328,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return prototype === null || prototype === Object.prototype
 }
 
-const nitroModule: NitroModule = envNitro()
+const nitroModule: EnvNitroModule = envNitro()
 
 export default nitroModule
 

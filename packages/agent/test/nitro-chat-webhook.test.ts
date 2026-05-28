@@ -97,15 +97,22 @@ function createWebhookAdapter(output: { edits: unknown[], posts: unknown[] }): A
     fetchMessages: vi.fn(async () => ({ messages: [] })),
     fetchThread: vi.fn(async (threadId: string) => ({ id: threadId, metadata: {} })),
     handleWebhook: vi.fn(async (request: Request) => {
-      const body = await request.json().catch(() => ({})) as { text?: string }
+      const body = await request.json().catch(() => ({})) as { audio?: boolean, text?: string }
       await (chat as ChatInstance & { handleIncomingMessage: (adapter: Adapter, threadId: string, message: unknown) => Promise<void> }).handleIncomingMessage(adapter as unknown as Adapter, "teams:dm:maxi", {
-        attachments: [],
+        attachments: body.audio
+          ? [{
+              data: Buffer.from("AAAA"),
+              mimeType: "audio/ogg",
+              name: "voice.ogg",
+              type: "audio",
+            }]
+          : [],
         author: { fullName: "Maxi", isBot: false, isMe: false, userId: "maxi", userName: "Maxi" },
         formatted: { children: [], type: "root" },
         id: "message-1",
         metadata: { dateSent: new Date("2026-05-28T10:00:00.000Z"), edited: false },
         raw: body,
-        text: body.text || "hello",
+        text: body.text || (body.audio ? "" : "hello"),
         threadId: "teams:dm:maxi",
       })
       return new Response("ok")
@@ -252,5 +259,58 @@ describe("agent Nitro chat webhooks", () => {
       limit: 50,
     })
     expect(output.edits).toEqual(["agent answer"])
+  })
+
+  it("passes chat audio attachments to transcribe()", async () => {
+    const { chat, defineAgent, transcribe } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    const seenText: string[] = []
+    const execute = vi.fn(async () => "audio transcript")
+    const adapter = createWebhookAdapter(output)
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [
+          chat({
+            adapters: () => ({ teams: adapter }),
+            state: () => createMemoryState(),
+          }),
+          transcribe({ execute }),
+        ],
+        run(context) {
+          seenText.push(context.messages.at(-1)?.parts
+            .filter((part): part is { text: string, type: "text" } => part.type === "text")
+            .map(part => part.text)
+            .join("") || "")
+          return "archived"
+        },
+      }),
+    })
+
+    const response = await handler({
+      context: {
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      req: new Request("https://example.test/api/agents/support/chat/teams", {
+        body: JSON.stringify({ audio: true }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    expect(response.status).toBe(200)
+    expect(execute).toHaveBeenCalledWith({
+      audio: expect.objectContaining({
+        data: Buffer.from("AAAA"),
+        mediaType: "audio/ogg",
+        type: "audio",
+      }),
+    })
+    expect(seenText).toEqual(["audio transcript"])
+    expect(output.edits).toEqual(["archived"])
   })
 })

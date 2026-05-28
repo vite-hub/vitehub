@@ -6,6 +6,7 @@ import { readEnv, trimmed } from "@vitehub/internal/env"
 import { WorkspaceError } from "../core/errors.ts"
 import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
 import { getWorkspaceHostedStoreLoader } from "../runtime/hosted-store-loader.ts"
+import { createGitHubWorkspaceStore, normalizeGitHubWorkspaceStoreOptions } from "./github.ts"
 import { createLocalWorkspaceStore } from "./local.ts"
 import { createMemoryWorkspaceStore } from "./memory.ts"
 
@@ -86,6 +87,7 @@ export function normalizeWorkspaceStoreOptions(
   const hosting = input.hosting || ""
 
   if (store?.provider === "cloudflare-artifacts") return resolveCloudflareArtifactsStore(store, env)
+  if (store?.provider === "github") return store
   if (store?.provider === "memory") return store
   if (store?.provider === "vercel-blob") return resolveVercelBlobWorkspaceStore(store, env)
   if (store?.provider === "local" || store?.root) return defu(store, { provider: "local" as const }) as ResolvedWorkspaceStoreOptions
@@ -110,6 +112,9 @@ export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition
   })
 
   if (store?.provider === "memory") return createMemoryWorkspaceStore()
+  if (store?.provider === "github") {
+    return createGitHubWorkspaceStore(normalizeGitHubWorkspaceStoreOptions(store, definition.name))
+  }
   if (store?.provider === "cloudflare-artifacts" || store?.provider === "vercel-blob") {
     const loader = getWorkspaceHostedStoreLoader()
     if (!loader) throw new WorkspaceError(`[vitehub] Hosted workspace store "${store.provider}" is not available in this runtime.`)

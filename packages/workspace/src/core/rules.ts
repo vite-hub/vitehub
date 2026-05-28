@@ -6,6 +6,8 @@ import { contentToBytes, normalizeWorkspacePath } from "./path.ts"
 import type {
   ResolvedWorkspaceRule,
   WorkspaceDefinition,
+  WorkspaceAutoCommitPlan,
+  WorkspaceDiff,
   WorkspaceHookContext,
   WorkspaceHooks,
   WorkspaceRule,
@@ -163,5 +165,24 @@ export function createWorkspaceWritePolicy(definition: WorkspaceDefinition): Wor
     async error(input, error) {
       for (const hook of toArray(policy.hooks["write:error"])) await hook({ ...input, error })
     },
+  }
+}
+
+export function resolveWorkspaceAutoCommit(definition: WorkspaceDefinition, diff: WorkspaceDiff): WorkspaceAutoCommitPlan | undefined {
+  if (!diff.entries.length) return
+
+  const policy = normalizePolicy(definition)
+  const paths = diff.entries.map(entry => normalizeWorkspacePath(entry.path))
+  const rules = paths.map(path => matchRule(policy, path))
+  if (!rules.length || rules.some(rule => !rule?.commit)) return
+
+  const message = rules
+    .map(rule => rule?.commit)
+    .find((commit): commit is string => typeof commit === "string" && commit.trim().length > 0)
+    ?.trim()
+
+  return {
+    message: message || `chore: update ${definition.name} workspace`,
+    paths,
   }
 }

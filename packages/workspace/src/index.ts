@@ -1,5 +1,6 @@
 export { defineWorkspace } from "./core/define.ts"
 export * as source from "./sources/index.ts"
+export { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 export { useWorkspace } from "./core/use.ts"
 export type * from "./core/use.ts"
 export type * from "./core/types.ts"

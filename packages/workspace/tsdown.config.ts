@@ -4,7 +4,7 @@ export default defineConfig({
   clean: true,
   deps: {
     alwaysBundle: [/^@vitehub\/internal/],
-    neverBundle: ["#vitehub-workspace-assets-registry", "#vitehub-workspace-registry"],
+    neverBundle: ["#vitehub-workspace-assets-registry", "#vitehub-workspace-registry", /^@vitehub\/sandbox/],
   },
   dts: true,
   entry: [

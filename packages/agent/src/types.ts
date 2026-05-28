@@ -10,6 +10,7 @@ import type {
 } from "@vitehub/runtime"
 import type {
   ReadonlyWorkspaceFacade,
+  WritableWorkspaceFacade,
   WorkspaceDefinitionInput,
   WorkspaceName,
 } from "@vitehub/workspace"
@@ -199,6 +200,7 @@ export interface AgentInvocationHooks<
 export interface AgentRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig> {
   adapter?: AgentAdapter<CALL_OPTIONS>
   context: AgentInvocationContextStore
@@ -207,6 +209,7 @@ export interface AgentRunContext<
   prompt?: string
   providerTools?: AgentProviderToolContribution[]
   tools?: AgentToolSet
+  workspace?: ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name>
 }
 
 export type AgentRunHandler<

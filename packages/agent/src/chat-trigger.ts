@@ -13,7 +13,7 @@ import type {
   AgentTriggerDefinition,
   AgentWebhookRegistrationDefinition,
 } from "./types.ts"
-import type { Message, MessagePart } from "./messages.ts"
+import type { AudioData, Message, MessagePart } from "./messages.ts"
 import type { WorkspaceName } from "@vitehub/workspace"
 
 type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
@@ -66,12 +66,37 @@ function uiToolId(part: Record<string, unknown>, name: string, index: number): s
   return firstString(part.toolCallId, part.id) || `${name}-${index + 1}`
 }
 
+function isAudioData(value: unknown): value is AudioData {
+  if (typeof value === "string") return value.length > 0
+  if (!value || typeof value !== "object") return false
+  if ("byteLength" in value && typeof (value as { byteLength?: unknown }).byteLength === "number") return (value as { byteLength: number }).byteLength > 0
+  if ("size" in value && typeof (value as { size?: unknown }).size === "number") return (value as { size: number }).size > 0
+  return false
+}
+
+function uiAudioPartToAgentPart(part: Record<string, unknown>): MessagePart[] {
+  const mediaType = typeof part.mediaType === "string" && part.mediaType.startsWith("audio/")
+    ? part.mediaType
+    : undefined
+  if (!mediaType) return []
+
+  const id = firstString(part.id)
+  if (typeof part.url === "string" && part.url) {
+    return [{ ...(id ? { id } : {}), mediaType, type: "audio", url: part.url }]
+  }
+  if (isAudioData(part.data)) {
+    return [{ ...(id ? { id } : {}), data: part.data, mediaType, type: "audio" }]
+  }
+  return []
+}
+
 function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart | string> {
   const parts = Array.isArray(message.parts) ? message.parts : []
   return parts.flatMap((part, index): Array<MessagePart | string> => {
     if (!part || typeof part !== "object") return []
     const record = part as Record<string, unknown>
     if (record.type === "text" && typeof record.text === "string") return [record.text]
+    if (record.type === "audio") return uiAudioPartToAgentPart(record)
     if (record.type === "dynamic-tool" || (typeof record.type === "string" && record.type.startsWith("tool-"))) {
       const name = uiToolName(record)
       const id = uiToolId(record, name, index)

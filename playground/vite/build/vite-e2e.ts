@@ -506,7 +506,14 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     ])
 
     alias["#vitehub-sandbox-registry"] = sandboxRegistryFile
-    alias["#vitehub-sandbox-provider-loader"] = sandboxProviderLoaderFile
+    for (const key of [
+      "vitehub-sandbox-provider-loader",
+      "@vitehub/sandbox/runtime/provider-loader",
+      "virtual:vitehub-sandbox-provider-loader",
+      "#vitehub-sandbox-provider-loader",
+    ]) {
+      alias[key] = sandboxProviderLoaderFile
+    }
 
     if (sandboxProvider === "cloudflare") {
       alias["@cloudflare/sandbox"] = resolvePackageDependency(sandboxPackageDir, "@cloudflare/sandbox")
@@ -1139,6 +1146,7 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
 
   return {
     name: "vitehub/vite-e2e",
+    enforce: "pre",
     async config() {
       const artifacts = await prepareFeatureArtifacts(options)
       resolvedAlias = artifacts.alias
@@ -1147,6 +1155,9 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
           alias: resolvedAlias,
         },
       }
+    },
+    resolveId(id) {
+      return resolvedAlias?.[id]
     },
     async closeBundle() {
       await generateViteE2EOutputs(options)

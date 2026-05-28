@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import type { WritableWorkspaceFacade } from "@vitehub/workspace"
+
 const readFile = vi.fn()
+const writeFile = vi.fn()
 const list = vi.fn()
 const exists = vi.fn()
+const diff = vi.fn()
+const snapshot = vi.fn()
 const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
+const resolveWorkspaceAutoCommit = vi.fn()
 const useWorkspace = vi.fn(() => ({
-  fs: { exists, list, readFile },
+  diff,
+  fs: { exists, list, readFile, writeFile },
+  snapshot,
   tools: Object.assign(tools, {
     inspect: inspectTools,
     none: vi.fn(() => ({})),
@@ -32,6 +40,7 @@ vi.mock("ai", () => ({
 }))
 
 vi.mock("@vitehub/workspace", () => ({
+  resolveWorkspaceAutoCommit,
   useWorkspace,
 }))
 
@@ -54,9 +63,15 @@ describe("defineAgent workspace option", () => {
     generateText.mockResolvedValue({ text: "fallback answer" })
     exists.mockReset()
     exists.mockResolvedValue(false)
+    diff.mockReset()
+    diff.mockResolvedValue({ entries: [], to: "next" })
     list.mockReset()
     list.mockResolvedValue([])
     readFile.mockReset()
+    writeFile.mockReset()
+    snapshot.mockReset()
+    resolveWorkspaceAutoCommit.mockReset()
+    resolveWorkspaceAutoCommit.mockReturnValue(undefined)
     tools.mockClear()
     inspectTools.mockReset()
     inspectTools.mockReturnValue({})
@@ -122,6 +137,43 @@ describe("defineAgent workspace option", () => {
     expect(agent.description).toBe("Answer from workspace context")
     expect(agent.sources).toEqual({})
     expect(useWorkspace).not.toHaveBeenCalled()
+  })
+
+  it("auto-commits write-mode workspace changes when rules request it", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "inbox/audio.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive audio",
+      paths: ["inbox/audio.md"],
+    })
+    const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        mode: "write",
+        rules: {
+          "inbox/**": { commit: "chore: archive audio", write: true },
+        },
+      },
+      run: async ({ workspace }) => {
+        await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/audio.md", "transcript")
+        return "ok"
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
+
+    expect(useWorkspace).toHaveBeenCalledWith("docs", { mode: "write" })
+    expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "docs",
+        rules: { "inbox/**": { commit: "chore: archive audio", write: true } },
+      }),
+      expect.objectContaining({ entries: [expect.objectContaining({ path: "inbox/audio.md" })] }),
+    )
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive audio" })
   })
 
   it("uses string instructions", async () => {

@@ -53,7 +53,13 @@ describe("hubSandbox", () => {
     expect(plugin.nitro?.name).toBe("@vitehub/sandbox")
     expect(code).toContain('"feature": "sandbox"')
     expect(code).toContain('"provider": "vercel"')
-    expect(configResult).toEqual({})
+    expect(configResult).toEqual({
+      resolve: {
+        alias: {
+          "vitehub-sandbox-provider-loader": expect.stringContaining("runtime/provider-loader"),
+        },
+      },
+    })
   })
 
   it("accepts direct integration options", async () => {
@@ -112,6 +118,9 @@ describe("hubSandbox", () => {
         __VITEHUB_ENVIRONMENT_SANDBOX__: "\"rsc\"",
       },
       resolve: {
+        alias: {
+          "vitehub-sandbox-provider-loader": expect.stringContaining("runtime/provider-loader"),
+        },
         noExternal: ["@vitehub/sandbox"],
       },
     })
@@ -126,7 +135,7 @@ describe("hubSandbox", () => {
     }, {})
 
     expect(plan.aliases).toContainEqual(expect.objectContaining({
-      key: "#vitehub-sandbox-provider-loader",
+      key: "vitehub-sandbox-provider-loader",
       value: expect.stringContaining("runtime/provider-loader"),
     }))
   })
@@ -141,7 +150,7 @@ describe("hubSandbox", () => {
     })
 
     expect(plan.aliases).toContainEqual(expect.objectContaining({
-      key: "#vitehub-sandbox-provider-loader",
+      key: "vitehub-sandbox-provider-loader",
       artifactKey: "sandbox-provider-loader",
     }))
     expect(plan.artifacts).toContainEqual(expect.objectContaining({
@@ -159,12 +168,35 @@ describe("hubSandbox", () => {
     })
 
     expect(plan.aliases).toContainEqual(expect.objectContaining({
-      key: "#vitehub-sandbox-provider-loader",
+      key: "vitehub-sandbox-provider-loader",
       artifactKey: "sandbox-provider-loader",
     }))
     expect(plan.artifacts).toContainEqual(expect.objectContaining({
       key: "sandbox-provider-loader",
     }))
+  })
+
+  it("adds a Nitro build resolver for provider loader aliases", async () => {
+    const { addSandboxProviderLoaderResolver } = await import("../src/nitro/setup.ts")
+    const hookCalls: Array<{ name: string, handler: (nitro: unknown, config: { plugins?: Array<{ resolveId?: (id: string) => string | undefined }> }) => void }> = []
+    const nitro = {
+      hooks: {
+        hook(name: string, handler: (nitro: unknown, config: { plugins?: Array<{ resolveId?: (id: string) => string | undefined }> }) => void) {
+          hookCalls.push({ name, handler })
+        },
+      },
+    }
+
+    addSandboxProviderLoaderResolver(nitro as never, [
+      { key: "vitehub-sandbox-provider-loader", value: "/tmp/provider-loader.mjs" },
+    ])
+
+    const config: { plugins?: Array<{ resolveId?: (id: string) => string | undefined }> } = {}
+    hookCalls[0]?.handler(nitro, config)
+
+    expect(hookCalls[0]?.name).toBe("rollup:before")
+    expect(config.plugins?.[0]?.resolveId?.("vitehub-sandbox-provider-loader")).toBe("/tmp/provider-loader.mjs")
+    expect(config.plugins?.[0]?.resolveId?.("@vitehub/sandbox")).toBeUndefined()
   })
 
   it("passes explicit Cloudflare sandbox container names to Nitro targets", async () => {

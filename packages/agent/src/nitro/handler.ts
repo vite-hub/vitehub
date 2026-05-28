@@ -9,7 +9,7 @@ import { formatUnknownAgentMessage } from "../registry-error.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { getAgentRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 
-import type { Adapter, ChatConfig, Channel, Message as ChatMessage, SentMessage, StateAdapter, Thread } from "chat"
+import type { Adapter, Attachment, ChatConfig, Channel, Message as ChatMessage, SentMessage, StateAdapter, Thread } from "chat"
 import type { EventHandler, H3Event } from "h3"
 import type { NitroRuntimeConfig } from "nitro/types"
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
@@ -314,12 +314,36 @@ function messageCreatedAt(message: ChatMessage): Date | string | undefined {
   return dateSent instanceof Date || typeof dateSent === "string" ? dateSent : undefined
 }
 
-function toUIMessage(message: ChatMessage, index: number) {
+function attachmentMediaType(attachment: Attachment): string {
+  return attachment.mimeType?.startsWith("audio/") ? attachment.mimeType : "audio/ogg"
+}
+
+async function attachmentData(attachment: Attachment): Promise<unknown> {
+  if (attachment.data) return attachment.data
+  if (attachment.fetchData) return await attachment.fetchData()
+}
+
+async function audioAttachmentPart(attachment: Attachment, index: number): Promise<Record<string, unknown> | undefined> {
+  if (attachment.type !== "audio") return
+  const mediaType = attachmentMediaType(attachment)
+  const id = attachment.name || `audio-${index + 1}`
+  const data = await attachmentData(attachment)
+  if (data) return { data, id, mediaType, type: "audio" }
+  if (attachment.url) return { id, mediaType, type: "audio", url: attachment.url }
+}
+
+async function toUIMessage(message: ChatMessage, index: number) {
+  const attachments = (await Promise.all((message.attachments || []).map(audioAttachmentPart)))
+    .filter((part): part is Record<string, unknown> => Boolean(part))
+  const text = typeof message.text === "string" ? message.text : ""
   return {
     createdAt: messageCreatedAt(message),
     id: entityId(message) || `chat-message-${index}`,
     metadata: { source: "chat" },
-    parts: [{ text: typeof message.text === "string" ? message.text : "", type: "text" }],
+    parts: [
+      ...(text ? [{ text, type: "text" }] : []),
+      ...attachments,
+    ],
     role: (message as { author?: { isMe?: boolean } }).author?.isMe ? "assistant" : "user",
   }
 }
@@ -420,7 +444,7 @@ async function handleChatMessage(
   channel?: Channel,
 ): Promise<void> {
   const sourceMessages = await collectThreadMessages(thread, message, options.history)
-  const messages = sourceMessages.map(toUIMessage)
+  const messages = await Promise.all(sourceMessages.map(toUIMessage))
   const run = createRunMetadata(platform, thread, channel, message)
   let thinkingFallback: string | undefined
   const triggerInput: AgentChatMessageTriggerInput = {

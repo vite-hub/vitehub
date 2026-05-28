@@ -64,6 +64,7 @@ export type WorkspaceWriteValidator =
   (input: WorkspaceWriteInput) => WorkspaceWriteValidatorResult | Promise<WorkspaceWriteValidatorResult>
 
 export interface WorkspaceRule {
+  commit?: boolean | string
   read?: boolean
   write?: WorkspaceWriteMode
   maxBytes?: number | `${number}kb` | `${number}mb`
@@ -229,6 +230,11 @@ export interface WorkspaceDiff {
   entries: WorkspaceDiffEntry[]
 }
 
+export interface WorkspaceAutoCommitPlan {
+  message: string
+  paths: string[]
+}
+
 export interface WorkspaceStore {
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
@@ -355,10 +361,22 @@ export interface VercelBlobWorkspaceStoreOptions {
   access?: "private" | "public"
 }
 
+export type GitHubWorkspaceStoreOption = string | (() => string | undefined)
+
+export interface GitHubWorkspaceStoreOptions {
+  provider: "github"
+  branch?: GitHubWorkspaceStoreOption
+  repo?: GitHubWorkspaceStoreOption
+  repository?: GitHubWorkspaceStoreOption
+  root?: GitHubWorkspaceStoreOption
+  token?: GitHubWorkspaceStoreOption
+}
+
 export type WorkspaceStoreOptions =
   | LocalWorkspaceStoreOptions
   | MemoryWorkspaceStoreOptions
   | CloudflareArtifactsWorkspaceStoreOptions
+  | GitHubWorkspaceStoreOptions
   | VercelBlobWorkspaceStoreOptions
   | WorkspaceStore
 

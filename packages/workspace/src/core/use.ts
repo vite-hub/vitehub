@@ -15,6 +15,7 @@ import { useRegisteredWorkspace } from "./registry.ts"
 
 import type { Tool, ToolSet } from "ai"
 import type {
+  DiffOptions,
   GlobOptions,
   ListOptions,
   MkdirOptions,
@@ -32,7 +33,10 @@ import type {
   WorkspaceSearchQuery,
   WorkspaceSession,
   WorkspaceStat,
+  WorkspaceDiff,
+  WorkspaceSnapshot,
   WriteFileOptions,
+  SnapshotOptions,
 } from "./types.ts"
 
 type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
@@ -99,7 +103,9 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
 }
 
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
+  diff(options?: DiffOptions): Promise<WorkspaceDiff>
   fs: WritableWorkspaceFs<Name>
+  snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
   tools: WorkspaceWriteToolSet
 }
@@ -421,7 +427,9 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     tools.write = createTools as WritableWorkspaceFacade<Name>["tools"]["write"]
     tools.none = emptyTools
     return {
+      diff: async options => await workspace.diff(options),
       fs: createWritableFs<Name>(workspace),
+      snapshot: async options => await workspace.snapshot(options),
       startSession: async options => await workspace.startSession(options),
       tools,
     }

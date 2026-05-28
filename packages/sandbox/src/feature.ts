@@ -54,7 +54,7 @@ export function resolveSandboxProviderLoaderTarget(
 }
 
 function createSandboxProviderLoaderAliases(defaultProviderName: keyof typeof sandboxClientExportByProvider | undefined): Array<{ key: string, value?: string, artifactKey?: string }> {
-  const keys = ['#vitehub-sandbox-provider-loader']
+  const keys = ['vitehub-sandbox-provider-loader', '@vitehub/sandbox/runtime/provider-loader', 'virtual:vitehub-sandbox-provider-loader', '#vitehub-sandbox-provider-loader']
 
   if (defaultProviderName)
     return keys.map(key => ({ key, artifactKey: 'sandbox-provider-loader' }))
