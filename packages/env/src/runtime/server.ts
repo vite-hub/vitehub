@@ -22,7 +22,7 @@ export function useServerEnv(event?: unknown): ServerEnv {
 export function applyRuntimeEnvToRuntimeConfig(runtimeConfig: Record<string, unknown>, event?: unknown): ServerEnv {
   const values = resolveRuntimeValues(registry, resolveRuntimeEnv(event))
   assignRuntimeValues(runtimeConfig, values)
-  return runtimeConfig
+  return runtimeConfig as ServerEnv
 }
 
 function resolveNitroRuntimeConfig(event?: unknown): Record<string, unknown> {

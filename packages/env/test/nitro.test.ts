@@ -155,6 +155,7 @@ describe("Nitro module", () => {
     expect(types).toContain("\"botToken\": SecretEnv<string>")
     expect(integrationTypes).toContain("import type { SecretEnv } from \"@vitehub/env/runtime/server\"")
     expect(integrationTypes).toContain("\"botToken\": SecretEnv<string>")
+
     expect(integrationTypes).not.toContain("NitroChatRuntimeConfig")
     expect(integrationTypes).toContain("export {}")
     expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env.d.ts"))
