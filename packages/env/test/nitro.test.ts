@@ -150,6 +150,11 @@ describe("Nitro module", () => {
     expect(types).toContain("\"botToken\": SecretEnv<string>")
     expect(integrationTypes).toContain("import type { SecretEnv } from \"#vitehub/env/server\"")
     expect(integrationTypes).toContain("\"botToken\": SecretEnv<string>")
+
+    const runtimeTypes = await readFile(join(root, ".nitro/types/vitehub-env-runtime.d.ts"), "utf8")
+    expect(runtimeTypes).toContain("declare module \"@vitehub/env/runtime/server\"")
+    expect(runtimeTypes).toContain("import type { SecretEnv as RuntimeSecretEnv } from \"@vitehub/env/runtime/server\"")
+    expect(runtimeTypes).toContain("\"botToken\": RuntimeSecretEnv<string>")
     expect(integrationTypes).not.toContain("NitroChatRuntimeConfig")
     expect(integrationTypes).toContain("export {}")
     expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env.d.ts"))
@@ -413,6 +418,69 @@ describe("Nitro module", () => {
       maxBuffer: 1024 * 1024 * 4,
     })
   })
+
+  it("types package runtime server imports from generated Server Env declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-runtime-subpath-types-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          teams: {
+            apiUrl: env({ optional: true }),
+            appPassword: env({ optional: true, secret: true }),
+            appTenantId: env({ secret: true }),
+          },
+        },
+        rootDir: root,
+      },
+    }
+
+    await envNitro().setup(nitro as never)
+    const typesHook = nitro.hooks.hook.mock.calls.find(([name]) => name === "types:extend")?.[1]
+    await typesHook?.({ tsConfig: { include: [] } })
+
+    await writeFile(join(root, "typecheck.ts"), [
+      "import { useServerEnv } from '@vitehub/env/runtime/server'",
+      "import type { ServerEnv } from '@vitehub/env/runtime/server'",
+      "",
+      "const config: ServerEnv = useServerEnv()",
+      "const apiUrl: string | undefined = config.teams.apiUrl",
+      "const password: string | undefined = config.teams.appPassword?.unseal()",
+      "const tenantId: string = config.teams.appTenantId.unseal()",
+      "void apiUrl",
+      "void password",
+      "void tenantId",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({
+      compilerOptions: {
+        allowSyntheticDefaultImports: true,
+        allowImportingTsExtensions: true,
+        baseUrl: root,
+        ignoreDeprecations: "6.0",
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+        noEmit: true,
+        paths: {
+          "@vitehub/env/runtime/server": [join(import.meta.dirname, "../src/runtime/server.ts")],
+        },
+        skipLibCheck: true,
+        strict: true,
+        target: "ES2023",
+      },
+      files: [
+        join(root, ".nitro/types/vitehub-env-runtime.d.ts"),
+        join(root, "typecheck.ts"),
+      ],
+    }, null, 2))
+
+    await execFileAsync("pnpm", ["exec", "tsc", "--noEmit", "-p", join(root, "tsconfig.json")], {
+      cwd: join(import.meta.dirname, ".."),
+      maxBuffer: 1024 * 1024 * 4,
+    })
+  }, 60_000)
 
   it("applies prefixes to inferred Nitro env names and required Cloudflare secrets", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-nitro-"))

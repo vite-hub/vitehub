@@ -3,9 +3,11 @@ import { useRuntimeConfig } from "nitro/runtime-config"
 
 import { SecretEnv } from "../secret.ts"
 
-import type { EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvRuntimeSchema, ServerEnv } from "../types.ts"
+import type { EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvRuntimeSchema } from "../types.ts"
 
 export { SecretEnv } from "../secret.ts"
+
+export interface ServerEnv extends Record<string, unknown> {}
 
 let registry: EnvRuntimeRegistry = {}
 
@@ -20,7 +22,7 @@ export function useServerEnv(event?: unknown): ServerEnv {
 export function applyRuntimeEnvToRuntimeConfig(runtimeConfig: Record<string, unknown>, event?: unknown): ServerEnv {
   const values = resolveRuntimeValues(registry, resolveRuntimeEnv(event))
   assignRuntimeValues(runtimeConfig, values)
-  return runtimeConfig
+  return runtimeConfig as ServerEnv
 }
 
 function resolveNitroRuntimeConfig(event?: unknown): Record<string, unknown> {
