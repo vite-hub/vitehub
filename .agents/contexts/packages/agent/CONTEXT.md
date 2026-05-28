@@ -12,6 +12,10 @@ _Avoid_: Chat package, runtime package
 The move from standalone chat and messages packages into Agent Package ownership.
 _Avoid_: Compatibility wrapper, separate chat package
 
+**Chat Definition Removal**:
+The removal of public chat Definition Boundary Helpers, chat framework modules, and chat definition discovery in favor of Chat Capability discovery through Agent Definitions.
+_Avoid_: Chat definition migration, compatibility shim, chat module
+
 **Agent Route Owner**:
 The Agent Package role that exposes discovered Agents over HTTP when routes are enabled.
 _Avoid_: Nitro route package, adapter owner
@@ -24,27 +28,48 @@ _Avoid_: `defineAgent({ name })`, display name
 The package boundary where provider-specific model adapters meet ViteHub Agent runtime behavior.
 _Avoid_: Provider package, model package
 
+**Agent Trigger API**:
+The Agent Package public surface that composes Capability-owned Agent Trigger behavior from Agent Definitions.
+_Avoid_: Chat adapter API, DevTools bridge API, client SDK
+
+**Agent Trigger Consumer**:
+A host surface such as DevTools, a webhook, or an app route that invokes a resolved Agent Trigger without owning the Capability behavior.
+_Avoid_: Chat handler, trigger definition, capability config
+
 ## Relationships
 
 - The **Agent Package** owns Agent Definition shape.
 - The **Agent Package** owns Agent invocation handling.
+- The **Agent Package** owns the **Agent Trigger API** that resolves trigger contributions from Agent Capabilities.
+- An **Agent Trigger Consumer** uses the **Agent Trigger API** and does not create a parallel chat-specific behavior surface.
 - The **Agent Package** owns Agent capability composition.
 - The **Agent Package** owns chat behavior after the **Chat Package Migration**.
+- **Chat Definition Removal** means chat behavior is discovered through Agent Definitions that attach the Chat Capability, not through chat definitions, chat modules, or standalone chat discovery.
+- A discovered Agent Definition that attaches the Chat Capability is implicitly chat-capable; no separate chat route option, chat module, or chat registry declares that capability.
 - An **Agent File Name** provides Discovery Identity for discovered Agent Definitions.
 - The **Agent Route Owner** is the Agent Package when generated Agent routes are enabled.
-- The **Agent Adapter Boundary** keeps provider-specific model options behind Agent behavior.
+- The legacy **Agent Adapter Boundary** is removed from the public Agent Definition shape while AI SDK is the only model execution path.
 - Shared runtime capabilities, approvals, and tracing belong to the Runtime Package.
 
 ## Example Dialogue
 
 > **Dev:** "Should a model provider decide how ViteHub resolves workspace tools?"
 > **Domain expert:** "No. That crosses the **Agent Adapter Boundary**. The provider handles model calls; the **Agent Package** owns Agent runtime behavior."
+>
+> **Dev:** "Should Chat DevTools expose the reusable server-side send primitive?"
+> **Domain expert:** "No. The **Agent Trigger API** belongs to the **Agent Package**; the Chat Capability contributes the trigger and Chat DevTools consumes it."
 
 ## Flagged Ambiguities
 
 - Agent routes were considered generic Nitro routes - resolved: generated Agent routes belong to the **Agent Package**.
 - Provider adapters were considered owners of runtime behavior - resolved: adapters sit behind the **Agent Adapter Boundary**.
+- The public `adapter` option was considered necessary for future model-provider flexibility - resolved: remove it for now and let AI SDK be the only supported model execution path until another adapter has proven product value.
 - Standalone chat and messages packages were considered compatibility boundaries - resolved: remove them during the **Chat Package Migration** rather than keeping wrappers.
+- `defineChat`, `server/chat.ts`, `server/chats/*`, chat framework modules, and chat definition discovery were considered compatibility surfaces - resolved: delete them during **Chat Definition Removal** and expose chat only through the Chat Capability on discovered Agent Definitions.
 - `defineAgent({ name })` was considered a discovered Agent identity override - resolved: use **Agent File Name** for discovered Agent identity.
 - `server/agents/<name>/config.ts` was considered invalid under filename-derived identity - resolved: it remains valid because the agent folder name is the Discovery Identity and supports Colocated Workspace Definition behavior.
 - Named exports from aggregate agent files were considered a discovered Agent identity source - resolved: remove aggregate named-export discovery immediately with no backwards compatibility.
+- Agent Trigger behavior was considered a DevTools bridge concern - resolved: compose it through the **Agent Package** from Capability-owned trigger contributions, with DevTools consuming the resolved trigger surface.
+- Requiring explicit chat discovery configuration after **Chat Definition Removal** was considered - resolved: discover Agent Definitions only, then infer chat exposure from their attached Chat Capability.
+- Rebuilding DevTools as a chat-specific integration was considered - resolved: DevTools should consume Agent Triggers immediately, with chat as the first demonstrated trigger.
+- Full multi-agent chat selection in DevTools was deferred during **Chat Definition Removal** - resolved: the first cleanup can support the first discovered Agent with a `chat.message` trigger to keep the new pattern small.

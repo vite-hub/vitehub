@@ -16,6 +16,10 @@ _Avoid_: Raw tool, config mutator
 The ordered process that validates requirements, applies capability contributions, and exposes resulting instructions, tools, policy, and metadata to the Agent.
 _Avoid_: Random hook, raw setup
 
+**Capability Trigger Contribution**:
+A Capability-owned server-side contribution that registers Agent Trigger behavior for a product event.
+_Avoid_: Chat helper, DevTools bridge, raw server route, server-only bucket
+
 **Capability Requirement**:
 A primitive, workspace mode, or workspace path that a Capability needs before it can be applied to an Agent.
 _Avoid_: Capability dependency, plugin dependency
@@ -113,6 +117,10 @@ _Avoid_: Input Command, Capability, model tool
 - An Agent attaches zero or more **Capabilities**.
 - Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, `db()`, and `webSearch()` create **Capability Definitions**.
 - Official helpers should map to product abilities rather than implementation mechanisms.
+- A **Capability Definition** may provide a **Capability Trigger Contribution** when the ability needs to start Agent Invocations from a product event.
+- A **Capability Trigger Contribution** is composed from `defineAgent({ capabilities })`, not registered through a separate helper.
+- A **Capability Trigger Contribution** belongs directly to the Capability shape unless a broader grouping earns its name later.
+- A **Capability Trigger Contribution** maps product event input into Agent Invocation input and run metadata; Agent execution remains owned by the Agent Package.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
@@ -164,6 +172,9 @@ _Avoid_: Input Command, Capability, model tool
 >
 > **Dev:** "Should `/clear` be an Input Command?"
 > **Domain expert:** "No. `/clear` is a **Host Command** because it changes chat or session state instead of Agent run input."
+>
+> **Dev:** "Should Chat DevTools wire its own chat send helper?"
+> **Domain expert:** "No. The **Chat Capability** should provide a **Capability Trigger Contribution**, and DevTools should consume the resolved Agent Trigger."
 
 ## Flagged Ambiguities
 
@@ -182,6 +193,9 @@ _Avoid_: Input Command, Capability, model tool
 - Model-facing provider reachability was considered - resolved: keep provider reachability developer-facing in the first version.
 - `VITE_*` and `NITRO_*` provider credential names were considered - resolved: reject them for **Web Search Credential Sources**; `VITE_*` is browser-exposed Vite language, and `NITRO_*` is framework runtime-config language rather than Capability credential language.
 - Tool-first surfaces were considered the primary model - resolved: tools are one contribution of a **Capability Definition**.
+- Chat-specific helpers were considered for server-side trigger behavior - resolved: use **Capability Trigger Contribution** so Chat and future user-defined Capabilities register Agent Triggers from the Agent config source of truth.
+- Grouping trigger contributions under a `server` bucket was considered - resolved: keep triggers directly capability-owned because Agent Triggers are server-authoritative by default and no broader server contribution group has been proven yet.
+- Trigger handlers were considered for direct Agent execution - resolved: trigger contributions map input and run metadata, while the Agent Package executes the Agent Invocation through the standard lifecycle.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
