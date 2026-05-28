@@ -3,12 +3,21 @@ import { setTimeout as sleep } from "node:timers/promises"
 
 import { requestJson, runE2E } from "@vitehub/internal/test/e2e-live"
 
-async function dispatch() {
-  return undefined
+async function dispatchProviderSchedule(run) {
+  if (run.provider !== "vercel") {
+    return undefined
+  }
+  const startedAt = Date.now()
+  const url = new URL("/api/vitehub/schedules/vercel/daily-marker", run.url)
+  const response = await fetch(url, { method: "POST" })
+  if (!response.ok) {
+    throw new Error(`POST ${url} failed with ${response.status}: ${await response.text()}`)
+  }
+  return { dispatched: true, startedAt }
 }
 
-async function waitForSchedule(run) {
-  const startedAt = Date.now()
+async function waitForSchedule(run, dispatched) {
+  const startedAt = typeof dispatched?.startedAt === "number" ? dispatched.startedAt : Date.now()
   const startedAtIso = new Date(startedAt).toISOString()
   let attempts = 0
   let lastPayload
@@ -50,7 +59,7 @@ async function waitForSchedule(run) {
   })}`)
 }
 
-runE2E({ namespace: "schedule", dispatch, wait: waitForSchedule }).catch((error) => {
+runE2E({ namespace: "schedule", dispatch: dispatchProviderSchedule, wait: waitForSchedule }).catch((error) => {
   console.error(error instanceof Error ? error.message : error)
   process.exitCode = 1
 })

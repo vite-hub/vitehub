@@ -296,6 +296,9 @@ jobs:
             if (source.includes("@vitejs/devtools")) {
               throw new Error(`Nitro Cloudflare output must not bundle Vite DevTools runtime code: ${file}`)
             }
+            if (/createRequire\(\s*import\.meta\.url\s*\)/.test(source)) {
+              throw new Error(`Nitro Cloudflare output must not call createRequire(import.meta.url): ${file}`)
+            }
             const imports = source.matchAll(/(?:from\s+|import\(|require\()\s*["']([^"']+)["']/g)
             for (const [, specifier] of imports) {
               if (specifier === "sprintf-js" || specifier === "turndown" || specifier === "@mixmark-io/domino") {
@@ -384,6 +387,9 @@ jobs:
           if (bundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(bundle)) {
             throw new Error("Cloudflare Vite bundle must not include Vite or Vite DevTools runtime code.")
           }
+          if (/createRequire\(\s*import\.meta\.url\s*\)/.test(bundle)) {
+            throw new Error("Cloudflare Vite bundle must not call createRequire(import.meta.url).")
+          }
           const wrangler = JSON.parse(readFileSync("playground/vite/dist/vite/wrangler.json", "utf8"))
           if (!Array.isArray(wrangler.triggers?.crons) || !wrangler.triggers.crons.includes("* * * * *")) {
             throw new Error("Expected Vite Cloudflare wrangler.json to include the daily-marker schedule cron trigger.")
@@ -456,6 +462,20 @@ jobs:
           KV_REST_API_URL: ${{ steps.prepare_vercel.outputs.kv_url }}
         run: node -e "import('./playground/vite/.vercel/output/functions/__server.func/index.mjs')"
 
+      - name: Relax Vercel cron cadence for live deploy
+        if: matrix.provider == 'vercel'
+        run: |
+          node <<'NODE'
+          const { readFileSync, writeFileSync } = require("node:fs")
+          const appDir = "${{ steps.prepare_vercel.outputs.app_dir }}"
+          const configFile = `${appDir}/.vercel/output/config.json`
+          const config = JSON.parse(readFileSync(configFile, "utf8"))
+          if (Array.isArray(config.crons)) {
+            config.crons = config.crons.map(cron => ({ ...cron, schedule: "0 0 * * *" }))
+            writeFileSync(configFile, `${JSON.stringify(config, null, 2)}\n`)
+          }
+          NODE
+
       - name: Deploy Cloudflare
         id: deploy_cloudflare
         if: matrix.provider == 'cloudflare'
@@ -484,7 +504,15 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
-          DEPLOYMENT_URL=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
+          set +e
+          DEPLOYMENT_OUTPUT=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx vercel deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" 2>&1)
+          DEPLOYMENT_STATUS=$?
+          set -e
+          printf '%s\n' "$DEPLOYMENT_OUTPUT"
+          if [ "$DEPLOYMENT_STATUS" -ne 0 ]; then
+            exit "$DEPLOYMENT_STATUS"
+          fi
+          DEPLOYMENT_URL=$(printf '%s\n' "$DEPLOYMENT_OUTPUT" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
           if [ -z "$DEPLOYMENT_URL" ]; then
             echo "Failed to capture Vercel deployment URL." >&2
             exit 1

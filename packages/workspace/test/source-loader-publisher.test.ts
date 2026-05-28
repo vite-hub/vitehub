@@ -139,6 +139,9 @@ describe("sources, loaders, and publishers", () => {
     const output = await readFile(join(import.meta.dirname, "../dist/index.js"), "utf8")
 
     expect(output).not.toContain('import("vite")')
+    expect(output).not.toContain("createRequire(import.meta.url)")
+    expect(output).not.toContain("node-fetch-native")
+    expect(output).not.toContain("node:http")
   })
 
   it("lists GitHub files under the configured root with relative keys", async () => {

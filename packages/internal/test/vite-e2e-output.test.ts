@@ -102,6 +102,9 @@ describe("unified vite e2e hosted outputs", () => {
     expect(cloudflareWorkerContents).not.toMatch(/require\(["']@vercel\/functions["']\)/)
     expect(cloudflareWorkerContents).not.toMatch(/from\s+["']@cloudflare\/sandbox["']/)
     expect(cloudflareWorkerContents).not.toMatch(/require\(["']@cloudflare\/sandbox["']\)/)
+    expect(cloudflareWorkerContents).not.toContain("@vitejs/devtools")
+    expect(cloudflareWorkerContents).not.toContain('import("vite")')
+    expect(cloudflareWorkerContents).not.toContain("createRequire(import.meta.url)")
     expect(cloudflareConfig.kv_namespaces).toContainEqual({
       binding: "KV",
       id: "kv-namespace",
