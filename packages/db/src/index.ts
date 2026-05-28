@@ -1,15 +1,17 @@
+export { defineDatabase } from "./definition.ts"
 export type {
   CloudflareD1BindingConfig,
-  DBModuleOptions,
+  DatabaseConfigValue,
+  DatabaseConnectionConfig,
+  DatabaseDefinition,
+  DatabaseDefinitionOptions,
+  DatabaseDialect,
+  DatabaseDrizzleOptions,
   DBModulePublicOptions,
+  DiscoveredDatabaseDefinition,
   DrizzleCasing,
-  DrizzleDatabaseEntryConfig,
   ResolvedCloudflareD1BindingConfig,
   ResolvedDBViteConfig,
   ResolvedDrizzleDatabaseConfig,
+  RuntimeEnvDeclarationLike,
 } from "./types.ts"
-
-export {
-  normalizeDBOptions,
-  resolveDBViteConfig,
-} from "./config.ts"

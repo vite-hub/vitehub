@@ -24,6 +24,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./cli": "./dist/cli.js",
     "./drizzle": "./dist/drizzle.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",

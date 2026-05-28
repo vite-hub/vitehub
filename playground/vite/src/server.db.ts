@@ -2,7 +2,7 @@ import { H3, readValidatedBody } from "h3"
 import { desc, sql } from "drizzle-orm"
 import * as v from "valibot"
 
-import { databases, db, schema } from "@vitehub/db/drizzle"
+import { databases } from "@vitehub/db/drizzle"
 
 const app = new H3()
 const noteBody = v.object({
@@ -13,7 +13,7 @@ const analyticsEventBody = v.object({
 })
 
 async function ensureNotesTable() {
-  await db.run(sql`
+  await databases.primary.db.run(sql`
     create table if not exists notes (
       id integer primary key autoincrement,
       title text not null
@@ -34,14 +34,14 @@ app.get("/", () => ({ db: "drizzle", ok: true }))
 
 app.get("/api/db", async () => {
   await ensureNotesTable()
-  const notes = await db.select().from(schema.notes).orderBy(desc(schema.notes.id))
+  const notes = await databases.primary.db.select().from(databases.primary.schema.notes).orderBy(desc(databases.primary.schema.notes.id))
   return { notes, ok: true }
 })
 
 app.post("/api/db", async (event) => {
   await ensureNotesTable()
   const body = await readValidatedBody(event, noteBody)
-  const result = await db.insert(schema.notes).values({ title: body.title }).returning()
+  const result = await databases.primary.db.insert(databases.primary.schema.notes).values({ title: body.title }).returning()
   return { note: result[0], ok: true }
 })
 

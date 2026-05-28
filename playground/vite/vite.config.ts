@@ -65,33 +65,6 @@ const inputByMode: Record<ViteHubMode, string> = {
 }
 const input = inputByMode[buildMode]
 
-const dbConfig = {
-  connection: {
-    authToken: process.env.TURSO_AUTH_TOKEN,
-    url: process.env.TURSO_DATABASE_URL,
-  },
-  databases: {
-    analytics: {
-      connection: {
-        authToken: process.env.TURSO_AUTH_TOKEN,
-        url: process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL,
-      },
-      cloudflare: {
-        binding: "DB_ANALYTICS",
-        databaseName: process.env.VITEHUB_D1_ANALYTICS_DATABASE_NAME || "vitehub-playground-analytics",
-        databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,
-        previewDatabaseId: process.env.VITEHUB_D1_ANALYTICS_PREVIEW_DATABASE_ID,
-      },
-    },
-  },
-  cloudflare: {
-    binding: "DB",
-    databaseName: process.env.VITEHUB_D1_DATABASE_NAME || "vitehub-playground-db",
-    databaseId: process.env.VITEHUB_D1_DATABASE_ID,
-    previewDatabaseId: process.env.VITEHUB_D1_PREVIEW_DATABASE_ID,
-  },
-}
-
 export default defineConfig(async () => {
   const hosting = process.env.VITEHUB_HOSTING || ""
   const baseConfig = {
@@ -241,7 +214,6 @@ export default defineConfig(async () => {
     const { hubDb } = await import("@vitehub/db/vite")
     return {
       ...baseConfig,
-      db: dbConfig,
       plugins: [hubDb()],
     }
   }

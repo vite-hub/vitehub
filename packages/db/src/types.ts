@@ -1,63 +1,90 @@
 export type DrizzleCasing = "snake_case" | "camelCase"
+export type DatabaseDialect = "sqlite"
+
+export interface RuntimeEnvDeclarationLike {
+  kind: "env-variable"
+  source?: {
+    kind: "env"
+    name: string
+    names?: string[]
+  }
+}
+
+export type DatabaseConfigValue = string | RuntimeEnvDeclarationLike
 
 export interface CloudflareD1BindingConfig {
   binding?: string
-  databaseId?: string
-  previewDatabaseId?: string
-  databaseName?: string
-  migrationsDir?: string
+  databaseId?: DatabaseConfigValue
+  previewDatabaseId?: DatabaseConfigValue
+  databaseName?: DatabaseConfigValue
   migrationsTable?: string
 }
 
-export interface DrizzleDatabaseEntryConfig {
-  connection?: {
-    authToken?: string
-    url?: string
-  }
+export interface DatabaseConnectionConfig {
+  authToken?: DatabaseConfigValue
+  url?: DatabaseConfigValue
+}
+
+export interface DatabaseDrizzleOptions {
+  casing?: DrizzleCasing
+}
+
+export interface DatabaseDefinitionOptions<TTables extends Record<string, unknown> = Record<string, unknown>> {
   cloudflare?: CloudflareD1BindingConfig
-  drizzle?: {
-    casing?: DrizzleCasing
-    migrationsDirs?: string[]
-    schemaPaths?: string[]
-  }
+  connection?: DatabaseConnectionConfig
+  drizzle?: DatabaseDrizzleOptions
+  tables: TTables
 }
 
-export interface DBModuleOptions extends DrizzleDatabaseEntryConfig {
-  orm?: "drizzle"
-  dialect?: "sqlite"
-  databases?: Record<string, DrizzleDatabaseEntryConfig>
+export interface DatabaseDefinition<TTables extends Record<string, unknown> = Record<string, unknown>> {
+  cloudflare?: CloudflareD1BindingConfig
+  connection?: DatabaseConnectionConfig
+  dialect: DatabaseDialect
+  drizzle: DatabaseDrizzleOptions
+  tables: TTables
 }
 
-export type DBModulePublicOptions = DBModuleOptions | false
+export interface DiscoveredDatabaseDefinition {
+  handler: string
+  mode: "default" | "named"
+  name: string
+  source: string
+  tableNames: string[]
+}
 
 export interface ResolvedCloudflareD1BindingConfig {
   binding: string
-  databaseId?: string
-  previewDatabaseId?: string
-  databaseName?: string
-  migrationsDir?: string
+  databaseId?: DatabaseConfigValue
+  previewDatabaseId?: DatabaseConfigValue
+  databaseName?: DatabaseConfigValue
+  migrationsDir: string
   migrationsTable?: string
 }
 
 export interface ResolvedDrizzleDatabaseConfig {
-  dialect: "sqlite"
-  drizzle: {
-    casing?: DrizzleCasing
-    migrationsDirs: string[]
-    schemaPaths: string[]
-  }
+  cloudflare?: ResolvedCloudflareD1BindingConfig
+  connection?: DatabaseConnectionConfig
+  dialect: DatabaseDialect
+  drizzle: DatabaseDrizzleOptions
+  generatedSchemaFile: string
+  migrationsDir: string
+  mode: "default" | "named"
   name: string
   orm: "drizzle"
-  connection?: {
-    authToken?: string
-    url?: string
-  }
-  cloudflare?: ResolvedCloudflareD1BindingConfig
 }
 
 export interface ResolvedDBViteConfig {
   databaseNames: string[]
   databases: Record<string, ResolvedDrizzleDatabaseConfig>
+  definitions: DiscoveredDatabaseDefinition[]
+  generatedDrizzleConfigFile: string
+  generatedSchemaFilesByDatabase: Record<string, string>
   rootDir: string
-  schemaPathsByDatabase: Record<string, string[]>
+}
+
+export type DBModulePublicOptions = false | {
+  cli?: false | {
+    generate?: false
+    migrate?: false
+  }
 }

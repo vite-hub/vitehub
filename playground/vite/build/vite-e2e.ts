@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url"
 
 import { normalizeBlobOptions } from "../../../packages/blob/src/config.ts"
 import { resolveDBViteConfig } from "../../../packages/db/src/config.ts"
-import { serializeSchemaObject } from "../../../packages/db/src/internal/schema-serializer.ts"
 import { configureCloudflareKV } from "../../../packages/kv/src/integrations/cloudflare.ts"
 import { normalizeKVOptions } from "../../../packages/kv/src/config.ts"
 import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
@@ -150,12 +149,8 @@ function withoutCloudflareWorkspaceAliases(alias: Record<string, string>) {
 }
 
 function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
-  const schemaBlocks = config.databaseNames.map((name, index) => serializeSchemaObject(
-    config.schemaPathsByDatabase[name] || [],
-    `schema_${index}`,
-    name === "default",
-    file,
-  ))
+  const schemaImports = config.databaseNames.map((name, index) =>
+    `import schema_${index} from ${JSON.stringify(createImportPath(file, config.generatedSchemaFilesByDatabase[name]!))}`)
   const databaseEntries = config.databaseNames.map((name, index) => [
     `  ${JSON.stringify(name)}: {`,
     `    db: createHostedDrizzleDb(${JSON.stringify(config.databases[name], null, 4)}, schema_${index}),`,
@@ -166,13 +161,17 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
   return [
     `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/hosted")))}`,
     "",
-    ...schemaBlocks,
+    ...schemaImports,
     "export const databases = {",
     ...databaseEntries,
     "}",
     "",
-    "export const db = databases.default.db",
-    "export const schema = databases.default.schema",
+    ...(config.databaseNames.includes("default")
+      ? [
+          "export const db = databases.default.db",
+          "export const schema = databases.default.schema",
+        ]
+      : []),
     "",
   ].join("\n")
 }
@@ -1158,32 +1157,7 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
   const provider = resolveHostedProvider(hosting)
   return {
     blob: normalizeBlobOptions(undefined, { hosting }),
-    db: resolveDBViteConfig({
-      connection: {
-        authToken: process.env.TURSO_AUTH_TOKEN,
-        url: process.env.TURSO_DATABASE_URL,
-      },
-      databases: {
-        analytics: {
-          connection: {
-            authToken: process.env.TURSO_AUTH_TOKEN,
-            url: process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL,
-          },
-          cloudflare: {
-            binding: "DB_ANALYTICS",
-            databaseName: process.env.VITEHUB_D1_ANALYTICS_DATABASE_NAME || "vitehub-playground-analytics",
-            databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,
-            previewDatabaseId: process.env.VITEHUB_D1_ANALYTICS_PREVIEW_DATABASE_ID,
-          },
-        },
-      },
-      cloudflare: {
-        binding: "DB",
-        databaseName: process.env.VITEHUB_D1_DATABASE_NAME || "vitehub-playground-db",
-        databaseId: process.env.VITEHUB_D1_DATABASE_ID,
-        previewDatabaseId: process.env.VITEHUB_D1_PREVIEW_DATABASE_ID,
-      },
-    }, rootDir),
+    db: resolveDBViteConfig(undefined, rootDir),
     hosting: provider,
     kv: normalizeKVOptions(undefined, { hosting }),
     queue: normalizeQueueOptions({}, { hosting }) || false,

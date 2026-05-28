@@ -2,7 +2,7 @@ import { getActiveCloudflareBinding } from "@vitehub/internal/runtime/cloudflare
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 
-import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
+import type { DatabaseConfigValue, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
 interface D1PreparedStatement {
   bind: (...params: unknown[]) => {
@@ -35,6 +35,17 @@ export function isRemoteSqliteUrl(url: string) {
   return /^(?:libsql:|https?:\/\/)/i.test(url)
 }
 
+function resolveConfigValue(value: DatabaseConfigValue | undefined) {
+  if (typeof value === "string" || typeof value === "undefined") {
+    return value
+  }
+  const names = value.source?.names || (value.source?.name ? [value.source.name] : [])
+  for (const name of names) {
+    const resolved = process.env[name]
+    if (typeof resolved !== "undefined") return resolved
+  }
+}
+
 export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknown>>(
   config: ResolvedDrizzleDatabaseConfig,
   schema: TSchema,
@@ -64,7 +75,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
       return instance
     }
 
-    const url = config.connection?.url
+    const url = resolveConfigValue(config.connection?.url)
     if (!url || (options.requireRemoteUrl && !isRemoteSqliteUrl(url))) {
       throw new Error(options.missingConnectionMessage(config))
     }
@@ -76,7 +87,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
     libsqlInstance = options.libsql.drizzle({
       casing: config.drizzle.casing,
       client: options.libsql.createClient({
-        authToken: config.connection?.authToken,
+        authToken: resolveConfigValue(config.connection?.authToken),
         url: options.resolveLocalUrl ? options.resolveLocalUrl(url) : url,
       }),
       schema,

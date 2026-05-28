@@ -10,19 +10,5 @@ export default defineConfig({
       input: resolve(import.meta.dirname, "src/server.ts"),
     },
   },
-  db: {
-    connection: {
-      authToken: process.env.TURSO_AUTH_TOKEN,
-      url: process.env.TURSO_DATABASE_URL || "libsql://db.example.turso.io",
-    },
-    databases: {
-      analytics: {
-        connection: {
-          authToken: process.env.TURSO_AUTH_TOKEN,
-          url: process.env.TURSO_ANALYTICS_DATABASE_URL || "libsql://analytics.example.turso.io",
-        },
-      },
-    },
-  },
   plugins: [hubDb()],
 })

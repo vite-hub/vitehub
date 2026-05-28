@@ -16,13 +16,33 @@ _Avoid_: Singleton database, global database
 A configured database addressed by name through the generated database runtime surface.
 _Avoid_: Connection string, binding
 
-**Database Schema Source**:
-The source files that describe a database schema for generated runtime access.
-_Avoid_: Migration, table list
+**Database Definition Mode**:
+The project-level choice between one Default Database or a set of Named Databases.
+_Avoid_: Mixed databases, optional default
+
+**Database Definition**:
+A discovered Definition that configures one Default Database or Named Database.
+_Avoid_: Drizzle config, migration config, provider binding
+
+**Database Table Schema**:
+The Drizzle table primitives declared inside a Database Definition as the database source of truth.
+_Avoid_: Validation schema, migration file
+
+**Database Provider Binding**:
+Database-scoped provider wiring stored with a Database Definition.
+_Avoid_: Provider selection, database identity, runtime secret
 
 **Live Database Schema**:
 The schema currently present in a running database.
-_Avoid_: Database Schema Source, migration file
+_Avoid_: Database Table Schema, migration file
+
+**Generated Validation Schema**:
+A Standard Schema-compatible validation surface generated from Database Table Schema.
+_Avoid_: Database Table Schema, migration source
+
+**Generated Drizzle Schema**:
+An inspectable Drizzle schema artifact generated from Database Table Schema for Drizzle Kit.
+_Avoid_: Runtime registry, in-memory schema, hidden migration source
 
 **Drizzle Runtime Surface**:
 The generated runtime access point for Drizzle databases and schema.
@@ -31,11 +51,16 @@ _Avoid_: Raw client, ORM config
 ## Relationships
 
 - The **DB Package** owns **Default Database** and **Named Database** configuration.
+- **Database Definition Mode** is either one **Default Database** or one or more **Named Databases**, never both.
+- A **Database Definition** configures exactly one **Default Database** or **Named Database**.
+- A **Database Definition** owns its **Database Table Schema**.
+- A **Database Definition** can own a **Database Provider Binding** when the binding attaches provider output to that discovered database identity.
+- **Generated Drizzle Schema** is derived from **Database Table Schema**.
+- **Generated Validation Schema** is derived from **Database Table Schema**.
 - A **Named Database** is selected through the **Drizzle Runtime Surface**.
-- A **Database Schema Source** belongs to one configured database.
-- A **Live Database Schema** can diverge from **Database Schema Sources** when an agent has explicit schema write permission.
+- A **Live Database Schema** can diverge from **Database Table Schema** when an agent has explicit schema write permission.
 - The **DB Package** owns Vite-centered database integration until a Nitro boundary is explicitly designed.
-- Provider-specific database details stay behind DB Integration Options and generated runtime output.
+- Provider selection stays in DB Integration Options, while **Database Provider Binding** may live in a **Database Definition**.
 
 ## Example Dialogue
 
@@ -48,3 +73,9 @@ _Avoid_: Raw client, ORM config
 - Migrations were considered schema discovery - resolved: **Database Schema Sources** describe runtime schema access; migrations remain provider or ORM workflow.
 - Agent-written schema changes were considered equivalent to updating **Database Schema Sources** - resolved: explicit schema write permission can change the **Live Database Schema** without updating source schema files.
 - Agent DB tools were considered direct adapters over the **Drizzle Runtime Surface** - open: the Agent Package should consume an agent-facing DB primitive handle, and the DB Package should own any adapter from **Named Database** runtime entries to that handle.
+- `defineDatabase` was considered a Drizzle or migration wrapper - resolved: use **Database Definition** for the discovered database configuration boundary; Drizzle schema and migrations remain related sources and workflows, not the definition itself.
+- Default and named databases were considered mixable in one project - resolved: **Database Definition Mode** is exclusive; a project uses one **Default Database** or all **Named Databases**.
+- Database schema was considered a separate source beside the **Database Definition** - resolved: schema belongs inside the **Database Definition** as **Database Table Schema**.
+- Standard Schema was considered the authored **Database Table Schema** - resolved: users author **Database Table Schema** with Drizzle primitives, and ViteHub derives **Generated Validation Schema** from it.
+- Provider bindings were considered only Integration Options - resolved: **Database Provider Binding** may live in a **Database Definition** to avoid duplicating discovered database names, while global provider selection remains an Integration Option.
+- Drizzle Kit was considered against an in-memory generated schema - resolved: use **Generated Drizzle Schema** as an inspectable artifact.

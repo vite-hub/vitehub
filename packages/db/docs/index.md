@@ -1,131 +1,62 @@
 ---
 title: DB
-description: Use one default Drizzle database and optional named databases from Vite server code, with Cloudflare D1 bindings or hosted libSQL connections.
+description: Define Drizzle databases from database definition files and use generated ViteHub runtime imports.
 navigation.title: Overview
 navigation.order: 0
 icon: i-lucide-database
 frameworks: [vite]
 ---
 
-`@vitehub/db` gives Vite apps a default Drizzle database plus optional named databases behind one runtime import.
+`@vitehub/db` discovers database definitions, generates Drizzle Kit artifacts, and exposes a small runtime surface for Vite server code.
 
-Use DB when route code needs joins, relations, transactional writes, or multiple durable datasets that should keep different schema and migration boundaries.
+Register `hubDb()` in Vite, then define databases in files:
 
-::code-group
+- Default database: `server/databases/config.ts`
+- Named databases: `server/databases/<name>/config.ts`
+- Vite default: `src/database.ts`
+- Vite named: `src/<name>.database.ts`
+
+Use either one default database or all named databases. Do not mix the default definition with named definitions.
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from '@vitehub/db'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+const notes = sqliteTable('notes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title').notNull(),
+})
+
+export default defineDatabase({
+  tables: { notes },
+})
+```
+
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { hubDb } from '@vitehub/db/vite'
 
 export default defineConfig({
   plugins: [hubDb()],
-  db: {
-    connection: {
-      authToken: process.env.TURSO_AUTH_TOKEN,
-      url: process.env.TURSO_DATABASE_URL,
-    },
-    databases: {
-      analytics: {
-        connection: {
-          authToken: process.env.TURSO_AUTH_TOKEN,
-          url: process.env.TURSO_ANALYTICS_DATABASE_URL,
-        },
-        cloudflare: {
-          databaseName: 'vitehub-playground-analytics',
-          databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,
-        },
-      },
-    },
-  },
 })
 ```
 
-```ts [src/server.db.ts]
-import { databases, db, schema } from '@vitehub/db/drizzle'
+Run `vitehub db generate` to refresh `.vitehub/db/schema/*.ts` and `.vitehub/db/drizzle.config.ts`, then run Drizzle Kit through ViteHub.
 
-await db.insert(schema.notes).values({ title: 'hello' })
-await databases.analytics.db.insert(databases.analytics.schema.analyticsEvents).values({ name: 'page-view' })
+## Runtime
+
+Default database definitions expose `db` and `schema` aliases:
+
+```ts
+import { db, schema } from '@vitehub/db/drizzle'
 ```
-::
 
-## Default And Named Databases
+Named definitions use the registry:
 
-ViteHub resolves database config in two layers:
+```ts
+import { databases } from '@vitehub/db/drizzle'
 
-1. Top-level `db.connection`, `db.drizzle`, and `db.cloudflare` configure the default database.
-2. `db.databases.<name>` adds named databases with their own connection, schema, migration, and Cloudflare binding config.
-
-The runtime surface stays small:
-
-- `db` and `schema` alias `databases.default`.
-- `databases.default` is the canonical default entry.
-- `databases.<name>` exposes `{ db, schema }` for each named database.
-
-## Default Conventions
-
-Without overrides, ViteHub uses these defaults:
-
-| Database | Local URL | Schema discovery | Migrations dir | Cloudflare binding |
-| --- | --- | --- | --- | --- |
-| `default` | `file:.data/db/sqlite.db` | `src/db/schema.ts` and `src/db/schema/*` | `src/db/migrations` | `DB` |
-| `analytics` | `file:.data/db/analytics.sqlite.db` | `src/db/analytics/schema.ts` and `src/db/analytics/schema/*` | `src/db/analytics/migrations` | `DB_ANALYTICS` |
-
-If a named entry sets Cloudflare D1 metadata and omits `connection.url`, ViteHub treats it as D1-only.
-
-## Provider Behavior
-
-Cloudflare and Vercel do not share the same database runtime rules:
-
-- Cloudflare hosted output can resolve an active D1 binding first, then fall back to a remote libSQL URL when one is configured.
-- Vercel hosted output requires a remote libSQL URL for every database that must run there.
-- Local Vite runtime can use file-based SQLite paths for the default or named databases.
-
-## Start Here
-
-Start with [Quickstart](./quickstart) for a local Drizzle setup. Use the [primitive comparison](../compare) when you are deciding between KV, Blob, Queue, Sandbox, or a database.
-
-## Next Steps
-
-::u-page-grid{class="pb-2"}
-  :::u-page-card
-  ---
-  title: Quickstart
-  description: Configure DB, define a schema, write a note, and read it back.
-  to: ./quickstart
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Usage
-  description: Use default aliases, named databases, schema discovery, and hosted fallbacks.
-  to: ./usage
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Runtime API
-  description: Review the config contract and the `db`, `schema`, and `databases` exports.
-  to: ./runtime-api
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Cloudflare D1
-  description: Configure bindings, generated `wrangler.json` output, and D1-only entries.
-  to: ./providers/cloudflare
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Vercel
-  description: Use hosted libSQL URLs and understand the D1-only limitation for Vercel output.
-  to: ./providers/vercel
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Troubleshooting
-  description: Fix missing schema files, unconfigured databases, and hosted output failures.
-  to: ./troubleshooting
-  ---
-  :::
-::
+await databases.analytics.db
+  .insert(databases.analytics.schema.analyticsEvents)
+  .values({ name: 'page-view' })
+```

@@ -1,54 +1,22 @@
 ---
 title: Vercel
-description: Use hosted libSQL databases with @vitehub/db on Vercel and understand the D1-only limitation.
-navigation.group: Providers
+description: Use remote libSQL database URLs for Vercel DB output.
+navigation.title: Vercel
+navigation.order: 5
+icon: i-lucide-triangle
 frameworks: [vite]
 ---
 
-Vercel support for `@vitehub/db` uses hosted libSQL URLs.
+Vercel output cannot use Cloudflare D1 bindings. Every database that runs on Vercel needs a remote libSQL URL.
 
-## Example
-
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { hubDb } from '@vitehub/db/vite'
-
-export default defineConfig({
-  plugins: [hubDb()],
-  db: {
-    connection: {
-      authToken: process.env.TURSO_AUTH_TOKEN,
-      url: process.env.TURSO_DATABASE_URL,
-    },
-    databases: {
-      analytics: {
-        connection: {
-          authToken: process.env.TURSO_AUTH_TOKEN,
-          url: process.env.TURSO_ANALYTICS_DATABASE_URL,
-        },
-      },
-    },
+```ts [server/databases/primary/config.ts]
+export default defineDatabase({
+  connection: {
+    authToken: process.env.TURSO_AUTH_TOKEN,
+    url: process.env.TURSO_DATABASE_URL,
   },
+  tables: { notes },
 })
 ```
 
-## Important Limitation
-
-Vercel output does not run Cloudflare D1 bindings. That means:
-
-- named databases that should run on Vercel need `connection.url`
-- D1-only named databases are rejected during ViteHub hosted output generation
-- keeping a libSQL fallback URL on a Cloudflare-backed database is the portable option when the same app also targets Vercel
-
-## Runtime Behavior
-
-The runtime import stays the same:
-
-```ts
-import { databases, db, schema } from '@vitehub/db/drizzle'
-
-await db.insert(schema.notes).values({ title: 'hello' })
-await databases.analytics.db.select()
-```
-
-Vercel never resolves `cloudflare.binding`; it uses the configured hosted libSQL URLs directly.
+If a definition only has D1 metadata and no remote fallback URL, hosted Vercel output fails during build.

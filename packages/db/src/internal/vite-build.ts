@@ -6,9 +6,7 @@ import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntime
 import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
 import { resolve } from "pathe"
 
-import { serializeSchemaObject } from "./schema-serializer.ts"
-
-import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
+import type { DatabaseConfigValue, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
 
 export const dbPackageName = "@vitehub/db"
@@ -66,16 +64,36 @@ function serializeDatabaseConfig(database: ResolvedDrizzleDatabaseConfig) {
   return JSON.stringify(database, null, 4)
 }
 
+function getDefaultCloudflareBindingName(name: string) {
+  if (name === "default") return "DB"
+  const suffix = name
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_")
+    .toUpperCase()
+  return `DB_${suffix || "DATABASE"}`
+}
+
+function renderDatabaseConfigExpression(name: string, runtimeConfig: ResolvedDBViteConfig, definitionVariable: string) {
+  const base = runtimeConfig.databases[name]!
+  return [
+    "{",
+    `      ...${serializeDatabaseConfig(base)},`,
+    `      cloudflare: ${definitionVariable}.cloudflare ? { ...${definitionVariable}.cloudflare, binding: ${definitionVariable}.cloudflare.binding ?? ${JSON.stringify(base.cloudflare?.binding ?? getDefaultCloudflareBindingName(name))}, migrationsDir: ${JSON.stringify(base.migrationsDir)} } : undefined,`,
+    `      connection: ${definitionVariable}.connection ?? ${JSON.stringify(base.connection)},`,
+    `      drizzle: ${definitionVariable}.drizzle ?? {},`,
+    "    }",
+  ].join("\n")
+}
+
 function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) {
-  const schemaBlocks = runtimeConfig.databaseNames.map((name, index) => serializeSchemaObject(
-    runtimeConfig.schemaPathsByDatabase[name] || [],
-    `schema_${index}`,
-    name === "default",
-    file,
-  ))
+  const imports = runtimeConfig.definitions.flatMap((definition, index) => [
+    `import definition_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
+    `import schema_${index} from ${JSON.stringify(createImportPath(file, runtimeConfig.generatedSchemaFilesByDatabase[definition.name]!))}`,
+  ])
   const databaseEntries = runtimeConfig.databaseNames.map((name, index) => [
     `  ${JSON.stringify(name)}: {`,
-    `    db: createHostedDrizzleDb(${serializeDatabaseConfig(runtimeConfig.databases[name]!)}, schema_${index}),`,
+    `    db: createHostedDrizzleDb(${renderDatabaseConfigExpression(name, runtimeConfig, `definition_${index}`)}, schema_${index}),`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
@@ -83,13 +101,18 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
   return [
     `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/hosted")))}`,
     "",
-    ...schemaBlocks,
+    ...imports,
+    "",
     "export const databases = {",
     ...databaseEntries,
     "}",
     "",
-    "export const db = databases.default.db",
-    "export const schema = databases.default.schema",
+    ...(runtimeConfig.databaseNames.includes("default")
+      ? [
+          "export const db = databases.default.db",
+          "export const schema = databases.default.schema",
+        ]
+      : []),
     "",
   ].join("\n")
 }
@@ -142,16 +165,17 @@ async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBVi
 }
 
 function createCloudflareD1Bindings(runtimeConfig: ResolvedDBViteConfig) {
+  const serializeValue = (value: DatabaseConfigValue | undefined) => typeof value === "string" ? value : undefined
   return runtimeConfig.databaseNames
     .map(name => runtimeConfig.databases[name]?.cloudflare)
     .filter((database): database is NonNullable<ResolvedDBViteConfig["databases"][string]["cloudflare"]> => Boolean(database?.databaseId))
     .map(database => ({
       binding: database.binding,
-      database_name: database.databaseName!,
-      database_id: database.databaseId!,
+      database_name: serializeValue(database.databaseName)!,
+      database_id: serializeValue(database.databaseId)!,
       ...(database.migrationsDir ? { migrations_dir: database.migrationsDir } : {}),
       ...(database.migrationsTable ? { migrations_table: database.migrationsTable } : {}),
-      ...(database.previewDatabaseId ? { preview_database_id: database.previewDatabaseId } : {}),
+      ...(serializeValue(database.previewDatabaseId) ? { preview_database_id: serializeValue(database.previewDatabaseId) } : {}),
     }))
 }
 
@@ -159,11 +183,15 @@ function isRemoteLibsqlConnectionUrl(url: string | undefined) {
   return typeof url === "string" && /^(?:libsql:|https?:\/\/)/i.test(url)
 }
 
+function serializeRuntimeConfigValue(value: DatabaseConfigValue | undefined) {
+  return typeof value === "string" ? value : undefined
+}
+
 function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
     const hasD1Binding = Boolean(database?.cloudflare?.databaseId)
-    return !hasD1Binding && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
+    return !hasD1Binding && !isRemoteLibsqlConnectionUrl(serializeRuntimeConfigValue(database?.connection?.url))
   })
 }
 
@@ -177,7 +205,7 @@ function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig)
 function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
-    return !isRemoteLibsqlConnectionUrl(database?.connection?.url)
+    return !isRemoteLibsqlConnectionUrl(serializeRuntimeConfigValue(database?.connection?.url))
   })
 }
 

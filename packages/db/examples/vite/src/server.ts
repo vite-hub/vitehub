@@ -1,12 +1,12 @@
 import { H3, readBody } from "h3"
 import { desc, sql } from "drizzle-orm"
 
-import { databases, db, schema } from "@vitehub/db/drizzle"
+import { databases } from "@vitehub/db/drizzle"
 
 const app = new H3()
 
 async function ensureNotesTable() {
-  await db.run(sql`
+  await databases.primary.db.run(sql`
     create table if not exists notes (
       id integer primary key autoincrement,
       title text not null
@@ -25,14 +25,14 @@ async function ensureAnalyticsEventsTable() {
 
 app.get("/api/notes", async () => {
   await ensureNotesTable()
-  const notes = await db.select().from(schema.notes).orderBy(desc(schema.notes.id))
+  const notes = await databases.primary.db.select().from(databases.primary.schema.notes).orderBy(desc(databases.primary.schema.notes.id))
   return { notes, ok: true }
 })
 
 app.post("/api/notes", async (event) => {
   await ensureNotesTable()
   const body = await readBody<{ title?: string }>(event)
-  const result = await db.insert(schema.notes).values({ title: body.title || "hello database" }).returning()
+  const result = await databases.primary.db.insert(databases.primary.schema.notes).values({ title: body.title || "hello database" }).returning()
   return { note: result[0], ok: true }
 })
 

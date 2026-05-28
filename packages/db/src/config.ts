@@ -1,289 +1,331 @@
-import { existsSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, relative, resolve } from "pathe"
 
-import { trimmed } from "@vitehub/internal/env"
-import { isPlainObject } from "@vitehub/internal/object"
-import { resolve } from "pathe"
+import {
+  createDirectoryDefinitionSource,
+  createGeneratedDefinitionPath,
+  createSuffixDefinitionSource,
+  discoverDefinitions,
+  normalizeSuffixDefinitionName,
+  sanitizeDefinitionFilename,
+} from "@vitehub/internal/definition-catalog"
 
 import type {
   CloudflareD1BindingConfig,
+  DatabaseConfigValue,
   DBModulePublicOptions,
-  DrizzleDatabaseEntryConfig,
+  DiscoveredDatabaseDefinition,
   ResolvedCloudflareD1BindingConfig,
   ResolvedDBViteConfig,
   ResolvedDrizzleDatabaseConfig,
 } from "./types.ts"
 
-const schemaFilePattern = /\.[cm]?[jt]s$/i
+const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
+const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
+const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
-function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
-  if (!isPlainObject(value)) {
-    throw new TypeError(`\`${label}\` must be a plain object.`)
-  }
+function stripComments(source: string) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1")
 }
 
-function readStringList(value: unknown, label: string) {
-  if (typeof value === "undefined") {
-    return []
-  }
-
-  if (!Array.isArray(value)) {
-    throw new TypeError(`\`${label}\` must be an array of strings.`)
-  }
-
-  return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-}
-
-function stripWrappingQuotes(value: string) {
-  if (
-    value.length >= 2
-    && ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'")))
-  ) {
-    return value.slice(1, -1).trim()
-  }
-
-  return value
-}
-
-function getDefaultSchemaRoot(rootDir: string, name: string) {
-  return name === "default"
-    ? resolve(rootDir, "src/db")
-    : resolve(rootDir, "src/db", name)
-}
-
-function safeReaddir(dir: string) {
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return []
+function findMatchingBrace(source: string, openIndex: number) {
+  let depth = 0
+  let quote: "\"" | "'" | "`" | undefined
+  let escaped = false
+  for (let index = openIndex; index < source.length; index++) {
+    const char = source[index]!
+    if (quote) {
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (char === "\\") {
+        escaped = true
+        continue
+      }
+      if (char === quote) {
+        quote = undefined
+      }
+      continue
     }
-    throw error
-  }
-}
-
-function resolveDefaultSchemaPaths(rootDir: string, name: string) {
-  const schemaRoot = getDefaultSchemaRoot(rootDir, name)
-  const schemaPaths: string[] = []
-  const schemaEntry = resolve(schemaRoot, "schema.ts")
-  if (existsSync(schemaEntry)) {
-    schemaPaths.push(schemaEntry)
-  }
-
-  const schemaDir = resolve(schemaRoot, "schema")
-  for (const entry of safeReaddir(schemaDir)) {
-    if (entry.isFile() && schemaFilePattern.test(entry.name)) {
-      schemaPaths.push(resolve(schemaDir, entry.name))
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "{") depth++
+    if (char === "}") {
+      depth--
+      if (depth === 0) return index
     }
   }
-
-  return schemaPaths
+  return -1
 }
 
-function resolveConfiguredSchemaPaths(rootDir: string, schemaPaths: string[], label: string) {
-  return schemaPaths.map((entry) => {
-    const resolved = resolve(rootDir, entry)
-    if (!existsSync(resolved)) {
-      throw new Error(`[vitehub] ${label} schema path not found: ${entry}`)
+function extractObjectBody(source: string, property: string) {
+  const match = new RegExp(`\\b${property}\\s*:`).exec(source)
+  if (!match) return
+  const openIndex = source.indexOf("{", match.index + match[0].length)
+  if (openIndex === -1) return
+  const closeIndex = findMatchingBrace(source, openIndex)
+  if (closeIndex === -1) return
+  return source.slice(openIndex + 1, closeIndex)
+}
+
+function extractTopLevelObjectKeys(body: string) {
+  const keys: string[] = []
+  let depth = 0
+  let quote: "\"" | "'" | "`" | undefined
+  let escaped = false
+  let segmentStart = 0
+
+  const readKey = (segment: string) => {
+    const trimmed = segment.trim()
+    const match = /^([A-Za-z_$][\w$]*)\s*:/.exec(trimmed)
+      || /^["']([^"']+)["']\s*:/.exec(trimmed)
+      || /^([A-Za-z_$][\w$]*)\s*(?:,|$)/.exec(trimmed)
+    if (match?.[1]) keys.push(match[1])
+  }
+
+  for (let index = 0; index <= body.length; index++) {
+    const char = body[index]
+    if (quote) {
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (char === "\\") {
+        escaped = true
+        continue
+      }
+      if (char === quote) {
+        quote = undefined
+      }
+      continue
     }
-    return resolved
-  })
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "{" || char === "(" || char === "[") depth++
+    if (char === "}" || char === ")" || char === "]") depth--
+    if ((char === "," && depth === 0) || index === body.length) {
+      readKey(body.slice(segmentStart, index))
+      segmentStart = index + 1
+    }
+  }
+
+  return [...new Set(keys)]
 }
 
-function getDefaultDatabaseUrl(name: string) {
-  return name === "default"
-    ? "file:.data/db/sqlite.db"
-    : `file:.data/db/${name}.sqlite.db`
+function readDatabaseTableNames(file: string) {
+  const source = stripComments(readFileSync(file, "utf8"))
+  const tablesBody = extractObjectBody(source, "tables")
+  if (!tablesBody) return []
+  return extractTopLevelObjectKeys(tablesBody)
 }
 
-function getDefaultMigrationsDir(name: string) {
-  return name === "default"
-    ? "src/db/migrations"
-    : `src/db/${name}/migrations`
+function readConfigValue(body: string | undefined, property: string): DatabaseConfigValue | undefined {
+  if (!body) return
+  const match = new RegExp(`\\b${property}\\s*:\\s*([^,\\n]+(?:\\|\\|\\s*[^,\\n]+)?)`).exec(body)
+  const expression = match?.[1]?.trim()
+  if (!expression) return
+  const quoted = /^["']([^"']*)["']$/.exec(expression)
+  if (quoted) return quoted[1]
+  const processEnvWithFallback = /^process\.env\.([A-Za-z_$][\w$]*)\s*\|\|\s*["']([^"']+)["']$/.exec(expression)
+  if (processEnvWithFallback) return process.env[processEnvWithFallback[1]!] || processEnvWithFallback[2]
+  const processEnvWithEnvFallback = /^process\.env\.([A-Za-z_$][\w$]*)\s*\|\|\s*process\.env\.([A-Za-z_$][\w$]*)$/.exec(expression)
+  if (processEnvWithEnvFallback) return process.env[processEnvWithEnvFallback[1]!] || process.env[processEnvWithEnvFallback[2]!]
+  const processEnv = /^process\.env\.([A-Za-z_$][\w$]*)$/.exec(expression)
+  if (processEnv) return process.env[processEnv[1]!]
+}
+
+function readStringValue(body: string | undefined, property: string): string | undefined {
+  const value = readConfigValue(body, property)
+  return typeof value === "string" && value.trim() ? value : undefined
+}
+
+function readDefinitionCloudflareConfig(file: string): CloudflareD1BindingConfig | undefined {
+  const source = stripComments(readFileSync(file, "utf8"))
+  const body = extractObjectBody(source, "cloudflare")
+  if (!body) return
+  const value = {
+    binding: readStringValue(body, "binding"),
+    databaseId: readConfigValue(body, "databaseId"),
+    databaseName: readConfigValue(body, "databaseName"),
+    migrationsTable: readStringValue(body, "migrationsTable"),
+    previewDatabaseId: readConfigValue(body, "previewDatabaseId"),
+  } satisfies CloudflareD1BindingConfig
+  return Object.values(value).some(item => typeof item !== "undefined") ? value : undefined
+}
+
+function readDefinitionConnectionConfig(file: string) {
+  const source = stripComments(readFileSync(file, "utf8"))
+  const body = extractObjectBody(source, "connection")
+  if (!body) return
+  const value = {
+    authToken: readConfigValue(body, "authToken"),
+    url: readConfigValue(body, "url"),
+  }
+  return Object.values(value).some(item => typeof item !== "undefined") ? value : undefined
+}
+
+function createDatabaseDefinition(source: string, file: string, name: string, mode: "default" | "named"): DiscoveredDatabaseDefinition {
+  return {
+    handler: file,
+    mode,
+    name,
+    source,
+    tableNames: readDatabaseTableNames(file),
+  }
+}
+
+function discoverNitroDatabases(rootDir: string) {
+  const serverDir = resolve(rootDir, "server")
+  return discoverDefinitions<DiscoveredDatabaseDefinition>("database", [
+    createDirectoryDefinitionSource("nitro-server-database-default", [serverDir], "databases", {
+      normalizeName(directory, file) {
+        if (!configFilePattern.test(file.split(/[\\/]/).pop() || "")) return
+        return dirname(file).replace(/\\/g, "/") === directory.replace(/\\/g, "/") ? "default" : undefined
+      },
+      createDefinition: ({ file, name }) => createDatabaseDefinition("nitro-server-database-default", file, name, "default"),
+    }),
+    createDirectoryDefinitionSource("nitro-server-databases-named", [serverDir], "databases", {
+      normalizeName(directory, file) {
+        if (!configFilePattern.test(file.split(/[\\/]/).pop() || "")) return
+        const name = relative(directory, dirname(file)).replace(/\\/g, "/")
+        return name && name !== "." ? name : undefined
+      },
+      createDefinition: ({ file, name }) => createDatabaseDefinition("nitro-server-databases-named", file, name, "named"),
+    }),
+  ])
+}
+
+function discoverViteDatabases(rootDir: string) {
+  const defaultFile = resolve(rootDir, "src", "database.ts")
+  const defaultDefinitions = existsSync(defaultFile)
+    ? [createDatabaseDefinition("vite-database-default", defaultFile, "default", "default")]
+    : []
+  const suffixDefinitions = discoverDefinitions<DiscoveredDatabaseDefinition>("database", [
+    createSuffixDefinitionSource("vite-database-suffix", [rootDir], viteDatabaseSuffixPattern, (root, file) => {
+      const name = normalizeSuffixDefinitionName(root, file, viteDatabaseSuffixPattern, { stripPrefix: "src/" })
+      return name === "database" ? undefined : name
+    }, {
+      createDefinition: ({ file, name }) => createDatabaseDefinition("vite-database-suffix", file, name, "named"),
+    }),
+  ])
+  return [...defaultDefinitions, ...suffixDefinitions]
+}
+
+export function discoverDatabaseDefinitions(rootDir: string): DiscoveredDatabaseDefinition[] {
+  const definitions = [...discoverNitroDatabases(rootDir), ...discoverViteDatabases(rootDir)]
+    .filter((definition, index, all) => all.findIndex(item => item.handler === definition.handler) === index)
+  const hasDefault = definitions.some(definition => definition.mode === "default")
+  const hasNamed = definitions.some(definition => definition.mode === "named")
+  if (hasDefault && hasNamed) {
+    throw new Error("[vitehub] Database definitions must use either one default database or all named databases, not both.")
+  }
+  if (definitions.filter(definition => definition.mode === "default").length > 1) {
+    throw new Error("[vitehub] Only one default database definition is allowed.")
+  }
+  return definitions.sort((left, right) => left.name.localeCompare(right.name))
 }
 
 function getDefaultCloudflareBindingName(name: string) {
-  if (name === "default") {
-    return "DB"
-  }
-
+  if (name === "default") return "DB"
   const suffix = name
     .replace(/[^a-z0-9]+/gi, "_")
     .replace(/^_+|_+$/g, "")
     .replace(/_+/g, "_")
     .toUpperCase()
-
   return `DB_${suffix || "DATABASE"}`
 }
 
-function trimOptionalString(value: unknown, label: string) {
-  if (typeof value === "undefined") {
-    return undefined
+function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition) {
+  if (definition.source === "nitro-server-database-default") {
+    return relative(rootDir, resolve(rootDir, "server", "databases", "migrations"))
   }
-
-  if (typeof value !== "string") {
-    throw new TypeError(`\`${label}\` must be a non-empty string when provided.`)
+  if (definition.source === "nitro-server-databases-named") {
+    return relative(rootDir, resolve(dirname(definition.handler), "migrations"))
   }
-
-  const normalized = trimmed(value)
-  if (!normalized) {
-    throw new TypeError(`\`${label}\` must be a non-empty string when provided.`)
-  }
-  return stripWrappingQuotes(normalized)
+  return relative(rootDir, resolve(dirname(definition.handler), "migrations"))
 }
 
 function normalizeCloudflareConfig(
   value: CloudflareD1BindingConfig | undefined,
-  label: string,
   name: string,
-  defaultMigrationsDir: string,
-) {
-  if (typeof value === "undefined") {
-    return
-  }
-
-  assertPlainObject(value, label)
-  const binding = trimOptionalString(value.binding, `${label}.binding`) || getDefaultCloudflareBindingName(name)
-  const databaseId = trimOptionalString(value.databaseId, `${label}.databaseId`)
-  const previewDatabaseId = trimOptionalString(value.previewDatabaseId, `${label}.previewDatabaseId`)
-  const databaseName = trimOptionalString(value.databaseName, `${label}.databaseName`)
-  const migrationsDir = trimOptionalString(value.migrationsDir, `${label}.migrationsDir`) || defaultMigrationsDir
-  const migrationsTable = trimOptionalString(value.migrationsTable, `${label}.migrationsTable`)
-
+  migrationsDir: string,
+): ResolvedCloudflareD1BindingConfig | undefined {
+  if (!value) return
   return {
-    binding,
-    ...(databaseId ? { databaseId } : {}),
-    ...(previewDatabaseId ? { previewDatabaseId } : {}),
-    ...(databaseName ? { databaseName } : {}),
-    ...(migrationsDir ? { migrationsDir } : {}),
-    ...(migrationsTable ? { migrationsTable } : {}),
-  } satisfies ResolvedCloudflareD1BindingConfig
+    binding: typeof value.binding === "string" && value.binding.trim() ? value.binding.trim() : getDefaultCloudflareBindingName(name),
+    ...(typeof value.databaseId !== "undefined" ? { databaseId: value.databaseId } : {}),
+    ...(typeof value.previewDatabaseId !== "undefined" ? { previewDatabaseId: value.previewDatabaseId } : {}),
+    ...(typeof value.databaseName !== "undefined" ? { databaseName: value.databaseName } : {}),
+    migrationsDir,
+    ...(typeof value.migrationsTable === "string" && value.migrationsTable.trim() ? { migrationsTable: value.migrationsTable.trim() } : {}),
+  }
 }
 
-function hasHostedCloudflareDatabase(config: ResolvedCloudflareD1BindingConfig | undefined) {
-  return Boolean(config?.databaseId || config?.databaseName || config?.previewDatabaseId)
-}
-
-function normalizeDatabaseEntry(
-  entry: DrizzleDatabaseEntryConfig,
-  label: string,
-  name: string,
-): ResolvedDrizzleDatabaseConfig {
-  if (typeof entry.connection !== "undefined") {
-    assertPlainObject(entry.connection, `${label}.connection`)
-  }
-
-  if (typeof entry.cloudflare !== "undefined") {
-    assertPlainObject(entry.cloudflare, `${label}.cloudflare`)
-  }
-
-  if (typeof entry.drizzle !== "undefined") {
-    assertPlainObject(entry.drizzle, `${label}.drizzle`)
-  }
-
-  const url = trimOptionalString(entry.connection?.url, `${label}.connection.url`)
-  const authToken = trimOptionalString(entry.connection?.authToken, `${label}.connection.authToken`)
-
-  if (authToken && !url) {
-    throw new TypeError(`\`${label}.connection.authToken\` requires \`${label}.connection.url\`.`)
-  }
-
-  const casing = entry.drizzle?.casing
-  if (typeof casing !== "undefined" && casing !== "snake_case" && casing !== "camelCase") {
-    throw new TypeError(`\`${label}.drizzle.casing\` must be \`snake_case\` or \`camelCase\`.`)
-  }
-
-  const migrationsDirs = readStringList(entry.drizzle?.migrationsDirs, `${label}.drizzle.migrationsDirs`)
-  const defaultMigrationsDir = getDefaultMigrationsDir(name)
-  const cloudflare = normalizeCloudflareConfig(entry.cloudflare, `${label}.cloudflare`, name, defaultMigrationsDir)
-  const configuredSchemaPaths = readStringList(entry.drizzle?.schemaPaths, `${label}.drizzle.schemaPaths`)
-
-  const connection = url
-    ? { authToken, url }
-    : hasHostedCloudflareDatabase(cloudflare)
-      ? undefined
-      : { authToken: undefined, url: getDefaultDatabaseUrl(name) }
-
+function getDefaultConnection(name: string) {
   return {
-    ...(cloudflare ? { cloudflare } : {}),
-    ...(connection ? { connection } : {}),
-    dialect: "sqlite",
-    drizzle: {
-      casing,
-      migrationsDirs: migrationsDirs.length ? migrationsDirs : [defaultMigrationsDir],
-      schemaPaths: configuredSchemaPaths,
-    },
-    name,
-    orm: "drizzle",
+    authToken: undefined,
+    url: name === "default" ? "file:.data/db/sqlite.db" : `file:.data/db/${name}.sqlite.db`,
   }
 }
 
-function normalizeDBModuleOptions(options?: DBModulePublicOptions) {
-  if (options === false) {
-    return
-  }
-
-  if (typeof options !== "undefined") {
-    assertPlainObject(options, "db")
-  }
-
-  const input = options || {}
-  const orm = input.orm
-  if (typeof orm !== "undefined" && orm !== "drizzle") {
-    throw new TypeError("`db.orm` must be `drizzle`.")
-  }
-
-  const dialect = input.dialect
-  if (typeof dialect !== "undefined" && dialect !== "sqlite") {
-    throw new TypeError("`db.dialect` must be `sqlite`.")
-  }
-
-  const entries = input.databases
-  if (typeof entries !== "undefined") {
-    assertPlainObject(entries, "db.databases")
-    if ("default" in entries) {
-      throw new TypeError("`db.databases.default` is reserved. Use top-level `db.connection`, `db.drizzle`, and `db.cloudflare` for the default database.")
-    }
-  }
-
-  const databases: Record<string, ResolvedDrizzleDatabaseConfig> = {
-    default: normalizeDatabaseEntry(input, "db", "default"),
-  }
-
-  for (const name of Object.keys(entries || {}).sort()) {
-    const entry = entries?.[name]
-    assertPlainObject(entry, `db.databases.${name}`)
-    databases[name] = normalizeDatabaseEntry(entry, `db.databases.${name}`, name)
-  }
-
-  return {
-    databaseNames: Object.keys(databases),
-    databases,
-  }
-}
-
-export function normalizeDBOptions(options?: DBModulePublicOptions): ResolvedDrizzleDatabaseConfig | undefined {
-  return normalizeDBModuleOptions(options)?.databases.default
+export function createGeneratedSchemaFile(rootDir: string, name: string) {
+  return createGeneratedDefinitionPath(rootDir, {
+    fileName: `schema/${sanitizeDefinitionFilename(name)}.ts`,
+    productName: "db",
+  })
 }
 
 export function resolveDBViteConfig(options?: DBModulePublicOptions, rootDir = process.cwd()): ResolvedDBViteConfig | undefined {
-  const normalized = normalizeDBModuleOptions(options)
-  if (!normalized) {
-    return
-  }
+  if (options === false) return
 
-  const schemaPathsByDatabase: Record<string, string[]> = {}
-  for (const name of normalized.databaseNames) {
-    const database = normalized.databases[name]!
-    const defaultSchemaPaths = resolveDefaultSchemaPaths(rootDir, name)
-    const configuredSchemaPaths = resolveConfiguredSchemaPaths(rootDir, database.drizzle.schemaPaths, `Database "${name}"`)
-    schemaPathsByDatabase[name] = [...new Set([...defaultSchemaPaths, ...configuredSchemaPaths])].sort()
+  const definitions = discoverDatabaseDefinitions(rootDir)
+  if (!definitions.length) return
+
+  const databases: Record<string, ResolvedDrizzleDatabaseConfig> = {}
+  const generatedSchemaFilesByDatabase: Record<string, string> = {}
+  for (const definition of definitions) {
+    const migrationsDir = getDefaultMigrationsDir(rootDir, definition)
+    const generatedSchemaFile = createGeneratedSchemaFile(rootDir, definition.name)
+    generatedSchemaFilesByDatabase[definition.name] = generatedSchemaFile
+    databases[definition.name] = {
+      cloudflare: normalizeCloudflareConfig(readDefinitionCloudflareConfig(definition.handler), definition.name, migrationsDir),
+      connection: readDefinitionConnectionConfig(definition.handler) ?? getDefaultConnection(definition.name),
+      dialect: "sqlite",
+      drizzle: {},
+      generatedSchemaFile,
+      migrationsDir,
+      mode: definition.mode,
+      name: definition.name,
+      orm: "drizzle",
+    }
   }
 
   return {
-    databaseNames: normalized.databaseNames,
-    databases: normalized.databases,
+    databaseNames: definitions.map(definition => definition.name),
+    databases,
+    definitions,
+    generatedDrizzleConfigFile: createGeneratedDefinitionPath(rootDir, {
+      fileName: "drizzle.config.ts",
+      productName: "db",
+    }),
+    generatedSchemaFilesByDatabase,
     rootDir,
-    schemaPathsByDatabase,
   }
+}
+
+export function serializeConfigValue(value: DatabaseConfigValue | undefined): string | undefined {
+  if (typeof value === "undefined") return
+  if (typeof value === "string") return value
+  return undefined
+}
+
+export function normalizeDBOptions(options?: DBModulePublicOptions, rootDir = process.cwd()): ResolvedDrizzleDatabaseConfig | undefined {
+  return resolveDBViteConfig(options, rootDir)?.databases.default
 }
