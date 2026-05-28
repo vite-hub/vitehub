@@ -1,0 +1,55 @@
+{
+  "name": "@vitehub/cli",
+  "version": "0.0.0",
+  "description": "Command-line workflows for ViteHub projects.",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/cli"
+  },
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "keywords": [
+    "vitehub",
+    "cli",
+    "agent",
+    "eval"
+  ],
+  "bin": {
+    "vitehub": "./dist/index.js"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsdown --tsconfig tsconfig.build.json",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "pnpm --filter @vitehub/internal build && pnpm --filter @vitehub/agent build && pnpm --dir . build && vitest run"
+  },
+  "dependencies": {
+    "@vitehub/internal": "workspace:*",
+    "pathe": "catalog:"
+  },
+  "peerDependencies": {
+    "vite": ">=8.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitehub/agent": "workspace:*",
+    "tsdown": "^0.21.8",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

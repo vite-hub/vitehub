@@ -222,6 +222,12 @@ importers:
       '@vercel/functions':
         specifier: 'catalog:'
         version: 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38)
+      '@vitehub/devtools':
+        specifier: workspace:*
+        version: link:../devtools
+      '@vitehub/internal':
+        specifier: workspace:*
+        version: link:../internal
       '@vitehub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -256,12 +262,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
-      '@vitehub/devtools':
-        specifier: workspace:*
-        version: link:../devtools
-      '@vitehub/internal':
-        specifier: workspace:*
-        version: link:../internal
       ai:
         specifier: ^6.0.172
         version: 6.0.174(zod@4.4.1)
@@ -399,6 +399,34 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 6.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
+
+  packages/cli:
+    dependencies:
+      '@vitehub/internal':
+        specifier: workspace:*
+        version: link:../internal
+      pathe:
+        specifier: 'catalog:'
+        version: 2.0.3
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.0
+      '@vitehub/agent':
+        specifier: workspace:*
+        version: link:../agent
+      tsdown:
+        specifier: ^0.21.8
+        version: 0.21.9(@vitejs/devtools@0.1.19)(publint@0.3.21)(typescript@6.0.2)(vue-tsc@3.2.6(typescript@6.0.2))
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.2
+      vite:
+        specifier: 'catalog:'
+        version: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
       vitest:
         specifier: 'catalog:'
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
@@ -22478,7 +22506,7 @@ snapshots:
       giget: 3.2.0
       jiti: 2.6.1
       rollup: 4.60.1
-      vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+      vite: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'

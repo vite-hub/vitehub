@@ -5,10 +5,11 @@ import agentNitroModule from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
+import type { ViteHubCliContributingPlugin } from "@vitehub/internal/cli"
 import type { ChatDevToolsOptions, ChatDevToolsPlugin } from "./chat/devtools.ts"
 import type { AgentModuleOptions } from "./types.ts"
 
-export type AgentVitePlugin = Plugin & { nitro: NitroModule }
+export type AgentVitePlugin = Plugin & ViteHubCliContributingPlugin & { nitro: NitroModule }
 
 const agentPackageName = "@vitehub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
@@ -23,6 +24,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   return {
     name: "@vitehub/agent/vite",
     nitro: agentNitroModule,
+    vitehub: {
+      cli: async () => {
+        const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
+        return createAgentCliContributor(agent === false ? false : agent?.cli)
+      },
+    },
     config(config) {
       agent = config.agent ?? agent
       if (typeof agent !== "undefined") {

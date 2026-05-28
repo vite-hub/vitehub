@@ -5,6 +5,7 @@ export default defineConfig({
   dts: true,
   entry: [
     "src/arrays.ts",
+    "src/cli.ts",
     "src/definition-catalog.ts",
     "src/definition-discovery.ts",
     "src/env.ts",

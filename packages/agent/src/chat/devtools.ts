@@ -790,7 +790,7 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
         `./runtime/chat-devtools-handler${handlerExtension}`,
         import.meta.url,
       ).pathname
-      if (!nitro.options.handlers.some(item => item.route === route && item.method === "POST" && item.handler === handler)) {
+      if (!nitro.options.handlers.some(item => item.route === route && item.method === "POST")) {
         nitro.options.handlers.push({ handler, method: "POST", route })
       }
     },

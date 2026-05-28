@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
 const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
-const workspacePackages = ["runtime", "shell", "unsource", "sandbox", "workspace", "agent", "blob", "db", "devtools", "env", "kv", "queue", "schedule", "workflow"] as const
+const workspacePackages = ["runtime", "shell", "unsource", "sandbox", "workspace", "agent", "blob", "ci", "cli", "db", "devtools", "env", "kv", "queue", "schedule", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
 
@@ -214,6 +214,7 @@ describe("unified vite e2e hosted outputs", () => {
     })
 
     const chatOutput = await readGeneratedJavaScript(join(chatRoot, "dist"))
-    expect(chatOutput).toContain("vite-playground")
+    expect(chatOutput).toContain("playground-mock")
+    expect(chatOutput).toContain("DevTools Demo Agent")
   }, 45_000)
 })

@@ -428,7 +428,16 @@ export interface AgentProvidersOptions {
   state?: AgentStateProviderOptions
 }
 
+export interface AgentEvalCliOptions {
+  forceRerunTriggers?: string[]
+}
+
+export interface AgentCliOptions {
+  eval?: false | AgentEvalCliOptions
+}
+
 export interface AgentModuleOptions {
+  cli?: false | AgentCliOptions
   execution?: AgentExecution
   imports?: boolean
   integrations?: AgentIntegrationsOptions

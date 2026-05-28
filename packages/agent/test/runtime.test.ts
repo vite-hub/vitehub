@@ -1360,10 +1360,13 @@ describe("agent message protocol", () => {
     }))
 
     expect(response.status).toBe(200)
-    expect(await response.text()).toContain(JSON.stringify({
+    const errorEvent = (await response.text()).split("\n")
+      .find(line => line.includes("No chats are registered for DevTools."))
+    expect(errorEvent).toBeDefined()
+    expect(JSON.parse(errorEvent!)).toMatchObject({
       message: "No chats are registered for DevTools.",
       type: "error",
-    }))
+    })
   })
 
   it("returns a bad request for malformed text chat devtools payloads", async () => {

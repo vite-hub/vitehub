@@ -9,6 +9,7 @@
 - [Framework Integrations](./contexts/framework-integrations/CONTEXT.md) - names Vite, Nitro, discovery, runtime registry, and option lifecycle boundaries.
 - [Capabilities](./contexts/capabilities/CONTEXT.md) - names user-shareable abilities that agents can attach.
 - [Agents](./contexts/agents/CONTEXT.md) - names agent definitions, invocations, and agent-owned runtime behavior.
+- [CLI](./contexts/cli/CONTEXT.md) - names the command-line surface for ViteHub-owned developer workflows.
 - [DevTools](./contexts/devtools/CONTEXT.md) - names the shared hosted development inspection surface and package-owned DevTools features.
 - [KV](./contexts/kv/CONTEXT.md) - names key-value storage primitives and configured stores.
 - [Blob](./contexts/blob/CONTEXT.md) - names object/file storage primitives and configured stores.
@@ -33,6 +34,7 @@
 - **Framework Integrations -> Packages**: Packages use framework integrations to discover definitions, generate runtime registries, and bind provider output.
 - **Framework Integrations -> DevTools**: Vite and Nitro integrations register DevTools features and bridges for the hosted DevTools client.
 - **Capabilities -> Agents**: Agents attach Capabilities to expose user-shareable abilities.
+- **CLI -> Packages**: The ViteHub CLI can expose package-owned workflows without making each workflow a separate product.
 - **Agents -> Workspace**: Agents can reference Workspaces for persistent file-tree state.
 - **Schedule -> Agents**: Schedule Targets can start Agent Invocations, but Schedule is not an Agent Capability.
 - **Workspace -> Blob**: Workspace Stores can use Blob Stores for persistence while Workspace owns file-tree behavior.

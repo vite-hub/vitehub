@@ -8,6 +8,7 @@
   "sideEffects": false,
   "type": "module",
   "exports": {
+    "./cli": "./dist/cli.js",
     "./env": "./dist/env.js",
     "./arrays": "./dist/arrays.js",
     "./definition-catalog": "./dist/definition-catalog.js",

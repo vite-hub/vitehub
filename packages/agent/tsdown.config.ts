@@ -18,6 +18,7 @@ export default defineConfig({
     "src/mcp.ts",
     "src/mcp/stdio.ts",
     "src/cloudflare.ts",
+    "src/cli.ts",
     "src/eval.ts",
     "src/nitro.ts",
     "src/runtime/empty-registry.ts",
