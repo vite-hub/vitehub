@@ -211,4 +211,46 @@ describe("agent Nitro chat webhooks", () => {
     expect(output.posts).toEqual(["Working..."])
     expect(output.edits).toEqual(["agent answer"])
   })
+
+  it("passes configured thread history size as the adapter fetch limit", async () => {
+    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    const adapter = createWebhookAdapter(output)
+    const fetchMessages = (adapter as unknown as { fetchMessages: ReturnType<typeof vi.fn> }).fetchMessages
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({
+          adapters: () => ({ teams: adapter }),
+          history: { maxMessages: 50, source: "thread" },
+          state: () => createMemoryState(),
+        })],
+        run() {
+          return "agent answer"
+        },
+      }),
+    })
+
+    const response = await handler({
+      context: {
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      req: new Request("https://example.test/api/agents/support/chat/teams", {
+        body: JSON.stringify({ text: "hello from Teams" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    expect(response.status).toBe(200)
+    expect(fetchMessages).toHaveBeenCalledWith("teams:dm:maxi", {
+      direction: "backward",
+      limit: 50,
+    })
+    expect(output.edits).toEqual(["agent answer"])
+  })
 })

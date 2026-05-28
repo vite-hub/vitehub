@@ -346,13 +346,11 @@ async function collectThreadMessages(thread: Thread, message: ChatMessage, histo
     return [message]
   }
 
-  const messages: ChatMessage[] = []
-  for await (const item of thread.allMessages) {
-    messages.push(item)
-    if (messages.length > options.maxMessages) {
-      messages.shift()
-    }
-  }
+  const result = await thread.adapter.fetchMessages(thread.id, {
+    direction: "backward",
+    limit: options.maxMessages,
+  })
+  const messages = [...result.messages]
   if (!messages.length || !sameMessage(messages.at(-1), message)) {
     messages.push(message)
   }
