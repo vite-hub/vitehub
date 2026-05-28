@@ -1100,7 +1100,7 @@ describe("agent message protocol", () => {
     const setIntervalSpy = vi.spyOn(globalThis, "setInterval")
     const app = createApp()
     const agent = defineAgent({
-      capabilities: [chat({ fallbackStreamingPlaceholderText: "Thinking from config..." })],
+      capabilities: [chat({ concurrency: "queue", fallbackStreamingPlaceholderText: "Thinking from config..." })],
       async run() {
         return {
           toUIMessageStream() {
@@ -1121,6 +1121,7 @@ describe("agent message protocol", () => {
     })
     app.use(defineChatDevtoolsRegistryHandler({
       support: async () => defineChat({
+        concurrency: "queue",
         agent: { definition: agent, name: "support-agent" },
         adapters: {},
         fallbackStreamingPlaceholderText: "Thinking from config...",
@@ -1183,7 +1184,7 @@ describe("agent message protocol", () => {
     const app = createApp()
     const seenHistory: Array<Array<{ role: string, text: string }>> = []
     const agent = defineAgent({
-      capabilities: [chat({})],
+      capabilities: [chat({ concurrency: "queue" })],
       async run() {
         return {
           toUIMessageStream() {
@@ -1202,6 +1203,7 @@ describe("agent message protocol", () => {
     })
     app.use(defineChatDevtoolsRegistryHandler({
       support: async () => defineChat({
+        concurrency: "queue",
         agent: {
           definition: agent,
           hooks: {
@@ -1251,7 +1253,7 @@ describe("agent message protocol", () => {
     const app = createApp()
     const seenHistory: Array<string[]> = []
     const agent = defineAgent({
-      capabilities: [chat({ history: { maxMessages: 2, source: "thread" } })],
+      capabilities: [chat({ concurrency: "queue", history: { maxMessages: 2, source: "thread" } })],
       async run() {
         return {
           toUIMessageStream() {
@@ -1270,6 +1272,7 @@ describe("agent message protocol", () => {
     })
     app.use(defineChatDevtoolsRegistryHandler({
       support: async () => defineChat({
+        concurrency: "queue",
         agent: {
           definition: agent,
           history: { maxMessages: 2, source: "thread" },
@@ -1309,7 +1312,7 @@ describe("agent message protocol", () => {
     const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
     const agent = defineAgent({
-      capabilities: [chat({ fallbackStreamingPlaceholderText: "Thinking from config..." })],
+      capabilities: [chat({ concurrency: "queue", fallbackStreamingPlaceholderText: "Thinking from config..." })],
       async run() {
         return {
           toUIMessageStream() {
@@ -1328,6 +1331,7 @@ describe("agent message protocol", () => {
     })
     app.use(defineChatDevtoolsRegistryHandler({
       support: async () => defineChat({
+        concurrency: "queue",
         agent: { definition: agent, name: "support-agent" },
         adapters: {},
         fallbackStreamingPlaceholderText: "Thinking from config...",
@@ -1362,9 +1366,10 @@ describe("agent message protocol", () => {
     const app = createApp()
     app.use(defineChatDevtoolsRegistryHandler({
       support: async () => defineChat({
+        concurrency: "queue",
         agent: {
           definition: defineAgent({
-            capabilities: [chat({})],
+            capabilities: [chat({ concurrency: "queue" })],
             async run() {
               throw new Error("streaming-only test should not run the agent")
             },

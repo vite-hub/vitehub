@@ -52,6 +52,25 @@ function createState() {
 }
 
 describe("chat agent history", () => {
+  it("requires explicit concurrency for agent chat bindings", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChat, resolveChat } = await import("../src/chat/index.ts")
+
+    await expect(resolveChat(defineChat({
+      adapters: {},
+      agent: {
+        definition: defineAgent({
+          async run() {
+            return "ok"
+          },
+        }),
+        name: "support-agent",
+      },
+      state: createState() as never,
+      userName: "support",
+    }), runtime())).rejects.toThrow("must set concurrency explicitly")
+  })
+
   it("keeps the current message when maxMessages is zero", async () => {
     let messages: Message[] | undefined
     const current = chatMessage("m3", "current")

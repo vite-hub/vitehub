@@ -404,6 +404,17 @@ function resolveChatHooks<
   return resolved as ChatEventHooks<TRuntimeConfig, TWorkflow>
 }
 
+function assertExplicitAgentChatConcurrency(options: { agent?: unknown, concurrency?: unknown, workflow?: unknown }) {
+  if (!options.agent && !options.workflow) return
+  if (typeof options.concurrency !== "undefined") return
+
+  throw new Error(
+    `[vitehub:chat] Agent chat must set concurrency explicitly. `
+    + `Choose the Chat SDK overlap policy for this app, for example chat({ concurrency: "queue", ... }), `
+    + `so webhook messages do not accidentally inherit the SDK's "drop" default.`,
+  )
+}
+
 async function createChat<
   TRuntimeConfig extends ChatRuntimeConfig,
   TWorkflow extends ChatWorkflowHandle<any, any> | undefined,
@@ -439,6 +450,7 @@ async function createChat<
   if (!userName) {
     throw new Error("Missing chat userName. Set userName in defineChat() or place the definition in a discovered chat file such as server/chat.ts.")
   }
+  assertExplicitAgentChatConcurrency(options)
 
   const bot = new Chat({
     ...(chatOptions as Omit<ChatConfig, "adapters" | "state">),
