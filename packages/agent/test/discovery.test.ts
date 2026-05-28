@@ -89,7 +89,7 @@ describe("agent Nitro runtime files", () => {
 
     const module = (await import("../src/nitro/module.ts")).default
     const hooks: Array<() => Promise<void> | void> = []
-    await module.setup({
+    const nitro = {
       hooks: {
         hook(_name: string, handler: () => Promise<void> | void) {
           hooks.push(handler)
@@ -104,13 +104,16 @@ describe("agent Nitro runtime files", () => {
         runtimeConfig: {},
         scanDirs: [join(root, "server")],
       },
-    } as never)
+    }
+    await module.setup(nitro as never)
 
     const registryFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "nitro-registry.ts")
     const routeFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "route-handler.ts")
 
     await expect(readFile(registryFile, "utf8")).resolves.toContain("server/agents/docs/config.ts")
     await expect(readFile(routeFile, "utf8")).resolves.toContain("./nitro-registry.ts")
+    expect((nitro.options.alias as Record<string, string>)["@vitehub/agent/capabilities"]).toContain("/packages/agent/src/capabilities.ts")
+    expect((nitro.options.alias as Record<string, string>)["@vitehub/agent/eval"]).toContain("/packages/agent/src/eval.ts")
     expect(hooks).toHaveLength(2)
   })
 })

@@ -114,7 +114,9 @@ async function writeNitroAgentRuntimeFiles(nitro: Nitro, options: false | Resolv
 function installAliases(nitro: Nitro, registryFile: string | undefined): void {
   nitro.options.alias ||= {}
   nitro.options.alias["@vitehub/agent"] = resolveRuntimeEntry("../index", "@vitehub/agent")
+  nitro.options.alias["@vitehub/agent/capabilities"] = resolveRuntimeEntry("../capabilities", "@vitehub/agent/capabilities")
   nitro.options.alias["@vitehub/agent/cloudflare"] = resolveRuntimeEntry("../cloudflare", "@vitehub/agent/cloudflare")
+  nitro.options.alias["@vitehub/agent/eval"] = resolveRuntimeEntry("../eval", "@vitehub/agent/eval")
   nitro.options.alias["@vitehub/agent/nitro"] = resolveRuntimeEntry("../nitro", "@vitehub/agent/nitro")
   nitro.options.alias["@vitehub/agent/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vitehub/agent/runtime/nitro-runtime-config")
   nitro.options.alias["@vitehub/agent/vercel"] = resolveRuntimeEntry("../vercel", "@vitehub/agent/vercel")
