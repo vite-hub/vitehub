@@ -43,15 +43,34 @@ export function withReadableStreamCleanup<T>(stream: ReadableStream<T>, cleanup:
   })
 }
 
-export function finalizeUiMessageStreamOutput(
+function textFromRenderedOutput(rendered: unknown): string | undefined {
+  if (typeof rendered === "string") return rendered
+  if (typeof rendered !== "object" || rendered === null) return undefined
+  const record = rendered as { text?: unknown }
+  return typeof record.text === "string" ? record.text : undefined
+}
+
+export async function finalizeUiMessageStreamOutput(
   rendered: unknown,
   shouldWrapOutput: boolean,
   finish: (error?: unknown) => MaybePromise<void>,
-): FinalizedStreamOutput<unknown> {
-  if (!isUIMessageStreamResult(rendered)) {
+): Promise<FinalizedStreamOutput<unknown>> {
+  const text = textFromRenderedOutput(rendered)
+  if (!isUIMessageStreamResult(rendered) && text === undefined) {
     throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
   }
-  const stream = rendered.toUIMessageStream()
+  const stream = isUIMessageStreamResult(rendered)
+    ? rendered.toUIMessageStream()
+    : (await import("ai")).createUIMessageStream({
+        execute({ writer }) {
+          const messageId = crypto.randomUUID()
+          writer.write({ type: "start", messageId })
+          writer.write({ type: "text-start", id: messageId })
+          writer.write({ type: "text-delta", id: messageId, delta: text || "" })
+          writer.write({ type: "text-end", id: messageId })
+          writer.write({ type: "finish", finishReason: "stop" })
+        },
+      })
   return {
     deferFinish: shouldWrapOutput,
     finishResult: rendered,

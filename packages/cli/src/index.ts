@@ -1,5 +1,8 @@
+#!/usr/bin/env node
 import { spawn } from "node:child_process"
+import { realpathSync } from "node:fs"
 import process from "node:process"
+import { fileURLToPath } from "node:url"
 
 import { resolve } from "pathe"
 
@@ -198,7 +201,17 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   return typeof result === "number" ? result : 0
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+function isCliEntrypoint() {
+  if (!process.argv[1]) return false
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])
+  }
+  catch {
+    return false
+  }
+}
+
+if (isCliEntrypoint()) {
   runViteHubCli().then((exitCode) => {
     process.exit(exitCode)
   }).catch((error: unknown) => {

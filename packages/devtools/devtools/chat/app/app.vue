@@ -496,12 +496,13 @@ async function callRpc<T>(method: string, ...args: unknown[]): Promise<T> {
   return await (rpcClient as { call: (method: string, ...args: unknown[]) => Promise<unknown> }).call(method, ...args) as T
 }
 
-async function callBridgeState(body: Record<string, unknown>): Promise<ChatDevtoolsStateResult | undefined> {
+async function callBridgeState(body: Record<string, unknown>, signal?: AbortSignal): Promise<ChatDevtoolsStateResult | undefined> {
   try {
     const response = await fetch(localBridgeRoute(), {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: JSON.stringify(body),
+      signal,
     })
     if (!response.ok) return undefined
 
@@ -553,12 +554,14 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
 
-    const next = await callBridgeState({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) })
+    const next = await callBridgeState({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }, signal)
     if (!next) continue
 
     if (hasCurrentUserMessage(next, input.chat, input.text)) {
-      applyState(next)
-      error.value = undefined
+      if (!signal.aborted) {
+        applyState(next)
+        error.value = undefined
+      }
     }
     if (hasCompletedResponse(next, input.chat, input.text)) {
       return true
@@ -596,26 +599,19 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
   currentReader = { cancel: () => abortController.abort() }
 
   let response: Response | undefined
+  let timeoutSignal: AbortSignal | undefined
   try {
-    response = await Promise.race([
-      fetch(localBridgeRoute(), {
+    timeoutSignal = AbortSignal.timeout(2_000)
+    response = await fetch(localBridgeRoute(), {
         method: "POST",
         headers: { "content-type": "text/plain" },
         body: JSON.stringify({ action: "send", ...input, stream: true }),
-        signal: abortController.signal,
-      }),
-      new Promise<undefined>(resolve => setTimeout(resolve, 2_000)),
-    ])
+        signal: AbortSignal.any([abortController.signal, timeoutSignal]),
+      })
   }
   catch {
     currentReader = undefined
-    return false
-  }
-
-  if (!response) {
-    abortController.abort()
-    currentReader = undefined
-    return false
+    return Boolean(timeoutSignal?.aborted)
   }
 
   if (!response.ok || !response.body) {
@@ -667,6 +663,9 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
     if (outcome === "error") {
       return true
     }
+    if (outcome === "done") {
+      return true
+    }
     if (!outcome || hasCompletedResponse(state.value, input.chat, input.text)) {
       return Boolean(outcome)
     }
@@ -709,13 +708,15 @@ async function readRpcStream(streamId: string, input: { chat?: string, text: str
   const readStream = async () => {
     for await (const event of reader) {
       applyStreamEvent(event)
-      if (event.type === "error" || event.type === "done") return true
+      if (event.type === "error") return "error"
+      if (event.type === "done") return "done"
     }
-    return true
+    return "done"
   }
 
   try {
-    return await readStream()
+    const outcome = await readStream()
+    return Boolean(outcome)
   }
   finally {
     abortController.abort()

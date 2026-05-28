@@ -48,7 +48,7 @@ function resolveNitroAgentScanDirs(rootDir: string, scanDirs: string[] | undefin
 
 function createNitroAgentRegistryContents(file: string, definitions: DiscoveredAgentDefinition[]): string {
   return [
-    `import { withWorkspaceAgentDefaults } from "@vitehub/agent"`,
+    `import { resolveAgentDevtoolsMetadata, withWorkspaceAgentDefaults } from "@vitehub/agent"`,
     "",
     "const registry = {",
     ...definitions.map((definition) => {
@@ -62,6 +62,8 @@ function createNitroAgentRegistryContents(file: string, definitions: DiscoveredA
       return `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(importPath)}),`
     }),
     "}",
+    "",
+    "export const metadata = Object.fromEntries(Object.entries(registry).map(([name, load]) => [name, async () => resolveAgentDevtoolsMetadata((await load()).default)]))",
     "export default registry",
     "",
   ].join("\n")

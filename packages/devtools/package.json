@@ -49,6 +49,7 @@
     "@nuxt/ui": "^4.6.1",
     "@types/node": "catalog:",
     "@vitejs/devtools-kit": "catalog:",
+    "ai": "^6.0.172",
     "nuxt": "catalog:",
     "tailwindcss": "^4.1.18",
     "tsdown": "^0.21.8",
