@@ -80,7 +80,7 @@ function renderDatabaseConfigExpression(name: string, runtimeConfig: ResolvedDBV
     "{",
     `      ...${serializeDatabaseConfig(base)},`,
     `      cloudflare: ${definitionVariable}.cloudflare ? { ...${definitionVariable}.cloudflare, binding: ${definitionVariable}.cloudflare.binding ?? ${JSON.stringify(base.cloudflare?.binding ?? getDefaultCloudflareBindingName(name))}, migrationsDir: ${JSON.stringify(base.migrationsDir)} } : undefined,`,
-    `      connection: ${definitionVariable}.connection ?? ${JSON.stringify(base.connection)},`,
+    `      connection: ${definitionVariable}.connection ? { ...${JSON.stringify(base.connection)}, ...${definitionVariable}.connection, authToken: ${definitionVariable}.connection.authToken ?? ${JSON.stringify(base.connection?.authToken)}, url: ${definitionVariable}.connection.url ?? ${JSON.stringify(base.connection?.url)} } : ${JSON.stringify(base.connection)},`,
     `      drizzle: ${definitionVariable}.drizzle ?? {},`,
     "    }",
   ].join("\n")

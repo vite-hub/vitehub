@@ -50,7 +50,7 @@ function renderDatabaseConfigExpression(name: string, config: ResolvedDBViteConf
     "{",
     `      ...${JSON.stringify(base, null, 6)},`,
     `      cloudflare: ${definitionVariable}.cloudflare ? { ...${definitionVariable}.cloudflare, binding: ${definitionVariable}.cloudflare.binding ?? ${JSON.stringify(base.cloudflare?.binding ?? (name === "default" ? "DB" : `DB_${name.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").replace(/_+/g, "_").toUpperCase() || "DATABASE"}`))}, migrationsDir: ${JSON.stringify(base.migrationsDir)} } : undefined,`,
-    `      connection: ${definitionVariable}.connection ?? ${JSON.stringify(base.connection)},`,
+    `      connection: ${definitionVariable}.connection ? { ...${JSON.stringify(base.connection)}, ...${definitionVariable}.connection, authToken: ${definitionVariable}.connection.authToken ?? ${JSON.stringify(base.connection?.authToken)}, url: ${definitionVariable}.connection.url ?? ${JSON.stringify(base.connection?.url)} } : ${JSON.stringify(base.connection)},`,
     `      drizzle: ${definitionVariable}.drizzle ?? {},`,
     "    }",
   ].join("\n")
