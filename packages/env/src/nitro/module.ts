@@ -9,14 +9,9 @@ import { env } from "../core/declarations.ts"
 import { createRuntimeRegistry, isEnvVariableDeclaration, resolveEnvSource, validateEnvConfigShape } from "../core/resolve.ts"
 
 import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue } from "../types.ts"
-import type { Nitro } from "nitro/types"
+import type { Nitro, NitroModule } from "nitro/types"
 
 export { env }
-
-export interface EnvNitroModule {
-  name: string
-  setup(this: void, nitro: unknown): void | Promise<void>
-}
 
 export interface EnvNitroIntegrationOptions extends EnvIntegrationOptions {
   env?: EnvNitroConfigOptions
@@ -167,7 +162,7 @@ function resolveLiteralTypeName(value: unknown): string {
   }
 }
 
-export function envNitro(options: EnvNitroIntegrationOptions = {}): EnvNitroModule {
+export function envNitro(options: EnvNitroIntegrationOptions = {}): NitroModule {
   return {
     name: "@vitehub/env",
     async setup(nitroInput) {
@@ -328,7 +323,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return prototype === null || prototype === Object.prototype
 }
 
-const nitroModule: EnvNitroModule = envNitro()
+const nitroModule: NitroModule = envNitro()
 
 export default nitroModule
 
