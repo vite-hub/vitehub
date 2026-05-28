@@ -1,10 +1,10 @@
-import { jsonSchema, tool, type Tool, type ToolSet } from "ai"
 import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } from "@vitehub/shell/workspace"
 
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
 import type { ShellObservation, ShellSessionPolicy } from "@vitehub/shell"
+import type { JSONSchema7, Schema, Tool, ToolSet } from "ai"
 
 export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
 
@@ -87,6 +87,33 @@ export type WorkspaceTools<Operations = undefined> = ((ShellEnabled<Operations> 
 
 const defaultMaxOutputLength = 30_000
 const workspaceMountPoint = "/workspace"
+const aiSchemaSymbol = Symbol.for("vercel.ai.schema")
+
+type ValidationResult<T> =
+  | { success: true, value: T }
+  | { error: Error, success: false }
+
+type JsonSchemaInput = JSONSchema7 | (() => JSONSchema7)
+
+function jsonSchema<T = unknown>(
+  schema: JsonSchemaInput,
+  { validate }: { validate?: (value: unknown) => PromiseLike<ValidationResult<T>> | ValidationResult<T> } = {},
+): Schema<T> {
+  let resolved = schema
+  return {
+    [aiSchemaSymbol]: true,
+    _type: undefined,
+    get jsonSchema() {
+      if (typeof resolved === "function") resolved = resolved()
+      return resolved
+    },
+    validate,
+  } as unknown as Schema<T>
+}
+
+function tool<T extends Tool<any, any>>(definition: T): T {
+  return definition
+}
 
 function isWorkspace(input: Workspace | WorkspaceAssets): input is Workspace {
   return "sync" in input

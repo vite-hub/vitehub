@@ -1010,10 +1010,8 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   await bundleEsmEntry(sourceEntry, resolve(serverDir, "index.mjs"), {
     alias: withoutCloudflareWorkspaceAliases(artifacts.alias),
     external: [
-      "@vercel/blob",
       "askweb",
       "cloudflare:workers",
-      "files-sdk",
       "files-sdk/akamai",
       "files-sdk/azure",
       "files-sdk/box",
@@ -1031,7 +1029,6 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
       "files-sdk/storj",
       "files-sdk/supabase",
       "files-sdk/uploadthing",
-      "files-sdk/vercel-blob",
       "isomorphic-git",
       "isomorphic-git/http/web",
       "workflow",
