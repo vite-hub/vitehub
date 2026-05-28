@@ -72,11 +72,12 @@ async function getUploadUrl(client: FilesInstance, pathname: string): Promise<st
 export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
   options: TOptions,
   createAdapter: (options: TOptions, putOptions?: BlobPutOptions) => Adapter | Promise<Adapter>,
+  FilesConstructor?: FilesCtor,
 ): BlobDriverAdapter<TOptions> {
   let filesPromise: Promise<FilesInstance> | undefined
 
   async function createFiles(putOptions?: BlobPutOptions) {
-    const Files = await loadFiles()
+    const Files = FilesConstructor ?? await loadFiles()
     return new Files({ adapter: await (putOptions ? createAdapter(options, putOptions) : createAdapter(options)) }) as FilesInstance
   }
 

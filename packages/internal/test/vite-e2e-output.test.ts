@@ -185,6 +185,7 @@ describe("unified vite e2e hosted outputs", () => {
     expect(vercelServerContents).toContain("vercel-blob")
     expect(vercelServerContents).not.toContain('import("files-sdk")')
     expect(vercelServerContents).not.toContain('import("files-sdk/vercel-blob")')
+    expect(vercelServerContents).not.toContain("requires files-sdk")
     expect(vercelServerContents).not.toContain('from "@vercel/blob"')
     expect(vercelServerContents).not.toContain("from '@vercel/blob'")
     expect(vercelServerContents).not.toContain("@vitejs/devtools")

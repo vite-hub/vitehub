@@ -189,7 +189,7 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
   }
   else if (config?.store.driver === "vercel-blob") {
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "config")))}`)
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/vercel")))}`)
+    imports.push(`import { createBundledVercelBlobDriver } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/drivers/vercel-bundled.ts")))}`)
   }
   else if (config?.store.driver === "fs") {
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/fs")))}`)
@@ -201,7 +201,7 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
   const storageExpression = !config
     ? "undefined"
     : config.store.driver === "vercel-blob"
-      ? "createBlobStorage(createDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env)))"
+      ? "createBlobStorage(createBundledVercelBlobDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env)))"
       : "createBlobStorage(createDriver(blobConfig.store))"
 
   return [
