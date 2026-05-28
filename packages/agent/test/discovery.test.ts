@@ -100,6 +100,7 @@ describe("agent Nitro runtime files", () => {
         buildDir,
         handlers: [],
         imports: {},
+        alias: {},
         rootDir: root,
         runtimeConfig: {},
         scanDirs: [join(root, "server")],
