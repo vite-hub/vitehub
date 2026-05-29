@@ -19,17 +19,21 @@ vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
 const readFile = vi.fn()
 const list = vi.fn()
 const inspectTools = vi.fn(() => ({}))
+const registerWorkspace = vi.hoisted(() => vi.fn())
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown, warnings?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
 
 vi.mock("@vitehub/workspace", () => ({
-  registerWorkspace: vi.fn(),
   useWorkspace: vi.fn(() => ({
     fs: { list, readFile },
     tools: {
       inspect: inspectTools,
     },
   })),
+}))
+
+vi.mock("@vitehub/workspace/test", () => ({
+  registerWorkspace,
 }))
 
 vi.mock("ai", () => ({
@@ -56,6 +60,7 @@ describe("agent eval", () => {
     list.mockReset()
     list.mockResolvedValue([])
     readFile.mockReset()
+    registerWorkspace.mockReset()
   })
 
   it("requires scenarios", async () => {
@@ -136,6 +141,24 @@ describe("agent eval", () => {
     const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
 
     expect(output.text).toBe("async eval config")
+    expect(score.score).toBe(1)
+  })
+
+  it("infers workspace source roots for sibling workspace agents", async () => {
+    readFile.mockResolvedValueOnce("workspace config")
+
+    await import("./fixtures/workspace-source-root/config.eval.ts")
+
+    expect(evaliteCalls[0]?.name).toBe("config")
+
+    const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
+    const registeredAgent = registerWorkspace.mock.calls[0]?.[1] as any
+
+    expect(registeredAgent.__vitehubWorkspaceAgentOptions.workspace.sourceRootDir)
+      .toMatch(/fixtures[/\\]workspace-source-root$/)
+    expect(agentSettings.at(-1)?.instructions).toBe("workspace config")
+    expect(output.text).toBe("ok")
     expect(score.score).toBe(1)
   })
 
