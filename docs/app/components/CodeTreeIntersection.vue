@@ -66,7 +66,7 @@ useIntersectionObserver(
 
 <template>
   <div ref="target" class="lg:h-px">
-    <div v-if="!props.default" class="lg:hidden">
+    <div class="lg:hidden">
       <slot />
     </div>
   </div>

@@ -130,14 +130,6 @@ export function github<const TKey extends string = string>(options: GitHubSource
     throw new SourceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) did not include archive content for ${JSON.stringify(key)}.`)
   }
 
-  async function getContent(key: TKey, token: string | undefined) {
-    const file = (await getFiles(token)).find(file => file.key === key)
-    if (!file) {
-      throw new SourceError(`[vitehub] source.github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
-    }
-    return await fetchContent(key, file)
-  }
-
   function cacheKey(kind: string, token: string, key = "") {
     return createGitHubCacheKey({
       exclude: options.exclude,
@@ -195,7 +187,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
       return {
         key,
         path: file.path,
-        content: await getContent(key, token),
+        content: await fetchContent(key, file),
         metadata: {
           ref: await getRef(token),
           sha: file.sha,

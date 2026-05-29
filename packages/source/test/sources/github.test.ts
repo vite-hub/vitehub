@@ -150,7 +150,7 @@ describe("@vitehub/source GitHub source", () => {
     ])
   })
 
-  it("uses the same GitHub auth token for archive item lookup", async () => {
+  it("reuses the loaded GitHub archive entry for item content", async () => {
     const tokens = ["first-token", "second-token"]
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const requestUrl = String(url)
@@ -179,8 +179,8 @@ describe("@vitehub/source GitHub source", () => {
     const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
     expect(archiveCalls.map(([, init]) => (init?.headers as Record<string, string> | undefined)?.authorization)).toEqual([
       "Bearer first-token",
-      "Bearer first-token",
     ])
+    expect(tokens).toEqual(["second-token"])
   })
 
   it("reads GitHub bytes from archive snapshots", async () => {
