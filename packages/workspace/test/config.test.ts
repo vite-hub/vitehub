@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { normalizeWorkspaceOptions, resolveRuntimeVercelBlobWorkspaceStore } from "../src/config.ts"
+import { normalizeWorkspaceOptions, resolveRuntimeGitHubWorkspaceStore, resolveRuntimeVercelBlobWorkspaceStore } from "../src/config.ts"
 
 describe("workspace config", () => {
   it("leaves build assets enabled by default", () => {
@@ -173,12 +173,65 @@ describe("workspace config", () => {
     })
   })
 
+  it("masks explicit GitHub tokens in resolved config", () => {
+    const config = normalizeWorkspaceOptions({
+      store: {
+        provider: "github",
+        repo: "acme/app",
+        token: "secret-token",
+      },
+    }, {
+      rootDir: "/repo",
+    })
+
+    expect(JSON.stringify(config)).not.toContain("secret-token")
+    expect(config && config.store).toMatchObject({
+      branch: "main",
+      provider: "github",
+      repo: "acme/app",
+      token: "********",
+    })
+  })
+
+  it("masks env-backed GitHub tokens in resolved config", () => {
+    const config = normalizeWorkspaceOptions({
+      store: {
+        provider: "github",
+      },
+    }, {
+      env: {
+        GITHUB_REPOSITORY: "acme/app",
+        GITHUB_TOKEN: "env-secret-token",
+      },
+      rootDir: "/repo",
+    })
+
+    expect(JSON.stringify(config)).not.toContain("env-secret-token")
+    expect(config && config.store).toMatchObject({
+      provider: "github",
+      repo: "acme/app",
+      token: "********",
+    })
+  })
+
   it("rehydrates masked Vercel Blob tokens at runtime", () => {
     expect(resolveRuntimeVercelBlobWorkspaceStore({
       provider: "vercel-blob",
       token: "********",
     }, {
       BLOB_READ_WRITE_TOKEN: "runtime-token",
+    })).toMatchObject({
+      token: "runtime-token",
+    })
+  })
+
+  it("rehydrates masked GitHub tokens at runtime", () => {
+    expect(resolveRuntimeGitHubWorkspaceStore({
+      provider: "github",
+      repo: "acme/app",
+      token: "********",
+    }, {
+      GITHUB_TOKEN: "runtime-token",
     })).toMatchObject({
       token: "runtime-token",
     })

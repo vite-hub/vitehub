@@ -14,6 +14,8 @@ export {
   MASKED_WORKSPACE_RUNTIME_VALUE,
   hasVercelWorkspaceBlobEnv,
   isMaskedWorkspaceRuntimeValue,
+  resolveGitHubWorkspaceStore,
+  resolveRuntimeGitHubWorkspaceStore,
   normalizeWorkspaceStoreOptions,
   resolveCloudflareArtifactsStore,
   resolveRuntimeVercelBlobWorkspaceStore,
