@@ -267,12 +267,16 @@ function shouldCreateVercelOutput(runtimeConfig: ResolvedDBViteConfig) {
   return getVercelUnsupportedDatabases(runtimeConfig).length === 0
 }
 
+function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig) {
+  return getCloudflareUnsupportedDatabases(runtimeConfig).length === 0
+}
+
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedDBArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig)
   const writeOptions: ProviderWriteOptions = { artifacts, ...options }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
-    cloudflare: createCloudflareOutput(writeOptions),
+    cloudflare: shouldCreateCloudflareOutput(options.runtimeConfig) ? createCloudflareOutput(writeOptions) : undefined,
     rootDir: options.rootDir,
     vercel: shouldCreateVercelOutput(options.runtimeConfig) ? createVercelOutput(writeOptions) : undefined,
   })

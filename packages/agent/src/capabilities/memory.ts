@@ -308,7 +308,10 @@ function getWritableWorkspace(context: AgentCapabilityContext): WritableWorkspac
 async function appendWorkspaceJsonl(path: string, context: AgentCapabilityContext, line: string) {
   const workspace = getWritableWorkspace(context)
   if (!workspace) throw new Error("[vitehub:agent] workspaceJsonlMemoryStore() requires an agent workspace with write access.")
-  await workspace.fs.mkdir(path.split("/").slice(0, -1).join("/") || ".", { recursive: true })
+  const parent = path.split("/").slice(0, -1).join("/")
+  if (parent) {
+    await workspace.fs.mkdir(parent, { recursive: true })
+  }
   await workspace.fs.appendFile(path, `${line}\n`)
 }
 

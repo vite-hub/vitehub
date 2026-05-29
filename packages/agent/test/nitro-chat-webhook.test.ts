@@ -101,8 +101,9 @@ function createWebhookAdapter(output: { edits: unknown[], events?: string[], pos
     fetchMessages: vi.fn(async () => ({ messages: [] })),
     fetchThread: vi.fn(async (threadId: string) => ({ id: threadId, metadata: {} })),
     handleWebhook: vi.fn(async (request: Request) => {
-      const body = await request.json().catch(() => ({})) as { audio?: boolean | "fetch", text?: string }
-      await (chat as ChatInstance & { handleIncomingMessage: (adapter: Adapter, threadId: string, message: unknown) => Promise<void> }).handleIncomingMessage(adapter as unknown as Adapter, "teams:dm:maxi", {
+      const body = await request.json().catch(() => ({})) as { audio?: boolean | "fetch", id?: string, isMention?: boolean, text?: string, threadId?: string }
+      const threadId = body.threadId || "teams:dm:maxi"
+      await (chat as ChatInstance & { handleIncomingMessage: (adapter: Adapter, threadId: string, message: unknown) => Promise<void> }).handleIncomingMessage(adapter as unknown as Adapter, threadId, {
         attachments: body.audio
           ? [body.audio === "fetch"
               ? {
@@ -123,18 +124,19 @@ function createWebhookAdapter(output: { edits: unknown[], events?: string[], pos
           : [],
         author: { fullName: "Maxi", isBot: false, isMe: false, userId: "maxi", userName: "Maxi" },
         formatted: { children: [], type: "root" },
-        id: "message-1",
+        id: body.id || "message-1",
+        isMention: body.isMention,
         metadata: { dateSent: new Date("2026-05-28T10:00:00.000Z"), edited: false },
         raw: body,
         text: body.text || (body.audio ? "" : "hello"),
-        threadId: "teams:dm:maxi",
+        threadId,
       })
       return new Response("ok")
     }),
     initialize: vi.fn(async (instance: ChatInstance) => {
       chat = instance
     }),
-    isDM: () => true,
+    isDM: (threadId: string) => threadId.includes(":dm:"),
     name: "teams",
     parseMessage: vi.fn(),
     postMessage: vi.fn(async (threadId: string, message: unknown) => {
@@ -152,7 +154,7 @@ describe("agent Nitro chat webhooks", () => {
     const root = await createTempRoot("vitehub-agent-chat-webhook-route-")
     const buildDir = ".nitro"
     await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support.ts"), "export default defineAgent({ capabilities: [chat({ adapters: {}, state: {} })], run: () => 'ok' })", "utf8")
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default defineAgent({ capabilities: [chat({ adapters: {}, state: {}, webhooks: { telegram: { path: '/api/webhooks/telegram' } } })], run: () => 'ok' })", "utf8")
 
     const module = (await import("../src/nitro/module.ts")).default
     const nitro = {
@@ -175,11 +177,18 @@ describe("agent Nitro chat webhooks", () => {
 
     const chatWebhookRouteFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "chat-webhook-handler.ts")
     await expect(readFile(chatWebhookRouteFile, "utf8")).resolves.toContain("defineAgentChatWebhookRegistryHandler(agentRegistry)")
+    const customChatWebhookRouteFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "chat-webhook.support.telegram._sapi_swebhooks_stelegram.ts")
+    await expect(readFile(customChatWebhookRouteFile, "utf8")).resolves.toContain("defineAgentChatWebhookRegistryHandler(agentRegistry, { agent: \"support\", platform: \"telegram\" })")
     expect(nitro.options.handlers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         handler: chatWebhookRouteFile,
         method: "POST",
         route: "/api/agents/:agent/chat/:platform",
+      }),
+      expect.objectContaining({
+        handler: customChatWebhookRouteFile,
+        method: "POST",
+        route: "/api/webhooks/telegram",
       }),
     ]))
     expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([
@@ -239,6 +248,140 @@ describe("agent Nitro chat webhooks", () => {
     }))
     expect(seen).toEqual(["hello from Teams"])
     expect(output.posts).toEqual(["Working..."])
+    expect(output.edits).toEqual(["agent answer"])
+  })
+
+  it("only answers group chat messages that mention the bot", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    const seen: string[] = []
+    const adapter = createWebhookAdapter(output)
+    const state = createMemoryState()
+    const threadId = "teams:channel:support"
+    const stateThreadId = `_vitehub_support_chat:${threadId}`
+    await state.subscribe(stateThreadId)
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({
+          adapters: {
+            teams: () => adapter,
+          },
+          history: "none",
+          state: () => state,
+        })],
+        run(context) {
+          seen.push(context.messages.map(message => message.parts
+            .filter((part): part is { text: string, type: "text" } => part.type === "text")
+            .map(part => part.text)
+            .join("")).join("\n"))
+          return "agent answer"
+        },
+      }),
+    })
+
+    const unmentioned = await handler({
+      context: {
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      req: new Request("https://example.test/api/agents/support/chat/teams", {
+        body: JSON.stringify({ id: "message-1", text: "human follow-up", threadId }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    expect(unmentioned.status).toBe(200)
+    expect(await unmentioned.text()).toBe("ok")
+    expect(await state.isSubscribed(stateThreadId)).toBe(false)
+    expect(seen).toEqual([])
+    expect(output.posts).toEqual([])
+
+    const mentioned = await handler({
+      context: {
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      req: new Request("https://example.test/api/agents/support/chat/teams", {
+        body: JSON.stringify({ id: "message-2", isMention: true, text: "please help", threadId }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    expect(mentioned.status).toBe(200)
+    expect(await mentioned.text()).toBe("ok")
+    expect(await state.isSubscribed(stateThreadId)).toBe(false)
+    expect(seen).toEqual(["please help"])
+    expect(output.posts).toEqual(["Thinking..."])
+    expect(output.edits).toEqual(["agent answer"])
+  })
+
+  it("validates configured chat webhook secrets before invoking the adapter", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    const adapter = createWebhookAdapter(output)
+    const handleWebhook = (adapter as unknown as { handleWebhook: ReturnType<typeof vi.fn> }).handleWebhook
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({
+          adapters: {
+            telegram: () => adapter,
+          },
+          state: () => createMemoryState(),
+          webhooks: {
+            telegram: {
+              path: "/api/webhooks/telegram",
+              secretToken: "secret-token",
+            },
+          },
+        })],
+        run() {
+          return "agent answer"
+        },
+      }),
+    }, { agent: "support", platform: "telegram" })
+
+    await expect(handler({
+      context: {
+        params: {},
+      },
+      req: new Request("https://example.test/api/webhooks/telegram", {
+        body: JSON.stringify({ text: "hello from Telegram" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never)).rejects.toMatchObject({ statusCode: 401 })
+
+    expect(handleWebhook).not.toHaveBeenCalled()
+
+    const response = await handler({
+      context: {
+        params: {},
+      },
+      req: new Request("https://example.test/api/webhooks/telegram", {
+        body: JSON.stringify({ text: "hello from Telegram" }),
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "secret-token",
+        },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("ok")
+    expect(handleWebhook).toHaveBeenCalledTimes(1)
     expect(output.edits).toEqual(["agent answer"])
   })
 

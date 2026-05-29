@@ -191,6 +191,18 @@ describe("Vite db provider outputs", () => {
     expect(existsSync(join(rootDir, ".vercel", "output"))).toBe(false)
   }, 30_000)
 
+  it("skips provider output for local-only databases", async () => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-local-only-")
+    await rm(join(rootDir, "server", "databases", "analytics"), { force: true, recursive: true })
+    await writeDatabaseDefinition(rootDir, "primary")
+
+    await runDbBuild(rootDir)
+
+    const distEntries = await readdir(join(rootDir, "dist"))
+    expect(distEntries).toEqual(["client"])
+    expect(existsSync(join(rootDir, ".vercel", "output"))).toBe(false)
+  }, 30_000)
+
   it("fails Cloudflare output when a D1 database ID is missing a database name", async () => {
     const rootDir = await createDbBuildProject("vitehub-db-vite-cloudflare-invalid-")
     await writeDatabaseDefinition(rootDir, "analytics", {

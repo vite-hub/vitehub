@@ -1,7 +1,7 @@
 import { Chat } from "chat"
 import { createError, defineEventHandler, getRouterParam } from "h3"
 
-import { getChatCapabilityOptions } from "../chat-trigger.ts"
+import { chatWebhookRegistrations, getChatCapabilityOptions } from "../chat-trigger.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { resolveAgent, resolveAgentTriggers, runAgent, streamAgent, streamAgentTrigger } from "../index.ts"
 import { getHttpErrorMessage, getHttpErrorStatusCode } from "../http-error.ts"
@@ -19,6 +19,7 @@ import type {
   AgentHandlerOptions,
   AgentInput,
   AgentRegistryHandlerOptions,
+  AgentWebhookRegistrationDefinition,
   AgentRunMetadata,
   AgentRequestBody,
   AgentRuntimeConfig,
@@ -56,9 +57,32 @@ interface RequestLike {
 }
 
 export interface AgentChatWebhookRegistryHandlerOptions {
+  agent?: string
   agentParam?: string
   platform?: string
   platformParam?: string
+}
+
+export interface AgentChatRouteBody {
+  history?: AgentChatMessageTriggerInput["history"]
+  id?: string
+  messageId?: string
+  messages?: AgentChatMessageTriggerInput["messages"]
+  run?: Partial<AgentRunMetadata>
+  session?: AgentChatMessageTriggerInput["session"] | string
+  timeout?: number
+  user?: Record<string, unknown>
+}
+
+export interface AgentChatHandlerOptions<TRuntimeContext extends AgentRuntimeContext = NitroAgentRuntimeContext> {
+  inferredName?: string
+  lifecycleHooks?: AgentRuntimeHooks<TRuntimeContext>
+}
+
+export interface AgentChatRegistryHandlerOptions<TRuntimeContext extends AgentRuntimeContext = NitroAgentRuntimeContext>
+  extends AgentChatHandlerOptions<TRuntimeContext> {
+  agent?: string
+  agentParam?: string
 }
 
 const defaultChatStates = new WeakMap<AgentChatOptions, StateAdapter>()
@@ -281,6 +305,12 @@ function isStreamResult(value: unknown): value is { toUIMessageStreamResponse?: 
       || typeof (value as { toTextStreamResponse?: unknown }).toTextStreamResponse === "function")
 }
 
+function isReadableStream(value: unknown): value is ReadableStream<never> {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as { getReader?: unknown }).getReader === "function"
+}
+
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
 }
@@ -338,6 +368,24 @@ function toResponse(value: unknown, stream: boolean): unknown {
   }
 
   return toJsonSafeResult(value)
+}
+
+async function toUIMessageStreamResponse(value: unknown): Promise<Response> {
+  if (value instanceof Response) {
+    return value
+  }
+  if (isStreamResult(value) && value.toUIMessageStreamResponse) {
+    return value.toUIMessageStreamResponse()
+  }
+  if (isReadableStream(value)) {
+    const { createUIMessageStreamResponse } = await import("ai")
+    return createUIMessageStreamResponse({ stream: value })
+  }
+
+  throw createError({
+    statusCode: 500,
+    statusMessage: "Agent chat route did not produce a UI message stream.",
+  })
 }
 
 function createRuntimeContext(event: H3Event): NitroAgentRuntimeContext {
@@ -503,6 +551,57 @@ function createChatSdkOptions(options: AgentChatOptions, adapters: Record<string
     fallbackStreamingPlaceholderText: null,
     state,
     userName: typeof userName === "string" && userName ? userName : agentName,
+  }
+}
+
+function chatWebhookProviderMatches(registration: AgentWebhookRegistrationDefinition, platform: string): boolean {
+  return registration.provider === platform || registration.id === platform
+}
+
+function requestPath(request: Request): string | undefined {
+  try {
+    return new URL(request.url).pathname
+  }
+  catch {
+    return
+  }
+}
+
+function selectChatWebhookRegistration(
+  options: AgentChatOptions,
+  platform: string,
+  request: Request,
+): AgentWebhookRegistrationDefinition | undefined {
+  const registrations = chatWebhookRegistrations(options)?.filter(registration => chatWebhookProviderMatches(registration, platform)) || []
+  if (registrations.length <= 1) return registrations[0]
+
+  const path = requestPath(request)
+  return registrations.find(registration => registration.path === path)
+    || registrations.find(registration => !registration.path)
+    || registrations[0]
+}
+
+function validateChatWebhookSecret(
+  options: AgentChatOptions,
+  platform: string,
+  request: Request,
+): void {
+  const registration = selectChatWebhookRegistration(options, platform, request)
+  if (!registration?.secretToken) return
+
+  const header = registration.secretHeader
+  if (!header) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: `Chat webhook "${platform}" defines a secret token without a secret header.`,
+    })
+  }
+
+  if (request.headers.get(header) !== registration.secretToken) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: "Invalid chat webhook secret.",
+    })
   }
 }
 
@@ -721,7 +820,7 @@ async function runDirectMessageHook(
   })
 }
 
-async function createAgentChatBot(agent: AgentInput<NitroAgentRuntimeContext>, context: NitroAgentRuntimeContext, agentName: string, platform: string): Promise<Chat<Record<string, Adapter>>> {
+async function createAgentChatBot(agent: AgentInput<NitroAgentRuntimeContext>, context: NitroAgentRuntimeContext, agentName: string, platform: string): Promise<{ bot: Chat<Record<string, Adapter>>, options: AgentChatOptions }> {
   const triggers = await resolveAgentTriggers(agent, context)
   if (!triggers["chat.message"]) {
     throw createError({
@@ -753,16 +852,95 @@ async function createAgentChatBot(agent: AgentInput<NitroAgentRuntimeContext>, c
     await handleChatMessage(agent, context, platform, options, thread, message, channel)
   })
   bot.onNewMention(async (thread, message) => {
-    await thread.subscribe().catch(() => undefined)
     await handleChatMessage(agent, context, platform, options, thread, message, thread.channel)
   })
-  bot.onSubscribedMessage((thread, message) => handleChatMessage(agent, context, platform, options, thread, message, thread.channel))
-  return bot
+  bot.onSubscribedMessage(async (thread, message) => {
+    if (!thread.isDM) {
+      await thread.unsubscribe().catch(() => undefined)
+      if (!message.isMention) return
+    }
+
+    await handleChatMessage(agent, context, platform, options, thread, message, thread.channel)
+  })
+  return { bot, options }
 }
 
 async function readAgentBody(request: Request): Promise<AgentRequestBody> {
   const body = await request.clone().json().catch(() => undefined)
   return typeof body === "object" && body !== null ? body as AgentRequestBody : {}
+}
+
+async function readAgentChatRouteBody(request: Request): Promise<AgentChatRouteBody> {
+  const body = await request.clone().json().catch(() => undefined)
+  return typeof body === "object" && body !== null ? body as AgentChatRouteBody : {}
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.length > 0)
+}
+
+function randomRunId(): string {
+  return globalThis.crypto?.randomUUID?.() || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function normalizeChatRouteSession(body: AgentChatRouteBody): AgentChatMessageTriggerInput["session"] | undefined {
+  if (typeof body.session === "string") {
+    return body.session ? { id: body.session } : undefined
+  }
+  if (typeof body.session === "object" && body.session !== null) {
+    return body.session
+  }
+  return body.id ? { id: body.id } : undefined
+}
+
+function createChatRouteRunMetadata(body: AgentChatRouteBody, agentName: string | undefined): AgentRunMetadata {
+  const session = normalizeChatRouteSession(body)
+  const message = body.messages?.at(-1)
+  const run = typeof body.run === "object" && body.run !== null ? body.run : {}
+  return {
+    channelId: firstString(run.channelId, session?.id ? `http:${session.id}` : undefined, agentName ? `http:${agentName}` : undefined),
+    messageId: firstString(run.messageId, body.messageId, message?.id),
+    platform: firstString(run.platform, "http"),
+    runId: firstString(run.runId) || randomRunId(),
+    threadId: firstString(run.threadId, session?.id, body.id, agentName),
+  }
+}
+
+function createChatRouteTriggerInput(body: AgentChatRouteBody, agentName: string | undefined): AgentChatMessageTriggerInput {
+  if (!Array.isArray(body.messages) || !body.messages.length) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "Agent chat route requires messages.",
+    })
+  }
+
+  const user = typeof body.user === "object" && body.user !== null ? body.user : undefined
+  const timeout = typeof body.timeout === "number" ? body.timeout : 90_000
+  const run = createChatRouteRunMetadata(body, agentName)
+  return {
+    history: body.history,
+    messages: body.messages,
+    run,
+    session: normalizeChatRouteSession(body),
+    timeout,
+    user,
+  }
+}
+
+function requireChatAppExposure(agent: AgentInput<NitroAgentRuntimeContext>, agentName?: string): void {
+  const options = getChatCapabilityOptions(agentCapabilityOptions(agent))
+  if (!options) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: `Agent "${agentName || "default"}" does not define chat().`,
+    })
+  }
+  if (!options.app) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: `Agent "${agentName || "default"}" does not expose a Chat App Route.`,
+    })
+  }
 }
 
 export function defineAgentHandler(
@@ -787,6 +965,44 @@ export function defineAgentHandler(
         : await runAgent(agent, context, body)
 
       return toResponse(result, stream)
+    }
+    catch (error) {
+      await hooks.error(error, context).catch(() => undefined)
+      const statusCode = getHttpErrorStatusCode(error)
+      if (statusCode) {
+        throw createError({
+          statusCode,
+          statusMessage: getHttpErrorMessage(error),
+        })
+      }
+      throw error
+    }
+  })
+}
+
+export function defineAgentChatHandler(
+  agent: AgentInput<NitroAgentRuntimeContext>,
+  options: AgentChatHandlerOptions<NitroAgentRuntimeContext> = {},
+): EventHandler {
+  const hooks = createHookRunner(options.lifecycleHooks)
+
+  return defineEventHandler(async (event) => {
+    const context = createRuntimeContext(event)
+    try {
+      await hooks.request(context)
+
+      const body = await readAgentChatRouteBody(context.request!)
+      if (options.lifecycleHooks?.resolved && !hasCustomRun(agent)) {
+        const resolved = await resolveAgent(agent, context)
+        await hooks.resolved({ ...context, agent: resolved })
+      }
+
+      requireChatAppExposure(agent, options.inferredName)
+      const triggerInput = createChatRouteTriggerInput(body, options.inferredName)
+      const result = await streamAgentTrigger(agent, { ...context, run: triggerInput.run } as never, "chat.message", triggerInput, {
+        output: "ui-message-stream",
+      })
+      return await toUIMessageStreamResponse(result)
     }
     catch (error) {
       await hooks.error(error, context).catch(() => undefined)
@@ -830,6 +1046,44 @@ export function defineAgentRegistryHandler(
   })
 }
 
+function resolveChatRouteAgentName(agents: AgentRegistry, event: H3Event, options: AgentChatRegistryHandlerOptions): string | undefined {
+  if (options.agent) return options.agent
+  const agentParam = options.agentParam || "agent"
+  const agentName = getRouterParam(event, agentParam)
+  if (agentName) return agentName
+  const names = Object.keys(agents)
+  return names.length === 1 ? names[0] : undefined
+}
+
+export function defineAgentChatRegistryHandler(
+  agents: AgentRegistry,
+  options: AgentChatRegistryHandlerOptions<NitroAgentRuntimeContext> = {},
+): EventHandler {
+  return defineEventHandler(async (event) => {
+    const agentName = resolveChatRouteAgentName(agents, event, options)
+    if (!agentName) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `Missing agent route param: ${options.agentParam || "agent"}`,
+      })
+    }
+
+    const loader = agents[agentName]
+    if (!loader) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: formatUnknownAgentMessage(agentName, Object.keys(agents).sort()),
+      })
+    }
+
+    const agent = resolveRegistryModule(await loader())
+    return await defineAgentChatHandler(agent, {
+      inferredName: agentName,
+      lifecycleHooks: options.lifecycleHooks,
+    })(event)
+  })
+}
+
 export function defineAgentChatWebhookRegistryHandler(
   agents: AgentRegistry,
   options: AgentChatWebhookRegistryHandlerOptions = {},
@@ -838,7 +1092,7 @@ export function defineAgentChatWebhookRegistryHandler(
   const platformParam = options.platformParam || "platform"
 
   return defineEventHandler(async (event) => {
-    const agentName = getRouterParam(event, agentParam)
+    const agentName = options.agent || getRouterParam(event, agentParam)
     if (!agentName) {
       throw createError({
         statusCode: 400,
@@ -864,7 +1118,7 @@ export function defineAgentChatWebhookRegistryHandler(
 
     const context = createRuntimeContext(event)
     const agent = resolveRegistryModule(await loader())
-    const bot = await createAgentChatBot(agent, context, agentName, platform)
+    const { bot, options: chatOptions } = await createAgentChatBot(agent, context, agentName, platform)
     const webhook = (bot.webhooks as Record<string, ((request: Request, options?: { waitUntil?: (task: Promise<unknown>) => void }) => Promise<Response>) | undefined>)[platform]
     if (!webhook) {
       throw createError({
@@ -872,6 +1126,7 @@ export function defineAgentChatWebhookRegistryHandler(
         statusMessage: `Unknown chat platform: ${platform}`,
       })
     }
+    validateChatWebhookSecret(chatOptions, platform, context.request!)
     return await webhook(context.request!, { waitUntil: task => event.waitUntil(task) })
   })
 }

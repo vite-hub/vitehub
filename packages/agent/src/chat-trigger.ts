@@ -304,7 +304,7 @@ function inferredChatWebhookRegistrations(options: AgentChatOptions): AgentWebho
     .flatMap(platform => normalizeChatWebhookRegistrations(platform, {}))
 }
 
-function chatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
+export function chatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
   const explicit = options.webhooks?.telegram
     ? normalizeChatWebhookRegistrations("telegram", options.webhooks.telegram)
     : []

@@ -398,6 +398,32 @@ describe("agent memory capability", () => {
     expect(files.has("memory/memory.jsonl")).toBe(true)
   })
 
+  it("writes root-level workspace JSONL memory without creating the current directory", async () => {
+    const files = new Map<string, string>()
+    const mkdir = vi.fn()
+    const { workspaceJsonlMemoryStore } = await import("../src/capabilities.ts")
+    const adapter = await workspaceJsonlMemoryStore({ path: "memory.jsonl" }).create({
+      workspace: {
+        fs: {
+          appendFile: async (path: string, content: string) => files.set(path, `${files.get(path) || ""}${content}`),
+          mkdir,
+          readFile: async (path: string) => files.get(path) || "",
+          writeFile: vi.fn(),
+        },
+      },
+    } as never)
+
+    await adapter.append({
+      content: "Root memory file.",
+      kind: "semantic",
+      scope: { agent: "support" },
+      store: "agent",
+    })
+
+    expect(mkdir).not.toHaveBeenCalled()
+    expect(files.has("memory.jsonl")).toBe(true)
+  })
+
   it("does not add thread scope unless configured", async () => {
     const adapter: MemoryStoreAdapter = {
       append: vi.fn(async request => ({ action: "created" as const, item: memoryRecord({ ...request, id: "mem_1" }) })),
