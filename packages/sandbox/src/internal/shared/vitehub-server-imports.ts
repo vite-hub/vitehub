@@ -133,13 +133,6 @@ const featureImports = {
 } satisfies Record<ViteHubFeatureName, ServerImport[]>
 
 function getDbFeatureImports(options: ViteHubOptions): ServerImport[] {
-  const db = options.db as { orm?: string } | undefined
-  if (db?.orm === 'prisma') {
-    return [
-      { name: 'prisma', from: '@vitehub/database/prisma' },
-    ]
-  }
-
   return [
     { name: 'db', from: '@vitehub/database/drizzle' },
     { name: 'schema', from: '@vitehub/database/drizzle' },

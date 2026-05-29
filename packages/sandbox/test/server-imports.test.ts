@@ -14,4 +14,11 @@ describe("resolveEffectiveViteHubServerImports", () => {
       expect.objectContaining({ name: "runSandbox", from: "@vitehub/sandbox" }),
     ]))
   })
+
+  it("does not emit stale Prisma database imports", () => {
+    expect(resolveEffectiveViteHubServerImports({ db: { orm: "prisma" } }, "db")).toEqual([
+      expect.objectContaining({ name: "db", from: "@vitehub/database/drizzle" }),
+      expect.objectContaining({ name: "schema", from: "@vitehub/database/drizzle" }),
+    ])
+  })
 })
