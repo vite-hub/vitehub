@@ -356,6 +356,15 @@ function createCallbackContext(context: NitroAgentRuntimeContext) {
   return callbackContext
 }
 
+function createChatStateKeyPrefix(agentName: string): string {
+  const normalized = agentName
+    .trim()
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase()
+  return `_vitehub_${normalized || "agent"}_chat`
+}
+
 function isResolvable<T>(value: unknown): value is { resolve: (context: NitroAgentRuntimeContext) => MaybePromise<T> } {
   return typeof value === "object"
     && value !== null
@@ -386,11 +395,18 @@ async function resolveChatAdapters(options: AgentChatOptions, context: NitroAgen
   return adapters
 }
 
-async function resolveChatState(options: AgentChatOptions, context: NitroAgentRuntimeContext): Promise<StateAdapter> {
+async function resolveChatState(options: AgentChatOptions, context: NitroAgentRuntimeContext, agentName: string): Promise<StateAdapter> {
   if (options.state) {
     const existing = configuredChatStates.get(options)
     if (existing) return existing
-    const state = await resolveValue<StateAdapter>(options.state, context)
+    const stateContext = {
+      ...context,
+      chat: {
+        agentName,
+        stateKeyPrefix: createChatStateKeyPrefix(agentName),
+      },
+    } as NitroAgentRuntimeContext & { chat: { agentName: string, stateKeyPrefix: string } }
+    const state = await resolveValue<StateAdapter>(options.state, stateContext)
     configuredChatStates.set(options, state)
     return state
   }
@@ -630,7 +646,7 @@ async function createAgentChatBot(agent: AgentInput<NitroAgentRuntimeContext>, c
     })
   }
 
-  const state = await resolveChatState(options, context)
+  const state = await resolveChatState(options, context, agentName)
   const bot = new Chat(createChatSdkOptions(options, adapters, state, agentName))
   bot.onDirectMessage(async (thread, message, channel) => {
     await runDirectMessageHook(options, platform, thread, message, channel)

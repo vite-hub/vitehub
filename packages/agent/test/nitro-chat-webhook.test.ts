@@ -278,7 +278,13 @@ describe("agent Nitro chat webhooks", () => {
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const adapter = createWebhookAdapter(output)
-    const state = vi.fn(() => createMemoryState())
+    const state = vi.fn((context: { chat: { agentName: string, stateKeyPrefix: string } }) => {
+      expect(context.chat).toEqual({
+        agentName: "support",
+        stateKeyPrefix: "_vitehub_support_chat",
+      })
+      return createMemoryState()
+    })
     const support = defineAgent({
       capabilities: [chat({
         adapters: {

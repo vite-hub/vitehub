@@ -572,8 +572,16 @@ export type AgentChatAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig =
 export type AgentChatAdaptersResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<Record<string, AgentChatAdapterResolver<TRuntimeConfig>>, AgentCallbackContext<TRuntimeConfig>>
 
+export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentCallbackContext<TRuntimeConfig> {
+  chat: {
+    agentName: string
+    stateKeyPrefix: string
+  }
+}
+
 export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<StateAdapter, AgentCallbackContext<TRuntimeConfig>>
+  MaybeResolvable<StateAdapter, AgentChatStateContext<TRuntimeConfig>>
 
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapters?: AgentChatAdaptersResolver<TRuntimeConfig>

@@ -88,6 +88,8 @@ export type {
   AgentChatEventHooks,
   AgentChatOptions,
   AgentChatSessionOptions,
+  AgentChatStateContext,
+  AgentChatStateResolver,
   AgentChatWebhookRegistrationDefinition,
 } from "../types.ts"
 export type {
