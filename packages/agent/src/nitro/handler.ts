@@ -365,6 +365,74 @@ function createChatStateKeyPrefix(agentName: string): string {
   return `_vitehub_${normalized || "agent"}_chat`
 }
 
+function namespaceChatState(state: StateAdapter, keyPrefix: string): StateAdapter {
+  const prefix = `${keyPrefix}:`
+  const key = (value: string) => `${prefix}${value}`
+  const lock = (value: Lock): Lock => ({ ...value, threadId: key(value.threadId) })
+  const unlock = (value: Lock): Lock => ({
+    ...value,
+    threadId: value.threadId.startsWith(prefix) ? value.threadId.slice(prefix.length) : value.threadId,
+  })
+
+  return {
+    async acquireLock(threadId, ttlMs) {
+      const acquired = await state.acquireLock(key(threadId), ttlMs)
+      return acquired ? unlock(acquired) : null
+    },
+    async appendToList(listKey, value, options) {
+      await state.appendToList(key(listKey), value, options)
+    },
+    async connect() {
+      await state.connect()
+    },
+    async delete(cacheKey) {
+      await state.delete(key(cacheKey))
+    },
+    async dequeue(threadId) {
+      return await state.dequeue(key(threadId))
+    },
+    async disconnect() {
+      await state.disconnect()
+    },
+    async enqueue(threadId, entry, maxSize) {
+      return await state.enqueue(key(threadId), entry, maxSize)
+    },
+    async extendLock(lockValue, ttlMs) {
+      return await state.extendLock(lock(lockValue), ttlMs)
+    },
+    async forceReleaseLock(threadId) {
+      await state.forceReleaseLock(key(threadId))
+    },
+    async get(cacheKey) {
+      return await state.get(key(cacheKey))
+    },
+    async getList(listKey) {
+      return await state.getList(key(listKey))
+    },
+    async isSubscribed(threadId) {
+      return await state.isSubscribed(key(threadId))
+    },
+    async queueDepth(threadId) {
+      return await state.queueDepth(key(threadId))
+    },
+    async releaseLock(lockValue) {
+      await state.releaseLock(lock(lockValue))
+    },
+    async set(cacheKey, value, ttlMs) {
+      await state.set(key(cacheKey), value, ttlMs)
+    },
+    async setIfNotExists(cacheKey, value, ttlMs) {
+      return await state.setIfNotExists(key(cacheKey), value, ttlMs)
+    },
+    async subscribe(threadId) {
+      await state.subscribe(key(threadId))
+    },
+    async unsubscribe(threadId) {
+      await state.unsubscribe(key(threadId))
+    },
+  }
+}
+
 function isResolvable<T>(value: unknown): value is { resolve: (context: NitroAgentRuntimeContext) => MaybePromise<T> } {
   return typeof value === "object"
     && value !== null
@@ -406,7 +474,7 @@ async function resolveChatState(options: AgentChatOptions, context: NitroAgentRu
         stateKeyPrefix: createChatStateKeyPrefix(agentName),
       },
     } as NitroAgentRuntimeContext & { chat: { agentName: string, stateKeyPrefix: string } }
-    const state = await resolveValue<StateAdapter>(options.state, stateContext)
+    const state = namespaceChatState(await resolveValue<StateAdapter>(options.state, stateContext), stateContext.chat.stateKeyPrefix)
     configuredChatStates.set(options, state)
     return state
   }

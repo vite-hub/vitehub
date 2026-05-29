@@ -278,12 +278,20 @@ describe("agent Nitro chat webhooks", () => {
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const adapter = createWebhookAdapter(output)
+    const threadIds: string[] = []
     const state = vi.fn((context: { chat: { agentName: string, stateKeyPrefix: string } }) => {
       expect(context.chat).toEqual({
         agentName: "support",
         stateKeyPrefix: "_vitehub_support_chat",
       })
-      return createMemoryState()
+      const memory = createMemoryState()
+      return {
+        ...memory,
+        async acquireLock(threadId: string, ttlMs: number) {
+          threadIds.push(threadId)
+          return await memory.acquireLock(threadId, ttlMs)
+        },
+      }
     })
     const support = defineAgent({
       capabilities: [chat({
@@ -322,6 +330,7 @@ describe("agent Nitro chat webhooks", () => {
     }
 
     expect(state).toHaveBeenCalledTimes(1)
+    expect(threadIds).toContain("_vitehub_support_chat:teams:dm:maxi")
     expect(output.edits).toEqual(["agent answer"])
   })
 
