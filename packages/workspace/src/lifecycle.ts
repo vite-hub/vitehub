@@ -26,6 +26,7 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
   const ctx: LoaderContext = {
     workspace: definition.name,
     rootDir: ctxSource.rootDir,
+    sourceRootDir: ctxSource.sourceRootDir,
     sources: normalizedSources,
     store,
     parseData: async input => input.data,
