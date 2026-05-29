@@ -90,7 +90,9 @@ function createWebhookAdapter(output: { edits: unknown[], events?: string[], pos
     addReaction: vi.fn(),
     channelIdFromThreadId: (threadId: string) => threadId,
     decodeThreadId: (threadId: string) => ({ threadId }),
-    deleteMessage: vi.fn(),
+    deleteMessage: vi.fn(async () => {
+      output.events?.push("delete")
+    }),
     editMessage: vi.fn(async (_threadId: string, id: string, message: unknown) => {
       output.events?.push("edit")
       output.edits.push(message)
@@ -238,6 +240,50 @@ describe("agent Nitro chat webhooks", () => {
     expect(seen).toEqual(["hello from Teams"])
     expect(output.posts).toEqual(["Working..."])
     expect(output.edits).toEqual(["agent answer"])
+  })
+
+  it("deletes chat placeholders when streamed results have no text", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], events: string[], posts: unknown[] } = { edits: [], events: [], posts: [] }
+    const adapter = createWebhookAdapter(output)
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({
+          adapters: {
+            teams: () => adapter,
+          },
+          fallbackStreamingPlaceholderText: "Working...",
+          state: () => createMemoryState(),
+        })],
+        run() {
+          return (async function* () {
+            yield { type: "finish" }
+          })()
+        },
+      }),
+    })
+
+    const response = await handler({
+      context: {
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      req: new Request("https://example.test/api/agents/support/chat/teams", {
+        body: JSON.stringify({ text: "hello from Teams" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("ok")
+    expect(output.posts).toEqual(["Working..."])
+    expect(output.edits).toEqual([])
+    expect(output.events).toEqual(["post", "delete"])
   })
 
   it("uses process-local chat state when state is not configured", async () => {

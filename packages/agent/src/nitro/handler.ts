@@ -600,8 +600,12 @@ async function* textStreamFromEvents(stream: AsyncIterable<unknown>): AsyncItera
       yield event
       continue
     }
-    if (event && typeof event === "object" && "type" in event && (event as { type?: unknown }).type === "text-delta") {
-      const text = (event as { delta?: unknown, text?: unknown }).text ?? (event as { delta?: unknown }).delta
+    if (event && typeof event === "object" && "type" in event) {
+      const type = (event as { type?: unknown }).type
+      if (type !== "text-delta" && type !== "text") continue
+      const text = (event as { delta?: unknown, text?: unknown, textDelta?: unknown }).text
+        ?? (event as { delta?: unknown, textDelta?: unknown }).textDelta
+        ?? (event as { delta?: unknown }).delta
       if (typeof text === "string" && text) yield text
     }
   }
@@ -621,6 +625,13 @@ function resultText(result: unknown): unknown {
     : result
 }
 
+function hasPostableChatContent(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.trim().length > 0
+  }
+  return value != null
+}
+
 async function postAgentResult(thread: Thread, result: unknown, placeholder?: SentMessage): Promise<void> {
   if (placeholder) {
     const final = isAsyncIterable(result)
@@ -628,7 +639,11 @@ async function postAgentResult(thread: Thread, result: unknown, placeholder?: Se
       : result instanceof Response
         ? await result.clone().text()
         : resultText(result)
-    await placeholder.edit((final || " ") as never)
+    if (!hasPostableChatContent(final)) {
+      await placeholder.delete()
+      return
+    }
+    await placeholder.edit(final as never)
     return
   }
 
