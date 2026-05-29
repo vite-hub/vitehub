@@ -10,6 +10,7 @@ import { createRuntimeRegistry, isEnvVariableDeclaration, resolveEnvSource, vali
 
 import type { EnvDiagnosticEntry, EnvIntegrationOptions, EnvNitroConfigOptions, EnvNitroUserConfig, EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue } from "../types.ts"
 import type { Nitro, NitroModule } from "nitro/types"
+import type {} from "nitro/vite"
 
 export { env }
 
@@ -104,12 +105,20 @@ function createNitroRuntimeServerTypes(registry: EnvRuntimeRegistry): string {
 function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
   const fields = createTypeFields(registry, 4)
   return [
+    "import type { EnvNitroConfigOptions } from \"@vitehub/env\"",
     "import type { SecretEnv } from \"@vitehub/env/runtime/server\"",
     "import \"nitro/types\"",
+    "import \"nitro/vite\"",
     "",
     "declare module \"nitro/types\" {",
     "  export interface NitroRuntimeConfig {",
     ...fields,
+    "  }",
+    "}",
+    "",
+    "declare module \"nitro/vite\" {",
+    "  export interface NitroPluginConfig {",
+    "    env?: EnvNitroConfigOptions",
     "  }",
     "}",
     "",
@@ -333,6 +342,12 @@ declare module "nitro/types" {
   }
 
   interface NitroOptions {
+    env?: EnvNitroConfigOptions
+  }
+}
+
+declare module "nitro/vite" {
+  interface NitroPluginConfig {
     env?: EnvNitroConfigOptions
   }
 }

@@ -153,7 +153,11 @@ describe("Nitro module", () => {
     expect(integrationTypes).not.toContain("declare module \"@vitehub/agent/workspace\"")
     expect(types).toContain("export class SecretEnv<T = string>")
     expect(types).toContain("\"botToken\": SecretEnv<string>")
+    expect(integrationTypes).toContain("import type { EnvNitroConfigOptions } from \"@vitehub/env\"")
     expect(integrationTypes).toContain("import type { SecretEnv } from \"@vitehub/env/runtime/server\"")
+    expect(integrationTypes).toContain("import \"nitro/vite\"")
+    expect(integrationTypes).toContain("declare module \"nitro/vite\"")
+    expect(integrationTypes).toContain("env?: EnvNitroConfigOptions")
     expect(integrationTypes).toContain("\"botToken\": SecretEnv<string>")
 
     expect(integrationTypes).not.toContain("NitroChatRuntimeConfig")
