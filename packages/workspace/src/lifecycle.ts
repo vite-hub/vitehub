@@ -18,10 +18,13 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
 
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore): Promise<void> {
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
+  const hasExplicitLoaders = !!definition.loaders?.length
   const ctxSource = createSourceContext(definition)
   const buildSources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "build")
-  await reconcileBuildSourceMounts(store, buildSources)
+  const hasBuildSourceState = await reconcileBuildSourceMounts(store, buildSources)
+  if (!hasBuildSourceState && !hasExplicitLoaders) return
+
   const normalizedSources = buildSources.map(source => createMountedBuildSource(source))
   const ctx: LoaderContext = {
     workspace: definition.name,
@@ -47,8 +50,9 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
   }
 }
 
-async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]) {
+async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]): Promise<boolean> {
   const previousSources = await readSyncedBuildSources(store)
+  const hasBuildSourceState = previousSources.length > 0 || currentSources.length > 0
   const resetPaths = [...new Set([
     ...previousSources.map(source => source.mountPath),
     ...currentSources.map(source => source.mountPath),
@@ -66,6 +70,7 @@ async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources:
   }
 
   await store.setMeta?.(buildSourcesMetaKey, currentSources.map(({ key, mountPath }) => ({ key, mountPath })))
+  return hasBuildSourceState
 }
 
 async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuildSource[]> {

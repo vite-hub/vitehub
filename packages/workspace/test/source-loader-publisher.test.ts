@@ -630,6 +630,27 @@ describe("sources, loaders, and publishers", () => {
     await expect(store.list("", { recursive: true })).resolves.toEqual([])
   })
 
+  it("skips initial sync snapshots when a workspace has no build sources", async () => {
+    const snapshot = vi.fn(async () => {
+      throw new Error("empty snapshots should not be published")
+    })
+    const store = {
+      async readFile() { return undefined },
+      async writeFile() {},
+      async list() { return [] },
+      async glob() { return [] },
+      async stat() { return undefined },
+      async mkdir() {},
+      async rm() {},
+      snapshot,
+      async diff() { return { entries: [], to: "test" } },
+    } satisfies WorkspaceStore
+
+    await syncWorkspaceDefinition({ name: "runtime-writes-only" }, store)
+
+    expect(snapshot).not.toHaveBeenCalled()
+  })
+
   it("purges stale root-mounted build source files when source maps change", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["AGENTS.md", "stale.md"]
