@@ -39,13 +39,17 @@ function sourceKey<TKey extends string>(options: FileSourceOptions<TKey>): TKey 
   throw new TypeError("[vitehub] source.file requires a path or workspacePath.")
 }
 
+function resolveSourceRoot(ctx: SourceContext) {
+  return ctx.sourceRootDir || ctx.rootDir
+}
+
 async function readSourceFile<TKey extends string>(options: FileSourceOptions<TKey>, ctx: SourceContext) {
   if (!("path" in options) || !options.path) {
     throw new TypeError("[vitehub] source.file requires path when content is not provided.")
   }
   const { readFile } = await import("node:fs/promises")
   const { resolve } = await import("node:path")
-  return new Uint8Array(await readFile(resolve(ctx.sourceRootDir ?? ctx.rootDir, normalizeSafeSourcePath(options.path))))
+  return new Uint8Array(await readFile(resolve(resolveSourceRoot(ctx), normalizeSafeSourcePath(options.path))))
 }
 
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): Source<TKey> {
@@ -62,7 +66,7 @@ export function file<const TKey extends string = string>(input: FileSourceInput<
       if (!("path" in options) || !options.path) return
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
-      const info = await stat(resolve(ctx.sourceRootDir ?? ctx.rootDir, normalizeSafeSourcePath(options.path)))
+      const info = await stat(resolve(resolveSourceRoot(ctx), normalizeSafeSourcePath(options.path)))
       return {
         digest: `${info.size}:${info.mtimeMs}`,
       }

@@ -13,18 +13,7 @@ const registeredDefinitions = new Map<string, WorkspaceDefinition>()
 const loadedDefinitions = new Map<string, WorkspaceDefinition>()
 let loaders: WorkspaceRegistry = runtimeRegistry
 
-function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
-  if (!definition) throw new WorkspaceNotFoundError(name)
-  const workspaceAgentOptions = (definition as { __vitehubWorkspaceAgentOptions?: { workspace?: string | WorkspaceDefinitionInput } }).__vitehubWorkspaceAgentOptions
-  if (workspaceAgentOptions?.workspace) {
-    return {
-      ...(typeof workspaceAgentOptions.workspace === "string" ? {} : workspaceAgentOptions.workspace),
-      name,
-    }
-  }
-  if ("name" in definition) {
-    throw new TypeError(`[vitehub] Workspace definition "${name}" must not declare a name. Workspace names are inferred from filenames.`)
-  }
+function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<string, unknown>): WorkspaceDefinitionInput {
   const {
     __vitehubWorkspaceAgent: _agent,
     __vitehubWorkspaceAgentDefaults: _agentDefaults,
@@ -40,7 +29,27 @@ function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinit
     workspace: _workspace,
     ...workspace
   } = definition as WorkspaceDefinitionInput & Record<string, unknown>
-  return { ...workspace, name }
+  return workspace
+}
+
+function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
+  if (!definition) throw new WorkspaceNotFoundError(name)
+  const workspaceAgentOptions = (definition as { __vitehubWorkspaceAgentOptions?: { workspace?: string | WorkspaceDefinitionInput } }).__vitehubWorkspaceAgentOptions
+  if (workspaceAgentOptions?.workspace) {
+    const injectedWorkspace = pickWorkspaceFields(definition)
+    const configuredWorkspace = typeof workspaceAgentOptions.workspace === "string" ? {} : workspaceAgentOptions.workspace
+    return {
+      ...injectedWorkspace,
+      ...configuredWorkspace,
+      rootDir: configuredWorkspace.rootDir ?? injectedWorkspace.rootDir,
+      sourceRootDir: configuredWorkspace.sourceRootDir ?? injectedWorkspace.sourceRootDir,
+      name,
+    }
+  }
+  if ("name" in definition) {
+    throw new TypeError(`[vitehub] Workspace definition "${name}" must not declare a name. Workspace names are inferred from filenames.`)
+  }
+  return { ...pickWorkspaceFields(definition), name }
 }
 
 export function registerWorkspace(name: string, definition: WorkspaceDefinitionInput): void {

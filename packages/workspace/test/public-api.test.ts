@@ -115,6 +115,36 @@ describe("workspace public API", () => {
     await expect(workspace.fs.exists("instructions/AGENTS.md")).resolves.toBe(false)
   })
 
+  it("keeps runtime-injected source roots on colocated agent workspaces", async () => {
+    const root = await createRoot()
+    const sourceRoot = join(root, "server", "agents", "support", "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(root, "AGENTS.md"), "# Project\n")
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
+
+    setWorkspaceRegistry({
+      support: async () => ({
+        default: {
+          rootDir: root,
+          sourceRootDir: sourceRoot,
+          __vitehubWorkspaceAgentOptions: {
+            workspace: {
+              rootDir: root,
+              store: { provider: "memory" },
+              sources: {
+                instructions: source.file("AGENTS.md"),
+              },
+            },
+          },
+        } as never,
+      }),
+    })
+
+    const workspace = useWorkspace("support")
+
+    expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Support\n")
+  })
+
   it("rejects unsafe local file source paths", () => {
     expect(() => source.file("/AGENTS.md")).toThrow()
     expect(() => source.file("C:/Users/maxi/AGENTS.md")).toThrow()

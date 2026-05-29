@@ -53,6 +53,22 @@ describe("@vitehub/source local file sources", () => {
       .rejects.toThrow("source.glob could not find")
   })
 
+  it("resolves relative glob cwd from the source root", async () => {
+    const root = await createRoot()
+    const sourceRoot = join(root, "server", "agents", "docs", "workspace")
+    await mkdir(join(root, "docs"), { recursive: true })
+    await mkdir(join(sourceRoot, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "project.md"), "# Project\n")
+    await writeFile(join(sourceRoot, "docs", "workspace.md"), "# Workspace\n")
+
+    await expect(glob({ cwd: ".", include: "**/*.md" }).getKeys({
+      rootDir: root,
+      sourceRootDir: sourceRoot,
+    })).resolves.toEqual([
+      "docs/workspace.md",
+    ])
+  })
+
   it("uses ignore, dot, prefix, and cwd boundary options for glob providers", async () => {
     const root = await createRoot()
     const outside = await createRoot()

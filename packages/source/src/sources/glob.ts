@@ -20,11 +20,11 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
   let latest: { key: string, keys: TKey[] } | undefined
 
   async function getContextKey(ctx: SourceContext) {
-    return resolveCwd(ctx.rootDir, options.cwd)
+    return resolveCwd(resolveSourceRoot(ctx), options.cwd)
   }
 
   async function loadKeys(ctx: SourceContext) {
-    const cwd = await resolveCwd(ctx.rootDir, options.cwd)
+    const cwd = await resolveCwd(resolveSourceRoot(ctx), options.cwd)
     const ignore = normalizePatterns(options.ignore)
     const files = await tinyglobby(options.include, {
       cwd,
@@ -84,7 +84,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       await assertKey(key, ctx)
       const { stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
-      const cwd = await resolveCwd(ctx.rootDir, options.cwd)
+      const cwd = await resolveCwd(resolveSourceRoot(ctx), options.cwd)
       const info = await stat(resolve(cwd, key))
       return {
         digest: `${info.size}:${info.mtimeMs}`,
@@ -94,7 +94,7 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
       await assertKey(key, ctx)
       const { readFile, stat } = await import("node:fs/promises")
       const { resolve } = await import("node:path")
-      const cwd = await resolveCwd(ctx.rootDir, options.cwd)
+      const cwd = await resolveCwd(resolveSourceRoot(ctx), options.cwd)
       const prefix = normalizeSafeSourcePath(options.prefix || "", { allowEmpty: true })
       const bytes = await readFile(resolve(cwd, key))
       const info = await stat(resolve(cwd, key))
@@ -111,6 +111,10 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
 
 function normalizePatterns(patterns: string | string[] | undefined): string[] {
   return Array.isArray(patterns) ? patterns : patterns ? [patterns] : []
+}
+
+function resolveSourceRoot(ctx: SourceContext) {
+  return ctx.sourceRootDir || ctx.rootDir
 }
 
 async function resolveCwd(rootDir: string, cwd = "."): Promise<string> {
