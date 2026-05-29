@@ -44,6 +44,10 @@ _Avoid_: App route, Teams route, public registration helper
 The Agent Package runtime handler behind the Chat Webhook Route that resolves the Agent's Chat Capability options, invokes the platform webhook, and starts the resolved chat Agent Trigger.
 _Avoid_: User route handler, adapter registration API, Chat Capability definition
 
+**Chat Adapter Facade**:
+A narrow Agent Package subpath for a first-party-supported Chat Platform Adapter or chat state backend when ViteHub owns a stable compatibility shim.
+_Avoid_: Root Agent Package export, generated adapter barrel, upstream package mirror
+
 ## Relationships
 
 - The **Agent Package** owns Agent Definition shape.
@@ -55,6 +59,9 @@ _Avoid_: User route handler, adapter registration API, Chat Capability definitio
 - A **Chat Webhook Route** is automatic for discovered chat-capable Agents and does not require a public registration helper or app-owned route file.
 - The **Agent Package** owns Agent capability composition.
 - The root `@vitehub/agent` entry exports Agent Definition, invocation, message, and generic composition primitives; official Capability factories live on `@vitehub/agent/capabilities`.
+- The root `@vitehub/agent` entry does not export optional Chat Platform Adapter factories.
+- The **Agent Package** may expose a **Chat Adapter Facade** only for a first-party-supported adapter with a stable shim and clear missing-package diagnostics.
+- The **Agent Package** should not mirror every upstream `@chat-adapter/*` package as public ViteHub API.
 - The **Agent Package** owns chat behavior after the **Chat Package Migration**.
 - **Chat Definition Removal** means chat behavior is discovered through Agent Definitions that attach the Chat Capability, not through chat definitions, chat modules, or standalone chat discovery.
 - A discovered Agent Definition that attaches the Chat Capability is implicitly chat-capable; no separate chat route option, chat module, or chat registry declares that capability.

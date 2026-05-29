@@ -48,6 +48,14 @@ _Avoid_: Chat History Capability, Agent Memory
 A ChatSDK adapter returned by Chat Capability configuration for an external chat platform such as Teams.
 _Avoid_: Agent Model Adapter, Agent Trigger, Nitro handler
 
+**Chat Adapter Package**:
+An optional integration package that constructs a Chat Platform Adapter or Chat Capability state backend, such as `@chat-adapter/teams` or `@chat-adapter/state-pg`.
+_Avoid_: Built-in Capability, Agent Package dependency, generated adapter export
+
+**Chat Adapter Facade**:
+A narrow ViteHub-owned import subpath for a first-party-supported Chat Adapter Package when ViteHub owns a stable shim and missing-package diagnostics.
+_Avoid_: Adapter barrel, generated upstream re-export, root Agent Package export
+
 **Chat Adapter Callback**:
 The lazy Chat Capability option that returns the current request's Chat Platform Adapters.
 _Avoid_: Webhook registration helper, adapter registry, build-time adapter scan
@@ -178,6 +186,9 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
+- A **Chat Platform Adapter** may come from a **Chat Adapter Package** that remains an explicit optional application dependency.
+- The Agent Package should not generate exports for every **Chat Adapter Package**.
+- A **Chat Adapter Facade** is reserved for first-party-supported adapters where ViteHub owns the public compatibility surface.
 - A **Chat Capability** can contribute trusted chat actor identity into Agent Invocation Context Values before later Capabilities resolve.
 - **Chat Platform Adapters** are platform integration adapters, not **Agent Model Adapters**.
 - **Chat Webhook Autowiring** is inferred from the Agent's attached **Chat Capability**; users do not attach a second Capability or call a webhook registration helper.
