@@ -229,6 +229,14 @@ async function synthesizeWorkspaceFallback(
   maxToolResults: number,
 ) {
   const evidence = collectToolResults(result, maxToolResults)
+  return await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence)
+}
+
+async function synthesizeWorkspaceFallbackFromEvidence(
+  model: ToolLoopAgentSettings["model"],
+  context: AgentAdapterRunContext,
+  evidence: string[],
+) {
   if (evidence.length === 0) return undefined
 
   const { generateText } = await import("ai")
@@ -245,6 +253,73 @@ async function synthesizeWorkspaceFallback(
   })
 
   return summary.text.trim() || undefined
+}
+
+function streamEventText(event: unknown): string | undefined {
+  if (typeof event === "string") return event
+  if (typeof event !== "object" || event === null) return undefined
+  const record = event as { delta?: unknown, text?: unknown, textDelta?: unknown, type?: unknown }
+  if (record.type !== "text-delta" && record.type !== "text") return undefined
+  const text = record.text ?? record.textDelta ?? record.delta
+  return typeof text === "string" ? text : undefined
+}
+
+function streamToolResultOutput(event: unknown): unknown {
+  if (typeof event !== "object" || event === null) return undefined
+  const record = event as { output?: unknown, result?: unknown, type?: unknown }
+  return record.type === "tool-result"
+    ? record.output ?? record.result
+    : undefined
+}
+
+function cloneStreamTextResult<T extends object>(result: T, fullStream: AsyncIterable<unknown>): T {
+  const clone = Object.create(Object.getPrototypeOf(result)) as T
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
+  Object.defineProperty(clone, "fullStream", {
+    configurable: true,
+    enumerable: true,
+    value: fullStream,
+  })
+  return clone
+}
+
+function withWorkspaceFallbackFullStream(
+  stream: AsyncIterable<unknown>,
+  model: ToolLoopAgentSettings["model"],
+  context: AgentAdapterRunContext,
+  maxToolResults: number,
+): AsyncIterable<unknown> {
+  return (async function* () {
+    let text = ""
+    const evidence: string[] = []
+
+    for await (const event of stream) {
+      text += streamEventText(event) || ""
+      const output = streamToolResultOutput(event)
+      if (output !== undefined && evidence.length < maxToolResults) {
+        evidence.push(JSON.stringify(output).slice(0, 4000))
+      }
+      yield event
+    }
+
+    if (text.trim() || evidence.length === 0) return
+
+    const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence)
+    if (synthesized) {
+      yield { text: synthesized, type: "text-delta" }
+      yield { reason: "workspace-fallback", type: "finish" }
+    }
+  })()
+}
+
+function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterable<unknown> }>(
+  result: T,
+  model: ToolLoopAgentSettings["model"],
+  context: AgentAdapterRunContext,
+  fallback: Required<AiSdkWorkspaceFallbackOptions>,
+): T {
+  if (!fallback.enabled || !result.fullStream) return result
+  return cloneStreamTextResult(result as object, withWorkspaceFallbackFullStream(result.fullStream, model, context, fallback.maxToolResults)) as T
 }
 
 async function resolveValue<T>(value: T | ((context: AgentAdapterMetadataContext) => MaybePromise<T>), context: AgentAdapterMetadataContext): Promise<T> {
@@ -426,8 +501,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     name: "ai-sdk",
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
-      const { agent } = await createAgent(options, context)
-      return await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never>
+      const { agent, model } = await createAgent(options, context)
+      const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never>
+      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(options.adapterOptions?.fallback))
     },
   }
 }

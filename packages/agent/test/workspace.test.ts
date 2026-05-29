@@ -24,6 +24,11 @@ const useWorkspace = vi.fn(() => ({
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const generateText = vi.hoisted(() => vi.fn())
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, steps?: unknown[], text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
+const agentStream = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ fullStream: AsyncIterable<unknown> }>>(async () => ({
+  fullStream: (async function* () {
+    yield { text: "ok", type: "text-delta" }
+  })(),
+})))
 
 vi.mock("ai", () => ({
   generateText,
@@ -35,6 +40,10 @@ vi.mock("ai", () => ({
 
     async generate(...args: unknown[]) {
       return await agentGenerate.apply(this, args)
+    }
+
+    async stream(...args: unknown[]) {
+      return await agentStream.apply(this, args)
     }
   },
 }))
@@ -59,6 +68,12 @@ describe("defineAgent workspace option", () => {
     agentSettings.length = 0
     agentGenerate.mockReset()
     agentGenerate.mockResolvedValue({ finishReason: "stop", text: "ok" })
+    agentStream.mockReset()
+    agentStream.mockResolvedValue({
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+      })(),
+    })
     generateText.mockReset()
     generateText.mockResolvedValue({ text: "fallback answer" })
     exists.mockReset()
@@ -323,6 +338,37 @@ describe("defineAgent workspace option", () => {
     }), { workspace: "docs" })
 
     await expect(agent.run!(context())).resolves.toBe("fallback answer")
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("client.py:7"),
+    }))
+  })
+
+  it("synthesizes streamed answers when tool loops stop without text after tool results", async () => {
+    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield {
+          input: { command: "rg Posthog" },
+          output: { stdout: "client.py:7: posthog_client = Posthog()" },
+          toolCallId: "call-1",
+          toolName: "shell",
+          type: "tool-result",
+        }
+      })(),
+    })
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ text: "fallback answer", type: "text-delta" })
     expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining("client.py:7"),
     }))
