@@ -1,6 +1,19 @@
 import { describe, expect, it, vi } from "vitest"
 
 describe("agent Vite plugin", () => {
+  it("ignores generated ViteHub files in the Vite dev watcher", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const config = plugin.config as (config: { server?: { watch?: { ignored?: string | string[] } } }) => { server?: { watch?: { ignored?: string[] } } }
+
+    expect(config({}).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
+    expect(config({ server: { watch: { ignored: ["**/node_modules/**"] } } }).server?.watch?.ignored).toEqual([
+      "**/node_modules/**",
+      "**/.vitehub/**",
+    ])
+    expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } } }).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
+  })
+
   it("attaches Nitro and merges server noExternal", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
@@ -26,7 +39,7 @@ describe("agent Vite plugin", () => {
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
-    expect(result).toEqual({ agent: { route: true } })
+    expect(result).toMatchObject({ agent: { route: true } })
   })
 })
 

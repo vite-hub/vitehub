@@ -1,4 +1,4 @@
-import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vitehub/internal/build/vite"
 
 import { chatDevTools } from "./chat/devtools.ts"
 import agentNitroModule from "./nitro/module.ts"
@@ -37,8 +37,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     },
     config(config) {
       agent = config.agent ?? agent
-      if (typeof agent !== "undefined") {
-        return { agent }
+      return {
+        ...(typeof agent !== "undefined" ? { agent } : {}),
+        server: {
+          watch: {
+            ignored: mergeGeneratedViteHubWatchIgnored(config.server?.watch?.ignored),
+          },
+        },
       }
     },
     configResolved(config) {
