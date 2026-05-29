@@ -106,6 +106,74 @@ describe("agent public types", () => {
     expectTypeOf(getTranscriptionResults({ context: invocationContext })).toEqualTypeOf<TranscriptionResult[]>()
 
     defineAgent({
+      capabilities: [
+        transcribe({
+          execute: () => "transcript",
+          artifacts: {
+            audio: {
+              path({ audioExtension, date, stem }) {
+                expectTypeOf(audioExtension).toEqualTypeOf<string>()
+                return `audio/${date}/${stem}.${audioExtension}`
+              },
+            },
+            transcript: {
+              path({ date, stem }) {
+                expectTypeOf(date).toEqualTypeOf<string>()
+                expectTypeOf(stem).toEqualTypeOf<string>()
+                return `${date}/${stem}.md`
+              },
+              template({ audioPath, transcriptPath, transcript }) {
+                expectTypeOf(audioPath).toEqualTypeOf<string | undefined>()
+                expectTypeOf(transcriptPath).toEqualTypeOf<string | undefined>()
+                expectTypeOf(transcript).toEqualTypeOf<string>()
+                return transcript
+              },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+      workspace: { mode: "write" },
+    })
+
+    transcribe({
+      execute: () => "transcript",
+      artifacts: {
+        // @ts-expect-error transcription artifacts do not accept directory builders
+        directory: "inbox",
+      },
+    })
+
+    transcribe({
+      execute: () => "transcript",
+      artifacts: {
+        transcript: {
+          path: "inbox/transcript.md",
+          // @ts-expect-error transcript media type is inferred from path or set through mediaType
+          extension: "md",
+        },
+      },
+    })
+
+    transcribe({
+      execute: () => "transcript",
+      artifacts: {
+        transcript: false,
+        audio: {
+          path: ({ audioExtension, date, stem }) => `audio/${date}/${stem}.${audioExtension}`,
+        },
+      },
+    })
+
+    transcribe({
+      execute: () => "transcript",
+      // @ts-expect-error output was renamed to artifacts
+      output: {
+        path: "inbox/transcript.md",
+      },
+    })
+
+    defineAgent({
       model: {} as never,
       hooks: {
         "agent:finish"(event) {

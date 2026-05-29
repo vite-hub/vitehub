@@ -12,6 +12,7 @@ import type {
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
+  WorkspaceDefinition,
   WorkspaceDefinitionInput,
   WorkspaceName,
 } from "@vitehub/workspace"
@@ -246,6 +247,7 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   mode?: AgentCapabilityMode
+  workspaceDefinition?: WorkspaceDefinition
 }
 
 export type AgentCapabilityToolResolver<

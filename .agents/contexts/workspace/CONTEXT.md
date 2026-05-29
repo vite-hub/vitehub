@@ -88,7 +88,7 @@ A declared visibility grant inside a Workspace Scope, expressed through Source k
 _Avoid_: Prompt filter, role, Workspace Rule
 
 **Workspace Scope Resolver**:
-Trusted runtime logic that selects the Workspace Scope for one Agent Invocation from host, auth, or invocation context.
+Explicit trusted runtime logic that selects the Workspace Scope for one Agent Invocation from host, auth, or invocation context.
 _Avoid_: Model route, prompt classifier, Workspace Definition
 
 **Scope-Masked Miss**:
@@ -132,6 +132,7 @@ _Avoid_: Open workspace, sandbox, mount
 - A **Single-File Source** path is relative to the Workspace Source Root.
 - A **Single-File Source** can default its Mount to the Workspace root and its Source-Backed Path to the source file basename.
 - Current workspace writes target normal Workspace paths, not Source-Backed Paths.
+- Capability-persisted artifacts, such as Transcription Artifacts, target normal Workspace paths and remain subject to Workspace Rules.
 - **Source Sync** is distinct from normal workspace writes.
 - A **Workspace Rule** is path-scoped.
 - A **Workspace Plugin** can contribute Workspace Rules.
@@ -140,13 +141,15 @@ _Avoid_: Open workspace, sandbox, mount
 - A **Workspace Access Mode** is `read` by default and must be explicit when write authority is requested.
 - A **Workspace Scope** narrows Workspace visibility for an Agent Invocation without granting new Capabilities dynamically.
 - A **Workspace Scope** is resolved from trusted host or invocation context before Workspace Tools are exposed to the model.
-- A **Workspace Scope** can be applied by a Capability, but it does not mutate the Workspace Definition or add Sources.
+- A **Workspace Scope** can be applied by the **Access Capability**, but it does not mutate the Workspace Definition or add Sources.
 - A **Workspace Scope** is enforced by Workspace reads, lists, searches, shell-shaped commands, and Workspace Tools; the model sees only the scoped Workspace File Tree.
 - A **Workspace Scope** contains **Workspace Scope Grants**.
 - A **Workspace Scope Grant** can target a Source key, a Workspace path prefix, or a path prefix within a Source.
+- A Source-key **Workspace Scope Grant** fails closed for unknown Sources and root-mounted Sources; root-mounted Sources require explicit path grants.
 - A **Workspace Scope Resolver** selects the Workspace Scope before Workspace Tools or Workspace-backed instructions are exposed.
 - A **Workspace Scope Resolver** can read trusted host, auth, and invocation context, but it does not use model output as authority.
 - Workspace Scope is read-only in the first version.
+- Scoped Workspace Scope does not expose source materialization in the first version.
 - An out-of-scope Workspace path is a **Scope-Masked Miss** to the model.
 - A **Scope-Masked Miss** can be recorded in server-side audit or tracing without revealing the hidden path to the model.
 - An Agent Invocation uses one **Selected Workspace Scope** by default.
@@ -182,5 +185,8 @@ _Avoid_: Open workspace, sandbox, mount
 - Multi-scope visibility was considered as a default merged view - resolved: use one **Selected Workspace Scope** by default, with **All-Scopes Workspace Scope** as an explicit privileged mode.
 - Out-of-scope paths were considered for permission-denied tool feedback - resolved: return model-facing not-found behavior as a **Scope-Masked Miss** to avoid leaking hidden paths.
 - Workspace Scope write grants were considered for the first version - resolved: keep Workspace Scope read-only until read isolation is proven.
+- `workspaceScope()` was considered as the Capability helper name - resolved: keep **Workspace Scope** as Workspace language and use `access()` for the broader Capability.
+- Ambient `workspaceScope` invocation context was considered as authority - resolved: require an explicit **Workspace Scope Resolver** or **Default Workspace Scope**.
+- Source materialization under scoped access was considered for the first version - resolved: disable materialization for scoped V1 to avoid source metadata leakage.
 - Build-time Workspace assets were considered a second user-facing read surface - resolved: users read one **Workspace File Tree** while asset provenance remains internal by default.
 - `open()` was considered as the Workspace execution-session method - resolved: use `startSession()` because it names the **Workspace Session** lifecycle.
