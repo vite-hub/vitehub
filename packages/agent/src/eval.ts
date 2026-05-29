@@ -1,4 +1,5 @@
-import { basename, dirname, extname, join } from "node:path"
+import { statSync } from "node:fs"
+import { basename, dirname, extname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { evalite } from "evalite"
@@ -146,7 +147,38 @@ async function resolveSiblingAgent<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!module.default) {
     throw new Error(`[vitehub] defineEval() expected ${sibling} to default export an Agent Definition.`)
   }
-  return module.default
+  return withSiblingWorkspaceSourceRoot(module.default, sibling)
+}
+
+function inferWorkspaceSourceRoot(agentFile: string) {
+  const directory = dirname(agentFile)
+  const workspaceDirectory = resolve(directory, "workspace")
+  try {
+    return statSync(workspaceDirectory).isDirectory() ? workspaceDirectory : directory
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return directory
+    throw error
+  }
+}
+
+function withSiblingWorkspaceSourceRoot<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentEvalAgent<TRuntimeConfig>,
+  agentFile: string,
+): AgentEvalAgent<TRuntimeConfig> {
+  if (!isWorkspaceAgentDefinition(agent)) return agent
+
+  const options = agent.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig>
+  if (typeof options.workspace !== "object" || !options.workspace) return agent
+  if (options.workspace.sourceRootDir) return agent
+
+  return defineAgent({
+    ...options,
+    workspace: {
+      ...options.workspace,
+      sourceRootDir: inferWorkspaceSourceRoot(agentFile),
+    },
+  })
 }
 
 async function resolveEvalAgent<TRuntimeConfig extends AgentRuntimeConfig>(

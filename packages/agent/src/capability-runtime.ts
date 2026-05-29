@@ -1,5 +1,6 @@
 import { resolveRuntimeValue } from "@vitehub/runtime"
 
+import { workspaceOverrideSymbol } from "./access-runtime.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import type {
   AgentAdapterInstructionsValue,
@@ -25,8 +26,9 @@ import type {
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
+import type { WorkspaceOverrideRuntime } from "./access-runtime.ts"
 import type { Message } from "./messages.ts"
-import type { ReadonlyWorkspaceFacade, WorkspaceName } from "@vitehub/workspace"
+import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from "@vitehub/workspace"
 
 type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
 
@@ -57,6 +59,7 @@ export interface AgentCapabilityInvocationOptions<
 > {
   context?: AgentInvocationContextStore
   model?: AgentModelResolver<TRuntimeConfig, Name>
+  workspaceDefinition?: WorkspaceDefinition
 }
 
 export interface ResolvedAgentCapabilities {
@@ -68,6 +71,7 @@ export interface ResolvedAgentCapabilities {
   registries: AgentCapabilityRegistries
   toolTransforms: AgentToolTransform[]
   tools?: AgentToolSet
+  workspace?: ReadonlyWorkspaceFacade
 }
 
 function assertCapabilityId(id: unknown): asserts id is string {
@@ -123,6 +127,13 @@ export function normalizeCapabilities(
     seen.add(normalized.id)
     return normalized
   })
+}
+
+function validateAccessCapabilityOrder(capabilities: AgentCapabilityDefinition[]): void {
+  const accessIndex = capabilities.findIndex(capability => capability.id === "access")
+  if (accessIndex > 0) {
+    throw new Error("[vitehub] access() must be the first capability so Workspace Scope is applied before other capabilities can read the workspace or expose tools.")
+  }
 }
 
 function getRunMessages(input: AgentRunInput): Message[] {
@@ -205,7 +216,9 @@ export async function resolveAgentCapabilities<
   const runtimeContext = toAgentCallbackContext(runtime)
   const invocationContext = invocationOptions.context || createAgentInvocationContextStore(input.context)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+  validateAccessCapabilityOrder(capabilities)
   let currentInput = input
+  let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
   let messages = getRunMessages(currentInput)
   let tools: AgentToolSet | undefined
   const capabilityInstructions: AgentInstructionBlock[] = []
@@ -235,15 +248,22 @@ export async function resolveAgentCapabilities<
 
   try {
     for (const capability of capabilities) {
-      await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
+      await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, currentWorkspace, workspaceMode)
       const metadataContext = {
         ...runtimeContext,
         context: invocationContext,
-        fs: workspace?.fs,
-        workspace,
+        fs: currentWorkspace?.fs,
+        workspace: currentWorkspace,
+        workspaceDefinition: invocationOptions.workspaceDefinition,
       }
-      const capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> = {
+      let capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+      capabilityContext = {
         ...metadataContext,
+        [workspaceOverrideSymbol](nextWorkspace: ReadonlyWorkspaceFacade<Name>) {
+          currentWorkspace = nextWorkspace
+          capabilityContext.fs = nextWorkspace.fs
+          capabilityContext.workspace = nextWorkspace
+        },
         capability,
         mode: capability.mode,
         instructions: {
@@ -308,8 +328,8 @@ export async function resolveAgentCapabilities<
             toolTransforms.push(transform)
           },
         },
-        workspace,
-      } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name>
+        workspace: currentWorkspace,
+      } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
 
       for (const [name, trigger] of Object.entries(capability.triggers || {})) {
         assertTriggerName(name, capability.id)
@@ -377,6 +397,7 @@ export async function resolveAgentCapabilities<
     registries,
     toolTransforms,
     tools,
+    workspace: currentWorkspace,
   }
 }
 

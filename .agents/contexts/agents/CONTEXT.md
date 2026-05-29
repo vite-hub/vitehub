@@ -60,6 +60,10 @@ _Avoid_: memory size, transcript limit, context length
 A host-visible conversation boundary inside Chat History that determines which messages are eligible for the Chat History Window.
 _Avoid_: Agent Memory, Agent Run State, hidden slice
 
+**Chat Identity**:
+A trusted Agent Invocation Context Value produced by the Chat Capability that identifies the external chat actor for the current Agent Invocation.
+_Avoid_: Chat History identity, Agent Memory, model-facing user profile
+
 **Agent Invocation Context Value**:
 A typed value recorded for one Agent Invocation and exposed to later Agent and Capability callbacks through invocation context access.
 _Avoid_: Runtime Config, Agent Memory, dynamic Capability, arbitrary metadata
@@ -118,6 +122,8 @@ _Avoid_: Fake agent, dummy model, test bot
 - The Chat Capability resolves the active **Chat Session** before applying the **Chat History Window**.
 - A **Chat History Window** is configured by the Agent Definition when the application wants bounded Chat History.
 - The Chat Capability can require state for **Chat History** through the Agent State Provider.
+- The Chat Capability can produce **Chat Identity** before later Capabilities resolve.
+- **Chat Identity** is available through Agent Invocation Context Values and is not model-facing by default.
 - Chat History is explicit application behavior and is not enabled by default.
 - **Agent Invocation Context Values** can be produced by Pre-Invocation Decisions and read by later Agent or Capability callbacks.
 - **Agent Invocation Context Values** do not grant Capabilities dynamically.
@@ -159,6 +165,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - Hidden model-selected history slicing was considered - resolved: **Chat Session** selection is a host-visible boundary over preserved Chat History, not destructive message truncation.
 - Route and gate results were considered for ad hoc input context or metadata - resolved: expose them as typed **Agent Invocation Context Values**.
 - Chat state was considered separate from Agent State Provider - resolved: Chat History state is satisfied through the Agent State Provider when available.
+- Chat actor identity was considered a chat-history-only detail - resolved: expose **Chat Identity** as a trusted Agent Invocation Context Value so other Capabilities can consume it.
 - Chat History was considered an implicit Chat Capability default - resolved: keep Chat History opt-in, aligned with Chat SDK-style application control.
 - Local and hosted state providers were considered equivalent - resolved: hosted production runtimes require a durable provider and a **Concurrent Invocation Guard**.
 - Model-free playground behavior was described as a dummy Agent - resolved: use **Mock Agent Adapter** for deterministic, cost-free Agent Invocations.

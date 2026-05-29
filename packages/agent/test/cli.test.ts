@@ -1,6 +1,11 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { createAgentCliContributor, runAgentEvalCli } from "../src/cli.ts"
+import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
 
 function stream() {
   let value = ""
@@ -25,7 +30,7 @@ describe("agent CLI", () => {
   })
 
   it("runs Evalite through the Node runner with ViteHub defaults", async () => {
-    const runner = vi.fn(async () => ({ vitest: {} as never }))
+    const runner = vi.fn(async () => ({ exitCode: undefined }))
     const exitCode = await runAgentEvalCli(["server/agents/support.eval.ts"], {
       cwd: "/repo",
       env: {},
@@ -33,10 +38,11 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr: stream(),
       stdout: stream(),
-    }, undefined, runner)
+    }, undefined, runner, vi.fn(async () => "/repo/.vitehub/agent/evalite.config.ts"))
 
     expect(exitCode).toBe(0)
     expect(runner).toHaveBeenCalledWith({
+      cache: undefined,
       cacheEnabled: undefined,
       cwd: "/repo",
       forceRerunTriggers: [
@@ -45,15 +51,20 @@ describe("agent CLI", () => {
         "src/**/*.eval.*",
       ],
       hideTable: undefined,
+      maxConcurrency: undefined,
       mode: "run-once-and-exit",
       outputPath: undefined,
       path: "server/agents/support.eval.ts",
       scoreThreshold: undefined,
+      server: undefined,
+      setupFiles: undefined,
+      testTimeout: undefined,
+      trialCount: undefined,
     })
   })
 
   it("passes supported Evalite runner options exactly", async () => {
-    const runner = vi.fn(async () => ({ vitest: {} as never }))
+    const runner = vi.fn(async () => ({ exitCode: undefined }))
     const exitCode = await runAgentEvalCli([
       "watch",
       "server/agents/support.eval.ts",
@@ -70,18 +81,28 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr: stream(),
       stdout: stream(),
-    }, { eval: { forceRerunTriggers: ["server/agents/support/**"] } }, runner)
+    }, {
+      forceRerunTriggers: ["server/agents/support/**"],
+      maxConcurrency: 1,
+      testTimeout: 300000,
+    }, runner, vi.fn(async () => "/repo/.vitehub/agent/evalite.config.ts"))
 
     expect(exitCode).toBe(0)
     expect(runner).toHaveBeenCalledWith({
+      cache: undefined,
       cacheEnabled: false,
       cwd: "/repo",
       forceRerunTriggers: ["server/agents/support/**"],
       hideTable: true,
+      maxConcurrency: 1,
       mode: "watch-for-file-changes",
       outputPath: "eval-results.json",
       path: "server/agents/support.eval.ts",
       scoreThreshold: 85,
+      server: undefined,
+      setupFiles: undefined,
+      testTimeout: 300000,
+      trialCount: undefined,
     })
   })
 
@@ -95,7 +116,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr: stream(),
       stdout,
-    }, undefined, runner)
+    }, undefined, runner, vi.fn(async () => "/repo/.vitehub/agent/evalite.config.ts"))
 
     expect(exitCode).toBe(0)
     expect(runner).not.toHaveBeenCalled()
@@ -111,7 +132,7 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr,
       stdout: stream(),
-    }, { eval: false }, vi.fn())
+    }, false, vi.fn())
 
     expect(exitCode).toBe(1)
     expect(stderr.output()).toContain("disabled")
@@ -127,10 +148,28 @@ describe("agent CLI", () => {
       spawn: vi.fn(),
       stderr,
       stdout: stream(),
-    }, undefined, runner)
+    }, undefined, runner, vi.fn(async () => "/repo/.vitehub/agent/evalite.config.ts"))
 
     expect(exitCode).toBe(1)
     expect(runner).not.toHaveBeenCalled()
     expect(stderr.output()).toContain("Unknown option: --config")
+  })
+
+  it("writes generated Evalite config under .vitehub/agent", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-eval-"))
+    try {
+      await writeAgentEvaliteConfig(rootDir, {
+        forceRerunTriggers: ["server/agents/support/**"],
+        maxConcurrency: 1,
+        testTimeout: 300000,
+      })
+
+      await expect(readFile(createAgentEvaliteConfigPath(rootDir), "utf8")).resolves.toContain(`"maxConcurrency": 1`)
+      await expect(readFile(createAgentEvaliteConfigPath(rootDir), "utf8")).resolves.toContain(`"testTimeout": 300000`)
+      await expect(readFile(createAgentEvaliteConfigPath(rootDir), "utf8")).resolves.toContain(`"server/agents/support/**"`)
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 })

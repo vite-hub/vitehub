@@ -1,4 +1,7 @@
 export {
+  access,
+} from "./access.ts"
+export {
   chat,
 } from "../chat-trigger.ts"
 export {
@@ -31,10 +34,7 @@ export {
   skills,
 } from "./skills.ts"
 export {
-  audioBytes,
-  audioExtensionFor,
   getTranscriptionResults,
-  TRANSCRIPTION_RESULTS_CONTEXT_KEY,
   transcribe,
 } from "./transcribe.ts"
 export {
@@ -66,6 +66,16 @@ export {
   webSearch,
 } from "./web-search/index.ts"
 
+export type {
+  AccessCapabilityOptions,
+  AccessRoleName,
+  AccessWorkspaceOptions,
+  AccessWorkspaceScopeDefinition,
+  AccessWorkspaceScopeGrant,
+  AccessWorkspaceScopeResolver,
+  AccessWorkspaceScopeSelection,
+  AccessWorkspaceScopeSelectionInput,
+} from "./access.ts"
 export type {
   AgentChatMessageTriggerInput,
 } from "../chat-trigger.ts"
@@ -129,13 +139,13 @@ export type {
   ScheduleCapabilityToolPolicy,
 } from "./schedule.ts"
 export type {
-  TranscribeWorkspaceAudioOptions,
-  TranscribeWorkspaceOptions,
-  TranscribeWorkspaceTemplateInput,
-  TranscribeWorkspaceTranscriptOptions,
+  TranscribeArtifactTemplateInput,
+  TranscribeArtifactsOptions,
+  TranscribeAudioArtifactOptions,
   TranscribeExecuteInput,
   TranscribeExecuteResult,
   TranscribeOptions,
+  TranscribeTranscriptArtifactOptions,
   TranscriptionResult,
 } from "./transcribe.ts"
 export type {

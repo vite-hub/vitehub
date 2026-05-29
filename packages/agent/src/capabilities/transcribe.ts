@@ -14,7 +14,7 @@ import type { WritableWorkspaceFacade, WorkspaceContent, WorkspaceName } from "@
 type AiSdkTranscribe = typeof import("ai")["experimental_transcribe"]
 type AiSdkTranscribeOptions = Omit<Parameters<AiSdkTranscribe>[0], "abortSignal" | "audio">
 type AiSdkTranscriptionResult = Awaited<ReturnType<AiSdkTranscribe>>
-type TranscribeWorkspaceValue<T, TInput> = T | ((input: TInput) => MaybePromise<T>)
+type TranscribeArtifactValue<T, TInput> = T | ((input: TInput) => MaybePromise<T>)
 
 export interface TranscribeExecuteInput {
   audio: AudioPart
@@ -32,7 +32,7 @@ export interface TranscriptionResult {
   transcriptPath?: string
 }
 
-export interface TranscribeWorkspaceTemplateInput extends TranscriptionResult {
+export interface TranscribeArtifactTemplateInput extends TranscriptionResult {
   audio: AudioPart
   audioCount: number
   audioExtension: string
@@ -40,38 +40,35 @@ export interface TranscribeWorkspaceTemplateInput extends TranscriptionResult {
   message: Message
 }
 
-export interface TranscribeWorkspaceAudioOptions {
-  mediaType?: TranscribeWorkspaceValue<string | undefined, TranscribeWorkspaceTemplateInput>
-  path?: TranscribeWorkspaceValue<string, TranscribeWorkspaceTemplateInput>
+export interface TranscribeAudioArtifactOptions {
+  mediaType?: TranscribeArtifactValue<string | undefined, TranscribeArtifactTemplateInput>
+  path?: TranscribeArtifactValue<string, TranscribeArtifactTemplateInput>
 }
 
-export interface TranscribeWorkspaceTranscriptOptions {
-  extension?: string
-  mediaType?: TranscribeWorkspaceValue<string | undefined, TranscribeWorkspaceTemplateInput>
-  path?: TranscribeWorkspaceValue<string, TranscribeWorkspaceTemplateInput>
-  template?: (input: TranscribeWorkspaceTemplateInput) => MaybePromise<WorkspaceContent>
+export interface TranscribeTranscriptArtifactOptions {
+  mediaType?: TranscribeArtifactValue<string | undefined, TranscribeArtifactTemplateInput>
+  path?: TranscribeArtifactValue<string, TranscribeArtifactTemplateInput>
+  template?: (input: TranscribeArtifactTemplateInput) => MaybePromise<WorkspaceContent>
 }
 
-export interface TranscribeWorkspaceOptions {
-  audio?: boolean | TranscribeWorkspaceAudioOptions
-  directory?: TranscribeWorkspaceValue<string, TranscribeWorkspaceTemplateInput>
-  stem?: TranscribeWorkspaceValue<string, TranscribeWorkspaceTemplateInput>
-  transcript?: boolean | TranscribeWorkspaceTranscriptOptions | ((input: TranscribeWorkspaceTemplateInput) => MaybePromise<WorkspaceContent>)
+export interface TranscribeArtifactsOptions {
+  audio?: boolean | TranscribeAudioArtifactOptions
+  transcript?: false | TranscribeTranscriptArtifactOptions
 }
 
 export const TRANSCRIPTION_RESULTS_CONTEXT_KEY = "transcribe.results"
 
 type StaticTranscribeOptions =
   | (AiSdkTranscribeOptions & {
+    artifacts?: TranscribeArtifactsOptions
     execute?: never
     instructions?: AgentCapabilityDefinition["instructions"]
-    workspace?: TranscribeWorkspaceOptions
   })
   | {
+    artifacts?: TranscribeArtifactsOptions
     execute: (input: TranscribeExecuteInput) => MaybePromise<TranscribeExecuteResult>
     instructions?: AgentCapabilityDefinition["instructions"]
     model?: never
-    workspace?: TranscribeWorkspaceOptions
   }
 
 export type TranscribeOptions = StaticTranscribeOptions | (() => MaybePromise<StaticTranscribeOptions>)
@@ -148,8 +145,8 @@ async function runTranscription(options: StaticTranscribeOptions, audio: AudioPa
   }
 
   const {
+    artifacts: _artifacts,
     instructions: _instructions,
-    workspace: _workspace,
     ...transcribeOptions
   } = options
   const { experimental_transcribe } = await import("ai")
@@ -169,39 +166,64 @@ function joinWorkspacePath(...parts: Array<string | undefined>): string {
   return parts.join("/").replaceAll("\\", "/").split("/").filter(Boolean).join("/")
 }
 
+function normalizeTranscribeArtifactPath(path: string, option: string): string {
+  const raw = path.replaceAll("\\", "/")
+  const normalized = raw.replace(/\/+$/, "")
+  const parts = normalized.split("/").filter(Boolean)
+
+  if (!parts.length || raw.startsWith("/") || parts.some(part => part === "." || part === "..") || parts[0] === ".git" || parts[0] === ".vitehub")
+    throw new TypeError(`[vitehub] transcribe({ ${option} }) must be a safe workspace path.`)
+
+  return parts.join("/")
+}
+
 function defaultCreatedAt(message: Message): Date {
   const value = message.createdAt ? new Date(message.createdAt) : new Date()
   return Number.isNaN(value.getTime()) ? new Date() : value
 }
 
-function defaultStem(input: Pick<TranscribeWorkspaceTemplateInput, "audioCount" | "audioIndex" | "createdAt" | "messageId">): string {
+function defaultStem(input: Pick<TranscribeArtifactTemplateInput, "audioCount" | "audioIndex" | "createdAt" | "messageId">): string {
   const suffix = input.audioCount > 1 ? `-${input.audioIndex + 1}` : ""
   return `${input.createdAt.replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z")}-${input.messageId}${suffix}`
 }
 
-function normalizeExtension(extension = ""): string {
-  return extension.replace(/^\.+/, "") || "txt"
+function pathExtension(path: string): string | undefined {
+  const filename = path.split("/").at(-1) || ""
+  const dotIndex = filename.lastIndexOf(".")
+  return dotIndex > 0 && dotIndex < filename.length - 1 ? filename.slice(dotIndex + 1) : undefined
 }
 
-async function resolveWorkspaceValue<T>(
-  value: TranscribeWorkspaceValue<T, TranscribeWorkspaceTemplateInput>,
-  input: TranscribeWorkspaceTemplateInput,
+function pathDirectory(path: string): string {
+  const segments = path.split("/")
+  segments.pop()
+  return segments.join("/")
+}
+
+function pathStem(path: string): string | undefined {
+  const filename = path.split("/").at(-1) || ""
+  if (!filename) return
+  const dotIndex = filename.lastIndexOf(".")
+  return dotIndex > 0 ? filename.slice(0, dotIndex) : filename
+}
+
+async function resolveArtifactValue<T>(
+  value: TranscribeArtifactValue<T, TranscribeArtifactTemplateInput>,
+  input: TranscribeArtifactTemplateInput,
 ): Promise<T> {
   return typeof value === "function"
-    ? await (value as (input: TranscribeWorkspaceTemplateInput) => MaybePromise<T>)(input)
+    ? await (value as (input: TranscribeArtifactTemplateInput) => MaybePromise<T>)(input)
     : value
 }
 
-function getTranscriptOptions(options: TranscribeWorkspaceOptions): TranscribeWorkspaceTranscriptOptions | undefined {
-  if (options.transcript === false) return
-  if (typeof options.transcript === "function") return { template: options.transcript }
-  if (options.transcript && typeof options.transcript === "object") return options.transcript
+function getAudioArtifactOptions(artifacts: TranscribeArtifactsOptions): TranscribeAudioArtifactOptions | undefined {
+  if (artifacts.audio === false) return
+  if (artifacts.audio && typeof artifacts.audio === "object") return artifacts.audio
   return {}
 }
 
-function getAudioOptions(options: TranscribeWorkspaceOptions): TranscribeWorkspaceAudioOptions | undefined {
-  if (options.audio === false) return
-  if (options.audio && typeof options.audio === "object") return options.audio
+function getTranscriptArtifactOptions(artifacts: TranscribeArtifactsOptions): TranscribeTranscriptArtifactOptions | undefined {
+  if (artifacts.transcript === false) return
+  if (artifacts.transcript && typeof artifacts.transcript === "object") return artifacts.transcript
   return {}
 }
 
@@ -212,7 +234,7 @@ function createBaseTranscriptionResult(
   transcript: string,
   audioIndex: number,
   audioCount: number,
-): TranscribeWorkspaceTemplateInput {
+): TranscribeArtifactTemplateInput {
   const createdAtDate = defaultCreatedAt(message)
   const createdAt = createdAtDate.toISOString()
   const messageId = context.run?.messageId || message.id
@@ -229,16 +251,16 @@ function createBaseTranscriptionResult(
     stem: "",
     transcript,
     transcriptPath: undefined,
-  } satisfies TranscribeWorkspaceTemplateInput
+  } satisfies TranscribeArtifactTemplateInput
   return {
     ...base,
     stem: defaultStem(base),
   }
 }
 
-async function writeWorkspaceTranscription(
+async function writeTranscriptionArtifacts(
   context: AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>,
-  options: TranscribeWorkspaceOptions | undefined,
+  artifacts: TranscribeArtifactsOptions | undefined,
   message: Message,
   audio: AudioPart,
   transcript: string,
@@ -246,43 +268,52 @@ async function writeWorkspaceTranscription(
   audioCount: number,
 ): Promise<TranscriptionResult> {
   let input = createBaseTranscriptionResult(context, message, audio, transcript, audioIndex, audioCount)
-  if (!options) {
+  if (!artifacts) {
     return toTranscriptionResult(input)
   }
   if (!isWritableWorkspace(context.workspace)) {
-    throw new Error("[vitehub] transcribe({ workspace }) requires workspace.mode: \"write\".")
+    throw new Error("[vitehub] transcribe({ artifacts }) requires workspace.mode: \"write\".")
   }
 
-  const configuredStem = options.stem ? await resolveWorkspaceValue(options.stem, input) : input.stem
-  input = { ...input, stem: configuredStem }
-  const directory = options.directory ? await resolveWorkspaceValue(options.directory, input) : joinWorkspacePath("transcripts", input.date)
-  const audioOptions = getAudioOptions(options)
-  const transcriptOptions = getTranscriptOptions(options)
+  const audioOptions = getAudioArtifactOptions(artifacts)
+  const transcriptOptions = getTranscriptArtifactOptions(artifacts)
+  const defaultTranscriptPath = joinWorkspacePath("transcripts", input.date, `${input.stem}.txt`)
+  const transcriptPath = transcriptOptions
+    ? normalizeTranscribeArtifactPath(
+        transcriptOptions.path ? await resolveArtifactValue(transcriptOptions.path, input) : defaultTranscriptPath,
+        "artifacts.transcript.path",
+      )
+    : undefined
+
+  if (transcriptPath)
+    input = { ...input, transcriptPath }
+  const artifactDirectory = transcriptPath ? pathDirectory(transcriptPath) : joinWorkspacePath("audio", input.date)
+  const artifactStem = transcriptPath ? pathStem(transcriptPath) || input.stem : input.stem
 
   if (audioOptions) {
-    const defaultAudioPath = joinWorkspacePath(directory, `${input.stem}.${input.audioExtension}`)
-    const audioPath = audioOptions.path ? await resolveWorkspaceValue(audioOptions.path, input) : defaultAudioPath
+    const defaultAudioPath = joinWorkspacePath(artifactDirectory, `${artifactStem}.${input.audioExtension}`)
+    const audioPath = normalizeTranscribeArtifactPath(
+      audioOptions.path ? await resolveArtifactValue(audioOptions.path, input) : defaultAudioPath,
+      "artifacts.audio.path",
+    )
     input = { ...input, audioPath }
-    const mediaType = audioOptions.mediaType ? await resolveWorkspaceValue(audioOptions.mediaType, input) : audio.mediaType
+    const mediaType = audioOptions.mediaType ? await resolveArtifactValue(audioOptions.mediaType, input) : audio.mediaType
     await context.workspace.fs.writeFile(audioPath as never, await audioBytes(audio), { mediaType })
   }
 
-  if (transcriptOptions) {
-    const extension = normalizeExtension(transcriptOptions.extension)
-    const defaultTranscriptPath = joinWorkspacePath(directory, `${input.stem}.${extension}`)
-    const transcriptPath = transcriptOptions.path ? await resolveWorkspaceValue(transcriptOptions.path, input) : defaultTranscriptPath
-    input = { ...input, transcriptPath }
+  if (transcriptOptions && transcriptPath) {
     const content = transcriptOptions.template ? await transcriptOptions.template(input) : `${transcript.trim()}\n`
+    const transcriptMediaTypeExtension = pathExtension(transcriptPath)
     const mediaType = transcriptOptions.mediaType
-      ? await resolveWorkspaceValue(transcriptOptions.mediaType, input)
-      : extension === "md" ? "text/markdown" : "text/plain"
+      ? await resolveArtifactValue(transcriptOptions.mediaType, input)
+      : transcriptMediaTypeExtension === "md" ? "text/markdown" : "text/plain"
     await context.workspace.fs.writeFile(transcriptPath as never, content, { mediaType })
   }
 
   return toTranscriptionResult(input)
 }
 
-function toTranscriptionResult(input: TranscribeWorkspaceTemplateInput): TranscriptionResult {
+function toTranscriptionResult(input: TranscribeArtifactTemplateInput): TranscriptionResult {
   return {
     ...(input.audioPath ? { audioPath: input.audioPath } : {}),
     createdAt: input.createdAt,
@@ -330,9 +361,9 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
           audioParts.map(part => runTranscription(resolved, part, context.input.get().abortSignal)),
         )
         const messageResults = await Promise.all(
-          audioParts.map((part, index) => writeWorkspaceTranscription(
+          audioParts.map((part, index) => writeTranscriptionArtifacts(
             context as AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>,
-            resolved.workspace,
+            resolved.artifacts,
             message,
             part,
             transcripts[index] || "",
@@ -349,6 +380,6 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
       appendTranscriptionResults(context.context, results)
     },
     instructions: typeof options === "function" ? false : options.instructions ?? false,
-    requires: typeof options === "function" ? undefined : options.workspace ? [{ primitive: "workspace", workspace: { mode: "write", required: true } }] : undefined,
+    requires: typeof options === "function" ? undefined : options.artifacts ? [{ primitive: "workspace", workspace: { mode: "write", required: true } }] : undefined,
   })
 }

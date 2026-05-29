@@ -8,7 +8,8 @@ import { toFetchRequest } from "../../nitro/handler.ts"
 
 import type { EventHandler, H3Event } from "h3"
 import type { UIMessage } from "ai"
-import type { AgentChatMessageTriggerInput, AgentInput, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext } from "../../index.ts"
+import type { AgentInput, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext } from "../../index.ts"
+import type { AgentChatMessageTriggerInput } from "../../chat-trigger.ts"
 import type { ChatDevtoolsConversation, ChatDevtoolsMetadata, ChatDevtoolsStateResult, ChatDevtoolsStreamEvent } from "../devtools.ts"
 
 type AgentLoader = () => Promise<AgentRegistryModule>

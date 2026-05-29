@@ -303,6 +303,7 @@ export interface WorkspaceLoaderSource extends WorkspaceSource {
 export interface LoaderContext {
   workspace: string
   rootDir: string
+  sourceRootDir?: string
   sources: WorkspaceLoaderSource[]
   store: WorkspaceStore
   parseData(input: { id: string, data: unknown, filePath?: string }): Promise<unknown>

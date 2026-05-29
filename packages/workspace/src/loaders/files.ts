@@ -18,10 +18,11 @@ export function files(options: FilesLoaderOptions = {}): WorkspaceLoader {
   return {
     name: "files",
     async load(ctx: LoaderContext) {
+      const sourceContext = { rootDir: ctx.rootDir, sourceRootDir: ctx.sourceRootDir, workspace: ctx.workspace }
       for (const source of ctx.sources) {
-        await source.prepare?.({ rootDir: ctx.rootDir, workspace: ctx.workspace })
-        for (const key of await source.getKeys({ rootDir: ctx.rootDir, workspace: ctx.workspace })) {
-          const rawItem = await source.getItem(key, { rootDir: ctx.rootDir, workspace: ctx.workspace })
+        await source.prepare?.(sourceContext)
+        for (const key of await source.getKeys(sourceContext)) {
+          const rawItem = await source.getItem(key, sourceContext)
           const rawPath = normalizeWorkspacePath(rawItem.path || rawItem.key)
           if (!shouldLoad(rawPath, options)) continue
 

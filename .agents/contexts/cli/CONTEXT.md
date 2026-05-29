@@ -30,8 +30,8 @@ The selected output contract for Agent Eval Runner results.
 _Avoid_: Logger mode, reporter implementation
 
 **Integration-Owned CLI Option**:
-A durable ViteHub CLI option configured through the package's existing Vite plugin or Nitro module.
-_Avoid_: ViteHub config file option, standalone CLI config
+A command-exposure or command-plumbing option configured through the package's existing Vite plugin or Nitro module.
+_Avoid_: domain behavior option, ViteHub config file option, standalone CLI config
 
 **CLI Command Namespace**:
 A package-owned ViteHub CLI command group that collects related CLI Features.
@@ -53,7 +53,7 @@ _Avoid_: CLI plugin, standalone command package
 
 - The **ViteHub CLI** may expose workflows owned by multiple ViteHub packages.
 - The **ViteHub CLI** prefers **Domain-Owned Commands** over top-level commands optimized only for frequency.
-- The **ViteHub CLI** should prefer **Integration-Owned CLI Options** over a repository-level ViteHub config file.
+- The **ViteHub CLI** should prefer package integration surfaces over a repository-level ViteHub config file.
 - A package can contribute one **CLI Command Namespace** to the **ViteHub CLI**.
 - A **CLI Command Namespace** can expose multiple **CLI Features**.
 - **CLI Primitives** are internal and define how **CLI Contributors** register command namespaces, features, options, output modes, and execution metadata.
@@ -66,7 +66,7 @@ _Avoid_: CLI plugin, standalone command package
 - The **Agent Eval Runner** runs all discovered Agent Evals when no **Agent Eval Target** is provided.
 - An **Agent Eval Target** identifies Agent Eval files by path filter.
 - **Agent Eval Output Mode** defaults to concise human output and can be changed to script-friendly structured output.
-- Durable Agent Eval Runner defaults should come from built-in defaults or **Integration-Owned CLI Options**.
+- Durable Agent Eval Runner defaults should come from built-in defaults or `agent.eval` on the Agent Package integration surface.
 
 ## Example dialogue
 
@@ -80,7 +80,7 @@ _Avoid_: CLI plugin, standalone command package
 > **Domain expert:** "No. Without an **Agent Eval Target**, the **Agent Eval Runner** runs all discovered Agent Evals."
 >
 > **Dev:** "Should we add `vitehub.config.ts` for eval defaults?"
-> **Domain expert:** "No. Prefer **Integration-Owned CLI Options** through the existing Vite plugin or Nitro module."
+> **Domain expert:** "No. Prefer the existing package integration surfaces. Agent Eval defaults belong under `agent.eval`; command exposure options can stay under CLI-specific config."
 >
 > **Dev:** "Is `agent` itself a CLI feature?"
 > **Domain expert:** "No. `agent` is a **CLI Command Namespace**; `eval` and future workflows like `doctor` are **CLI Features** inside it."
@@ -93,6 +93,6 @@ _Avoid_: CLI plugin, standalone command package
 - "CLI" was used to mean a standalone eval product - resolved: use **ViteHub CLI** for the durable command-line surface and **Agent Eval Runner** for the first responsibility inside it.
 - Top-level `vitehub eval` was considered for convenience - resolved: use `vitehub agent eval` as the canonical **Domain-Owned Command**.
 - Required eval arguments were considered for explicitness - resolved: use optional **Agent Eval Targets** so the zero-argument command runs discovered Agent Evals.
-- `vitehub.config.ts` was considered for CLI defaults - resolved: prefer **Integration-Owned CLI Options** through existing Vite plugin and Nitro module surfaces.
+- `vitehub.config.ts` was considered for CLI defaults - resolved: prefer existing Vite plugin and Nitro module surfaces, with durable Agent Eval defaults under `agent.eval` rather than `agent.cli.eval`.
 - Package-contributed CLI behavior was described as one command with many features - resolved: use **CLI Command Namespace** for the package-owned command group and **CLI Feature** for workflows inside it.
 - CLI registration was considered as public app API - resolved: use internal **CLI Primitives** and package-owned **CLI Contributors**.

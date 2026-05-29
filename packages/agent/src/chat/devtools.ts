@@ -98,7 +98,6 @@ export interface ChatDevtoolsAdapterOptions {
 
 export interface ChatDevToolsOptions {
   devtools?: false
-  route?: string
 }
 
 export type ChatDevToolsPlugin = Plugin & { nitro: NitroModule }
@@ -775,8 +774,6 @@ async function writeChatDevtoolsStream(
 }
 
 export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlugin {
-  const route = options.route || chatDevtoolsBridgeRoute
-
   const nitroModule: NitroModule = {
     name: "@vitehub/agent/chat/devtools",
     setup(nitro) {
@@ -790,8 +787,8 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
         `./runtime/chat-devtools-handler${handlerExtension}`,
         import.meta.url,
       ).pathname
-      if (!nitro.options.handlers.some(item => item.route === route && item.method === "POST")) {
-        nitro.options.handlers.push({ handler, method: "POST", route })
+      if (!nitro.options.handlers.some(item => item.route === chatDevtoolsBridgeRoute && item.method === "POST")) {
+        nitro.options.handlers.push({ handler, method: "POST", route: chatDevtoolsBridgeRoute })
       }
     },
   }
@@ -804,8 +801,6 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
 }
 
 export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToolsPanelPlugin {
-  const route = options.route || chatDevtoolsBridgeRoute
-
   return {
     name: chatDevtoolsPanelPluginName,
     devtools: {
@@ -819,7 +814,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         })
 
         registerViteHubDevtoolsFeature(ctx, {
-          bridge: route,
+          bridge: chatDevtoolsBridgeRoute,
           icon: "ph:chat-circle-duotone",
           id: chatDevtoolsFeatureId,
           packageName: "@vitehub/agent",
@@ -829,7 +824,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsGetStateRpc,
           type: "query",
-          setup: () => ({ handler: async () => await postChatDevtoolsBridge(ctx, route, { action: "get-state" }) }),
+          setup: () => ({ handler: async () => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "get-state" }) }),
         }) as never)
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsSendRpc,
@@ -837,10 +832,10 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
           setup: () => ({
             handler: async (input): Promise<ChatDevtoolsSendResult> => {
               if (!chatStream) {
-                return await postChatDevtoolsBridge(ctx, route, { action: "send", ...input })
+                return await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "send", ...input })
               }
               const stream = chatStream.start()
-              void writeChatDevtoolsStream(ctx, route, { action: "send", ...input }, stream)
+              void writeChatDevtoolsStream(ctx, chatDevtoolsBridgeRoute, { action: "send", ...input }, stream)
               return {
                 chats: [],
                 selected: input.chat || "",
@@ -852,7 +847,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsClearRpc,
           type: "action",
-          setup: () => ({ handler: async input => await postChatDevtoolsBridge(ctx, route, { action: "clear", ...input }) }),
+          setup: () => ({ handler: async input => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "clear", ...input }) }),
         }) as never)
       },
     },

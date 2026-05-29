@@ -563,6 +563,41 @@ describe("sources, loaders, and publishers", () => {
     expect(Buffer.from(bundles[0]!.files[0]!.content)).toEqual(Buffer.from("# Root\n"))
   })
 
+  it("uses discovered source roots while syncing file-backed build assets", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "support")
+    const sourceRoot = join(directory, "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(root, "AGENTS.md"), "# Root\n")
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
+    await writeFile(join(directory, "config.mjs"), [
+      "import { source } from '@vitehub/workspace'",
+      "export default {",
+      "  sources: { instructions: source.file('AGENTS.md') },",
+      "}",
+      "",
+    ].join("\n"))
+
+    const bundles = await syncDiscoveredWorkspaceAssetBundles([{
+      handler: join(directory, "config.mjs"),
+      name: "support",
+      path: join(directory, "config.mjs"),
+      source: "test",
+      sourceRootDir: sourceRoot,
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      assets: true,
+    })
+
+    expect(bundles).toHaveLength(1)
+    expect(bundles[0]).toMatchObject({
+      files: [expect.objectContaining({ path: "AGENTS.md" })],
+      name: "support",
+    })
+    expect(Buffer.from(bundles[0]!.files[0]!.content)).toEqual(Buffer.from("# Support\n"))
+  })
+
   it("purges stale build source files when source maps change", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["README.md", "stale.md"]

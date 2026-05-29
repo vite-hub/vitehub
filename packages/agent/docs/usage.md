@@ -215,7 +215,7 @@ export default defineAgent({
 
 ## Transcribe audio input
 
-Use `transcribe()` when an agent should receive audio message parts as text before the model or custom `run` handler executes. The capability appends transcript text to the same ViteHub message, so downstream code can keep reading text parts.
+Use `transcribe()` to attach the Official Transcription Capability when an agent should receive audio message parts as text before the model or custom `run` handler executes. The capability appends transcript text to the same ViteHub message, so downstream code can keep reading text parts.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vitehub/agent'
@@ -232,6 +232,60 @@ export default defineAgent({
 ```
 
 Pass an AI SDK transcription `model` to let ViteHub call `experimental_transcribe()` for each audio part. Use `execute` for deterministic demos, tests, or provider-specific transcription.
+
+Use `getTranscriptionResults()` inside a custom `run` handler when you need the structured records produced by the capability. It reads ViteHub invocation results; it does not poll or fetch provider transcription jobs.
+
+```ts [server/agents/support.ts]
+import { defineAgent, getMessageText } from '@vitehub/agent'
+import { getTranscriptionResults, transcribe } from '@vitehub/agent/capabilities'
+
+export default defineAgent({
+  capabilities: [
+    transcribe({
+      execute: async () => 'Transcribed demo audio.',
+    }),
+  ],
+  run(context) {
+    const latest = context.messages.at(-1)
+    const transcriptions = getTranscriptionResults(context)
+
+    return {
+      raw: { transcriptions },
+      text: latest ? getMessageText(latest) : '',
+    }
+  },
+})
+```
+
+Pass `artifacts` when transcriptions should be persisted to the agent's writable Workspace. Without `artifacts`, no Workspace write is required. `artifacts.transcript.path` is the transcript Workspace path. By default, the original audio is written beside the transcript with the same stem; pass `audio: false` to write only the transcript, or `audio.path` to place the audio artifact explicitly.
+
+```ts [server/agents/audio/config.ts]
+export default defineAgent({
+  capabilities: [
+    transcribe({
+      execute: async () => 'Transcribed demo audio.',
+      artifacts: {
+        audio: {
+          path: ({ audioExtension, date, stem }) => `audio/${date}/${stem}.${audioExtension}`,
+        },
+        transcript: {
+          path: ({ date, stem }) => `inbox/${date}/${stem}.md`,
+          template: ({ audioPath, createdAt, transcript }) => [
+            '---',
+            `created_at: ${createdAt}`,
+            `audio: ${audioPath ?? ''}`,
+            '---',
+            '',
+            transcript.trim(),
+            '',
+          ].join('\n'),
+        },
+      },
+    }),
+  ],
+  workspace: { mode: 'write' },
+})
+```
 
 ## Customize a run
 

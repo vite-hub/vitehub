@@ -74,7 +74,7 @@ another opt-in line in the Agent file.
 - `sandbox()` runs approved commands in isolation.
 - `schedule()` declares cron work or schedule tools.
 - `inputCommands()` expands slash commands.
-- `transcribe()` converts audio to text.
+- `transcribe()` attaches audio-to-text input handling.
 - `memory()` persists scoped Agent memory.
 - `kv()` reads or writes KV keys.
 - `blob()` reads or writes Blob objects.

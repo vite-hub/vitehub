@@ -317,7 +317,7 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
   if (hasWorkspace) return
   for (const capability of capabilities) {
-    if (capability.id === "workspace-shell" || capability.id === "sandbox") {
+    if (capability.id === "workspace-shell" || capability.id === "sandbox" || capability.id === "access") {
       const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
       throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }
@@ -1130,6 +1130,7 @@ async function createAgentInvocationContext<
   const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never, workspaceMode, {
     context: invocationContext,
     model: agentModel as never,
+    workspaceDefinition: resolvedWorkspaceDefinition,
   })
   const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
   const tools = Object.keys(transformedTools || {}).length
@@ -1154,7 +1155,7 @@ async function createAgentInvocationContext<
     runtimeContext: resolvedContext,
     startedAt,
     tools,
-    workspace,
+    workspace: capabilities.workspace || workspace,
     workspaceDefinition: resolvedWorkspaceDefinition,
     workspaceMode,
   }

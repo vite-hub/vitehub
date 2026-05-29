@@ -60,6 +60,14 @@ _Avoid_: Public registration function, local Teams route, manual webhook route
 A Capability that gives an Agent model-facing access to Workspace files.
 _Avoid_: Bash, raw workspace tools, built-in tool
 
+**Access Capability**:
+A Capability created by `access()` that resolves trusted invocation access and applies allow-only access boundaries to configured runtime surfaces, starting with Workspace Scope.
+_Avoid_: Organization Capability, Workspace Definition mutator, dynamic Source, dynamic Capability
+
+**Access Role**:
+A named bundle of permissions and scope-selection authority used by the Access Capability.
+_Avoid_: Workspace Rule, Capability mode, model role
+
 **Web Search Capability**:
 A Capability that gives an Agent model-facing access to web search results and normalized URL content.
 _Avoid_: askweb capability, web plugin, search integration
@@ -104,6 +112,18 @@ _Avoid_: Vite env var, Nitro env var, browser env
 An Official Capability that turns audio input parts into transcript text before an Agent runs.
 _Avoid_: Voice Input, audio support, voice plugin
 
+**Transcription Artifacts**:
+Transcription Capability artifact persistence into the Agent's writable Workspace, configured through `transcribe({ artifacts })`.
+_Avoid_: Capability Workspace, provider response format, output hook
+
+**Transcript Workspace Path**:
+The Workspace path of the transcript artifact configured by `artifacts.transcript.path`.
+_Avoid_: Output directory, extension, local filesystem path
+
+**Audio Artifact**:
+The optional persisted source-audio artifact for Transcription Artifacts, either derived beside the Transcript Workspace Path or explicitly configured through `artifacts.audio.path`.
+_Avoid_: Second transcript path, provider audio output
+
 **Workspace Shell Capability**:
 A Workspace Capability that exposes shell-shaped Workspace inspection and optional structured Workspace mutation tools.
 _Avoid_: Bash, sandbox, raw workspace tools
@@ -139,7 +159,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
+- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
 - Official Capability factories and Capability-owned helper functions are imported from `@vitehub/agent/capabilities`, not from the root `@vitehub/agent` Agent Package entry.
 - Official helpers should map to product abilities rather than implementation mechanisms.
 - A **Capability Definition** may provide a **Capability Trigger Contribution** when the ability needs to start Agent Invocations from a product event.
@@ -158,11 +178,25 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
+- A **Chat Capability** can contribute trusted chat actor identity into Agent Invocation Context Values before later Capabilities resolve.
 - **Chat Platform Adapters** are platform integration adapters, not **Agent Model Adapters**.
 - **Chat Webhook Autowiring** is inferred from the Agent's attached **Chat Capability**; users do not attach a second Capability or call a webhook registration helper.
 - **Chat Webhook Autowiring** resolves the **Chat Adapter Callback** at request time so callbacks can read Server Env and other request-local server state.
 - **Transcription** is an input-phase Official Capability.
+- **Transcription Artifacts** consume an already-declared writable Workspace; they do not define, mutate, or replace the Agent's Workspace.
+- A **Transcript Workspace Path** is the canonical destination for persisted transcript artifacts; directory, stem, and extension are derived from that path instead of configured as separate public fields.
+- An **Audio Artifact** is disabled or relocated through `artifacts.audio`; when enabled without an explicit path, it is derived from the **Transcript Workspace Path**.
+- Provider transcription response format and **Transcription Artifacts** media type are separate concerns.
 - A **Workspace Capability** contributes Workspace tools without implying unrestricted process execution.
+- An **Access Capability** applies invocation-time access rules without mutating Workspace Definitions or granting new Capabilities dynamically.
+- The `access()` helper creates an **Access Capability**.
+- In the first version, an **Access Capability** applies **Workspace Scope** only.
+- An **Access Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
+- An **Access Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
+- An **Access Capability** must be ordered before other Workspace-reading Capabilities so Workspace Scope is applied before they resolve tools or requirements.
+- An **Access Capability** provides tiny default **Access Roles** for the first version.
+- The default `viewer` **Access Role** can read granted Source keys and path prefixes through Workspace Scope Grants.
+- The default `admin` **Access Role** can select the explicit all-scopes mode when the developer configured that mode.
 - A **Workspace Shell Capability** contributes shell-shaped Workspace tools without implying Sandbox execution.
 - An **MCP Capability** consumes one or more external **MCP Servers**.
 - A **Web Search Capability** hides its underlying search library from users and model-facing labels.
@@ -244,7 +278,13 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
+- Workspace Scope was considered as Workspace Definition mutation by a Capability - resolved: use an **Access Capability** to narrow an already-declared Workspace at invocation time instead of changing Sources or Workspace Rules.
+- `workspaceScope()` was considered as the public helper name - resolved: use `access()` for the Capability while preserving **Workspace Scope** for the Workspace-specific boundary.
+- `organization()` was considered as the public helper name - resolved: reject it because access decisions may come from organizations, customer domains, local config, or other trusted invocation context.
 - "audio input", "voice input", and "voice transcription" were considered as names for spoken user messages - resolved: use **Transcription** for the capability.
+- `transcribe({ workspace })` was considered for persisted transcript and audio artifacts - resolved: use **Transcription Artifacts** so the option does not masquerade as a Workspace Definition.
+- Separate Transcription Artifacts `directory`, `stem`, and `extension` fields were considered - resolved: use a **Transcript Workspace Path** as the canonical destination and derive path parts internally.
+- Compact `output.path` was considered for Transcription Artifacts - resolved: reject it because source audio is a first-class artifact and should be configured as a peer to `artifacts.transcript`.
 - `bash()` was considered as the public helper for Workspace file access - resolved: use `workspaceShell()` for the **Workspace Shell Capability** because the shell is scoped to Workspace files.
 - MCP server language was considered ambiguous between hosting an MCP server and consuming one - resolved: in the **MCP Capability**, an **MCP Server** is external and consumed by an Agent.
 - Capability-level name and description were considered separate display metadata - resolved: remove both as a breaking change and use **Capability** id as the only capability-level identity/display field.
