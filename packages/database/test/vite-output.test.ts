@@ -163,7 +163,7 @@ describe("Vite db provider outputs", () => {
     expect(vercelServerCode).not.toContain("libsql://database.example.turso.io")
   }, 30_000)
 
-  it("fails hosted output when a named database has no remote fallback URL", async () => {
+  it("skips Vercel output when a named database has no remote fallback URL", async () => {
     const rootDir = await createDbBuildProject("vitehub-db-vite-vercel-invalid-")
     await writeDatabaseDefinition(rootDir, "analytics", {
       cloudflare: [
@@ -173,21 +173,22 @@ describe("Vite db provider outputs", () => {
       ].join("\n"),
     })
 
-    let error: Error | undefined
-    try {
-      await runDbBuild(rootDir, {
-        TURSO_AUTH_TOKEN: "token",
-        TURSO_DATABASE_URL: "libsql://database.example.turso.io",
-        VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
-        VITEHUB_D1_DATABASE_ID: "primary-d1-id",
-      })
-    }
-    catch (caught) {
-      error = caught as Error
-    }
+    await runDbBuild(rootDir, {
+      TURSO_AUTH_TOKEN: "token",
+      TURSO_DATABASE_URL: "libsql://database.example.turso.io",
+      VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+      VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+    })
 
-    expect(error).toBeTruthy()
-    expect(errorText(error)).toContain("Vercel output requires a remote libSQL `db.connection.url` for databases: analytics")
+    const cloudflareConfig = await readCloudflareConfig(rootDir)
+    expect(cloudflareConfig.d1_databases).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        binding: "DB_ANALYTICS",
+        database_id: "analytics-d1-id",
+        database_name: "vitehub-playground-analytics",
+      }),
+    ]))
+    expect(existsSync(join(rootDir, ".vercel", "output"))).toBe(false)
   }, 30_000)
 
   it("fails Cloudflare output when a D1 database ID is missing a database name", async () => {

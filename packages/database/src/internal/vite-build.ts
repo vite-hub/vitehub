@@ -263,6 +263,10 @@ function createVercelOutput({ artifacts, runtimeConfig }: ProviderWriteOptions):
   }
 }
 
+function shouldCreateVercelOutput(runtimeConfig: ResolvedDBViteConfig) {
+  return getVercelUnsupportedDatabases(runtimeConfig).length === 0
+}
+
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedDBArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig)
   const writeOptions: ProviderWriteOptions = { artifacts, ...options }
@@ -270,7 +274,7 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflareOutput(writeOptions),
     rootDir: options.rootDir,
-    vercel: createVercelOutput(writeOptions),
+    vercel: shouldCreateVercelOutput(options.runtimeConfig) ? createVercelOutput(writeOptions) : undefined,
   })
   return artifacts
 }
