@@ -1,4 +1,5 @@
 import type { Message, StreamEvent } from "./messages.ts"
+import type { Adapter } from "chat"
 import type {
   MaybePromise,
   MaybeResolvable,
@@ -553,8 +554,14 @@ export interface AgentChatEventHooks<TRuntimeConfig extends AgentRuntimeConfig =
   onDirectMessage?: (args: { message: { text: string } } & AgentChatEventHookArgs<TRuntimeConfig>) => MaybePromise<void>
 }
 
+export type AgentChatAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<Adapter, AgentCallbackContext<TRuntimeConfig>>
+
+export type AgentChatAdaptersResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<Record<string, AgentChatAdapterResolver<TRuntimeConfig>>, AgentCallbackContext<TRuntimeConfig>>
+
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  adapters?: MaybeResolvable<Record<string, unknown>, AgentCallbackContext<TRuntimeConfig>>
+  adapters?: AgentChatAdaptersResolver<TRuntimeConfig>
   agent?: never
   event?: AgentChatAgentBindingOptions["event"]
   execution?: never

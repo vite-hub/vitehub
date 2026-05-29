@@ -4,6 +4,7 @@ import { createMessage } from "./messages.ts"
 import type {
   AgentCapabilityDefinition,
   AgentChatAgentHookArgs,
+  AgentChatAdapterResolver,
   AgentChatOptions,
   AgentChatSessionOptions,
   AgentChatWebhookRegistrationDefinition,
@@ -20,6 +21,16 @@ type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
   chat: AgentChatOptions<TRuntimeConfig>
   kind: "chat"
 }
+
+const CHAT_WEBHOOK_DEFAULTS = {
+  telegram: {
+    method: "POST",
+    provider: "telegram",
+    secretHeader: "x-telegram-bot-api-secret-token",
+  },
+} satisfies Record<string, Partial<AgentWebhookRegistrationDefinition> & { provider: string }>
+
+type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
 
 export type UIMessageLike = {
   createdAt?: Date | string
@@ -252,17 +263,53 @@ async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeCo
   return "Thinking..."
 }
 
-function chatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
-  const telegram = options.webhooks?.telegram
-  if (!telegram) return undefined
-  const registrations = Array.isArray(telegram) ? telegram : [telegram]
-  return registrations.map((registration: AgentChatWebhookRegistrationDefinition, index) => ({
+function isResolvableObject(value: unknown): value is { resolve: (...args: never[]) => unknown } {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as { resolve?: unknown }).resolve === "function"
+}
+
+function isStaticAdapterMap(value: AgentChatOptions["adapters"]): value is Record<string, AgentChatAdapterResolver> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && !isResolvableObject(value)
+}
+
+function isKnownChatWebhookPlatform(platform: string): platform is KnownChatWebhookPlatform {
+  return platform in CHAT_WEBHOOK_DEFAULTS
+}
+
+function hasExplicitChatWebhook(options: AgentChatOptions, platform: string): boolean {
+  return !!options.webhooks && Object.prototype.hasOwnProperty.call(options.webhooks, platform)
+}
+
+function normalizeChatWebhookRegistrations(
+  platform: KnownChatWebhookPlatform,
+  input: AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[],
+): AgentWebhookRegistrationDefinition[] {
+  const defaults = CHAT_WEBHOOK_DEFAULTS[platform]
+  const registrations = Array.isArray(input) ? input : [input]
+  return registrations.map((registration, index) => ({
     ...registration,
-    id: registration.id || (registrations.length > 1 ? `telegram-${index + 1}` : "telegram"),
-    method: registration.method || "POST",
-    provider: registration.provider || "telegram",
-    secretHeader: registration.secretHeader || "x-telegram-bot-api-secret-token",
+    id: registration.id || (registrations.length > 1 ? `${platform}-${index + 1}` : platform),
+    method: registration.method || defaults.method || "POST",
+    provider: registration.provider || defaults.provider,
+    secretHeader: registration.secretHeader || defaults.secretHeader,
   }))
+}
+
+function inferredChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] {
+  if (!isStaticAdapterMap(options.adapters)) return []
+  return Object.keys(options.adapters)
+    .filter(isKnownChatWebhookPlatform)
+    .filter(platform => !hasExplicitChatWebhook(options, platform))
+    .flatMap(platform => normalizeChatWebhookRegistrations(platform, {}))
+}
+
+function chatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
+  const explicit = options.webhooks?.telegram
+    ? normalizeChatWebhookRegistrations("telegram", options.webhooks.telegram)
+    : []
+  const registrations = [...explicit, ...inferredChatWebhookRegistrations(options)]
+  return registrations.length ? registrations : undefined
 }
 
 function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(

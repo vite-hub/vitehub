@@ -174,7 +174,7 @@ describe("agent Nitro chat webhooks", () => {
     ]))
   })
 
-  it("resolves inline chat adapters at request time and dispatches to chat.message", async () => {
+  it("resolves inline chat adapter maps at request time and dispatches to chat.message", async () => {
     const { chat, defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
@@ -184,7 +184,9 @@ describe("agent Nitro chat webhooks", () => {
     const handler = defineAgentChatWebhookRegistryHandler({
       support: async () => defineAgent({
         capabilities: [chat({
-          adapters: () => ({ teams: adapter }),
+          adapters: {
+            teams: () => adapter,
+          },
           fallbackStreamingPlaceholderText: "Working...",
           hooks: { onDirectMessage },
           state: () => createMemoryState(),
