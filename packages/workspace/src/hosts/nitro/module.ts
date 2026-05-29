@@ -219,9 +219,9 @@ export function workspaceNitro(options?: false | WorkspaceModuleOptions): Worksp
       nitro.options.alias[dependency] = resolveIsomorphicGitDependency(dependency)
     }
     for (const dependency of ["sprintf-js", "turndown"]) {
-      nitro.options.alias[dependency] = resolveShellTransitiveDependency("sh-syntax", dependency)
+      nitro.options.alias[dependency] = resolveShellTransitiveDependency("just-bash", dependency)
     }
-    nitro.options.alias["@mixmark-io/domino"] = resolveShellTransitiveDependency("sh-syntax", "@mixmark-io/domino")
+    nitro.options.alias["@mixmark-io/domino"] = resolveShellTransitiveDependency("turndown", "@mixmark-io/domino")
 
     let definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
     const registryFile = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)

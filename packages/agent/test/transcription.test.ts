@@ -148,6 +148,28 @@ describe("agent transcription", () => {
     })
   })
 
+  it("validates lazy transcription artifact workspace before transcribing", async () => {
+    const execute = vi.fn(async () => "lazy transcript")
+    const agent = defineAgent({
+      capabilities: [
+        transcribe(() => ({ artifacts: { transcript: {} }, execute })),
+      ],
+      run() {
+        return { text: "done" }
+      },
+    })
+
+    await expect(runAgent(agent, runtime(), {
+      messages: [
+        createMessage({
+          parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
+          role: "user",
+        }),
+      ],
+    })).rejects.toThrow("transcribe({ artifacts }) requires workspace.mode")
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it("separates appended transcripts from existing text", async () => {
     const agent = defineAgent({
       capabilities: [

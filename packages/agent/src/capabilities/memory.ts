@@ -380,7 +380,7 @@ function filterMemoryRecords(records: MemoryRecord[], request: Omit<MemorySearch
 }
 
 export function workspaceJsonlMemoryStore(options: WorkspaceJsonlMemoryStoreOptions = {}): MemoryStoreFactory {
-  const path = options.path || ".vitehub/memory.jsonl"
+  const path = options.path || "memory/memory.jsonl"
   return {
     kind: "workspace-jsonl",
     create(context) {

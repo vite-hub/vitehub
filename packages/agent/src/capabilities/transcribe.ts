@@ -343,6 +343,12 @@ function appendTranscriptionResults(store: AgentInvocationContextStore, results:
   store.set(TRANSCRIPTION_RESULTS_CONTEXT_KEY, [...existing, ...results])
 }
 
+function validateTranscriptionArtifactsWorkspace(context: AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>, artifacts: TranscribeArtifactsOptions | undefined) {
+  if (artifacts && !isWritableWorkspace(context.workspace)) {
+    throw new Error("[vitehub] transcribe({ artifacts }) requires workspace.mode: \"write\".")
+  }
+}
+
 export function getTranscriptionResults(context: AgentInvocationContextStore | { context: AgentInvocationContextStore } | undefined): TranscriptionResult[] {
   const store = context && "context" in context ? context.context : context
   return store?.get<TranscriptionResult[]>(TRANSCRIPTION_RESULTS_CONTEXT_KEY) || []
@@ -369,6 +375,7 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
         }
 
         const resolved = await getResolvedOptions()
+        validateTranscriptionArtifactsWorkspace(context as AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>, resolved.artifacts)
         const transcripts = await Promise.all(
           audioParts.map(part => runTranscription(resolved, part, context.input.get().abortSignal)),
         )

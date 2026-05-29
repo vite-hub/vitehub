@@ -395,7 +395,7 @@ describe("agent memory capability", () => {
       store: "agent",
     })
 
-    expect(files.has(".vitehub/memory.jsonl")).toBe(true)
+    expect(files.has("memory/memory.jsonl")).toBe(true)
   })
 
   it("does not add thread scope unless configured", async () => {

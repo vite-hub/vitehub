@@ -140,15 +140,25 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       body: JSON.stringify({ content: Buffer.from(contentToBytes(file.content)).toString("base64"), encoding: "base64" }),
       method: "POST",
     })))
+    const nextPaths = new Set(files.map(file => file.path))
+    const deletedEntries = Object.keys(this.#baseline?.entries || {})
+      .filter(path => !nextPaths.has(path))
+      .map(path => ({
+        path: joinGitPath(root, path),
+        sha: null,
+      }))
     const tree = await this.#github<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, {
       body: JSON.stringify({
         base_tree: current.tree.sha,
-        tree: files.map((file, index) => ({
-          mode: "100644",
-          path: joinGitPath(root, file.path),
-          sha: blobs[index]!.sha,
-          type: "blob",
-        })),
+        tree: [
+          ...files.map((file, index) => ({
+            mode: "100644",
+            path: joinGitPath(root, file.path),
+            sha: blobs[index]!.sha,
+            type: "blob",
+          })),
+          ...deletedEntries,
+        ],
       }),
       method: "POST",
     })
@@ -173,7 +183,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       url: `https://github.com/${owner}/${repo}/commit/${commit.sha}`,
     }
     this.#baseline = committed
-    this.#files.clear()
     return committed
   }
 

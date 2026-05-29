@@ -615,13 +615,19 @@ async function collectStreamText(stream: AsyncIterable<unknown>): Promise<string
   return text
 }
 
+function resultText(result: unknown): unknown {
+  return result && typeof result === "object" && typeof (result as { text?: unknown }).text === "string"
+    ? (result as { text: string }).text
+    : result
+}
+
 async function postAgentResult(thread: Thread, result: unknown, placeholder?: SentMessage): Promise<void> {
   if (placeholder) {
     const final = isAsyncIterable(result)
       ? await collectStreamText(result)
       : result instanceof Response
         ? await result.clone().text()
-        : result
+        : resultText(result)
     await placeholder.edit((final || " ") as never)
     return
   }
@@ -634,7 +640,7 @@ async function postAgentResult(thread: Thread, result: unknown, placeholder?: Se
     await thread.post(await result.clone().text())
     return
   }
-  await thread.post(result as never)
+  await thread.post(resultText(result) as never)
 }
 
 async function handleChatMessage(
