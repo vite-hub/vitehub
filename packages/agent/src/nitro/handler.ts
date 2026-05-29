@@ -9,7 +9,7 @@ import { formatUnknownAgentMessage } from "../registry-error.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { getAgentRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 
-import type { Adapter, Attachment, ChatConfig, Channel, Message as ChatMessage, SentMessage, StateAdapter, Thread } from "chat"
+import type { Adapter, Attachment, ChatConfig, Channel, Lock, Message as ChatMessage, QueueEntry, SentMessage, StateAdapter, Thread } from "chat"
 import type { EventHandler, H3Event } from "h3"
 import type { NitroRuntimeConfig } from "nitro/types"
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
@@ -41,6 +41,8 @@ type AgentRegistry = Record<string, () => Promise<AgentRegistryModule>>
 type WorkspaceAgentOptions = { capabilities?: AgentCapabilityDefinition[] }
 type WorkspaceAgentDefinition = { __vitehubWorkspaceAgentOptions?: WorkspaceAgentOptions }
 type ChatConfigRecord = Omit<ChatConfig<Record<string, Adapter>>, "adapters" | "fallbackStreamingPlaceholderText" | "state" | "userName">
+type MemoryValue = { expiresAt?: number, value: unknown }
+type MemoryList = { expiresAt?: number, values: unknown[] }
 
 type RequestInitWithDuplex = RequestInit & { duplex?: "half" }
 type RequestHeaders = NonNullable<RequestInit["headers"]>
@@ -57,6 +59,118 @@ export interface AgentChatWebhookRegistryHandlerOptions {
   agentParam?: string
   platform?: string
   platformParam?: string
+}
+
+const defaultChatStates = new WeakMap<AgentChatOptions, StateAdapter>()
+
+function memoryExpiresAt(ttlMs: number | undefined): number | undefined {
+  return typeof ttlMs === "number" && ttlMs > 0 ? Date.now() + ttlMs : undefined
+}
+
+function isExpired(value: { expiresAt?: number } | undefined): boolean {
+  return typeof value?.expiresAt === "number" && value.expiresAt <= Date.now()
+}
+
+function createMemoryChatState(): StateAdapter {
+  const values = new Map<string, MemoryValue>()
+  const lists = new Map<string, MemoryList>()
+  const subscriptions = new Set<string>()
+  const queues = new Map<string, QueueEntry[]>()
+  const locks = new Map<string, Lock>()
+
+  return {
+    async acquireLock(threadId, ttlMs) {
+      const current = locks.get(threadId)
+      if (current && current.expiresAt > Date.now()) return null
+      const lock = { expiresAt: Date.now() + ttlMs, threadId, token: `${Date.now()}-${Math.random().toString(36).slice(2)}` }
+      locks.set(threadId, lock)
+      return lock
+    },
+    async appendToList(key, value, options) {
+      const current = lists.get(key)
+      const nextValues = isExpired(current) ? [value] : [...(current?.values || []), value]
+      lists.set(key, {
+        expiresAt: memoryExpiresAt(options?.ttlMs),
+        values: typeof options?.maxLength === "number" ? nextValues.slice(-options.maxLength) : nextValues,
+      })
+    },
+    async connect() {},
+    async delete(key) {
+      values.delete(key)
+      lists.delete(key)
+    },
+    async dequeue(threadId) {
+      const queue = queues.get(threadId) || []
+      const entry = queue.shift() || null
+      if (queue.length) queues.set(threadId, queue)
+      else queues.delete(threadId)
+      return entry
+    },
+    async disconnect() {},
+    async enqueue(threadId, entry, maxSize) {
+      const queue = queues.get(threadId) || []
+      queue.push(entry)
+      queues.set(threadId, queue.slice(-maxSize))
+      return queues.get(threadId)!.length
+    },
+    async extendLock(lock, ttlMs) {
+      const current = locks.get(lock.threadId)
+      if (current?.token !== lock.token) return false
+      current.expiresAt = Date.now() + ttlMs
+      return true
+    },
+    async forceReleaseLock(threadId) {
+      locks.delete(threadId)
+    },
+    async get(key) {
+      const entry = values.get(key)
+      if (isExpired(entry)) {
+        values.delete(key)
+        return null
+      }
+      return entry?.value as never || null
+    },
+    async getList(key) {
+      const entry = lists.get(key)
+      if (isExpired(entry)) {
+        lists.delete(key)
+        return []
+      }
+      return entry?.values as never || []
+    },
+    async isSubscribed(threadId) {
+      return subscriptions.has(threadId)
+    },
+    async queueDepth(threadId) {
+      return queues.get(threadId)?.length || 0
+    },
+    async releaseLock(lock) {
+      if (locks.get(lock.threadId)?.token === lock.token) locks.delete(lock.threadId)
+    },
+    async set(key, value, ttlMs) {
+      values.set(key, { expiresAt: memoryExpiresAt(ttlMs), value })
+    },
+    async setIfNotExists(key, value, ttlMs) {
+      const current = values.get(key)
+      if (current && !isExpired(current)) return false
+      values.set(key, { expiresAt: memoryExpiresAt(ttlMs), value })
+      return true
+    },
+    async subscribe(threadId) {
+      subscriptions.add(threadId)
+    },
+    async unsubscribe(threadId) {
+      subscriptions.delete(threadId)
+    },
+  }
+}
+
+function getDefaultChatState(options: AgentChatOptions): StateAdapter {
+  const current = defaultChatStates.get(options)
+  if (current) return current
+  const state = createMemoryChatState()
+  defaultChatStates.set(options, state)
+  return state
 }
 
 function normalizeHeaders(headers: RequestLike["headers"]): RequestHeaders | undefined {
@@ -272,10 +386,10 @@ async function resolveChatAdapters(options: AgentChatOptions, context: NitroAgen
 }
 
 async function resolveChatState(options: AgentChatOptions, context: NitroAgentRuntimeContext): Promise<StateAdapter> {
-  if (!options.state) {
-    throw new Error("[vitehub] chat() webhook handling requires chat({ state }).")
+  if (options.state) {
+    return await resolveValue<StateAdapter>(options.state, context)
   }
-  return await resolveValue<StateAdapter>(options.state, context)
+  return getDefaultChatState(options)
 }
 
 function createChatSdkOptions(options: AgentChatOptions, adapters: Record<string, Adapter>, state: StateAdapter, agentName: string): ChatConfig<Record<string, Adapter>> {

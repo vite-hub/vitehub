@@ -227,6 +227,51 @@ describe("agent Nitro chat webhooks", () => {
     expect(output.edits).toEqual(["agent answer"])
   })
 
+  it("uses process-local chat state when state is not configured", async () => {
+    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    const seen: string[] = []
+    const adapter = createWebhookAdapter(output)
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({
+          adapters: {
+            teams: () => adapter,
+          },
+          history: "none",
+        })],
+        run(context) {
+          seen.push(context.messages.map(message => message.parts
+            .filter((part): part is { text: string, type: "text" } => part.type === "text")
+            .map(part => part.text)
+            .join("")).join("\n"))
+          return "agent answer"
+        },
+      }),
+    })
+
+    const response = await handler({
+      context: {
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      req: new Request("https://example.test/api/agents/support/chat/teams", {
+        body: JSON.stringify({ text: "hello from Teams" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("ok")
+    expect(seen).toEqual(["hello from Teams"])
+    expect(output.edits).toEqual(["agent answer"])
+  })
+
   it("passes configured thread history size as the adapter fetch limit", async () => {
     const { chat, defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
