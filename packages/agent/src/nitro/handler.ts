@@ -62,6 +62,7 @@ export interface AgentChatWebhookRegistryHandlerOptions {
 }
 
 const defaultChatStates = new WeakMap<AgentChatOptions, StateAdapter>()
+const configuredChatStates = new WeakMap<AgentChatOptions, StateAdapter>()
 
 function memoryExpiresAt(ttlMs: number | undefined): number | undefined {
   return typeof ttlMs === "number" && ttlMs > 0 ? Date.now() + ttlMs : undefined
@@ -387,7 +388,11 @@ async function resolveChatAdapters(options: AgentChatOptions, context: NitroAgen
 
 async function resolveChatState(options: AgentChatOptions, context: NitroAgentRuntimeContext): Promise<StateAdapter> {
   if (options.state) {
-    return await resolveValue<StateAdapter>(options.state, context)
+    const existing = configuredChatStates.get(options)
+    if (existing) return existing
+    const state = await resolveValue<StateAdapter>(options.state, context)
+    configuredChatStates.set(options, state)
+    return state
   }
   return getDefaultChatState(options)
 }

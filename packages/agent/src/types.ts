@@ -1,5 +1,5 @@
 import type { Message, StreamEvent } from "./messages.ts"
-import type { Adapter } from "chat"
+import type { Adapter, StateAdapter } from "chat"
 import type {
   MaybePromise,
   MaybeResolvable,
@@ -560,6 +560,9 @@ export type AgentChatAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig =
 export type AgentChatAdaptersResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<Record<string, AgentChatAdapterResolver<TRuntimeConfig>>, AgentCallbackContext<TRuntimeConfig>>
 
+export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<StateAdapter, AgentCallbackContext<TRuntimeConfig>>
+
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapters?: AgentChatAdaptersResolver<TRuntimeConfig>
   agent?: never
@@ -570,7 +573,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   hooks?: AgentChatEventHooks<TRuntimeConfig>
   lifecycleHooks?: Record<string, unknown>
   sessions?: boolean | AgentChatSessionOptions
-  state?: MaybeResolvable<unknown, AgentRuntimeContext<TRuntimeConfig>>
+  state?: AgentChatStateResolver<TRuntimeConfig>
   webhooks?: {
     telegram?: AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[]
   } & Record<string, unknown>
