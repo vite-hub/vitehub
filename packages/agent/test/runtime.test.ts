@@ -1613,8 +1613,8 @@ describe("agent message protocol", () => {
       generate: vi.fn(),
       stream: vi.fn(async () => ({
         fullStream: (async function* () {
-          yield { args: { fallback: true }, input: false, toolCallId: "call-1", toolName: "confirm", type: "tool-call" }
-          yield { output: 0, result: 42, toolCallId: "call-1", toolName: "confirm", type: "tool-result" }
+          yield { input: false, toolCallId: "call-1", toolName: "confirm", type: "tool-input-available" }
+          yield { output: 0, toolCallId: "call-1", type: "tool-output-available" }
         })(),
       })),
       tools: {},
@@ -1632,6 +1632,34 @@ describe("agent message protocol", () => {
     expect(events).toEqual([
       { id: "call-1", input: false, name: "confirm", type: "tool-call" },
       { error: undefined, id: "call-1", name: "confirm", output: 0, type: "tool-result" },
+    ])
+  })
+
+  it("maps streamed AI SDK tool output errors to tool result errors", async () => {
+    const { streamAgent } = await import("../src/index.ts")
+    const agent = {
+      generate: vi.fn(),
+      stream: vi.fn(async () => ({
+        fullStream: (async function* () {
+          yield { input: { query: "stock" }, toolCallId: "call-1", toolName: "search", type: "tool-input-available" }
+          yield { errorText: "lookup failed", toolCallId: "call-1", type: "tool-output-error" }
+        })(),
+      })),
+      tools: {},
+      version: "agent-v1",
+    }
+
+    const stream = await streamAgent(agent as never, {} as never, {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    })
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { id: "call-1", input: { query: "stock" }, name: "search", type: "tool-call" },
+      { error: "lookup failed", id: "call-1", name: "search", output: undefined, type: "tool-result" },
     ])
   })
 

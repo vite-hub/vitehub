@@ -983,7 +983,7 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
     && !(syntheticWorkspaceRun in agent.run)
 }
 
-function toStreamEvent(chunk: unknown): StreamEvent | undefined {
+function toStreamEvent(chunk: unknown, toolNames?: Map<string, string>): StreamEvent | undefined {
   if (typeof chunk === "string") {
     return { text: chunk, type: "text-delta" }
   }
@@ -1000,13 +1000,29 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
     return { data: value.data, id: value.id as string | undefined, messageId: value.messageId as string | undefined, type: "data" }
   }
   if (type === "tool-input-start") {
-    return { id: String(value.id || value.toolCallId), input: value.input, name: String(value.toolName || value.name), type: "tool-input-start" }
+    const id = String(value.id || value.toolCallId)
+    const name = String(value.toolName || value.name || toolNames?.get(id) || "tool")
+    toolNames?.set(id, name)
+    return { id, input: value.input, name, type: "tool-input-start" }
   }
-  if (type === "tool-call") {
-    return { id: String(value.toolCallId ?? value.id), input: value.input ?? value.args, name: String(value.toolName ?? value.name), type: "tool-call" }
+  if (type === "tool-call" || type === "tool-input-available") {
+    const id = String(value.toolCallId ?? value.id)
+    const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
+    toolNames?.set(id, name)
+    return { id, input: value.input ?? value.args, name, type: "tool-call" }
   }
-  if (type === "tool-result") {
-    return { error: typeof value.error === "string" ? value.error : undefined, id: String(value.toolCallId ?? value.id), name: String(value.toolName ?? value.name), output: value.output ?? value.result, type: "tool-result" }
+  if (type === "tool-result" || type === "tool-output-available") {
+    const id = String(value.toolCallId ?? value.id)
+    return { error: typeof value.error === "string" ? value.error : undefined, id, name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+  }
+  if (type === "tool-error" || type === "tool-output-error") {
+    const id = String(value.toolCallId ?? value.id)
+    const error = value.error instanceof Error
+      ? value.error.message
+      : typeof value.errorText === "string"
+        ? value.errorText
+        : String(value.error || "Unknown tool error")
+    return { error, id, name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "error") {
     if (value.error instanceof ApprovalRequiredError) {
@@ -1031,16 +1047,18 @@ async function* streamTextResultToEvents(value: unknown): AsyncIterable<StreamEv
     return
   }
   if (isAsyncIterable(value)) {
+    const toolNames = new Map<string, string>()
     for await (const chunk of value as AsyncIterable<unknown>) {
-      const event = toStreamEvent(chunk)
+      const event = toStreamEvent(chunk, toolNames)
       if (event) yield event
     }
     return
   }
   const result = value as { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
   if (result.fullStream) {
+    const toolNames = new Map<string, string>()
     for await (const chunk of result.fullStream) {
-      const event = toStreamEvent(chunk)
+      const event = toStreamEvent(chunk, toolNames)
       if (event) yield event
     }
     return

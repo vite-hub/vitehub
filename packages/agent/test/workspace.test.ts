@@ -343,16 +343,14 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
-  it("synthesizes streamed answers when tool loops stop without text after tool results", async () => {
+  it("synthesizes streamed answers when tool loops stop without text after AI SDK tool outputs", async () => {
     const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     agentStream.mockResolvedValueOnce({
       fullStream: (async function* () {
         yield {
-          input: { command: "rg Posthog" },
           output: { stdout: "client.py:7: posthog_client = Posthog()" },
           toolCallId: "call-1",
-          toolName: "shell",
-          type: "tool-result",
+          type: "tool-output-available",
         }
       })(),
     })

@@ -273,10 +273,14 @@ function streamEventText(event: unknown): string | undefined {
 
 function streamToolResultOutput(event: unknown): unknown {
   if (typeof event !== "object" || event === null) return undefined
-  const record = event as { output?: unknown, result?: unknown, type?: unknown }
-  return record.type === "tool-result"
-    ? record.output ?? record.result
-    : undefined
+  const record = event as { error?: unknown, errorText?: unknown, output?: unknown, result?: unknown, type?: unknown }
+  if (record.type === "tool-result" || record.type === "tool-output-available") {
+    return record.output ?? record.result
+  }
+  if (record.type === "tool-error" || record.type === "tool-output-error") {
+    return record.error ?? record.errorText ?? record.output ?? record.result
+  }
+  return undefined
 }
 
 function cloneStreamTextResult<T extends object>(result: T, fullStream: AsyncIterable<unknown>): T {
