@@ -295,6 +295,15 @@ function workspaceFallbackFinishEvent(finishEvent: unknown): unknown {
     : { finishReason: "workspace-fallback", type: "finish" }
 }
 
+function workspaceFallbackTextEvents(text: string): unknown[] {
+  const id = "workspace-fallback"
+  return [
+    { id, type: "text-start" },
+    { id, text, type: "text-delta" },
+    { id, type: "text-end" },
+  ]
+}
+
 function withAsyncIterator<T>(stream: ReadableStream<T>): AsyncIterable<T> & ReadableStream<T> {
   if (typeof (stream as AsyncIterable<T>)[Symbol.asyncIterator] === "function") {
     return stream as AsyncIterable<T> & ReadableStream<T>
@@ -393,7 +402,7 @@ function withWorkspaceFallbackFullStream(
 
     const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence)
     if (synthesized) {
-      yield { text: synthesized, type: "text-delta" }
+      yield* workspaceFallbackTextEvents(synthesized)
       yield workspaceFallbackFinishEvent(finishEvent)
       return
     }

@@ -366,7 +366,7 @@ describe("defineAgent workspace option", () => {
       events.push(event)
     }
 
-    expect(events).toContainEqual({ text: "fallback answer", type: "text-delta" })
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
     expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining("client.py:7"),
     }))
@@ -398,7 +398,7 @@ describe("defineAgent workspace option", () => {
 
     expect(events).toEqual([
       { error: undefined, id: "call-1", name: "tool", output: { stdout: "client.py:7: posthog_client = Posthog()" }, type: "tool-result" },
-      { text: "fallback answer", type: "text-delta" },
+      { id: "workspace-fallback", text: "fallback answer", type: "text-delta" },
       { reason: "workspace-fallback", type: "finish" },
     ])
   })
@@ -418,7 +418,14 @@ describe("defineAgent workspace option", () => {
       toUIMessageStream() {
         const lockedBranch = (this.fullStream as unknown as ReadableStream<unknown>).getReader()
         void lockedBranch
-        return (this.fullStream as unknown as ReadableStream<unknown>).pipeThrough(new TransformStream())
+        return (this.fullStream as unknown as ReadableStream<unknown>).pipeThrough(new TransformStream({
+          transform(part: unknown, controller) {
+            if (typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text-delta" && typeof (part as { id?: unknown }).id !== "string") {
+              throw new Error("AI SDK text deltas require an id")
+            }
+            controller.enqueue(part)
+          },
+        }))
       }
     }
     agentStream.mockResolvedValueOnce(new StreamResult())
@@ -437,7 +444,7 @@ describe("defineAgent workspace option", () => {
       messages.push(value)
     }
 
-    expect(messages).toContainEqual({ text: "fallback answer", type: "text-delta" })
+    expect(messages).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
   })
 
   it("passes AI SDK tool loop settings through workspace agents", async () => {
