@@ -42,6 +42,10 @@ function resolveShellTransitiveDependency(parentSpecifier: string, specifier: st
   return createRequire(resolveShellDependency(parentSpecifier)).resolve(specifier)
 }
 
+function resolveJustBashNestedDependency(parentSpecifier: string, specifier: string) {
+  return createRequire(resolveShellTransitiveDependency("just-bash", parentSpecifier)).resolve(specifier)
+}
+
 function resolveIsomorphicGitDependency(specifier: string) {
   return createRequire(resolveDependency("isomorphic-git")).resolve(specifier)
 }
@@ -221,7 +225,7 @@ export function workspaceNitro(options?: false | WorkspaceModuleOptions): Worksp
     for (const dependency of ["sprintf-js", "turndown"]) {
       nitro.options.alias[dependency] = resolveShellTransitiveDependency("just-bash", dependency)
     }
-    nitro.options.alias["@mixmark-io/domino"] = resolveShellTransitiveDependency("turndown", "@mixmark-io/domino")
+    nitro.options.alias["@mixmark-io/domino"] = resolveJustBashNestedDependency("turndown", "@mixmark-io/domino")
 
     let definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
     const registryFile = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
