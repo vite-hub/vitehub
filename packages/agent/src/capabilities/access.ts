@@ -1,7 +1,6 @@
-import { createWorkspaceTools } from "@vitehub/workspace/ai"
-
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
+import { createWorkspaceTools } from "@vitehub/workspace"
 
 import type {
   AgentCapabilityDefinition,
