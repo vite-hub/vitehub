@@ -104,6 +104,8 @@ export type {
   AgentCapabilityPhase,
   AgentCapabilityRuntimeContext,
   AgentChatAgentHookArgs,
+  AgentChatAppExposure,
+  AgentChatAppOptions,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
   AgentChatOptions,

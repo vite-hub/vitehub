@@ -109,6 +109,12 @@ export interface AgentWebhookRegistrationDefinition {
 export type AgentChatWebhookRegistrationDefinition =
   Omit<AgentWebhookRegistrationDefinition, "provider"> & { provider?: string }
 
+export interface AgentChatAppOptions {
+  route?: true | string
+}
+
+export type AgentChatAppExposure = boolean | AgentChatAppOptions
+
 export interface AgentTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -586,6 +592,7 @@ export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = A
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapters?: AgentChatAdaptersResolver<TRuntimeConfig>
   agent?: never
+  app?: AgentChatAppExposure
   event?: AgentChatAgentBindingOptions["event"]
   execution?: never
   fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
