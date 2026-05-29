@@ -265,6 +265,10 @@ describe("agent message protocol", () => {
               path: "/api/webhooks/telegram",
               secretToken: "secret-token",
             },
+            slack: {
+              path: "/api/webhooks/slack",
+              secretHeader: "x-slack-signature",
+            },
           },
         }),
       ],
@@ -280,6 +284,12 @@ describe("agent message protocol", () => {
           provider: "telegram",
           secretHeader: "x-telegram-bot-api-secret-token",
           secretToken: "secret-token",
+        }, {
+          id: "slack",
+          method: "POST",
+          path: "/api/webhooks/slack",
+          provider: "slack",
+          secretHeader: "x-slack-signature",
         }],
       },
     })

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -60,5 +60,73 @@ describe("provider deployment outputs", () => {
 
     expect(existsSync(cloudflareDir)).toBe(true)
     expect(existsSync(vercelDir)).toBe(true)
+  })
+
+  it("preserves sibling Cloudflare output files and config keys", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const siblingFile = join(cloudflareDir, "schedule-worker.js")
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(siblingFile, "export default {}")
+    await writeFile(join(cloudflareDir, "wrangler.json"), `${JSON.stringify({
+      main: "index.js",
+      triggers: { crons: ["0 0 * * *"] },
+    }, null, 2)}\n`)
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      cloudflare: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        wranglerConfig: {
+          compatibility_date: "2026-01-01",
+          main: "index.js",
+        },
+      },
+      rootDir,
+    })
+
+    await expect(readFile(siblingFile, "utf8")).resolves.toBe("export default {}")
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      compatibility_date: "2026-01-01",
+      triggers: { crons: ["0 0 * * *"] },
+    })
+  })
+
+  it("preserves sibling Vercel functions and config keys", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const vercelDir = createDefaultVercelOutputRoot(rootDir)
+    const queueFunctionDir = join(vercelDir, "functions/api/vitehub/queues/vercel/email/email.func")
+    const queueFunctionFile = join(queueFunctionDir, "index.mjs")
+    await mkdir(queueFunctionDir, { recursive: true })
+    await writeFile(queueFunctionFile, "export default {}")
+    await writeFile(join(vercelDir, "config.json"), `${JSON.stringify({
+      crons: [{ path: "/api/vitehub/schedules/vercel/daily", schedule: "0 0 * * *" }],
+      routes: [{ handle: "filesystem" }],
+      version: 3,
+    }, null, 2)}\n`)
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+      },
+    })
+
+    await expect(readFile(queueFunctionFile, "utf8")).resolves.toBe("export default {}")
+    await expect(readFile(join(vercelDir, "config.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      crons: [{ path: "/api/vitehub/schedules/vercel/daily", schedule: "0 0 * * *" }],
+      version: 3,
+    })
   })
 })

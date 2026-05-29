@@ -193,10 +193,17 @@ describe("agent Nitro chat routes", () => {
 
     const route = nitro.options.handlers.find(handler => handler.route === "/api/chat")
     expect(route).toMatchObject({ method: "POST" })
-    await expect(readFile(route!.handler, "utf8")).resolves.toContain("defineAgentChatRegistryHandler(agentRegistry, { agent: \"support\" })")
+    await expect(readFile(route!.handler, "utf8")).resolves.toContain("defineAgentChatRegistryHandler(agentRegistry)")
+    expect(nitro.options.handlers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        handler: route!.handler,
+        method: "POST",
+        route: "/api/agents/:agent/chat",
+      }),
+    ]))
   })
 
-  it("supports custom app chat route paths", async () => {
+  it("does not source-scan custom app chat route paths", async () => {
     const root = await createTempRoot("vitehub-agent-chat-app-custom-route-")
     const buildDir = ".nitro"
     await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -232,12 +239,16 @@ describe("agent Nitro chat routes", () => {
     expect(nitro.options.handlers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         method: "POST",
-        route: "/api/support-chat",
+        route: "/api/chat",
+      }),
+      expect.objectContaining({
+        method: "POST",
+        route: "/api/agents/:agent/chat",
       }),
     ]))
     expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([
       expect.objectContaining({
-        route: "/api/chat",
+        route: "/api/support-chat",
       }),
     ]))
   })

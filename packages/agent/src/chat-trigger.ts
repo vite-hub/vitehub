@@ -28,7 +28,7 @@ const CHAT_WEBHOOK_DEFAULTS = {
     provider: "telegram",
     secretHeader: "x-telegram-bot-api-secret-token",
   },
-} satisfies Record<string, Partial<AgentWebhookRegistrationDefinition> & { provider: string }>
+} satisfies Record<string, Partial<AgentWebhookRegistrationDefinition> & { provider?: string }>
 
 type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
 
@@ -282,16 +282,18 @@ function hasExplicitChatWebhook(options: AgentChatOptions, platform: string): bo
 }
 
 function normalizeChatWebhookRegistrations(
-  platform: KnownChatWebhookPlatform,
+  platform: string,
   input: AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[],
 ): AgentWebhookRegistrationDefinition[] {
-  const defaults = CHAT_WEBHOOK_DEFAULTS[platform]
+  const defaults: Partial<AgentWebhookRegistrationDefinition> & { provider?: string } = isKnownChatWebhookPlatform(platform)
+    ? CHAT_WEBHOOK_DEFAULTS[platform]
+    : { provider: platform }
   const registrations = Array.isArray(input) ? input : [input]
   return registrations.map((registration, index) => ({
     ...registration,
     id: registration.id || (registrations.length > 1 ? `${platform}-${index + 1}` : platform),
     method: registration.method || defaults.method || "POST",
-    provider: registration.provider || defaults.provider,
+    provider: registration.provider || defaults.provider || platform,
     secretHeader: registration.secretHeader || defaults.secretHeader,
   }))
 }
@@ -304,11 +306,13 @@ function inferredChatWebhookRegistrations(options: AgentChatOptions): AgentWebho
     .flatMap(platform => normalizeChatWebhookRegistrations(platform, {}))
 }
 
+function explicitChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] {
+  return Object.entries(options.webhooks ?? {})
+    .flatMap(([platform, input]) => normalizeChatWebhookRegistrations(platform, input))
+}
+
 export function chatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
-  const explicit = options.webhooks?.telegram
-    ? normalizeChatWebhookRegistrations("telegram", options.webhooks.telegram)
-    : []
-  const registrations = [...explicit, ...inferredChatWebhookRegistrations(options)]
+  const registrations = [...explicitChatWebhookRegistrations(options), ...inferredChatWebhookRegistrations(options)]
   return registrations.length ? registrations : undefined
 }
 

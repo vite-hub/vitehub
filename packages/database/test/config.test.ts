@@ -68,6 +68,28 @@ describe("discoverDatabaseDefinitions", () => {
     ])
   })
 
+  it("reads table names from the exported database definition only", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vitehub/database'",
+      "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "const ignored = sqliteTable('ignored', { title: text('title') })",
+      "const notes = sqliteTable('notes', { title: text('title') })",
+      "const decoy = { tables: { ignored } }",
+      "defineDatabase(decoy)",
+      "export default defineDatabase({",
+      "  tables: { notes },",
+      "})",
+      "",
+    ].join("\n"))
+
+    expect(discoverDatabaseDefinitions(rootDir)).toEqual([
+      expect.objectContaining({ handler: file, tableNames: ["notes"] }),
+    ])
+  })
+
   it("rejects mixing the default database with named databases", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts")

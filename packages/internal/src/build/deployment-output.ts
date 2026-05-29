@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
@@ -53,6 +53,26 @@ function resolveClientOutput(rootDir: string, clientOutDir: string): ResolvedCli
   }
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+async function readJsonObject(file: string): Promise<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(await readFile(file, "utf8"))
+    return isJsonObject(parsed) ? parsed : {}
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {}
+    throw error
+  }
+}
+
+async function writeMergedJsonObject(file: string, value: object): Promise<void> {
+  const existing = await readJsonObject(file)
+  await writeFile(file, `${JSON.stringify({ ...existing, ...value }, null, 2)}\n`, "utf8")
+}
+
 export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined, mode?: string): boolean {
   return command === "serve" || mode === "e2e"
 }
@@ -74,12 +94,12 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
   const workerOutfile = resolve(outputRoot, options.bundleOutfileName ?? "index.js")
 
-  await rm(outputRoot, { force: true, recursive: true })
   await mkdir(outputRoot, { recursive: true })
+  await rm(workerOutfile, { force: true, recursive: true })
 
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions),
-    writeFile(resolve(outputRoot, "wrangler.json"), `${JSON.stringify(options.wranglerConfig, null, 2)}\n`, "utf8"),
+    writeMergedJsonObject(resolve(outputRoot, "wrangler.json"), options.wranglerConfig),
     staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
       : Promise.resolve(),
@@ -93,13 +113,13 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
   const serverEntry = resolve(serverDir, "index.mjs")
 
-  await rm(outputRoot, { force: true, recursive: true })
+  await rm(serverDir, { force: true, recursive: true })
   await mkdir(serverDir, { recursive: true })
 
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, serverEntry, options.bundleOptions),
     writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(options.functionConfig ?? createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
-    writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(options.config ?? createVercelConfigJson(), null, 2)}\n`, "utf8"),
+    writeMergedJsonObject(resolve(outputRoot, "config.json"), options.config ?? createVercelConfigJson()),
     staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
       : Promise.resolve(),

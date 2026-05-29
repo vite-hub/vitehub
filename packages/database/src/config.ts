@@ -9,6 +9,7 @@ import {
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
 } from "@vitehub/internal/definition-catalog"
+import { findIdentifierCalls, findMatching, splitTopLevel } from "@vitehub/internal/source-scanner"
 
 import { createRuntimeEnvConfigValue, resolveConfigValue } from "./config-value.ts"
 
@@ -25,112 +26,53 @@ import type {
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
-function stripComments(source: string) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1")
+function readDefinitionObjectBody(file: string) {
+  const source = readFileSync(file, "utf8")
+  const calls = findIdentifierCalls(source, "defineDatabase")
+  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default\s*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
+    || calls[0]
+  const argument = call?.arguments[0]?.trim()
+  if (!argument?.startsWith("{")) return
+  const closeIndex = findMatching(argument, 0, "{", "}")
+  return closeIndex === undefined ? undefined : argument.slice(1, closeIndex)
 }
 
-function findMatchingBrace(source: string, openIndex: number) {
-  let depth = 0
-  let quote: "\"" | "'" | "`" | undefined
-  let escaped = false
-  for (let index = openIndex; index < source.length; index++) {
-    const char = source[index]!
-    if (quote) {
-      if (escaped) {
-        escaped = false
-        continue
-      }
-      if (char === "\\") {
-        escaped = true
-        continue
-      }
-      if (char === quote) {
-        quote = undefined
-      }
-      continue
-    }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "{") depth++
-    if (char === "}") {
-      depth--
-      if (depth === 0) return index
-    }
-  }
-  return -1
+function objectLiteralBody(value: string | undefined) {
+  const trimmed = value?.trim()
+  if (!trimmed?.startsWith("{")) return
+  const closeIndex = findMatching(trimmed, 0, "{", "}")
+  return closeIndex === undefined ? undefined : trimmed.slice(1, closeIndex)
 }
 
-function extractObjectBody(source: string, property: string) {
-  const match = new RegExp(`\\b${property}\\s*:`).exec(source)
-  if (!match) return
-  const openIndex = source.indexOf("{", match.index + match[0].length)
-  if (openIndex === -1) return
-  const closeIndex = findMatchingBrace(source, openIndex)
-  if (closeIndex === -1) return
-  return source.slice(openIndex + 1, closeIndex)
+function readEntryKey(entry: string): string | undefined {
+  const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["'])\s*(?::|$)/.exec(entry)
+  return match?.[1] || match?.[2]
 }
 
-function extractTopLevelObjectKeys(body: string) {
-  const keys: string[] = []
-  let depth = 0
-  let quote: "\"" | "'" | "`" | undefined
-  let escaped = false
-  let segmentStart = 0
+function readEntryValue(entry: string): string | undefined {
+  const match = /^\s*(?:[A-Za-z_$][\w$]*|["'][^"']+["'])\s*:/.exec(entry)
+  return match ? entry.slice(match[0].length).trim() : undefined
+}
 
-  const readKey = (segment: string) => {
-    const trimmed = segment.trim()
-    const match = /^([A-Za-z_$][\w$]*)\s*:/.exec(trimmed)
-      || /^["']([^"']+)["']\s*:/.exec(trimmed)
-      || /^([A-Za-z_$][\w$]*)\s*(?:,|$)/.exec(trimmed)
-    if (match?.[1]) keys.push(match[1])
+function readObjectPropertyValue(body: string | undefined, property: string): string | undefined {
+  if (!body) return
+  for (const entry of splitTopLevel(body)) {
+    if (readEntryKey(entry) !== property) continue
+    return readEntryValue(entry)
   }
+}
 
-  for (let index = 0; index <= body.length; index++) {
-    const char = body[index]
-    if (quote) {
-      if (escaped) {
-        escaped = false
-        continue
-      }
-      if (char === "\\") {
-        escaped = true
-        continue
-      }
-      if (char === quote) {
-        quote = undefined
-      }
-      continue
-    }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "{" || char === "(" || char === "[") depth++
-    if (char === "}" || char === ")" || char === "]") depth--
-    if ((char === "," && depth === 0) || index === body.length) {
-      readKey(body.slice(segmentStart, index))
-      segmentStart = index + 1
-    }
-  }
-
-  return [...new Set(keys)]
+function readObjectKeys(body: string | undefined) {
+  if (!body) return []
+  return [...new Set(splitTopLevel(body).map(readEntryKey).filter((key): key is string => Boolean(key)))]
 }
 
 function readDatabaseTableNames(file: string) {
-  const source = stripComments(readFileSync(file, "utf8"))
-  const tablesBody = extractObjectBody(source, "tables")
-  if (!tablesBody) return []
-  return extractTopLevelObjectKeys(tablesBody)
+  return readObjectKeys(objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "tables")))
 }
 
 function readConfigValue(body: string | undefined, property: string): DatabaseConfigValue | undefined {
-  if (!body) return
-  const match = new RegExp(`\\b${property}\\s*:\\s*([^,\\n]+(?:\\|\\|\\s*[^,\\n]+)?)`).exec(body)
-  const expression = match?.[1]?.trim()
+  const expression = readObjectPropertyValue(body, property)
   if (!expression) return
   const quoted = readStaticStringLiteral(expression)
   if (typeof quoted !== "undefined") return quoted
@@ -166,8 +108,7 @@ function readStringValue(body: string | undefined, property: string): string | u
 }
 
 function readDefinitionCloudflareConfig(file: string): CloudflareD1BindingConfig | undefined {
-  const source = stripComments(readFileSync(file, "utf8"))
-  const body = extractObjectBody(source, "cloudflare")
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
   if (!body) return
   const value = {
     binding: readStringValue(body, "binding"),
@@ -180,8 +121,7 @@ function readDefinitionCloudflareConfig(file: string): CloudflareD1BindingConfig
 }
 
 function readDefinitionConnectionConfig(file: string) {
-  const source = stripComments(readFileSync(file, "utf8"))
-  const body = extractObjectBody(source, "connection")
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"))
   if (!body) return
   const value = {
     authToken: readConfigValue(body, "authToken"),

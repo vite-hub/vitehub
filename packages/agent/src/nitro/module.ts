@@ -1,10 +1,8 @@
-import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 import { createImportPath } from "@vitehub/internal/build/paths"
-import { createGeneratedDefinitionPath, sanitizeDefinitionFilename, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
+import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
 import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
-import { findIdentifierCalls, splitTopLevel } from "@vitehub/internal/source-scanner"
 
 import { normalizeAgentOptions } from "../config.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
@@ -22,13 +20,10 @@ const AGENT_NITRO_IMPORTS_PRESET = {
   imports: ["defineAgent"],
 }
 const AGENT_CHAT_WEBHOOK_ROUTE = "/api/agents/[agent]/chat/[platform]"
+const AGENT_CHAT_APP_ROUTE = "/api/chat"
+const AGENT_CHAT_APP_AGENT_ROUTE = "/api/agents/[agent]/chat"
+const AGENT_CHAT_APP_ROUTE_FILE = "chat-app-handler.ts"
 const AGENT_CHAT_WEBHOOK_ROUTE_FILE = "chat-webhook-handler.ts"
-const AGENT_CHAT_APP_DEFAULT_ROUTE = "/api/chat"
-
-interface AgentChatAppRouteBinding {
-  agent: string
-  route: string
-}
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
@@ -58,15 +53,10 @@ function createNitroAgentChatWebhookRoutePath(rootDir: string, buildDir: string)
   })
 }
 
-function createNitroAgentChatAppRoutePath(rootDir: string, buildDir: string, binding: AgentChatAppRouteBinding): string {
+function createNitroAgentChatAppRoutePath(rootDir: string, buildDir: string): string {
   return createGeneratedDefinitionPath(rootDir, {
     buildDir,
-    fileName: [
-      "chat-app",
-      sanitizeDefinitionFilename(binding.agent),
-      sanitizeDefinitionFilename(binding.route),
-      "ts",
-    ].join("."),
+    fileName: AGENT_CHAT_APP_ROUTE_FILE,
     segments: [".vitehub", "nitro-runtime", "agent"],
   })
 }
@@ -77,94 +67,6 @@ function normalizeNitroRoute(route: string): string {
 
 function routeHasParam(route: string, param: string): boolean {
   return route.includes(`[${param}]`) || route.includes(`:${param}`)
-}
-
-function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1")
-}
-
-function findMatchingBrace(source: string, openIndex: number): number {
-  let depth = 0
-  let quote: "\"" | "'" | "`" | undefined
-  let escaped = false
-  for (let index = openIndex; index < source.length; index += 1) {
-    const char = source[index]!
-    if (quote) {
-      if (escaped) {
-        escaped = false
-        continue
-      }
-      if (char === "\\") {
-        escaped = true
-        continue
-      }
-      if (char === quote) quote = undefined
-      continue
-    }
-    if (char === "\"" || char === "'" || char === "`") {
-      quote = char
-      continue
-    }
-    if (char === "{") depth += 1
-    if (char === "}") {
-      depth -= 1
-      if (depth === 0) return index
-    }
-  }
-  return -1
-}
-
-function readEntryKey(entry: string): string | undefined {
-  const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["'])\s*:/.exec(entry)
-  return match?.[1] || match?.[2]
-}
-
-function readEntryValue(entry: string): string | undefined {
-  const match = /^\s*(?:[A-Za-z_$][\w$]*|["'][^"']+["'])\s*:/.exec(entry)
-  return match ? entry.slice(match[0].length) : undefined
-}
-
-function objectLiteralBody(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed?.startsWith("{")) return
-  const closeIndex = findMatchingBrace(trimmed, 0)
-  if (closeIndex === -1) return
-  return trimmed.slice(1, closeIndex)
-}
-
-function readObjectPropertyValue(body: string, property: string): string | undefined {
-  for (const entry of splitTopLevel(body)) {
-    if (readEntryKey(entry) !== property) continue
-    return readEntryValue(entry)?.trim()
-  }
-}
-
-function readStaticChatAppRoute(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed || trimmed.startsWith("false")) return
-  if (trimmed.startsWith("true")) return AGENT_CHAT_APP_DEFAULT_ROUTE
-
-  const body = objectLiteralBody(trimmed)
-  if (!body) return
-  const route = readObjectPropertyValue(body, "route")
-  if (!route || route.startsWith("true")) return AGENT_CHAT_APP_DEFAULT_ROUTE
-
-  const match = /^(["'])([^"']+)\1/.exec(route)
-  const routeValue = match?.[2]?.trim()
-  return routeValue?.startsWith("/") ? routeValue : undefined
-}
-
-function readStaticChatAppRouteBindings(definition: DiscoveredAgentDefinition): AgentChatAppRouteBinding[] {
-  const source = stripComments(readFileSync(definition.handler, "utf8"))
-  return findIdentifierCalls(source, "chat")
-    .flatMap((call) => {
-      const body = objectLiteralBody(call.arguments[0])
-      if (!body) return []
-      const route = readStaticChatAppRoute(readObjectPropertyValue(body, "app"))
-      return route ? [{ agent: definition.name, route }] : []
-    })
 }
 
 function resolveNitroAgentScanDirs(rootDir: string, scanDirs: string[] | undefined) {
@@ -214,23 +116,18 @@ function createNitroAgentChatWebhookRouteContents(file: string, registryFile: st
   ].join("\n")
 }
 
-function createNitroAgentChatAppRouteContents(file: string, registryFile: string, binding: AgentChatAppRouteBinding): string {
+function createNitroAgentChatAppRouteContents(file: string, registryFile: string): string {
   return [
     `import agentRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import { defineAgentChatRegistryHandler } from "@vitehub/agent/nitro"`,
     "",
-    `export default defineAgentChatRegistryHandler(agentRegistry, { agent: ${JSON.stringify(binding.agent)} })`,
+    "export default defineAgentChatRegistryHandler(agentRegistry)",
     "",
   ].join("\n")
 }
 
-interface AgentRouteFile {
-  route: string
-  routeFile: string
-}
-
 interface AgentRuntimeFiles {
-  chatAppRouteFiles: AgentRouteFile[]
+  chatAppRouteFile?: string
   chatWebhookRouteFile?: string
   definitions: DiscoveredAgentDefinition[]
   registryFile?: string
@@ -244,7 +141,7 @@ async function writeNitroAgentRuntimeFiles(nitro: Nitro, options: false | Resolv
   })
 
   if (!options) {
-    return { chatAppRouteFiles: [], definitions }
+    return { definitions }
   }
 
   let registryFile: string | undefined
@@ -263,29 +160,16 @@ async function writeNitroAgentRuntimeFiles(nitro: Nitro, options: false | Resolv
   }
 
   let chatWebhookRouteFile: string | undefined
-  const chatAppRouteFiles: AgentRouteFile[] = []
+  let chatAppRouteFile: string | undefined
   if (definitions.length) {
     chatWebhookRouteFile = createNitroAgentChatWebhookRoutePath(nitro.options.rootDir, nitro.options.buildDir)
     await writeFileIfChanged(chatWebhookRouteFile, createNitroAgentChatWebhookRouteContents(chatWebhookRouteFile, registryFile!))
 
-    const appRoutes = new Map<string, AgentChatAppRouteBinding>()
-    for (const definition of definitions) {
-      for (const binding of readStaticChatAppRouteBindings(definition)) {
-        const existing = appRoutes.get(binding.route)
-        if (existing && existing.agent !== binding.agent) {
-          throw new Error(`Duplicate agent chat app route "${binding.route}" for ${existing.agent} and ${binding.agent}.`)
-        }
-        appRoutes.set(binding.route, binding)
-      }
-    }
-    for (const binding of appRoutes.values()) {
-      const routeFile = createNitroAgentChatAppRoutePath(nitro.options.rootDir, nitro.options.buildDir, binding)
-      await writeFileIfChanged(routeFile, createNitroAgentChatAppRouteContents(routeFile, registryFile!, binding))
-      chatAppRouteFiles.push({ route: binding.route, routeFile })
-    }
+    chatAppRouteFile = createNitroAgentChatAppRoutePath(nitro.options.rootDir, nitro.options.buildDir)
+    await writeFileIfChanged(chatAppRouteFile, createNitroAgentChatAppRouteContents(chatAppRouteFile, registryFile!))
   }
 
-  return { chatAppRouteFiles, chatWebhookRouteFile, definitions, registryFile, routeFile }
+  return { chatAppRouteFile, chatWebhookRouteFile, definitions, registryFile, routeFile }
 }
 
 function installAliases(nitro: Nitro, registryFile: string | undefined): void {
@@ -342,10 +226,9 @@ function installChatWebhookRoute(nitro: Nitro, routeFile: string | undefined): v
   installPostRoute(nitro, AGENT_CHAT_WEBHOOK_ROUTE, routeFile)
 }
 
-function installGeneratedPostRoutes(nitro: Nitro, routeFiles: AgentRouteFile[]): void {
-  for (const routeFile of routeFiles) {
-    installPostRoute(nitro, routeFile.route, routeFile.routeFile)
-  }
+function installChatAppRoutes(nitro: Nitro, routeFile: string | undefined): void {
+  installPostRoute(nitro, AGENT_CHAT_APP_ROUTE, routeFile)
+  installPostRoute(nitro, AGENT_CHAT_APP_AGENT_ROUTE, routeFile)
 }
 
 export function agentNitro(options?: false | AgentModuleOptions): AgentNitroModule {
@@ -374,7 +257,7 @@ export function agentNitro(options?: false | AgentModuleOptions): AgentNitroModu
     installAliases(nitro, runtimeFiles.registryFile)
     if (resolved) {
       installRoute(nitro, resolved, runtimeFiles.routeFile)
-      installGeneratedPostRoutes(nitro, runtimeFiles.chatAppRouteFiles)
+      installChatAppRoutes(nitro, runtimeFiles.chatAppRouteFile)
       installChatWebhookRoute(nitro, runtimeFiles.chatWebhookRouteFile)
     }
 
@@ -383,7 +266,7 @@ export function agentNitro(options?: false | AgentModuleOptions): AgentNitroModu
       installAliases(nitro, runtimeFiles.registryFile)
       if (resolved) {
         installRoute(nitro, resolved, runtimeFiles.routeFile)
-        installGeneratedPostRoutes(nitro, runtimeFiles.chatAppRouteFiles)
+        installChatAppRoutes(nitro, runtimeFiles.chatAppRouteFile)
         installChatWebhookRoute(nitro, runtimeFiles.chatWebhookRouteFile)
       }
     })
@@ -392,7 +275,7 @@ export function agentNitro(options?: false | AgentModuleOptions): AgentNitroModu
       installAliases(nitro, runtimeFiles.registryFile)
       if (resolved) {
         installRoute(nitro, resolved, runtimeFiles.routeFile)
-        installGeneratedPostRoutes(nitro, runtimeFiles.chatAppRouteFiles)
+        installChatAppRoutes(nitro, runtimeFiles.chatAppRouteFile)
         installChatWebhookRoute(nitro, runtimeFiles.chatWebhookRouteFile)
       }
     })

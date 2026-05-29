@@ -110,7 +110,7 @@ export type AgentChatWebhookRegistrationDefinition =
   Omit<AgentWebhookRegistrationDefinition, "provider"> & { provider?: string }
 
 export interface AgentChatAppOptions {
-  route?: true | string
+  route?: never
 }
 
 export type AgentChatAppExposure = boolean | AgentChatAppOptions
@@ -601,9 +601,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   lifecycleHooks?: Record<string, unknown>
   sessions?: boolean | AgentChatSessionOptions
   state?: AgentChatStateResolver<TRuntimeConfig>
-  webhooks?: {
-    telegram?: AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[]
-  } & Record<string, unknown>
+  webhooks?: Record<string, AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[]>
   workflow?: never
   [key: string]: unknown
 }
