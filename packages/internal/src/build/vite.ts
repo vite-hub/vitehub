@@ -2,7 +2,7 @@ type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
 type WatchIgnoredValue = WatchIgnoredMatcher | WatchIgnoredMatcher[] | undefined
 
-export const generatedViteHubFilesPattern = "**/.vitehub/**"
+const generatedViteHubFilesPattern = "**/.vitehub/**"
 
 export function createNoExternalMerger(packageName: string) {
   return (current: NoExternalValue): NoExternalValue => {
