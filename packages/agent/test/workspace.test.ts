@@ -416,6 +416,8 @@ describe("defineAgent workspace option", () => {
       })()
 
       toUIMessageStream() {
+        const lockedBranch = (this.fullStream as unknown as ReadableStream<unknown>).getReader()
+        void lockedBranch
         return (this.fullStream as unknown as ReadableStream<unknown>).pipeThrough(new TransformStream())
       }
     }

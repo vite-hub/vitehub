@@ -349,10 +349,15 @@ function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): AsyncIter
 function cloneStreamTextResult<T extends object>(result: T, fullStream: AsyncIterable<unknown>): T {
   const clone = Object.create(Object.getPrototypeOf(result)) as T
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
+  let stream = toReadableAsyncIterableStream(fullStream)
   Object.defineProperty(clone, "fullStream", {
     configurable: true,
     enumerable: true,
-    value: toReadableAsyncIterableStream(fullStream),
+    get() {
+      const [next, branch] = stream.tee()
+      stream = withAsyncIterator(next)
+      return withAsyncIterator(branch)
+    },
   })
   return clone
 }
