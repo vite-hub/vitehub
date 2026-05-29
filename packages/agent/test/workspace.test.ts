@@ -403,6 +403,37 @@ describe("defineAgent workspace option", () => {
     ])
   })
 
+  it("emits streamed workspace fallback text before abort events", async () => {
+    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield {
+          output: { stdout: "client.py:7: posthog_client = Posthog()" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+        yield { reason: "The operation was aborted due to timeout", type: "abort" }
+      })(),
+    })
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { error: undefined, id: "call-1", name: "tool", output: { stdout: "client.py:7: posthog_client = Posthog()" }, type: "tool-result" },
+      { id: "workspace-fallback", text: "fallback answer", type: "text-delta" },
+      { reason: "workspace-fallback", type: "finish" },
+    ])
+  })
+
   it("preserves stream result methods when wrapping workspace fallback streams", async () => {
     const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     class StreamResult {

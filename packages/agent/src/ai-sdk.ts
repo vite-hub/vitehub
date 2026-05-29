@@ -388,7 +388,8 @@ function withWorkspaceFallbackFullStream(
       if (output !== undefined && evidence.length < maxToolResults) {
         evidence.push(JSON.stringify(output).slice(0, 4000))
       }
-      if (streamEventType(event) === "finish") {
+      const type = streamEventType(event)
+      if (type === "finish" || type === "abort") {
         finishEvent = event
         continue
       }
