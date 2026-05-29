@@ -1,6 +1,7 @@
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vitehub/internal/build/vite"
 
 import { chatDevTools } from "./chat/devtools.ts"
+import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { agentNitro } from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
@@ -52,7 +53,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     vitehub: {
       cli: async () => {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
-        return createAgentCliContributor(agent === false ? false : agent?.cli)
+        if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
+        return createAgentCliContributor(resolveAgentEvalOptions(agent?.eval))
       },
     },
     config(config) {
@@ -66,8 +68,17 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         },
       }
     },
-    configResolved(config) {
+    async configResolved(config) {
       agent = config.agent ?? agent
+      if (agent === false || agent?.eval === false) {
+        return
+      }
+
+      const evalOptions = resolveAgentEvalOptions(agent?.eval)
+      if (evalOptions === false) {
+        return
+      }
+      await writeAgentEvaliteConfig(config.root, evalOptions)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

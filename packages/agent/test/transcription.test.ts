@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { audioBytes, audioExtensionFor, getTranscriptionResults, transcribe } from "../src/capabilities.ts"
+import { getTranscriptionResults, transcribe } from "../src/capabilities.ts"
+import { audioBytes, audioExtensionFor } from "../src/capabilities/transcribe.ts"
 import { createMessage, defineAgent, runAgent } from "../src/index.ts"
 
 const runtime = () => ({

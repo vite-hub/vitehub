@@ -31,10 +31,7 @@ export {
   skills,
 } from "./skills.ts"
 export {
-  audioBytes,
-  audioExtensionFor,
   getTranscriptionResults,
-  TRANSCRIPTION_RESULTS_CONTEXT_KEY,
   transcribe,
 } from "./transcribe.ts"
 export {

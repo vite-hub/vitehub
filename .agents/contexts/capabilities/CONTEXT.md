@@ -60,6 +60,14 @@ _Avoid_: Public registration function, local Teams route, manual webhook route
 A Capability that gives an Agent model-facing access to Workspace files.
 _Avoid_: Bash, raw workspace tools, built-in tool
 
+**Workspace Scope Capability**:
+A Capability that resolves and applies a Workspace Scope for one Agent Invocation by narrowing already-declared Workspace visibility and Workspace Tools.
+_Avoid_: Workspace Definition mutator, dynamic Source, dynamic Capability
+
+**Workspace Scope Role**:
+A named bundle of Workspace Scope Grants and scope-selection authority used by the Workspace Scope Capability.
+_Avoid_: Workspace Rule, Capability mode, model role
+
 **Web Search Capability**:
 A Capability that gives an Agent model-facing access to web search results and normalized URL content.
 _Avoid_: askweb capability, web plugin, search integration
@@ -158,11 +166,18 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
+- A **Chat Capability** can contribute trusted chat actor identity into Agent Invocation Context Values before later Capabilities resolve.
 - **Chat Platform Adapters** are platform integration adapters, not **Agent Model Adapters**.
 - **Chat Webhook Autowiring** is inferred from the Agent's attached **Chat Capability**; users do not attach a second Capability or call a webhook registration helper.
 - **Chat Webhook Autowiring** resolves the **Chat Adapter Callback** at request time so callbacks can read Server Env and other request-local server state.
 - **Transcription** is an input-phase Official Capability.
 - A **Workspace Capability** contributes Workspace tools without implying unrestricted process execution.
+- A **Workspace Scope Capability** applies invocation-time Workspace visibility rules without mutating the Workspace Definition.
+- A **Workspace Scope Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
+- A **Workspace Scope Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
+- A **Workspace Scope Capability** provides tiny default **Workspace Scope Roles** for the first version.
+- The default `viewer` **Workspace Scope Role** can read granted Source keys and path prefixes.
+- The default `admin` **Workspace Scope Role** can select the explicit all-scopes mode when the developer configured that mode.
 - A **Workspace Shell Capability** contributes shell-shaped Workspace tools without implying Sandbox execution.
 - An **MCP Capability** consumes one or more external **MCP Servers**.
 - A **Web Search Capability** hides its underlying search library from users and model-facing labels.
@@ -244,6 +259,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
+- Workspace Scope was considered as Workspace Definition mutation by a Capability - resolved: use a **Workspace Scope Capability** to narrow an already-declared Workspace at invocation time instead of changing Sources or Workspace Rules.
 - "audio input", "voice input", and "voice transcription" were considered as names for spoken user messages - resolved: use **Transcription** for the capability.
 - `bash()` was considered as the public helper for Workspace file access - resolved: use `workspaceShell()` for the **Workspace Shell Capability** because the shell is scoped to Workspace files.
 - MCP server language was considered ambiguous between hosting an MCP server and consuming one - resolved: in the **MCP Capability**, an **MCP Server** is external and consumed by an Agent.

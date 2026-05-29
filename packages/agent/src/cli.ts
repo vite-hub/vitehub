@@ -1,7 +1,18 @@
-import type { AgentCliOptions, AgentEvalCliOptions } from "./types.ts"
-import type { runEvalite } from "evalite/runner"
+import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 
-type EvaliteRunner = typeof runEvalite
+import type { AgentEvalOptions } from "./types.ts"
+
+interface AgentEvaliteRunnerOptions extends ResolvedAgentEvalOptions {
+  cacheEnabled?: boolean
+  cwd: string
+  mode: "run-once-and-exit" | "watch-for-file-changes"
+  outputPath?: string
+  path?: string
+  scoreThreshold?: number
+}
+
+type EvaliteRunner = (options: AgentEvaliteRunnerOptions) => Promise<{ exitCode?: number } | void>
+type AgentEvaliteConfigWriter = (rootDir: string, options: ResolvedAgentEvalOptions) => Promise<string>
 
 interface AgentCliContext {
   cwd: string
@@ -33,14 +44,6 @@ interface ParsedEvalArgs {
   path?: string
   threshold?: number
   watch: boolean
-}
-
-const defaultAgentEvalOptions: Required<AgentEvalCliOptions> = {
-  forceRerunTriggers: [
-    "server/agents/**",
-    "src/**/*.agent.*",
-    "src/**/*.eval.*",
-  ],
 }
 
 function writeUsage(context: AgentCliContext): void {
@@ -139,23 +142,17 @@ function parseEvalArgs(args: string[]): ParsedEvalArgs {
   return parsed
 }
 
-function resolveAgentEvalOptions(options: false | AgentCliOptions | undefined): Required<AgentEvalCliOptions> | false {
-  if (options === false || options?.eval === false) return false
-  return {
-    forceRerunTriggers: options?.eval?.forceRerunTriggers || defaultAgentEvalOptions.forceRerunTriggers,
-  }
-}
-
 async function loadEvaliteRunner(): Promise<EvaliteRunner> {
-  const { runEvalite } = await import("evalite/runner")
-  return runEvalite
+  const { runAgentEvalite } = await import("./evalite-runner.js")
+  return runAgentEvalite
 }
 
 export async function runAgentEvalCli(
   args: string[],
   context: AgentCliContext,
-  options: false | AgentCliOptions | undefined,
+  options: false | AgentEvalOptions | undefined,
   runner?: EvaliteRunner,
+  writeConfig: AgentEvaliteConfigWriter = writeAgentEvaliteConfig,
 ): Promise<number> {
   const resolvedOptions = resolveAgentEvalOptions(options)
   if (resolvedOptions === false) {
@@ -179,21 +176,28 @@ export async function runAgentEvalCli(
   }
 
   const run = runner || await loadEvaliteRunner()
-  await run({
+  await writeConfig(context.rootDir, resolvedOptions)
+  const result = await run({
+    cache: resolvedOptions.cache,
     cacheEnabled: parsed.noCache ? false : undefined,
     cwd: context.rootDir,
     forceRerunTriggers: resolvedOptions.forceRerunTriggers,
-    hideTable: parsed.hideTable,
+    hideTable: parsed.hideTable ?? resolvedOptions.hideTable,
+    maxConcurrency: resolvedOptions.maxConcurrency,
     mode: parsed.watch ? "watch-for-file-changes" : "run-once-and-exit",
     outputPath: parsed.outputPath,
     path: parsed.path,
-    scoreThreshold: parsed.threshold,
+    scoreThreshold: parsed.threshold ?? resolvedOptions.scoreThreshold,
+    server: resolvedOptions.server,
+    setupFiles: resolvedOptions.setupFiles,
+    testTimeout: resolvedOptions.testTimeout,
+    trialCount: resolvedOptions.trialCount,
   })
 
-  return 0
+  return result?.exitCode ?? 0
 }
 
-export function createAgentCliContributor(options?: false | AgentCliOptions): AgentCliContributor | undefined {
+export function createAgentCliContributor(options?: false | AgentEvalOptions): AgentCliContributor | undefined {
   if (options === false) return
   return {
     namespaces: [{

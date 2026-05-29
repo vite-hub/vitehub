@@ -461,18 +461,27 @@ export interface AgentProvidersOptions {
   state?: AgentStateProviderOptions
 }
 
-export interface AgentEvalCliOptions {
+export interface AgentEvalOptions {
+  cache?: boolean
   forceRerunTriggers?: string[]
+  hideTable?: boolean
+  maxConcurrency?: number
+  scoreThreshold?: number
+  server?: {
+    port?: number
+  }
+  setupFiles?: string[]
+  testTimeout?: number
+  trialCount?: number
 }
 
-export interface AgentCliOptions {
-  eval?: false | AgentEvalCliOptions
-}
+export type AgentCliOptions = Record<never, never>
 
 export interface AgentModuleOptions {
   cli?: false | AgentCliOptions
   devtools?: false
   execution?: AgentExecution
+  eval?: false | AgentEvalOptions
   imports?: boolean
   integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
