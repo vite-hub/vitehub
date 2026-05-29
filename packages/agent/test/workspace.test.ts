@@ -403,6 +403,41 @@ describe("defineAgent workspace option", () => {
     ])
   })
 
+  it("preserves stream result methods when wrapping workspace fallback streams", async () => {
+    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    class StreamResult {
+      fullStream = (async function* () {
+        yield {
+          output: { stdout: "client.py:7: posthog_client = Posthog()" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+        yield { finishReason: "stop", type: "finish" }
+      })()
+
+      toUIMessageStream() {
+        return (this.fullStream as unknown as ReadableStream<unknown>).pipeThrough(new TransformStream())
+      }
+    }
+    agentStream.mockResolvedValueOnce(new StreamResult())
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const messages: unknown[] = []
+    const reader = stream.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      messages.push(value)
+    }
+
+    expect(messages).toContainEqual({ text: "fallback answer", type: "text-delta" })
+  })
+
   it("passes AI SDK tool loop settings through workspace agents", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const stopWhen = { custom: true }
