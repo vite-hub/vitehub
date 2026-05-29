@@ -182,9 +182,21 @@ function defaultCreatedAt(message: Message): Date {
   return Number.isNaN(value.getTime()) ? new Date() : value
 }
 
+function safeArtifactStemPart(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/\.{2,}/g, ".")
+    .replace(/^-+|-+$/g, "")
+    || "item"
+}
+
 function defaultStem(input: Pick<TranscribeArtifactTemplateInput, "audioCount" | "audioIndex" | "createdAt" | "messageId">): string {
   const suffix = input.audioCount > 1 ? `-${input.audioIndex + 1}` : ""
-  return `${input.createdAt.replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z")}-${input.messageId}${suffix}`
+  const createdAt = safeArtifactStemPart(input.createdAt.replace(/\.\d{3}Z$/, "Z"))
+  const messageId = safeArtifactStemPart(input.messageId)
+  return `${createdAt}-${messageId}${suffix}`
 }
 
 function pathExtension(path: string): string | undefined {

@@ -11,7 +11,11 @@ const runtime = () => ({
   waitUntil: vi.fn(),
 })
 
-function createTranscriptionCapabilityContext(messages: Array<ReturnType<typeof createMessage>>, writeFile = vi.fn()) {
+function createTranscriptionCapabilityContext(
+  messages: Array<ReturnType<typeof createMessage>>,
+  writeFile = vi.fn(),
+  runMessageId = "telegram-4",
+) {
   const store = new Map<string, unknown>()
   const invocationContext = {
     entries: () => store.entries(),
@@ -33,7 +37,7 @@ function createTranscriptionCapabilityContext(messages: Array<ReturnType<typeof 
           currentMessages = next
         },
       },
-      run: { messageId: "telegram-4", runId: "run_1" },
+      run: { messageId: runMessageId, runId: "run_1" },
       workspace: {
         diff: vi.fn(),
         fs: { writeFile },
@@ -222,6 +226,45 @@ describe("agent transcription", () => {
       transcriptPath: "inbox/2026-05-28/2026-05-28T10-50-04Z-telegram-4.md",
     }])
     expect(context.messages.at(-1)?.parts.at(-1)).toMatchObject({ text: "hola mundo", type: "text" })
+  })
+
+  it("sanitizes default artifact stems from platform message ids", async () => {
+    const capability = transcribe({
+      execute: vi.fn(async () => "hola mundo"),
+      artifacts: {
+        transcript: {
+          path: ({ date, stem }) => `inbox/${date}/${stem}.md`,
+        },
+      },
+    })
+    const context = createTranscriptionCapabilityContext([
+      createMessage({
+        createdAt: "2026-05-28T10:50:04.000Z",
+        id: "msg_1",
+        parts: [{ data: new Uint8Array([1, 2, 3]), mediaType: "audio/opus", type: "audio" }],
+        role: "user",
+      }),
+    ], undefined, "152045426:10")
+
+    await capability.input?.(context.context as never)
+
+    expect(context.writeFile).toHaveBeenNthCalledWith(
+      1,
+      "inbox/2026-05-28/2026-05-28T10-50-04Z-152045426-10.ogg",
+      new Uint8Array([1, 2, 3]),
+      { mediaType: "audio/opus" },
+    )
+    expect(context.writeFile).toHaveBeenNthCalledWith(
+      2,
+      "inbox/2026-05-28/2026-05-28T10-50-04Z-152045426-10.md",
+      "hola mundo\n",
+      { mediaType: "text/markdown" },
+    )
+    expect(getTranscriptionResults(context.invocationContext)[0]).toMatchObject({
+      audioPath: "inbox/2026-05-28/2026-05-28T10-50-04Z-152045426-10.ogg",
+      stem: "2026-05-28T10-50-04Z-152045426-10",
+      transcriptPath: "inbox/2026-05-28/2026-05-28T10-50-04Z-152045426-10.md",
+    })
   })
 
   it("can disable the audio artifact", async () => {

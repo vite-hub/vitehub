@@ -4,6 +4,8 @@ Transcription artifact persistence will be configured through `transcribe({ arti
 
 `artifacts.transcript.path` is the Transcript Workspace Path: one exact Workspace path for the transcript artifact. Directory, stem, and extension are derived from that path rather than configured as separate public fields. The source audio artifact is controlled through `artifacts.audio`; when enabled without `artifacts.audio.path`, it is written beside the transcript with the same stem and inferred audio extension.
 
+The default `stem` passed to artifact path callbacks is generated from the message timestamp and invocation message id, then sanitized for Workspace path use. This keeps common callbacks such as `inbox/${date}/${stem}.md` safe when chat platforms provide ids with punctuation.
+
 ## Considered Options
 
 - Keeping `transcribe({ workspace })` was rejected because it made artifact persistence look like a Workspace Definition. Capabilities consume declared Workspace access; they do not define the Workspace boundary.

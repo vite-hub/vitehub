@@ -197,6 +197,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - **Transcription Artifacts** consume an already-declared writable Workspace; they do not define, mutate, or replace the Agent's Workspace.
 - A **Transcript Workspace Path** is the canonical destination for persisted transcript artifacts; directory, stem, and extension are derived from that path instead of configured as separate public fields.
 - An **Audio Artifact** is disabled or relocated through `artifacts.audio`; when enabled without an explicit path, it is derived from the **Transcript Workspace Path**.
+- Transcription Artifacts expose a sanitized default `stem` to path callbacks so platform message ids do not leak unsafe Workspace path characters.
 - Provider transcription response format and **Transcription Artifacts** media type are separate concerns.
 - A **Workspace Capability** contributes Workspace tools without implying unrestricted process execution.
 - An **Access Capability** applies invocation-time access rules without mutating Workspace Definitions or granting new Capabilities dynamically.
