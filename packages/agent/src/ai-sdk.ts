@@ -283,6 +283,18 @@ function streamToolResultOutput(event: unknown): unknown {
   return undefined
 }
 
+function streamEventType(event: unknown): string | undefined {
+  return typeof event === "object" && event !== null && typeof (event as { type?: unknown }).type === "string"
+    ? (event as { type: string }).type
+    : undefined
+}
+
+function workspaceFallbackFinishEvent(finishEvent: unknown): unknown {
+  return typeof finishEvent === "object" && finishEvent !== null
+    ? { ...finishEvent, finishReason: "workspace-fallback", type: "finish" }
+    : { finishReason: "workspace-fallback", type: "finish" }
+}
+
 function cloneStreamTextResult<T extends object>(result: T, fullStream: AsyncIterable<unknown>): T {
   const clone = Object.create(Object.getPrototypeOf(result)) as T
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
@@ -303,6 +315,7 @@ function withWorkspaceFallbackFullStream(
   return (async function* () {
     let text = ""
     const evidence: string[] = []
+    let finishEvent: unknown
 
     for await (const event of stream) {
       text += streamEventText(event) || ""
@@ -310,16 +323,25 @@ function withWorkspaceFallbackFullStream(
       if (output !== undefined && evidence.length < maxToolResults) {
         evidence.push(JSON.stringify(output).slice(0, 4000))
       }
+      if (streamEventType(event) === "finish") {
+        finishEvent = event
+        continue
+      }
       yield event
     }
 
-    if (text.trim() || evidence.length === 0) return
+    if (text.trim() || evidence.length === 0) {
+      if (finishEvent) yield finishEvent
+      return
+    }
 
     const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence)
     if (synthesized) {
       yield { text: synthesized, type: "text-delta" }
-      yield { reason: "workspace-fallback", type: "finish" }
+      yield workspaceFallbackFinishEvent(finishEvent)
+      return
     }
+    if (finishEvent) yield finishEvent
   })()
 }
 
