@@ -141,24 +141,31 @@ function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
 }
 
 export function toAiSdkModelMessages(messages: Message[]): ModelMessage[] {
-  return messages.map((message) => {
-    if (message.role === "assistant") {
-      return {
-        content: toAssistantModelMessageContent(message.parts),
-        role: message.role,
+  return messages
+    .map((message): ModelMessage | undefined => {
+      if (message.role === "assistant") {
+        const content = toAssistantModelMessageContent(message.parts)
+        return hasModelMessageContent(content)
+          ? { content, role: message.role } as ModelMessage
+          : undefined
       }
-    }
-    if (message.role === "tool") {
-      return {
-        content: toToolModelMessageContent(message.parts),
-        role: message.role,
+      if (message.role === "tool") {
+        const content = toToolModelMessageContent(message.parts)
+        return hasModelMessageContent(content)
+          ? { content, role: message.role } as ModelMessage
+          : undefined
       }
-    }
-    return {
-      content: getMessageText(message) || toTextModelMessageContent(message.parts),
-      role: message.role,
-    }
-  }) as ModelMessage[]
+      const content = getMessageText(message) || toTextModelMessageContent(message.parts)
+      return hasModelMessageContent(content)
+        ? { content, role: message.role } as ModelMessage
+        : undefined
+    })
+    .filter((message): message is ModelMessage => Boolean(message))
+}
+
+function hasModelMessageContent(content: unknown): boolean {
+  if (typeof content === "string") return content.trim().length > 0
+  return Array.isArray(content) ? content.length > 0 : content != null
 }
 
 function getCallInput(context: AgentAdapterRunContext) {

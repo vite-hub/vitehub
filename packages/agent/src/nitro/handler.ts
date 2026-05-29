@@ -535,20 +535,26 @@ async function audioAttachmentPart(attachment: Attachment, index: number): Promi
   if (attachment.url) return { id, mediaType, type: "audio", url: attachment.url }
 }
 
-async function toUIMessage(message: ChatMessage, index: number) {
+async function toUIMessage(message: ChatMessage, index: number): Promise<AgentChatMessageTriggerInput["messages"][number] | undefined> {
   const attachments = (await Promise.all((message.attachments || []).map(audioAttachmentPart)))
     .filter((part): part is Record<string, unknown> => Boolean(part))
   const text = typeof message.text === "string" ? message.text : ""
+  const parts = [
+    ...(text ? [{ text, type: "text" }] : []),
+    ...attachments,
+  ]
+  if (!parts.length) return
   return {
     createdAt: messageCreatedAt(message),
     id: entityId(message) || `chat-message-${index}`,
     metadata: { source: "chat" },
-    parts: [
-      ...(text ? [{ text, type: "text" }] : []),
-      ...attachments,
-    ],
+    parts,
     role: (message as { author?: { isMe?: boolean } }).author?.isMe ? "assistant" : "user",
   }
+}
+
+function isChatTriggerMessage(message: AgentChatMessageTriggerInput["messages"][number] | undefined): message is AgentChatMessageTriggerInput["messages"][number] {
+  return Boolean(message)
 }
 
 function normalizeChatHistory(history: AgentChatOptions["history"]): { enabled: boolean, maxMessages: number } {
@@ -671,7 +677,7 @@ async function handleChatMessage(
     ? thread.post(options.fallbackStreamingPlaceholderText).catch(() => undefined) as Promise<SentMessage | undefined>
     : undefined
   const sourceMessages = await collectThreadMessages(thread, message, options.history)
-  const messages = await Promise.all(sourceMessages.map(toUIMessage))
+  const messages = (await Promise.all(sourceMessages.map(toUIMessage))).filter(isChatTriggerMessage)
   const run = createRunMetadata(platform, thread, channel, message)
   let thinkingFallback: string | undefined
   const triggerInput: AgentChatMessageTriggerInput = {

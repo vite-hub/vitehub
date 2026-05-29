@@ -159,6 +159,19 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("drops empty ViteHub messages before model conversion", async () => {
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
+
+    expect(toAiSdkModelMessages([
+      createMessage({ id: "m1", role: "user", text: "" }),
+      createMessage({ id: "m2", parts: [], role: "assistant" }),
+      createMessage({ id: "m3", parts: [], role: "tool" }),
+      createMessage({ id: "m4", role: "user", text: "hello" }),
+    ])).toEqual([
+      { content: "hello", role: "user" },
+    ])
+  })
+
   it("preserves structured tool history for model messages", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 

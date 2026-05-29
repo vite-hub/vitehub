@@ -286,6 +286,75 @@ describe("agent Nitro chat webhooks", () => {
     expect(output.events).toEqual(["post", "delete"])
   })
 
+  it("drops empty chat history messages before dispatching to the agent", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    const seen: string[][] = []
+    const adapter = createWebhookAdapter(output)
+    const fetchMessages = (adapter as unknown as { fetchMessages: ReturnType<typeof vi.fn> }).fetchMessages
+    fetchMessages.mockResolvedValueOnce({
+      messages: [
+        {
+          attachments: [],
+          author: { isBot: true, isMe: true, userId: "bot", userName: "Bot" },
+          formatted: { children: [], type: "root" },
+          id: "deleted-placeholder",
+          metadata: { dateSent: new Date("2026-05-28T09:59:00.000Z"), edited: false },
+          text: "",
+          threadId: "teams:dm:maxi",
+        },
+        {
+          attachments: [],
+          author: { isBot: false, isMe: false, userId: "maxi", userName: "Maxi" },
+          formatted: { children: [], type: "root" },
+          id: "history-message",
+          metadata: { dateSent: new Date("2026-05-28T10:00:00.000Z"), edited: false },
+          text: "previous message",
+          threadId: "teams:dm:maxi",
+        },
+      ],
+    })
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({
+          adapters: {
+            teams: () => adapter,
+          },
+          history: { maxMessages: 50, source: "thread" },
+          state: () => createMemoryState(),
+        })],
+        run(context) {
+          seen.push(context.messages.map(message => message.parts
+            .filter((part): part is { text: string, type: "text" } => part.type === "text")
+            .map(part => part.text)
+            .join("")))
+          return "agent answer"
+        },
+      }),
+    })
+
+    const response = await handler({
+      context: {
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      req: new Request("https://example.test/api/agents/support/chat/teams", {
+        body: JSON.stringify({ text: "hello from Teams" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("ok")
+    expect(seen).toEqual([["previous message", "hello from Teams"]])
+    expect(output.edits).toEqual(["agent answer"])
+  })
+
   it("uses process-local chat state when state is not configured", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
