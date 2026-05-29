@@ -84,7 +84,7 @@ function createMemoryState(): StateAdapter {
   }
 }
 
-function createWebhookAdapter(output: { edits: unknown[], posts: unknown[] }): Adapter {
+function createWebhookAdapter(output: { edits: unknown[], events?: string[], posts: unknown[] }): Adapter {
   let chat: ChatInstance | undefined
   const adapter = {
     addReaction: vi.fn(),
@@ -92,21 +92,32 @@ function createWebhookAdapter(output: { edits: unknown[], posts: unknown[] }): A
     decodeThreadId: (threadId: string) => ({ threadId }),
     deleteMessage: vi.fn(),
     editMessage: vi.fn(async (_threadId: string, id: string, message: unknown) => {
+      output.events?.push("edit")
       output.edits.push(message)
       return { id, threadId: _threadId }
     }),
     fetchMessages: vi.fn(async () => ({ messages: [] })),
     fetchThread: vi.fn(async (threadId: string) => ({ id: threadId, metadata: {} })),
     handleWebhook: vi.fn(async (request: Request) => {
-      const body = await request.json().catch(() => ({})) as { audio?: boolean, text?: string }
+      const body = await request.json().catch(() => ({})) as { audio?: boolean | "fetch", text?: string }
       await (chat as ChatInstance & { handleIncomingMessage: (adapter: Adapter, threadId: string, message: unknown) => Promise<void> }).handleIncomingMessage(adapter as unknown as Adapter, "teams:dm:maxi", {
         attachments: body.audio
-          ? [{
-              data: Buffer.from("AAAA"),
-              mimeType: "audio/ogg",
-              name: "voice.ogg",
-              type: "audio",
-            }]
+          ? [body.audio === "fetch"
+              ? {
+                  fetchData: async () => {
+                    output.events?.push("fetchData")
+                    return Buffer.from("AAAA")
+                  },
+                  mimeType: "audio/ogg",
+                  name: "voice.ogg",
+                  type: "audio",
+                }
+              : {
+                  data: Buffer.from("AAAA"),
+                  mimeType: "audio/ogg",
+                  name: "voice.ogg",
+                  type: "audio",
+                }]
           : [],
         author: { fullName: "Maxi", isBot: false, isMe: false, userId: "maxi", userName: "Maxi" },
         formatted: { children: [], type: "root" },
@@ -125,6 +136,7 @@ function createWebhookAdapter(output: { edits: unknown[], posts: unknown[] }): A
     name: "teams",
     parseMessage: vi.fn(),
     postMessage: vi.fn(async (threadId: string, message: unknown) => {
+      output.events?.push("post")
       output.posts.push(message)
       return { id: `posted-${output.posts.length}`, threadId }
     }),
@@ -379,7 +391,7 @@ describe("agent Nitro chat webhooks", () => {
   it("passes chat audio attachments to transcribe()", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
-    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    const output: { edits: unknown[], events: string[], posts: unknown[] } = { edits: [], events: [], posts: [] }
     const seenText: string[] = []
     const execute = vi.fn(async () => {
       expect(output.posts).toEqual(["Working..."])
@@ -414,7 +426,7 @@ describe("agent Nitro chat webhooks", () => {
         },
       },
       req: new Request("https://example.test/api/agents/support/chat/teams", {
-        body: JSON.stringify({ audio: true }),
+        body: JSON.stringify({ audio: "fetch" }),
         headers: { "content-type": "application/json" },
         method: "POST",
       }),
@@ -430,6 +442,7 @@ describe("agent Nitro chat webhooks", () => {
       }),
     })
     expect(output.posts).toEqual(["Working..."])
+    expect(output.events).toEqual(["post", "fetchData", "edit"])
     expect(seenText).toEqual(["audio transcript"])
     expect(output.edits).toEqual(["archived"])
   })

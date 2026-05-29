@@ -646,6 +646,9 @@ async function handleChatMessage(
   message: ChatMessage,
   channel?: Channel,
 ): Promise<void> {
+  let placeholderPromise: Promise<SentMessage | undefined> | undefined = typeof options.fallbackStreamingPlaceholderText === "string"
+    ? thread.post(options.fallbackStreamingPlaceholderText).catch(() => undefined) as Promise<SentMessage | undefined>
+    : undefined
   const sourceMessages = await collectThreadMessages(thread, message, options.history)
   const messages = await Promise.all(sourceMessages.map(toUIMessage))
   const run = createRunMetadata(platform, thread, channel, message)
@@ -660,14 +663,13 @@ async function handleChatMessage(
       name: message.author?.userName,
     },
   }
-  let placeholderPromise: Promise<SentMessage | undefined> | undefined
   const result = await streamAgentTrigger(agent, { ...context, run } as never, "chat.message", triggerInput, {
     output: "events",
     async onInvocation(invocation) {
       thinkingFallback = typeof invocation.metadata?.thinkingFallback === "string"
         ? invocation.metadata.thinkingFallback
         : undefined
-      placeholderPromise = thinkingFallback
+      placeholderPromise ||= thinkingFallback
         ? thread.post(thinkingFallback).catch(() => undefined) as Promise<SentMessage | undefined>
         : undefined
       await placeholderPromise
