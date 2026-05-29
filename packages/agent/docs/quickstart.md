@@ -14,7 +14,7 @@ This guide creates one discovered agent.
 ### Install Agent
 
 ```bash
-pnpm add @vitehub/agent ai
+pnpm add @vitehub/agent @ai-sdk/gateway ai
 ```
 
 ### Register the integration

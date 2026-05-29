@@ -78,4 +78,33 @@ describe("GitHub workspace store", () => {
     await expect(store.snapshot()).rejects.toThrow("cannot publish an empty snapshot")
     expect(requests).toEqual([])
   })
+
+  it("publishes delete-only snapshots after the last workspace file is removed", async () => {
+    const store = createGitHubWorkspaceStore({
+      branch: "feature/audio",
+      repo: "onmax/repo",
+      root: "workspace/root",
+      token: "token",
+    })
+
+    await store.writeFile("inbox/audio.md", { content: "hola", path: "inbox/audio.md", mediaType: "text/markdown" })
+    await store.snapshot({ name: "baseline" })
+    requests.length = 0
+
+    await store.rm("inbox/audio.md")
+    const snapshot = await store.snapshot({ name: "delete audio" })
+
+    expect(snapshot).toMatchObject({
+      entries: {},
+      files: [],
+      id: "commit-sha",
+      sha: "commit-sha",
+      url: "https://github.com/onmax/repo/commit/commit-sha",
+    })
+    expect(requests.map(request => request.path)).not.toContain("/repos/onmax/repo/git/blobs")
+    expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
+      base_tree: "base-tree",
+      tree: [{ path: "workspace/root/inbox/audio.md", sha: null }],
+    })
+  })
 })

@@ -125,13 +125,20 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
   async snapshot(options: SnapshotOptions = {}): Promise<GitHubWorkspaceCommitSnapshot> {
     const files = [...this.#files.values()]
-    if (!files.length) {
+    const root = resolveOption(this.options.root) || ""
+    const nextPaths = new Set(files.map(file => file.path))
+    const deletedEntries = Object.keys(this.#baseline?.entries || {})
+      .filter(path => !nextPaths.has(path))
+      .map(path => ({
+        path: joinGitPath(root, path),
+        sha: null,
+      }))
+    if (!files.length && !deletedEntries.length) {
       throw new WorkspaceError("[vitehub] GitHub workspace store cannot publish an empty snapshot.")
     }
 
     const { owner, repo } = splitRepository(requireOption("a repository", this.options.repo))
     const branch = requireOption("a branch", this.options.branch)
-    const root = resolveOption(this.options.root) || ""
     const refPath = `/repos/${owner}/${repo}/git/ref/heads/${branch}`
     const refsPath = `/repos/${owner}/${repo}/git/refs/heads/${branch}`
     const ref = await this.#github<{ object: { sha: string } }>(refPath)
@@ -140,13 +147,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       body: JSON.stringify({ content: Buffer.from(contentToBytes(file.content)).toString("base64"), encoding: "base64" }),
       method: "POST",
     })))
-    const nextPaths = new Set(files.map(file => file.path))
-    const deletedEntries = Object.keys(this.#baseline?.entries || {})
-      .filter(path => !nextPaths.has(path))
-      .map(path => ({
-        path: joinGitPath(root, path),
-        sha: null,
-      }))
     const tree = await this.#github<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, {
       body: JSON.stringify({
         base_tree: current.tree.sha,
