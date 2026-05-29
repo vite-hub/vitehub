@@ -372,13 +372,17 @@ describe("agent Nitro chat webhooks", () => {
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const seenText: string[] = []
-    const execute = vi.fn(async () => "audio transcript")
+    const execute = vi.fn(async () => {
+      expect(output.posts).toEqual(["Working..."])
+      return "audio transcript"
+    })
     const adapter = createWebhookAdapter(output)
     const handler = defineAgentChatWebhookRegistryHandler({
       support: async () => defineAgent({
         capabilities: [
           chat({
             adapters: () => ({ teams: adapter }),
+            fallbackStreamingPlaceholderText: "Working...",
             state: () => createMemoryState(),
           }),
           transcribe({ execute }),
@@ -416,6 +420,7 @@ describe("agent Nitro chat webhooks", () => {
         type: "audio",
       }),
     })
+    expect(output.posts).toEqual(["Working..."])
     expect(seenText).toEqual(["audio transcript"])
     expect(output.edits).toEqual(["archived"])
   })

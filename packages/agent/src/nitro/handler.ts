@@ -592,17 +592,20 @@ async function handleChatMessage(
       name: message.author?.userName,
     },
   }
+  let placeholderPromise: Promise<SentMessage | undefined> | undefined
   const result = await streamAgentTrigger(agent, { ...context, run } as never, "chat.message", triggerInput, {
     output: "events",
-    onInvocation(invocation) {
+    async onInvocation(invocation) {
       thinkingFallback = typeof invocation.metadata?.thinkingFallback === "string"
         ? invocation.metadata.thinkingFallback
         : undefined
+      placeholderPromise = thinkingFallback
+        ? thread.post(thinkingFallback).catch(() => undefined) as Promise<SentMessage | undefined>
+        : undefined
+      await placeholderPromise
     },
   })
-  const placeholder = thinkingFallback
-    ? await thread.post(thinkingFallback).catch(() => undefined) as SentMessage | undefined
-    : undefined
+  const placeholder = placeholderPromise ? await placeholderPromise : undefined
   await postAgentResult(thread, result, placeholder)
 }
 
