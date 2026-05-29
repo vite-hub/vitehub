@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { audioBytes, audioExtensionFor, createMessage, defineAgent, getTranscriptionResults, runAgent, transcribe } from "../src/index.ts"
+import { audioBytes, audioExtensionFor, getTranscriptionResults, transcribe } from "../src/capabilities.ts"
+import { createMessage, defineAgent, runAgent } from "../src/index.ts"
 
 const runtime = () => ({
   memo: vi.fn(),

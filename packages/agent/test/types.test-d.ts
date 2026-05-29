@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, inputCommands as rootInputCommands, type AgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
 import { blob, db, fetch, inputCommands, kv, mcp, sandbox, schedule, skills, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -137,14 +137,9 @@ describe("agent public types", () => {
       },
     })
 
-    rootInputCommands({
-      commands: {
-        review: {
-          description: "Review the request.",
-          run: () => undefined,
-        },
-      },
-    })
+    type RootAgentExports = typeof import("../src/index.ts")
+    // @ts-expect-error official capability factories are not root Agent Package exports
+    type _RootInputCommands = RootAgentExports["inputCommands"]
   })
 
   it("accepts agent eval definitions", () => {

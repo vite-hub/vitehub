@@ -1,4 +1,5 @@
-import { chat, defineAgent, transcribe } from "@vitehub/agent"
+import { defineAgent } from "@vitehub/agent"
+import { chat, transcribe } from "@vitehub/agent/capabilities"
 
 import type { AgentAdapter, AgentAdapterResult, AgentAdapterRunContext, MaybePromise, StreamEvent } from "@vitehub/agent"
 

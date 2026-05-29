@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMessage } from "@vitehub/agent"
+import { chat, chatTitle, schedule } from "../src/capabilities.ts"
 
 describe("agent message protocol", () => {
   it("creates inline schedule capabilities without requiring chat history", async () => {
-    const { defineAgent, schedule } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
     const agent = defineAgent({
       capabilities: [schedule({ schedules: ["0   9 * * *", { cron: "15 10 * * 1-5", id: "weekday-digest" }] })],
@@ -543,7 +544,7 @@ describe("agent message protocol", () => {
   })
 
   it("emits chat title data for the first user message in streams", async () => {
-    const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(({ text }) => `Title: ${text}`)
     const agent = defineAgent({
       capabilities: [chatTitle({ execute })],
@@ -580,7 +581,7 @@ describe("agent message protocol", () => {
   })
 
   it("keeps streaming when chat title generation fails", async () => {
-    const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => { throw new Error("title failed") } })],
       run: () => (async function* () {
@@ -621,7 +622,7 @@ describe("agent message protocol", () => {
     }))
 
     try {
-      const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+      const { defineAgent, streamAgent } = await import("../src/index.ts")
       const agent = defineAgent({
         capabilities: [chatTitle({ execute: () => "Adapter title" })],
         model: {} as never,
@@ -646,7 +647,7 @@ describe("agent message protocol", () => {
   })
 
   it("preserves stream result methods when adding chat title data to full streams", async () => {
-    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     class StreamResult {
       metadata = { id: "stream-result-1" }
@@ -686,7 +687,7 @@ describe("agent message protocol", () => {
   })
 
   it("preserves text stream result metadata when adding chat title data", async () => {
-    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     class TextStreamResult {
       metadata = { usage: "kept" }
@@ -727,7 +728,7 @@ describe("agent message protocol", () => {
   })
 
   it("exposes chat title finish extension without registering command metadata", async () => {
-    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: ({ text }) => ({ title: `Title: ${text}` }) })],
@@ -1124,7 +1125,7 @@ describe("agent message protocol", () => {
 
   it("resolves registry metadata for chat-capable DevTools agents", async () => {
     const { createApp, toWebHandler } = await import("h3")
-    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
     const handler = defineAgentDevtoolsRegistryHandler({
@@ -1162,7 +1163,7 @@ describe("agent message protocol", () => {
   it("streams DevTools sends without timer state polling and returns final assistant state", async () => {
     const { createUIMessageStream } = await import("ai")
     const { createApp, toWebHandler } = await import("h3")
-    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const setIntervalSpy = vi.spyOn(globalThis, "setInterval")
     const app = createApp()
@@ -1239,7 +1240,7 @@ describe("agent message protocol", () => {
   it("passes prior DevTools UI messages back into follow-up AI SDK sends", async () => {
     const { createUIMessageStream } = await import("ai")
     const { createApp, toWebHandler } = await import("h3")
-    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
     const seenHistory: Array<Array<{ role: string, text: string }>> = []
@@ -1295,7 +1296,7 @@ describe("agent message protocol", () => {
   it("honors chat history limits for DevTools AI SDK sends", async () => {
     const { createUIMessageStream } = await import("ai")
     const { createApp, toWebHandler } = await import("h3")
-    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
     const seenHistory: Array<string[]> = []
@@ -1339,7 +1340,7 @@ describe("agent message protocol", () => {
   })
 
   it("selects chat history from the current idle-timeout session", async () => {
-    const { chat, defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chat({
         history: { maxMessages: 10, source: "thread" },
@@ -1367,7 +1368,7 @@ describe("agent message protocol", () => {
   })
 
   it("defaults zero-argument chat options and preserves completed UI tool calls", async () => {
-    const { chat, defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chat()],
       run: () => "ok",
@@ -1421,7 +1422,7 @@ describe("agent message protocol", () => {
   })
 
   it("selects chat history from the requested manual session", async () => {
-    const { chat, defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chat({
         history: { maxMessages: 10, source: "thread" },
@@ -1456,7 +1457,7 @@ describe("agent message protocol", () => {
   it("clears AI SDK DevTools UI message history", async () => {
     const { createUIMessageStream } = await import("ai")
     const { createApp, toWebHandler } = await import("h3")
-    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
     const agent = defineAgent({
@@ -1502,7 +1503,7 @@ describe("agent message protocol", () => {
 
   it("requires streaming for registry DevTools sends through the AI SDK path", async () => {
     const { createApp, toWebHandler } = await import("h3")
-    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
     const agent = defineAgent({
@@ -1550,7 +1551,7 @@ describe("agent message protocol", () => {
 
   it("returns a bad request for malformed text chat devtools payloads", async () => {
     const { createApp, toWebHandler } = await import("h3")
-    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
     app.use(defineAgentDevtoolsRegistryHandler({

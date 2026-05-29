@@ -4,6 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
+import { chat, transcribe } from "../src/capabilities.ts"
 import type { Adapter, ChatInstance, StateAdapter } from "chat"
 
 async function createTempRoot(prefix: string) {
@@ -175,7 +176,7 @@ describe("agent Nitro chat webhooks", () => {
   })
 
   it("resolves inline chat adapter maps at request time and dispatches to chat.message", async () => {
-    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const seen: string[] = []
@@ -228,7 +229,7 @@ describe("agent Nitro chat webhooks", () => {
   })
 
   it("uses process-local chat state when state is not configured", async () => {
-    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const seen: string[] = []
@@ -273,7 +274,7 @@ describe("agent Nitro chat webhooks", () => {
   })
 
   it("passes configured thread history size as the adapter fetch limit", async () => {
-    const { chat, defineAgent } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const adapter = createWebhookAdapter(output)
@@ -315,7 +316,7 @@ describe("agent Nitro chat webhooks", () => {
   })
 
   it("passes chat audio attachments to transcribe()", async () => {
-    const { chat, defineAgent, transcribe } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const seenText: string[] = []

@@ -140,6 +140,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 
 - An Agent attaches zero or more **Capabilities**.
 - Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
+- Official Capability factories and Capability-owned helper functions are imported from `@vitehub/agent/capabilities`, not from the root `@vitehub/agent` Agent Package entry.
 - Official helpers should map to product abilities rather than implementation mechanisms.
 - A **Capability Definition** may provide a **Capability Trigger Contribution** when the ability needs to start Agent Invocations from a product event.
 - A **Capability Trigger Contribution** is composed from `defineAgent({ capabilities })`, not registered through a separate helper.
@@ -258,6 +259,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Requiring users to attach one Capability per internal mechanism was considered - resolved: users attach one Capability per product ability, and official Capabilities can own their natural Input Command surface when that command is part of the expected user experience.
 - Storage Capability options were described as access levels in an older PR - resolved: official primitive Capabilities use `mode` for read/write exposure, while `access` is older proposal language.
 - Storage helpers were considered examples around raw tools - resolved: KV, Blob, and DB helpers are first-class official **Capabilities**.
+- Root Agent Package exports were considered convenient for official Capability factories - resolved: keep official Capability factories and their companion helpers on `@vitehub/agent/capabilities` so the root entry stays focused on Agent Definition and invocation primitives.
 - Storage Capabilities were considered as direct primitive method proxies - resolved: official storage Capabilities should stay small with read/edit tools rather than method fanout.
 - DB storage permission was considered one mode - resolved: DB separates data `mode` from **Schema Mode** because data reads/writes and schema inspection/changes are different authorities.
 - Storage write mode was considered enough to allow immediate mutations - resolved: write exposure and approval policy are separate, so developers can opt into **Autonomous Storage Writes** explicitly.

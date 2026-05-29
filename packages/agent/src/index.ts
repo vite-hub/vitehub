@@ -4,7 +4,7 @@ import {
   ApprovalRequiredError,
   resolveRuntimeContext,
 } from "@vitehub/runtime"
-import { chat, getChatCapabilityOptions } from "./chat-trigger.ts"
+import { getChatCapabilityOptions } from "./chat-trigger.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 
 import {
@@ -74,7 +74,6 @@ import type {
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
 import type { Message, StreamEvent } from "./messages.ts"
-import type { AgentChatMessageTriggerInput } from "./chat-trigger.ts"
 import type { ResolvedAgentTriggerInvocation } from "./trigger-runtime.ts"
 import type {
   ReadonlyWorkspaceFacade,
@@ -287,10 +286,7 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { agentScheduleIdFromCron, audioBytes, audioExtensionFor, blob, chatSummary, chatTitle, db, getTranscriptionResults, inputCommands, kv, LlmGateRejectedError, llmGate, llmRoute, mcp, sandbox, schedule, skills, transcribe, TRANSCRIPTION_RESULTS_CONTEXT_KEY, webSearch, workspaceShell } from "./capabilities.ts"
-export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, ChatSummaryCommandOptions, ChatSummaryExecuteInput, ChatSummaryExecuteResult, ChatSummaryOptions, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, LlmDecisionChoiceDefinition, LlmDecisionChoiceMap, LlmGateDecision, LlmGateOptions, LlmRouteDecision, LlmRouteOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, TranscribeWorkspaceAudioOptions, TranscribeWorkspaceOptions, TranscribeWorkspaceTemplateInput, TranscribeWorkspaceTranscriptOptions, TranscriptionResult, WebSearchOptions } from "./capabilities.ts"
-export { chat }
-export type { AgentChatMessageTriggerInput, ResolvedAgentTriggerInvocation }
+export type { ResolvedAgentTriggerInvocation }
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -361,25 +357,6 @@ function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtools
       }
     : undefined
 }
-
-export {
-  normalizeAgentUsage,
-  staticModelPricing,
-  usageTelemetry,
-  vercelAiGatewayPricing,
-} from "./capabilities/usage-telemetry.ts"
-export type {
-  InputCommand,
-  InputCommandRunInput,
-  InputCommandsOptions,
-} from "./capabilities.ts"
-export type {
-  AgentUsagePricing,
-  AgentUsagePricingContext,
-  StaticModelPrice,
-  UsageTelemetryOptions,
-  VercelAiGatewayPricingOptions,
-} from "./capabilities/usage-telemetry.ts"
 
 function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

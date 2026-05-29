@@ -102,7 +102,8 @@ Attach the Chat Capability to the discovered Agent. DevTools and host routes con
 
 ```ts [server/agents/triager.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { chat, defineAgent } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
+import { chat } from '@vitehub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [chat({ concurrency: 'queue', history: { source: 'thread', maxMessages: 20 } })],

@@ -32,8 +32,8 @@ Source, test it in DevTools, and turn the expected answer into an Agent Eval.
 ::code-tree-intersection{default}
 ```ts [server/agents/support/config.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { chat, defineAgent } from '@vitehub/agent'
-import { workspaceShell } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vitehub/agent'
+import { chat, workspaceShell } from '@vitehub/agent/capabilities'
 import { source } from '@vitehub/workspace'
 
 export default defineAgent({
@@ -116,7 +116,7 @@ Register the integrations for your framework:
 ::fw{id="vite:dev vite:build"}
 ::code-tree-intersection
 ```ts [vite.config.ts]
-import { hubAgent, hubChatDevtools } from '@vitehub/agent/vite'
+import { hubAgent } from '@vitehub/agent/vite'
 import { hubDevtools } from '@vitehub/devtools'
 import { hubWorkspace } from '@vitehub/workspace/vite'
 import { DevTools } from '@vitejs/devtools'
@@ -129,7 +129,6 @@ export default defineConfig(async () => ({
     hubDevtools(),
     hubWorkspace(),
     hubAgent(),
-    hubChatDevtools(),
     nitro(),
   ],
 }))
@@ -158,8 +157,7 @@ The Vite plugins split the local wiring into small pieces:
 - `DevTools()` adds the Vite DevTools shell.
 - `hubDevtools()` adds the ViteHub panel.
 - `hubWorkspace()` registers Workspace Sources.
-- `hubAgent()` discovers Agent Definitions.
-- `hubChatDevtools()` connects Chat-capable Agents to DevTools.
+- `hubAgent()` discovers Agent Definitions and connects Chat-capable Agents to DevTools.
 - `nitro()` gives the app a Nitro server runtime.
 ::
 
@@ -190,7 +188,8 @@ Start with chat and a short instruction:
 ::code-tree-intersection
 ```ts [server/agents/support/config.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { chat, defineAgent } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
+import { chat } from '@vitehub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [
@@ -244,8 +243,8 @@ Workspace Source and attach the Workspace Shell Capability:
 ::code-tree-intersection
 ```ts [server/agents/support/config.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { chat, defineAgent } from '@vitehub/agent'
-import { workspaceShell } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vitehub/agent'
+import { chat, workspaceShell } from '@vitehub/agent/capabilities'
 import { source } from '@vitehub/workspace'
 
 export default defineAgent({

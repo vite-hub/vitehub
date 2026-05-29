@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMessage } from "@vitehub/agent"
+import { llmGate, llmRoute } from "../src/capabilities.ts"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -26,7 +27,7 @@ describe("LLM decision capabilities", () => {
     const generateText = mockAiDecision({ choice: "support", confidence: 0.8, reason: "User asks for account help." })
 
     try {
-      const { defineAgent, llmRoute, runAgent } = await import("../src/index.ts")
+      const { defineAgent, runAgent } = await import("../src/index.ts")
       const agent = defineAgent({
         capabilities: [
           llmRoute({
@@ -63,7 +64,7 @@ describe("LLM decision capabilities", () => {
     mockAiDecision({ allowed: false, category: "unsafe", reason: "The request is unsafe." })
 
     try {
-      const { defineAgent, llmGate, runAgent } = await import("../src/index.ts")
+      const { defineAgent, runAgent } = await import("../src/index.ts")
       const agent = defineAgent({
         capabilities: [
           llmGate({

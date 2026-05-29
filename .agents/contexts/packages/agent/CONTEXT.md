@@ -54,6 +54,7 @@ _Avoid_: User route handler, adapter registration API, Chat Capability definitio
 - A **Chat Webhook Handler** consumes resolved Chat Capability options and platform adapters; it does not declare Chat Capability behavior itself.
 - A **Chat Webhook Route** is automatic for discovered chat-capable Agents and does not require a public registration helper or app-owned route file.
 - The **Agent Package** owns Agent capability composition.
+- The root `@vitehub/agent` entry exports Agent Definition, invocation, message, and generic composition primitives; official Capability factories live on `@vitehub/agent/capabilities`.
 - The **Agent Package** owns chat behavior after the **Chat Package Migration**.
 - **Chat Definition Removal** means chat behavior is discovered through Agent Definitions that attach the Chat Capability, not through chat definitions, chat modules, or standalone chat discovery.
 - A discovered Agent Definition that attaches the Chat Capability is implicitly chat-capable; no separate chat route option, chat module, or chat registry declares that capability.
@@ -85,3 +86,4 @@ _Avoid_: User route handler, adapter registration API, Chat Capability definitio
 - Rebuilding DevTools as a chat-specific integration was considered - resolved: DevTools should consume Agent Triggers immediately, with chat as the first demonstrated trigger.
 - Full multi-agent chat selection in DevTools was deferred during **Chat Definition Removal** - resolved: the first cleanup can support the first discovered Agent with a `chat.message` trigger to keep the new pattern small.
 - App-owned Teams webhook files and public webhook registration helpers were considered for ChatSDK adapters - resolved: the Agent Package owns automatic **Chat Webhook Routes** that consume Chat Capability adapter configuration.
+- Root-exporting Chat and other official Capability factories was considered for quickstart convenience - resolved: import them from `@vitehub/agent/capabilities` so Chat remains visibly a Capability and the Agent Package root does not become an ability grab bag.

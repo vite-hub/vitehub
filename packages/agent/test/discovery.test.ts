@@ -113,14 +113,16 @@ describe("agent chat capability discovery", () => {
     const root = await createTempRoot("vitehub-agent-chat-identity-")
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), [
-      "import { chat, defineAgent } from '@vitehub/agent'",
+      "import { defineAgent } from '@vitehub/agent'",
+      "import { chat } from '@vitehub/agent/capabilities'",
       "export default defineAgent({",
       "  name: 'renamed-support',",
       "  capabilities: [chat({ concurrency: 'queue', events: ['directMessage'] })],",
       "})",
     ].join("\n"), "utf8")
     await writeFile(join(root, "server", "agents", "docs", "config.ts"), [
-      "import { chat, defineAgent } from '@vitehub/agent'",
+      "import { defineAgent } from '@vitehub/agent'",
+      "import { chat } from '@vitehub/agent/capabilities'",
       "export default defineAgent({",
       "  name: 'renamed-docs',",
       "  workspace: {},",
@@ -128,7 +130,8 @@ describe("agent chat capability discovery", () => {
       "})",
     ].join("\n"), "utf8")
     await writeFile(join(root, "server", "agent.ts"), [
-      "import { chat, defineAgent } from '@vitehub/agent'",
+      "import { defineAgent } from '@vitehub/agent'",
+      "import { chat } from '@vitehub/agent/capabilities'",
       "export const legacy = defineAgent({ capabilities: [chat({ concurrency: 'queue', events: ['directMessage'] })] })",
     ].join("\n"), "utf8")
 
@@ -141,10 +144,10 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
-  it("registers the chat devtools bridge through hubChatDevtools by default", async () => {
+  it("registers the chat devtools bridge through hubAgent by default", async () => {
     const root = await createTempRoot("vitehub-agent-chat-devtools-")
     const buildDir = ".nitro"
-    const plugin = (await import("../src/vite.ts")).hubChatDevtools()
+    const plugin = (await import("../src/vite.ts")).hubAgent()
     const nitro = {
       hooks: {
         hook: vi.fn(),
@@ -173,7 +176,7 @@ describe("agent chat capability discovery", () => {
   it("deduplicates chat devtools bridge handlers by method and route", async () => {
     const root = await createTempRoot("vitehub-agent-chat-devtools-dedupe-")
     const buildDir = ".nitro"
-    const plugin = (await import("../src/vite.ts")).hubChatDevtools()
+    const plugin = (await import("../src/vite.ts")).hubAgent()
     const nitro = {
       hooks: {
         hook: vi.fn(),
@@ -199,8 +202,8 @@ describe("agent chat capability discovery", () => {
     expect(nitro.options.handlers.filter(handler => handler.method === "POST" && handler.route === "/__vitehub/agent/chat/devtools")).toHaveLength(1)
   })
 
-  it("registers the chat devtools feature through hubChatDevtools by default", async () => {
-    const plugin = (await import("../src/vite.ts")).hubChatDevtools()
+  it("registers the chat devtools feature through hubAgent by default", async () => {
+    const plugin = (await import("../src/vite.ts")).hubAgent()
     const ctx = {
       messages: {
         add: vi.fn(),
@@ -227,7 +230,7 @@ describe("agent chat capability discovery", () => {
   it("skips chat devtools feature and bridge when package-local devtools are disabled", async () => {
     const root = await createTempRoot("vitehub-agent-chat-devtools-disabled-")
     const buildDir = ".nitro"
-    const plugin = (await import("../src/vite.ts")).hubChatDevtools({ devtools: false })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
     const ctx = {
       messages: {
         add: vi.fn(),

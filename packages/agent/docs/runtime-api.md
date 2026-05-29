@@ -18,17 +18,19 @@ import {
   getAgent,
   runAgent,
   streamAgent,
-  usageTelemetry,
-  vercelAiGatewayPricing,
 } from '@vitehub/agent'
 import {
-  workspaceShell,
   blob,
+  chat,
   db,
   kv,
   mcp,
   sandbox,
   skills,
+  transcribe,
+  usageTelemetry,
+  vercelAiGatewayPricing,
+  workspaceShell,
 } from '@vitehub/agent/capabilities'
 import {
   callsTool,
@@ -40,7 +42,7 @@ import {
 } from '@vitehub/agent/eval'
 ```
 
-In Nitro, the module auto-imports `defineAgent` for discovered agent definitions. Capability factories such as `workspaceShell()` stay explicit imports because they expose model-facing tools.
+In Nitro, the module auto-imports `defineAgent` for discovered agent definitions. Official Capability factories such as `chat()` and `workspaceShell()` stay explicit imports from `@vitehub/agent/capabilities`.
 
 ::fw{id="vite:dev vite:build"}
 ```ts
@@ -283,10 +285,22 @@ Agent callbacks receive runtime host metadata, but not raw runtime config. Use `
 
 ```ts
 interface AgentModuleOptions {
+  devtools?: false
   route?: boolean | string
   runtime?: 'auto' | 'nitro' | 'vercel' | 'cloudflare-agents'
   execution?: 'inline' | 'workflow' | 'sandbox'
   imports?: boolean
+  eval?: false | {
+    cache?: boolean
+    forceRerunTriggers?: string[]
+    hideTable?: boolean
+    maxConcurrency?: number
+    scoreThreshold?: number
+    server?: { port?: number }
+    setupFiles?: string[]
+    testTimeout?: number
+    trialCount?: number
+  }
   integrations?: {
     workflow?: 'auto' | boolean
     sandbox?: 'auto' | boolean

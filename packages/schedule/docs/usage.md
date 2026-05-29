@@ -136,7 +136,8 @@ Read [Boundaries](./boundaries) before running more than one process against the
 Use inline Agent Schedules when the Agent Definition itself should be invoked on recurring cron entries:
 
 ```ts
-import { defineAgent, schedule } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
+import { schedule } from '@vitehub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [
@@ -159,7 +160,8 @@ String entries get ids from the cron expression, such as `schedule-0-9`. Object 
 Use `schedule({ mode, policy })` when the model should read or manage scoped Runtime Schedules:
 
 ```ts
-import { defineAgent, schedule } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
+import { schedule } from '@vitehub/agent/capabilities'
 import type { ScheduleTargetName } from '#vitehub/schedule/targets'
 
 export default defineAgent({

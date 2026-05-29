@@ -106,6 +106,27 @@ export default defineEval({
 
 V1 variants only change `name`, `model`, and replacement `instructions`. Capability, workspace, custom `run`, and provider changes should use another Agent Definition.
 
+Configure Agent Eval runner defaults through the Agent integration:
+
+```ts [vite.config.ts]
+import { hubAgent } from '@vitehub/agent/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    hubAgent({
+      eval: {
+        forceRerunTriggers: ['server/agents/support/**'],
+        maxConcurrency: 1,
+        testTimeout: 300000,
+      },
+    }),
+  ],
+})
+```
+
+ViteHub writes the Evalite engine config under `.vitehub/agent` before the Agent Eval Runner starts.
+
 ## Expose an HTTP route
 
 Routes are disabled by default. Enable them when another server needs to call an agent over HTTP.
@@ -145,7 +166,8 @@ Pass a route string when `/agents/[agent]` does not fit your app.
 Use `usageTelemetry()` when a finished agent result should include normalized model usage and an accounting record.
 
 ```ts [server/agents/triager.ts]
-import { defineAgent, usageTelemetry, vercelAiGatewayPricing } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
+import { usageTelemetry, vercelAiGatewayPricing } from '@vitehub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [
@@ -196,7 +218,8 @@ export default defineAgent({
 Use `transcribe()` when an agent should receive audio message parts as text before the model or custom `run` handler executes. The capability appends transcript text to the same ViteHub message, so downstream code can keep reading text parts.
 
 ```ts [server/agents/support.ts]
-import { defineAgent, transcribe } from '@vitehub/agent'
+import { defineAgent } from '@vitehub/agent'
+import { transcribe } from '@vitehub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [
@@ -260,6 +283,9 @@ export default defineAgent({
 Chat is an Agent Capability. Attach it to the discovered Agent; hosts and DevTools call its `chat.message` trigger through the Agent Trigger API.
 
 ```ts [server/agents/triager.ts]
+import { defineAgent } from '@vitehub/agent'
+import { chat } from '@vitehub/agent/capabilities'
+
 export default defineAgent({
   capabilities: [chat({ concurrency: 'queue' })],
   model,
@@ -269,6 +295,9 @@ export default defineAgent({
 Use the capability options to customize history.
 
 ```ts [server/agents/triager.ts]
+import { defineAgent } from '@vitehub/agent'
+import { chat } from '@vitehub/agent/capabilities'
+
 export default defineAgent({
   capabilities: [chat({ concurrency: 'queue', history: { source: 'thread', maxMessages: 20 } })],
   model,

@@ -1,4 +1,7 @@
 export {
+  chat,
+} from "../chat-trigger.ts"
+export {
   chatSummary,
 } from "./chat-summary.ts"
 export {
@@ -63,6 +66,20 @@ export {
   webSearch,
 } from "./web-search/index.ts"
 
+export type {
+  AgentChatMessageTriggerInput,
+} from "../chat-trigger.ts"
+export type {
+  AgentChatAdapterResolver,
+  AgentChatAdaptersResolver,
+  AgentChatAgentBindingOptions,
+  AgentChatAgentHookArgs,
+  AgentChatEventHookArgs,
+  AgentChatEventHooks,
+  AgentChatOptions,
+  AgentChatSessionOptions,
+  AgentChatWebhookRegistrationDefinition,
+} from "../types.ts"
 export type {
   ChatSummaryCommandOptions,
   ChatSummaryExecuteInput,
