@@ -471,6 +471,7 @@ export interface AgentCliOptions {
 
 export interface AgentModuleOptions {
   cli?: false | AgentCliOptions
+  devtools?: false
   execution?: AgentExecution
   imports?: boolean
   integrations?: AgentIntegrationsOptions

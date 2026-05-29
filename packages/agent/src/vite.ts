@@ -1,11 +1,10 @@
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vitehub/internal/build/vite"
 
 import { chatDevTools } from "./chat/devtools.ts"
-import agentNitroModule from "./nitro/module.ts"
+import { agentNitro } from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
-import type { ChatDevToolsOptions, ChatDevToolsPlugin } from "./chat/devtools.ts"
 import type { AgentModuleOptions } from "./types.ts"
 
 interface AgentCliContributingPlugin {
@@ -19,16 +18,37 @@ export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & { nitro: Nit
 const agentPackageName = "@vitehub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
 
-export function hubChatDevtools(options?: ChatDevToolsOptions): ChatDevToolsPlugin {
-  return chatDevTools(options)
+function agentDevtoolsEnabled(agent: AgentModuleOptions | false | undefined): boolean {
+  return agent !== false && agent?.devtools !== false
+}
+
+function configuredNitroAgent(nitro: unknown): AgentModuleOptions | false | undefined {
+  return (nitro as { options?: { agent?: AgentModuleOptions | false } }).options?.agent
 }
 
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let agent: AgentModuleOptions | false | undefined = options
+  const chatDevtoolsPlugin = chatDevTools()
 
   return {
     name: "@vitehub/agent/vite",
-    nitro: agentNitroModule,
+    nitro: {
+      name: "@vitehub/agent/vite",
+      async setup(nitro) {
+        const configured = configuredNitroAgent(nitro) ?? agent
+        await agentNitro(configured).setup(nitro)
+        if (agentDevtoolsEnabled(configured)) {
+          await chatDevtoolsPlugin.nitro.setup(nitro)
+        }
+      },
+    },
+    devtools: {
+      setup(ctx) {
+        if (agentDevtoolsEnabled(agent)) {
+          return chatDevtoolsPlugin.devtools?.setup?.(ctx)
+        }
+      },
+    },
     vitehub: {
       cli: async () => {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")

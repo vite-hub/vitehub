@@ -147,12 +147,12 @@ export default defineConfig(async () => {
 
   if (buildMode === VITEHUB_MODES.chat) {
     const { DevTools } = await import("@vitejs/devtools")
-    const { hubAgent, hubChatDevtools } = await import("@vitehub/agent/vite")
+    const { hubAgent } = await import("@vitehub/agent/vite")
     const { hubDevtools } = await import("@vitehub/devtools")
     return {
       ...baseConfig,
       agent: {},
-      plugins: [...await DevTools(), hubDevtools(), hubAgent(), hubChatDevtools()],
+      plugins: [...await DevTools(), hubDevtools(), hubAgent()],
       server: {
         proxy: {
           "/__vitehub": process.env.VITEHUB_NITRO_DEV_ORIGIN || "http://127.0.0.1:3000",
