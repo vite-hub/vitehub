@@ -57,7 +57,6 @@ interface RequestLike {
 }
 
 export interface AgentChatWebhookRegistryHandlerOptions {
-  agent?: string
   agentParam?: string
   platform?: string
   platformParam?: string
@@ -1092,7 +1091,7 @@ export function defineAgentChatWebhookRegistryHandler(
   const platformParam = options.platformParam || "platform"
 
   return defineEventHandler(async (event) => {
-    const agentName = options.agent || getRouterParam(event, agentParam)
+    const agentName = getRouterParam(event, agentParam)
     if (!agentName) {
       throw createError({
         statusCode: 400,

@@ -154,7 +154,7 @@ describe("agent Nitro chat webhooks", () => {
     const root = await createTempRoot("vitehub-agent-chat-webhook-route-")
     const buildDir = ".nitro"
     await mkdir(join(root, "server", "agents"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support.ts"), "export default defineAgent({ capabilities: [chat({ adapters: {}, state: {}, webhooks: { telegram: { path: '/api/webhooks/telegram' } } })], run: () => 'ok' })", "utf8")
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default defineAgent({ capabilities: [chat({ adapters: {}, state: {} })], run: () => 'ok' })", "utf8")
 
     const module = (await import("../src/nitro/module.ts")).default
     const nitro = {
@@ -177,18 +177,11 @@ describe("agent Nitro chat webhooks", () => {
 
     const chatWebhookRouteFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "chat-webhook-handler.ts")
     await expect(readFile(chatWebhookRouteFile, "utf8")).resolves.toContain("defineAgentChatWebhookRegistryHandler(agentRegistry)")
-    const customChatWebhookRouteFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "chat-webhook.support.telegram._sapi_swebhooks_stelegram.ts")
-    await expect(readFile(customChatWebhookRouteFile, "utf8")).resolves.toContain("defineAgentChatWebhookRegistryHandler(agentRegistry, { agent: \"support\", platform: \"telegram\" })")
     expect(nitro.options.handlers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         handler: chatWebhookRouteFile,
         method: "POST",
         route: "/api/agents/:agent/chat/:platform",
-      }),
-      expect.objectContaining({
-        handler: customChatWebhookRouteFile,
-        method: "POST",
-        route: "/api/webhooks/telegram",
       }),
     ]))
     expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([
@@ -348,13 +341,16 @@ describe("agent Nitro chat webhooks", () => {
           return "agent answer"
         },
       }),
-    }, { agent: "support", platform: "telegram" })
+    })
 
     await expect(handler({
       context: {
-        params: {},
+        params: {
+          agent: "support",
+          platform: "telegram",
+        },
       },
-      req: new Request("https://example.test/api/webhooks/telegram", {
+      req: new Request("https://example.test/api/agents/support/chat/telegram", {
         body: JSON.stringify({ text: "hello from Telegram" }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -366,9 +362,12 @@ describe("agent Nitro chat webhooks", () => {
 
     const response = await handler({
       context: {
-        params: {},
+        params: {
+          agent: "support",
+          platform: "telegram",
+        },
       },
-      req: new Request("https://example.test/api/webhooks/telegram", {
+      req: new Request("https://example.test/api/agents/support/chat/telegram", {
         body: JSON.stringify({ text: "hello from Telegram" }),
         headers: {
           "content-type": "application/json",
