@@ -1,5 +1,5 @@
 {
-  "name": "vite-hub",
+  "name": "@vite-hub/cli",
   "version": "0.0.0",
   "description": "Command-line workflows for ViteHub projects.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -18,8 +18,7 @@
     "eval"
   ],
   "bin": {
-    "vite-hub": "./dist/index.js",
-    "vitehub": "./dist/index.js"
+    "vitehub": "dist/index.js"
   },
   "sideEffects": false,
   "type": "module",

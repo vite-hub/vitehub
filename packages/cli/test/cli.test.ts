@@ -66,7 +66,7 @@ describe("ViteHub CLI", () => {
     })
 
     expect(exitCode).toBe(0)
-    expect(stdout.output()).toContain("Usage: vite-hub agent <feature>")
+    expect(stdout.output()).toContain("Usage: vitehub agent <feature>")
     expect(stdout.output()).toContain("eval")
   })
 

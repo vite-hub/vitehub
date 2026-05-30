@@ -128,7 +128,7 @@ async function collectViteHubCliNamespaces(plugins: readonly unknown[]): Promise
 
 function writeRootHelp(namespaces: ViteHubCliCommandNamespace[], stdout: ViteHubCliContext["stdout"]): void {
   stdout.write([
-    "Usage: vite-hub <namespace> <feature> [args...]",
+    "Usage: vitehub <namespace> <feature> [args...]",
     "",
     "Available namespaces:",
     ...namespaces.map(namespace => `  ${namespace.name.padEnd(12)} ${namespace.description || ""}`.trimEnd()),
@@ -138,7 +138,7 @@ function writeRootHelp(namespaces: ViteHubCliCommandNamespace[], stdout: ViteHub
 
 function writeNamespaceHelp(namespace: ViteHubCliCommandNamespace, stdout: ViteHubCliContext["stdout"]): void {
   stdout.write([
-    `Usage: vite-hub ${namespace.name} <feature> [args...]`,
+    `Usage: vitehub ${namespace.name} <feature> [args...]`,
     "",
     namespace.description || "",
     "",
