@@ -750,6 +750,40 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).toBe(result)
   })
 
+  it("emits chat title data for UI message streams", async () => {
+    const { createUIMessageStream, readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Sidebar title" })],
+      run: () => ({
+        toUIMessageStream() {
+          return createUIMessageStream({
+            execute({ writer }) {
+              writer.write({ type: "start", messageId: "assistant-1" })
+              writer.write({ type: "text-start", id: "text-1" })
+              writer.write({ type: "text-delta", id: "text-1", delta: "answer" })
+              writer.write({ type: "text-end", id: "text-1" })
+              writer.write({ type: "finish", finishReason: "stop" })
+            },
+          })
+        },
+      }),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts).toEqual([
+      { data: { title: "Sidebar title", type: "chat-title" }, type: "data-chat-title" },
+      { providerMetadata: undefined, state: "done", text: "answer", type: "text" },
+    ])
+  })
+
   it("exposes chat title finish extension without registering command metadata", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
@@ -1426,6 +1460,7 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       run: () => (async function* () {
+        yield { data: { title: "Async title", type: "chat-title" }, type: "data" }
         yield { text: "hello", type: "text-delta" }
         yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
         yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
@@ -1441,7 +1476,11 @@ describe("agent message protocol", () => {
       messages.push(message)
     }
 
-    expect(messages.at(-1)?.parts.map(part => part.type)).toEqual(["text", "tool-search"])
+    expect(messages.at(-1)?.parts.map(part => part.type)).toEqual(["data-chat-title", "text", "tool-search"])
+    expect(messages.at(-1)?.parts[0]).toEqual({
+      data: { title: "Async title", type: "chat-title" },
+      type: "data-chat-title",
+    })
   })
 
   it("selects chat history from the requested manual session", async () => {

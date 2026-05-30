@@ -11,6 +11,8 @@ import type {
   StreamEvent,
 } from "../messages.ts"
 
+type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
+
 export interface ChatTitleExecuteInput {
   input: AgentRunInput
   message: Message
@@ -49,6 +51,10 @@ function heuristicTitle(text: string, maxLength: number, fallback: string): stri
   return cleanGeneratedTitle(words, maxLength, fallback)
 }
 
+function chatTitleData(title: string) {
+  return { title, type: "chat-title" }
+}
+
 async function generateChatTitle(options: ChatTitleOptions, input: ChatTitleExecuteInput): Promise<string> {
   const fallback = options.fallback ?? "New Conversation"
   const maxLength = options.maxLength ?? 80
@@ -79,7 +85,7 @@ async function generateChatTitle(options: ChatTitleOptions, input: ChatTitleExec
 async function* withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
   const resolvedTitle = await title
   if (resolvedTitle) {
-    yield { data: { title: resolvedTitle, type: "chat-title" }, type: "data" }
+    yield { data: chatTitleData(resolvedTitle), type: "data" }
   }
   yield* result
 }
@@ -87,7 +93,7 @@ async function* withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Pr
 async function* withChatTitleFullStream(result: AsyncIterable<unknown>, title: Promise<string | undefined>): AsyncIterable<unknown> {
   const resolvedTitle = await title
   if (resolvedTitle) {
-    yield { data: { title: resolvedTitle, type: "chat-title" }, type: "data" }
+    yield { data: chatTitleData(resolvedTitle), type: "data" }
   }
   yield* result
 }
@@ -95,11 +101,45 @@ async function* withChatTitleFullStream(result: AsyncIterable<unknown>, title: P
 async function* withChatTitleTextStream(result: AsyncIterable<string>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
   const resolvedTitle = await title
   if (resolvedTitle) {
-    yield { data: { title: resolvedTitle, type: "chat-title" }, type: "data" }
+    yield { data: chatTitleData(resolvedTitle), type: "data" }
   }
   for await (const text of result) {
     yield { text, type: "text-delta" }
   }
+}
+
+function withChatTitleUiMessageStream(result: ReadableStream<unknown>, title: Promise<string | undefined>): ReadableStream<unknown> {
+  const reader = result.getReader()
+  let titleWritten = false
+
+  return new ReadableStream<unknown>({
+    async pull(controller) {
+      const next = await reader.read()
+      if (next.done) {
+        if (!titleWritten) {
+          titleWritten = true
+          const resolvedTitle = await title
+          if (resolvedTitle) {
+            controller.enqueue({ data: chatTitleData(resolvedTitle), type: "data-chat-title" })
+          }
+        }
+        controller.close()
+        return
+      }
+
+      controller.enqueue(next.value)
+      if (!titleWritten) {
+        titleWritten = true
+        const resolvedTitle = await title
+        if (resolvedTitle) {
+          controller.enqueue({ data: chatTitleData(resolvedTitle), type: "data-chat-title" })
+        }
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason)
+    },
+  })
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<StreamEvent> {
@@ -109,14 +149,18 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<StreamEvent> {
     && typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === "function"
 }
 
-function isStreamTextResult(value: unknown): value is { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> } {
+function isStreamTextResult(value: unknown): value is { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string>, toUIMessageStream?: ToUIMessageStream } {
   return !!value && typeof value === "object"
-    && (isAsyncIterable((value as { fullStream?: unknown }).fullStream) || isAsyncIterable((value as { textStream?: unknown }).textStream))
+    && (
+      isAsyncIterable((value as { fullStream?: unknown }).fullStream)
+      || isAsyncIterable((value as { textStream?: unknown }).textStream)
+      || typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
+    )
 }
 
-function cloneStreamTextResult<T extends { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }>(
+function cloneStreamTextResult<T extends { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string>, toUIMessageStream?: ToUIMessageStream }>(
   result: T,
-  streams: { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> },
+  streams: { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string>, toUIMessageStream?: ToUIMessageStream },
 ): T {
   const clone = Object.create(Object.getPrototypeOf(result))
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
@@ -136,7 +180,23 @@ function cloneStreamTextResult<T extends { fullStream?: AsyncIterable<unknown>, 
       writable: true,
     })
   }
+  if (streams.toUIMessageStream) {
+    Object.defineProperty(clone, "toUIMessageStream", {
+      configurable: true,
+      enumerable: true,
+      value: streams.toUIMessageStream,
+      writable: true,
+    })
+  }
   return clone
+}
+
+function chatTitleUiMessageStreamOverride(toUIMessageStream: ToUIMessageStream | undefined, title: Promise<string | undefined>) {
+  return toUIMessageStream
+    ? {
+        toUIMessageStream: (...args: unknown[]) => withChatTitleUiMessageStream(toUIMessageStream(...args), title),
+      }
+    : {}
 }
 
 export function chatTitle(options: ChatTitleOptions = {}): AgentCapabilityDefinition {
@@ -165,14 +225,22 @@ export function chatTitle(options: ChatTitleOptions = {}): AgentCapabilityDefini
       })
       context.output.render((result) => {
         if (isStreamTextResult(result)) {
+          const toUIMessageStream = result.toUIMessageStream?.bind(result)
           if (result.fullStream) {
             return cloneStreamTextResult(result, {
               fullStream: withChatTitleFullStream(result.fullStream, getTitle()),
+              ...chatTitleUiMessageStreamOverride(toUIMessageStream, getTitle()),
             })
           }
           if (result.textStream) {
             return cloneStreamTextResult(result, {
               fullStream: withChatTitleTextStream(result.textStream, getTitle()),
+              ...chatTitleUiMessageStreamOverride(toUIMessageStream, getTitle()),
+            })
+          }
+          if (toUIMessageStream) {
+            return cloneStreamTextResult(result, {
+              ...chatTitleUiMessageStreamOverride(toUIMessageStream, getTitle()),
             })
           }
         }

@@ -62,6 +62,14 @@ function streamEventType(event: unknown): string | undefined {
     : undefined
 }
 
+function uiDataType(data: unknown): `data-${string}` {
+  const rawType = typeof data === "object" && data !== null && typeof (data as { type?: unknown }).type === "string"
+    ? (data as { type: string }).type
+    : "event"
+  const type = rawType.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "")
+  return `data-${type || "event"}`
+}
+
 async function writeEventsToUiMessageStream(writer: { write: (event: never) => void }, events: AsyncIterable<unknown>) {
   const messageId = crypto.randomUUID()
   let textStarted = false
@@ -87,6 +95,11 @@ async function writeEventsToUiMessageStream(writer: { write: (event: never) => v
     if (type === "tool-result") {
       const tool = event as { id?: unknown, output?: unknown }
       writer.write({ type: "tool-output-available", toolCallId: tool.id, output: tool.output } as never)
+      continue
+    }
+    if (type === "data") {
+      const data = (event as { data?: unknown }).data
+      writer.write({ type: uiDataType(data), data } as never)
       continue
     }
     if (type === "finish") {
