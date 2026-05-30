@@ -406,6 +406,7 @@ type AgentSettingsBase<
   capabilities?: AgentCapabilitiesList<TRuntimeConfig>
   model?: AgentModelResolver<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
+  title?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
@@ -433,6 +434,7 @@ export interface AgentDefinition<
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
+  title?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 

@@ -21,10 +21,12 @@ type ChatDevtoolsMetadataInput =
   | ChatDevtoolsMetadata
   | ChatDevtoolsMetadataResolver
   | Record<string, ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined>
+type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title">> & Pick<ChatDevtoolsMetadata, "title">
 
 interface ChatDevtoolsSession {
   name: string
   thinkingFallback?: string | null
+  title?: string
   uiMessages: UIMessage[]
 }
 
@@ -101,19 +103,20 @@ function getSession(state: ChatDevtoolsHandlerState, name: string): ChatDevtools
   return session
 }
 
-function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): Required<ChatDevtoolsMetadata> {
+function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): ResolvedChatDevtoolsMetadata {
   return {
     files: metadata?.files ? [...metadata.files] : [],
     instructions: metadata?.instructions ? [...metadata.instructions] : [],
+    title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
   }
 }
 
-async function resolveDevtoolsMetadata(metadata: ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined) {
+async function resolveDevtoolsMetadata(metadata: ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined): Promise<ResolvedChatDevtoolsMetadata> {
   return normalizeDevtoolsMetadata(typeof metadata === "function" ? await metadata() : metadata)
 }
 
-async function metadataForChat(metadata: ChatDevtoolsMetadataInput | undefined, selected: string | undefined): Promise<Required<ChatDevtoolsMetadata>> {
+async function metadataForChat(metadata: ChatDevtoolsMetadataInput | undefined, selected: string | undefined): Promise<ResolvedChatDevtoolsMetadata> {
   if (!metadata) return normalizeDevtoolsMetadata(undefined)
   if (Array.isArray((metadata as ChatDevtoolsMetadata).files)
     || Array.isArray((metadata as ChatDevtoolsMetadata).instructions)
@@ -138,15 +141,51 @@ async function chatCapableAgentRegistry(registry: AgentDevtoolsRegistry, context
   return result
 }
 
+function titleFromUIMessage(message: UIMessage): string | undefined {
+  for (const part of message.parts || []) {
+    const data = (part as { data?: unknown }).data
+    if (
+      (part as { type?: unknown }).type === "data-chat-title"
+      && data
+      && typeof data === "object"
+      && (data as { type?: unknown }).type === "chat-title"
+      && typeof (data as { title?: unknown }).title === "string"
+    ) {
+      const title = (data as { title: string }).title.trim()
+      if (title) return title
+    }
+  }
+}
+
+function titleFromUIMessages(messages: UIMessage[]): string | undefined {
+  for (const message of [...messages].reverse()) {
+    const title = titleFromUIMessage(message)
+    if (title) return title
+  }
+}
+
+function sessionTitle(session: ChatDevtoolsSession): string | undefined {
+  const title = session.title || titleFromUIMessages(session.uiMessages)
+  if (title) {
+    session.title = title
+  }
+  return title
+}
+
 async function serializeState(state: ChatDevtoolsHandlerState, selected?: string): Promise<ChatDevtoolsStateResult> {
   const names = getChatNames(state)
   for (const name of names) getSession(state, name)
 
-  const chats: ChatDevtoolsConversation[] = names.map(name => ({
-    messages: [],
-    name,
-    uiMessages: [...getSession(state, name).uiMessages],
-  }))
+  const chats: ChatDevtoolsConversation[] = names.map((name) => {
+    const session = getSession(state, name)
+    const title = sessionTitle(session)
+    return {
+      messages: [],
+      name,
+      ...(title ? { title } : {}),
+      uiMessages: [...session.uiMessages],
+    }
+  })
 
   const nextSelected = selected && names.includes(selected)
     ? selected
@@ -157,12 +196,14 @@ async function serializeState(state: ChatDevtoolsHandlerState, selected?: string
 
   const metadata = await metadataForChat(state.metadata, nextSelected)
   const selectedSession = nextSelected ? getSession(state, nextSelected) : undefined
+  const title = selectedSession ? sessionTitle(selectedSession) || metadata.title : metadata.title
   return {
     chats,
     files: metadata.files,
     instructions: metadata.instructions,
     selected: nextSelected,
     thinkingFallback: selectedSession?.thinkingFallback ?? null,
+    ...(title ? { title } : {}),
     tools: metadata.tools,
     uiMessages: selectedSession ? [...selectedSession.uiMessages] : [],
   }
@@ -261,6 +302,7 @@ async function sendDevtoolsUIMessage(
         updatedAt: now,
       },
     }
+    session.title = titleFromUIMessage(latestAssistant) || session.title
     session.uiMessages = [...baseMessages, latestAssistant]
     await onChange?.(await serializeState(state, selected))
   }
@@ -272,6 +314,7 @@ async function sendDevtoolsUIMessage(
         completedAt: new Date().toISOString(),
       },
     }
+    session.title = titleFromUIMessage(latestAssistant) || session.title
     session.uiMessages = [...baseMessages, latestAssistant]
     await onChange?.(await serializeState(state, selected))
   }
@@ -349,6 +392,7 @@ async function clearDevtoolsMessages(state: ChatDevtoolsHandlerState, input: { c
   const session = getSession(state, selected)
   session.uiMessages = []
   session.thinkingFallback = null
+  session.title = undefined
   return await serializeState(state, selected)
 }
 

@@ -367,7 +367,7 @@ function defineBaseAgent<
 >(
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
-  const { capabilities, description, hooks, run, runtime, workspace } = options
+  const { capabilities, description, hooks, run, runtime, title, workspace } = options
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
@@ -392,6 +392,7 @@ function defineBaseAgent<
     hooks,
     runtime,
     run,
+    title,
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
@@ -443,7 +444,12 @@ export interface AgentDevtoolsToolDefinition {
 export interface AgentDevtoolsMetadata {
   files?: AgentDevtoolsFileTreeItem[]
   instructions?: string[]
+  title?: string
   tools?: AgentDevtoolsToolDefinition[]
+}
+
+function agentDevtoolsTitle(definition: Pick<AgentDefinition, "title">): Pick<AgentDevtoolsMetadata, "title"> {
+  return definition.title ? { title: definition.title } : {}
 }
 
 function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConfig): NormalizedWorkspaceOptions {
@@ -757,13 +763,14 @@ export function createAgentDevtoolsMetadata<
 ): AgentDevtoolsMetadata {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    return { files: [], tools: [] }
+    return { files: [], ...agentDevtoolsTitle(definition), tools: [] }
   }
 
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
   return {
     files: workspaceMetadataFiles(options, workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>),
     instructions: workspaceMetadataInstructions(options),
+    ...agentDevtoolsTitle(workspaceDefinition as AgentDefinition),
     tools: workspaceMetadataTools(options),
   }
 }
@@ -777,7 +784,7 @@ export async function resolveAgentDevtoolsMetadata<
 ): Promise<AgentDevtoolsMetadata> {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    return { files: [], tools: [] }
+    return { files: [], ...agentDevtoolsTitle(definition), tools: [] }
   }
 
   const defaults = {
@@ -795,6 +802,7 @@ export async function resolveAgentDevtoolsMetadata<
   return {
     files: await resolveWorkspaceMetadataFiles(options, defaults, workspace),
     instructions: await resolveWorkspaceMetadataInstructions(options, workspace),
+    ...agentDevtoolsTitle(workspaceDefinition as AgentDefinition),
     tools: workspaceMetadataTools(options),
   }
 }

@@ -593,14 +593,49 @@ describe("agent message protocol", () => {
       message: expect.objectContaining({ id: "user-1" }),
       text: "First user request",
     }))
-    expect(events[0]).toEqual({
+    expect(events).toContainEqual({
       data: { title: "Title: First user request", type: "chat-title" },
       type: "data",
     })
-    expect(events.slice(1)).toEqual([
-      { text: "hello", type: "text-delta" },
-      { type: "finish" },
-    ])
+    expect(events).toContainEqual({ text: "hello", type: "text-delta" })
+    expect(events).toContainEqual({ type: "finish" })
+  })
+
+  it("streams agent output while chat title generation is pending", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    let resolveTitle: (title: string) => void = () => {}
+    const delayedTitle = new Promise<string>((resolve) => {
+      resolveTitle = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => delayedTitle })],
+      run: () => (async function* () {
+        yield { text: "hello", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as AsyncIterable<unknown>
+    const iterator = stream[Symbol.asyncIterator]()
+
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: { text: "hello", type: "text-delta" },
+    })
+
+    resolveTitle("Delayed title")
+    const rest = []
+    for await (const event of { [Symbol.asyncIterator]: () => iterator } as AsyncIterable<unknown>) {
+      rest.push(event)
+    }
+
+    expect(rest).toContainEqual({ type: "finish" })
+    expect(rest).toContainEqual({
+      data: { title: "Delayed title", type: "chat-title" },
+      type: "data",
+    })
   })
 
   it("keeps streaming when chat title generation fails", async () => {
@@ -760,10 +795,8 @@ describe("agent message protocol", () => {
         events.push(event)
       }
 
-      expect(events).toEqual([
-        { data: { title: "Adapter title", type: "chat-title" }, type: "data" },
-        { text: "hello", type: "text-delta" },
-      ])
+      expect(events).toContainEqual({ data: { title: "Adapter title", type: "chat-title" }, type: "data" })
+      expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     }
     finally {
       vi.doUnmock("ai")
@@ -799,10 +832,8 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toEqual([
-      { data: { title: "Preserved title", type: "chat-title" }, type: "data" },
-      { text: "hello", type: "text-delta" },
-    ])
+    expect(events).toContainEqual({ data: { title: "Preserved title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     expect(result).toBeInstanceOf(StreamResult)
     expect(result.metadata).toEqual({ id: "stream-result-1" })
     expect(result.toTextStreamResponse).toEqual(expect.any(Function))
@@ -839,10 +870,8 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toEqual([
-      { data: { title: "Metadata title", type: "chat-title" }, type: "data" },
-      { text: "hello", type: "text-delta" },
-    ])
+    expect(events).toContainEqual({ data: { title: "Metadata title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     expect(result).toBeInstanceOf(TextStreamResult)
     expect(result.metadata).toEqual({ usage: "kept" })
     expect(result.textStream).toBeDefined()
@@ -1301,6 +1330,7 @@ describe("agent message protocol", () => {
     }, {
       metadata: {
         files: async () => ({
+          title: "Files agent",
           tools: [{ name: "reserved-chat-tool" }],
         }),
       },
@@ -1312,9 +1342,10 @@ describe("agent message protocol", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     }))
-    const state = await response.json() as { chats?: Array<{ name: string }>, tools?: Array<{ name: string }> }
+    const state = await response.json() as { chats?: Array<{ name: string, title?: string }>, title?: string, tools?: Array<{ name: string }> }
 
     expect(state.chats?.map(chat => chat.name)).toEqual(["files", "support"])
+    expect(state.title).toBe("Files agent")
     expect(state.tools).toEqual([{ name: "reserved-chat-tool" }])
   })
 
@@ -1393,6 +1424,63 @@ describe("agent message protocol", () => {
     finally {
       setIntervalSpy.mockRestore()
     }
+  })
+
+  it("promotes DevTools chat title data into conversation state", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    let responseCount = 0
+    const agent = defineAgent({
+      capabilities: [
+        chatTitle({ execute: ({ text }) => `Title: ${text}` }),
+        chat({ concurrency: "queue" }),
+      ],
+      async run() {
+        responseCount += 1
+        return {
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: `assistant-${responseCount}` })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: `answer ${responseCount}` })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }
+      },
+    })
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
+    }))
+    const sendMessage = async (text: string) => {
+      const response = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "send", chat: "support", stream: true, text }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      expect(response.status).toBe(200)
+      return (await response.text()).trim().split("\n").map(line => JSON.parse(line) as {
+        state?: {
+          chats: Array<{ name: string, title?: string }>
+          title?: string
+        }
+        type: string
+      }).filter(event => event.type === "state").map(event => event.state!)
+    }
+
+    const firstStates = await sendMessage("forecast value")
+    const secondStates = await sendMessage("follow up")
+
+    expect(firstStates.at(-1)?.title).toBe("Title: forecast value")
+    expect(firstStates.at(-1)?.chats[0]?.title).toBe("Title: forecast value")
+    expect(secondStates[0]?.title).toBe("Title: forecast value")
+    expect(secondStates[0]?.chats[0]?.title).toBe("Title: forecast value")
   })
 
   it("passes prior DevTools UI messages back into follow-up AI SDK sends", async () => {

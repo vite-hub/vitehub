@@ -142,6 +142,8 @@ export interface ChatDevtoolsTypingThread {
   startTyping(text?: string): Promise<unknown>
 }
 
+type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title">> & Pick<ChatDevtoolsMetadata, "title">
+
 interface ChatDevtoolsFullStreamToolPart {
   error?: unknown
   id?: string
@@ -457,10 +459,11 @@ function createTranscriptMessage(role: ChatDevtoolsMessageRole, text: string): C
   }
 }
 
-function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): Required<ChatDevtoolsMetadata> {
+function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): ResolvedChatDevtoolsMetadata {
   return {
     files: metadata?.files ? [...metadata.files] : [],
     instructions: metadata?.instructions ? [...metadata.instructions] : [],
+    title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
   }
 }
@@ -651,6 +654,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
         files: metadata.files,
         instructions: metadata.instructions,
         selected: chat && chats.some(item => item.name === chat) ? chat : chats[0]!.name,
+        ...(metadata.title ? { title: metadata.title } : {}),
         tools: metadata.tools,
       }
     },

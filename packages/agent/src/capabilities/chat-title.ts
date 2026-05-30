@@ -171,61 +171,127 @@ async function generateChatTitle(context: AgentCapabilityRuntimeContext, options
   return heuristicTitle(input.text, maxLength, fallback)
 }
 
-async function* withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
-  const resolvedTitle = await title
-  if (resolvedTitle) {
-    yield { data: chatTitleData(resolvedTitle), type: "data" }
+async function* withChatTitleParallel<T>(
+  result: AsyncIterable<T>,
+  title: Promise<string | undefined>,
+  renderTitle: (title: string) => T,
+): AsyncIterable<T> {
+  const iterator = result[Symbol.asyncIterator]()
+  let streamNext = iterator.next()
+  let titlePending = true
+  const titleNext = title
+    .then(value => ({ title: value, type: "title" as const }))
+    .catch(() => ({ title: undefined, type: "title" as const }))
+
+  try {
+    while (true) {
+      const next = titlePending
+        ? await Promise.race([
+            streamNext.then(value => ({ type: "stream" as const, value })),
+            titleNext,
+          ])
+        : { type: "stream" as const, value: await streamNext }
+
+      if (next.type === "title") {
+        titlePending = false
+        if (next.title) {
+          yield renderTitle(next.title)
+        }
+        continue
+      }
+
+      if (next.value.done) {
+        break
+      }
+      yield next.value.value
+      streamNext = iterator.next()
+    }
+
+    if (titlePending) {
+      const resolvedTitle = await titleNext
+      if (resolvedTitle.title) {
+        yield renderTitle(resolvedTitle.title)
+      }
+    }
   }
-  yield* result
+  finally {
+    await iterator.return?.()
+  }
 }
 
-async function* withChatTitleFullStream(result: AsyncIterable<unknown>, title: Promise<string | undefined>): AsyncIterable<unknown> {
-  const resolvedTitle = await title
-  if (resolvedTitle) {
-    yield { data: chatTitleData(resolvedTitle), type: "data" }
-  }
-  yield* result
+function withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
+  return withChatTitleParallel(result, title, resolvedTitle => ({ data: chatTitleData(resolvedTitle), type: "data" }))
 }
 
-async function* withChatTitleTextStream(result: AsyncIterable<string>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
-  const resolvedTitle = await title
-  if (resolvedTitle) {
-    yield { data: chatTitleData(resolvedTitle), type: "data" }
-  }
-  for await (const text of result) {
-    yield { text, type: "text-delta" }
-  }
+function withChatTitleFullStream(result: AsyncIterable<unknown>, title: Promise<string | undefined>): AsyncIterable<unknown> {
+  return withChatTitleParallel(result, title, resolvedTitle => ({ data: chatTitleData(resolvedTitle), type: "data" }))
+}
+
+function withChatTitleTextStream(result: AsyncIterable<string>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
+  return withChatTitleParallel<StreamEvent>(
+    (async function* () {
+      for await (const text of result) {
+        yield { text, type: "text-delta" } satisfies StreamEvent
+      }
+    })(),
+    title,
+    resolvedTitle => ({ data: chatTitleData(resolvedTitle), type: "data" }),
+  )
 }
 
 function withChatTitleUiMessageStream(result: ReadableStream<unknown>, title: Promise<string | undefined>): ReadableStream<unknown> {
   const reader = result.getReader()
-  let titleWritten = false
+  let cancelled = false
+  const titleNext = title
+    .then(value => ({ title: value, type: "title" as const }))
+    .catch(() => ({ title: undefined, type: "title" as const }))
 
   return new ReadableStream<unknown>({
-    async pull(controller) {
-      const next = await reader.read()
-      if (next.done) {
-        if (!titleWritten) {
-          titleWritten = true
-          const resolvedTitle = await title
-          if (resolvedTitle) {
-            controller.enqueue({ data: chatTitleData(resolvedTitle), type: "data-chat-title" })
+    async start(controller) {
+      let streamNext = reader.read()
+      let titlePending = true
+      try {
+        while (!cancelled) {
+          const next = titlePending
+            ? await Promise.race([
+                streamNext.then(value => ({ type: "stream" as const, value })),
+                titleNext,
+              ])
+            : { type: "stream" as const, value: await streamNext }
+
+          if (next.type === "title") {
+            titlePending = false
+            if (next.title) {
+              controller.enqueue({ data: chatTitleData(next.title), type: "data-chat-title" })
+            }
+            continue
+          }
+
+          if (next.value.done) {
+            break
+          }
+          controller.enqueue(next.value.value)
+          streamNext = reader.read()
+        }
+
+        if (!cancelled && titlePending) {
+          const resolvedTitle = await titleNext
+          if (resolvedTitle.title) {
+            controller.enqueue({ data: chatTitleData(resolvedTitle.title), type: "data-chat-title" })
           }
         }
-        controller.close()
-        return
+        if (!cancelled) {
+          controller.close()
+        }
       }
-
-      controller.enqueue(next.value)
-      if (!titleWritten) {
-        titleWritten = true
-        const resolvedTitle = await title
-        if (resolvedTitle) {
-          controller.enqueue({ data: chatTitleData(resolvedTitle), type: "data-chat-title" })
+      catch (error) {
+        if (!cancelled) {
+          controller.error(error)
         }
       }
     },
     cancel(reason) {
+      cancelled = true
       return reader.cancel(reason)
     },
   })

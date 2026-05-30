@@ -49,6 +49,7 @@ export interface ChatDevtoolsToolDefinition {
 export interface ChatDevtoolsMetadata {
   files?: ChatDevtoolsFileTreeItem[]
   instructions?: string[]
+  title?: string
   tools?: ChatDevtoolsToolDefinition[]
 }
 
@@ -64,6 +65,7 @@ export interface ChatDevtoolsMessage {
 export interface ChatDevtoolsConversation {
   messages: ChatDevtoolsMessage[]
   name: string
+  title?: string
   uiMessages?: UIMessage[]
 }
 
@@ -73,6 +75,7 @@ export interface ChatDevtoolsStateResult {
   instructions?: string[]
   selected: string
   thinkingFallback?: string | null
+  title?: string
   tools?: ChatDevtoolsToolDefinition[]
   uiMessages?: UIMessage[]
 }
