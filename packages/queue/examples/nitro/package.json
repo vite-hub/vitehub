@@ -7,7 +7,7 @@
     "preview": "nitro preview"
   },
   "dependencies": {
-    "@vitehub/queue": "workspace:*",
+    "@vite-hub/queue": "workspace:*",
     "nitro": "catalog:"
   }
 }

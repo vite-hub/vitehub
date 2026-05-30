@@ -5,11 +5,11 @@
     "rootDir": "..",
     "baseUrl": "../..",
     "paths": {
-      "@vitehub/kv": [
+      "@vite-hub/kv": [
         "packages/kv/src/index.ts"
       ],
-      "@vitehub/internal/*": [
-        "packages/internal/src/*"
+      "@vite-hub/internal/*": [
+        "packages/internal/src/*.ts"
       ]
     }
   },

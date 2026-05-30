@@ -17,6 +17,7 @@ describe("types", () => {
       sandbox: {
         provider: "cloudflare",
         binding: "SANDBOX",
+        name: "custom-sandbox",
       },
     }
 

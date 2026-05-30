@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/devtools",
+  "name": "@vite-hub/devtools",
   "version": "0.0.0",
   "description": "ViteHub DevTools integration contract and hosted shell helpers.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -25,11 +25,12 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "devtools/chat/.output/public",
     "dist",
     "package.json"
   ],
   "scripts": {
-    "build": "pnpm build:code",
+    "build": "pnpm build:code && pnpm build:chat",
     "build:chat": "nuxi generate devtools/chat",
     "build:code": "tsdown --tsconfig tsconfig.json",
     "dev:chat": "nuxi dev devtools/chat --port 3300",
@@ -40,7 +41,13 @@
     "pathe": "catalog:"
   },
   "peerDependencies": {
+    "ai": "^6.0.0",
     "@vitejs/devtools-kit": ">=0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "ai": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@comark/vue": "catalog:",
@@ -48,6 +55,7 @@
     "@nuxt/ui": "^4.6.1",
     "@types/node": "catalog:",
     "@vitejs/devtools-kit": "catalog:",
+    "ai": "^6.0.172",
     "nuxt": "catalog:",
     "tailwindcss": "^4.1.18",
     "tsdown": "^0.21.8",

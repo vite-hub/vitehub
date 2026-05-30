@@ -16,7 +16,7 @@ const DEFAULT_ENTRY_NAMES = [
   "worker.mjs",
 ] as const
 
-export interface ResolveUserAppEntryOptions {
+interface ResolveUserAppEntryOptions {
   names?: readonly string[]
   srcSubdir?: string
 }

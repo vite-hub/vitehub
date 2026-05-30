@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/kv",
+  "name": "@vite-hub/kv",
   "version": "0.0.0",
   "description": "Vite-first key-value storage primitives and Nitro/Nuxt integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -40,7 +40,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --dir ../runtime build && pnpm --dir ../shell build && pnpm --dir ../unsource build && pnpm --dir ../sandbox build && pnpm --dir ../workspace build && pnpm --dir ../agent build && pnpm --dir ../blob build && pnpm --dir ../db build && pnpm --dir ../env build && pnpm --dir . build && pnpm --dir ../queue build && pnpm --dir ../workflow build && vitest run",
+    "test": "pnpm --dir ../runtime build && pnpm --dir ../shell build && pnpm --dir ../source build && pnpm --dir ../sandbox build && pnpm --dir ../workspace build && pnpm --dir ../agent build && pnpm --dir ../blob build && pnpm --dir ../database build && pnpm --dir ../env build && pnpm --dir . build && pnpm --dir ../queue build && pnpm --dir ../workflow build && vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {
@@ -67,7 +67,7 @@
   },
   "devDependencies": {
     "@nuxt/schema": "catalog:",
-    "@vitehub/internal": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "nitro": "catalog:",
     "ofetch": "catalog:",
     "publint": "^0.3.15",

@@ -1,4 +1,4 @@
-import { assertNoVitePluginInNitro, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { assertNoVitePluginInNitro, resolveRuntimeEntry as resolveEntry } from "@vite-hub/internal/nitro"
 import type { NitroModule, NitroRuntimeConfig } from "nitro/types"
 
 import { normalizeBlobOptions, warnVercelBlobFallback } from "../config.ts"
@@ -6,16 +6,16 @@ import { configureCloudflareR2 } from "../integrations/cloudflare.ts"
 
 import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../types.ts"
 
-const BLOB_VITE_PLUGIN_NAME = "@vitehub/blob/vite"
+const BLOB_VITE_PLUGIN_NAME = "@vite-hub/blob/vite"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
 }
 
 const blobNitroModule: NitroModule = {
-  name: "@vitehub/blob",
+  name: "@vite-hub/blob",
   async setup(nitro) {
-    await assertNoVitePluginInNitro(nitro, BLOB_VITE_PLUGIN_NAME, "@vitehub/blob/nitro")
+    await assertNoVitePluginInNitro(nitro, BLOB_VITE_PLUGIN_NAME, "@vite-hub/blob/nitro")
 
     const resolved = normalizeBlobOptions(nitro.options.blob, {
       env: process.env,
@@ -34,11 +34,11 @@ const blobNitroModule: NitroModule = {
     }
 
     nitro.options.alias ||= {}
-    nitro.options.alias["@vitehub/blob"] = resolveRuntimeEntry("../index", "@vitehub/blob")
-    nitro.options.alias["@vitehub/blob/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/blob/runtime/state")
+    nitro.options.alias["@vite-hub/blob"] = resolveRuntimeEntry("../index", "@vite-hub/blob")
+    nitro.options.alias["@vite-hub/blob/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vite-hub/blob/runtime/state")
 
     nitro.options.plugins ||= []
-    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vitehub/blob/runtime/nitro-plugin")
+    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vite-hub/blob/runtime/nitro-plugin")
     if (!nitro.options.plugins.includes(plugin)) {
       nitro.options.plugins.push(plugin)
     }

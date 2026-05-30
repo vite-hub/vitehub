@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
 import { assert, listFiles, listPackageNames, parseScalar, titleCase } from "./common";
-import { usageModes } from "../runtime/utils/fw-variants";
 import { frameworks as frameworkIds, type Framework } from "../runtime/utils/frameworks";
+import { usageModes } from "../runtime/utils/showcase-modes";
 import { getFrameworkConfigPath, showcasePhaseIds, sortShowcaseFiles } from "../shared/showcase";
 
 type PackageManifest = {

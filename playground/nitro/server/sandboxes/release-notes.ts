@@ -1,4 +1,4 @@
-import { defineSandbox } from "@vitehub/sandbox"
+import { defineSandbox } from "@vite-hub/sandbox"
 
 export default defineSandbox(async (payload?: { notes?: string }) => {
   const notes = typeof payload?.notes === "string" ? payload.notes.trim() : ""

@@ -1,4 +1,4 @@
-import { chatDevtoolsBridgeRoute } from "../../../../agent/src/chat/devtools-shared.js"
+import { chatDevtoolsBridgeRoute } from "../../../src/chat-shared.js"
 
 export interface ChatBridgeRouteInput {
   ancestorOrigin?: string

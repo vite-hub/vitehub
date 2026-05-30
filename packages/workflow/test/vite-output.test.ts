@@ -52,13 +52,13 @@ async function writeWorkflowNitroConfig(rootDir: string, options: {
 } = {}) {
   const imports = options.env
     ? [
-        `import { env } from "@vitehub/env/nitro"`,
+        `import { env } from "@vite-hub/env/nitro"`,
         `import { defineNitroConfig } from "nitro/config"`,
       ]
     : [`import { defineNitroConfig } from "nitro/config"`]
   const modules = options.env
-    ? `["@vitehub/env/nitro", "@vitehub/workflow/nitro"]`
-    : `["@vitehub/workflow/nitro"]`
+    ? `["@vite-hub/env/nitro", "@vite-hub/workflow/nitro"]`
+    : `["@vite-hub/workflow/nitro"]`
   const workflow = options.omitWorkflowOptions
     ? []
     : [`  workflow: ${options.provider ? `{ provider: "${options.provider}" }` : "{}"},`]
@@ -160,7 +160,7 @@ describe("Vite workflow provider outputs", () => {
     })
   }, buildOutputTestTimeout)
 
-  it("applies @vitehub/env Runtime Env in Nitro Cloudflare workflows", async () => {
+  it("applies @vite-hub/env Runtime Env in Nitro Cloudflare workflows", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-env-")
     await writeWorkflowNitroConfig(rootDir, { env: true })
 
@@ -187,11 +187,28 @@ describe("Vite workflow provider outputs", () => {
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })
 
-    const wrangler = JSON.parse(await readFile(join(rootDir, "dist", "vite", "wrangler.json"), "utf8"))
-    const cloudflareWorkerContents = await readFile(join(rootDir, "dist", "vite", "index.js"), "utf8")
+    expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
+  }, buildOutputTestTimeout)
 
-    expect(wrangler.workflows).toBeUndefined()
-    expect(cloudflareWorkerContents).not.toContain("extends WorkflowEntrypoint")
+  it("does not emit provider deployment artifacts for OpenWorkflow provider overrides", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-workflow-openworkflow-override-")
+    const viteConfig = join(rootDir, "vite.config.ts")
+    await writeFile(
+      viteConfig,
+      (await readFile(viteConfig, "utf8")).replaceAll(
+        "workflow: {},",
+        "workflow: { provider: \"openworkflow\", postgres: { url: \"postgres://example\" } },",
+      ),
+    )
+
+    await execFileAsync(viteBin, ["build"], {
+      cwd: rootDir,
+      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
+    })
+
+    expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
+    expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
   }, buildOutputTestTimeout)
 
   it("does not emit Nitro Cloudflare workflow artifacts for Vercel provider overrides", async () => {

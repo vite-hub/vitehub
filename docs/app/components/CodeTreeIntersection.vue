@@ -15,7 +15,7 @@ const target = useTemplateRef<HTMLDivElement>("target");
 const tree = inject<Ref<Record<string, unknown>>>("codeTree", ref({}));
 const activePath = inject<Ref<string>>("codeTreeActive", ref(""));
 
-const children = computed(() => slots.default?.().flatMap((node, i) => transformSlot(node, i)).filter(Boolean) as Array<{ label: string; component: VNode }>);
+const children = computed(() => (slots.default?.() || []).flatMap((node, i) => collectCodeBlocks(node, i)));
 
 function findCodeBlock(slot: any): any {
   if (slot.props?.filename || slot.props?.label) return slot;
@@ -29,14 +29,17 @@ function findCodeBlock(slot: any): any {
   return null;
 }
 
-function transformSlot(slot: any, index: number): any {
-  if (typeof slot.type === "symbol") return slot.children?.map(transformSlot);
+function collectCodeBlocks(slot: any, index = 0): Array<{ label: string; component: VNode }> {
+  if (Array.isArray(slot)) return slot.flatMap((child, i) => collectCodeBlocks(child, i));
+  if (typeof slot.type === "symbol") return collectCodeBlocks(slot.children || [], index);
+
   const codeBlock = findCodeBlock(slot);
-  if (!codeBlock) return null;
-  return {
+  if (!codeBlock) return [];
+
+  return [{
     label: codeBlock.props?.filename || codeBlock.props?.label || `${index}`,
     component: codeBlock,
-  };
+  }];
 }
 
 function register() {
@@ -62,7 +65,9 @@ useIntersectionObserver(
 </script>
 
 <template>
-  <div ref="target">
-    <slot />
+  <div ref="target" class="lg:h-px">
+    <div class="lg:hidden">
+      <slot />
+    </div>
   </div>
 </template>

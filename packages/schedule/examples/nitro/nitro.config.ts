@@ -1,5 +1,5 @@
 import { defineNitroConfig } from "nitro/config"
 
 export default defineNitroConfig({
-  modules: ["@vitehub/schedule/nitro"],
+  modules: ["@vite-hub/schedule/nitro"],
 })

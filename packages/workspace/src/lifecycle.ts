@@ -3,7 +3,7 @@ import { normalizeWorkspacePath } from "./core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 
-import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceStore } from "./core/types.ts"
+import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceSnapshot, WorkspaceStore } from "./core/types.ts"
 
 const buildSourcesMetaKey = "workspace:build-sources"
 
@@ -16,16 +16,31 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
   return createWorkspaceStoreFromProvider(definition)
 }
 
+export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, store: WorkspaceStore, snapshot: WorkspaceSnapshot): Promise<void> {
+  for (const publisher of definition.publish || []) {
+    await publisher.publish({
+      workspace: definition,
+      store,
+      rootDir: definition.rootDir || process.cwd(),
+      snapshot,
+    })
+  }
+}
+
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore): Promise<void> {
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
+  const hasExplicitLoaders = !!definition.loaders?.length
   const ctxSource = createSourceContext(definition)
   const buildSources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "build")
-  await reconcileBuildSourceMounts(store, buildSources)
+  const hasBuildSourceState = await reconcileBuildSourceMounts(store, buildSources)
+  if (!hasBuildSourceState && !hasExplicitLoaders) return
+
   const normalizedSources = buildSources.map(source => createMountedBuildSource(source))
   const ctx: LoaderContext = {
     workspace: definition.name,
     rootDir: ctxSource.rootDir,
+    sourceRootDir: ctxSource.sourceRootDir,
     sources: normalizedSources,
     store,
     parseData: async input => input.data,
@@ -36,18 +51,13 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
   for (const loader of loaders) {
     await loader.load(ctx)
   }
-  await store.snapshot({ name: "sync" })
-  for (const publisher of definition.publish || []) {
-    await publisher.publish({
-      workspace: definition,
-      store,
-      rootDir: definition.rootDir || process.cwd(),
-    })
-  }
+  const snapshot = await store.snapshot({ name: "sync" })
+  await publishWorkspaceSnapshot(definition, store, snapshot)
 }
 
-async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]) {
+async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]): Promise<boolean> {
   const previousSources = await readSyncedBuildSources(store)
+  const hasBuildSourceState = previousSources.length > 0 || currentSources.length > 0
   const resetPaths = [...new Set([
     ...previousSources.map(source => source.mountPath),
     ...currentSources.map(source => source.mountPath),
@@ -65,6 +75,7 @@ async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources:
   }
 
   await store.setMeta?.(buildSourcesMetaKey, currentSources.map(({ key, mountPath }) => ({ key, mountPath })))
+  return hasBuildSourceState
 }
 
 async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuildSource[]> {

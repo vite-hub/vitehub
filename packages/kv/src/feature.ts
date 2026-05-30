@@ -1,12 +1,12 @@
-import { createFeatureEngine, normalizeFeaturePublicOptions, readFeaturePublicOptions } from "@vitehub/internal/feature-bridge"
-import { resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { createFeatureEngine, normalizeFeaturePublicOptions, readFeaturePublicOptions } from "@vite-hub/internal/feature-bridge"
+import { resolveRuntimeEntry as resolveEntry } from "@vite-hub/internal/nitro"
 
 import { warnVercelKVFallback } from "./config.ts"
 import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 import { resolveKVViteConfig } from "./vite-config.ts"
 
-import type { FeatureStateSource } from "@vitehub/internal/feature-bridge"
-import type { FeatureNitroLike } from "@vitehub/internal/feature-bridge"
+import type { FeatureStateSource } from "@vite-hub/internal/feature-bridge"
+import type { FeatureNitroLike } from "@vite-hub/internal/feature-bridge"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
 
 type KVNitroOptions = FeatureNitroLike["options"] & {
@@ -37,7 +37,7 @@ function readKVPublicOptions(source: FeatureStateSource<KVModuleOptions>): KVMod
 }
 
 export const kvFeatureEngine = createFeatureEngine<KVModuleOptions, KVModuleOptions, false | ResolvedKVModuleOptions>({
-  name: "@vitehub/kv",
+  name: "@vite-hub/kv",
   feature: "kv",
   configKey: "kv",
   normalizeOptions: normalizeKVPublicOptions,
@@ -56,10 +56,10 @@ export const kvFeatureEngine = createFeatureEngine<KVModuleOptions, KVModuleOpti
     const resolved = context.config
 
     target.options.alias ||= {}
-    target.options.alias["@vitehub/kv"] = resolveRuntimeEntry("./index", "@vitehub/kv")
+    target.options.alias["@vite-hub/kv"] = resolveRuntimeEntry("./index", "@vite-hub/kv")
 
     target.options.plugins ||= []
-    const plugin = resolveRuntimeEntry("./runtime/nitro-plugin", "@vitehub/kv/runtime/nitro-plugin")
+    const plugin = resolveRuntimeEntry("./runtime/nitro-plugin", "@vite-hub/kv/runtime/nitro-plugin")
     if (!target.options.plugins.includes(plugin))
       target.options.plugins.push(plugin)
 

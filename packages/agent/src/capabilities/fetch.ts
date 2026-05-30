@@ -1,7 +1,7 @@
 import {
   executeHttpRequest,
   parseStandardSchema,
-} from "@vitehub/internal/http-request"
+} from "@vite-hub/internal/http-request"
 import { defineCapability } from "../capability-runtime.ts"
 import { defineInternalTool } from "./internal.ts"
 

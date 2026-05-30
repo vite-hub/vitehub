@@ -16,7 +16,7 @@ async function createViteRoot() {
   }, null, 2))
   await mkdir(join(rootDir, "src/tools"), { recursive: true })
   await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
-    `import { defineSandbox } from "@vitehub/sandbox"`,
+    `import { defineSandbox } from "@vite-hub/sandbox"`,
     ``,
     `export default defineSandbox(async () => ({ ok: true }))`,
     ``,
@@ -50,10 +50,16 @@ describe("hubSandbox", () => {
     const resolvedId = await resolveId("#vitehub/sandbox")
     const code = await load(resolvedId as string)
 
-    expect(plugin.nitro?.name).toBe("@vitehub/sandbox")
+    expect(plugin.nitro?.name).toBe("@vite-hub/sandbox")
     expect(code).toContain('"feature": "sandbox"')
     expect(code).toContain('"provider": "vercel"')
-    expect(configResult).toEqual({})
+    expect(configResult).toEqual({
+      resolve: {
+        alias: {
+          "vitehub-sandbox-provider-loader": expect.stringContaining("runtime/provider-loader"),
+        },
+      },
+    })
   })
 
   it("accepts direct integration options", async () => {
@@ -112,7 +118,10 @@ describe("hubSandbox", () => {
         __VITEHUB_ENVIRONMENT_SANDBOX__: "\"rsc\"",
       },
       resolve: {
-        noExternal: ["@vitehub/sandbox"],
+        alias: {
+          "vitehub-sandbox-provider-loader": expect.stringContaining("runtime/provider-loader"),
+        },
+        noExternal: ["@vite-hub/sandbox"],
       },
     })
     expect(configEnvironment("client", { consumer: "client" })).toBeUndefined()
@@ -126,7 +135,7 @@ describe("hubSandbox", () => {
     }, {})
 
     expect(plan.aliases).toContainEqual(expect.objectContaining({
-      key: "#vitehub-sandbox-provider-loader",
+      key: "vitehub-sandbox-provider-loader",
       value: expect.stringContaining("runtime/provider-loader"),
     }))
   })
@@ -141,7 +150,7 @@ describe("hubSandbox", () => {
     })
 
     expect(plan.aliases).toContainEqual(expect.objectContaining({
-      key: "#vitehub-sandbox-provider-loader",
+      key: "vitehub-sandbox-provider-loader",
       artifactKey: "sandbox-provider-loader",
     }))
     expect(plan.artifacts).toContainEqual(expect.objectContaining({
@@ -159,11 +168,76 @@ describe("hubSandbox", () => {
     })
 
     expect(plan.aliases).toContainEqual(expect.objectContaining({
-      key: "#vitehub-sandbox-provider-loader",
+      key: "vitehub-sandbox-provider-loader",
       artifactKey: "sandbox-provider-loader",
     }))
     expect(plan.artifacts).toContainEqual(expect.objectContaining({
       key: "sandbox-provider-loader",
     }))
+  })
+
+  it("adds a Nitro build resolver for provider loader aliases", async () => {
+    const { addSandboxProviderLoaderResolver } = await import("../src/nitro/setup.ts")
+    const hookCalls: Array<{ name: string, handler: (nitro: unknown, config: { plugins?: Array<{ resolveId?: (id: string) => string | undefined }> }) => void }> = []
+    const nitro = {
+      hooks: {
+        hook(name: string, handler: (nitro: unknown, config: { plugins?: Array<{ resolveId?: (id: string) => string | undefined }> }) => void) {
+          hookCalls.push({ name, handler })
+        },
+      },
+    }
+
+    addSandboxProviderLoaderResolver(nitro as never, [
+      { key: "vitehub-sandbox-provider-loader", value: "/tmp/provider-loader.mjs" },
+    ])
+
+    const config: { plugins?: Array<{ resolveId?: (id: string) => string | undefined }> } = {}
+    hookCalls[0]?.handler(nitro, config)
+
+    expect(hookCalls[0]?.name).toBe("rollup:before")
+    expect(config.plugins?.[0]?.resolveId?.("vitehub-sandbox-provider-loader")).toBe("/tmp/provider-loader.mjs")
+    expect(config.plugins?.[0]?.resolveId?.("@vite-hub/sandbox")).toBeUndefined()
+  })
+
+  it("passes explicit Cloudflare sandbox container names to Nitro targets", async () => {
+    const { createSandboxFeaturePlan } = await import("../src/feature.ts")
+    const { extendSandboxNitro } = await import("../src/nitro/setup.ts")
+    const target: Record<string, unknown> = {}
+    const plan = await createSandboxFeaturePlan({ provider: "cloudflare", name: "custom-sandbox" }, [], {
+      aliasPath: "/tmp/vitehub-sandbox/index.js",
+      nitroPlugin: "/tmp/vitehub-sandbox/runtime/nitro-plugin.js",
+    }, {})
+
+    expect(plan.extendNitro).toEqual(expect.any(Function))
+    if (!plan.extendNitro) throw new Error("Expected sandbox feature plan to expose extendNitro.")
+    plan.extendNitro(target as never, new Map())
+
+    expect(target).toMatchObject({
+      cloudflare: {
+        wrangler: {
+          containers: [
+            expect.objectContaining({ class_name: "Sandbox", name: "custom-sandbox" }),
+          ],
+        },
+      },
+    })
+
+    const nitroTarget = {
+      hooks: {
+        hook: () => undefined,
+      },
+      options: {},
+    }
+    extendSandboxNitro(nitroTarget as never, { provider: "cloudflare", name: "nitro-sandbox" }, {}, "cloudflare")
+
+    expect(nitroTarget.options).toMatchObject({
+      cloudflare: {
+        wrangler: {
+          containers: [
+            expect.objectContaining({ class_name: "Sandbox", name: "nitro-sandbox" }),
+          ],
+        },
+      },
+    })
   })
 })

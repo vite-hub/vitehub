@@ -12,7 +12,7 @@ async function loadViteEnv(rootDir: string): Promise<Record<string, string> | un
   if (viteLoadEnv === null) return
   if (!viteLoadEnv) {
     try {
-      viteLoadEnv = (await import("vite")).loadEnv
+      viteLoadEnv = (await import(/* @vite-ignore */ "vite")).loadEnv
     }
     catch {
       viteLoadEnv = null

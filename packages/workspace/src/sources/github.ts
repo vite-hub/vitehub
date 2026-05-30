@@ -1,13 +1,13 @@
-import { getActiveCloudflareBinding } from "@vitehub/internal/runtime/cloudflare-env"
-import { github as createGitHubSource, type GitHubSourceOptions as UnsourceGitHubSourceOptions } from "@vitehub/unsource"
+import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source"
 
 import { resolveWorkspaceEnv } from "../env.ts"
 import type { WorkspaceSource } from "../core/types.ts"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "validate">
-type GitHubAuth = NonNullable<UnsourceGitHubSourceOptions["auth"]>
+type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
 
-export interface GitHubSourceOptions extends Omit<UnsourceGitHubSourceOptions, "auth">, SourceRuntimeOptions {
+export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth">, SourceRuntimeOptions {
   auth?: GitHubAuth
 }
 

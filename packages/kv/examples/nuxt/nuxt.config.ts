@@ -1,3 +1,3 @@
 export default defineNuxtConfig({
-  modules: ["@vitehub/kv/nuxt"],
+  modules: ["@vite-hub/kv/nuxt"],
 })

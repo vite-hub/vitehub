@@ -1,12 +1,12 @@
 ---
 title: ViteHub
-description: Server Primitives for Vite
+description: Server primitives and agents for ViteHub applications.
 ---
 
 # ViteHub
 
-Server Primitives for Vite
+Server primitives and agents for ViteHub applications.
 
-- [Browse package docs](/docs)
-- Switch frameworks under `/docs/{framework}/...`
-- Compare `dev` and `build` example paths from the same docs page
+- [Browse docs](/docs)
+- [Use server primitives](/docs/server-primitives)
+- [Create agents](/docs/agents)

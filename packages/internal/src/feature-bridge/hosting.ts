@@ -16,7 +16,17 @@ export function normalizeHosting(hosting?: string | null): string {
 }
 
 export function detectHosting(target: HostingDetectionTarget) {
-  return normalizeHosting(target.options.nitro?.preset || target.options.preset || process.env.NITRO_PRESET || '')
+  return normalizeHosting(target.options.nitro?.preset || target.options.preset || detectPresetArg() || process.env.NITRO_PRESET || process.env.VITEHUB_HOSTING || '')
+}
+
+function detectPresetArg(): string {
+  const argv = process.argv || []
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index]
+    if (arg === '--preset') return argv[index + 1] || ''
+    if (arg?.startsWith('--preset=')) return arg.slice('--preset='.length)
+  }
+  return ''
 }
 
 export function getHostingProvider(hosting?: string | null): HostingProvider | undefined {

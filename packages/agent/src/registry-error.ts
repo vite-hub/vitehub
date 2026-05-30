@@ -30,7 +30,7 @@ export function formatUnknownAgentMessage(name: string, available: string[], opt
     details.push(`Discovered agents: ${available.slice(0, 10).join(", ")}${available.length > 10 ? ", ..." : ""}.`)
   }
   if (options.prefix) {
-    details.push("Make sure @vitehub/agent is configured and the agent is discovered.")
+    details.push("Make sure @vite-hub/agent is configured and the agent is discovered.")
   }
 
   return `${options.prefix ? "[vitehub] " : ""}Unknown agent: ${name}.${details.length ? ` ${details.join(" ")}` : ""}`

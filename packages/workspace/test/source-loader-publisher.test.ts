@@ -135,6 +135,15 @@ function archiveRequestAuthorization() {
 }
 
 describe("sources, loaders, and publishers", () => {
+  it("keeps Vite out of statically bundled workspace runtime output", async () => {
+    const output = await readFile(join(import.meta.dirname, "../dist/index.js"), "utf8")
+
+    expect(output).not.toContain('import("vite")')
+    expect(output).not.toContain("createRequire(import.meta.url)")
+    expect(output).not.toContain("node-fetch-native")
+    expect(output).not.toContain("node:http")
+  })
+
   it("lists GitHub files under the configured root with relative keys", async () => {
     stubGitHubSource({
       "dbt/dbt_project.yml": "name: app\n",
@@ -526,7 +535,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "README.md"), "# Root\n")
     await writeFile(join(directory, "README.md"), "# Directory\n")
     await writeFile(join(directory, "config.mjs"), [
-      "import { source } from '@vitehub/workspace'",
+      "import { source } from '@vite-hub/workspace'",
       "export default {",
       "  sourceRootDir: '',",
       "  sources: { docs: source.glob({ include: ['README.md'] }) },",
@@ -552,6 +561,41 @@ describe("sources, loaders, and publishers", () => {
       name: "docs",
     })
     expect(Buffer.from(bundles[0]!.files[0]!.content)).toEqual(Buffer.from("# Root\n"))
+  })
+
+  it("uses discovered source roots while syncing file-backed build assets", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "support")
+    const sourceRoot = join(directory, "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(root, "AGENTS.md"), "# Root\n")
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
+    await writeFile(join(directory, "config.mjs"), [
+      "import { source } from '@vite-hub/workspace'",
+      "export default {",
+      "  sources: { instructions: source.file('AGENTS.md') },",
+      "}",
+      "",
+    ].join("\n"))
+
+    const bundles = await syncDiscoveredWorkspaceAssetBundles([{
+      handler: join(directory, "config.mjs"),
+      name: "support",
+      path: join(directory, "config.mjs"),
+      source: "test",
+      sourceRootDir: sourceRoot,
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      assets: true,
+    })
+
+    expect(bundles).toHaveLength(1)
+    expect(bundles[0]).toMatchObject({
+      files: [expect.objectContaining({ path: "AGENTS.md" })],
+      name: "support",
+    })
+    expect(Buffer.from(bundles[0]!.files[0]!.content)).toEqual(Buffer.from("# Support\n"))
   })
 
   it("purges stale build source files when source maps change", async () => {
@@ -584,6 +628,27 @@ describe("sources, loaders, and publishers", () => {
       sources: {},
     }, store)
     await expect(store.list("", { recursive: true })).resolves.toEqual([])
+  })
+
+  it("skips initial sync snapshots when a workspace has no build sources", async () => {
+    const snapshot = vi.fn(async () => {
+      throw new Error("empty snapshots should not be published")
+    })
+    const store = {
+      async readFile() { return undefined },
+      async writeFile() {},
+      async list() { return [] },
+      async glob() { return [] },
+      async stat() { return undefined },
+      async mkdir() {},
+      async rm() {},
+      snapshot,
+      async diff() { return { entries: [], to: "test" } },
+    } satisfies WorkspaceStore
+
+    await syncWorkspaceDefinition({ name: "runtime-writes-only" }, store)
+
+    expect(snapshot).not.toHaveBeenCalled()
   })
 
   it("purges stale root-mounted build source files when source maps change", async () => {

@@ -1,0 +1,48 @@
+{
+  "label": "Database",
+  "icon": "i-lucide-database",
+  "order": 2,
+  "defaultPhase": "define",
+  "providers": [
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "envOverride": "VITEHUB_D1_DATABASE_ID=<d1-database-id>\nVITEHUB_D1_ANALYTICS_DATABASE_ID=<analytics-d1-database-id>"
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "envOverride": "TURSO_DATABASE_URL=libsql://example.turso.io\nTURSO_ANALYTICS_DATABASE_URL=libsql://analytics.example.turso.io\nTURSO_AUTH_TOKEN=<turso-auth-token>"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "server/databases/primary/config.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "server/databases/analytics/config.ts",
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "server/databases/primary/config.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "server/databases/analytics/config.ts",
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}

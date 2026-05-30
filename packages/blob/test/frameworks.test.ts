@@ -71,8 +71,8 @@ describe("Nitro module", () => {
       },
       hosting: "cloudflare-module",
     })
-    expect(nitro.options.alias["@vitehub/blob"]).toContain("/packages/blob/src/index.ts")
-    expect(nitro.options.alias["@vitehub/blob/runtime/state"]).toContain("/packages/blob/src/runtime/state.ts")
+    expect(nitro.options.alias["@vite-hub/blob"]).toContain("/packages/blob/src/index.ts")
+    expect(nitro.options.alias["@vite-hub/blob/runtime/state"]).toContain("/packages/blob/src/runtime/state.ts")
     expect(nitro.options.plugins).toHaveLength(1)
     expect(nitro.options.cloudflare).toMatchObject({
       wrangler: {

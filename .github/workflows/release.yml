@@ -1,0 +1,161 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24
+  PNPM_VERSION: 10.33.0
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Validate npm trusted publishing support
+        run: |
+          node --version
+          npm --version
+          node -e '
+            const { execFileSync } = require("node:child_process")
+            const version = execFileSync("npm", ["--version"], { encoding: "utf8" }).trim().split(".").map(Number)
+            const supported = version[0] > 11 || (version[0] === 11 && (version[1] > 5 || (version[1] === 5 && version[2] >= 1)))
+            if (!supported) {
+              throw new Error(`npm ${version.join(".")} does not satisfy trusted publishing requirement >=11.5.1`)
+            }
+          '
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        run: |
+          publish=false
+          version="0.0.0"
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            publish=true
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          npm_tag=latest
+          prerelease=false
+          if [[ "$version" == *"-alpha"* ]]; then
+            npm_tag=alpha
+            prerelease=true
+          elif [[ "$version" == *"-beta"* ]]; then
+            npm_tag=beta
+            prerelease=true
+          elif [[ "$version" == *"-rc"* ]]; then
+            npm_tag=rc
+            prerelease=true
+          elif [[ "$version" == *"-"* ]]; then
+            npm_tag=next
+            prerelease=true
+          fi
+
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Dry-run npm package publish
+        env:
+          NPM_TAG: ${{ steps.release.outputs.npm_tag }}
+        run: |
+          set -euo pipefail
+
+          for package_json in packages/*/package.json; do
+            private="$(node -p "require('./${package_json}').private === true ? 'true' : 'false'")"
+            if [[ "$private" == "true" ]]; then
+              continue
+            fi
+
+            package_name="$(node -p "require('./${package_json}').name")"
+            package_version="$(node -p "require('./${package_json}').version")"
+            package_dir="${package_json%/package.json}"
+
+            if npm view "${package_name}@${package_version}" version --json >/dev/null 2>&1; then
+              echo "${package_name}@${package_version} is already published; skipping dry-run."
+              continue
+            fi
+
+            (
+              cd "$package_dir"
+              pnpm publish --dry-run --access public --tag "$NPM_TAG" --no-git-checks
+            )
+          done
+
+      - name: Publish packages to npm
+        if: steps.release.outputs.publish == 'true'
+        env:
+          NPM_TAG: ${{ steps.release.outputs.npm_tag }}
+        run: |
+          set -euo pipefail
+
+          for package_json in packages/*/package.json; do
+            private="$(node -p "require('./${package_json}').private === true ? 'true' : 'false'")"
+            if [[ "$private" == "true" ]]; then
+              continue
+            fi
+
+            package_name="$(node -p "require('./${package_json}').name")"
+            package_version="$(node -p "require('./${package_json}').version")"
+            package_dir="${package_json%/package.json}"
+
+            if npm view "${package_name}@${package_version}" version --json >/dev/null 2>&1; then
+              echo "${package_name}@${package_version} is already published; skipping."
+              continue
+            fi
+
+            (
+              cd "$package_dir"
+              pnpm publish --access public --tag "$NPM_TAG" --no-git-checks
+            )
+          done
+
+      - name: Create GitHub release
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(--verify-tag --generate-notes)
+          if [[ "${{ steps.release.outputs.prerelease }}" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "GitHub release $GITHUB_REF_NAME already exists."
+          else
+            gh release create "$GITHUB_REF_NAME" "${args[@]}"
+          fi

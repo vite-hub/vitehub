@@ -1,4 +1,4 @@
-import { toArray } from "@vitehub/internal/arrays"
+import { toArray } from "@vite-hub/internal/arrays"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 

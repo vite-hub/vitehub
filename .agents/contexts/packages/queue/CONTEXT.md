@@ -1,6 +1,6 @@
 # Queue Package
 
-Queue Package names ownership boundaries for `@vitehub/queue`.
+Queue Package names ownership boundaries for `@vite-hub/queue`.
 
 ## Language
 

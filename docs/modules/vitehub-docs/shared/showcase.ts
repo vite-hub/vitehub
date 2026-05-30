@@ -30,7 +30,7 @@ export function generateFrameworkConfig(framework: Framework, pkg: string, confi
     return null;
   }
 
-  const modulePath = `@vitehub/${pkg}/${framework}`;
+  const modulePath = `@vite-hub/${pkg}/${framework}`;
   if (framework === "nuxt") {
     return `export default defineNuxtConfig({\n  modules: ['${modulePath}'],\n${configOverride}\n})`;
   }

@@ -1,5 +1,3 @@
-import { ofetch } from "ofetch"
-
 export type HttpRequestMethod = "GET" | "HEAD" | "POST"
 export type HttpResponseType = "json" | "text"
 export type InternalHttpResponseType = HttpResponseType | "arrayBuffer" | "blob"
@@ -57,22 +55,16 @@ export interface RedactedHttpRequestSummary {
   url: string
 }
 
+type FetchBody = Exclude<NonNullable<Parameters<typeof fetch>[1]>["body"], null | undefined>
+
 export async function executeHttpRequest<TOutput = unknown>(
   definition: HttpRequestDefinition,
   options: HttpRequestExecutionOptions<TOutput> = {},
 ): Promise<HttpRequestResult<TOutput>> {
   const normalized = normalizeHttpRequest(definition)
   const responseType = options.responseType || "json"
-  const response = await ofetch.raw(normalized.url.toString(), {
-    body: normalized.body as any,
-    headers: normalized.headers,
-    method: normalized.method,
-    query: normalized.query,
-    responseType,
-    retry: normalized.method === "GET" || normalized.method === "HEAD" ? 1 : 0,
-    timeout: normalized.timeout,
-  })
-  const decoded = responseType === "text" && typeof response._data === "undefined" ? "" : response._data
+  const response = await fetchWithRetry(normalized)
+  const decoded = await decodeResponse(response, responseType)
   const data = options.schema ? await parseStandardSchema(options.schema, decoded, "HTTP response") : decoded
   return {
     data: data as TOutput,
@@ -80,6 +72,95 @@ export async function executeHttpRequest<TOutput = unknown>(
     status: response.status,
     summary: redactedHttpRequestSummary(normalized, responseType),
   }
+}
+
+async function fetchWithRetry(definition: NormalizedHttpRequest): Promise<Response> {
+  const attempts = definition.method === "GET" || definition.method === "HEAD" ? 2 : 1
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetchOnce(definition)
+    }
+    catch (error) {
+      lastError = error
+      if (attempt === attempts) break
+    }
+  }
+  throw lastError
+}
+
+async function fetchOnce(definition: NormalizedHttpRequest): Promise<Response> {
+  const headers = new Headers(definition.headers)
+  const body = serializeRequestBody(definition.body, headers)
+  const controller = definition.timeout ? new AbortController() : undefined
+  const timeout = controller ? setTimeout(() => controller.abort(), definition.timeout) : undefined
+  try {
+    const response = await fetch(urlWithQuery(definition).toString(), {
+      body,
+      headers,
+      method: definition.method,
+      signal: controller?.signal,
+    })
+    if (!response.ok) {
+      throw new Error(`[vitehub] HTTP request failed with status ${response.status}.`)
+    }
+    return response
+  }
+  finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
+function serializeRequestBody(body: unknown, headers: Headers): FetchBody | undefined {
+  if (typeof body === "undefined") return undefined
+  if (
+    typeof body === "string"
+    || body instanceof Uint8Array
+    || body instanceof ArrayBuffer
+    || ArrayBuffer.isView(body)
+    || typeof Blob !== "undefined" && body instanceof Blob
+    || typeof FormData !== "undefined" && body instanceof FormData
+    || typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams
+    || typeof ReadableStream !== "undefined" && body instanceof ReadableStream
+  ) {
+    return body as FetchBody
+  }
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/json")
+  }
+  return JSON.stringify(body)
+}
+
+function urlWithQuery(definition: NormalizedHttpRequest): URL {
+  const url = new URL(definition.url)
+  if (!definition.query) return url
+  for (const [key, value] of Object.entries(definition.query)) {
+    if (typeof value === "undefined") continue
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item !== "undefined") url.searchParams.append(key, queryValue(item))
+      }
+      continue
+    }
+    url.searchParams.set(key, queryValue(value))
+  }
+  return url
+}
+
+function queryValue(value: unknown): string {
+  if (value === null) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value)
+  return JSON.stringify(value)
+}
+
+async function decodeResponse(response: Response, responseType: InternalHttpResponseType): Promise<unknown> {
+  if (responseType === "text") return await response.text()
+  if (responseType === "arrayBuffer") return await response.arrayBuffer()
+  if (responseType === "blob") return await response.blob()
+
+  const text = await response.text()
+  return text ? JSON.parse(text) : undefined
 }
 
 export function normalizeHttpRequest(definition: HttpRequestDefinition): NormalizedHttpRequest {

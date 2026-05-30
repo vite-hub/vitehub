@@ -1,6 +1,6 @@
 import { docsManifest, type DocsExample } from "./docs";
-import { defaultUsageMode, type UsageMode } from "./fw-variants";
 import { frameworks, type Framework } from "./frameworks";
+import { defaultUsageMode, type UsageMode } from "./showcase-modes";
 import {
   generateFrameworkConfig,
   getFrameworkConfigPath,
@@ -40,7 +40,7 @@ export function getShowcaseExamples() {
   return docsManifest.examples;
 }
 
-export function getSupportedShowcaseFrameworks(example: ShowcaseExample) {
+function getSupportedShowcaseFrameworks(example: ShowcaseExample) {
   return frameworks.filter((framework): framework is Framework => Boolean(example.frameworks[framework] && example.files[framework]?.length));
 }
 

@@ -139,5 +139,7 @@ export interface EnvRuntimeRegistry {
   [key: string]: EnvRuntimeRegistryValue
 }
 
-export type ServerEnv = Record<string, unknown>
+export interface ServerEnv {
+  [key: string]: unknown
+}
 export type PublicEnv = Record<string, unknown>

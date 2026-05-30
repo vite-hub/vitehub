@@ -1,13 +1,13 @@
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 
-import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vitehub/internal/build/deployment-output"
-import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
-import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg, toGeneratedPath } from "@vitehub/internal/build/paths"
-import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
-import { createNodeFunctionConfig } from "@vitehub/internal/build/vercel-config"
-import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
+import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg, toGeneratedPath } from "@vite-hub/internal/build/paths"
+import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
+import { createNodeFunctionConfig } from "@vite-hub/internal/build/vercel-config"
+import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { discoverQueueDefinitions } from "../discovery.ts"
@@ -15,9 +15,9 @@ import { getCloudflareQueueBindingName, getCloudflareQueueName } from "../integr
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions, QueueProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
-export const queuePackageName = "@vitehub/queue"
+export const queuePackageName = "@vite-hub/queue"
 const productName = "queue"
 
 const generatedRegistryFileName = "registry.mjs"
@@ -171,6 +171,7 @@ function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareP
       format: "esm",
       platform: "neutral",
     },
+    wranglerConfigKeys: ["queues"],
     wranglerConfig,
   }
 }
@@ -239,6 +240,7 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
   const queueConfig = normalizeQueueOptions(queue, { hosting: "vercel" }) || false
 
+  await rm(queueRoot, { force: true, recursive: true })
   if (queueConfig === false) {
     return
   }

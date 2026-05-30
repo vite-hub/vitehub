@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery } from "h3"
-import { kv } from "@vitehub/kv"
+import { kv } from "@vite-hub/kv"
 
 export default defineEventHandler(async (event) => {
   const marker = getQuery(event).marker

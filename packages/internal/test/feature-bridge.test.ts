@@ -8,6 +8,7 @@ import { detectHosting } from '../src/feature-bridge/hosting.ts'
 
 afterEach(() => {
   delete process.env.NITRO_PRESET
+  delete process.env.VITEHUB_HOSTING
 })
 
 describe('feature bridge hosting', () => {
@@ -20,13 +21,36 @@ describe('feature bridge hosting', () => {
       },
     })).toBe('vercel')
   })
+
+  it('detects Nitro CLI preset arguments before falling back to NITRO_PRESET', () => {
+    process.env.NITRO_PRESET = 'cloudflare'
+    const originalArgv = process.argv
+    process.argv = ['node', 'nitro', 'build', '--preset=vercel']
+
+    try {
+      expect(detectHosting({
+        options: {},
+      })).toBe('vercel')
+    }
+    finally {
+      process.argv = originalArgv
+    }
+  })
+
+  it('falls back to explicit ViteHub hosting env', () => {
+    process.env.VITEHUB_HOSTING = 'vercel'
+
+    expect(detectHosting({
+      options: {},
+    })).toBe('vercel')
+  })
 })
 
 describe('feature bridge state', () => {
   it('preserves explicit false config in Nitro runtime config', async () => {
     const setupNitro = vi.fn()
     const engine = createFeatureEngine<false | { enabled: boolean }, { enabled: boolean }, false | { enabled: boolean }>({
-      name: '@vitehub/test-feature',
+      name: '@vite-hub/test-feature',
       feature: 'testFeature',
       configKey: 'testFeature',
       normalizeOptions(options) {

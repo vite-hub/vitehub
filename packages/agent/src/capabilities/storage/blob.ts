@@ -1,3 +1,4 @@
+import { defineCapability, normalizeMode } from "../../capability-runtime.ts"
 import {
   assertString,
   createTool,
@@ -16,6 +17,11 @@ import type {
 import type { PrimitiveStorageCapabilityOptions } from "./shared.ts"
 
 export interface BlobCapabilityOptions extends PrimitiveStorageCapabilityOptions {}
+
+export function blob(options: BlobCapabilityOptions = {}): AgentCapabilityDefinition {
+  const mode = normalizeMode(options.mode, "Blob")
+  return defineCapability({ id: "blob", mode, requires: [{ primitive: "blob" }], tools: blobTools(mode, options) })
+}
 
 interface BlobReadInput {
   cursor?: string
@@ -60,7 +66,7 @@ function normalizeListLimit(limit: unknown): number {
   return Math.min(Math.floor(limit), maxListLimit)
 }
 
-export function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {
+function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {
   return (context) => {
     const store = selectStore(requirePrimitive(context as never, "blob"), "Blob", options.store)
     const tools: AgentToolSet = {

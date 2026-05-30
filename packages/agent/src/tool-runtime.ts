@@ -2,7 +2,7 @@ import {
   ApprovalRequiredError,
   CapabilityDeniedError,
   resolveCapabilityPolicy,
-} from "@vitehub/runtime"
+} from "@vite-hub/runtime"
 
 import type {
   AgentRuntimeContext,

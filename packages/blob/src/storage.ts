@@ -1,6 +1,6 @@
 import { createError, setHeader } from "h3"
 
-import { toArray } from "@vitehub/internal/arrays"
+import { toArray } from "@vite-hub/internal/arrays"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
 
@@ -119,7 +119,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>): BlobStorage {
       })
     },
     store() {
-      throw new Error("Named Blob stores are only available from the @vitehub/blob runtime export.")
+      throw new Error("Named Blob stores are only available from the @vite-hub/blob runtime export.")
     },
   }
 }

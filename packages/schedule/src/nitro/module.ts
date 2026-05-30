@@ -1,8 +1,8 @@
 import { resolve } from "node:path"
 
-import { createImportPath } from "@vitehub/internal/build/paths"
-import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, createRuntimeRegistryContents, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { createImportPath } from "@vite-hub/internal/build/paths"
+import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, createRuntimeRegistryContents, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vite-hub/internal/nitro"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { readDefinitionCrons, writeVercelScheduleFunctions } from "../internal/provider-output.ts"
@@ -10,8 +10,8 @@ import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "../targets-m
 
 import type { Nitro, NitroModule } from "nitro/types"
 
-const SCHEDULE_NITRO_IMPORTS_PRESET = { from: "@vitehub/schedule", imports: ["defineSchedule"] }
-const SCHEDULE_VITE_PLUGIN_NAME = "@vitehub/schedule/vite"
+const SCHEDULE_NITRO_IMPORTS_PRESET = { from: "@vite-hub/schedule", imports: ["defineSchedule"] }
+const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
@@ -56,8 +56,8 @@ function createNitroSchedulePluginContents(file: string, registryFile: string) {
   return [
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
     "",
-    "import { executeStaticSchedule } from \"@vitehub/schedule\"",
-    "import { setScheduleRuntimeRegistry } from \"@vitehub/schedule/runtime/state\"",
+    "import { executeStaticSchedule } from \"@vite-hub/schedule\"",
+    "import { setScheduleRuntimeRegistry } from \"@vite-hub/schedule/runtime/state\"",
     "",
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
@@ -70,11 +70,13 @@ function createNitroSchedulePluginContents(file: string, registryFile: string) {
     "",
     "const scheduleNitroPlugin = defineNitroPlugin((nitroApp: any) => {",
     "  setScheduleRuntimeRegistry(scheduleRegistry)",
-    "  nitroApp.hooks.hook(\"cloudflare:scheduled\", async ({ event }: { event: { cron: string, scheduledTime: number } }) => {",
+    "  nitroApp.hooks.hook(\"cloudflare:scheduled\", async ({ controller, event }: { controller?: { cron: string, scheduledTime: number }, event?: { cron: string, scheduledTime: number } }) => {",
+    "    const scheduledEvent = event ?? controller",
+    "    if (!scheduledEvent) return",
     "    await Promise.all(Object.keys(scheduleRegistry).map(async (name) => {",
     "      const definition = await loadScheduleDefinition(name)",
-    "      if (!definition || definition.cron !== event.cron) return",
-    "      await executeStaticSchedule({ cron: event.cron, definition, name, scheduledAt: new Date(event.scheduledTime) })",
+    "      if (!definition || definition.cron !== scheduledEvent.cron) return",
+    "      await executeStaticSchedule({ cron: scheduledEvent.cron, definition, name, scheduledAt: new Date(scheduledEvent.scheduledTime) })",
     "    }))",
     "  })",
     "})",
@@ -103,14 +105,14 @@ async function writeNitroScheduleRuntimeFiles(nitro: Nitro): Promise<{ pluginFil
 }
 
 const scheduleNitroModule: NitroModule = {
-  name: "@vitehub/schedule",
+  name: "@vite-hub/schedule",
   async setup(nitro) {
-    await assertNoVitePluginInNitro(nitro, SCHEDULE_VITE_PLUGIN_NAME, "@vitehub/schedule/nitro")
+    await assertNoVitePluginInNitro(nitro, SCHEDULE_VITE_PLUGIN_NAME, "@vite-hub/schedule/nitro")
 
     nitro.options.alias ||= {}
-    nitro.options.alias["@vitehub/schedule"] = resolveRuntimeEntry("../index", "@vitehub/schedule")
-    nitro.options.alias["@vitehub/schedule/runtime"] = resolveRuntimeEntry("../runtime", "@vitehub/schedule/runtime")
-    nitro.options.alias["@vitehub/schedule/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/schedule/runtime/state")
+    nitro.options.alias["@vite-hub/schedule"] = resolveRuntimeEntry("../index", "@vite-hub/schedule")
+    nitro.options.alias["@vite-hub/schedule/runtime"] = resolveRuntimeEntry("../runtime", "@vite-hub/schedule/runtime")
+    nitro.options.alias["@vite-hub/schedule/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vite-hub/schedule/runtime/state")
 
     let runtimeFiles = await writeNitroScheduleRuntimeFiles(nitro)
     applyNitroRuntimeAliases(nitro, {

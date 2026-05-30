@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 const gitMock = vi.hoisted(() => ({
   add: vi.fn(async () => {}),

@@ -1,11 +1,13 @@
-import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { useRuntimeConfig } from "nitro/runtime-config"
 
 import { SecretEnv } from "../secret.ts"
 
-import type { EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvRuntimeSchema, ServerEnv } from "../types.ts"
+import type { EnvRegistryEntry, EnvRuntimeLiteralEntry, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvRuntimeSchema, ServerEnv as BaseServerEnv } from "../types.ts"
 
 export { SecretEnv } from "../secret.ts"
+
+export interface ServerEnv extends BaseServerEnv {}
 
 let registry: EnvRuntimeRegistry = {}
 
@@ -20,7 +22,7 @@ export function useServerEnv(event?: unknown): ServerEnv {
 export function applyRuntimeEnvToRuntimeConfig(runtimeConfig: Record<string, unknown>, event?: unknown): ServerEnv {
   const values = resolveRuntimeValues(registry, resolveRuntimeEnv(event))
   assignRuntimeValues(runtimeConfig, values)
-  return runtimeConfig
+  return runtimeConfig as ServerEnv
 }
 
 function resolveNitroRuntimeConfig(event?: unknown): Record<string, unknown> {

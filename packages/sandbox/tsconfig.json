@@ -8,11 +8,20 @@
       "#vitehub-sandbox-provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],
+      "virtual:vitehub-sandbox-provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
+      "vitehub-sandbox-provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
+      "@vite-hub/sandbox/runtime/provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
       "#vitehub-sandbox-registry": [
         "packages/sandbox/src/runtime/empty-registry.ts"
       ],
-      "@vitehub/internal/*": [
-        "packages/internal/src/*"
+      "@vite-hub/internal/*": [
+        "packages/internal/src/*.ts"
       ]
     },
     "rootDir": "..",

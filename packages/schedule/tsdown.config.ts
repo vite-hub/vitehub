@@ -6,7 +6,8 @@ export default defineConfig({
     { from: "src/registry-module.d.ts", to: "dist" },
   ],
   deps: {
-    alwaysBundle: [/^@vitehub\/internal/],
+    alwaysBundle: [/^@vite-hub\/internal/],
+    neverBundle: ["esbuild"],
     onlyBundle: false,
   },
   dts: true,

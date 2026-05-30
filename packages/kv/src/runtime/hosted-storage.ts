@@ -14,7 +14,7 @@ export interface RuntimeStorage {
 
 function assertHostedConfig(config: false | ResolvedKVModuleOptions | undefined): ResolvedKVModuleOptions {
   if (!config) {
-    throw new Error("[vitehub] `@vitehub/kv` requires `hubKv()` and `kv !== false`.")
+    throw new Error("[vitehub] `@vite-hub/kv` requires `hubKv()` and `kv !== false`.")
   }
 
   return config

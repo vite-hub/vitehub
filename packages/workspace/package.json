@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/workspace",
+  "name": "@vite-hub/workspace",
   "version": "0.0.0",
   "description": "Agent-oriented filesystem state and Vite/Nitro integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -58,11 +58,11 @@
     "dev": "tsdown --watch",
     "test:e2e": "tsx ./test/e2e.ts",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/workspace... build && vitest run"
+    "test": "pnpm --filter @vite-hub/workspace... build && vitest run"
   },
   "dependencies": {
-    "@vitehub/shell": "workspace:*",
-    "@vitehub/unsource": "workspace:*",
+    "@vite-hub/shell": "workspace:*",
+    "@vite-hub/source": "workspace:*",
     "defu": "^6.1.4",
     "exsolve": "^1.0.8",
     "files-sdk": "catalog:",
@@ -71,13 +71,13 @@
     "minimatch": "^10.1.1"
   },
   "peerDependencies": {
-    "@vitehub/sandbox": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
     "ai": "^6.0.0",
     "nitro": "^3.0.0-0",
     "vite": ">=8.0.0"
   },
   "peerDependenciesMeta": {
-    "@vitehub/sandbox": {
+    "@vite-hub/sandbox": {
       "optional": true
     },
     "nitro": {
@@ -89,8 +89,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "@vitehub/internal": "workspace:*",
-    "@vitehub/sandbox": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
     "ai": "^6.0.172",
     "nitro": "3.0.260311-beta",
     "ocache": "^0.1.4",

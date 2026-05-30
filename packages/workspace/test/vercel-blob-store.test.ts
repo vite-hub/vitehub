@@ -126,9 +126,11 @@ describe("Vercel Blob workspace store", () => {
 
     await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
     expect(await store.readFile("docs/readme.md")).toMatchObject({ path: "docs/readme.md" })
+    blobMock.get.mockClear()
     expect(await store.glob("**/*.md")).toEqual([
       expect.objectContaining({ path: "docs/readme.md", type: "file" }),
     ])
+    expect(blobMock.get).not.toHaveBeenCalled()
 
     const snapshot = await store.snapshot({ name: "baseline" })
     await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "changed" })

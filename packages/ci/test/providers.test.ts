@@ -16,7 +16,7 @@ vi.mock("ofetch", () => ({
   },
 }))
 
-describe("@vitehub/ci providers", () => {
+describe("@vite-hub/ci providers", () => {
   beforeEach(() => {
     requests.length = 0
     queue.length = 0

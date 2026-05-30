@@ -1,28 +1,36 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useFrameworkPreference } from "../composables/useFrameworkPreference";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useHighlightedCode } from "../composables/useHighlightedCode";
-import { defaultFramework, frameworkColorIcons, frameworkLabels, type Framework, visibleFrameworks } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
-import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths, getSupportedShowcaseFrameworks, resolveShowcaseFramework, showcasePhaseIds, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
+import { defaultFramework, type Framework } from "~~/modules/vitehub-docs/runtime/utils/frameworks";
+import { getShowcaseExamples, getShowcaseFiles, getShowcasePhasePaths, resolveShowcaseFramework, showcasePhaseIds, type ExampleFile, type ShowcasePhaseId } from "~~/modules/vitehub-docs/runtime/utils/showcase";
 
 type TreeItem = { id: string; label: string; icon?: string; defaultExpanded?: boolean; children?: TreeItem[] };
 
-const { current, switchTo } = useFrameworkPreference();
 const activeTab = ref(0);
 const activeFilePath = ref("");
 const activePhase = ref<ShowcasePhaseId>("run");
 const activeProvider = ref("");
-const mounted = ref(false);
 const selectionMemory = new Map<string, string>();
+const docsPathByExample: Record<string, string> = {
+  agent: "/docs/agents",
+  blob: "/docs/server-primitives/blob",
+  db: "/docs/server-primitives/database",
+  env: "/docs/server-primitives/env",
+  kv: "/docs/server-primitives/kv",
+  queue: "/docs/server-primitives/queue",
+  sandbox: "/docs/server-primitives/sandbox",
+  schedule: "/docs/server-primitives/schedule",
+  workflow: "/docs/server-primitives/workflow",
+  workspace: "/docs/server-primitives/workspace",
+};
 
 const examples = getShowcaseExamples().map(e => ({ ...e, icon: e.icon || "i-lucide-box", defaultPhase: e.defaultPhase || "configure", providers: e.providers || [] }));
 const activeExample = computed(() => examples[activeTab.value]!);
 const displayedFramework = computed<Framework>(() => {
-  const preferredFramework = mounted.value ? current.value : defaultFramework;
-  return resolveShowcaseFramework(activeExample.value, preferredFramework);
+  return resolveShowcaseFramework(activeExample.value, defaultFramework);
 });
-const getStartedLink = computed(() => `/docs/${displayedFramework.value}/${activeExample.value.docsPath}/quickstart`);
-const activeDocsLink = computed(() => `/docs/${displayedFramework.value}/${activeExample.value.docsPath}`);
+const activeDocsLink = computed(() => docsPathByExample[activeExample.value.docsPath] || docsPathByExample[activeExample.value.pkg] || "/docs");
+const getStartedLink = computed(() => activeDocsLink.value);
 const activePhasePaths = computed(() => getShowcasePhasePaths(activeExample.value, displayedFramework.value));
 const activeFiles = computed(() => getShowcaseFiles(activeExample.value, displayedFramework.value, activeProvider.value));
 const activeFile = computed(() => activeFiles.value.find(f => f.path === activeFilePath.value) || activeFiles.value[0]);
@@ -96,11 +104,6 @@ function applyFrameworkSelection(framework: Framework, options: { phase?: Showca
 function resetSelection() {
   const phase = activePhasePaths.value[activePhase.value] ? activePhase.value : activeExample.value.defaultPhase;
   applyFrameworkSelection(displayedFramework.value, { phase, provider: activeProvider.value });
-}
-
-function onFrameworkSelect(framework: Framework) {
-  applyFrameworkSelection(framework, { phase: "configure", provider: activeProvider.value });
-  switchTo(framework);
 }
 
 watch([activeTab, displayedFramework], resetSelection, { immediate: true });
@@ -196,15 +199,6 @@ function treeItemIcon(item: TreeItem, expanded: boolean) {
   return fileIcon(item.id || item.label);
 }
 
-const frameworkOptions = computed(() => {
-  return getSupportedShowcaseFrameworks(activeExample.value)
-    .filter((id): id is Framework => visibleFrameworks.includes(id))
-    .map(id => ({
-    id,
-    label: frameworkLabels[id],
-    icon: frameworkColorIcons[id],
-  }));
-});
 const copyIcons = { copy: "i-lucide-copy", copyCheck: "i-lucide-check" };
 const copied = ref(false);
 let copiedTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -229,10 +223,6 @@ async function copyActiveFile() {
   }, 2000);
 }
 
-onMounted(() => {
-  mounted.value = true;
-});
-
 onBeforeUnmount(() => {
   if (copiedTimeout) {
     clearTimeout(copiedTimeout);
@@ -251,7 +241,7 @@ onBeforeUnmount(() => {
             Server primitives for <span class="text-primary">every host</span>
           </h1>
           <p class="mx-auto mt-6 max-w-[48ch] text-lg text-muted text-pretty">
-            One API surface across every provider and framework.
+            One API surface for storage, background work, sandboxes, and agents.
           </p>
           <div class="relative z-10 mt-10 flex items-center justify-center gap-4">
             <NuxtLink
@@ -343,19 +333,8 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <div class="grid grid-cols-[auto_1fr_auto] items-center border-t border-black/5 bg-muted/30 px-3 py-1.5 dark:border-white/5">
-              <div class="flex items-center gap-0.5 rounded-lg ring ring-black/5 p-0.5 dark:ring-white/10">
-                <UButton
-                  v-for="fw in frameworkOptions" :key="fw.id"
-                  :icon="fw.icon" :label="fw.label"
-                  :color="displayedFramework === fw.id ? 'primary' : 'neutral'"
-                  :variant="displayedFramework === fw.id ? 'soft' : 'ghost'"
-                  size="xs"
-                  :aria-pressed="displayedFramework === fw.id"
-                  @click="onFrameworkSelect(fw.id)"
-                />
-              </div>
-              <div class="flex items-center justify-self-center gap-2">
+            <div class="grid grid-cols-[1fr_auto] items-center border-t border-black/5 bg-muted/30 px-3 py-1.5 dark:border-white/5">
+              <div v-if="activeExample.providers.length" class="flex items-center gap-2">
                 <p class="text-[0.625rem] font-medium tracking-wider text-muted uppercase">Works with</p>
                 <UTooltip v-for="provider in activeExample.providers" :key="provider.id" :text="provider.label">
                   <UButton

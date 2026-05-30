@@ -1,4 +1,4 @@
-import { pushUnique } from "@vitehub/internal/arrays"
+import { pushUnique } from "@vite-hub/internal/arrays"
 
 import type { NitroOptions } from "nitro/types"
 import type { ResolvedKVModuleOptions } from "../types.ts"

@@ -1,5 +1,5 @@
 import { createError, defineEventHandler, readBody } from "h3"
-import { runSandbox } from "@vitehub/sandbox"
+import { runSandbox } from "@vite-hub/sandbox"
 
 export default defineEventHandler(async (event) => {
   const result = await runSandbox("release-notes", await readBody(event))

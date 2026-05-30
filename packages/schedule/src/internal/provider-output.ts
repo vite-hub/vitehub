@@ -3,19 +3,19 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot } from "@vitehub/internal/build/deployment-output"
-import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
-import { createImportPath, ensureGeneratedDir } from "@vitehub/internal/build/paths"
-import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
-import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
+import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
+import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
+import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
 
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 
-export const schedulePackageName = "@vitehub/schedule"
+export const schedulePackageName = "@vite-hub/schedule"
 const productName = "schedule"
 const generatedRegistryFileName = "registry.mjs"
 

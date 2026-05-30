@@ -1,4 +1,4 @@
-import { getCloudflareEnv, resolveWaitUntil } from "@vitehub/internal/runtime/cloudflare-env"
+import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"

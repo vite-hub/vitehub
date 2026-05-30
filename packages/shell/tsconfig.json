@@ -4,16 +4,16 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": "../..",
     "paths": {
-      "@vitehub/shell": [
+      "@vite-hub/shell": [
         "packages/shell/src/index.ts"
       ],
-      "@vitehub/shell/providers/cloudflare": [
+      "@vite-hub/shell/providers/cloudflare": [
         "packages/shell/src/providers/cloudflare.ts"
       ],
-      "@vitehub/shell/providers/just-bash": [
+      "@vite-hub/shell/providers/just-bash": [
         "packages/shell/src/providers/just-bash.ts"
       ],
-      "@vitehub/shell/workspace": [
+      "@vite-hub/shell/workspace": [
         "packages/shell/src/workspace/index.ts"
       ]
     },

@@ -1,6 +1,6 @@
-import { getViteMode } from "@vitehub/internal/build/mode"
-import { shouldSkipViteProviderBuild } from "@vitehub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
+import { getViteMode } from "@vite-hub/internal/build/mode"
+import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import blobNitroModule from "./nitro/module.ts"
 import { generateProviderOutputs, blobPackageName } from "./internal/vite-build.ts"

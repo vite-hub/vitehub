@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
+
 const readFile = vi.fn()
+const writeFile = vi.fn()
 const list = vi.fn()
 const exists = vi.fn()
+const diff = vi.fn()
+const snapshot = vi.fn()
 const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
+const resolveWorkspaceAutoCommit = vi.fn()
 const useWorkspace = vi.fn(() => ({
-  fs: { exists, list, readFile },
+  diff,
+  fs: { exists, list, readFile, writeFile },
+  snapshot,
   tools: Object.assign(tools, {
     inspect: inspectTools,
     none: vi.fn(() => ({})),
@@ -16,6 +24,11 @@ const useWorkspace = vi.fn(() => ({
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const generateText = vi.hoisted(() => vi.fn())
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, steps?: unknown[], text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
+const agentStream = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ fullStream: AsyncIterable<unknown> }>>(async () => ({
+  fullStream: (async function* () {
+    yield { text: "ok", type: "text-delta" }
+  })(),
+})))
 
 vi.mock("ai", () => ({
   generateText,
@@ -28,10 +41,15 @@ vi.mock("ai", () => ({
     async generate(...args: unknown[]) {
       return await agentGenerate.apply(this, args)
     }
+
+    async stream(...args: unknown[]) {
+      return await agentStream.apply(this, args)
+    }
   },
 }))
 
-vi.mock("@vitehub/workspace", () => ({
+vi.mock("@vite-hub/workspace", () => ({
+  resolveWorkspaceAutoCommit,
   useWorkspace,
 }))
 
@@ -50,13 +68,25 @@ describe("defineAgent workspace option", () => {
     agentSettings.length = 0
     agentGenerate.mockReset()
     agentGenerate.mockResolvedValue({ finishReason: "stop", text: "ok" })
+    agentStream.mockReset()
+    agentStream.mockResolvedValue({
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+      })(),
+    })
     generateText.mockReset()
     generateText.mockResolvedValue({ text: "fallback answer" })
     exists.mockReset()
     exists.mockResolvedValue(false)
+    diff.mockReset()
+    diff.mockResolvedValue({ entries: [], to: "next" })
     list.mockReset()
     list.mockResolvedValue([])
     readFile.mockReset()
+    writeFile.mockReset()
+    snapshot.mockReset()
+    resolveWorkspaceAutoCommit.mockReset()
+    resolveWorkspaceAutoCommit.mockReturnValue(undefined)
     tools.mockClear()
     inspectTools.mockReset()
     inspectTools.mockReturnValue({})
@@ -69,7 +99,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "agent-skills/support" })],
-      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })
@@ -86,7 +115,6 @@ describe("defineAgent workspace option", () => {
         id: "docs",
         requires: [{ primitive: "workspace", workspace: { paths: ["CONTEXT.md"], required: true } }],
       }],
-      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })
@@ -102,7 +130,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "agent-skills/support" })],
-      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })
@@ -111,7 +138,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("creates a workspace and agent definition without resolving workspace until run", async () => {
-    const { useWorkspace } = await import("@vitehub/workspace")
+    const { useWorkspace } = await import("@vite-hub/workspace")
     const { defineAgent } = await import("../src/index.ts")
 
     const agent = defineAgent({
@@ -119,7 +146,6 @@ describe("defineAgent workspace option", () => {
         sources: {},
       },
       description: "Answer from workspace context",
-      adapter: "ai-sdk",
       model: {} as never,
     })
 
@@ -128,13 +154,113 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).not.toHaveBeenCalled()
   })
 
+  it("auto-commits write-mode workspace changes when rules request it", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "inbox/audio.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive audio",
+      paths: ["inbox/audio.md"],
+    })
+    const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        mode: "write",
+        rules: {
+          "inbox/**": { commit: "chore: archive audio", write: true },
+        },
+      },
+      run: async ({ workspace }) => {
+        await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/audio.md", "transcript")
+        return "ok"
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
+
+    expect(useWorkspace).toHaveBeenCalledWith("docs", { mode: "write" })
+    expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "docs",
+        rules: { "inbox/**": { commit: "chore: archive audio", write: true } },
+      }),
+      expect.objectContaining({ entries: [expect.objectContaining({ path: "inbox/audio.md" })] }),
+    )
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive audio" })
+  })
+
+  it("auto-commits write-mode workspace changes after raw stream results are consumed", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "inbox/stream.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive stream",
+      paths: ["inbox/stream.md"],
+    })
+    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        mode: "write",
+        rules: {
+          "inbox/**": { commit: "chore: archive stream", write: true },
+        },
+      },
+      run: async ({ workspace }) => {
+        await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/stream.md", "transcript")
+        return (async function* () {
+          yield { text: "ok", type: "text-delta" }
+        })()
+      },
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] }) as AsyncIterable<unknown>
+    expect(snapshot).not.toHaveBeenCalled()
+    for await (const _event of stream) {}
+
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive stream" })
+  })
+
+  it("auto-commits write-mode workspace changes after raw Response bodies are consumed", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "inbox/response.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive response",
+      paths: ["inbox/response.md"],
+    })
+    const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        mode: "write",
+        rules: {
+          "inbox/**": { commit: "chore: archive response", write: true },
+        },
+      },
+      run: async ({ workspace }) => {
+        await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/response.md", "transcript")
+        return new Response("ok")
+      },
+    }), { workspace: "docs" })
+
+    const response = await runAgent(agent, context(), { messages: [] }) as Response
+    expect(snapshot).not.toHaveBeenCalled()
+    await expect(response.text()).resolves.toBe("ok")
+
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive response" })
+  })
+
   it("uses string instructions", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: "Use workspace sources.",
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -149,7 +275,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: [" First ", "", "Second"],
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -168,7 +293,6 @@ describe("defineAgent workspace option", () => {
         "Use workspace sources.",
         async ({ fs }) => await fs.readFile("AGENTS.md"),
       ],
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -185,7 +309,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -211,7 +334,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -219,6 +341,141 @@ describe("defineAgent workspace option", () => {
     expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining("client.py:7"),
     }))
+  })
+
+  it("synthesizes streamed answers when tool loops stop without text after AI SDK tool outputs", async () => {
+    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield {
+          output: { stdout: "client.py:7: posthog_client = Posthog()" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+      })(),
+    })
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("client.py:7"),
+    }))
+  })
+
+  it("emits streamed workspace fallback text before finish events", async () => {
+    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield {
+          output: { stdout: "client.py:7: posthog_client = Posthog()" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+        yield { finishReason: "stop", type: "finish" }
+      })(),
+    })
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { error: undefined, id: "call-1", name: "tool", output: { stdout: "client.py:7: posthog_client = Posthog()" }, type: "tool-result" },
+      { id: "workspace-fallback", text: "fallback answer", type: "text-delta" },
+      { reason: "workspace-fallback", type: "finish" },
+    ])
+  })
+
+  it("emits streamed workspace fallback text before abort events", async () => {
+    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield {
+          output: { stdout: "client.py:7: posthog_client = Posthog()" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+        yield { reason: "The operation was aborted due to timeout", type: "abort" }
+      })(),
+    })
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { error: undefined, id: "call-1", name: "tool", output: { stdout: "client.py:7: posthog_client = Posthog()" }, type: "tool-result" },
+      { id: "workspace-fallback", text: "fallback answer", type: "text-delta" },
+      { reason: "workspace-fallback", type: "finish" },
+    ])
+  })
+
+  it("preserves stream result methods when wrapping workspace fallback streams", async () => {
+    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    class StreamResult {
+      fullStream = (async function* () {
+        yield {
+          output: { stdout: "client.py:7: posthog_client = Posthog()" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+        yield { finishReason: "stop", type: "finish" }
+      })()
+
+      toUIMessageStream() {
+        const lockedBranch = (this.fullStream as unknown as ReadableStream<unknown>).getReader()
+        void lockedBranch
+        return (this.fullStream as unknown as ReadableStream<unknown>).pipeThrough(new TransformStream({
+          transform(part: unknown, controller) {
+            if (typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text-delta" && typeof (part as { id?: unknown }).id !== "string") {
+              throw new Error("AI SDK text deltas require an id")
+            }
+            controller.enqueue(part)
+          },
+        }))
+      }
+    }
+    agentStream.mockResolvedValueOnce(new StreamResult())
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const messages: unknown[] = []
+    const reader = stream.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      messages.push(value)
+    }
+
+    expect(messages).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
   })
 
   it("passes AI SDK tool loop settings through workspace agents", async () => {
@@ -229,7 +486,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       adapterOptions: {
         experimental_telemetry: experimental_telemetry as never,
         maxOutputTokens: 100,
@@ -259,7 +515,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       capabilities: [webSearch({ mode: "model" })],
       model: {} as never,
     }), { workspace: "docs" })
@@ -300,7 +555,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instrumentModel,
-      adapter: "ai-sdk",
       adapterOptions: {
         onStepFinish: vi.fn(),
       },
@@ -310,7 +564,7 @@ describe("defineAgent workspace option", () => {
     await agent.run!({
       ...(context() as Record<string, unknown>),
       run: {
-        platform: "telegram",
+        origin: "telegram",
         runId: "run_123",
         threadId: "thread_1",
       },
@@ -338,7 +592,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       adapterOptions: {
         experimental_onToolCallFinish: experimental_onToolCallFinish as never,
         experimental_onToolCallStart: experimental_onToolCallStart as never,
@@ -384,7 +637,6 @@ describe("defineAgent workspace option", () => {
         expect(fs).toBe(workspace.fs)
         return "workspace instructions"
       },
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -399,7 +651,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -416,7 +667,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: ({ fs }) => fs.readFile("MISSING.md"),
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -428,7 +678,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
     }), { workspace: "docs" })
 
@@ -449,7 +698,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-tools", tools: toolResolver as never }],
     }), { workspace: "docs" })
@@ -476,7 +724,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -513,7 +760,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -550,7 +796,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -572,7 +817,6 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
@@ -600,8 +844,8 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      adapter: "ai-sdk",
       model: {} as never,
+      title: "Support agent",
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
@@ -616,6 +860,7 @@ describe("defineAgent workspace option", () => {
         status: "ready",
       }],
       instructions: ["Answer from the workspace."],
+      title: "Support agent",
       tools: expect.arrayContaining([
         expect.objectContaining({
           commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],
@@ -633,7 +878,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -650,7 +894,6 @@ describe("defineAgent workspace option", () => {
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -679,7 +922,6 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -726,7 +968,6 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -760,7 +1001,6 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })

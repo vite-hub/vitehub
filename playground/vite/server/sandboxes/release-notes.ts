@@ -1,4 +1,4 @@
-import { defineSandbox } from "@vitehub/sandbox"
+import { defineSandbox } from "@vite-hub/sandbox"
 
 type ReleaseNotesPayload = {
   notes: string

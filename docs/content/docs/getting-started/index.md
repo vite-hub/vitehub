@@ -1,264 +1,55 @@
 ---
 title: Getting started
-description: Set up your first ViteHub package and continue with the KV quickstart.
-navigation.title: Getting started
+description: Install ViteHub, choose a documentation path, and run your first primitive or agent.
+navigation.title: Overview
+navigation.order: 1
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](../kv), [`@vitehub/db`](/docs/vite/db), [`@vitehub/blob`](/docs/vite/blob), and server-side queueing through [`@vitehub/queue`](/docs/vite/queue).
+ViteHub has one setup flow and two product paths.
 
-::fw{vite nitro}
-`@vitehub/blob` and `@vitehub/queue` both support Vite and Nitro.
-::
+Use **Server primitives** when your app needs storage, background work, schedules, sandboxes, queues, workspace files, or runtime environment values.
 
-This page gives you the first framework-specific setup step, then points you to the package docs where the full examples live.
+Use **Agents** when your app needs model-backed actors with instructions, invocations, triggers, workspace context, evaluations, and controlled capabilities.
 
-## Start with KV
-
-Install the package:
-
-```bash
-pnpm add @vitehub/kv
-```
-
-::fw{id="vite:dev vite:build"}
-
-Then register the Vite plugin:
-
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { hubKv } from '@vitehub/kv/vite'
-
-export default defineConfig({
-  plugins: [hubKv()],
-})
-```
-
-After that, continue with the [KV quickstart](/docs/vite/kv/quickstart). Use the Nitro or Nuxt path when you need runtime reads and writes.
-
-::
-
-::fw{id="nitro:dev nitro:build"}
-
-Then register the Nitro module:
-
-```ts [nitro.config.ts]
-import { defineNitroConfig } from 'nitro/config'
-
-export default defineNitroConfig({
-  modules: ['@vitehub/kv/nitro'],
-})
-```
-
-After that, continue with the [KV quickstart](/docs/nitro/kv/quickstart).
-
-::
-
-::fw{id="nuxt:dev nuxt:build"}
-
-Then register the Nuxt module:
-
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['@vitehub/kv/nuxt'],
-})
-```
-
-After that, continue with the [KV quickstart](/docs/nuxt/kv/quickstart).
-
-::
-
-::u-page-grid{class="pb-2"}
+::u-page-grid{class="not-prose mt-8"}
   :::u-page-card
   ---
-  title: Compare primitives
-  description: Choose between KV, Blob, Queue, Sandbox, inline work, and a database.
-  to: ../compare
+  title: Installation
+  description: Add the packages you need and register their ViteHub integrations.
+  icon: i-lucide-download
+  to: /docs/getting-started/installation
   ---
   :::
   :::u-page-card
   ---
-  title: DB overview
-  description: Use a default Drizzle database and optional named databases from Vite server code.
-  to: /docs/vite/db
+  title: First server primitive
+  description: Add KV and call it from ordinary server code.
+  icon: i-lucide-server-cog
+  to: /docs/getting-started/first-server-primitive
   ---
   :::
   :::u-page-card
   ---
-  title: KV overview
-  description: Understand what the KV package provides and how it resolves drivers.
-  to: ../kv
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: KV quickstart
-  description: Read, write, and delete a first key locally.
-  to: ../kv/quickstart
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Cloudflare provider
-  description: Configure the Cloudflare KV path.
-  to: ../kv/providers/cloudflare
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Vercel provider
-  description: Configure the Upstash-backed Vercel path.
-  to: ../kv/providers/vercel
+  title: First agent
+  description: Define an Agent and run one invocation from a server route.
+  icon: i-lucide-bot
+  to: /docs/getting-started/first-agent
   ---
   :::
 ::
 
-::fw{id="vite:dev vite:build"}
-::u-page-grid{class="pb-2"}
-  :::u-page-card
-  ---
-  title: DB overview
-  description: Configure a default Drizzle database and optional named databases.
-  to: /docs/vite/db
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: DB runtime API
-  description: Review the config contract, runtime exports, and hosted-output rules.
-  to: /docs/vite/db/runtime-api
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: DB on Cloudflare
-  description: Configure D1 bindings and generated Wrangler metadata.
-  to: /docs/vite/db/providers/cloudflare
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: DB on Vercel
-  description: Configure hosted libSQL URLs and understand the D1-only limitation.
-  to: /docs/vite/db/providers/vercel
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Blob overview
-  description: Understand Blob driver resolution and the shared runtime surface.
-  to: /docs/vite/blob
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Blob quickstart
-  description: Read and write a first blob locally.
-  to: /docs/vite/blob/quickstart
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Blob on Cloudflare
-  description: Configure Blob storage against a Cloudflare R2 binding.
-  to: /docs/vite/blob/providers/cloudflare
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Blob on Vercel
-  description: Configure Blob storage against Vercel Blob.
-  to: /docs/vite/blob/providers/vercel
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Queue overview
-  description: Discover background job routing for Vite and Nitro.
-  to: /docs/vite/queue
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Queue quickstart
-  description: Register Queue and enqueue a first job.
-  to: /docs/vite/queue/quickstart
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Queue on Cloudflare
-  description: Configure Cloudflare queue bindings and batch processing.
-  to: /docs/vite/queue/providers/cloudflare
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Queue on Vercel
-  description: Configure Vercel topics and hosted callbacks.
-  to: /docs/vite/queue/providers/vercel
-  ---
-  :::
-::
-::
+## Choose the first path
 
-::fw{id="nitro:dev nitro:build"}
-::u-page-grid{class="pb-2"}
-  :::u-page-card
-  ---
-  title: Blob overview
-  description: Understand Blob driver resolution and the shared runtime surface.
-  to: /docs/nitro/blob
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Blob quickstart
-  description: Read and write a first blob locally.
-  to: /docs/nitro/blob/quickstart
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Blob on Cloudflare
-  description: Configure Blob storage against a Cloudflare R2 binding.
-  to: /docs/nitro/blob/providers/cloudflare
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Blob on Vercel
-  description: Configure Blob storage against Vercel Blob.
-  to: /docs/nitro/blob/providers/vercel
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Queue overview
-  description: Discover background job routing for Vite and Nitro.
-  to: /docs/nitro/queue
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Queue quickstart
-  description: Register Queue and enqueue a first job.
-  to: /docs/nitro/queue/quickstart
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Queue on Cloudflare
-  description: Configure Cloudflare queue bindings and batch processing.
-  to: /docs/nitro/queue/providers/cloudflare
-  ---
-  :::
-  :::u-page-card
-  ---
-  title: Queue on Vercel
-  description: Configure Vercel topics and hosted callbacks.
-  to: /docs/nitro/queue/providers/vercel
-  ---
-  :::
-::
-::
+| You want to build | Start here |
+| --- | --- |
+| App settings, flags, caches, or small lookup records | [First server primitive](/docs/getting-started/first-server-primitive) |
+| Relational data, uploads, background work, workflows, or sandboxes | [Server primitives](/docs/server-primitives) |
+| A support agent, code agent, research agent, or workspace-aware assistant | [First agent](/docs/getting-started/first-agent) |
+| Custom model-facing tools or guarded product abilities | [Agent capabilities](/docs/agents/capabilities) |
+
+## Package shape
+
+ViteHub keeps packages small, but the docs are organized by user intent. Install the package that owns the feature you use, then stay in the feature page for host configuration, runtime behavior, and examples.
+
+Cloudflare, Vercel, local, and other host behavior lives inside the feature it changes. There is no separate docs path for host setup.

@@ -1,6 +1,19 @@
 import { describe, expect, it, vi } from "vitest"
 
 describe("agent Vite plugin", () => {
+  it("ignores generated ViteHub files in the Vite dev watcher", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const config = plugin.config as (config: { server?: { watch?: { ignored?: string | string[] } } }) => { server?: { watch?: { ignored?: string[] } } }
+
+    expect(config({}).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
+    expect(config({ server: { watch: { ignored: ["**/node_modules/**"] } } }).server?.watch?.ignored).toEqual([
+      "**/node_modules/**",
+      "**/.vitehub/**",
+    ])
+    expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } } }).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
+  })
+
   it("attaches Nitro and merges server noExternal", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
@@ -15,7 +28,7 @@ describe("agent Vite plugin", () => {
       : undefined
 
     expect(result).toMatchObject({
-      resolve: { noExternal: ["existing", "@vitehub/agent"] },
+      resolve: { noExternal: ["existing", "@vite-hub/agent"] },
     })
   })
 
@@ -26,7 +39,7 @@ describe("agent Vite plugin", () => {
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
-    expect(result).toEqual({ agent: { route: true } })
+    expect(result).toMatchObject({ agent: { route: true } })
   })
 })
 
@@ -65,6 +78,22 @@ describe("Vercel helpers", () => {
 
     await expect(response.json()).resolves.toMatchObject({ text: "still readable" })
   })
+
+  it("returns declared HTTP errors", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineVercelAgentHandler } = await import("../src/vercel.ts")
+    const error = new Error("Rejected")
+    ;(error as { statusCode?: number }).statusCode = 403
+    const handler = defineVercelAgentHandler(defineAgent({ run: () => { throw error } }) as never, { waitUntil: vi.fn() })
+
+    const response = await handler(new Request("https://example.com/agents/triager", {
+      body: JSON.stringify({ prompt: "blocked", stream: false }),
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: "Rejected" })
+  })
 })
 
 describe("Cloudflare helpers", () => {
@@ -84,23 +113,22 @@ describe("Cloudflare helpers", () => {
     await expect(response.json()).resolves.toMatchObject({ text: "still readable" })
   })
 
-  it("flushes inline chat waitUntil tasks before returning unknown platform responses", async () => {
-    const { defineCloudflareChatHandler } = await import("../src/chat/cloudflare.ts")
-    const task = vi.fn()
-    const handler = defineCloudflareChatHandler({
-      async resolve(context) {
-        context.waitUntil(Promise.resolve().then(task))
-        return { webhooks: {} } as never
-      },
-    }, { platform: "unknown", processing: "inline" })
+  it("returns declared HTTP errors", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineCloudflareAgentHandler } = await import("../src/cloudflare.ts")
+    const error = new Error("Rejected")
+    ;(error as { statusCode?: number }).statusCode = 403
+    const handler = defineCloudflareAgentHandler(defineAgent({ run: () => { throw error } }) as never)
 
-    const response = await handler(new Request("https://example.com/api/webhooks/unknown", {
+    const response = await handler(new Request("https://example.com/agents/triager", {
+      body: JSON.stringify({ prompt: "blocked", stream: false }),
       method: "POST",
     }), {}, { waitUntil: vi.fn() })
 
-    expect(response.status).toBe(404)
-    expect(task).toHaveBeenCalled()
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: "Rejected" })
   })
+
 })
 
 describe("Nitro helpers", () => {
@@ -170,6 +198,28 @@ describe("Nitro helpers", () => {
     const result = await handler(event as never)
 
     expect(result).toMatchObject({ text: "still readable" })
+  })
+
+  it("throws declared HTTP errors with the declared status", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentHandler } = await import("../src/nitro.ts")
+    const error = new Error("Rejected")
+    ;(error as { statusCode?: number }).statusCode = 403
+    const handler = defineAgentHandler(defineAgent({ run: () => { throw error } }) as never)
+    const event = {
+      req: {
+        headers: { host: "example.com" },
+        method: "POST",
+        url: "/agents/triager",
+      },
+      url: "https://example.com/agents/triager",
+      waitUntil: vi.fn(),
+    }
+
+    await expect(handler(event as never)).rejects.toMatchObject({
+      statusCode: 403,
+      statusMessage: "Rejected",
+    })
   })
 })
 

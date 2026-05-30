@@ -48,14 +48,6 @@ describe("discoverNitroWorkspaceDefinitions", () => {
     expect(() => discoverNitroWorkspaceDefinitions(root)).toThrow('Duplicate workspace name "docs"')
   })
 
-  it("does not discover deprecated dot config files", async () => {
-    const root = await createRoot()
-    await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })
-    await writeFile(join(root, "server", "workspaces", "docs", ".config.ts"), "export default {}\n", "utf8")
-
-    expect(discoverNitroWorkspaceDefinitions(root)).toEqual([])
-  })
-
   it("creates registry entries from discovered workspace definitions", async () => {
     const root = await createRoot()
     const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")

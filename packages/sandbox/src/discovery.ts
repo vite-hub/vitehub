@@ -1,7 +1,7 @@
 import {
   createDirectoryDefinitionSource,
   discoverDefinitions,
-} from '@vitehub/internal/definition-catalog'
+} from '@vite-hub/internal/definition-catalog'
 import type { ScannedDefinition } from './internal/shared/feature-definitions'
 
 export interface DiscoveredSandboxDefinition extends ScannedDefinition {

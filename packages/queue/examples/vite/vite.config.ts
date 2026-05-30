@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 import { defineConfig } from "vite"
 
-import { hubQueue } from "@vitehub/queue/vite"
+import { hubQueue } from "@vite-hub/queue/vite"
 
 export default defineConfig({
   appType: "custom",

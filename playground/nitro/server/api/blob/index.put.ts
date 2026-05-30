@@ -1,7 +1,7 @@
 import { defineEventHandler, readValidatedBody } from "h3"
 import * as v from "valibot"
 
-import { blob } from "@vitehub/blob"
+import { blob } from "@vite-hub/blob"
 
 const blobPutBody = v.optional(v.object({
   pathname: v.optional(v.string()),

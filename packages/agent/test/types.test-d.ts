@@ -1,13 +1,13 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, inputCommands as rootInputCommands, type AgentRuntimeContext } from "../src/index.ts"
-import { blob, db, fetch, inputCommands, kv, mcp, sandbox, schedule, skills, webSearch, workspaceShell } from "../src/capabilities.ts"
+import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
+import { blob, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
-import type { AgentUsageRecord } from "../src/index.ts"
+import type { AgentInvocationContextStore, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
-import type { FetchCapabilityToolOptions } from "../src/capabilities.ts"
+import type { FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -64,6 +64,30 @@ describe("agent public types", () => {
         sandbox({ commands: ["node"] }),
         schedule({ mode: "read", targets: ["daily-reports"] as const }),
         schedule({ allowSelfTarget: true, mode: "write", policy: "require-approval", selfTarget: "agent/digest", targets: ["agent/digest", "daily-reports"] as const }),
+        transcribe({
+          execute({ audio }) {
+            expectTypeOf(audio.mediaType).toEqualTypeOf<string>()
+            return "transcript"
+          },
+        }),
+        chatTitle({
+          model: () => ({}),
+          template({ fallback, maxLength, text, trigger }) {
+            expectTypeOf(fallback).toEqualTypeOf<string>()
+            expectTypeOf(maxLength).toEqualTypeOf<number>()
+            expectTypeOf(text).toEqualTypeOf<string>()
+            expectTypeOf(trigger).toEqualTypeOf<string | undefined>()
+            return text
+          },
+          trigger: "chat.message",
+          variables: {
+            suffix: ({ text }) => text,
+          },
+          when: ({ input }) => {
+            expectTypeOf(input.context).toEqualTypeOf<Record<string, unknown> | undefined>()
+            return true
+          },
+        }),
         webSearch({ mode: "tool", provider: "exa" }),
         webSearch({ mode: "model" }),
         {
@@ -74,7 +98,6 @@ describe("agent public types", () => {
           },
         },
       ],
-      adapter: "ai-sdk",
       model: {} as never,
       workspace: { mode: "read" },
     })
@@ -90,13 +113,85 @@ describe("agent public types", () => {
     // @ts-expect-error tool mode requires one explicit provider
     webSearch({ mode: "tool" })
 
-    // @ts-expect-error model agents must select an explicit adapter
+    const invocationContext: AgentInvocationContextStore = {
+      entries: () => new Map<string, unknown>().entries(),
+      get: () => undefined,
+      has: () => false,
+      set: () => undefined,
+      toJSON: () => ({}),
+    }
+    expectTypeOf(getTranscriptionResults(invocationContext)).toEqualTypeOf<TranscriptionResult[]>()
+    expectTypeOf(getTranscriptionResults({ context: invocationContext })).toEqualTypeOf<TranscriptionResult[]>()
+
     defineAgent({
+      capabilities: [
+        transcribe({
+          execute: () => "transcript",
+          artifacts: {
+            audio: {
+              path({ audioExtension, date, stem }) {
+                expectTypeOf(audioExtension).toEqualTypeOf<string>()
+                return `audio/${date}/${stem}.${audioExtension}`
+              },
+            },
+            transcript: {
+              path({ date, stem }) {
+                expectTypeOf(date).toEqualTypeOf<string>()
+                expectTypeOf(stem).toEqualTypeOf<string>()
+                return `${date}/${stem}.md`
+              },
+              template({ audioPath, transcriptPath, transcript }) {
+                expectTypeOf(audioPath).toEqualTypeOf<string | undefined>()
+                expectTypeOf(transcriptPath).toEqualTypeOf<string | undefined>()
+                expectTypeOf(transcript).toEqualTypeOf<string>()
+                return transcript
+              },
+            },
+          },
+        }),
+      ],
       model: {} as never,
+      workspace: { mode: "write" },
+    })
+
+    transcribe({
+      execute: () => "transcript",
+      artifacts: {
+        // @ts-expect-error transcription artifacts do not accept directory builders
+        directory: "inbox",
+      },
+    })
+
+    transcribe({
+      execute: () => "transcript",
+      artifacts: {
+        transcript: {
+          path: "inbox/transcript.md",
+          // @ts-expect-error transcript media type is inferred from path or set through mediaType
+          extension: "md",
+        },
+      },
+    })
+
+    transcribe({
+      execute: () => "transcript",
+      artifacts: {
+        transcript: false,
+        audio: {
+          path: ({ audioExtension, date, stem }) => `audio/${date}/${stem}.${audioExtension}`,
+        },
+      },
+    })
+
+    transcribe({
+      execute: () => "transcript",
+      // @ts-expect-error output was renamed to artifacts
+      output: {
+        path: "inbox/transcript.md",
+      },
     })
 
     defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
       hooks: {
         "agent:finish"(event) {
@@ -114,26 +209,22 @@ describe("agent public types", () => {
           context.extensions.provide("agent:finish", "ok")
         },
       }],
-      adapter: "ai-sdk",
       model: {} as never,
     })
 
     defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
       // @ts-expect-error root-level tools are not public API
       tools: {},
     })
 
+    // @ts-expect-error workspace mode must be read or write
     defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
-      // @ts-expect-error workspace mode must be read or write
       workspace: { mode: "mutable" },
     })
 
     defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
       // @ts-expect-error adapter settings belong under adapterOptions
       temperature: 0.2,
@@ -148,21 +239,23 @@ describe("agent public types", () => {
       },
     })
 
-    rootInputCommands({
-      commands: {
-        review: {
-          description: "Review the request.",
-          run: () => undefined,
-        },
-      },
-    })
+    type RootAgentExports = typeof import("../src/index.ts")
+    // @ts-expect-error official capability factories are not root Agent Package exports
+    type _RootInputCommands = RootAgentExports["inputCommands"]
+
+    type CapabilityExports = typeof import("../src/capabilities.ts")
+    // @ts-expect-error transcription byte conversion is internal, not public capabilities API
+    type _PublicAudioBytes = CapabilityExports["audioBytes"]
+    // @ts-expect-error transcription extension inference is internal, not public capabilities API
+    type _PublicAudioExtensionFor = CapabilityExports["audioExtensionFor"]
+    // @ts-expect-error transcription context storage key is internal, not public capabilities API
+    type _PublicTranscriptionContextKey = CapabilityExports["TRANSCRIPTION_RESULTS_CONTEXT_KEY"]
   })
 
   it("accepts agent eval definitions", () => {
     const scorer: AgentScorer = textContains("ok")
     const definition: AgentEvalDefinition = {
       agent: defineAgent({
-        adapter: "ai-sdk",
         model: {} as never,
       }),
       scenarios: [{
@@ -196,7 +289,6 @@ describe("agent public types", () => {
     }
 
     const agent = defineAgent<TestRuntimeConfig>({
-      adapter: "ai-sdk",
       model: ({ runtimeConfig }: AgentRuntimeContext<TestRuntimeConfig> & { runtimeConfig: TestRuntimeConfig }) => {
         runtimeConfig.service.token.toUpperCase()
         return {} as never
@@ -220,7 +312,6 @@ describe("agent public types", () => {
     defineEval<TestRuntimeConfig>({
       // @ts-expect-error eval agent runtime config must match the eval runtime config
       agent: defineAgent<{ other: string }>({
-        adapter: "ai-sdk",
         model: {} as never,
         workspace: { mode: "read" },
       }),

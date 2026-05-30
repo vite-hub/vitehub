@@ -1,24 +1,24 @@
 import docsManifestRaw from "#vitehub-docs-manifest";
-import type { UsageMode } from "./fw-variants";
 import type { Framework } from "./frameworks";
+import type { UsageMode } from "./showcase-modes";
 
 export type DocsPage = {
   id: string;
+  path: string;
   title: string;
   sourceTitle: string | null;
   description: string | null;
   icon: string | null;
-  group: string | null;
-  frameworks: Framework[];
+  group?: string | null;
+  order: number;
 };
 
-export type DocsSection = {
+type DocsSection = {
   id: string;
+  path: string;
   title: string;
   description: string | null;
   icon: string | null;
-  source: "local" | "package";
-  packageName: string | null;
   order: number;
   pages: DocsPage[];
 };
@@ -52,73 +52,32 @@ export type DocsExample = {
   files: Partial<Record<Framework, Array<{ path: string; code: string }>>>;
 };
 
-type PackageSectionMeta = {
-  id: string;
-  title: string;
-  icon: string | null;
-};
-
 type DocsManifest = {
-  frameworks: Framework[];
-  defaultFramework: Framework;
-  usageModes: UsageMode[];
-  defaultMode: UsageMode;
+  rootPage: DocsPage | null;
   sections: DocsSection[];
-  packageSections: PackageSectionMeta[];
   examples: DocsExample[];
 };
 
 export const docsManifest = docsManifestRaw as DocsManifest;
 
-export function getDocsPath(sectionId: string, framework: Framework, pageId = "index") {
-  return pageId === "index"
-    ? `/docs/${framework}/${sectionId}`
-    : `/docs/${framework}/${sectionId}/${pageId}`;
+export function normalizeDocsPath(path?: string | null) {
+  if (!path || path === "/docs/") return "/docs";
+  return path.replace(/\/+$/, "") || "/docs";
 }
 
-export function getDocsPathMeta(path: string) {
-  const parts = path.split("/").filter(Boolean);
+export function getDocsPageByPath(path: string) {
+  const normalizedPath = normalizeDocsPath(path);
 
-  if (parts[0] !== "docs" || parts.length < 3) {
-    return null;
+  if (normalizedPath === "/docs") {
+    return docsManifest.rootPage;
   }
 
-  const framework = parts[1];
-  if (framework !== "vite" && framework !== "nitro" && framework !== "nuxt") {
-    return null;
+  for (const section of docsManifest.sections) {
+    const page = section.pages.find(page => normalizeDocsPath(page.path) === normalizedPath);
+    if (page) {
+      return page;
+    }
   }
 
-  return {
-    framework,
-    section: parts[2] || "",
-    page: parts.slice(3).join("/") || "index",
-  };
-}
-
-function getDocsSection(sectionId: string) {
-  return docsManifest.sections.find(section => section.id === sectionId) || null;
-}
-
-export function getDocsPage(sectionId: string, pageId = "index") {
-  return getDocsSection(sectionId)?.pages.find(page => page.id === pageId) || null;
-}
-
-export function isDocsSectionSupported(sectionId: string, framework: Framework) {
-  const section = getDocsSection(sectionId);
-
-  if (!section) {
-    return false;
-  }
-
-  return section.pages.some(page => page.frameworks.includes(framework));
-}
-
-export function isDocsPageSupported(sectionId: string, pageId: string, framework: Framework) {
-  const page = getDocsPage(sectionId, pageId);
-
-  if (!page) {
-    return false;
-  }
-
-  return !page.frameworks || page.frameworks.includes(framework);
+  return null;
 }

@@ -6,7 +6,7 @@ const docsRoot = import.meta.dirname;
 const repoRoot = resolve(docsRoot, "..");
 const outputDir = resolve(docsRoot, ".generated");
 
-const docsSchema = z.object({
+const pageSchema = z.object({
   authors: z.array(z.object({
     avatar: z.object({
       src: z.string(),
@@ -14,7 +14,10 @@ const docsSchema = z.object({
     name: z.string(),
     to: z.string().optional(),
   })).optional(),
+  category: z.string().optional(),
   date: z.string().optional(),
+  featured: z.boolean().optional(),
+  icon: z.string().optional(),
   image: z.string().optional(),
   links: z.array(z.object({
     label: z.string(),
@@ -32,11 +35,20 @@ export default defineContentConfig({
     docs: defineCollection({
       type: "page",
       source: {
-        cwd: resolve(import.meta.dirname, ".generated/docs-content"),
-        include: "**/*.md",
+        cwd: resolve(import.meta.dirname, "content/docs"),
+        include: "**/*.{md,yml,yaml}",
         prefix: "/docs",
       },
-      schema: docsSchema,
+      schema: pageSchema,
+    }),
+    blog: defineCollection({
+      type: "page",
+      source: {
+        cwd: resolve(import.meta.dirname, "content/blog"),
+        include: "**/*.md",
+        prefix: "/blog",
+      },
+      schema: pageSchema,
     }),
   },
 });

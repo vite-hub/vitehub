@@ -1,4 +1,4 @@
-import { readEnv, trimmed } from "@vitehub/internal/env"
+import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import type { ResolvedUpstashKVStoreConfig, UpstashKVStoreConfig } from "../types.ts"
 

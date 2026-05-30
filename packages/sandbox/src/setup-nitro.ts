@@ -33,8 +33,8 @@ const sandboxFeatureCompiler: FeatureCompiler<AgentSandboxConfig> = {
       },
     })
     return await createSandboxFeaturePlan(context.config, definitions, {
-      aliasPath: resolveFeatureRuntimePath(import.meta.url, '@vitehub/sandbox', './index', 'index.mjs'),
-      nitroPlugin: resolveFeatureRuntimePath(import.meta.url, '@vitehub/sandbox', '../src/runtime/nitro-plugin', 'runtime/nitro-plugin.js'),
+      aliasPath: resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox', './index', 'index.mjs'),
+      nitroPlugin: resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox', '../src/runtime/nitro-plugin', 'runtime/nitro-plugin.js'),
     }, context.deps, context.hosting, {
       rootDir: context.nitro.options.rootDir,
       scanRoots: context.scanRoots,
@@ -55,5 +55,5 @@ export async function setupSandboxNitro(nitro: Nitro, sandboxConfig: AgentSandbo
   if (defaultProvider?.provider === 'cloudflare' && !hasInstalledDependency(deps, '@cloudflare/sandbox', { paths: [nitro.options.rootDir] }))
     nitro.logger.warn('Install `@cloudflare/sandbox` for Cloudflare sandbox presets.')
 
-  nitro.logger.info('`@vitehub/sandbox` enabled')
+  nitro.logger.info('`@vite-hub/sandbox` enabled')
 }

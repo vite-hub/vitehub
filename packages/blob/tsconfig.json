@@ -5,8 +5,8 @@
     "rootDir": "..",
     "baseUrl": "../..",
     "paths": {
-      "@vitehub/internal/*": [
-        "packages/internal/src/*"
+      "@vite-hub/internal/*": [
+        "packages/internal/src/*.ts"
       ]
     }
   },

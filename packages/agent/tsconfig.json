@@ -8,10 +8,16 @@
       "#vitehub/agent/registry": [
         "packages/agent/src/runtime/empty-registry.ts"
       ],
-      "#vitehub/agent/chat/registry": [
-        "packages/agent/src/runtime/empty-registry.ts"
-      ],
       "#vitehub-sandbox-provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
+      "virtual:vitehub-sandbox-provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
+      "vitehub-sandbox-provider-loader": [
+        "packages/sandbox/src/runtime/provider-loader.ts"
+      ],
+      "@vite-hub/sandbox/runtime/provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],
       "#vitehub-sandbox-registry": [
@@ -23,55 +29,52 @@
       "#vitehub-workspace-registry": [
         "packages/workspace/src/runtime/empty-registry.ts"
       ],
-      "@vitehub/internal/*": [
-        "packages/internal/src/*"
+      "@vite-hub/internal/*": [
+        "packages/internal/src/*.ts"
       ],
-      "@vitehub/agent": [
+      "@vite-hub/agent": [
         "packages/agent/src/index.ts"
       ],
-      "@vitehub/agent/*": [
+      "@vite-hub/agent/*": [
         "packages/agent/src/*"
       ],
-      "@vitehub/agent/chat": [
-        "packages/agent/src/chat/index.ts"
-      ],
-      "@vitehub/agent/chat/runtime/nitro-dev-initialize": [
-        "packages/agent/src/chat/runtime/nitro-dev-initialize.ts"
-      ],
-      "@vitehub/devtools": [
+      "@vite-hub/devtools": [
         "packages/devtools/src/index.ts"
       ],
-      "@vitehub/runtime": [
+      "@vite-hub/devtools/*": [
+        "packages/devtools/src/*.ts"
+      ],
+      "@vite-hub/runtime": [
         "packages/runtime/src/index.ts"
       ],
-      "@vitehub/sandbox": [
+      "@vite-hub/sandbox": [
         "packages/sandbox/src/index.ts"
       ],
-      "@vitehub/sandbox/runtime/state": [
+      "@vite-hub/sandbox/runtime/state": [
         "packages/sandbox/src/runtime/state.ts"
       ],
-      "@vitehub/shell": [
+      "@vite-hub/shell": [
         "packages/shell/src/index.ts"
       ],
-      "@vitehub/shell/providers/just-bash": [
+      "@vite-hub/shell/providers/just-bash": [
         "packages/shell/src/providers/just-bash.ts"
       ],
-      "@vitehub/shell/workspace": [
+      "@vite-hub/shell/workspace": [
         "packages/shell/src/workspace/index.ts"
       ],
-      "@vitehub/unsource": [
-        "packages/unsource/src/index.ts"
+      "@vite-hub/source": [
+        "packages/source/src/index.ts"
       ],
-      "@vitehub/workspace": [
+      "@vite-hub/workspace": [
         "packages/workspace/src/index.ts"
       ],
-      "@vitehub/workspace/*": [
+      "@vite-hub/workspace/*": [
         "packages/workspace/src/*"
       ],
-      "@vitehub/workflow": [
+      "@vite-hub/workflow": [
         "packages/workflow/src/index.ts"
       ],
-      "@vitehub/workflow/runtime/state": [
+      "@vite-hub/workflow/runtime/state": [
         "packages/workflow/src/runtime/state.ts"
       ]
     },

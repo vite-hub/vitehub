@@ -1,6 +1,6 @@
 import { H3, readBody } from "h3"
 
-import { getWorkflowRun, runWorkflow } from "@vitehub/workflow"
+import { getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
 import type { WelcomePayload } from "./welcome.workflow"
 
 const app = new H3()

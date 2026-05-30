@@ -118,9 +118,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
         continue
       }
 
-      const bytes = await this.#readBytes(path)
       entries.set(path, {
-        digest: bytes ? await sha256(bytes) : undefined,
         mtime: blob.lastModified,
         path,
         size: blob.size,

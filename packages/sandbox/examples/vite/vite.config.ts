@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 import { defineConfig } from "vite"
-import { hubSandbox } from "@vitehub/sandbox/vite"
+import { hubSandbox } from "@vite-hub/sandbox/vite"
 
 export default defineConfig({
   appType: "custom",

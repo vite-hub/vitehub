@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createMessage } from "@vitehub/agent"
-
-import type { ChatInput } from "../src/chat/types.ts"
+import { createMessage } from "@vite-hub/agent"
+import { chat, chatTitle, schedule } from "../src/capabilities.ts"
 
 describe("agent message protocol", () => {
   it("creates inline schedule capabilities without requiring chat history", async () => {
-    const { defineAgent, schedule } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
     const agent = defineAgent({
       capabilities: [schedule({ schedules: ["0   9 * * *", { cron: "15 10 * * 1-5", id: "weekday-digest" }] })],
@@ -137,14 +136,14 @@ describe("agent message protocol", () => {
       scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
       target: "support",
     }, {
-      run: { platform: "cloudflare", runId: "host-run" },
+      run: { origin: "cloudflare", runId: "host-run" },
       runtime: "nitro",
       runtimeConfig: { region: "iad" },
       waitUntil,
     })).resolves.toBe("ok")
 
     expect(seen).toEqual([{
-      run: { platform: "cloudflare", runId: "srun_schedule_2026-05-23T09:00:00.000Z" },
+      run: { origin: "cloudflare", runId: "srun_schedule_2026-05-23T09:00:00.000Z" },
       runtime: "nitro",
       waitUntil,
     }])
@@ -155,6 +154,19 @@ describe("agent message protocol", () => {
 
     expect(toAiSdkModelMessages([
       createMessage({ id: "m1", role: "user", text: "hello" }),
+    ])).toEqual([
+      { content: "hello", role: "user" },
+    ])
+  })
+
+  it("drops empty ViteHub messages before model conversion", async () => {
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
+
+    expect(toAiSdkModelMessages([
+      createMessage({ id: "m1", role: "user", text: "" }),
+      createMessage({ id: "m2", parts: [], role: "assistant" }),
+      createMessage({ id: "m3", parts: [], role: "tool" }),
+      createMessage({ id: "m4", role: "user", text: "hello" }),
     ])).toEqual([
       { content: "hello", role: "user" },
     ])
@@ -199,6 +211,114 @@ describe("agent message protocol", () => {
     expect(agent.generate).toHaveBeenCalledWith(expect.objectContaining({
       messages: [{ content: "hello", role: "user" }],
     }))
+  })
+
+  it("resolves capability-owned triggers and runs them through the agent lifecycle", async () => {
+    const { defineAgent, resolveAgentTriggers, runAgentTrigger } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [{
+        id: "custom",
+        triggers: {
+          ping: {
+            async invoke(_context, input: { prompt: string }) {
+              return {
+                input: { prompt: input.prompt },
+                metadata: { source: "test" },
+                run: { runId: "trigger-run" },
+              }
+            },
+          },
+        },
+      }],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: context => `received ${context.prompt}`,
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(resolveAgentTriggers(agent, runtime)).resolves.toMatchObject({
+      "custom.ping": {
+        capabilityId: "custom",
+        id: "custom.ping",
+        name: "ping",
+      },
+    })
+    await expect(runAgentTrigger(agent, runtime, "custom.ping", { prompt: "hello" })).resolves.toBe("received hello")
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      invocation: expect.objectContaining({
+        run: { runId: "trigger-run" },
+      }),
+    }))
+  })
+
+  it("exposes chat webhook registration metadata through agent triggers", async () => {
+    const { chat } = await import("../src/chat-trigger.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = {
+      capabilities: [
+        chat({
+          concurrency: "queue",
+          webhooks: {
+            telegram: {
+              path: "/api/webhooks/telegram",
+              secretToken: "secret-token",
+            },
+            slack: {
+              path: "/api/webhooks/slack",
+              secretHeader: "x-slack-signature",
+            },
+          },
+        }),
+      ],
+      resolve: vi.fn(),
+    }
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: [{
+          id: "telegram",
+          method: "POST",
+          path: "/api/webhooks/telegram",
+          provider: "telegram",
+          secretHeader: "x-telegram-bot-api-secret-token",
+          secretToken: "secret-token",
+        }, {
+          id: "slack",
+          method: "POST",
+          path: "/api/webhooks/slack",
+          provider: "slack",
+          secretHeader: "x-slack-signature",
+        }],
+      },
+    })
+  })
+
+  it("infers telegram webhook registration metadata from static chat adapters", async () => {
+    const { chat } = await import("../src/chat-trigger.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = {
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => ({}) as never,
+          },
+        }),
+      ],
+      resolve: vi.fn(),
+    }
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: [{
+          id: "telegram",
+          method: "POST",
+          provider: "telegram",
+          secretHeader: "x-telegram-bot-api-secret-token",
+        }],
+      },
+    })
   })
 
   it("runs agent finish hooks for custom object results after extensions are resolved", async () => {
@@ -327,7 +447,6 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
-        adapter: "ai-sdk",
         model: {} as never,
       })
 
@@ -380,7 +499,6 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
-        adapter: "ai-sdk",
         model: {} as never,
       })
 
@@ -449,7 +567,7 @@ describe("agent message protocol", () => {
   })
 
   it("emits chat title data for the first user message in streams", async () => {
-    const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(({ text }) => `Title: ${text}`)
     const agent = defineAgent({
       capabilities: [chatTitle({ execute })],
@@ -475,18 +593,53 @@ describe("agent message protocol", () => {
       message: expect.objectContaining({ id: "user-1" }),
       text: "First user request",
     }))
-    expect(events[0]).toEqual({
+    expect(events).toContainEqual({
       data: { title: "Title: First user request", type: "chat-title" },
       type: "data",
     })
-    expect(events.slice(1)).toEqual([
-      { text: "hello", type: "text-delta" },
-      { type: "finish" },
-    ])
+    expect(events).toContainEqual({ text: "hello", type: "text-delta" })
+    expect(events).toContainEqual({ type: "finish" })
+  })
+
+  it("streams agent output while chat title generation is pending", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    let resolveTitle: (title: string) => void = () => {}
+    const delayedTitle = new Promise<string>((resolve) => {
+      resolveTitle = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => delayedTitle })],
+      run: () => (async function* () {
+        yield { text: "hello", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "First user request" })],
+    }) as AsyncIterable<unknown>
+    const iterator = stream[Symbol.asyncIterator]()
+
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: { text: "hello", type: "text-delta" },
+    })
+
+    resolveTitle("Delayed title")
+    const rest = []
+    for await (const event of { [Symbol.asyncIterator]: () => iterator } as AsyncIterable<unknown>) {
+      rest.push(event)
+    }
+
+    expect(rest).toContainEqual({ type: "finish" })
+    expect(rest).toContainEqual({
+      data: { title: "Delayed title", type: "chat-title" },
+      type: "data",
+    })
   })
 
   it("keeps streaming when chat title generation fails", async () => {
-    const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => { throw new Error("title failed") } })],
       run: () => (async function* () {
@@ -509,6 +662,107 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("generates chat titles with the default template and agent model", async () => {
+    const generateText = vi.fn(async () => ({ text: '"Generated invoice title"' }))
+    vi.doMock("ai", () => ({ generateText }))
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const finish = vi.fn()
+      const agent = defineAgent({
+        capabilities: [chatTitle()],
+        hooks: {
+          "agent:finish": finish,
+        },
+        model: "agent-title-model" as never,
+        run: () => ({ text: "ok" }),
+      })
+
+      await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+        messages: [createMessage({ role: "user", text: "Need help with invoices" })],
+      })
+
+      expect(generateText).toHaveBeenCalledWith({
+        model: "agent-title-model",
+        prompt: [
+          "Generate a short chat title from the user's first message.",
+          "Return only the title.",
+          "Use 2-5 words when possible.",
+          `Use "New Conversation" when the message is too vague.`,
+          "",
+          "User message:",
+          "Need help with invoices",
+        ].join("\n"),
+      })
+      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Generated invoice title" })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("renders custom chat title templates and skips unmatched triggers", async () => {
+    const generateText = vi.fn(async () => ({ text: "Portal Forecast Help" }))
+    vi.doMock("ai", () => ({ generateText }))
+
+    try {
+      const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+      const finish = vi.fn()
+      const agent = defineAgent({
+        capabilities: [
+          chatTitle({
+            model: "title-model" as never,
+            template: "{{ trigger }} {{ area }}: {{ message }}",
+            trigger: "portal.message",
+            variables: {
+              area: "support",
+            },
+          }),
+          {
+            id: "portal",
+            triggers: {
+              message: {
+                invoke: (_context, input: { text: string }) => ({
+                  input: { messages: [createMessage({ role: "user", text: input.text })] },
+                }),
+              },
+            },
+          },
+          {
+            id: "teams",
+            triggers: {
+              message: {
+                invoke: (_context, input: { text: string }) => ({
+                  input: { messages: [createMessage({ role: "user", text: input.text })] },
+                }),
+              },
+            },
+          },
+        ],
+        hooks: {
+          "agent:finish": finish,
+        },
+        run: () => ({ text: "ok" }),
+      })
+      const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+      await runAgentTrigger(agent, runtime, "teams.message", { text: "Need help with forecast" })
+      expect(generateText).not.toHaveBeenCalled()
+      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toBeUndefined()
+
+      await runAgentTrigger(agent, runtime, "portal.message", { text: "Need help with forecast" })
+
+      expect(generateText).toHaveBeenCalledWith({
+        model: "title-model",
+        prompt: "portal.message support: Need help with forecast",
+      })
+      expect(finish.mock.calls[1]![0].extensions.get("chat-title")).toEqual({ title: "Portal Forecast Help" })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it("emits chat title data for adapter text streams", async () => {
     vi.doMock("ai", () => ({
       ToolLoopAgent: class {
@@ -527,9 +781,8 @@ describe("agent message protocol", () => {
     }))
 
     try {
-      const { chatTitle, defineAgent, streamAgent } = await import("../src/index.ts")
+      const { defineAgent, streamAgent } = await import("../src/index.ts")
       const agent = defineAgent({
-        adapter: "ai-sdk",
         capabilities: [chatTitle({ execute: () => "Adapter title" })],
         model: {} as never,
       })
@@ -542,10 +795,8 @@ describe("agent message protocol", () => {
         events.push(event)
       }
 
-      expect(events).toEqual([
-        { data: { title: "Adapter title", type: "chat-title" }, type: "data" },
-        { text: "hello", type: "text-delta" },
-      ])
+      expect(events).toContainEqual({ data: { title: "Adapter title", type: "chat-title" }, type: "data" })
+      expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     }
     finally {
       vi.doUnmock("ai")
@@ -553,7 +804,7 @@ describe("agent message protocol", () => {
   })
 
   it("preserves stream result methods when adding chat title data to full streams", async () => {
-    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     class StreamResult {
       metadata = { id: "stream-result-1" }
@@ -581,10 +832,8 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toEqual([
-      { data: { title: "Preserved title", type: "chat-title" }, type: "data" },
-      { text: "hello", type: "text-delta" },
-    ])
+    expect(events).toContainEqual({ data: { title: "Preserved title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     expect(result).toBeInstanceOf(StreamResult)
     expect(result.metadata).toEqual({ id: "stream-result-1" })
     expect(result.toTextStreamResponse).toEqual(expect.any(Function))
@@ -593,7 +842,7 @@ describe("agent message protocol", () => {
   })
 
   it("preserves text stream result metadata when adding chat title data", async () => {
-    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     class TextStreamResult {
       metadata = { usage: "kept" }
@@ -621,10 +870,8 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
-    expect(events).toEqual([
-      { data: { title: "Metadata title", type: "chat-title" }, type: "data" },
-      { text: "hello", type: "text-delta" },
-    ])
+    expect(events).toContainEqual({ data: { title: "Metadata title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ text: "hello", type: "text-delta" })
     expect(result).toBeInstanceOf(TextStreamResult)
     expect(result.metadata).toEqual({ usage: "kept" })
     expect(result.textStream).toBeDefined()
@@ -633,8 +880,89 @@ describe("agent message protocol", () => {
     expect(finish.mock.calls[0]![0].result).toBe(result)
   })
 
+  it("emits chat title data for UI message streams", async () => {
+    const { createUIMessageStream, readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Sidebar title" })],
+      run: () => ({
+        toUIMessageStream() {
+          return createUIMessageStream({
+            execute({ writer }) {
+              writer.write({ type: "start", messageId: "assistant-1" })
+              writer.write({ type: "text-start", id: "text-1" })
+              writer.write({ type: "text-delta", id: "text-1", delta: "answer" })
+              writer.write({ type: "text-end", id: "text-1" })
+              writer.write({ type: "finish", finishReason: "stop" })
+            },
+          })
+        },
+      }),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts).toEqual([
+      { data: { title: "Sidebar title", type: "chat-title" }, type: "data-chat-title" },
+      { providerMetadata: undefined, state: "done", text: "answer", type: "text" },
+    ])
+  })
+
+  it("emits one chat title data part when async event streams become UI message streams", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Async title" })],
+      run: () => (async function* () {
+        yield { text: "answer", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts.filter(part => part.type === "data-chat-title")).toEqual([
+      { data: { title: "Async title", type: "chat-title" }, type: "data-chat-title" },
+    ])
+    expect(messages.at(-1)?.parts.map(part => part.type).sort()).toEqual(["data-chat-title", "text"])
+  })
+
+  it("renders custom async event streams returned from runAgent", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Run title" })],
+      run: () => (async function* () {
+        yield { text: "answer", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }) as AsyncIterable<unknown>
+    const events = []
+    for await (const event of result) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ data: { title: "Run title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ text: "answer", type: "text-delta" })
+  })
+
   it("exposes chat title finish extension without registering command metadata", async () => {
-    const { chatTitle, defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: ({ text }) => ({ title: `Title: ${text}` }) })],
@@ -1007,7 +1335,7 @@ describe("agent message protocol", () => {
   it("registers the Chat DevTools feature metadata", async () => {
     const registerViteHubDevtoolsFeature = vi.fn()
     vi.resetModules()
-    vi.doMock("@vitehub/devtools", () => ({ registerViteHubDevtoolsFeature }))
+    vi.doMock("@vite-hub/devtools", () => ({ registerViteHubDevtoolsFeature }))
     const { chatDevToolsPanel } = await import("../src/chat/devtools.ts")
 
     chatDevToolsPanel().devtools!.setup({
@@ -1022,22 +1350,34 @@ describe("agent message protocol", () => {
     expect(registerViteHubDevtoolsFeature).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       bridge: "/__vitehub/agent/chat/devtools",
       id: "agent.chat",
-      packageName: "@vitehub/agent",
+      packageName: "@vite-hub/agent",
       title: "Chat",
     }))
-    vi.doUnmock("@vitehub/devtools")
+    vi.doUnmock("@vite-hub/devtools")
     vi.resetModules()
   })
 
-  it("resolves registry metadata for chats with reserved metadata names", async () => {
+  it("resolves registry metadata for chat-capable DevTools agents", async () => {
     const { createApp, toWebHandler } = await import("h3")
-    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
-    const handler = defineChatDevtoolsRegistryHandler({
-      files: async () => ({} as ChatInput),
+    const handler = defineAgentDevtoolsRegistryHandler({
+      files: async () => defineAgent({
+        capabilities: [chat({ concurrency: "queue" })],
+        run: () => "ok",
+      }),
+      ignored: async () => defineAgent({
+        run: () => "not a chat",
+      }),
+      support: async () => defineAgent({
+        capabilities: [chat({ concurrency: "queue" })],
+        run: () => "ok",
+      }),
     }, {
       metadata: {
         files: async () => ({
+          title: "Files agent",
           tools: [{ name: "reserved-chat-tool" }],
         }),
       },
@@ -1049,17 +1389,495 @@ describe("agent message protocol", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     }))
-    const state = await response.json() as { tools?: Array<{ name: string }> }
+    const state = await response.json() as { chats?: Array<{ name: string, title?: string }>, title?: string, tools?: Array<{ name: string }> }
 
+    expect(state.chats?.map(chat => chat.name)).toEqual(["files", "support"])
+    expect(state.title).toBe("Files agent")
     expect(state.tools).toEqual([{ name: "reserved-chat-tool" }])
+  })
+
+  it("resolves direct title-only DevTools metadata", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({ concurrency: "queue" })],
+        run: () => "ok",
+      }),
+    }, {
+      metadata: { title: "Support agent" },
+    }))
+
+    const response = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "get-state", chat: "support" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    const state = await response.json() as { title?: string }
+
+    expect(state.title).toBe("Support agent")
+  })
+
+  it("streams DevTools sends without timer state polling and returns final assistant state", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval")
+    const app = createApp()
+    const agent = defineAgent({
+      capabilities: [chat({ concurrency: "queue", fallbackStreamingPlaceholderText: "Thinking from config..." })],
+      async run() {
+        return {
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: "assistant-1" })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: "final answer" })
+                writer.write({ type: "tool-input-available", input: { query: "users" }, toolCallId: "tool-1", toolName: "search" })
+                writer.write({ type: "tool-output-available", output: "42", toolCallId: "tool-1" })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }
+      },
+    })
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
+    }))
+
+    try {
+      const response = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "send", chat: "support", stream: true, text: "hello" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      const events = (await response.text()).trim().split("\n").map(line => JSON.parse(line) as {
+        state?: {
+          chats: Array<{
+            messages: Array<{ loading?: boolean, role: string, text: string }>
+            uiMessages?: Array<{ parts: Array<{ text?: string, toolCallId?: string, type: string }>, role: string }>
+          }>
+          thinkingFallback?: string | null
+          uiMessages?: Array<{ parts: Array<{ text?: string, toolCallId?: string, type: string }>, role: string }>
+        }
+        type: string
+      })
+      const states = events.filter(event => event.type === "state").map(event => event.state)
+      const finalState = states.at(-1)
+      const stateResponse = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "get-state", chat: "support" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      const state = await stateResponse.json() as { thinkingFallback?: string | null, uiMessages?: Array<{ parts: Array<{ type: string }> }> }
+
+      expect(response.status).toBe(200)
+      expect(setIntervalSpy).not.toHaveBeenCalled()
+      expect(events.at(-1)).toEqual({ type: "done" })
+      expect(states.map(state => state?.thinkingFallback)).toContain("Thinking from config...")
+      expect(finalState?.uiMessages?.map(message => ({
+        parts: message.parts.map(part => part.type),
+        role: message.role,
+      }))).toEqual([
+        { parts: ["text"], role: "user" },
+        { parts: ["text", "tool-search"], role: "assistant" },
+      ])
+      expect(finalState?.uiMessages?.[1]?.parts.filter(part => part.type === "tool-search")).toHaveLength(1)
+      expect(state.thinkingFallback).toBe("Thinking from config...")
+      expect(state.uiMessages?.[1]?.parts.map(part => part.type)).toEqual(["text", "tool-search"])
+    }
+    finally {
+      setIntervalSpy.mockRestore()
+    }
+  })
+
+  it("promotes DevTools chat title data into conversation state", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    let responseCount = 0
+    const agent = defineAgent({
+      capabilities: [
+        chatTitle({ execute: ({ text }) => `Title: ${text}` }),
+        chat({ concurrency: "queue" }),
+      ],
+      async run() {
+        responseCount += 1
+        return {
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: `assistant-${responseCount}` })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: `answer ${responseCount}` })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }
+      },
+    })
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
+    }))
+    const sendMessage = async (text: string) => {
+      const response = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "send", chat: "support", stream: true, text }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      expect(response.status).toBe(200)
+      return (await response.text()).trim().split("\n").map(line => JSON.parse(line) as {
+        state?: {
+          chats: Array<{ name: string, title?: string }>
+          title?: string
+        }
+        type: string
+      }).filter(event => event.type === "state").map(event => event.state!)
+    }
+
+    const firstStates = await sendMessage("forecast value")
+    const secondStates = await sendMessage("follow up")
+
+    expect(firstStates.at(-1)?.title).toBe("Title: forecast value")
+    expect(firstStates.at(-1)?.chats[0]?.title).toBe("Title: forecast value")
+    expect(secondStates[0]?.title).toBe("Title: forecast value")
+    expect(secondStates[0]?.chats[0]?.title).toBe("Title: forecast value")
+  })
+
+  it("passes prior DevTools UI messages back into follow-up AI SDK sends", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    const seenHistory: Array<Array<{ role: string, text: string }>> = []
+    const agent = defineAgent({
+      capabilities: [chat({ concurrency: "queue" })],
+      async run(context) {
+        seenHistory.push((context.messages || []).map(message => ({
+          role: message.role,
+          text: message.parts
+            .filter((part): part is { text: string, type: "text" } => part.type === "text")
+            .map(part => part.text)
+            .join(""),
+        })))
+        return {
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: `assistant-${seenHistory.length}` })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: `answer ${seenHistory.length}` })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }
+      },
+    })
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
+    }))
+
+    for (const text of ["first request", "what was my first request?"]) {
+      const response = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "send", chat: "support", stream: true, text }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      expect(response.status).toBe(200)
+      await response.text()
+    }
+
+    expect(seenHistory).toEqual([
+      [{ role: "user", text: "first request" }],
+      [
+        { role: "user", text: "first request" },
+        { role: "assistant", text: "answer 1" },
+        { role: "user", text: "what was my first request?" },
+      ],
+    ])
+  })
+
+  it("honors chat history limits for DevTools AI SDK sends", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    const seenHistory: Array<string[]> = []
+    const agent = defineAgent({
+      capabilities: [chat({ concurrency: "queue", history: { maxMessages: 2, source: "thread" } })],
+      async run(context) {
+        seenHistory.push((context.messages || []).map(message => message.parts
+          .filter((part): part is { text: string, type: "text" } => part.type === "text")
+          .map(part => part.text)
+          .join("")))
+        return {
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: `assistant-${seenHistory.length}` })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: `answer ${seenHistory.length}` })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }
+      },
+    })
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
+    }))
+
+    for (const text of ["first request", "second request", "third request"]) {
+      const response = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "send", chat: "support", stream: true, text }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      expect(response.status).toBe(200)
+      await response.text()
+    }
+
+    expect(seenHistory.at(-1)).toEqual(["answer 2", "third request"])
+  })
+
+  it("selects chat history from the current idle-timeout session", async () => {
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chat({
+        history: { maxMessages: 10, source: "thread" },
+        sessions: { idleTimeoutMs: 30 * 60 * 1000, strategy: "idle-timeout" },
+      })],
+      run: () => "ok",
+    })
+
+    const invocation = await resolveAgentTriggerInvocation(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, "chat.message", {
+      messages: [
+        { createdAt: "2026-05-28T10:00:00.000Z", parts: [{ text: "old topic", type: "text" }], role: "user" },
+        { createdAt: "2026-05-28T10:00:10.000Z", parts: [{ text: "old answer", type: "text" }], role: "assistant" },
+        { createdAt: "2026-05-28T11:00:00.000Z", parts: [{ text: "new topic", type: "text" }], role: "user" },
+      ],
+    })
+
+    expect(invocation.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["new topic"])
+  })
+
+  it("defaults zero-argument chat options and preserves completed UI tool calls", async () => {
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chat()],
+      run: () => "ok",
+    })
+
+    const invocation = await resolveAgentTriggerInvocation(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, "chat.message", {
+      messages: [{
+        parts: [{
+          input: { query: "users" },
+          output: "42",
+          state: "output-available",
+          toolCallId: "tool-1",
+          toolName: "search",
+          type: "dynamic-tool",
+        }],
+        role: "assistant",
+      }],
+    })
+
+    expect(invocation.input.messages?.[0]?.parts).toEqual([
+      { id: "tool-1", input: { query: "users" }, name: "search", state: "proposed", type: "tool-call" },
+      { id: "tool-1", name: "search", output: "42", state: "completed", type: "tool-result" },
+    ])
+  })
+
+  it("converts async stream events to AI SDK UI message streams", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      run: () => (async function* () {
+        yield { data: { title: "Async title", type: "chat-title" }, type: "data" }
+        yield { text: "hello", type: "text-delta" }
+        yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
+        yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts.map(part => part.type)).toEqual(["data-chat-title", "text", "tool-search"])
+    expect(messages.at(-1)?.parts[0]).toEqual({
+      data: { title: "Async title", type: "chat-title" },
+      type: "data-chat-title",
+    })
+  })
+
+  it("selects chat history from the requested manual session", async () => {
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chat({
+        history: { maxMessages: 10, source: "thread" },
+        sessions: true,
+      })],
+      run: () => "ok",
+    })
+
+    const invocation = await resolveAgentTriggerInvocation(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, "chat.message", {
+      messages: [
+        { metadata: { sessionId: "a" }, parts: [{ text: "session a", type: "text" }], role: "user" },
+        { metadata: { sessionId: "b" }, parts: [{ text: "session b", type: "text" }], role: "user" },
+      ],
+      session: { id: "b" },
+      user: { id: "user_1" },
+    })
+
+    expect(invocation.input.context?.chat).toMatchObject({
+      session: { id: "b" },
+      user: { id: "user_1" },
+    })
+    expect(invocation.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["session b"])
+  })
+
+  it("clears AI SDK DevTools UI message history", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    const agent = defineAgent({
+      capabilities: [chat({ concurrency: "queue", fallbackStreamingPlaceholderText: "Thinking from config..." })],
+      async run() {
+        return {
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: "assistant-1" })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: "answer" })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }
+      },
+    })
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
+    }))
+
+    const sendResponse = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "send", chat: "support", stream: true, text: "hello" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    expect(sendResponse.status).toBe(200)
+    await sendResponse.text()
+
+    const clearResponse = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "clear", chat: "support" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    const state = await clearResponse.json() as { thinkingFallback?: string | null, uiMessages?: unknown[] }
+
+    expect(state.uiMessages).toEqual([])
+    expect(state.thinkingFallback).toBeNull()
+  })
+
+  it("requires streaming for registry DevTools sends through the AI SDK path", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    const agent = defineAgent({
+      capabilities: [chat({ concurrency: "queue" })],
+      async run() {
+        throw new Error("streaming-only test should not run the agent")
+      },
+    })
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => agent,
+    }))
+
+    const response = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "send", chat: "support", stream: false, text: "hello" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+
+    await expect(response.json()).resolves.toMatchObject({
+      message: expect.stringContaining("require stream"),
+    })
+    expect(response.status).toBe(400)
+  })
+
+  it("returns an error when no chat-capable DevTools agent exists", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    app.use(defineAgentDevtoolsHandler(defineAgent({ run: () => "legacy answer" })))
+
+    const response = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "send", stream: true, text: "hello" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(200)
+    const [event] = (await response.text()).trim().split("\n").map(line => JSON.parse(line))
+    expect(event).toEqual({
+      message: "No chats are registered for DevTools.",
+      type: "error",
+    })
   })
 
   it("returns a bad request for malformed text chat devtools payloads", async () => {
     const { createApp, toWebHandler } = await import("h3")
-    const { defineChatDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
     const app = createApp()
-    app.use(defineChatDevtoolsRegistryHandler({
-      support: async () => ({} as ChatInput),
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => defineAgent({ capabilities: [chat({ concurrency: "queue" })], run: () => "ok" }),
     }))
 
     const response = await toWebHandler(app)(new Request("http://example.test", {
@@ -1072,7 +1890,7 @@ describe("agent message protocol", () => {
   })
 
   it("converts Nitro request-like events to Fetch Request objects", async () => {
-    const { toFetchRequest } = await import("../src/chat/nitro/handler.ts")
+    const { toFetchRequest } = await import("../src/nitro/handler.ts")
     const body = new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode("hello"))
@@ -1104,8 +1922,8 @@ describe("agent message protocol", () => {
       generate: vi.fn(),
       stream: vi.fn(async () => ({
         fullStream: (async function* () {
-          yield { args: { fallback: true }, input: false, toolCallId: "call-1", toolName: "confirm", type: "tool-call" }
-          yield { output: 0, result: 42, toolCallId: "call-1", toolName: "confirm", type: "tool-result" }
+          yield { input: false, toolCallId: "call-1", toolName: "confirm", type: "tool-input-available" }
+          yield { output: 0, toolCallId: "call-1", type: "tool-output-available" }
         })(),
       })),
       tools: {},
@@ -1126,8 +1944,36 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("maps streamed AI SDK tool output errors to tool result errors", async () => {
+    const { streamAgent } = await import("../src/index.ts")
+    const agent = {
+      generate: vi.fn(),
+      stream: vi.fn(async () => ({
+        fullStream: (async function* () {
+          yield { input: { query: "stock" }, toolCallId: "call-1", toolName: "search", type: "tool-input-available" }
+          yield { errorText: "lookup failed", toolCallId: "call-1", type: "tool-output-error" }
+        })(),
+      })),
+      tools: {},
+      version: "agent-v1",
+    }
+
+    const stream = await streamAgent(agent as never, {} as never, {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    })
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { id: "call-1", input: { query: "stock" }, name: "search", type: "tool-call" },
+      { error: "lookup failed", id: "call-1", name: "search", output: undefined, type: "tool-result" },
+    ])
+  })
+
   it("maps approval-required stream errors to approval request events", async () => {
-    const { ApprovalRequiredError } = await import("@vitehub/runtime")
+    const { ApprovalRequiredError } = await import("@vite-hub/runtime")
     const { streamAgent } = await import("../src/index.ts")
     const agent = {
       generate: vi.fn(),
@@ -1172,7 +2018,6 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
 
     const agent = defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{
         id: "inspect",
@@ -1200,7 +2045,6 @@ describe("agent message protocol", () => {
     const execute = vi.fn()
 
     const agent = defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{
         id: "refund-tools",
@@ -1224,7 +2068,6 @@ describe("agent message protocol", () => {
     const execute = vi.fn()
 
     const agent = defineAgent({
-      adapter: "ai-sdk",
       model: {} as never,
       capabilities: [{
         id: "refund-tools",
@@ -1249,46 +2092,33 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it("requires an explicit adapter for model agents", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-
-    expect(() => defineAgent({
-      model: {} as never,
-    } as never)).toThrow("requires an explicit adapter")
-  })
-
   it("validates capability ids and sandbox commands", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { sandbox, workspaceShell } = await import("../src/capabilities.ts")
 
     expect(() => defineAgent({
       capabilities: [{ id: "custom" }, { id: "custom" }],
-      adapter: "ai-sdk",
       model: {} as never,
     })).toThrow("Duplicate capability id")
 
     expect(() => defineAgent({
       capabilities: [{} as never],
-      adapter: "ai-sdk",
       model: {} as never,
     })).toThrow("require a non-empty string id")
 
     expect(() => defineAgent({
       capabilities: [sandbox({ commands: ["pnpm test"] })],
-      adapter: "ai-sdk",
       model: {} as never,
       workspace: {},
     })).toThrow("executable names only")
 
     expect(() => defineAgent({
       capabilities: [workspaceShell()],
-      adapter: "ai-sdk",
       model: {} as never,
     })).toThrow("requires an explicit workspace")
 
     expect(() => defineAgent({
       capabilities: [workspaceShell({ mode: "write" })],
-      adapter: "ai-sdk",
       model: {} as never,
       workspace: { mode: "read" },
     })).toThrow("requires workspace.mode")
@@ -1299,7 +2129,6 @@ describe("agent message protocol", () => {
     const { kv } = await import("../src/capabilities.ts")
     const agent = defineAgent({
       capabilities: [kv()],
-      adapter: "ai-sdk",
       model: {} as never,
     })
 

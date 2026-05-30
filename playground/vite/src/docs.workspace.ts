@@ -1,5 +1,5 @@
-import { defineWorkspace } from "@vitehub/workspace"
-import * as loader from "@vitehub/workspace/loader"
+import { defineWorkspace } from "@vite-hub/workspace"
+import * as loader from "@vite-hub/workspace/loader"
 
 export default defineWorkspace({
   sources: [

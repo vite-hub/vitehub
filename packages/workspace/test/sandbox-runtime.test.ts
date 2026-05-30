@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace } from "../src/index.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
-import { setSandboxRuntimeConfig } from "@vitehub/sandbox/runtime/state"
+import { setSandboxRuntimeConfig } from "@vite-hub/sandbox/runtime/state"
 
 type FakeEntry = { content?: string | Uint8Array, type: "directory" | "file" }
 
@@ -115,8 +115,8 @@ function createFakeSandbox(provider: "cloudflare" | "vercel") {
   }
 }
 
-vi.mock("@vitehub/sandbox", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@vitehub/sandbox")>()
+vi.mock("@vite-hub/sandbox", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/sandbox")>()
   return {
     ...actual,
     createSandboxWithConfig: vi.fn(),
@@ -126,14 +126,14 @@ vi.mock("@vitehub/sandbox", async (importOriginal) => {
 afterEach(async () => {
   setSandboxRuntimeConfig(undefined)
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
-  const sandboxPackage = await import("@vitehub/sandbox")
+  const sandboxPackage = await import("@vite-hub/sandbox")
   vi.mocked(sandboxPackage.createSandboxWithConfig).mockReset()
 })
 
 describe("sandbox workspace runtime", () => {
   it.each(["cloudflare", "vercel"] as const)("materializes a workspace into the configured %s app sandbox and commits changes", async (provider) => {
     const fake = createFakeSandbox(provider)
-    const sandboxPackage = await import("@vitehub/sandbox")
+    const sandboxPackage = await import("@vite-hub/sandbox")
     vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
     setSandboxRuntimeConfig(provider === "cloudflare"
       ? { provider: "cloudflare", binding: "SANDBOX" }
@@ -173,7 +173,7 @@ describe("sandbox workspace runtime", () => {
   it("resets reused sandbox roots and materializes empty directories", async () => {
     const fake = createFakeSandbox("cloudflare")
     fake.files.set("/workspace/stale.txt", { content: "stale", type: "file" })
-    const sandboxPackage = await import("@vitehub/sandbox")
+    const sandboxPackage = await import("@vite-hub/sandbox")
     vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
     setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX", sandboxId: "app-sandbox" })
 
@@ -200,7 +200,7 @@ describe("sandbox workspace runtime", () => {
 
   it("keeps lazy source files out of the initial sandbox sync until materialized", async () => {
     const fake = createFakeSandbox("cloudflare")
-    const sandboxPackage = await import("@vitehub/sandbox")
+    const sandboxPackage = await import("@vite-hub/sandbox")
     vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
     setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
 
@@ -239,7 +239,7 @@ describe("sandbox workspace runtime", () => {
 
   it("round-trips binary file contents through sandbox sessions", async () => {
     const fake = createFakeSandbox("vercel")
-    const sandboxPackage = await import("@vitehub/sandbox")
+    const sandboxPackage = await import("@vite-hub/sandbox")
     vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
     setSandboxRuntimeConfig({ provider: "vercel", runtime: "node24" })
 
@@ -267,7 +267,7 @@ describe("sandbox workspace runtime", () => {
 
   it("preserves media type when committing modified sandbox files", async () => {
     const fake = createFakeSandbox("cloudflare")
-    const sandboxPackage = await import("@vitehub/sandbox")
+    const sandboxPackage = await import("@vite-hub/sandbox")
     vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
     setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
 
@@ -291,7 +291,7 @@ describe("sandbox workspace runtime", () => {
 
   it("preserves media type when committing added sandbox files", async () => {
     const fake = createFakeSandbox("cloudflare")
-    const sandboxPackage = await import("@vitehub/sandbox")
+    const sandboxPackage = await import("@vite-hub/sandbox")
     vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
     setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
 
@@ -314,7 +314,7 @@ describe("sandbox workspace runtime", () => {
 
   it("scopes sandbox session search by cwd", async () => {
     const fake = createFakeSandbox("cloudflare")
-    const sandboxPackage = await import("@vitehub/sandbox")
+    const sandboxPackage = await import("@vite-hub/sandbox")
     vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
     setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
 
@@ -345,7 +345,7 @@ describe("sandbox workspace runtime", () => {
 
   it("rejects sandbox commits that write source-backed paths", async () => {
     const fake = createFakeSandbox("cloudflare")
-    const sandboxPackage = await import("@vitehub/sandbox")
+    const sandboxPackage = await import("@vite-hub/sandbox")
     vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
     setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
 
@@ -378,7 +378,7 @@ describe("sandbox workspace runtime", () => {
 
   it("commits file-to-directory replacements to local stores", async () => {
     const fake = createFakeSandbox("cloudflare")
-    const sandboxPackage = await import("@vitehub/sandbox")
+    const sandboxPackage = await import("@vite-hub/sandbox")
     vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
     setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
 

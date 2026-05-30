@@ -3,7 +3,7 @@ import { CIAuthError, CINotFoundError, CIRateLimitError, normalizeProviderError 
 import { createCIProvider, extractLikelyCIError } from "../src/index.ts"
 import type { CILogLine } from "../src/types.ts"
 
-describe("@vitehub/ci helpers", () => {
+describe("@vite-hub/ci helpers", () => {
   it("creates supported providers", () => {
     expect(createCIProvider("cloudflare").id).toBe("cloudflare")
     expect(createCIProvider("vercel").id).toBe("vercel")

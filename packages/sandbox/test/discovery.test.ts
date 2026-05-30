@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createRuntimeRegistryContents } from "@vitehub/internal/definition-discovery"
+import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-discovery"
 import { discoverNitroSandboxDefinitions } from "../src/discovery.ts"
 
 const tempDirs: string[] = []

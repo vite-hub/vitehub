@@ -1,7 +1,7 @@
 import { H3, createError, getQuery, readValidatedBody } from "h3"
 import * as v from "valibot"
 
-import { blob } from "@vitehub/blob"
+import { blob } from "@vite-hub/blob"
 
 const app = new H3()
 const blobPutBody = v.optional(v.object({

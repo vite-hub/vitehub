@@ -173,6 +173,18 @@ describe("workspace config", () => {
     })
   })
 
+  it("rejects GitHub as a workspace store provider", () => {
+    expect(() => normalizeWorkspaceOptions({
+      store: {
+        provider: "github",
+        repo: "acme/app",
+        token: "secret-token",
+      } as never,
+    }, {
+      rootDir: "/repo",
+    })).toThrow("Unsupported workspace store provider: github")
+  })
+
   it("rehydrates masked Vercel Blob tokens at runtime", () => {
     expect(resolveRuntimeVercelBlobWorkspaceStore({
       provider: "vercel-blob",
@@ -183,4 +195,5 @@ describe("workspace config", () => {
       token: "runtime-token",
     })
   })
+
 })

@@ -11,7 +11,7 @@ export async function bundleSandboxDefinition(source: string, file: string): Pro
       {
         name: SHIM_NAMESPACE,
         setup(pluginBuild) {
-          pluginBuild.onResolve({ filter: /^@vitehub\/sandbox(?:\/runtime\/public)?$/ }, () => ({
+          pluginBuild.onResolve({ filter: /^@vite-hub\/sandbox(?:\/runtime\/public)?$/ }, () => ({
             path: 'sandbox-runtime-shim',
             namespace: SHIM_NAMESPACE,
           }))

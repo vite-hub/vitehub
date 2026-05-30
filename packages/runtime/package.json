@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/runtime",
+  "name": "@vite-hub/runtime",
   "version": "0.0.0",
   "description": "Shared runtime context, capability, policy, approval, and tracing primitives for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -33,7 +33,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/runtime build && vitest run"
+    "test": "pnpm --filter @vite-hub/runtime build && vitest run"
   },
   "devDependencies": {
     "@types/node": "catalog:",

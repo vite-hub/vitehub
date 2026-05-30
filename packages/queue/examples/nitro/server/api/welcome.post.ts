@@ -1,4 +1,4 @@
-import { runQueue } from "@vitehub/queue"
+import { runQueue } from "@vite-hub/queue"
 import type { WelcomeEmailPayload } from "../queues/welcome-email"
 
 export default defineEventHandler(async (event) => {

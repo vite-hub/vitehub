@@ -1,4 +1,4 @@
-import { defineWorkflow } from "@vitehub/workflow"
+import { defineWorkflow } from "@vite-hub/workflow"
 
 export default defineWorkflow(async ({ payload }) => {
   const body = payload as { email?: string, marker?: string } | undefined

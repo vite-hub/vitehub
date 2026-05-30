@@ -1,6 +1,6 @@
 # Blob Package
 
-Blob Package names ownership boundaries for `@vitehub/blob`.
+Blob Package names ownership boundaries for `@vite-hub/blob`.
 
 ## Language
 

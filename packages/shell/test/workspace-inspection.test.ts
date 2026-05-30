@@ -8,7 +8,7 @@ import {
 } from "../src/workspace/index.ts"
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 
-describe("@vitehub/shell workspace inspection", () => {
+describe("@vite-hub/shell workspace inspection", () => {
   it("runs workspace inspection through the real shell runtime", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",

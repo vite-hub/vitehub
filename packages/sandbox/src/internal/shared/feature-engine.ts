@@ -1,6 +1,6 @@
 import { readPackageJSON } from 'pkg-types'
 import { resolve as resolveFs } from 'pathe'
-import { assertNoVitePluginInNitro } from '@vitehub/internal/nitro'
+import { assertNoVitePluginInNitro } from '@vite-hub/internal/nitro'
 import type { Nitro, NitroModule } from 'nitro/types'
 import type { ConfigEnv, UserConfig } from 'vite'
 import { detectHosting } from './hosting'

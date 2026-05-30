@@ -1,36 +1,84 @@
-import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
 
 import { chatDevTools } from "./chat/devtools.ts"
-import agentNitroModule from "./nitro/module.ts"
+import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
+import { agentNitro } from "./nitro/module.ts"
 
 import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
-import type { ChatDevToolsOptions, ChatDevToolsPlugin } from "./chat/devtools.ts"
 import type { AgentModuleOptions } from "./types.ts"
 
-export type AgentVitePlugin = Plugin & { nitro: NitroModule }
+interface AgentCliContributingPlugin {
+  vitehub?: {
+    cli?: unknown
+  }
+}
 
-const agentPackageName = "@vitehub/agent"
+export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & { nitro: NitroModule }
+
+const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
 
-export function hubChatDevtools(options?: ChatDevToolsOptions): ChatDevToolsPlugin {
-  return chatDevTools(options)
+function agentDevtoolsEnabled(agent: AgentModuleOptions | false | undefined): boolean {
+  return agent !== false && agent?.devtools !== false
+}
+
+function configuredNitroAgent(nitro: unknown): AgentModuleOptions | false | undefined {
+  return (nitro as { options?: { agent?: AgentModuleOptions | false } }).options?.agent
 }
 
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let agent: AgentModuleOptions | false | undefined = options
+  const chatDevtoolsPlugin = chatDevTools()
 
   return {
-    name: "@vitehub/agent/vite",
-    nitro: agentNitroModule,
+    name: "@vite-hub/agent/vite",
+    nitro: {
+      name: "@vite-hub/agent/vite",
+      async setup(nitro) {
+        const configured = configuredNitroAgent(nitro) ?? agent
+        await agentNitro(configured).setup(nitro)
+        if (agentDevtoolsEnabled(configured)) {
+          await chatDevtoolsPlugin.nitro.setup(nitro)
+        }
+      },
+    },
+    devtools: {
+      setup(ctx) {
+        if (agentDevtoolsEnabled(agent)) {
+          return chatDevtoolsPlugin.devtools?.setup?.(ctx)
+        }
+      },
+    },
+    vitehub: {
+      cli: async () => {
+        const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
+        if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
+        return createAgentCliContributor(resolveAgentEvalOptions(agent?.eval))
+      },
+    },
     config(config) {
       agent = config.agent ?? agent
-      if (typeof agent !== "undefined") {
-        return { agent }
+      return {
+        ...(typeof agent !== "undefined" ? { agent } : {}),
+        server: {
+          watch: {
+            ignored: mergeGeneratedViteHubWatchIgnored(config.server?.watch?.ignored),
+          },
+        },
       }
     },
-    configResolved(config) {
+    async configResolved(config) {
       agent = config.agent ?? agent
+      if (agent === false || agent?.eval === false) {
+        return
+      }
+
+      const evalOptions = resolveAgentEvalOptions(agent?.eval)
+      if (evalOptions === false) {
+        return
+      }
+      await writeAgentEvaliteConfig(config.root, evalOptions)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

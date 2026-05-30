@@ -7,7 +7,7 @@ import {
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
-} from "@vitehub/internal/definition-catalog"
+} from "@vite-hub/internal/definition-catalog"
 
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 

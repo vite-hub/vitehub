@@ -1,9 +1,10 @@
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 
-import { createImportPath } from "@vitehub/internal/build/paths"
-import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { createImportPath } from "@vite-hub/internal/build/paths"
+import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { detectHosting } from "@vite-hub/internal/feature-bridge/hosting"
+import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vite-hub/internal/nitro"
 
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets, writeWorkspaceRuntimeRegistry } from "../../build/integration.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
@@ -11,14 +12,19 @@ import { discoverNitroWorkspaceDefinitions, type DiscoveredWorkspaceDefinition }
 import { createWorkspaceTypeAugmentation } from "../../build/generated-types.ts"
 import { configureCloudflareArtifacts } from "../../integrations/cloudflare.ts"
 
-import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
+import type { Nitro, NitroRuntimeConfig } from "nitro/types"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../../core/types.ts"
 
+export interface WorkspaceNitroModule {
+  name: string
+  setup(this: void, nitro: unknown): void | Promise<void>
+}
+
 const WORKSPACE_NITRO_IMPORTS_PRESET = {
-  from: "@vitehub/workspace",
+  from: "@vite-hub/workspace",
   imports: ["defineWorkspace", "useWorkspace"],
 }
-const WORKSPACE_VITE_PLUGIN_NAME = "@vitehub/workspace/vite"
+const WORKSPACE_VITE_PLUGIN_NAME = "@vite-hub/workspace/vite"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string) {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
@@ -29,11 +35,19 @@ function resolveDependency(specifier: string) {
 }
 
 function resolveShellDependency(specifier: string) {
-  return createRequire(resolveDependency("@vitehub/shell/package.json")).resolve(specifier)
+  return createRequire(resolveDependency("@vite-hub/shell/package.json")).resolve(specifier)
 }
 
 function resolveShellTransitiveDependency(parentSpecifier: string, specifier: string) {
   return createRequire(resolveShellDependency(parentSpecifier)).resolve(specifier)
+}
+
+function resolveJustBashNestedDependency(parentSpecifier: string, specifier: string) {
+  return createRequire(resolveShellTransitiveDependency("just-bash", parentSpecifier)).resolve(specifier)
+}
+
+function resolveIsomorphicGitDependency(specifier: string) {
+  return createRequire(resolveDependency("isomorphic-git")).resolve(specifier)
 }
 
 function resolveIsomorphicGitEsmEntry() {
@@ -66,7 +80,7 @@ function assetsRegistryPath(nitro: Nitro) {
 }
 
 function workspaceNitroConfigTypes(definitions: DiscoveredWorkspaceDefinition[]) {
-  return `import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "@vitehub/workspace"
+  return `import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "@vite-hub/workspace"
 
 declare module "nitro/types" {
   interface NitroConfig {
@@ -124,14 +138,14 @@ function createNitroPluginContents(file: string, registryFile: string, assetsReg
     `import { useRuntimeConfig } from "nitro/runtime-config"`,
     `import workspaceRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import workspaceAssetsRegistry from ${JSON.stringify(createImportPath(file, assetsRegistryFile))}`,
-    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/internal/runtime/state")))}`,
+    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../runtime/state", "@vite-hub/workspace/internal/runtime/state")))}`,
   ]
 
   if (provider === "cloudflare-artifacts") {
-    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../../providers/cloudflare/artifacts-store", "@vitehub/workspace/internal/stores/cloudflare-artifacts")))}`)
+    imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../../providers/cloudflare/artifacts-store", "@vite-hub/workspace/internal/stores/cloudflare-artifacts")))}`)
   }
   else if (provider === "vercel-blob") {
-    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../../providers/vercel/blob-store", "@vitehub/workspace/internal/stores/vercel-blob")))}`)
+    imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeEntry("../../providers/vercel/blob-store", "@vite-hub/workspace/internal/stores/vercel-blob")))}`)
   }
 
   const loader = provider === "cloudflare-artifacts"
@@ -177,37 +191,41 @@ function applyWorkspaceRuntimeAliases(nitro: Nitro, registryFile: string, assets
   })
 }
 
-const workspaceNitroModule: NitroModule = {
-  name: "@vitehub/workspace",
-  async setup(nitro) {
-    await assertNoVitePluginInNitro(nitro, WORKSPACE_VITE_PLUGIN_NAME, "@vitehub/workspace/nitro")
+export function workspaceNitro(options?: false | WorkspaceModuleOptions): WorkspaceNitroModule {
+  return {
+    name: "@vite-hub/workspace",
+    async setup(nitroInput) {
+      const nitro = nitroInput as Nitro
+      await assertNoVitePluginInNitro(nitro, WORKSPACE_VITE_PLUGIN_NAME, "@vite-hub/workspace/nitro")
 
-    const isDev = nitro.options.dev || process.env.VITEHUB_WORKSPACE_DEV === "true"
-    const resolved = normalizeWorkspaceOptions((nitro.options as typeof nitro.options & { workspace?: false | WorkspaceModuleOptions }).workspace, {
+      const isDev = nitro.options.dev || process.env.VITEHUB_WORKSPACE_DEV === "true"
+      const hosting = detectHosting(nitro)
+      const configured = options ?? (nitro.options as typeof nitro.options & { workspace?: false | WorkspaceModuleOptions }).workspace
+      const resolved = normalizeWorkspaceOptions(configured, {
       dev: isDev,
       env: process.env,
-      hosting: nitro.options.preset,
+      hosting,
       rootDir: nitro.options.rootDir,
     })
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig) as NitroRuntimeConfig & Record<string, unknown>
-    if (nitro.options.preset) runtimeConfig.hosting ||= nitro.options.preset
+    if (hosting) runtimeConfig.hosting ||= hosting
     runtimeConfig.workspace = resolved
 
     nitro.options.alias ||= {}
-    nitro.options.alias["@vitehub/workspace/internal/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/workspace/internal/runtime/state")
-    nitro.options.alias["@vitehub/workspace/loader"] = resolveRuntimeEntry("../loader", "@vitehub/workspace/loader")
-    nitro.options.alias["@vitehub/workspace/publish"] = resolveRuntimeEntry("../publish", "@vitehub/workspace/publish")
-    nitro.options.alias["@vitehub/workspace/test"] = resolveRuntimeEntry("../test", "@vitehub/workspace/test")
-    nitro.options.alias["@vitehub/workspace"] = resolveRuntimeEntry("../index", "@vitehub/workspace")
+    nitro.options.alias["@vite-hub/workspace/internal/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vite-hub/workspace/internal/runtime/state")
+    nitro.options.alias["@vite-hub/workspace/loader"] = resolveRuntimeEntry("../loader", "@vite-hub/workspace/loader")
+    nitro.options.alias["@vite-hub/workspace/publish"] = resolveRuntimeEntry("../publish", "@vite-hub/workspace/publish")
+    nitro.options.alias["@vite-hub/workspace/test"] = resolveRuntimeEntry("../test", "@vite-hub/workspace/test")
+    nitro.options.alias["@vite-hub/workspace"] = resolveRuntimeEntry("../index", "@vite-hub/workspace")
     nitro.options.alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     nitro.options.alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
     for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
-      nitro.options.alias[dependency] = resolveDependency(dependency)
+      nitro.options.alias[dependency] = resolveIsomorphicGitDependency(dependency)
     }
     for (const dependency of ["sprintf-js", "turndown"]) {
-      nitro.options.alias[dependency] = resolveShellDependency(dependency)
+      nitro.options.alias[dependency] = resolveShellTransitiveDependency("just-bash", dependency)
     }
-    nitro.options.alias["@mixmark-io/domino"] = resolveShellTransitiveDependency("turndown", "@mixmark-io/domino")
+    nitro.options.alias["@mixmark-io/domino"] = resolveJustBashNestedDependency("turndown", "@mixmark-io/domino")
 
     let definitions = discoverNitroWorkspaceDefinitions(nitro.options.rootDir)
     const registryFile = await writeWorkspaceRuntimeRegistry(registryPath(nitro), definitions)
@@ -225,7 +243,7 @@ const workspaceNitroModule: NitroModule = {
     nitro.options.plugins ||= []
     if (!nitro.options.plugins.includes(plugin)) nitro.options.plugins.push(plugin)
 
-    if (nitro.options.preset?.includes("cloudflare")) {
+    if (hosting.includes("cloudflare")) {
       configureCloudflareArtifacts(nitro.options, resolved)
     }
 
@@ -241,9 +259,12 @@ const workspaceNitroModule: NitroModule = {
       }
     })
 
-    nitro.logger.info(`@vitehub/workspace enabled with ${definitions.length} workspace definition${definitions.length === 1 ? "" : "s"}`)
-  },
+    nitro.logger.info(`@vite-hub/workspace enabled with ${definitions.length} workspace definition${definitions.length === 1 ? "" : "s"}`)
+    },
+  }
 }
+
+const workspaceNitroModule: WorkspaceNitroModule = workspaceNitro()
 
 export default workspaceNitroModule
 

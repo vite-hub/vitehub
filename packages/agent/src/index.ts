@@ -3,7 +3,9 @@ import { getMessageText } from "./messages.ts"
 import {
   ApprovalRequiredError,
   resolveRuntimeContext,
-} from "@vitehub/runtime"
+} from "@vite-hub/runtime"
+import { getChatCapabilityOptions } from "./chat-trigger.ts"
+import { createAgentInvocationContextStore } from "./invocation-context.ts"
 
 import {
   applyCapabilityToolTransforms,
@@ -19,10 +21,17 @@ import {
 } from "./capability-runtime.ts"
 import type { ResolvedAgentFinishExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
+import { finalizeUiMessageStreamOutput } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
+import {
+  resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
+  resolveAgentTriggers as resolveAgentTriggersWithResolvedContext,
+  runAgentTriggerWith,
+  streamAgentTriggerWith,
+} from "./trigger-runtime.ts"
 
 import type {
   AgentAdapter,
@@ -41,8 +50,9 @@ import type {
   AgentChatOptions,
   AgentInput,
   AgentInstructionBlock,
-  AgentModelAdapter,
   AgentInvocationHooks,
+  AgentInvocationContextStore,
+  AgentModelResolver,
   AgentRegistry,
   AgentRegistryModule,
   AgentRequestBody,
@@ -52,25 +62,26 @@ import type {
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
-  AgentScheduleInvocationInput,
   AgentSettings,
   AgentUsageCost,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
   AgentToolDefinition,
-  AgentChatAgentHooks,
   MaybePromise,
+  ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
 import type { Message, StreamEvent } from "./messages.ts"
+import type { ResolvedAgentTriggerInvocation } from "./trigger-runtime.ts"
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
+  WorkspaceDefinition,
   WorkspaceEntry,
   WorkspaceName,
-} from "@vitehub/workspace"
+} from "@vite-hub/workspace"
 
 export type {
   AgentAdapter,
@@ -93,10 +104,13 @@ export type {
   AgentCapabilityPhase,
   AgentCapabilityRuntimeContext,
   AgentChatAgentHookArgs,
-  AgentChatAgentHooks,
+  AgentChatAppExposure,
+  AgentChatAppOptions,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
+  AgentChatMessageHookArgs,
   AgentChatOptions,
+  AgentChatSessionOptions,
   AgentRequestBody,
   AgentDefinition,
   AgentExecution,
@@ -107,13 +121,13 @@ export type {
   AgentInstructionBlock,
   AgentIntegrationOption,
   AgentInvocationExtensions,
+  AgentInvocationContextStore,
   AgentInvocationHooks,
   AgentIntegrationsOptions,
   AgentModelInput,
   AgentModelInstrumentation,
-  AgentModelInstrumentationContext,
-  AgentModelAdapter,
   AgentModelResolver,
+  AgentModelInstrumentationContext,
   AgentModuleOptions,
   AgentProvidersOptions,
   AgentRegistryHandlerOptions,
@@ -134,6 +148,8 @@ export type {
   AgentUsage,
   AgentUsageCost,
   AgentUsageRecord,
+  AgentWebhookRegistrationDefinition,
+  AgentChatWebhookRegistrationDefinition,
   AgentWorkflowRuntimeBinding,
   AgentSandboxProviderOptions,
   AgentSchedulerProviderOptions,
@@ -143,6 +159,9 @@ export type {
   AgentToolPolicyContext,
   AgentToolPolicyDecision,
   AgentStateProviderOptions,
+  AgentTriggerContext,
+  AgentTriggerDefinition,
+  AgentTriggerInvokeResult,
   AgentToolResolver,
   AgentToolStep,
   AgentWaitUntil,
@@ -152,6 +171,7 @@ export type {
   MaybeResolvable,
   Resolvable,
   ResolvedAgentModuleOptions,
+  ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
@@ -170,6 +190,7 @@ export type {
 
 const syntheticWorkspaceRun = Symbol("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
+const baseAgentModel = Symbol("vitehub.baseAgentModel")
 const defaultWorkspaceName = "workspace"
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
@@ -181,10 +202,7 @@ type AgentDefinitionWithBaseResolve<
   CALL_OPTIONS = unknown,
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
-}
-type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
-  chat: AgentChatOptions<TRuntimeConfig>
-  kind: "chat"
+  [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
 }
 interface ScheduleRunContextLike {
   attemptId?: string
@@ -271,8 +289,7 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { agentScheduleIdFromCron, blob, chatSummary, chatTitle, db, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "./capabilities.ts"
-export type { AgentScheduleCapabilityMetadata, AgentScheduleCapabilityOptions, AgentScheduleEntry, ChatSummaryCommandOptions, ChatSummaryExecuteInput, ChatSummaryExecuteResult, ChatSummaryOptions, ChatTitleExecuteInput, ChatTitleExecuteResult, ChatTitleOptions, TranscribeExecuteInput, TranscribeExecuteResult, TranscribeOptions, WebSearchOptions } from "./capabilities.ts"
+export type { ResolvedAgentTriggerInvocation }
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -303,7 +320,7 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
   if (hasWorkspace) return
   for (const capability of capabilities) {
-    if (capability.id === "workspace-shell" || capability.id === "sandbox") {
+    if (capability.id === "workspace-shell" || capability.id === "sandbox" || capability.id === "access") {
       const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
       throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }
@@ -344,83 +361,22 @@ function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtools
     : undefined
 }
 
-function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
-  capabilities: NormalizedCapability[],
-): AgentChatOptions<TRuntimeConfig> | undefined {
-  return capabilities.find(capability => capability.id === "chat" && (capability.metadata as ChatCapabilityMetadata | undefined)?.kind === "chat")
-    ?.metadata?.chat as AgentChatOptions<TRuntimeConfig> | undefined
-}
-
-export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChatOptions<TRuntimeConfig>,
-): AgentCapabilityDefinition<TRuntimeConfig> {
-  return defineCapability({
-    id: "chat",
-    metadata: {
-      chat: options,
-      kind: "chat",
-    } satisfies ChatCapabilityMetadata<TRuntimeConfig>,
-    prepare(context) {
-      context.state.require("chat-history", { optional: true })
-    },
-  })
-}
-
-export {
-  normalizeAgentUsage,
-  staticModelPricing,
-  usageTelemetry,
-  vercelAiGatewayPricing,
-} from "./capabilities/usage-telemetry.ts"
-export type {
-  InputCommand,
-  InputCommandRunInput,
-  InputCommandsOptions,
-} from "./capabilities.ts"
-export type {
-  AgentUsagePricing,
-  AgentUsagePricingContext,
-  StaticModelPrice,
-  UsageTelemetryOptions,
-  VercelAiGatewayPricingOptions,
-} from "./capabilities/usage-telemetry.ts"
-
-async function resolveModelAdapter<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
-  adapter: AgentModelAdapter,
-  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
-): Promise<AgentAdapter<CALL_OPTIONS>> {
-  if (adapter === "ai-sdk") {
-    return (await import("./ai-sdk.ts")).createAiSdkAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
-  }
-  if (adapter === "tanstack-ai") {
-    return (await import("./tanstack-ai.ts")).createTanStackAiAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
-  }
-  throw new Error(`[vitehub] Unsupported agent model adapter "${adapter}".`)
-}
-
 function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
-  if ("model" in (options as Record<string, unknown>) && !("adapter" in (options as Record<string, unknown>))) {
-    throw new Error("[vitehub] defineAgent({ model }) requires an explicit adapter, for example adapter: \"ai-sdk\".")
-  }
-
-  const { capabilities, description, hooks, run, runtime, workspace } = options
+  const { capabilities, description, hooks, run, runtime, title, workspace } = options
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = "model" in options
-      ? await resolveModelAdapter((options as AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { adapter: AgentModelAdapter }).adapter, options as AgentSettings<TRuntimeConfig, CALL_OPTIONS>)
+      ? (await import("./ai-sdk.ts")).createAiSdkAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
       : undefined
     if (!resolvedAdapter) {
-      throw new Error("[vitehub] Agent model and adapter are required unless the agent defines a custom run() handler.")
+      throw new Error("[vitehub] Agent model is required unless the agent defines a custom run() handler.")
     }
     const resolvedContext = createResolvedRuntimeContext(context)
     return typeof resolvedAdapter === "function"
@@ -429,12 +385,14 @@ function defineBaseAgent<
   }
 
   return {
+    ...("model" in options ? { [baseAgentModel]: options.model } : {}),
     [baseAgentResolve]: resolveBaseAgent,
     chat,
     description,
     hooks,
     runtime,
     run,
+    title,
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
@@ -486,7 +444,12 @@ export interface AgentDevtoolsToolDefinition {
 export interface AgentDevtoolsMetadata {
   files?: AgentDevtoolsFileTreeItem[]
   instructions?: string[]
+  title?: string
   tools?: AgentDevtoolsToolDefinition[]
+}
+
+function agentDevtoolsTitle(definition: Pick<AgentDefinition, "title">): Pick<AgentDevtoolsMetadata, "title"> {
+  return definition.title ? { title: definition.title } : {}
 }
 
 function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConfig): NormalizedWorkspaceOptions {
@@ -552,7 +515,7 @@ export interface DefineAgent {
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
   >(
-    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
+    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS> & { workspace?: never },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -800,13 +763,14 @@ export function createAgentDevtoolsMetadata<
 ): AgentDevtoolsMetadata {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    return { files: [], tools: [] }
+    return { files: [], ...agentDevtoolsTitle(definition), tools: [] }
   }
 
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
   return {
     files: workspaceMetadataFiles(options, workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>),
     instructions: workspaceMetadataInstructions(options),
+    ...agentDevtoolsTitle(workspaceDefinition as AgentDefinition),
     tools: workspaceMetadataTools(options),
   }
 }
@@ -820,7 +784,7 @@ export async function resolveAgentDevtoolsMetadata<
 ): Promise<AgentDevtoolsMetadata> {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    return { files: [], tools: [] }
+    return { files: [], ...agentDevtoolsTitle(definition), tools: [] }
   }
 
   const defaults = {
@@ -832,12 +796,13 @@ export async function resolveAgentDevtoolsMetadata<
     return createAgentDevtoolsMetadata(definition)
   }
 
-  const { useWorkspace } = await import("@vitehub/workspace")
+  const { useWorkspace } = await import("@vite-hub/workspace")
   const workspace = useWorkspace(workspaceName)
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
   return {
     files: await resolveWorkspaceMetadataFiles(options, defaults, workspace),
     instructions: await resolveWorkspaceMetadataInstructions(options, workspace),
+    ...agentDevtoolsTitle(workspaceDefinition as AgentDefinition),
     tools: workspaceMetadataTools(options),
   }
 }
@@ -944,6 +909,63 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
   return agent
 }
 
+export async function resolveAgentTriggers<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+): Promise<Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>>> {
+  return await resolveAgentTriggersWithResolvedContext(agent, createResolvedRuntimeContext(context))
+}
+
+export async function resolveAgentTriggerInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  triggerId: string,
+  input: TInput,
+): Promise<ResolvedAgentTriggerInvocation<TRuntimeConfig, CALL_OPTIONS>> {
+  return await resolveAgentTriggerInvocationWithResolvedContext<TRuntimeConfig, TInput, CALL_OPTIONS>(
+    agent,
+    createResolvedRuntimeContext(context),
+    triggerId,
+    input,
+  )
+}
+
+export async function runAgentTrigger<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  triggerId: string,
+  input: TInput,
+): Promise<Response | AgentRunResult | unknown> {
+  return await runAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(runAgent, agent, createResolvedRuntimeContext(context), triggerId, input)
+}
+
+export async function streamAgentTrigger<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  triggerId: string,
+  input: TInput,
+  options: {
+    onInvocation?: (invocation: ResolvedAgentTriggerInvocation<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
+    output?: "events" | "ui-message-stream"
+  } = {},
+): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  return await streamAgentTriggerWith<TRuntimeConfig, TInput, CALL_OPTIONS>(streamAgent, agent, createResolvedRuntimeContext(context), triggerId, input, options)
+}
+
 function toAgentRunResult(value: unknown): AgentRunResult {
   if (typeof value !== "object" || value === null) {
     return { raw: value, text: typeof value === "string" ? value : undefined }
@@ -972,7 +994,7 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
     && !(syntheticWorkspaceRun in agent.run)
 }
 
-function toStreamEvent(chunk: unknown): StreamEvent | undefined {
+function toStreamEvent(chunk: unknown, toolNames?: Map<string, string>): StreamEvent | undefined {
   if (typeof chunk === "string") {
     return { text: chunk, type: "text-delta" }
   }
@@ -989,13 +1011,29 @@ function toStreamEvent(chunk: unknown): StreamEvent | undefined {
     return { data: value.data, id: value.id as string | undefined, messageId: value.messageId as string | undefined, type: "data" }
   }
   if (type === "tool-input-start") {
-    return { id: String(value.id || value.toolCallId), input: value.input, name: String(value.toolName || value.name), type: "tool-input-start" }
+    const id = String(value.id || value.toolCallId)
+    const name = String(value.toolName || value.name || toolNames?.get(id) || "tool")
+    toolNames?.set(id, name)
+    return { id, input: value.input, name, type: "tool-input-start" }
   }
-  if (type === "tool-call") {
-    return { id: String(value.toolCallId ?? value.id), input: value.input ?? value.args, name: String(value.toolName ?? value.name), type: "tool-call" }
+  if (type === "tool-call" || type === "tool-input-available") {
+    const id = String(value.toolCallId ?? value.id)
+    const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
+    toolNames?.set(id, name)
+    return { id, input: value.input ?? value.args, name, type: "tool-call" }
   }
-  if (type === "tool-result") {
-    return { error: typeof value.error === "string" ? value.error : undefined, id: String(value.toolCallId ?? value.id), name: String(value.toolName ?? value.name), output: value.output ?? value.result, type: "tool-result" }
+  if (type === "tool-result" || type === "tool-output-available") {
+    const id = String(value.toolCallId ?? value.id)
+    return { error: typeof value.error === "string" ? value.error : undefined, id, name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+  }
+  if (type === "tool-error" || type === "tool-output-error") {
+    const id = String(value.toolCallId ?? value.id)
+    const error = value.error instanceof Error
+      ? value.error.message
+      : typeof value.errorText === "string"
+        ? value.errorText
+        : String(value.error || "Unknown tool error")
+    return { error, id, name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "error") {
     if (value.error instanceof ApprovalRequiredError) {
@@ -1020,16 +1058,18 @@ async function* streamTextResultToEvents(value: unknown): AsyncIterable<StreamEv
     return
   }
   if (isAsyncIterable(value)) {
+    const toolNames = new Map<string, string>()
     for await (const chunk of value as AsyncIterable<unknown>) {
-      const event = toStreamEvent(chunk)
+      const event = toStreamEvent(chunk, toolNames)
       if (event) yield event
     }
     return
   }
   const result = value as { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
   if (result.fullStream) {
+    const toolNames = new Map<string, string>()
     for await (const chunk of result.fullStream) {
-      const event = toStreamEvent(chunk)
+      const event = toStreamEvent(chunk, toolNames)
       if (event) yield event
     }
     return
@@ -1066,6 +1106,8 @@ type AgentInvocationContext<
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   startedAt: number
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
+  workspaceDefinition?: WorkspaceDefinition
+  workspaceMode: AgentCapabilityMode
 }
 
 function toAgentAdapterRunContext<
@@ -1093,23 +1135,32 @@ async function createAgentInvocationContext<
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
   const callbackContext = createAgentCallbackContext(context)
+  const invocationContext = createAgentInvocationContextStore(input.context)
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
   const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
   const workspaceName = workspaceOptions
     ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults)
     : workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
   const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
+  const resolvedWorkspaceDefinition = workspaceOptions && workspaceName
+    ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
+    : undefined
   const workspace = workspaceName
     ? workspaceMode === "write"
-      ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { mode: "write" })
-      : (await import("@vitehub/workspace")).useWorkspace(workspaceName)
+      ? (await import("@vite-hub/workspace")).useWorkspace(workspaceName, { mode: "write" })
+      : (await import("@vite-hub/workspace")).useWorkspace(workspaceName)
     : undefined
   const capabilityOptions = workspaceOptions && workspace
     ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
     : definition?.capabilities?.length
       ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
       : undefined
-  const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never, workspaceMode)
+  const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
+  const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never, workspaceMode, {
+    context: invocationContext,
+    model: agentModel as never,
+    workspaceDefinition: resolvedWorkspaceDefinition,
+  })
   const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
   const tools = Object.keys(transformedTools || {}).length
     ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
@@ -1119,6 +1170,7 @@ async function createAgentInvocationContext<
     ...callbackContext,
     capabilityInstructions: capabilities.capabilityInstructions,
     close: capabilities.close,
+    context: invocationContext,
     devtools: context.devtools,
     finishExtensionProviders: capabilities.registries.finishExtensionProviders,
     finishHook: definition?.hooks?.["agent:finish"] as never,
@@ -1132,7 +1184,9 @@ async function createAgentInvocationContext<
     runtimeContext: resolvedContext,
     startedAt,
     tools,
-    workspace,
+    workspace: capabilities.workspace || workspace,
+    workspaceDefinition: resolvedWorkspaceDefinition,
+    workspaceMode,
   }
 }
 
@@ -1147,6 +1201,9 @@ type InvocationRunContext<
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
   startedAt: number
+  workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
+  workspaceDefinition?: WorkspaceDefinition
+  workspaceMode: AgentCapabilityMode
 }
 
 function hasFinishWork<
@@ -1154,6 +1211,38 @@ function hasFinishWork<
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
   return Boolean(context.finishHook)
+}
+
+function isWritableWorkspaceFacade(workspace: unknown): workspace is WritableWorkspaceFacade {
+  return Boolean(workspace && typeof workspace === "object" && "diff" in workspace && "snapshot" in workspace)
+}
+
+function hasWorkspaceAutoCommit<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): boolean {
+  return context.workspaceMode === "write"
+    && Boolean(context.workspaceDefinition && isWritableWorkspaceFacade(context.workspace))
+}
+
+function shouldDeferFinish<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean }): boolean {
+  return context.hasCapabilityCleanup || hasFinishWork(context) || hasWorkspaceAutoCommit(context)
+}
+
+async function commitWorkspaceChanges<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): Promise<void> {
+  if (!context.workspaceDefinition || !isWritableWorkspaceFacade(context.workspace)) return
+
+  const diff = await context.workspace.diff()
+  const { resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
+  const commit = resolveWorkspaceAutoCommit(context.workspaceDefinition, diff)
+  if (!commit) return
+  await context.workspace.snapshot({ name: commit.message })
 }
 
 async function finishAgentInvocation<
@@ -1165,6 +1254,7 @@ async function finishAgentInvocation<
   error?: unknown,
 ): Promise<void> {
   await context.close()
+  if (error === undefined) await commitWorkspaceChanges(context)
   if (!hasFinishWork(context)) return
 
   const eventBase = {
@@ -1207,8 +1297,9 @@ async function finalizeAgentInvocationResult<
   result: unknown,
   finalizeObject: (result: unknown) => MaybePromise<{ deferFinish?: boolean, finishResult: unknown, value: TResult }>,
   failureMessage: string,
+  options: { finalizeRawStreams?: boolean } = {},
 ): Promise<Response | AsyncIterable<unknown> | TResult> {
-  const shouldWrapOutput = context.hasCapabilityCleanup || hasFinishWork(context)
+  const shouldWrapOutput = shouldDeferFinish(context)
   let finishLifecycleStarted = false
   try {
     if (result instanceof Response) {
@@ -1216,7 +1307,7 @@ async function finalizeAgentInvocationResult<
       finishLifecycleStarted = shouldWrapOutput
       return response
     }
-    if (isAsyncIterable(result)) {
+    if (isAsyncIterable(result) && !options.finalizeRawStreams) {
       finishLifecycleStarted = shouldWrapOutput
       return shouldWrapOutput ? withCapabilityCleanup(result, error => finishAgentInvocation(context, error === undefined ? result : undefined, error)) : result
     }
@@ -1321,7 +1412,9 @@ export async function streamAgent<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  options: { output?: "events" | "ui-message-stream" } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  const output = options.output || "events"
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createAgentInvocationContext(agent, context, input)
     runContext.close = once(runContext.close)
@@ -1333,7 +1426,7 @@ export async function streamAgent<
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
     try {
-      if (isAsyncIterable(result)) {
+      if (isAsyncIterable(result) && output !== "ui-message-stream") {
         result = await applyOutputRenderers(result, runContext.outputRenderers)
       }
     }
@@ -1342,8 +1435,11 @@ export async function streamAgent<
     }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
+      if (output === "ui-message-stream") {
+        return finalizeUiMessageStreamOutput(rendered, shouldDeferFinish(runContext), error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
+      }
       return { finishResult: rendered, value: rendered }
-    }, "[vitehub] Agent run failed and finish lifecycle also failed.")
+    }, "[vitehub] Agent run failed and finish lifecycle also failed.", { finalizeRawStreams: output === "ui-message-stream" })
   }
 
   const resolved = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(agent, context)
@@ -1360,7 +1456,7 @@ export async function streamAgent<
     return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
   }
   try {
-    if (isAsyncIterable(result)) {
+    if (isAsyncIterable(result) && output !== "ui-message-stream") {
       result = await applyOutputRenderers(result, adapterContext.outputRenderers)
     }
   }
@@ -1369,14 +1465,17 @@ export async function streamAgent<
   }
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
+    if (output === "ui-message-stream") {
+      return finalizeUiMessageStreamOutput(rendered, shouldDeferFinish(adapterContext), error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error))
+    }
     const events = streamTextResultToEvents(rendered)
-    const shouldWrapOutput = adapterContext.hasCapabilityCleanup || hasFinishWork(adapterContext)
+    const shouldWrapOutput = shouldDeferFinish(adapterContext)
     return {
       deferFinish: shouldWrapOutput,
       finishResult: rendered,
       value: shouldWrapOutput ? withCapabilityCleanup(events, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error)) : events,
     }
-  }, "[vitehub] Agent stream failed and finish lifecycle also failed.")
+  }, "[vitehub] Agent stream failed and finish lifecycle also failed.", { finalizeRawStreams: output === "ui-message-stream" })
 }
 
 export async function getAgent<TContext extends AgentRuntimeContext>(

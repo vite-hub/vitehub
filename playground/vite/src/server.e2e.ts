@@ -2,15 +2,15 @@ import { H3, createError, getQuery, getRequestURL, readBody, readValidatedBody }
 import { desc, sql } from "drizzle-orm"
 import * as v from "valibot"
 
-import { blob } from "@vitehub/blob"
-import { databases, db, schema } from "@vitehub/db/drizzle"
-import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
-import { kv } from "@vitehub/kv"
-import { deferQueue, runQueue } from "@vitehub/queue"
-import { runSandbox } from "@vitehub/sandbox"
-import { useWorkspace } from "@vitehub/workspace"
-import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vitehub/workspace/internal/runtime/state"
-import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vitehub/workflow"
+import { blob } from "@vite-hub/blob"
+import { databases } from "@vite-hub/database/drizzle"
+import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { kv } from "@vite-hub/kv"
+import { deferQueue, runQueue } from "@vite-hub/queue"
+import { runSandbox } from "@vite-hub/sandbox"
+import { useWorkspace } from "@vite-hub/workspace"
+import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/internal/runtime/state"
+import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
 import { resolveTrustedMarkerCallbackUrl } from "../../_shared/queue-test"
 
 const app = new H3()
@@ -88,7 +88,7 @@ function resolveSandboxHosting(event: { req: { runtime?: { name?: string }, wait
 }
 
 async function ensureNotesTable() {
-  await db.run(sql`
+  await databases.primary.db.run(sql`
     create table if not exists notes (
       id integer primary key autoincrement,
       title text not null
@@ -169,20 +169,20 @@ app.get("/api/blob/serve", async (event) => {
   return await blob.serve(event, pathname)
 })
 
-app.get("/api/db", async () => {
+app.get("/api/database", async () => {
   await ensureNotesTable()
-  const notes = await db.select().from(schema.notes).orderBy(desc(schema.notes.id))
+  const notes = await databases.primary.db.select().from(databases.primary.schema.notes).orderBy(desc(databases.primary.schema.notes.id))
   return { notes, ok: true }
 })
 
-app.post("/api/db", async (event) => {
+app.post("/api/database", async (event) => {
   await ensureNotesTable()
   const body = await readValidatedBody(event, noteBody)
-  const result = await db.insert(schema.notes).values({ title: body.title }).returning()
+  const result = await databases.primary.db.insert(databases.primary.schema.notes).values({ title: body.title }).returning()
   return { note: result[0], ok: true }
 })
 
-app.get("/api/db/analytics", async () => {
+app.get("/api/database/analytics", async () => {
   await ensureAnalyticsEventsTable()
   const events = await databases.analytics.db
     .select()
@@ -191,7 +191,7 @@ app.get("/api/db/analytics", async () => {
   return { events, ok: true }
 })
 
-app.post("/api/db/analytics", async (event) => {
+app.post("/api/database/analytics", async (event) => {
   await ensureAnalyticsEventsTable()
   const body = await readValidatedBody(event, analyticsEventBody)
   const result = await databases.analytics.db

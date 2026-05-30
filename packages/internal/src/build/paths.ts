@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, realpathSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 import { basename, dirname, relative, resolve } from "pathe"
@@ -26,6 +26,17 @@ export function resolveRuntimeModule(packageDir: string, modulePath: string): st
 }
 
 export function createImportPath(fromFile: string, targetFile: string): string {
-  const importPath = relative(dirname(fromFile), targetFile)
+  const fromDir = realpathIfExists(dirname(fromFile))
+  const target = realpathIfExists(targetFile)
+  const importPath = relative(fromDir, target)
   return importPath.startsWith(".") ? importPath : `./${importPath}`
+}
+
+function realpathIfExists(path: string): string {
+  try {
+    return realpathSync.native(path)
+  }
+  catch {
+    return resolve(path)
+  }
 }

@@ -1,4 +1,10 @@
 export {
+  access,
+} from "./access.ts"
+export {
+  chat,
+} from "../chat-trigger.ts"
+export {
   chatSummary,
 } from "./chat-summary.ts"
 export {
@@ -11,6 +17,13 @@ export {
   inputCommands,
 } from "./input-commands.ts"
 export {
+  LlmGateRejectedError,
+  llmGate,
+} from "./llm-gate.ts"
+export {
+  llmRoute,
+} from "./llm-route.ts"
+export {
   sandbox,
 } from "./sandbox.ts"
 export {
@@ -21,23 +34,28 @@ export {
   skills,
 } from "./skills.ts"
 export {
+  getTranscriptionResults,
   transcribe,
 } from "./transcribe.ts"
 export {
   workspaceShell,
 } from "./workspace-shell.ts"
 export {
-  blob,
-  db,
   kv,
-} from "./storage/index.ts"
+} from "./storage/kv.ts"
+export {
+  blob,
+} from "./storage/blob.ts"
+export {
+  db,
+} from "./storage/db.ts"
 export {
   memory,
   workspaceJsonlMemoryStore,
-} from "../memory.ts"
+} from "./memory.ts"
 export {
   mcp,
-} from "../mcp/capability.ts"
+} from "./mcp.ts"
 export {
   normalizeAgentUsage,
   staticModelPricing,
@@ -49,6 +67,33 @@ export {
 } from "./web-search/index.ts"
 
 export type {
+  AccessCapabilityOptions,
+  AccessRoleName,
+  AccessWorkspaceOptions,
+  AccessWorkspaceScopeDefinition,
+  AccessWorkspaceScopeGrant,
+  AccessWorkspaceScopeResolver,
+  AccessWorkspaceScopeSelection,
+  AccessWorkspaceScopeSelectionInput,
+} from "./access.ts"
+export type {
+  AgentChatMessageTriggerInput,
+} from "../chat-trigger.ts"
+export type {
+  AgentChatAdapterResolver,
+  AgentChatAdaptersResolver,
+  AgentChatAgentBindingOptions,
+  AgentChatAgentHookArgs,
+  AgentChatEventHookArgs,
+  AgentChatEventHooks,
+  AgentChatMessageHookArgs,
+  AgentChatOptions,
+  AgentChatSessionOptions,
+  AgentChatStateContext,
+  AgentChatStateResolver,
+  AgentChatWebhookRegistrationDefinition,
+} from "../types.ts"
+export type {
   ChatSummaryCommandOptions,
   ChatSummaryExecuteInput,
   ChatSummaryExecuteResult,
@@ -58,6 +103,9 @@ export type {
   ChatTitleExecuteInput,
   ChatTitleExecuteResult,
   ChatTitleOptions,
+  ChatTitleTemplate,
+  ChatTitleTemplateInput,
+  ChatTitleTemplateVariable,
 } from "./chat-title.ts"
 export type {
   FetchCapabilityMethod,
@@ -77,6 +125,18 @@ export type {
   InputCommandsOptions,
 } from "./input-commands.ts"
 export type {
+  LlmDecisionChoiceDefinition,
+  LlmDecisionChoiceMap,
+} from "./llm-decision-shared.ts"
+export type {
+  LlmGateDecision,
+  LlmGateOptions,
+} from "./llm-gate.ts"
+export type {
+  LlmRouteDecision,
+  LlmRouteOptions,
+} from "./llm-route.ts"
+export type {
   AgentScheduleCapabilityMetadata,
   AgentScheduleCapabilityOptions,
   AgentScheduleEntry,
@@ -85,16 +145,27 @@ export type {
   ScheduleCapabilityToolPolicy,
 } from "./schedule.ts"
 export type {
+  TranscribeArtifactTemplateInput,
+  TranscribeArtifactsOptions,
+  TranscribeAudioArtifactOptions,
   TranscribeExecuteInput,
   TranscribeExecuteResult,
   TranscribeOptions,
+  TranscribeTranscriptArtifactOptions,
+  TranscriptionResult,
 } from "./transcribe.ts"
 export type {
   BlobCapabilityOptions,
+} from "./storage/blob.ts"
+export type {
   DBCapabilityOptions,
+} from "./storage/db.ts"
+export type {
   KVCapabilityOptions,
+} from "./storage/kv.ts"
+export type {
   StorageToolPolicy,
-} from "./storage/index.ts"
+} from "./storage/shared.ts"
 export type {
   MemoryAppendRequest,
   MemoryCapabilityInstructionsOption,
@@ -112,7 +183,7 @@ export type {
   MemoryStoreFactory,
   MemoryStoreOptions,
   WorkspaceJsonlMemoryStoreOptions,
-} from "../memory.ts"
+} from "./memory.ts"
 export type {
   McpCapabilityOptions,
   McpClient,

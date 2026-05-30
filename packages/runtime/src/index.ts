@@ -2,6 +2,11 @@ export type MaybePromise<T> = T | Promise<T>
 
 export type RuntimeWaitUntil = (task: Promise<unknown>) => void
 
+export interface RuntimeWaitUntilController {
+  flushWaitUntil(): Promise<void>
+  waitUntil: RuntimeWaitUntil
+}
+
 export interface TraceContext {
   id: string
   parentId?: string
@@ -33,6 +38,7 @@ export interface RuntimeHostContext<TRuntimeConfig = Record<string, unknown>> {
   vercel?: {
     waitUntil?: RuntimeWaitUntil
   }
+  flushWaitUntil?: () => Promise<void>
   waitUntil: RuntimeWaitUntil
 }
 
@@ -187,6 +193,23 @@ export function defineCapability<TKind extends string, TValue>(
     kind,
     name: options.name,
     value,
+  }
+}
+
+export function createRuntimeWaitUntilController(options: {
+  forward?: RuntimeWaitUntil
+} = {}): RuntimeWaitUntilController {
+  const pending: Promise<unknown>[] = []
+  return {
+    async flushWaitUntil() {
+      while (pending.length > 0) {
+        await Promise.all(pending.splice(0))
+      }
+    },
+    waitUntil(task) {
+      pending.push(task)
+      options.forward?.(task)
+    },
   }
 }
 

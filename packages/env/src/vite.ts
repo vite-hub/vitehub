@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 
-import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { loadEnv } from "vite"
 
 import { formatDiagnostics } from "./core/diagnostics.ts"
@@ -10,7 +10,7 @@ import { createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "./types.ts"
 import type { Plugin, UserConfig } from "vite"
 
-export const ENV_VITE_PLUGIN_NAME = "@vitehub/env/vite"
+export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
 export const ENV_PUBLIC_ID = "#vitehub/env/public"
 
 const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`

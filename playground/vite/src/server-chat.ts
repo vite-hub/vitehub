@@ -1,11 +1,11 @@
 import { H3 } from "h3"
 
-import chat from "../server/chat"
+import agent from "../server/agents/devtools-demo"
 
 const app = new H3()
 
 app.get("/", () => ({
-  chat: Boolean(chat),
+  agent: Boolean(agent),
   ok: true,
 }))
 

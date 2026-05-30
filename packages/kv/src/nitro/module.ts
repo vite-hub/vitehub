@@ -1,4 +1,4 @@
-import { createFeatureNitroBridge } from "@vitehub/internal/feature-bridge"
+import { createFeatureNitroBridge } from "@vite-hub/internal/feature-bridge"
 
 import { kvFeatureEngine } from "../feature.ts"
 import type { NitroModule } from "nitro/types"

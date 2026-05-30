@@ -13,15 +13,15 @@ A package-owned inspection area registered into the ViteHub DevTools Client.
 _Avoid_: Separate DevTools app, standalone panel, route package
 
 **ViteHub DevTools Integration**:
-The Vite integration that registers the ViteHub DevTools Client shell with the host DevTools environment.
-_Avoid_: Chat plugin, feature plugin, bridge route
+The Vite integration that registers the ViteHub DevTools Client shell and DevTools Discovery Surface with the host DevTools environment.
+_Avoid_: Chat plugin, feature plugin, bridge route, package scanner
 
 **Package DevTools Integration**:
-The package-owned integration behavior that registers one DevTools Feature and its DevTools Bridge with the ViteHub DevTools discovery system.
-_Avoid_: Shell plugin, global DevTools config, client app
+The package-owned integration behavior that registers one DevTools Feature and its DevTools Bridge with the ViteHub DevTools discovery system, usually through the package's primary framework integration.
+_Avoid_: Shell plugin, global DevTools config, client app, standalone feature plugin
 
 **DevTools Bridge**:
-The application-side endpoint or RPC surface that connects the ViteHub DevTools Client to package runtime state.
+The package-owned application-side endpoint or RPC surface that connects the ViteHub DevTools Client to package runtime state.
 _Avoid_: API route, webhook, app backend
 
 **DevTools Discovery Surface**:
@@ -44,10 +44,13 @@ _Avoid_: Dummy bot, fake chat, mock page
 
 - The **ViteHub DevTools Client** contains zero or more **DevTools Features**.
 - The **ViteHub DevTools Integration** registers the **ViteHub DevTools Client** shell.
+- The **ViteHub DevTools Integration** discovers registered **DevTools Features**; it does not scan installed packages or enable package runtime behavior.
 - The DevTools Package owns the **ViteHub DevTools Integration**.
 - A **Package DevTools Integration** registers one package-owned **DevTools Feature** and its **DevTools Bridge**.
+- A **Package DevTools Integration** is automatic with the owning package's active framework integration rather than a separate app-facing feature plugin.
 - A package owns its **DevTools Feature**.
 - A **DevTools Feature** talks to application runtime state through a **DevTools Bridge**.
+- A package owns its **DevTools Bridge** location unless an ADR introduces package-specific customization.
 - The **ViteHub DevTools Client** discovers available **DevTools Features** through the **DevTools Discovery Surface**.
 - The DevTools Package owns the **DevTools Discovery Surface**.
 - The Vite integration currently implements the **DevTools Discovery Surface** as a **DevTools Discovery RPC**.
@@ -63,16 +66,19 @@ _Avoid_: Dummy bot, fake chat, mock page
 
 ## Example Dialogue
 
-> **Dev:** "Should `@vitehub/agent` ship its own chat DevTools app?"
+> **Dev:** "Should `@vite-hub/agent` ship its own chat DevTools app?"
 > **Domain expert:** "No. Chat is a **DevTools Feature** inside the **ViteHub DevTools Client**. The Agent Package owns the feature and bridge, not a separate client shell."
 >
 > **Dev:** "Should installing a package require a second DevTools plugin to see its feature?"
 > **Domain expert:** "No. **DevTools Feature Registration** is automatic with the package integration; use a **DevTools Opt-Out** only when a feature should be disabled."
 >
+> **Dev:** "Should `hubDevtools()` scan installed ViteHub packages and turn on their features?"
+> **Domain expert:** "No. The **ViteHub DevTools Integration** owns the shell and **DevTools Discovery Surface** only. Each package's **Package DevTools Integration** registers its own **DevTools Feature** and **DevTools Bridge**."
+>
 > **Dev:** "Should Chat register the ViteHub DevTools shell?"
 > **Domain expert:** "No. The **ViteHub DevTools Integration** registers the shell. Chat registers a **DevTools Feature** and **DevTools Bridge**."
 >
-> **Dev:** "Should `@vitehub/devtools` know how Chat History is serialized?"
+> **Dev:** "Should `@vite-hub/devtools` know how Chat History is serialized?"
 > **Domain expert:** "No. Chat serialization belongs to the Agent Package's **Package DevTools Integration**; the DevTools Package owns the shell and discovery protocol."
 >
 > **Dev:** "Should an app fail if Chat DevTools is enabled but `hubDevtools()` is missing?"
@@ -91,4 +97,5 @@ _Avoid_: Dummy bot, fake chat, mock page
 - Embedded DevTools fallback was considered a user-facing option - resolved: local client delivery is an internal development workflow, not a public integration mode.
 - Global DevTools feature toggles were considered for the shell integration - resolved: **DevTools Opt-Out** stays package-local until global policy has a concrete need.
 - DevTools Feature Registration was considered as a client-rendering plugin contract - resolved: v1 registration only describes feature metadata and bridge location.
+- The ViteHub DevTools Integration was considered as a package scanner - resolved: it is a shell and discovery integration; packages register their own features automatically.
 - Playground Chat testing was described as a dummy chat page - resolved: use a **DevTools Demo Agent** that exercises the real **DevTools Feature** through the **DevTools Bridge**.

@@ -1,17 +1,17 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { resolve } from "pathe"
 
-import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { writeProviderDeploymentOutputs } from "@vitehub/internal/build/deployment-output"
-import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
-import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
+import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
+import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../config.ts"
 
 import type { BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
-export const blobPackageName = "@vitehub/blob"
+export const blobPackageName = "@vite-hub/blob"
 const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
@@ -269,7 +269,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
       alias: {
-        "@vitehub/blob": artifacts.runtimeModuleFiles.cloudflare,
+        "@vite-hub/blob": artifacts.runtimeModuleFiles.cloudflare,
       },
       conditions: ["workerd", "worker", "browser", "default"],
       external: [
@@ -279,6 +279,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
       format: "esm",
       platform: "neutral",
     },
+    wranglerConfigKeys: ["r2_buckets"],
     wranglerConfig,
   }
 }
@@ -288,7 +289,7 @@ function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDe
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
       alias: {
-        "@vitehub/blob": artifacts.runtimeModuleFiles.vercel,
+        "@vite-hub/blob": artifacts.runtimeModuleFiles.vercel,
       },
       external: [
         "files-sdk",

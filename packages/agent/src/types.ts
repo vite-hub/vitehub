@@ -1,4 +1,5 @@
 import type { Message, StreamEvent } from "./messages.ts"
+import type { Adapter, StateAdapter } from "chat"
 import type {
   MaybePromise,
   MaybeResolvable,
@@ -7,12 +8,14 @@ import type {
   RuntimeCapabilityHandle,
   RuntimeHostContext,
   RuntimeWaitUntil,
-} from "@vitehub/runtime"
+} from "@vite-hub/runtime"
 import type {
   ReadonlyWorkspaceFacade,
+  WritableWorkspaceFacade,
+  WorkspaceDefinition,
   WorkspaceDefinitionInput,
   WorkspaceName,
-} from "@vitehub/workspace"
+} from "@vite-hub/workspace"
 
 export type {
   MaybePromise,
@@ -53,6 +56,14 @@ export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig">
 
+export interface AgentInvocationContextStore {
+  entries: () => IterableIterator<[string, unknown]>
+  get: <T = unknown>(id: string) => T | undefined
+  has: (id: string) => boolean
+  set: (id: string, value: unknown) => void
+  toJSON: () => Record<string, unknown>
+}
+
 export interface AgentRunInput<CALL_OPTIONS = unknown> {
   abortSignal?: AbortSignal
   context?: Record<string, unknown>
@@ -74,15 +85,82 @@ export interface AgentScheduleInvocationInput {
 export interface AgentRunMetadata {
   channelId?: string
   messageId?: string
-  platform?: string
+  origin?: string
   runId: string
   threadId?: string
+}
+
+export interface AgentTriggerInvokeResult<CALL_OPTIONS = unknown> {
+  input: AgentRunInput<CALL_OPTIONS>
+  metadata?: Record<string, unknown>
+  run?: AgentRunMetadata
+}
+
+export interface AgentWebhookRegistrationDefinition {
+  id?: string
+  method?: "POST" | (string & {})
+  path?: string
+  provider: string
+  secretHeader?: string
+  secretToken?: string
+  url?: string
+}
+
+export type AgentChatWebhookRegistrationDefinition =
+  Omit<AgentWebhookRegistrationDefinition, "provider"> & { provider?: string }
+
+export interface AgentChatAppOptions {
+  route?: never
+}
+
+export type AgentChatAppExposure = boolean | AgentChatAppOptions
+
+export interface AgentTriggerContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends AgentCallbackContext<TRuntimeConfig> {
+  capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
+  trigger: {
+    capabilityId: string
+    id: `${string}.${string}`
+    name: string
+  }
+}
+
+export interface AgentTriggerDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+> {
+  devtools?: boolean | Record<string, unknown>
+  input?: unknown
+  invoke: (context: AgentTriggerContext<TRuntimeConfig, Name>, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
+  output?: "events" | "ui-message-stream" | (string & {})
+  webhooks?: AgentWebhookRegistrationDefinition[]
+}
+
+export interface ResolvedAgentTriggerDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+> {
+  capabilityId: string
+  definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS>
+  devtools?: boolean | Record<string, unknown>
+  id: `${string}.${string}`
+  input?: unknown
+  invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
+  name: string
+  output?: "events" | "ui-message-stream" | (string & {})
+  webhooks?: AgentWebhookRegistrationDefinition[]
 }
 
 export interface AgentRunCallbackContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
+  context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
 }
@@ -130,13 +208,16 @@ export interface AgentInvocationHooks<
 export interface AgentRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig> {
   adapter?: AgentAdapter<CALL_OPTIONS>
+  context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
   messages: Message[]
   prompt?: string
   providerTools?: AgentProviderToolContribution[]
   tools?: AgentToolSet
+  workspace?: ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name>
 }
 
 export type AgentRunHandler<
@@ -172,6 +253,7 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   mode?: AgentCapabilityMode
+  workspaceDefinition?: WorkspaceDefinition
 }
 
 export type AgentCapabilityToolResolver<
@@ -225,6 +307,9 @@ export interface AgentCapabilityRuntimeContext<
     set: (input: AgentRunInput) => void
     setMessages: (messages: Message[]) => void
   }
+  model: {
+    resolve: (model?: AgentModelResolver<TRuntimeConfig, Name>) => Promise<AgentModelInput>
+  }
   output: {
     render: (renderer: AgentOutputRenderer) => void
   }
@@ -264,6 +349,7 @@ export interface AgentCapabilityDefinition<
   requires?: AgentCapabilityRequirement[]
   resolve?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   tools?: AgentCapabilityToolResolver<TRuntimeConfig, Name>
+  triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, Name, any, any>>
 }
 
 export type AgentCapabilityInput<
@@ -301,6 +387,7 @@ export type AgentModelResolver<
 
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
+  context: AgentInvocationContextStore
   model: AgentModelInput
   run?: AgentRunMetadata
 }
@@ -311,15 +398,15 @@ export type AgentModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig 
 type AgentSettingsBase<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > = {
-  adapter?: AgentModelAdapter
   adapterOptions?: Record<string, unknown>
   description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   capabilities?: AgentCapabilitiesList<TRuntimeConfig>
   model?: AgentModelResolver<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
+  title?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
@@ -332,7 +419,6 @@ export type AgentSettings<
   }
   | {
     model: NonNullable<AgentSettingsBase<TRuntimeConfig>["model"]>
-    adapter: NonNullable<AgentSettingsBase<TRuntimeConfig>["adapter"]>
     run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )
@@ -344,10 +430,11 @@ export interface AgentDefinition<
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  hooks?: AgentChatAgentHooks<TRuntimeConfig> & AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS>
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
+  title?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
@@ -360,8 +447,6 @@ export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = Agen
 
 export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
-
-export type AgentModelAdapter = "ai-sdk" | "tanstack-ai" | (string & {})
 
 export interface AgentStateProviderOptions {
   provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
@@ -386,8 +471,27 @@ export interface AgentProvidersOptions {
   state?: AgentStateProviderOptions
 }
 
+export interface AgentEvalOptions {
+  cache?: boolean
+  forceRerunTriggers?: string[]
+  hideTable?: boolean
+  maxConcurrency?: number
+  scoreThreshold?: number
+  server?: {
+    port?: number
+  }
+  setupFiles?: string[]
+  testTimeout?: number
+  trialCount?: number
+}
+
+export type AgentCliOptions = Record<never, never>
+
 export interface AgentModuleOptions {
+  cli?: false | AgentCliOptions
+  devtools?: false
   execution?: AgentExecution
+  eval?: false | AgentEvalOptions
   imports?: boolean
   integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
@@ -451,19 +555,29 @@ export interface AgentToolStep {
 export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
   history?: boolean | "none" | { maxMessages?: number, source: "thread" }
-  hooks?: AgentChatAgentHooks
+}
+
+export interface AgentChatSessionOptions {
+  idleTimeoutMs?: number
+  metadataKey?: string
+  strategy?: "manual" | "idle-timeout" | "hybrid"
+}
+
+export interface AgentChatMessageHookArgs {
+  id?: string
+  metadata?: Record<string, unknown>
+  text: string
 }
 
 export interface AgentChatAgentHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
+  history: Message[]
+  message: AgentChatMessageHookArgs
+  run?: AgentRunMetadata
+  session?: {
+    action?: "continue" | "new" | "switch"
+    id?: string
+  }
   thread: { post: (message: unknown) => MaybePromise<unknown> }
-}
-
-export interface AgentChatAgentHooks<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  afterRun?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<unknown>
-  beforeRun?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<unknown>
-  error?: (args: { error: unknown } & AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<void>
-  prepareInput?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<unknown>
-  sendResponse?: (args: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<void>
 }
 
 export interface AgentChatEventHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
@@ -473,16 +587,36 @@ export interface AgentChatEventHooks<TRuntimeConfig extends AgentRuntimeConfig =
   onDirectMessage?: (args: { message: { text: string } } & AgentChatEventHookArgs<TRuntimeConfig>) => MaybePromise<void>
 }
 
+export type AgentChatAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<Adapter, AgentCallbackContext<TRuntimeConfig>>
+
+export type AgentChatAdaptersResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<Record<string, AgentChatAdapterResolver<TRuntimeConfig>>, AgentCallbackContext<TRuntimeConfig>>
+
+export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentCallbackContext<TRuntimeConfig> {
+  chat: {
+    agentName: string
+    stateKeyPrefix: string
+  }
+}
+
+export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<StateAdapter, AgentChatStateContext<TRuntimeConfig>>
+
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  adapters?: MaybeResolvable<Record<string, unknown>, AgentCallbackContext<TRuntimeConfig>>
+  adapters?: AgentChatAdaptersResolver<TRuntimeConfig>
   agent?: never
+  app?: AgentChatAppExposure
   event?: AgentChatAgentBindingOptions["event"]
   execution?: never
   fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
   hooks?: AgentChatEventHooks<TRuntimeConfig>
   lifecycleHooks?: Record<string, unknown>
-  state?: MaybeResolvable<unknown, AgentRuntimeContext<TRuntimeConfig>>
+  sessions?: boolean | AgentChatSessionOptions
+  state?: AgentChatStateResolver<TRuntimeConfig>
+  webhooks?: Record<string, AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[]>
   workflow?: never
   [key: string]: unknown
 }
@@ -598,6 +732,7 @@ export interface AgentAdapterMetadataContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig> {
+  context: AgentInvocationContextStore
   fs: ReadonlyWorkspaceFacade<Name>["fs"]
   workspace: ReadonlyWorkspaceFacade<Name>
 }
@@ -609,6 +744,7 @@ export interface AgentAdapterRunContext<
 > {
   capabilityInstructions?: AgentInstructionBlock[]
   close?: () => Promise<void>
+  context: AgentInvocationContextStore
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>

@@ -1,5 +1,5 @@
 import { defineNitroConfig } from "nitro/config"
 
 export default defineNitroConfig({
-  modules: ["@vitehub/sandbox/nitro"],
+  modules: ["@vite-hub/sandbox/nitro"],
 })

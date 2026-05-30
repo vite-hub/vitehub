@@ -1,11 +1,11 @@
-import { readEnv } from "@vitehub/internal/env"
+import { readEnv } from "@vite-hub/internal/env"
 import {
   clearActiveCloudflareEnv,
   getActiveCloudflareBinding,
   getActiveCloudflareEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
-} from "@vitehub/internal/runtime/cloudflare-env"
+} from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeBlobOptions } from "../config.ts"
 

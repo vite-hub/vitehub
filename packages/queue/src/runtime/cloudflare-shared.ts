@@ -3,7 +3,7 @@ import {
   setActiveCloudflareEnv,
   type CloudflareWorkerEnv,
   type CloudflareWorkerExecutionContext,
-} from "@vitehub/internal/runtime/cloudflare-env"
+} from "@vite-hub/internal/runtime/cloudflare-env"
 
 import type { CloudflareQueueMessageBatch } from "../types.ts"
 

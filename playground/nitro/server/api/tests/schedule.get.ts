@@ -1,5 +1,5 @@
 import { defineEventHandler } from "h3"
-import { kv } from "@vitehub/kv"
+import { kv } from "@vite-hub/kv"
 
 import { scheduleMarkerKey } from "../../schedules/daily-marker"
 

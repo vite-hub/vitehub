@@ -1,4 +1,4 @@
-import { useWorkspace } from "@vitehub/workspace"
+import { useWorkspace } from "@vite-hub/workspace"
 
 export default defineEventHandler(async () => {
   const workspace = useWorkspace("docs", { mode: "write" })

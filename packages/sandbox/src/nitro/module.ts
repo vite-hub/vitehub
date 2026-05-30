@@ -1,14 +1,15 @@
 import { readPackageJSON } from 'pkg-types'
 
-import { hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from '@vitehub/internal/definition-discovery'
+import { hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from '@vite-hub/internal/definition-discovery'
 
 import { createSandboxProviderLoaderContents } from '../feature'
 import { hasInstalledDependency } from '../internal/shared/dependency'
+import { detectHosting } from '../internal/shared/hosting'
 import { normalizeSandboxPublicOptions } from '../integration'
 import { getSandboxFeatureProvider } from '../module-types'
 import { assignSandboxRuntimeConfig, resolveSandboxConfig } from './sandbox-config'
 import { writeNitroSandboxRuntimeFiles } from './runtime-files'
-import { addSandboxAliases, addSandboxImports, createSandboxProviderLoaderAliases, extendSandboxNitro } from './setup'
+import { addSandboxAliases, addSandboxImports, addSandboxProviderLoaderResolver, createSandboxProviderLoaderAliases, extendSandboxNitro } from './setup'
 
 import type { NitroModule, NitroRuntimeConfig } from 'nitro/types'
 import type { AgentSandboxConfig } from '../module-types'
@@ -22,7 +23,7 @@ async function readWorkspaceDeps(rootDir: string) {
 }
 
 const sandboxNitroModule: NitroModule = {
-  name: '@vitehub/sandbox',
+  name: '@vite-hub/sandbox',
   async setup(nitro) {
     const normalized = normalizeSandboxPublicOptions((nitro.options as typeof nitro.options & { sandbox?: false | AgentSandboxConfig }).sandbox ?? {})
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig) as NitroRuntimeConfig & Record<string, unknown>
@@ -32,7 +33,7 @@ const sandboxNitroModule: NitroModule = {
       return
     }
 
-    const hosting = nitro.options.preset
+    const hosting = detectHosting(nitro)
     if (hosting)
       runtimeConfig.hosting ||= hosting
 
@@ -45,6 +46,7 @@ const sandboxNitroModule: NitroModule = {
     const provider = getSandboxFeatureProvider(config)
     const providerLoader = createSandboxProviderLoaderAliases(nitro, provider?.provider, deps)
     addSandboxAliases(nitro, providerLoader.aliases)
+    addSandboxProviderLoaderResolver(nitro, providerLoader.aliases)
 
     if (providerLoader.providerLoaderPath && providerLoader.providerLoaderTarget)
       await writeFileIfChanged(providerLoader.providerLoaderPath, createSandboxProviderLoaderContents(providerLoader.providerLoaderTarget))
@@ -64,7 +66,7 @@ const sandboxNitroModule: NitroModule = {
     if (provider?.provider === 'cloudflare' && !hasInstalledDependency(deps, '@cloudflare/sandbox', { paths: [nitro.options.rootDir] }))
       nitro.logger.warn('Install `@cloudflare/sandbox` for Cloudflare sandbox presets.')
 
-    nitro.logger.info(`@vitehub/sandbox enabled with ${runtimeFiles.definitions.length} sandbox definition${runtimeFiles.definitions.length === 1 ? '' : 's'}`)
+    nitro.logger.info(`@vite-hub/sandbox enabled with ${runtimeFiles.definitions.length} sandbox definition${runtimeFiles.definitions.length === 1 ? '' : 's'}`)
   },
 }
 

@@ -55,7 +55,10 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
       await files.rm(path, options)
     },
     async snapshot(options) {
-      return await store.snapshot(options)
+      const snapshot = await store.snapshot(options)
+      const { publishWorkspaceSnapshot } = await import("../lifecycle.ts")
+      await publishWorkspaceSnapshot(definition, store, snapshot)
+      return snapshot
     },
     async diff(options) {
       return await store.diff(options)

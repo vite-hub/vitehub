@@ -1,8 +1,8 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import { createImportPath, generatedDirSegments } from '@vitehub/internal/build/paths'
-import { createNitroRuntimeFilePath, sanitizeDefinitionFilename, writeFileIfChanged, writeRuntimeRegistryFiles } from '@vitehub/internal/definition-catalog'
+import { createImportPath, generatedDirSegments } from '@vite-hub/internal/build/paths'
+import { createNitroRuntimeFilePath, sanitizeDefinitionFilename, writeFileIfChanged, writeRuntimeRegistryFiles } from '@vite-hub/internal/definition-catalog'
 
 import { bundleSandboxDefinition } from '../bundle'
 import { extractSandboxDefinitionOptions } from '../definition-options'
@@ -35,8 +35,8 @@ export function createNitroSandboxPluginContents(file: string, registryFile: str
   return [
     'import { definePlugin as defineNitroPlugin } from "nitro"',
     'import { useRuntimeConfig } from "nitro/runtime-config"',
-    'import type { AgentSandboxConfig } from "@vitehub/sandbox"',
-    'import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from "@vitehub/sandbox/runtime/state"',
+    'import type { AgentSandboxConfig } from "@vite-hub/sandbox"',
+    'import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from "@vite-hub/sandbox/runtime/state"',
     '',
     `import sandboxRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     '',

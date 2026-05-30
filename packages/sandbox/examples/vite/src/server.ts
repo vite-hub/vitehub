@@ -1,5 +1,5 @@
 import { createError, H3 } from "h3"
-import { readRequestPayload, runSandbox } from "@vitehub/sandbox"
+import { readRequestPayload, runSandbox } from "@vite-hub/sandbox"
 import type { ReleaseNotesPayload } from "./release-notes.sandbox"
 
 const app = new H3()

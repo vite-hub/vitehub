@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
 const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
-const workspacePackages = ["runtime", "shell", "unsource", "sandbox", "workspace", "agent", "blob", "db", "devtools", "env", "kv", "queue", "schedule", "workflow"] as const
+const workspacePackages = ["runtime", "shell", "source", "sandbox", "workspace", "agent", "blob", "ci", "cli", "database", "devtools", "env", "kv", "queue", "schedule", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
 
@@ -63,7 +63,7 @@ afterAll(async () => {
 
 beforeAll(async () => {
   for (const name of workspacePackages) {
-    await execFileAsync("pnpm", ["--filter", `@vitehub/${name}`, "build"], {
+    await execFileAsync("pnpm", ["--filter", `@vite-hub/${name}`, "build"], {
       cwd: repoRoot,
       env: process.env,
       maxBuffer: execMaxBuffer,
@@ -102,6 +102,9 @@ describe("unified vite e2e hosted outputs", () => {
     expect(cloudflareWorkerContents).not.toMatch(/require\(["']@vercel\/functions["']\)/)
     expect(cloudflareWorkerContents).not.toMatch(/from\s+["']@cloudflare\/sandbox["']/)
     expect(cloudflareWorkerContents).not.toMatch(/require\(["']@cloudflare\/sandbox["']\)/)
+    expect(cloudflareWorkerContents).not.toContain("@vitejs/devtools")
+    expect(cloudflareWorkerContents).not.toContain('import("vite")')
+    expect(cloudflareWorkerContents).not.toContain("createRequire(import.meta.url)")
     expect(cloudflareConfig.kv_namespaces).toContainEqual({
       binding: "KV",
       id: "kv-namespace",
@@ -110,18 +113,21 @@ describe("unified vite e2e hosted outputs", () => {
       binding: "BLOB",
       bucket_name: "assets",
     })
-    expect(cloudflareConfig.d1_databases).toEqual([
+    expect(cloudflareConfig.d1_databases).toHaveLength(2)
+    expect(cloudflareConfig.d1_databases).toEqual(expect.arrayContaining([
       expect.objectContaining({
         binding: "DB",
         database_name: "vitehub-playground-db",
         database_id: "primary-d1-id",
+        migrations_dir: "server/databases/primary/migrations",
       }),
       expect.objectContaining({
         binding: "DB_ANALYTICS",
         database_name: "vitehub-playground-analytics",
         database_id: "analytics-d1-id",
+        migrations_dir: "server/databases/analytics/migrations",
       }),
-    ])
+    ]))
     expect(cloudflareConfig.name).toBe("vitehub-playground-vite")
     expect(cloudflareConfig.containers).toContainEqual(expect.objectContaining({
       class_name: "Sandbox",
@@ -164,6 +170,7 @@ describe("unified vite e2e hosted outputs", () => {
     const vercelConsumer = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", "index.mjs")
     const vercelSchedule = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "daily-marker.func", "index.mjs")
     const vercelConsumerConfig = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome-email", "welcome-email.func", ".vc-config.json"), "utf8"))
+    const vercelServerConfig = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", ".vc-config.json"), "utf8"))
     const vercelConsumerContents = await readFile(vercelConsumer, "utf8")
     const vercelScheduleContents = await readFile(vercelSchedule, "utf8")
     const vercelServerContents = await readFile(vercelServer, "utf8")
@@ -171,10 +178,20 @@ describe("unified vite e2e hosted outputs", () => {
     expect(vercelConfig).toContain("\"/__server\"")
     expect(existsSync(vercelServer)).toBe(true)
     expect(existsSync(vercelConsumer)).toBe(true)
-    expect(vercelServerContents).toContain("/api/db")
-    expect(vercelServerContents).toContain("/api/db/analytics")
+    expect(vercelServerContents).toContain("/api/database")
+    expect(vercelServerContents).toContain("/api/database/analytics")
     expect(vercelServerContents).toContain("/api/blob")
     expect(vercelServerContents).toContain("/api/workflows/welcome")
+    expect(vercelServerContents).toContain("vercel-blob")
+    expect(vercelServerContents).toContain('"access": "private",\n    "driver": "vercel-blob"')
+    expect(vercelServerContents).not.toContain('import("files-sdk")')
+    expect(vercelServerContents).not.toContain('import("files-sdk/vercel-blob")')
+    expect(vercelServerContents).not.toContain("requires files-sdk")
+    expect(vercelServerContents).not.toContain('from "@vercel/blob"')
+    expect(vercelServerContents).not.toContain("from '@vercel/blob'")
+    expect(vercelServerContents).not.toContain("@vitejs/devtools")
+    expect(vercelServerContents).not.toContain('import("vite")')
+    expect(vercelServerConfig.runtime).toBe("nodejs22.x")
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).toContain("handleHostedVercelQueueCallback")
     expect(vercelScheduleContents).toContain("process.env.CRON_SECRET")
@@ -214,6 +231,7 @@ describe("unified vite e2e hosted outputs", () => {
     })
 
     const chatOutput = await readGeneratedJavaScript(join(chatRoot, "dist"))
-    expect(chatOutput).toContain("vite-playground")
+    expect(chatOutput).toContain("playground-mock")
+    expect(chatOutput).toContain("DevTools Demo Agent")
   }, 45_000)
 })

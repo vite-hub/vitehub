@@ -1,5 +1,7 @@
-import { resolveRuntimeValue } from "@vitehub/runtime"
+import { resolveRuntimeValue } from "@vite-hub/runtime"
 
+import { workspaceOverrideSymbol } from "./access-runtime.ts"
+import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import type {
   AgentAdapterInstructionsValue,
   AgentCallbackContext,
@@ -12,6 +14,8 @@ import type {
   AgentFinishEvent,
   AgentFinishExtensionProvider,
   AgentInstructionBlock,
+  AgentInvocationContextStore,
+  AgentModelResolver,
   AgentOutputRenderer,
   AgentProviderToolContribution,
   AgentRunInput,
@@ -19,10 +23,12 @@ import type {
   AgentToolSet,
   AgentToolTransform,
   MaybePromise,
+  ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
+import type { WorkspaceOverrideRuntime } from "./access-runtime.ts"
 import type { Message } from "./messages.ts"
-import type { ReadonlyWorkspaceFacade, WorkspaceName } from "@vitehub/workspace"
+import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
 
 type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
 
@@ -36,6 +42,7 @@ export interface AgentCapabilityRegistries {
   outputRenderers: ResolvedAgentOutputRenderer[]
   providerTools: AgentProviderToolContribution[]
   stateRequirements: Array<{ name: string, optional?: boolean }>
+  triggers: ResolvedAgentTriggerDefinition[]
 }
 
 export interface AgentCapabilityOptions<
@@ -44,6 +51,15 @@ export interface AgentCapabilityOptions<
 > {
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
+}
+
+export interface AgentCapabilityInvocationOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> {
+  context?: AgentInvocationContextStore
+  model?: AgentModelResolver<TRuntimeConfig, Name>
+  workspaceDefinition?: WorkspaceDefinition
 }
 
 export interface ResolvedAgentCapabilities {
@@ -55,6 +71,7 @@ export interface ResolvedAgentCapabilities {
   registries: AgentCapabilityRegistries
   toolTransforms: AgentToolTransform[]
   tools?: AgentToolSet
+  workspace?: ReadonlyWorkspaceFacade
 }
 
 function assertCapabilityId(id: unknown): asserts id is string {
@@ -63,6 +80,15 @@ function assertCapabilityId(id: unknown): asserts id is string {
   }
   if (!/^[a-z][a-z0-9-_.]*$/i.test(id)) {
     throw new TypeError(`[vitehub] Capability id "${id}" must be a stable identifier.`)
+  }
+}
+
+function assertTriggerName(name: unknown, capabilityId: string): asserts name is string {
+  if (typeof name !== "string" || !name.trim()) {
+    throw new TypeError(`[vitehub] Capability "${capabilityId}" trigger names must be non-empty strings.`)
+  }
+  if (!/^[a-z][a-z0-9-_]*$/i.test(name)) {
+    throw new TypeError(`[vitehub] Capability "${capabilityId}" trigger "${name}" must be a stable local identifier.`)
   }
 }
 
@@ -101,6 +127,13 @@ export function normalizeCapabilities(
     seen.add(normalized.id)
     return normalized
   })
+}
+
+function validateAccessCapabilityOrder(capabilities: AgentCapabilityDefinition[]): void {
+  const accessIndex = capabilities.findIndex(capability => capability.id === "access")
+  if (accessIndex > 0) {
+    throw new Error("[vitehub] access() must be the first capability so Workspace Scope is applied before other capabilities can read the workspace or expose tools.")
+  }
 }
 
 function getRunMessages(input: AgentRunInput): Message[] {
@@ -178,10 +211,14 @@ export async function resolveAgentCapabilities<
   input: AgentRunInput,
   workspace?: ReadonlyWorkspaceFacade<Name>,
   workspaceMode: AgentCapabilityMode = "read",
+  invocationOptions: AgentCapabilityInvocationOptions<TRuntimeConfig, Name> = {},
 ): Promise<ResolvedAgentCapabilities> {
   const runtimeContext = toAgentCallbackContext(runtime)
+  const invocationContext = invocationOptions.context || createAgentInvocationContextStore(input.context)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+  validateAccessCapabilityOrder(capabilities)
   let currentInput = input
+  let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
   let messages = getRunMessages(currentInput)
   let tools: AgentToolSet | undefined
   const capabilityInstructions: AgentInstructionBlock[] = []
@@ -192,6 +229,7 @@ export async function resolveAgentCapabilities<
     outputRenderers: [],
     providerTools: [],
     stateRequirements: [],
+    triggers: [],
   }
 
   async function closeRegisteredCallbacks() {
@@ -210,11 +248,23 @@ export async function resolveAgentCapabilities<
 
   try {
     for (const capability of capabilities) {
-      await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
-      const capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> = {
+      await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, currentWorkspace, workspaceMode)
+      const metadataContext = {
         ...runtimeContext,
+        context: invocationContext,
+        fs: currentWorkspace?.fs,
+        workspace: currentWorkspace,
+        workspaceDefinition: invocationOptions.workspaceDefinition,
+      }
+      let capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+      capabilityContext = {
+        ...metadataContext,
+        [workspaceOverrideSymbol](nextWorkspace: ReadonlyWorkspaceFacade<Name>) {
+          currentWorkspace = nextWorkspace
+          capabilityContext.fs = nextWorkspace.fs
+          capabilityContext.workspace = nextWorkspace
+        },
         capability,
-        fs: workspace?.fs,
         mode: capability.mode,
         instructions: {
           add(value, options) {
@@ -231,6 +281,15 @@ export async function resolveAgentCapabilities<
           setMessages(value) {
             messages = value
             currentInput = withMessages(currentInput, messages)
+          },
+        },
+        model: {
+          async resolve(model) {
+            const resolver = model ?? invocationOptions.model
+            if (resolver === undefined) {
+              throw new Error(`[vitehub] ${capability.id}() requires a model option or an agent model.`)
+            }
+            return await resolveRuntimeValue(resolver as never, metadataContext as never) as unknown
           },
         },
         output: {
@@ -269,8 +328,31 @@ export async function resolveAgentCapabilities<
             toolTransforms.push(transform)
           },
         },
-        workspace,
-      } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name>
+        workspace: currentWorkspace,
+      } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+
+      for (const [name, trigger] of Object.entries(capability.triggers || {})) {
+        assertTriggerName(name, capability.id)
+        const id = `${capability.id}.${name}` as const
+        registries.triggers.push({
+          capabilityId: capability.id,
+          definition: trigger as never,
+          devtools: trigger.devtools,
+          id,
+          input: trigger.input,
+          invoke: input => trigger.invoke({
+            ...runtimeContext,
+            capability,
+            trigger: {
+              capabilityId: capability.id,
+              id,
+              name,
+            },
+          }, input as never),
+          name,
+          output: trigger.output,
+        })
+      }
 
       closeCallbacks.push(async () => {
         await callHooks("capability:close", capabilityContext, options?.hooks)
@@ -315,6 +397,7 @@ export async function resolveAgentCapabilities<
     registries,
     toolTransforms,
     tools,
+    workspace: currentWorkspace,
   }
 }
 
@@ -328,6 +411,7 @@ export async function resolveStaticCapabilityTools<
   workspaceMode: AgentCapabilityMode = "read",
 ): Promise<AgentToolSet | undefined> {
   const runtimeContext = toAgentCallbackContext(runtime)
+  const invocationContext = createAgentInvocationContextStore()
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let tools: AgentToolSet | undefined
 
@@ -337,6 +421,7 @@ export async function resolveStaticCapabilityTools<
 
     const capabilityContext = {
       ...runtimeContext,
+      context: invocationContext,
       fs: workspace?.fs,
       mode: capability.mode,
       workspace,
@@ -496,8 +581,8 @@ export function withResponseCleanup(response: Response, close: (error?: unknown)
       try {
         const result = await reader.read()
         if (result.done) {
-          controller.close()
           await closeOnce()
+          controller.close()
           return
         }
         controller.enqueue(result.value)

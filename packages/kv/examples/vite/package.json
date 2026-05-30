@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@vitehub/kv": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
     "h3": "catalog:",
     "vite": "catalog:"
   }

@@ -1,7 +1,7 @@
 import { defu } from "defu"
 import { resolve } from "node:path"
 
-import { readEnv, trimmed } from "@vitehub/internal/env"
+import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import { WorkspaceError } from "../core/errors.ts"
 import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
@@ -22,6 +22,7 @@ export interface WorkspaceResolutionInput {
   env?: Record<string, string | undefined>
   hosting?: string
   rootDir?: string
+  runtime?: boolean
 }
 
 export const MASKED_WORKSPACE_RUNTIME_VALUE = "********"
@@ -89,6 +90,7 @@ export function normalizeWorkspaceStoreOptions(
   if (store?.provider === "memory") return store
   if (store?.provider === "vercel-blob") return resolveVercelBlobWorkspaceStore(store, env)
   if (store?.provider === "local" || store?.root) return defu(store, { provider: "local" as const }) as ResolvedWorkspaceStoreOptions
+  if (store && "provider" in store) throw new WorkspaceError(`[vitehub] Unsupported workspace store provider: ${String(store.provider)}.`)
 
   if (hosting.includes("cloudflare")) return { provider: "memory" as const }
   if (hasVercelWorkspaceBlobEnv(env)) return resolveVercelBlobWorkspaceStore({}, env)
@@ -107,6 +109,7 @@ export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition
     env: typeof process !== "undefined" ? process.env : {},
     hosting: typeof process !== "undefined" ? process.env.VITEHUB_HOSTING || process.env.NITRO_PRESET : undefined,
     rootDir,
+    runtime: true,
   })
 
   if (store?.provider === "memory") return createMemoryWorkspaceStore()

@@ -1,4 +1,4 @@
-import { setActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import { setActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { runWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"

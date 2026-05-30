@@ -25,8 +25,8 @@ describe("Nitro schedule integration", () => {
 
     const registryFile = join(root, ".nitro", "vitehub", "schedule", "nitro-registry.mjs")
     const pluginFile = join(root, ".nitro", "vitehub", "schedule", "nitro-plugin.ts")
-    expect(nitro.options.alias["@vitehub/schedule/runtime"]).toBeTypeOf("string")
-    expect(nitro.options.alias["@vitehub/schedule/runtime/state"]).toBeTypeOf("string")
+    expect(nitro.options.alias["@vite-hub/schedule/runtime"]).toBeTypeOf("string")
+    expect(nitro.options.alias["@vite-hub/schedule/runtime/state"]).toBeTypeOf("string")
     expect(nitro.options.alias["#vitehub/schedule/registry"]).toBe(registryFile)
     expect(nitro.options.alias["#vitehub/schedule/targets"]).toBe(join(root, ".nitro", "vitehub", "schedule", "targets.mjs"))
     expect(nitro.options.plugins).toEqual([pluginFile])
@@ -38,8 +38,11 @@ describe("Nitro schedule integration", () => {
       "export default registry",
       "",
     ].join("\n"))
-    await expect(readFile(pluginFile, "utf8")).resolves.toContain("setScheduleRuntimeRegistry(scheduleRegistry)")
-    await expect(readFile(pluginFile, "utf8")).resolves.toContain("@vitehub/schedule/runtime/state")
+    const pluginContents = await readFile(pluginFile, "utf8")
+    expect(pluginContents).toContain("setScheduleRuntimeRegistry(scheduleRegistry)")
+    expect(pluginContents).toContain("@vite-hub/schedule/runtime/state")
+    expect(pluginContents).toContain("const scheduledEvent = event ?? controller")
+    expect(pluginContents).toContain("scheduledEvent.scheduledTime")
   })
 
   it("auto-imports only the schedule definition boundary helper", async () => {
@@ -61,7 +64,7 @@ describe("Nitro schedule integration", () => {
     expect(nitro.options.imports).toMatchObject({
       presets: [
         {
-          from: "@vitehub/schedule",
+          from: "@vite-hub/schedule",
           imports: ["defineSchedule"],
         },
       ],

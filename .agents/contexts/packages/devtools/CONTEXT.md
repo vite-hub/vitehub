@@ -1,6 +1,6 @@
 # DevTools Package
 
-DevTools Package names ownership boundaries for `@vitehub/devtools`.
+DevTools Package names ownership boundaries for `@vite-hub/devtools`.
 
 ## Language
 
@@ -16,7 +16,7 @@ _Avoid_: Agent DevTools package, chat client package
 
 ## Example Dialogue
 
-> **Dev:** "Should `@vitehub/agent` expose the Vite plugin that registers the ViteHub DevTools shell?"
+> **Dev:** "Should `@vite-hub/agent` expose the Vite plugin that registers the ViteHub DevTools shell?"
 > **Domain expert:** "No. The **DevTools Package** owns the shell integration; Agent only owns its Chat DevTools Feature."
 
 ## Flagged Ambiguities

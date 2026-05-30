@@ -5,6 +5,8 @@ export default defineConfig({
     alias: {
       "#vitehub-sandbox-provider-loader": new URL("./src/runtime/provider-loader.ts", import.meta.url).pathname,
       "#vitehub-sandbox-registry": new URL("./src/runtime/empty-registry.ts", import.meta.url).pathname,
+      "vitehub-sandbox-provider-loader": new URL("./src/runtime/provider-loader.ts", import.meta.url).pathname,
+      "virtual:vitehub-sandbox-provider-loader": new URL("./src/runtime/provider-loader.ts", import.meta.url).pathname,
     },
   },
   test: {

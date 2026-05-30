@@ -1,4 +1,4 @@
-import { env, envNitro } from '@vitehub/env/nitro'
+import { env, envNitro } from '@vite-hub/env/nitro'
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({

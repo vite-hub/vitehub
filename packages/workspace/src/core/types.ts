@@ -64,6 +64,7 @@ export type WorkspaceWriteValidator =
   (input: WorkspaceWriteInput) => WorkspaceWriteValidatorResult | Promise<WorkspaceWriteValidatorResult>
 
 export interface WorkspaceRule {
+  commit?: boolean | string
   read?: boolean
   write?: WorkspaceWriteMode
   maxBytes?: number | `${number}kb` | `${number}mb`
@@ -229,6 +230,11 @@ export interface WorkspaceDiff {
   entries: WorkspaceDiffEntry[]
 }
 
+export interface WorkspaceAutoCommitPlan {
+  message: string
+  paths: string[]
+}
+
 export interface WorkspaceStore {
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
@@ -297,6 +303,7 @@ export interface WorkspaceLoaderSource extends WorkspaceSource {
 export interface LoaderContext {
   workspace: string
   rootDir: string
+  sourceRootDir?: string
   sources: WorkspaceLoaderSource[]
   store: WorkspaceStore
   parseData(input: { id: string, data: unknown, filePath?: string }): Promise<unknown>
@@ -315,6 +322,7 @@ export interface PublishContext {
   workspace: WorkspaceDefinition
   store: WorkspaceStore
   rootDir: string
+  snapshot?: WorkspaceSnapshot
 }
 
 export interface WorkspacePublisher {

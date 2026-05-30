@@ -4,7 +4,7 @@ import {
   withWorkspaceAgentDefaults,
 } from "./index.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
-import { registerWorkspace } from "@vitehub/workspace/test"
+import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import type {
   AgentInput,
@@ -20,7 +20,7 @@ import type {
   MaybePromise,
   WorkspaceAgentDefinition,
 } from "./index.ts"
-import type { WorkspaceName } from "@vitehub/workspace"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
 export { createAgentRuntimeContext }
 

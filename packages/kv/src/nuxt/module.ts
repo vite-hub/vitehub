@@ -1,14 +1,14 @@
 import { defineNuxtModule } from "@nuxt/kit"
-import { assertNoNitroModule, assertNoVitePlugin } from "@vitehub/internal/nitro"
+import { assertNoNitroModule, assertNoVitePlugin } from "@vite-hub/internal/nitro"
 import type { NitroConfig } from "nitro/types"
 import type { NuxtModule } from "@nuxt/schema"
 
 import type { KVModuleOptions, KVStoreConfig } from "../types.ts"
 
-const NITRO_MODULE_ID = "@vitehub/kv/nitro"
-const NITRO_MODULE_NAME = "@vitehub/kv"
-const NUXT_MODULE_ID = "@vitehub/kv/nuxt"
-const VITE_PLUGIN_NAME = "@vitehub/kv/vite"
+const NITRO_MODULE_ID = "@vite-hub/kv/nitro"
+const NITRO_MODULE_NAME = "@vite-hub/kv"
+const NUXT_MODULE_ID = "@vite-hub/kv/nuxt"
+const VITE_PLUGIN_NAME = "@vite-hub/kv/vite"
 const installedNitroConfigs = new WeakSet<object>()
 
 type ViteConfig = {

@@ -1,8 +1,8 @@
 import { defu } from "defu"
 
-import { readEnv, trimmed } from "@vitehub/internal/env"
-import { normalizeHosting } from "@vitehub/internal/feature-bridge/hosting"
-import { isPlainObject } from "@vitehub/internal/object"
+import { readEnv, trimmed } from "@vite-hub/internal/env"
+import { normalizeHosting } from "@vite-hub/internal/feature-bridge/hosting"
+import { isPlainObject } from "@vite-hub/internal/object"
 import { hasUpstashEnv, resolveUpstashStore } from "./integrations/upstash.ts"
 
 import type {

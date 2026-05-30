@@ -1,4 +1,4 @@
-import { randomId } from "@vitehub/internal/runtime/random"
+import { randomId } from "@vite-hub/internal/runtime/random"
 
 import { ScheduleError } from "../errors.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"

@@ -10,11 +10,11 @@ export function formatDiagnostics(entries: EnvDiagnosticEntry[], option: EnvDiag
   }
 
   if (!shouldTraceDiagnostics(option)) {
-    return `@vitehub/env validated ${entries.length} declaration${entries.length === 1 ? "" : "s"}.`
+    return `@vite-hub/env validated ${entries.length} declaration${entries.length === 1 ? "" : "s"}.`
   }
 
   return [
-    "@vitehub/env",
+    "@vite-hub/env",
     ...entries.flatMap(entry => [
       entry.key,
       `  source: ${entry.source}`,

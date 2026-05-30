@@ -99,7 +99,7 @@ describe("Nuxt module", () => {
 
     expect(nuxt.options.nitro!.modules).toHaveLength(1)
     expect(nuxt.options.nitro!.modules![0]).toMatchObject({
-      name: "@vitehub/env",
+      name: "@vite-hub/env",
       setup: expect.any(Function),
     })
     expect(nuxt.options.nitro!.imports).toBe(false)
@@ -114,7 +114,7 @@ describe("Nuxt module", () => {
 
     expect(nitroConfig.modules).toHaveLength(1)
     expect(nitroConfig.modules![0]).toMatchObject({
-      name: "@vitehub/env",
+      name: "@vite-hub/env",
       setup: expect.any(Function),
     })
     expect(nitroConfig.imports).toBe(false)
@@ -159,7 +159,7 @@ describe("Nuxt module", () => {
 
     await module(undefined, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vitehub/env/nitro"])
+    expect(nuxt.options.nitro!.modules).toEqual(["@vite-hub/env/nitro"])
     expect(nuxt.options.nitro!.env).toBe(env)
     expect(nuxt.options.nitro!.runtimeConfig).toEqual({
       public: {
@@ -213,7 +213,7 @@ describe("Nuxt module", () => {
 
     await module(undefined, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vitehub/env/nitro"])
+    expect(nuxt.options.nitro!.modules).toEqual(["@vite-hub/env/nitro"])
     expect(nuxt.options.nitro!.env).toBeUndefined()
   })
 
@@ -228,12 +228,12 @@ describe("Nuxt module", () => {
     const nuxt = createNuxtHarness({
       env,
       nitro: {
-        modules: ["@vitehub/env/nitro"],
+        modules: ["@vite-hub/env/nitro"],
       },
     })
 
     await expect(module(undefined, nuxt as never)).rejects.toThrow(
-      "Do not configure @vitehub/env/nitro when using @vitehub/env/nuxt",
+      "Do not configure @vite-hub/env/nitro when using @vite-hub/env/nuxt",
     )
   })
 
@@ -245,7 +245,7 @@ describe("Nuxt module", () => {
     const env = {
       authSecret: vitehubEnv.variable({ secret: true }),
     }
-    const existingModule = { name: "@vitehub/env", setup: vi.fn() }
+    const existingModule = { name: "@vite-hub/env", setup: vi.fn() }
     const nuxt = createNuxtHarness({
       env,
       nitro: {
@@ -254,7 +254,7 @@ describe("Nuxt module", () => {
     })
 
     await expect(module({ prefix: "VITEHUB_" }, nuxt as never)).rejects.toThrow(
-      "Do not configure @vitehub/env/nitro when using @vitehub/env/nuxt",
+      "Do not configure @vite-hub/env/nitro when using @vite-hub/env/nuxt",
     )
   })
 
@@ -268,12 +268,12 @@ describe("Nuxt module", () => {
         authSecret: vitehubEnv.variable({ secret: true }),
       },
       vite: {
-        plugins: [{ name: "@vitehub/env/vite" }],
+        plugins: [{ name: "@vite-hub/env/vite" }],
       },
     })
 
     await expect(module(undefined, nuxt as never)).rejects.toThrow(
-      "Do not configure @vitehub/env/vite when using @vitehub/env/nuxt",
+      "Do not configure @vite-hub/env/vite when using @vite-hub/env/nuxt",
     )
   })
 

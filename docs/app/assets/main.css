@@ -1,5 +1,9 @@
 :root {
   --theme-hue: 95;
+  --ui-radius: 0.125rem;
+  --vh-sidebar-width: 286px;
+  --vh-toc-width: 286px;
+  --vh-content-width: 860px;
 }
 
 .landing-hero-gradient {
@@ -43,6 +47,35 @@
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+.docs-content {
+  --tw-prose-headings: var(--ui-text-highlighted);
+}
+
+.docs-content h2 {
+  scroll-margin-top: calc(var(--ui-header-height, 56px) + 2rem);
+}
+
+.docs-content h2 + p,
+.docs-content h3 + p {
+  margin-top: 0.75rem;
+}
+
+.docs-content table {
+  font-size: 0.925rem;
+}
+
+.docs-content th {
+  font-weight: 650;
+}
+
+.docs-content .u-page-grid {
+  gap: 0.75rem;
+}
+
+.docs-content .u-page-card {
+  border-radius: 0.125rem;
+}
+
 .landing-code-block .code-block-wrapper,
 .terminal-chrome .landing-code-block .code-block-wrapper {
   overflow: hidden;
@@ -70,54 +103,6 @@
 
 :is(.dark) .code-block-wrapper .shiki span {
   color: var(--shiki-default);
-}
-
-.fw-group {
-  position: relative;
-  overflow: visible;
-}
-
-.fw-group__tabs {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 20;
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.fw-group__tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ui-text-dimmed, var(--ui-text-muted, var(--ui-text)));
-  cursor: pointer;
-  transition: color 0.16s ease, background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;
-  opacity: 0.55;
-}
-
-.fw-group__tab:hover { opacity: 0.85; }
-
-.fw-group__tab--active {
-  opacity: 1;
-  color: var(--ui-text-highlighted, var(--ui-text));
-  border-color: color-mix(in oklab, var(--ui-border) 72%, oklch(0.72 0.17 var(--theme-hue)) 28%);
-  background: color-mix(in oklab, var(--ui-bg) 78%, transparent);
-}
-
-.fw-group__tab-icons { display: inline-flex; align-items: center; }
-.fw-group__tab-icons[data-shared="true"] { gap: 0.15rem; }
-.fw-group__tab-icon { width: 1rem; height: 1rem; flex: 0 0 auto; }
-
-@media (min-width: 1280px) {
-  .fw-group__tabs { right: calc(-3rem - 16px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

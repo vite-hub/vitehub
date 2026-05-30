@@ -1,6 +1,6 @@
 # Workflow Package
 
-Workflow Package names ownership boundaries for `@vitehub/workflow`.
+Workflow Package names ownership boundaries for `@vite-hub/workflow`.
 
 ## Language
 

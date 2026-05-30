@@ -67,7 +67,7 @@ describe("workflow definitions", () => {
     tempDirs.push(rootDir)
     await mkdir(join(rootDir, "server"), { recursive: true })
     await writeFile(join(rootDir, "server", "chat.ts"), [
-      `import { createWorkflow } from "@vitehub/workflow"`,
+      `import { createWorkflow } from "@vite-hub/workflow"`,
       `export const chatReply = createWorkflow({`,
       `  name: "chat-reply",`,
       `  handler: async () => ({ ok: true }),`,
@@ -95,7 +95,7 @@ describe("workflow definitions", () => {
     await mkdir(join(rootDir, "server"), { recursive: true })
     const file = join(rootDir, "server", "chat.workflow.ts")
     await writeFile(file, [
-      `import { createWorkflow } from "@vitehub/workflow"`,
+      `import { createWorkflow } from "@vite-hub/workflow"`,
       `export const chat = createWorkflow({ name: "server/workflows/chat", handler: async () => "ok" })`,
     ].join("\n"), "utf8")
 
@@ -115,7 +115,7 @@ describe("workflow definitions", () => {
     const file = join(rootDir, "server", "workflows", "chat", "index.ts")
     const step = join(rootDir, "server", "workflows", "chat", "01.reply.ts")
     await writeFile(file, [
-      `import { createWorkflow } from "@vitehub/workflow"`,
+      `import { createWorkflow } from "@vite-hub/workflow"`,
       `export const chat = createWorkflow({ name: "server/workflows/chat", handler: async () => "ok" })`,
     ].join("\n"), "utf8")
     await writeFile(step, "export default null\n", "utf8")

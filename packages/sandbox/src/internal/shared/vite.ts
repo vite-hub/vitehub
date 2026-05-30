@@ -7,7 +7,7 @@ import {
   type FeatureViteContext,
   type FeatureViteSetupResult,
 } from './feature-engine'
-import { getViteMode, VITEHUB_MODES } from '@vitehub/internal/build/mode'
+import { getViteMode, VITEHUB_MODES } from '@vite-hub/internal/build/mode'
 import { mergeUserConfigs } from './vite/config-merge'
 import {
   createNitroRouteMatcher,

@@ -23,7 +23,7 @@ afterEach(async () => {
 describe("extractSandboxDefinitionOptions", () => {
   it("reads options from a direct default defineSandbox export", async () => {
     const file = await writeDefinition([
-      `import { defineSandbox } from "@vitehub/sandbox"`,
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
       ``,
       `export default defineSandbox(async () => null, { timeout: 1000 })`,
       ``,
@@ -34,7 +34,7 @@ describe("extractSandboxDefinitionOptions", () => {
 
   it("ignores options when defineSandbox is exported through a local binding", async () => {
     const file = await writeDefinition([
-      `import { defineSandbox } from "@vitehub/sandbox"`,
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
       ``,
       `const releaseNotes = defineSandbox(async () => null, {`,
       `  env: { MODE: "test" },`,
@@ -50,7 +50,7 @@ describe("extractSandboxDefinitionOptions", () => {
 
   it("rejects arithmetic and string concatenation in extracted options", async () => {
     const file = await writeDefinition([
-      `import { defineSandbox } from "@vitehub/sandbox"`,
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
       ``,
       `export default defineSandbox(async () => null, {`,
       `  env: { MODE: "te" + "st" },`,
@@ -64,7 +64,7 @@ describe("extractSandboxDefinitionOptions", () => {
 
   it("reads nested JSON-like literal option values", async () => {
     const file = await writeDefinition([
-      `import { defineSandbox } from "@vitehub/sandbox"`,
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
       ``,
       `export default defineSandbox(async () => null, {`,
       `  env: { MODE: "test" },`,
@@ -83,7 +83,7 @@ describe("extractSandboxDefinitionOptions", () => {
 
   it("preserves parenthesized static literal option values", async () => {
     const file = await writeDefinition([
-      `import { defineSandbox } from "@vitehub/sandbox"`,
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
       ``,
       `export default defineSandbox(async () => null, {`,
       `  env: { MODE: ("test") },`,

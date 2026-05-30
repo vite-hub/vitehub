@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 
-import { isPlainObject } from "@vitehub/internal/object"
+import { isPlainObject } from "@vite-hub/internal/object"
 
 import { normalizeWorkspaceStoreOptions } from "./storage/provider.ts"
 

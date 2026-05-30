@@ -6,7 +6,7 @@ export default defineConfig({
     { from: "src/virtual-module.d.ts", rename: "virtual.d.ts", to: "dist" },
   ],
   deps: {
-    alwaysBundle: [/^@vitehub\/internal/],
+    alwaysBundle: [/^@vite-hub\/internal/],
   },
   dts: true,
   entry: [
@@ -33,6 +33,7 @@ export default defineConfig({
     "src/drivers/supabase.ts",
     "src/drivers/uploadthing.ts",
     "src/drivers/vercel.ts",
+    "src/drivers/vercel-bundled.ts",
     "src/index.ts",
     "src/nitro.ts",
     "src/vite.ts",

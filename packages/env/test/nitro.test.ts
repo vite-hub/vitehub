@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { inspect, promisify } from "node:util"
@@ -103,6 +103,7 @@ describe("Nitro module", () => {
 
     await envNitro({ diagnostics: "trace" }).setup(nitro as never)
 
+    expect(nitro.options.alias?.["@vite-hub/env/runtime/server"]).toContain("/packages/env/src/runtime/server.ts")
     expect(nitro.options.alias?.["#vitehub/env/server"]).toContain("/packages/env/src/runtime/server.ts")
     expect(nitro.options.alias?.["#vitehub/env/registry"]).toBe(join(root, ".vitehub/nitro-runtime/env/registry.mjs"))
     expect(nitro.options.plugins).toHaveLength(1)
@@ -118,7 +119,11 @@ describe("Nitro module", () => {
     const tsConfig = { include: [] as string[] }
     await typesHook?.({ tsConfig })
     const types = await readFile(join(root, ".nitro/types/vitehub-env.d.ts"), "utf8")
+    const runtimeTypes = await readFile(join(root, ".nitro/types/vitehub-env-runtime.d.ts"), "utf8")
     const integrationTypes = await readFile(join(root, ".nitro/types/vitehub-env-integrations.d.ts"), "utf8")
+    expect(runtimeTypes).toContain("declare module \"@vite-hub/env/runtime/server\"")
+    expect(runtimeTypes).toContain("import \"@vite-hub/env/runtime/server\"")
+    expect(runtimeTypes).toContain("\"botToken\": RuntimeSecretEnv<string>")
     expect(types).toContain("export interface ServerEnv")
     expect(types).toContain("\"databaseUrl\": string")
     expect(types).toContain("\"optionalApiBase\": string | undefined")
@@ -137,22 +142,28 @@ describe("Nitro module", () => {
     expect(types).not.toContain("useRuntimeEnv")
     expect(types).not.toContain("declare module \"nitro/types\"")
     expect(types).not.toContain("export {}")
-    expect(integrationTypes).not.toContain("import \"@vitehub/agent/chat\"")
+    expect(integrationTypes).not.toContain("import \"@vite-hub/agent/chat\"")
     expect(integrationTypes).toContain("import \"nitro/types\"")
     expect(integrationTypes).toContain("declare module \"nitro/types\"")
     expect(integrationTypes).toContain("export interface NitroRuntimeConfig")
-    expect(integrationTypes).not.toContain("declare module \"@vitehub/agent/chat\"")
+    expect(integrationTypes).not.toContain("declare module \"@vite-hub/agent/chat\"")
     expect(integrationTypes).not.toContain("export interface ChatRuntimeConfig")
-    expect(integrationTypes).not.toContain("declare module \"@vitehub/agent\"")
+    expect(integrationTypes).not.toContain("declare module \"@vite-hub/agent\"")
     expect(integrationTypes).not.toContain("export interface AgentRuntimeConfig")
-    expect(integrationTypes).not.toContain("declare module \"@vitehub/agent/workspace\"")
+    expect(integrationTypes).not.toContain("declare module \"@vite-hub/agent/workspace\"")
     expect(types).toContain("export class SecretEnv<T = string>")
     expect(types).toContain("\"botToken\": SecretEnv<string>")
-    expect(integrationTypes).toContain("import type { SecretEnv } from \"#vitehub/env/server\"")
+    expect(integrationTypes).toContain("import type { EnvNitroConfigOptions } from \"@vite-hub/env\"")
+    expect(integrationTypes).toContain("import type { SecretEnv } from \"@vite-hub/env/runtime/server\"")
+    expect(integrationTypes).toContain("import \"nitro/vite\"")
+    expect(integrationTypes).toContain("declare module \"nitro/vite\"")
+    expect(integrationTypes).toContain("env?: EnvNitroConfigOptions")
     expect(integrationTypes).toContain("\"botToken\": SecretEnv<string>")
+
     expect(integrationTypes).not.toContain("NitroChatRuntimeConfig")
     expect(integrationTypes).toContain("export {}")
     expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env.d.ts"))
+    expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env-runtime.d.ts"))
     expect(tsConfig.include).toContain(join(root, ".nitro/types/vitehub-env-integrations.d.ts"))
 
     const registry = await readFile(join(root, ".vitehub/nitro-runtime/env/registry.mjs"), "utf8")
@@ -253,14 +264,14 @@ describe("Nitro module", () => {
     await typesHook?.({ tsConfig: { include: [] } })
 
     await writeFile(join(root, "stubs.d.ts"), [
-      "declare module '@vitehub/agent/chat' {",
+      "declare module '@vite-hub/agent/chat' {",
       "  export function defineChat(config: {",
       "    adapters(): Record<string, unknown>",
       "    state: never",
       "  }): void",
       "}",
       "",
-      "declare module '@vitehub/agent' {",
+      "declare module '@vite-hub/agent' {",
       "  export function defineAgent(config: {",
       "    workspace: {}",
       "    model(): never",
@@ -271,8 +282,8 @@ describe("Nitro module", () => {
     ].join("\n"), "utf8")
 
     await writeFile(join(root, "typecheck.ts"), [
-      "import { defineChat } from '@vitehub/agent/chat'",
-      "import { defineAgent } from '@vitehub/agent'",
+      "import { defineChat } from '@vite-hub/agent/chat'",
+      "import { defineAgent } from '@vite-hub/agent'",
       "import { useServerEnv } from '#vitehub/env/server'",
       "import type { SecretEnv, ServerEnv } from '#vitehub/env/server'",
       "",
@@ -324,6 +335,7 @@ describe("Nitro module", () => {
       },
       files: [
         join(root, ".nitro/types/vitehub-env.d.ts"),
+        join(root, ".nitro/types/vitehub-env-runtime.d.ts"),
         join(root, ".nitro/types/vitehub-env-integrations.d.ts"),
         join(root, "stubs.d.ts"),
         join(root, "typecheck.ts"),
@@ -403,8 +415,80 @@ describe("Nitro module", () => {
       },
       files: [
         join(root, ".nitro/types/vitehub-env.d.ts"),
+        join(root, ".nitro/types/vitehub-env-runtime.d.ts"),
         join(root, ".nitro/types/vitehub-env-integrations.d.ts"),
         join(root, "typecheck.ts"),
+      ],
+    }, null, 2))
+
+    await execFileAsync("pnpm", ["exec", "tsc", "--noEmit", "-p", join(root, "tsconfig.json")], {
+      cwd: join(import.meta.dirname, ".."),
+      maxBuffer: 1024 * 1024 * 4,
+    })
+  })
+
+  it("types package-resolvable server env imports outside Nitro alias resolution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-runtime-server-types-"))
+    const nitro: NitroStub = {
+      hooks: { hook: vi.fn() },
+      logger: { info: vi.fn() },
+      options: {
+        buildDir: join(root, ".nitro"),
+        env: {
+          teams: {
+            apiUrl: env({ optional: true }),
+            appId: env({ secret: true }),
+          },
+          vertex: {
+            model: env({ default: "gemini-3.1-pro-preview-customtools" }),
+          },
+        },
+        rootDir: root,
+      },
+    }
+
+    await envNitro().setup(nitro as never)
+    const typesHook = nitro.hooks.hook.mock.calls.find(([name]) => name === "types:extend")?.[1]
+    await typesHook?.({ tsConfig: { include: [] } })
+
+    const packageScopeDir = join(root, "node_modules/@vite-hub")
+    await mkdir(packageScopeDir, { recursive: true })
+    await symlink(join(import.meta.dirname, ".."), join(packageScopeDir, "env"), "dir")
+
+    await writeFile(join(root, "agent.config.ts"), [
+      "import { useServerEnv } from '@vite-hub/env/runtime/server'",
+      "import type { SecretEnv, ServerEnv } from '@vite-hub/env/runtime/server'",
+      "",
+      "export function createAgentConfig() {",
+      "  const env: ServerEnv = useServerEnv()",
+      "  const apiUrl: string | undefined = env.teams.apiUrl",
+      "  const appId: SecretEnv = env.teams.appId",
+      "  const appIdValue: string = env.teams.appId.unseal()",
+      "  const model: string = env.vertex.model",
+      "  void apiUrl",
+      "  void appId",
+      "  void appIdValue",
+      "  return { model }",
+      "}",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({
+      compilerOptions: {
+        allowSyntheticDefaultImports: true,
+        allowImportingTsExtensions: true,
+        baseUrl: root,
+        ignoreDeprecations: "6.0",
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        target: "ES2023",
+      },
+      files: [
+        join(root, ".nitro/types/vitehub-env.d.ts"),
+        join(root, ".nitro/types/vitehub-env-runtime.d.ts"),
+        join(root, "agent.config.ts"),
       ],
     }, null, 2))
 
@@ -450,13 +534,13 @@ describe("Nitro module", () => {
         },
         rootDir: root,
         vite: {
-          plugins: [{ name: "@vitehub/env/vite" }],
+          plugins: [{ name: "@vite-hub/env/vite" }],
         },
       },
     }
 
     await expect(envNitro().setup(nitro as never)).rejects.toThrow(
-      "Do not configure @vitehub/env/vite when using @vitehub/env/nitro",
+      "Do not configure @vite-hub/env/vite when using @vite-hub/env/nitro",
     )
   })
 

@@ -1,7 +1,7 @@
 import process from "node:process"
 import { setTimeout as sleep } from "node:timers/promises"
 
-import { requestJson, runE2E } from "@vitehub/internal/test/e2e-live"
+import { requestJson, runE2E } from "@vite-hub/internal/test/e2e-live"
 
 function createBody(marker, callbackUrl) {
   return JSON.stringify({ callbackUrl, email: "ava@example.com", marker })

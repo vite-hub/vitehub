@@ -3,7 +3,7 @@ import {
   setActiveCloudflareEnv,
   type CloudflareWorkerEnv,
   type CloudflareWorkerExecutionContext,
-} from "@vitehub/internal/runtime/cloudflare-env"
+} from "@vite-hub/internal/runtime/cloudflare-env"
 
 export { createCloudflareRuntimeEvent, setActiveCloudflareEnv }
 export type { CloudflareWorkerEnv, CloudflareWorkerExecutionContext }

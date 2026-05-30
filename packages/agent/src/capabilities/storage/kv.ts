@@ -1,3 +1,4 @@
+import { defineCapability, normalizeMode } from "../../capability-runtime.ts"
 import {
   assertString,
   createTool,
@@ -16,6 +17,11 @@ import type {
 import type { PrimitiveStorageCapabilityOptions } from "./shared.ts"
 
 export interface KVCapabilityOptions extends PrimitiveStorageCapabilityOptions {}
+
+export function kv(options: KVCapabilityOptions = {}): AgentCapabilityDefinition {
+  const mode = normalizeMode(options.mode, "KV")
+  return defineCapability({ id: "kv", mode, requires: [{ primitive: "kv" }], tools: kvTools(mode, options) })
+}
 
 interface KVReadInput {
   key?: string
@@ -43,7 +49,7 @@ function hasExactlyOne(...values: unknown[]) {
   return values.filter(value => typeof value === "string" && value.trim()).length === 1
 }
 
-export function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions): AgentCapabilityDefinition["tools"] {
+function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions): AgentCapabilityDefinition["tools"] {
   return (context) => {
     const store = selectStore(requirePrimitive(context as never, "kv"), "KV", options.store)
     const tools: AgentToolSet = {

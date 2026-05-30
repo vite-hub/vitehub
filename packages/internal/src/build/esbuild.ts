@@ -1,6 +1,6 @@
 import { build as bundle } from "esbuild"
 
-export interface BundleEsmEntryOptions {
+interface BundleEsmEntryOptions {
   alias?: Record<string, string>
   conditions?: string[]
   external?: string[]

@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/sandbox",
+  "name": "@vite-hub/sandbox",
   "version": "0.0.0",
   "description": "Sandbox execution primitives and Vite integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -54,7 +54,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/agent... build && pnpm --dir ../blob build && pnpm --dir ../kv build && pnpm --dir ../queue build && pnpm --dir . build && vitest run",
+    "test": "pnpm --filter @vite-hub/agent... build && pnpm --dir ../blob build && pnpm --dir ../kv build && pnpm --dir ../queue build && pnpm --dir . build && vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {
@@ -100,7 +100,7 @@
     "publint": "^0.3.15",
     "tsdown": "^0.21.8",
     "tsx": "catalog:",
-    "@vitehub/internal": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "vite": "catalog:",
     "vitest": "catalog:"
   }

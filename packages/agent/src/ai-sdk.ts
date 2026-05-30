@@ -34,7 +34,7 @@ import type {
   MaybePromise,
 } from "./types.ts"
 import type { Message, MessagePart } from "./messages.ts"
-import type { WorkspaceName } from "@vitehub/workspace"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
 export interface AiSdkAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -141,24 +141,31 @@ function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
 }
 
 export function toAiSdkModelMessages(messages: Message[]): ModelMessage[] {
-  return messages.map((message) => {
-    if (message.role === "assistant") {
-      return {
-        content: toAssistantModelMessageContent(message.parts),
-        role: message.role,
+  return messages
+    .map((message): ModelMessage | undefined => {
+      if (message.role === "assistant") {
+        const content = toAssistantModelMessageContent(message.parts)
+        return hasModelMessageContent(content)
+          ? { content, role: message.role } as ModelMessage
+          : undefined
       }
-    }
-    if (message.role === "tool") {
-      return {
-        content: toToolModelMessageContent(message.parts),
-        role: message.role,
+      if (message.role === "tool") {
+        const content = toToolModelMessageContent(message.parts)
+        return hasModelMessageContent(content)
+          ? { content, role: message.role } as ModelMessage
+          : undefined
       }
-    }
-    return {
-      content: getMessageText(message) || toTextModelMessageContent(message.parts),
-      role: message.role,
-    }
-  }) as ModelMessage[]
+      const content = getMessageText(message) || toTextModelMessageContent(message.parts)
+      return hasModelMessageContent(content)
+        ? { content, role: message.role } as ModelMessage
+        : undefined
+    })
+    .filter((message): message is ModelMessage => Boolean(message))
+}
+
+function hasModelMessageContent(content: unknown): boolean {
+  if (typeof content === "string") return content.trim().length > 0
+  return Array.isArray(content) ? content.length > 0 : content != null
 }
 
 function getCallInput(context: AgentAdapterRunContext) {
@@ -229,6 +236,14 @@ async function synthesizeWorkspaceFallback(
   maxToolResults: number,
 ) {
   const evidence = collectToolResults(result, maxToolResults)
+  return await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence)
+}
+
+async function synthesizeWorkspaceFallbackFromEvidence(
+  model: ToolLoopAgentSettings["model"],
+  context: AgentAdapterRunContext,
+  evidence: string[],
+) {
   if (evidence.length === 0) return undefined
 
   const { generateText } = await import("ai")
@@ -245,6 +260,165 @@ async function synthesizeWorkspaceFallback(
   })
 
   return summary.text.trim() || undefined
+}
+
+function streamEventText(event: unknown): string | undefined {
+  if (typeof event === "string") return event
+  if (typeof event !== "object" || event === null) return undefined
+  const record = event as { delta?: unknown, text?: unknown, textDelta?: unknown, type?: unknown }
+  if (record.type !== "text-delta" && record.type !== "text") return undefined
+  const text = record.text ?? record.textDelta ?? record.delta
+  return typeof text === "string" ? text : undefined
+}
+
+function streamToolResultOutput(event: unknown): unknown {
+  if (typeof event !== "object" || event === null) return undefined
+  const record = event as { error?: unknown, errorText?: unknown, output?: unknown, result?: unknown, type?: unknown }
+  if (record.type === "tool-result" || record.type === "tool-output-available") {
+    return record.output ?? record.result
+  }
+  if (record.type === "tool-error" || record.type === "tool-output-error") {
+    return record.error ?? record.errorText ?? record.output ?? record.result
+  }
+  return undefined
+}
+
+function streamEventType(event: unknown): string | undefined {
+  return typeof event === "object" && event !== null && typeof (event as { type?: unknown }).type === "string"
+    ? (event as { type: string }).type
+    : undefined
+}
+
+function workspaceFallbackFinishEvent(finishEvent: unknown): unknown {
+  return typeof finishEvent === "object" && finishEvent !== null
+    ? { ...finishEvent, finishReason: "workspace-fallback", type: "finish" }
+    : { finishReason: "workspace-fallback", type: "finish" }
+}
+
+function workspaceFallbackTextEvents(text: string): unknown[] {
+  const id = "workspace-fallback"
+  return [
+    { id, type: "text-start" },
+    { id, text, type: "text-delta" },
+    { id, type: "text-end" },
+  ]
+}
+
+function withAsyncIterator<T>(stream: ReadableStream<T>): AsyncIterable<T> & ReadableStream<T> {
+  if (typeof (stream as AsyncIterable<T>)[Symbol.asyncIterator] === "function") {
+    return stream as AsyncIterable<T> & ReadableStream<T>
+  }
+
+  Object.defineProperty(stream, Symbol.asyncIterator, {
+    configurable: true,
+    value: async function* () {
+      const reader = stream.getReader()
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) return
+          yield value
+        }
+      }
+      finally {
+        reader.releaseLock()
+      }
+    },
+  })
+  return stream as AsyncIterable<T> & ReadableStream<T>
+}
+
+function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): AsyncIterable<T> & ReadableStream<T> {
+  if (typeof (iterable as ReadableStream<T>).pipeThrough === "function") {
+    return withAsyncIterator(iterable as ReadableStream<T>)
+  }
+
+  const iterator = iterable[Symbol.asyncIterator]()
+  return withAsyncIterator(new ReadableStream<T>({
+    async cancel() {
+      await iterator.return?.()
+    },
+    async pull(controller) {
+      try {
+        const { done, value } = await iterator.next()
+        if (done) {
+          controller.close()
+        }
+        else {
+          controller.enqueue(value)
+        }
+      }
+      catch (error) {
+        controller.error(error)
+      }
+    },
+  }))
+}
+
+function cloneStreamTextResult<T extends object>(result: T, fullStream: AsyncIterable<unknown>): T {
+  const clone = Object.create(Object.getPrototypeOf(result)) as T
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
+  let stream = toReadableAsyncIterableStream(fullStream)
+  Object.defineProperty(clone, "fullStream", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const [next, branch] = stream.tee()
+      stream = withAsyncIterator(next)
+      return withAsyncIterator(branch)
+    },
+  })
+  return clone
+}
+
+function withWorkspaceFallbackFullStream(
+  stream: AsyncIterable<unknown>,
+  model: ToolLoopAgentSettings["model"],
+  context: AgentAdapterRunContext,
+  maxToolResults: number,
+): AsyncIterable<unknown> {
+  return (async function* () {
+    let text = ""
+    const evidence: string[] = []
+    let finishEvent: unknown
+
+    for await (const event of stream) {
+      text += streamEventText(event) || ""
+      const output = streamToolResultOutput(event)
+      if (output !== undefined && evidence.length < maxToolResults) {
+        evidence.push(JSON.stringify(output).slice(0, 4000))
+      }
+      const type = streamEventType(event)
+      if (type === "finish" || type === "abort") {
+        finishEvent = event
+        continue
+      }
+      yield event
+    }
+
+    if (text.trim() || evidence.length === 0) {
+      if (finishEvent) yield finishEvent
+      return
+    }
+
+    const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence)
+    if (synthesized) {
+      yield* workspaceFallbackTextEvents(synthesized)
+      yield workspaceFallbackFinishEvent(finishEvent)
+      return
+    }
+    if (finishEvent) yield finishEvent
+  })()
+}
+
+function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterable<unknown> }>(
+  result: T,
+  model: ToolLoopAgentSettings["model"],
+  context: AgentAdapterRunContext,
+  fallback: Required<AiSdkWorkspaceFallbackOptions>,
+): T {
+  if (!fallback.enabled || !result.fullStream) return result
+  return cloneStreamTextResult(result as object, withWorkspaceFallbackFullStream(result.fullStream, model, context, fallback.maxToolResults)) as T
 }
 
 async function resolveValue<T>(value: T | ((context: AgentAdapterMetadataContext) => MaybePromise<T>), context: AgentAdapterMetadataContext): Promise<T> {
@@ -298,6 +472,7 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
   } & Record<string, unknown>
   const callbackContext = {
     ...context.runtime,
+    context: context.context,
     input: context.input,
     run: context.runtime.run,
   }
@@ -336,12 +511,13 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
     ...runtime,
+    context: context.context,
     fs: context.workspace?.fs,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const model = await resolveValue(options.model as never, metadataContext)
   const instrumentedModel = options.instrumentModel
-    ? await options.instrumentModel({ ...runtime, model, run: context.runtime.run })
+    ? await options.instrumentModel({ ...runtime, context: context.context, model, run: context.runtime.run })
     : model
   const instructions = context.instructions
     ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)
@@ -424,8 +600,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     name: "ai-sdk",
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
-      const { agent } = await createAgent(options, context)
-      return await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never>
+      const { agent, model } = await createAgent(options, context)
+      const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never>
+      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(options.adapterOptions?.fallback))
     },
   }
 }

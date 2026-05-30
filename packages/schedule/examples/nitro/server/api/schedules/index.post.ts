@@ -1,4 +1,4 @@
-import { schedules } from "@vitehub/schedule/runtime"
+import { schedules } from "@vite-hub/schedule/runtime"
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ cron?: string }>(event)

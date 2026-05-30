@@ -5,10 +5,12 @@ export default defineConfig({
     alias: {
       "#vitehub-workspace-assets-registry": new URL("src/runtime/empty-assets-registry.ts", import.meta.url).pathname,
       "#vitehub-workspace-registry": new URL("src/runtime/empty-registry.ts", import.meta.url).pathname,
-      "@vitehub/sandbox/runtime/state": new URL("../sandbox/src/runtime/state.ts", import.meta.url).pathname,
-      "@vitehub/sandbox": new URL("../sandbox/src/index.ts", import.meta.url).pathname,
+      "@vite-hub/sandbox/runtime/state": new URL("../sandbox/src/runtime/state.ts", import.meta.url).pathname,
+      "@vite-hub/sandbox": new URL("../sandbox/src/index.ts", import.meta.url).pathname,
       "#vitehub-sandbox-provider-loader": new URL("../sandbox/src/runtime/provider-loader.ts", import.meta.url).pathname,
       "#vitehub-sandbox-registry": new URL("../sandbox/src/runtime/empty-registry.ts", import.meta.url).pathname,
+      "vitehub-sandbox-provider-loader": new URL("../sandbox/src/runtime/provider-loader.ts", import.meta.url).pathname,
+      "virtual:vitehub-sandbox-provider-loader": new URL("../sandbox/src/runtime/provider-loader.ts", import.meta.url).pathname,
     },
   },
   test: {

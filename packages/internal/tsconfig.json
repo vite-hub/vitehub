@@ -5,7 +5,7 @@
     "rootDir": "..",
     "baseUrl": "../..",
     "paths": {
-      "@vitehub/runtime": [
+      "@vite-hub/runtime": [
         "packages/runtime/src/index.ts"
       ]
     }

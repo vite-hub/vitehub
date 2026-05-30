@@ -1,21 +1,21 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vitehub/internal/build/deployment-output"
-import { VITEHUB_MODES, getViteMode } from "@vitehub/internal/build/mode"
-import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
-import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
-import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
+import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
+import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
+import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
+import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
-export const workflowPackageName = "@vitehub/workflow"
+export const workflowPackageName = "@vite-hub/workflow"
 const productName = "workflow"
 
 const generatedRegistryFileName = "registry.mjs"
@@ -213,6 +213,7 @@ function createCloudflareOutput(rootDir: string, artifacts: GeneratedWorkflowArt
     },
     bundleOutfileName: "worker.mjs",
     outputRoot: createDefaultCloudflareOutputRoot(rootDir),
+    wranglerConfigKeys: ["workflows"],
     wranglerConfig,
   }
 }
@@ -239,12 +240,27 @@ function createVercelOutput(artifacts: GeneratedWorkflowArtifacts): VercelProvid
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedWorkflowArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow)
+  const cloudflareWorkflowConfig = resolveWorkflowConfig(options.workflow, "cloudflare")
+  const vercelWorkflowConfig = resolveWorkflowConfig(options.workflow, "vercel")
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
-    cloudflare: createCloudflareOutput(options.rootDir, artifacts),
+    ...(cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
+      ? { cloudflare: createCloudflareOutput(options.rootDir, artifacts) }
+      : {}),
+    cleanup: {
+      cloudflare: {
+        bundleOutfileName: "worker.mjs",
+        outputRoot: createDefaultCloudflareOutputRoot(options.rootDir),
+        wranglerConfigKeys: ["workflows"],
+      },
+    },
     rootDir: options.rootDir,
-    vercel: createVercelOutput(artifacts),
+    ...(vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+      ? { vercel: createVercelOutput(artifacts) }
+      : {}),
   })
-  await writeCloudflareWorkflowWrapper(options.rootDir, artifacts)
+  if (cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare") {
+    await writeCloudflareWorkflowWrapper(options.rootDir, artifacts)
+  }
   return artifacts
 }

@@ -1,5 +1,5 @@
-import { kv } from "@vitehub/kv"
-import { defineSchedule } from "@vitehub/schedule"
+import { kv } from "@vite-hub/kv"
+import { defineSchedule } from "@vite-hub/schedule"
 
 import { type ScheduleMarker, resolveScheduleMarkerProvider, scheduleMarkerKey } from "./schedule-marker"
 

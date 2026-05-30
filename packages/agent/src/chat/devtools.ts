@@ -1,4 +1,4 @@
-import { registerViteHubDevtoolsFeature } from "@vitehub/devtools"
+import { registerViteHubDevtoolsFeature } from "@vite-hub/devtools"
 import { defineRpcFunction } from "@vitejs/devtools-kit"
 import { Message, parseMarkdown, toPlainText } from "chat"
 
@@ -98,7 +98,6 @@ export interface ChatDevtoolsAdapterOptions {
 
 export interface ChatDevToolsOptions {
   devtools?: false
-  route?: string
 }
 
 export type ChatDevToolsPlugin = Plugin & { nitro: NitroModule }
@@ -143,6 +142,8 @@ export interface ChatDevtoolsTypingThread {
   startTyping(text?: string): Promise<unknown>
 }
 
+type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title">> & Pick<ChatDevtoolsMetadata, "title">
+
 interface ChatDevtoolsFullStreamToolPart {
   error?: unknown
   id?: string
@@ -155,7 +156,7 @@ interface ChatDevtoolsFullStreamToolPart {
 }
 
 const chatDevtoolsToolStatusType = "vitehub.chat.devtools.tool"
-export const chatDevtoolsPanelPluginName = "@vitehub/agent/chat/devtools-panel"
+export const chatDevtoolsPanelPluginName = "@vite-hub/agent/chat/devtools-panel"
 const defaultOutputPreviewLength = 4_000
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -458,10 +459,11 @@ function createTranscriptMessage(role: ChatDevtoolsMessageRole, text: string): C
   }
 }
 
-function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): Required<ChatDevtoolsMetadata> {
+function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): ResolvedChatDevtoolsMetadata {
   return {
     files: metadata?.files ? [...metadata.files] : [],
     instructions: metadata?.instructions ? [...metadata.instructions] : [],
+    title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
   }
 }
@@ -519,6 +521,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
     const tools = message.tools ||= []
     const next = { ...tool, updatedAt: new Date().toISOString() }
     const existing = tools.find(item => item.id === tool.id)
+      || (tool.id ? undefined : tools.find(item => item.name === tool.name && item.text === tool.text))
     if (existing) {
       Object.assign(existing, {
         ...next,
@@ -527,6 +530,33 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
       })
     }
     else tools.push(next)
+    for (let index = tools.length - 1; index >= 0; index--) {
+      const current = tools[index]
+      if (!current || current.text !== current.name) continue
+      if (tools.some(item => item.name === current.name && item.text !== item.name)) {
+        tools.splice(index, 1)
+      }
+    }
+    for (let index = 0; index < tools.length; index++) {
+      const current = tools[index]
+      if (!current || current.text === current.name) continue
+      const duplicateIndex = tools.findIndex((item, itemIndex) =>
+        itemIndex > index
+        && item.name === current.name
+        && item.text === current.text
+      )
+      if (duplicateIndex === -1) continue
+      const duplicate = tools[duplicateIndex]
+      Object.assign(current, {
+        ...current,
+        input: current.input ?? duplicate.input,
+        output: current.output ?? duplicate.output,
+        status: current.status === "running" || duplicate.status === "running" ? "running" : duplicate.status,
+        updatedAt: duplicate.updatedAt > current.updatedAt ? duplicate.updatedAt : current.updatedAt,
+      })
+      tools.splice(duplicateIndex, 1)
+      index--
+    }
     message.loading = typingMessageIds.get(threadId) === message.id || tools.some(item => item.status === "running")
     return true
   }
@@ -538,7 +568,9 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
       typingMessageIds.delete(threadId)
       if (existing) {
         existing.loading = false
-        existing.text = text
+        if (!existing.text || isGenericTypingText(existing.text) || !isGenericTypingText(text)) {
+          existing.text = text
+        }
         return existing
       }
     }
@@ -622,6 +654,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
         files: metadata.files,
         instructions: metadata.instructions,
         selected: chat && chats.some(item => item.name === chat) ? chat : chats[0]!.name,
+        ...(metadata.title ? { title: metadata.title } : {}),
         tools: metadata.tools,
       }
     },
@@ -745,10 +778,8 @@ async function writeChatDevtoolsStream(
 }
 
 export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlugin {
-  const route = options.route || chatDevtoolsBridgeRoute
-
   const nitroModule: NitroModule = {
-    name: "@vitehub/agent/chat/devtools",
+    name: "@vite-hub/agent/chat/devtools",
     setup(nitro) {
       if (options.devtools === false || !nitro.options.dev) {
         return
@@ -760,22 +791,20 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
         `./runtime/chat-devtools-handler${handlerExtension}`,
         import.meta.url,
       ).pathname
-      if (!nitro.options.handlers.some(item => item.route === route && item.method === "POST" && item.handler === handler)) {
-        nitro.options.handlers.push({ handler, method: "POST", route })
+      if (!nitro.options.handlers.some(item => item.route === chatDevtoolsBridgeRoute && item.method === "POST")) {
+        nitro.options.handlers.push({ handler, method: "POST", route: chatDevtoolsBridgeRoute })
       }
     },
   }
 
   return {
-    name: "@vitehub/agent/chat/devtools",
+    name: "@vite-hub/agent/chat/devtools",
     nitro: nitroModule,
     devtools: chatDevToolsPanel(options).devtools,
   }
 }
 
 export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToolsPanelPlugin {
-  const route = options.route || chatDevtoolsBridgeRoute
-
   return {
     name: chatDevtoolsPanelPluginName,
     devtools: {
@@ -789,17 +818,17 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         })
 
         registerViteHubDevtoolsFeature(ctx, {
-          bridge: route,
+          bridge: chatDevtoolsBridgeRoute,
           icon: "ph:chat-circle-duotone",
           id: chatDevtoolsFeatureId,
-          packageName: "@vitehub/agent",
+          packageName: "@vite-hub/agent",
           title: chatDevtoolsTitle,
         })
 
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsGetStateRpc,
           type: "query",
-          setup: () => ({ handler: async () => await postChatDevtoolsBridge(ctx, route, { action: "get-state" }) }),
+          setup: () => ({ handler: async () => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "get-state" }) }),
         }) as never)
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsSendRpc,
@@ -807,10 +836,10 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
           setup: () => ({
             handler: async (input): Promise<ChatDevtoolsSendResult> => {
               if (!chatStream) {
-                return await postChatDevtoolsBridge(ctx, route, { action: "send", ...input })
+                return await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "send", ...input })
               }
               const stream = chatStream.start()
-              void writeChatDevtoolsStream(ctx, route, { action: "send", ...input }, stream)
+              void writeChatDevtoolsStream(ctx, chatDevtoolsBridgeRoute, { action: "send", ...input }, stream)
               return {
                 chats: [],
                 selected: input.chat || "",
@@ -822,7 +851,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsClearRpc,
           type: "action",
-          setup: () => ({ handler: async input => await postChatDevtoolsBridge(ctx, route, { action: "clear", ...input }) }),
+          setup: () => ({ handler: async input => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "clear", ...input }) }),
         }) as never)
       },
     },

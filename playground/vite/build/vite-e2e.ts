@@ -4,8 +4,8 @@ import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { normalizeBlobOptions } from "../../../packages/blob/src/config.ts"
-import { resolveDBViteConfig } from "../../../packages/db/src/config.ts"
-import { serializeSchemaObject } from "../../../packages/db/src/internal/schema-serializer.ts"
+import { resolveConfigValue } from "../../../packages/database/src/config-value.ts"
+import { resolveDBViteConfig } from "../../../packages/database/src/config.ts"
 import { configureCloudflareKV } from "../../../packages/kv/src/integrations/cloudflare.ts"
 import { normalizeKVOptions } from "../../../packages/kv/src/config.ts"
 import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
@@ -27,16 +27,16 @@ import { configureCloudflareArtifacts } from "../../../packages/workspace/src/in
 import { normalizeWorkflowOptions } from "../../../packages/workflow/src/config.ts"
 import { discoverWorkflowDefinitions } from "../../../packages/workflow/src/discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../../../packages/workflow/src/integrations/cloudflare.ts"
-import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
-import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
-import { createImportPath, ensureGeneratedDir } from "@vitehub/internal/build/paths"
-import { toSafeAppName } from "@vitehub/internal/build/user-entry"
-import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
-import { createRuntimeRegistryContents } from "@vitehub/internal/definition-discovery"
+import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { copyClientOutput, hasStaticIndex } from "@vite-hub/internal/build/client-output"
+import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
+import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
+import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
+import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-discovery"
 
 import type { ResolvedBlobModuleOptions } from "../../../packages/blob/src/types.ts"
-import type { ResolvedDBViteConfig } from "../../../packages/db/src/types.ts"
+import type { ResolvedDBViteConfig } from "../../../packages/database/src/types.ts"
 import type { ResolvedKVModuleOptions } from "../../../packages/kv/src/types.ts"
 import type { ResolvedQueueOptions } from "../../../packages/queue/src/types.ts"
 import type { AgentSandboxConfig } from "../../../packages/sandbox/src/module-types.ts"
@@ -48,7 +48,7 @@ const currentDir = dirname(fileURLToPath(import.meta.url))
 const workspaceDir = resolve(currentDir, "../../..")
 const packagesDir = resolve(workspaceDir, "packages")
 const blobPackageDir = resolve(packagesDir, "blob")
-const dbPackageDir = resolve(packagesDir, "db")
+const dbPackageDir = resolve(packagesDir, "database")
 const kvPackageDir = resolve(packagesDir, "kv")
 const queuePackageDir = resolve(packagesDir, "queue")
 const schedulePackageDir = resolve(packagesDir, "schedule")
@@ -150,12 +150,8 @@ function withoutCloudflareWorkspaceAliases(alias: Record<string, string>) {
 }
 
 function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
-  const schemaBlocks = config.databaseNames.map((name, index) => serializeSchemaObject(
-    config.schemaPathsByDatabase[name] || [],
-    `schema_${index}`,
-    name === "default",
-    file,
-  ))
+  const schemaImports = config.databaseNames.map((name, index) =>
+    `import schema_${index} from ${JSON.stringify(createImportPath(file, config.generatedSchemaFilesByDatabase[name]!))}`)
   const databaseEntries = config.databaseNames.map((name, index) => [
     `  ${JSON.stringify(name)}: {`,
     `    db: createHostedDrizzleDb(${JSON.stringify(config.databases[name], null, 4)}, schema_${index}),`,
@@ -166,13 +162,17 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
   return [
     `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/hosted")))}`,
     "",
-    ...schemaBlocks,
+    ...schemaImports,
     "export const databases = {",
     ...databaseEntries,
     "}",
     "",
-    "export const db = databases.default.db",
-    "export const schema = databases.default.schema",
+    ...(config.databaseNames.includes("default")
+      ? [
+          "export const db = databases.default.db",
+          "export const schema = databases.default.schema",
+        ]
+      : []),
     "",
   ].join("\n")
 }
@@ -189,7 +189,7 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
   }
   else if (config?.store.driver === "vercel-blob") {
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "config")))}`)
-    imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/vercel")))}`)
+    imports.push(`import { createBundledVercelBlobDriver } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/drivers/vercel-bundled.ts")))}`)
   }
   else if (config?.store.driver === "fs") {
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "drivers/fs")))}`)
@@ -201,7 +201,7 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
   const storageExpression = !config
     ? "undefined"
     : config.store.driver === "vercel-blob"
-      ? "createBlobStorage(createDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env)))"
+      ? "createBlobStorage(createBundledVercelBlobDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env)))"
       : "createBlobStorage(createDriver(blobConfig.store))"
 
   return [
@@ -219,7 +219,7 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
 function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOptions | undefined) {
   if (!config) {
     return [
-      "const disabled = async () => { throw new Error('[vitehub] `@vitehub/kv` runtime is disabled.') }",
+      "const disabled = async () => { throw new Error('[vitehub] `@vite-hub/kv` runtime is disabled.') }",
       "export const kv = {",
       "  clear: disabled,",
       "  del: disabled,",
@@ -309,7 +309,7 @@ function renderWorkflowRuntimeModule(file: string) {
 function renderWorkspaceRuntimeModule(file: string) {
   return [
     `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/define.ts")))}`,
-    `export const source = { custom: source => source, file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options) }`,
+    `export const source = { custom: source => source, fetch: options => createHostedSourceStub("fetch", options), file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options) }`,
     `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/use.ts")))}`,
     `function createHostedSourceStub(kind, input) {`,
     `  return {`,
@@ -414,58 +414,58 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   }
 
   if (options.db) {
-    const dbRuntimeFile = resolve(generatedDir, "db-runtime.mjs")
-    alias["@vitehub/db/drizzle"] = dbRuntimeFile
+    const dbRuntimeFile = resolve(generatedDir, "database-runtime.mjs")
+    alias["@vite-hub/database/drizzle"] = dbRuntimeFile
     runtimeWrites.push(writeFile(dbRuntimeFile, renderDbRuntimeModule(dbRuntimeFile, options.db), "utf8"))
   }
 
   if (typeof options.blob !== "undefined") {
     const blobRuntimeFile = resolve(generatedDir, "blob-runtime.mjs")
-    alias["@vitehub/blob"] = blobRuntimeFile
+    alias["@vite-hub/blob"] = blobRuntimeFile
     runtimeWrites.push(writeFile(blobRuntimeFile, renderBlobRuntimeModule(blobRuntimeFile, options.blob), "utf8"))
   }
 
   if (typeof options.kv !== "undefined") {
     const kvRuntimeFile = resolve(generatedDir, "kv-runtime.mjs")
-    alias["@vitehub/kv"] = kvRuntimeFile
+    alias["@vite-hub/kv"] = kvRuntimeFile
     runtimeWrites.push(writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"))
   }
 
   if (typeof options.queue !== "undefined") {
     const queueRuntimeFile = resolve(generatedDir, "queue-runtime.mjs")
-    alias["@vitehub/queue"] = queueRuntimeFile
+    alias["@vite-hub/queue"] = queueRuntimeFile
     runtimeWrites.push(writeFile(queueRuntimeFile, renderQueueRuntimeModule(queueRuntimeFile), "utf8"))
   }
 
   if (typeof options.schedule !== "undefined") {
     const scheduleRuntimeFile = resolve(generatedDir, "schedule-runtime.mjs")
-    alias["@vitehub/schedule"] = scheduleRuntimeFile
+    alias["@vite-hub/schedule"] = scheduleRuntimeFile
     runtimeWrites.push(writeFile(scheduleRuntimeFile, renderScheduleRuntimeModule(scheduleRuntimeFile), "utf8"))
   }
 
   if (typeof options.sandbox !== "undefined") {
     const sandboxRuntimeFile = resolve(generatedDir, "sandbox-runtime.mjs")
-    alias["@vitehub/sandbox/runtime/state"] = resolve(sandboxPackageDir, "src/runtime/state.ts")
-    alias["@vitehub/sandbox"] = sandboxRuntimeFile
+    alias["@vite-hub/sandbox/runtime/state"] = resolve(sandboxPackageDir, "src/runtime/state.ts")
+    alias["@vite-hub/sandbox"] = sandboxRuntimeFile
     runtimeWrites.push(writeFile(sandboxRuntimeFile, renderSandboxRuntimeModule(sandboxRuntimeFile), "utf8"))
   }
 
   if (typeof options.workflow !== "undefined") {
     const workflowRuntimeFile = resolve(generatedDir, "workflow-runtime.mjs")
-    alias["@vitehub/workflow"] = workflowRuntimeFile
+    alias["@vite-hub/workflow"] = workflowRuntimeFile
     runtimeWrites.push(writeFile(workflowRuntimeFile, renderWorkflowRuntimeModule(workflowRuntimeFile), "utf8"))
   }
 
   if (typeof options.workspace !== "undefined") {
     const workspaceRuntimeFile = resolve(generatedDir, "workspace-runtime.mjs")
     const workspaceShellRuntimeFile = resolve(generatedDir, "workspace-shell-runtime.mjs")
-    alias["@vitehub/workspace/internal/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
-    alias["@vitehub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
-    alias["@vitehub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
-    alias["@vitehub/workspace/test"] = resolve(workspacePackageDir, "src/test.ts")
-    alias["@vitehub/workspace"] = workspaceRuntimeFile
-    alias["@vitehub/shell/workspace"] = workspaceShellRuntimeFile
-    alias["@vitehub/shell"] = workspaceShellRuntimeFile
+    alias["@vite-hub/workspace/internal/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
+    alias["@vite-hub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
+    alias["@vite-hub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
+    alias["@vite-hub/workspace/test"] = resolve(workspacePackageDir, "src/test.ts")
+    alias["@vite-hub/workspace"] = workspaceRuntimeFile
+    alias["@vite-hub/shell/workspace"] = workspaceShellRuntimeFile
+    alias["@vite-hub/shell"] = workspaceShellRuntimeFile
     alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
     for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
@@ -506,7 +506,14 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     ])
 
     alias["#vitehub-sandbox-registry"] = sandboxRegistryFile
-    alias["#vitehub-sandbox-provider-loader"] = sandboxProviderLoaderFile
+    for (const key of [
+      "vitehub-sandbox-provider-loader",
+      "@vite-hub/sandbox/runtime/provider-loader",
+      "virtual:vitehub-sandbox-provider-loader",
+      "#vitehub-sandbox-provider-loader",
+    ]) {
+      alias[key] = sandboxProviderLoaderFile
+    }
 
     if (sandboxProvider === "cloudflare") {
       alias["@cloudflare/sandbox"] = resolvePackageDependency(sandboxPackageDir, "@cloudflare/sandbox")
@@ -877,14 +884,14 @@ function createCloudflareD1Bindings(config: ResolvedDBViteConfig | undefined) {
 
   const bindings = config.databaseNames
     .map(name => config.databases[name]?.cloudflare)
-    .filter(database => Boolean(database?.databaseId))
+    .filter(database => Boolean(resolveConfigValue(database?.databaseId)))
     .map(database => ({
       binding: database!.binding,
-      database_id: database!.databaseId,
-      ...(database!.databaseName ? { database_name: database!.databaseName } : {}),
+      database_id: resolveConfigValue(database!.databaseId),
+      ...(resolveConfigValue(database!.databaseName) ? { database_name: resolveConfigValue(database!.databaseName) } : {}),
       ...(database!.migrationsDir ? { migrations_dir: database!.migrationsDir } : {}),
       ...(database!.migrationsTable ? { migrations_table: database!.migrationsTable } : {}),
-      ...(database!.previewDatabaseId ? { preview_database_id: database!.previewDatabaseId } : {}),
+      ...(resolveConfigValue(database!.previewDatabaseId) ? { preview_database_id: resolveConfigValue(database!.previewDatabaseId) } : {}),
     }))
 
   return bindings.length ? bindings : undefined
@@ -1003,10 +1010,8 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   await bundleEsmEntry(sourceEntry, resolve(serverDir, "index.mjs"), {
     alias: withoutCloudflareWorkspaceAliases(artifacts.alias),
     external: [
-      "@vercel/blob",
       "askweb",
       "cloudflare:workers",
-      "files-sdk",
       "files-sdk/akamai",
       "files-sdk/azure",
       "files-sdk/box",
@@ -1024,7 +1029,6 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
       "files-sdk/storj",
       "files-sdk/supabase",
       "files-sdk/uploadthing",
-      "files-sdk/vercel-blob",
       "isomorphic-git",
       "isomorphic-git/http/web",
       "workflow",
@@ -1139,6 +1143,7 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
 
   return {
     name: "vitehub/vite-e2e",
+    enforce: "pre",
     async config() {
       const artifacts = await prepareFeatureArtifacts(options)
       resolvedAlias = artifacts.alias
@@ -1147,6 +1152,9 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
           alias: resolvedAlias,
         },
       }
+    },
+    resolveId(id) {
+      return resolvedAlias?.[id]
     },
     async closeBundle() {
       await generateViteE2EOutputs(options)
@@ -1157,33 +1165,8 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
 export function resolveViteE2EOptions(rootDir: string, hosting: string) {
   const provider = resolveHostedProvider(hosting)
   return {
-    blob: normalizeBlobOptions(undefined, { hosting }),
-    db: resolveDBViteConfig({
-      connection: {
-        authToken: process.env.TURSO_AUTH_TOKEN,
-        url: process.env.TURSO_DATABASE_URL,
-      },
-      databases: {
-        analytics: {
-          connection: {
-            authToken: process.env.TURSO_AUTH_TOKEN,
-            url: process.env.TURSO_ANALYTICS_DATABASE_URL || process.env.TURSO_DATABASE_URL,
-          },
-          cloudflare: {
-            binding: "DB_ANALYTICS",
-            databaseName: process.env.VITEHUB_D1_ANALYTICS_DATABASE_NAME || "vitehub-playground-analytics",
-            databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,
-            previewDatabaseId: process.env.VITEHUB_D1_ANALYTICS_PREVIEW_DATABASE_ID,
-          },
-        },
-      },
-      cloudflare: {
-        binding: "DB",
-        databaseName: process.env.VITEHUB_D1_DATABASE_NAME || "vitehub-playground-db",
-        databaseId: process.env.VITEHUB_D1_DATABASE_ID,
-        previewDatabaseId: process.env.VITEHUB_D1_PREVIEW_DATABASE_ID,
-      },
-    }, rootDir),
+    blob: normalizeBlobOptions(provider === "vercel" ? { access: "private", driver: "vercel-blob" } : undefined, { hosting }),
+    db: resolveDBViteConfig(undefined, rootDir),
     hosting: provider,
     kv: normalizeKVOptions(undefined, { hosting }),
     queue: normalizeQueueOptions({}, { hosting }) || false,

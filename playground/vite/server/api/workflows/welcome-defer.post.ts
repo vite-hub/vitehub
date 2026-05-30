@@ -1,6 +1,6 @@
 import { defineEventHandler, readValidatedBody } from "h3"
 import * as v from "valibot"
-import { deferWorkflow } from "@vitehub/workflow"
+import { deferWorkflow } from "@vite-hub/workflow"
 
 const workflowName = "welcome"
 const workflowBody = v.optional(v.object({

@@ -16,9 +16,21 @@ _Avoid_: Raw tool, config mutator
 The ordered process that validates requirements, applies capability contributions, and exposes resulting instructions, tools, policy, and metadata to the Agent.
 _Avoid_: Random hook, raw setup
 
+**Capability Trigger Contribution**:
+A Capability-owned server-side contribution that registers Agent Trigger behavior for a product event.
+_Avoid_: Chat helper, DevTools bridge, raw server route, server-only bucket
+
 **Capability Requirement**:
 A primitive, workspace mode, or workspace path that a Capability needs before it can be applied to an Agent.
 _Avoid_: Capability dependency, plugin dependency
+
+**Prompt Template**:
+A Capability-owned text template that renders model-facing prompt text from named Prompt Template Variables.
+_Avoid_: Dynamic prompt, hardcoded prompt, prompt callback
+
+**Prompt Template Variable**:
+A named value available when rendering a Prompt Template.
+_Avoid_: Placeholder, interpolation value, prompt arg
 
 **Storage Capability Tool Surface**:
 The two-tool read/edit shape used by official storage Capabilities to expose scoped storage operations to a model.
@@ -40,9 +52,37 @@ _Avoid_: Agent migration batch, SQL script
 A Capability that gives an Agent chat-oriented runtime behavior, including Chat History for the current stack.
 _Avoid_: Chat History Capability, Agent Memory
 
+**Chat Platform Adapter**:
+A ChatSDK adapter returned by Chat Capability configuration for an external chat platform such as Teams.
+_Avoid_: Agent Model Adapter, Agent Trigger, Nitro handler
+
+**Chat Adapter Package**:
+An optional integration package that constructs a Chat Platform Adapter or Chat Capability state backend, such as `@chat-adapter/teams` or `@chat-adapter/state-pg`.
+_Avoid_: Built-in Capability, Agent Package dependency, generated adapter export
+
+**Chat Adapter Facade**:
+A narrow ViteHub-owned import subpath for a first-party-supported Chat Adapter Package when ViteHub owns a stable shim and missing-package diagnostics.
+_Avoid_: Adapter barrel, generated upstream re-export, root Agent Package export
+
+**Chat Adapter Callback**:
+The lazy Chat Capability option that returns the current request's Chat Platform Adapters.
+_Avoid_: Webhook registration helper, adapter registry, build-time adapter scan
+
+**Chat Webhook Autowiring**:
+ViteHub-owned server wiring that exposes Chat Platform Adapter webhooks from the Chat Capability without app route code.
+_Avoid_: Public registration function, local Teams route, manual webhook route
+
 **Workspace Capability**:
 A Capability that gives an Agent model-facing access to Workspace files.
 _Avoid_: Bash, raw workspace tools, built-in tool
+
+**Access Capability**:
+A Capability created by `access()` that resolves trusted invocation access and applies allow-only access boundaries to configured runtime surfaces, starting with Workspace Scope.
+_Avoid_: Organization Capability, Workspace Definition mutator, dynamic Source, dynamic Capability
+
+**Access Role**:
+A named bundle of permissions and scope-selection authority used by the Access Capability.
+_Avoid_: Workspace Rule, Capability mode, model role
 
 **Web Search Capability**:
 A Capability that gives an Agent model-facing access to web search results and normalized URL content.
@@ -88,6 +128,18 @@ _Avoid_: Vite env var, Nitro env var, browser env
 An Official Capability that turns audio input parts into transcript text before an Agent runs.
 _Avoid_: Voice Input, audio support, voice plugin
 
+**Transcription Artifacts**:
+Transcription Capability artifact persistence into the Agent's writable Workspace, configured through `transcribe({ artifacts })`.
+_Avoid_: Capability Workspace, provider response format, output hook
+
+**Transcript Workspace Path**:
+The Workspace path of the transcript artifact configured by `artifacts.transcript.path`.
+_Avoid_: Output directory, extension, local filesystem path
+
+**Audio Artifact**:
+The optional persisted source-audio artifact for Transcription Artifacts, either derived beside the Transcript Workspace Path or explicitly configured through `artifacts.audio.path`.
+_Avoid_: Second transcript path, provider audio output
+
 **Workspace Shell Capability**:
 A Workspace Capability that exposes shell-shaped Workspace inspection and optional structured Workspace mutation tools.
 _Avoid_: Bash, sandbox, raw workspace tools
@@ -108,17 +160,64 @@ _Avoid_: Slash Command, chat command, shell command, model tool
 A host-owned command that changes chat, session, UI, or product state around an Agent.
 _Avoid_: Input Command, Capability, model tool
 
+**Pre-Invocation Decision**:
+An internal structured decision made before the main Agent Invocation proceeds, used by Capabilities to record a typed context value, reject, or select Chat Session behavior.
+_Avoid_: Generic middleware, dynamic Capability, arbitrary input context
+
+**LLM Route Capability**:
+A Capability that asks an LLM to choose one developer-defined option and records the chosen route as a typed Pre-Invocation Decision.
+_Avoid_: Routing Capability, callback routing, model router
+
+**LLM Gate Capability**:
+A Capability that asks an LLM to classify a request against developer-defined allow and reject categories and may reject before the main Agent Invocation proceeds.
+_Avoid_: Gate, auth gate, security gate, deterministic guard
+
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, `db()`, and `webSearch()` create **Capability Definitions**.
+- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
+- Official Capability factories and Capability-owned helper functions are imported from `@vite-hub/agent/capabilities`, not from the root `@vite-hub/agent` Agent Package entry.
 - Official helpers should map to product abilities rather than implementation mechanisms.
+- A **Capability Definition** may provide a **Capability Trigger Contribution** when the ability needs to start Agent Invocations from a product event.
+- A **Capability Trigger Contribution** is composed from `defineAgent({ capabilities })`, not registered through a separate helper.
+- A **Capability Trigger Contribution** belongs directly to the Capability shape unless a broader grouping earns its name later.
+- A **Capability Trigger Contribution** maps product event input into Agent Invocation input and run metadata; Agent execution remains owned by the Agent Package.
+- A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
+- A **Pre-Invocation Decision** is an internal primitive used by Capabilities before the main Agent Invocation.
+- A **Pre-Invocation Decision** can expose a typed invocation context value, reject the invocation, record an inspectable decision, or select Chat Session behavior.
+- A **Pre-Invocation Decision** does not dynamically attach, remove, or grant **Capabilities**.
+- Pre-Invocation Decision ids are unique per Agent; duplicate ids fail early instead of merging, prioritizing, or using last-write-wins behavior.
+- An **LLM Route Capability** chooses one developer-defined option through an LLM and records the route decision. It does not apply route effects directly.
+- An **LLM Gate Capability** chooses one developer-defined allow or reject category through an LLM and may reject before the main Agent Invocation.
+- Deterministic or callback-based routing is not an official Capability in V1; users can define inline Capabilities or hooks that set named invocation context values.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
+- A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
+- A **Chat Platform Adapter** may come from a **Chat Adapter Package** that remains an explicit optional application dependency.
+- The Agent Package should not generate exports for every **Chat Adapter Package**.
+- A **Chat Adapter Facade** is reserved for first-party-supported adapters where ViteHub owns the public compatibility surface.
+- A **Chat Capability** can contribute trusted chat actor identity into Agent Invocation Context Values before later Capabilities resolve.
+- **Chat Platform Adapters** are platform integration adapters, not **Agent Model Adapters**.
+- **Chat Webhook Autowiring** is inferred from the Agent's attached **Chat Capability**; users do not attach a second Capability or call a webhook registration helper.
+- **Chat Webhook Autowiring** resolves the **Chat Adapter Callback** at request time so callbacks can read Server Env and other request-local server state.
 - **Transcription** is an input-phase Official Capability.
+- **Transcription Artifacts** consume an already-declared writable Workspace; they do not define, mutate, or replace the Agent's Workspace.
+- A **Transcript Workspace Path** is the canonical destination for persisted transcript artifacts; directory, stem, and extension are derived from that path instead of configured as separate public fields.
+- An **Audio Artifact** is disabled or relocated through `artifacts.audio`; when enabled without an explicit path, it is derived from the **Transcript Workspace Path**.
+- Transcription Artifacts expose a sanitized default `stem` to path callbacks so platform message ids do not leak unsafe Workspace path characters.
+- Provider transcription response format and **Transcription Artifacts** media type are separate concerns.
 - A **Workspace Capability** contributes Workspace tools without implying unrestricted process execution.
+- An **Access Capability** applies invocation-time access rules without mutating Workspace Definitions or granting new Capabilities dynamically.
+- The `access()` helper creates an **Access Capability**.
+- In the first version, an **Access Capability** applies **Workspace Scope** only.
+- An **Access Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
+- An **Access Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
+- An **Access Capability** must be ordered before other Workspace-reading Capabilities so Workspace Scope is applied before they resolve tools or requirements.
+- An **Access Capability** provides tiny default **Access Roles** for the first version.
+- The default `viewer` **Access Role** can read granted Source keys and path prefixes through Workspace Scope Grants.
+- The default `admin` **Access Role** can select the explicit all-scopes mode when the developer configured that mode.
 - A **Workspace Shell Capability** contributes shell-shaped Workspace tools without implying Sandbox execution.
 - An **MCP Capability** consumes one or more external **MCP Servers**.
 - A **Web Search Capability** hides its underlying search library from users and model-facing labels.
@@ -164,6 +263,18 @@ _Avoid_: Input Command, Capability, model tool
 >
 > **Dev:** "Should `/clear` be an Input Command?"
 > **Domain expert:** "No. `/clear` is a **Host Command** because it changes chat or session state instead of Agent run input."
+>
+> **Dev:** "Can I add any request field to a Prompt Template?"
+> **Domain expert:** "No. Use only the Prompt Template Variables exposed by that Capability, or provide a callback when the prompt needs custom runtime data."
+>
+> **Dev:** "Should Chat DevTools wire its own chat send helper?"
+> **Domain expert:** "No. The **Chat Capability** should provide a **Capability Trigger Contribution**, and DevTools should consume the resolved Agent Trigger."
+>
+> **Dev:** "Should we expose a callback routing Capability?"
+> **Domain expert:** "No. Use a user-defined **Capability Definition** or hook to set a named invocation context value; the official route helper is the **LLM Route Capability**."
+>
+> **Dev:** "Can an LLM route decision attach `workspaceShell()` for this one request?"
+> **Domain expert:** "No. **Capabilities** are static and validated early. A route can influence instructions or other conditional contributions, but it cannot grant a new Capability."
 
 ## Flagged Ambiguities
 
@@ -182,20 +293,37 @@ _Avoid_: Input Command, Capability, model tool
 - Model-facing provider reachability was considered - resolved: keep provider reachability developer-facing in the first version.
 - `VITE_*` and `NITRO_*` provider credential names were considered - resolved: reject them for **Web Search Credential Sources**; `VITE_*` is browser-exposed Vite language, and `NITRO_*` is framework runtime-config language rather than Capability credential language.
 - Tool-first surfaces were considered the primary model - resolved: tools are one contribution of a **Capability Definition**.
+- Chat-specific helpers were considered for server-side trigger behavior - resolved: use **Capability Trigger Contribution** so Chat and future user-defined Capabilities register Agent Triggers from the Agent config source of truth.
+- Grouping trigger contributions under a `server` bucket was considered - resolved: keep triggers directly capability-owned because Agent Triggers are server-authoritative by default and no broader server contribution group has been proven yet.
+- Trigger handlers were considered for direct Agent execution - resolved: trigger contributions map input and run metadata, while the Agent Package executes the Agent Invocation through the standard lifecycle.
+- Public chat webhook registration helpers were considered for platform adapters - resolved: use **Chat Webhook Autowiring** from the **Chat Capability** so adapter configuration remains the only source of truth.
+- Build-time Chat Platform Adapter detection was considered - resolved: resolve the **Chat Adapter Callback** at request time because platform credentials and adapter construction can depend on Server Env.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
+- Workspace Scope was considered as Workspace Definition mutation by a Capability - resolved: use an **Access Capability** to narrow an already-declared Workspace at invocation time instead of changing Sources or Workspace Rules.
+- `workspaceScope()` was considered as the public helper name - resolved: use `access()` for the Capability while preserving **Workspace Scope** for the Workspace-specific boundary.
+- `organization()` was considered as the public helper name - resolved: reject it because access decisions may come from organizations, customer domains, local config, or other trusted invocation context.
 - "audio input", "voice input", and "voice transcription" were considered as names for spoken user messages - resolved: use **Transcription** for the capability.
+- `transcribe({ workspace })` was considered for persisted transcript and audio artifacts - resolved: use **Transcription Artifacts** so the option does not masquerade as a Workspace Definition.
+- Separate Transcription Artifacts `directory`, `stem`, and `extension` fields were considered - resolved: use a **Transcript Workspace Path** as the canonical destination and derive path parts internally.
+- Compact `output.path` was considered for Transcription Artifacts - resolved: reject it because source audio is a first-class artifact and should be configured as a peer to `artifacts.transcript`.
 - `bash()` was considered as the public helper for Workspace file access - resolved: use `workspaceShell()` for the **Workspace Shell Capability** because the shell is scoped to Workspace files.
 - MCP server language was considered ambiguous between hosting an MCP server and consuming one - resolved: in the **MCP Capability**, an **MCP Server** is external and consumed by an Agent.
 - Capability-level name and description were considered separate display metadata - resolved: remove both as a breaking change and use **Capability** id as the only capability-level identity/display field.
 - Slash command was considered as the domain term - resolved: use **Input Command** for the Capability concept because it names the lifecycle position; slash syntax is only the initial invocation format.
 - Host/session commands were considered part of Input Commands - resolved: **Host Commands** are a separate future concern because they change chat, session, UI, or product state rather than Agent run input.
+- Generic `routing()` and `gate()` helpers were considered for LLM-backed decisions - resolved: use **LLM Route Capability** and **LLM Gate Capability** because the public names should make model use explicit and leave room for deterministic, auth, or security gates.
+- A callback routing official Capability was considered - resolved: deterministic context decisions remain user-defined inline Capabilities or hooks in V1.
+- Multiple route or gate decisions writing the same context key were considered for priority or merging - resolved: **Pre-Invocation Decision** ids are unique per Agent, with duplicate ids failing early.
+- Dynamic Capability activation through route decisions was considered - resolved: Pre-Invocation Decisions can influence conditional contributions but must not attach, remove, or grant **Capabilities** at runtime.
+- A generic `decisionPolicy()` helper and request-refinement Capability were considered - resolved: defer them until **LLM Route Capability**, **LLM Gate Capability**, and Chat Sessions prove the internal primitive.
 - Input Command display metadata was considered capability-level - resolved: Capability id owns identity, while command descriptions are the user-facing metadata hosts may render.
 - Requiring users to attach one Capability per internal mechanism was considered - resolved: users attach one Capability per product ability, and official Capabilities can own their natural Input Command surface when that command is part of the expected user experience.
 - Storage Capability options were described as access levels in an older PR - resolved: official primitive Capabilities use `mode` for read/write exposure, while `access` is older proposal language.
 - Storage helpers were considered examples around raw tools - resolved: KV, Blob, and DB helpers are first-class official **Capabilities**.
+- Root Agent Package exports were considered convenient for official Capability factories - resolved: keep official Capability factories and their companion helpers on `@vite-hub/agent/capabilities` so the root entry stays focused on Agent Definition and invocation primitives.
 - Storage Capabilities were considered as direct primitive method proxies - resolved: official storage Capabilities should stay small with read/edit tools rather than method fanout.
 - DB storage permission was considered one mode - resolved: DB separates data `mode` from **Schema Mode** because data reads/writes and schema inspection/changes are different authorities.
 - Storage write mode was considered enough to allow immediate mutations - resolved: write exposure and approval policy are separate, so developers can opt into **Autonomous Storage Writes** explicitly.

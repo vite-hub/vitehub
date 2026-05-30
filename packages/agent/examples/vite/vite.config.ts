@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 import { defineConfig } from "vite"
-import { hubAgent } from "@vitehub/agent/vite"
+import { hubAgent } from "@vite-hub/agent/vite"
 
 export default defineConfig({
   appType: "custom",

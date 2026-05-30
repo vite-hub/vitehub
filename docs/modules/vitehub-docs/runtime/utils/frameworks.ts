@@ -7,18 +7,4 @@ const frameworkDefs = [
 export type Framework = (typeof frameworkDefs)[number]["id"];
 
 export const frameworks = frameworkDefs.map(entry => entry.id) as Framework[];
-export const visibleFrameworks = frameworks.filter((framework): framework is Framework => framework !== "nuxt");
 export const defaultFramework: Framework = "vite";
-export const frameworkPattern = frameworks.join("|");
-
-export const frameworkLabels = Object.fromEntries(
-  frameworkDefs.map(entry => [entry.id, entry.label]),
-) as Record<Framework, string>;
-
-export const frameworkColorIcons = Object.fromEntries(
-  frameworkDefs.map(entry => [entry.id, entry.colorIcon]),
-) as Record<Framework, string>;
-
-export const frameworkDescriptions = Object.fromEntries(
-  frameworkDefs.map(entry => [entry.id, entry.description]),
-) as Record<Framework, string>;

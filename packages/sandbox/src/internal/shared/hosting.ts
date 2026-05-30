@@ -16,7 +16,7 @@ export function normalizeHosting(hosting?: string | null): string {
 }
 
 export function detectHosting(target: HostingDetectionTarget) {
-  return normalizeHosting(process.env.NITRO_PRESET || target.options.nitro?.preset || target.options.preset || detectPresetArg())
+  return normalizeHosting(target.options.nitro?.preset || target.options.preset || detectPresetArg() || process.env.NITRO_PRESET || process.env.VITEHUB_HOSTING || '')
 }
 
 function detectPresetArg(): string {
