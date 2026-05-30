@@ -112,16 +112,23 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
   }
 }
 
+function isChatDevtoolsMetadata(metadata: unknown): metadata is ChatDevtoolsMetadata {
+  return !!metadata
+    && typeof metadata === "object"
+    && (Array.isArray((metadata as ChatDevtoolsMetadata).files)
+      || Array.isArray((metadata as ChatDevtoolsMetadata).instructions)
+      || typeof (metadata as ChatDevtoolsMetadata).title === "string"
+      || Array.isArray((metadata as ChatDevtoolsMetadata).tools))
+}
+
 async function resolveDevtoolsMetadata(metadata: ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined): Promise<ResolvedChatDevtoolsMetadata> {
   return normalizeDevtoolsMetadata(typeof metadata === "function" ? await metadata() : metadata)
 }
 
 async function metadataForChat(metadata: ChatDevtoolsMetadataInput | undefined, selected: string | undefined): Promise<ResolvedChatDevtoolsMetadata> {
   if (!metadata) return normalizeDevtoolsMetadata(undefined)
-  if (Array.isArray((metadata as ChatDevtoolsMetadata).files)
-    || Array.isArray((metadata as ChatDevtoolsMetadata).instructions)
-    || Array.isArray((metadata as ChatDevtoolsMetadata).tools)) {
-    return normalizeDevtoolsMetadata(metadata as ChatDevtoolsMetadata)
+  if (isChatDevtoolsMetadata(metadata)) {
+    return normalizeDevtoolsMetadata(metadata)
   }
   if (typeof metadata === "function") {
     return await resolveDevtoolsMetadata(metadata)

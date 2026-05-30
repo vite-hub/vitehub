@@ -914,6 +914,31 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("emits one chat title data part when async event streams become UI message streams", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Async title" })],
+      run: () => (async function* () {
+        yield { text: "answer", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts.filter(part => part.type === "data-chat-title")).toEqual([
+      { data: { title: "Async title", type: "chat-title" }, type: "data-chat-title" },
+    ])
+    expect(messages.at(-1)?.parts.map(part => part.type).sort()).toEqual(["data-chat-title", "text"])
+  })
+
   it("exposes chat title finish extension without registering command metadata", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
@@ -1347,6 +1372,30 @@ describe("agent message protocol", () => {
     expect(state.chats?.map(chat => chat.name)).toEqual(["files", "support"])
     expect(state.title).toBe("Files agent")
     expect(state.tools).toEqual([{ name: "reserved-chat-tool" }])
+  })
+
+  it("resolves direct title-only DevTools metadata", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    app.use(defineAgentDevtoolsRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({ concurrency: "queue" })],
+        run: () => "ok",
+      }),
+    }, {
+      metadata: { title: "Support agent" },
+    }))
+
+    const response = await toWebHandler(app)(new Request("http://example.test", {
+      body: JSON.stringify({ action: "get-state", chat: "support" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+    const state = await response.json() as { title?: string }
+
+    expect(state.title).toBe("Support agent")
   })
 
   it("streams DevTools sends without timer state polling and returns final assistant state", async () => {

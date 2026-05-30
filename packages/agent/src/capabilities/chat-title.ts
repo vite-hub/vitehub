@@ -15,6 +15,8 @@ import type {
 } from "../messages.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
+const chatTitleApplied = Symbol("vitehub.chat-title.applied")
+type ChatTitleApplied = { [chatTitleApplied]?: true }
 
 export interface ChatTitleExecuteInput {
   input: AgentRunInput
@@ -62,6 +64,24 @@ const defaultChatTitleTemplate = [
   "User message:",
   "{{ message }}",
 ].join("\n")
+
+function isObjectLike(value: unknown): value is object {
+  return (typeof value === "object" && value !== null) || typeof value === "function"
+}
+
+function hasChatTitleApplied(value: unknown): boolean {
+  return isObjectLike(value) && (value as ChatTitleApplied)[chatTitleApplied] === true
+}
+
+function markChatTitleApplied<T>(value: T): T {
+  if (isObjectLike(value)) {
+    Object.defineProperty(value, chatTitleApplied, {
+      configurable: true,
+      value: true,
+    })
+  }
+  return value
+}
 
 function firstUserMessage(messages: Message[]): Message | undefined {
   return messages.find(message => message.role === "user")
@@ -171,52 +191,55 @@ async function generateChatTitle(context: AgentCapabilityRuntimeContext, options
   return heuristicTitle(input.text, maxLength, fallback)
 }
 
-async function* withChatTitleParallel<T>(
+function withChatTitleParallel<T>(
   result: AsyncIterable<T>,
   title: Promise<string | undefined>,
   renderTitle: (title: string) => T,
 ): AsyncIterable<T> {
-  const iterator = result[Symbol.asyncIterator]()
-  let streamNext = iterator.next()
-  let titlePending = true
-  const titleNext = title
-    .then(value => ({ title: value, type: "title" as const }))
-    .catch(() => ({ title: undefined, type: "title" as const }))
+  const iterable = (async function* () {
+    const iterator = result[Symbol.asyncIterator]()
+    let streamNext = iterator.next()
+    let titlePending = true
+    const titleNext = title
+      .then(value => ({ title: value, type: "title" as const }))
+      .catch(() => ({ title: undefined, type: "title" as const }))
 
-  try {
-    while (true) {
-      const next = titlePending
-        ? await Promise.race([
-            streamNext.then(value => ({ type: "stream" as const, value })),
-            titleNext,
-          ])
-        : { type: "stream" as const, value: await streamNext }
+    try {
+      while (true) {
+        const next = titlePending
+          ? await Promise.race([
+              streamNext.then(value => ({ type: "stream" as const, value })),
+              titleNext,
+            ])
+          : { type: "stream" as const, value: await streamNext }
 
-      if (next.type === "title") {
-        titlePending = false
-        if (next.title) {
-          yield renderTitle(next.title)
+        if (next.type === "title") {
+          titlePending = false
+          if (next.title) {
+            yield renderTitle(next.title)
+          }
+          continue
         }
-        continue
+
+        if (next.value.done) {
+          break
+        }
+        yield next.value.value
+        streamNext = iterator.next()
       }
 
-      if (next.value.done) {
-        break
-      }
-      yield next.value.value
-      streamNext = iterator.next()
-    }
-
-    if (titlePending) {
-      const resolvedTitle = await titleNext
-      if (resolvedTitle.title) {
-        yield renderTitle(resolvedTitle.title)
+      if (titlePending) {
+        const resolvedTitle = await titleNext
+        if (resolvedTitle.title) {
+          yield renderTitle(resolvedTitle.title)
+        }
       }
     }
-  }
-  finally {
-    await iterator.return?.()
-  }
+    finally {
+      await iterator.return?.()
+    }
+  })()
+  return markChatTitleApplied(iterable)
 }
 
 function withChatTitleEvent(result: AsyncIterable<StreamEvent>, title: Promise<string | undefined>): AsyncIterable<StreamEvent> {
@@ -246,7 +269,7 @@ function withChatTitleUiMessageStream(result: ReadableStream<unknown>, title: Pr
     .then(value => ({ title: value, type: "title" as const }))
     .catch(() => ({ title: undefined, type: "title" as const }))
 
-  return new ReadableStream<unknown>({
+  return markChatTitleApplied(new ReadableStream<unknown>({
     async start(controller) {
       let streamNext = reader.read()
       let titlePending = true
@@ -294,7 +317,7 @@ function withChatTitleUiMessageStream(result: ReadableStream<unknown>, title: Pr
       cancelled = true
       return reader.cancel(reason)
     },
-  })
+  }))
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<StreamEvent> {
@@ -343,7 +366,7 @@ function cloneStreamTextResult<T extends { fullStream?: AsyncIterable<unknown>, 
       writable: true,
     })
   }
-  return clone
+  return markChatTitleApplied(clone)
 }
 
 function chatTitleUiMessageStreamOverride(toUIMessageStream: ToUIMessageStream | undefined, title: Promise<string | undefined>) {
@@ -381,6 +404,7 @@ export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
         return resolvedTitle ? { title: resolvedTitle } : undefined
       })
       context.output.render((result) => {
+        if (hasChatTitleApplied(result)) return result
         if (isStreamTextResult(result)) {
           const toUIMessageStream = result.toUIMessageStream?.bind(result)
           if (result.fullStream) {

@@ -1426,7 +1426,7 @@ export async function streamAgent<
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
     try {
-      if (isAsyncIterable(result)) {
+      if (isAsyncIterable(result) && output !== "ui-message-stream") {
         result = await applyOutputRenderers(result, runContext.outputRenderers)
       }
     }
@@ -1456,7 +1456,7 @@ export async function streamAgent<
     return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
   }
   try {
-    if (isAsyncIterable(result)) {
+    if (isAsyncIterable(result) && output !== "ui-message-stream") {
       result = await applyOutputRenderers(result, adapterContext.outputRenderers)
     }
   }
