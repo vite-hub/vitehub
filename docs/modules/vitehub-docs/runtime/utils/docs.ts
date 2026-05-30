@@ -13,7 +13,7 @@ export type DocsPage = {
   order: number;
 };
 
-export type DocsSection = {
+type DocsSection = {
   id: string;
   path: string;
   title: string;

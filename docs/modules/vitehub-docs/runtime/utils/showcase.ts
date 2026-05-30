@@ -40,7 +40,7 @@ export function getShowcaseExamples() {
   return docsManifest.examples;
 }
 
-export function getSupportedShowcaseFrameworks(example: ShowcaseExample) {
+function getSupportedShowcaseFrameworks(example: ShowcaseExample) {
   return frameworks.filter((framework): framework is Framework => Boolean(example.frameworks[framework] && example.files[framework]?.length));
 }
 
