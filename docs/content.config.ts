@@ -11,7 +11,9 @@ const pageSchema = z.object({
     avatar: z.object({
       src: z.string(),
     }).optional(),
+    description: z.string().optional(),
     name: z.string(),
+    target: z.string().optional(),
     to: z.string().optional(),
   })).optional(),
   category: z.string().optional(),

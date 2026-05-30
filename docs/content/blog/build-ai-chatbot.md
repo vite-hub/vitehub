@@ -8,9 +8,11 @@ category: Article
 layout: tutorial
 image: /images/tutorials/agent-layers-flat.png
 authors:
-  - name: onmax
+  - name: maxi
+    description: "@onmax"
     avatar:
       src: https://github.com/onmax.png
+    target: _blank
     to: https://github.com/onmax
 icon: i-lucide-message-circle-code
 ---

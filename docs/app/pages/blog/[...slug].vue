@@ -75,6 +75,16 @@ useSeoMeta({
             <time v-if="formattedDate" :datetime="publishedDate">{{ formattedDate }}</time>
           </div>
         </template>
+
+        <div v-if="post.authors?.length" class="mt-6 flex flex-wrap items-center gap-4">
+          <UUser
+            v-for="author in post.authors"
+            :key="author.name"
+            v-bind="author"
+            size="sm"
+            :ui="{ name: 'font-medium text-highlighted', description: 'text-muted' }"
+          />
+        </div>
       </UPageHeader>
 
       <UPageBody prose class="docs-content blog-content pb-24">
