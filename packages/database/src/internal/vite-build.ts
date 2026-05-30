@@ -243,6 +243,7 @@ function createCloudflareOutput({ artifacts, runtimeConfig }: ProviderWriteOptio
       format: "esm",
       platform: "neutral",
     },
+    wranglerConfigKeys: ["d1_databases"],
     wranglerConfig,
   }
 }
@@ -277,6 +278,9 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
     cloudflare: shouldCreateCloudflareOutput(options.runtimeConfig) ? createCloudflareOutput(writeOptions) : undefined,
+    cleanup: {
+      cloudflare: { wranglerConfigKeys: ["d1_databases"] },
+    },
     rootDir: options.rootDir,
     vercel: shouldCreateVercelOutput(options.runtimeConfig) ? createVercelOutput(writeOptions) : undefined,
   })

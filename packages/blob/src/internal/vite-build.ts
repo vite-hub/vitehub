@@ -279,6 +279,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
       format: "esm",
       platform: "neutral",
     },
+    wranglerConfigKeys: ["r2_buckets"],
     wranglerConfig,
   }
 }

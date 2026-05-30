@@ -171,6 +171,7 @@ function createCloudflareOutput(artifacts: GeneratedQueueArtifacts): CloudflareP
       format: "esm",
       platform: "neutral",
     },
+    wranglerConfigKeys: ["queues"],
     wranglerConfig,
   }
 }
@@ -239,6 +240,7 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
   const queueConfig = normalizeQueueOptions(queue, { hosting: "vercel" }) || false
 
+  await rm(queueRoot, { force: true, recursive: true })
   if (queueConfig === false) {
     return
   }

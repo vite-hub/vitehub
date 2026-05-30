@@ -178,7 +178,9 @@ describe("Vite provider outputs", () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-disabled-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await mkdir(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "stale", "stale.func"), { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "stale", "stale.func", "index.mjs"), "export default {}\n", "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist/client",

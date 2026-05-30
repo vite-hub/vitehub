@@ -19,6 +19,7 @@ interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
   bundleOutfileName?: string
   outputRoot?: string
   staticOutputDir?: string
+  wranglerConfigKeys?: string[]
   wranglerConfig: object
 }
 
@@ -26,6 +27,7 @@ interface VercelDeploymentOutputOptions extends SharedDeploymentOptions {
   bundleEntry: string
   bundleOptions: BundleOptions
   config?: object
+  configKeys?: string[]
   functionConfig?: object
   outputRoot?: string
   serverFunctionName?: string
@@ -35,8 +37,24 @@ interface VercelDeploymentOutputOptions extends SharedDeploymentOptions {
 export type CloudflareProviderDeploymentOutput = Omit<CloudflareDeploymentOutputOptions, keyof SharedDeploymentOptions>
 export type VercelProviderDeploymentOutput = Omit<VercelDeploymentOutputOptions, keyof SharedDeploymentOptions>
 
+interface CloudflareProviderDeploymentCleanup {
+  bundleOutfileName?: string
+  outputRoot?: string
+  wranglerConfigKeys?: string[]
+}
+
+interface VercelProviderDeploymentCleanup {
+  configKeys?: string[]
+  outputRoot?: string
+  serverFunctionName?: string
+}
+
 interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
   cloudflare?: CloudflareProviderDeploymentOutput
+  cleanup?: {
+    cloudflare?: CloudflareProviderDeploymentCleanup
+    vercel?: VercelProviderDeploymentCleanup
+  }
   vercel?: VercelProviderDeploymentOutput
 }
 
@@ -68,9 +86,41 @@ async function readJsonObject(file: string): Promise<Record<string, unknown>> {
   }
 }
 
-async function writeMergedJsonObject(file: string, value: object): Promise<void> {
+function deleteJsonObjectKeys(value: Record<string, unknown>, keys: string[] | undefined): Record<string, unknown> {
+  if (!keys?.length) return value
+  const next = { ...value }
+  for (const key of keys) {
+    delete next[key]
+  }
+  return next
+}
+
+async function writeMergedJsonObject(file: string, value: object, ownedKeys?: string[]): Promise<void> {
   const existing = await readJsonObject(file)
-  await writeFile(file, `${JSON.stringify({ ...existing, ...value }, null, 2)}\n`, "utf8")
+  await writeFile(file, `${JSON.stringify({ ...deleteJsonObjectKeys(existing, ownedKeys), ...value }, null, 2)}\n`, "utf8")
+}
+
+async function deleteJsonObjectKeysFromFile(file: string, keys: string[] | undefined): Promise<void> {
+  if (!keys?.length) return
+  let existing: Record<string, unknown>
+  try {
+    const parsed = JSON.parse(await readFile(file, "utf8"))
+    existing = isJsonObject(parsed) ? parsed : {}
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    throw error
+  }
+  const next = { ...existing }
+  let changed = false
+  for (const key of keys) {
+    if (key in next) {
+      delete next[key]
+      changed = true
+    }
+  }
+  if (!changed) return
+  await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
 }
 
 export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined, mode?: string): boolean {
@@ -99,7 +149,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
 
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions),
-    writeMergedJsonObject(resolve(outputRoot, "wrangler.json"), options.wranglerConfig),
+    writeMergedJsonObject(resolve(outputRoot, "wrangler.json"), options.wranglerConfig, options.wranglerConfigKeys),
     staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
       : Promise.resolve(),
@@ -119,11 +169,31 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   await Promise.all([
     bundleEsmEntry(options.bundleEntry, serverEntry, options.bundleOptions),
     writeFile(resolve(serverDir, ".vc-config.json"), `${JSON.stringify(options.functionConfig ?? createNodeFunctionConfig(), null, 2)}\n`, "utf8"),
-    writeMergedJsonObject(resolve(outputRoot, "config.json"), options.config ?? createVercelConfigJson()),
+    writeMergedJsonObject(resolve(outputRoot, "config.json"), options.config ?? createVercelConfigJson(), options.configKeys),
     staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? resolve(outputRoot, "static"))
       : Promise.resolve(),
   ])
+}
+
+async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanup: CloudflareProviderDeploymentCleanup): Promise<void> {
+  const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
+  const writes: Array<Promise<void>> = []
+  if (cleanup.bundleOutfileName) {
+    writes.push(rm(resolve(outputRoot, cleanup.bundleOutfileName), { force: true, recursive: true }))
+  }
+  writes.push(deleteJsonObjectKeysFromFile(resolve(outputRoot, "wrangler.json"), cleanup.wranglerConfigKeys))
+  await Promise.all(writes)
+}
+
+async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelProviderDeploymentCleanup): Promise<void> {
+  const outputRoot = cleanup.outputRoot ?? createDefaultVercelOutputRoot(rootDir)
+  const writes: Array<Promise<void>> = []
+  if (cleanup.serverFunctionName) {
+    writes.push(rm(resolve(outputRoot, "functions", cleanup.serverFunctionName), { force: true, recursive: true }))
+  }
+  writes.push(deleteJsonObjectKeysFromFile(resolve(outputRoot, "config.json"), cleanup.configKeys))
+  await Promise.all(writes)
 }
 
 export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {
@@ -134,6 +204,8 @@ export async function writeProviderDeploymentOutputs(options: ProviderDeployment
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
     }))
+  } else if (options.cleanup?.cloudflare) {
+    writes.push(cleanupCloudflareDeploymentOutput(options.rootDir, options.cleanup.cloudflare))
   }
   if (options.vercel) {
     writes.push(writeVercelDeploymentOutput({
@@ -141,6 +213,8 @@ export async function writeProviderDeploymentOutputs(options: ProviderDeployment
       clientOutDir: options.clientOutDir,
       rootDir: options.rootDir,
     }))
+  } else if (options.cleanup?.vercel) {
+    writes.push(cleanupVercelDeploymentOutput(options.rootDir, options.cleanup.vercel))
   }
   await Promise.all(writes)
 }

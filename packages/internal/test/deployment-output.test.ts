@@ -129,4 +129,99 @@ describe("provider deployment outputs", () => {
       version: 3,
     })
   })
+
+  it("removes owned Cloudflare config keys before merging new output", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(cloudflareDir, "wrangler.json"), `${JSON.stringify({
+      d1_databases: [{ binding: "DB", database_id: "old" }],
+      triggers: { crons: ["0 0 * * *"] },
+    }, null, 2)}\n`)
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      cloudflare: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        wranglerConfig: {
+          compatibility_date: "2026-01-01",
+          main: "index.js",
+        },
+        wranglerConfigKeys: ["d1_databases"],
+      },
+      rootDir,
+    })
+
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      compatibility_date: "2026-01-01",
+      main: "index.js",
+      triggers: { crons: ["0 0 * * *"] },
+    })
+  })
+
+  it("removes owned Vercel config keys before merging new output", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const vercelDir = createDefaultVercelOutputRoot(rootDir)
+    await mkdir(vercelDir, { recursive: true })
+    await writeFile(join(vercelDir, "config.json"), `${JSON.stringify({
+      crons: [{ path: "/api/vitehub/schedules/vercel/daily", schedule: "0 0 * * *" }],
+      version: 3,
+    }, null, 2)}\n`)
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        configKeys: ["crons"],
+      },
+    })
+
+    const config = await readFile(join(vercelDir, "config.json"), "utf8").then(JSON.parse) as { crons?: unknown, routes?: unknown, version?: unknown }
+    expect(config.crons).toBeUndefined()
+    expect(config.routes).toEqual([{ handle: "filesystem" }, { dest: "/__server", src: "/(.*)" }])
+    expect(config.version).toBe(3)
+  })
+
+  it("cleans omitted provider-owned artifacts and config keys", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const workerFile = join(cloudflareDir, "worker.mjs")
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(workerFile, "export default {}")
+    await writeFile(join(cloudflareDir, "wrangler.json"), `${JSON.stringify({
+      triggers: { crons: ["0 0 * * *"] },
+      workflows: [{ binding: "WORKFLOW", class_name: "Workflow", name: "workflow" }],
+    }, null, 2)}\n`)
+
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          bundleOutfileName: "worker.mjs",
+          wranglerConfigKeys: ["workflows"],
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    expect(existsSync(workerFile)).toBe(false)
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      triggers: { crons: ["0 0 * * *"] },
+    })
+  })
 })

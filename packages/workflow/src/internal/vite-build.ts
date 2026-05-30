@@ -213,6 +213,7 @@ function createCloudflareOutput(rootDir: string, artifacts: GeneratedWorkflowArt
     },
     bundleOutfileName: "worker.mjs",
     outputRoot: createDefaultCloudflareOutputRoot(rootDir),
+    wranglerConfigKeys: ["workflows"],
     wranglerConfig,
   }
 }
@@ -246,6 +247,13 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     ...(cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
       ? { cloudflare: createCloudflareOutput(options.rootDir, artifacts) }
       : {}),
+    cleanup: {
+      cloudflare: {
+        bundleOutfileName: "worker.mjs",
+        outputRoot: createDefaultCloudflareOutputRoot(options.rootDir),
+        wranglerConfigKeys: ["workflows"],
+      },
+    },
     rootDir: options.rootDir,
     ...(vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
       ? { vercel: createVercelOutput(artifacts) }
