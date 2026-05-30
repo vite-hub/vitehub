@@ -27,6 +27,10 @@ const pageSchema = z.object({
   })).optional(),
 });
 
+const blogSchema = pageSchema.extend({
+  layout: z.enum(["article", "tutorial"]).optional(),
+});
+
 // Nuxt Content reads collections at config parse time, before the module setup runs.
 writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
 
@@ -48,7 +52,7 @@ export default defineContentConfig({
         include: "**/*.md",
         prefix: "/blog",
       },
-      schema: pageSchema,
+      schema: blogSchema,
     }),
   },
 });

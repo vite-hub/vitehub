@@ -5,6 +5,7 @@ description: >-
   Sandbox, and Workspace in one framework-aware walkthrough.
 date: 2026-05-28
 category: Article
+layout: tutorial
 image: /images/tutorials/server-primitives-flat.png
 authors:
   - name: onmax

@@ -5,6 +5,7 @@ description: >-
   DevTools, and an Agent Eval.
 date: 2026-05-28
 category: Article
+layout: tutorial
 image: /images/tutorials/agent-layers-flat.png
 authors:
   - name: onmax
