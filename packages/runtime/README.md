@@ -6,7 +6,7 @@
   <img alt="Runtime" src="https://img.shields.io/badge/Runtime-context%20%7C%20policy%20%7C%20trace-18181b?style=flat-square">
 </p>
 
-`@vite-hub/runtime` owns Runtime Host Context, Runtime Capability handles, Policy Decisions, Approval Requests, Trace Events, and Leases. Other ViteHub packages use it to share runtime resources and operation policy without making every concept an Agent Capability.
+`@vite-hub/runtime` shares host context, capability handles, policy decisions, approvals, traces, and leases across packages.
 
 ## Install
 
@@ -17,6 +17,7 @@ pnpm add @vite-hub/runtime
 ## Minimal API
 
 ```ts
+// server/utils/runtime-context.ts
 import {
   createExecutionContext,
   defineCapability,
@@ -24,16 +25,14 @@ import {
   resolveCapabilityPolicy,
 } from "@vite-hub/runtime"
 
-const kvRuntime = {
-  get: async (_key: string) => null,
-}
-
 const context = createExecutionContext({
   runtime: "nitro",
   memo: (key, create) => create(),
   waitUntil: task => task.catch(() => {}),
   capabilities: {
-    kv: defineCapability("kv", kvRuntime),
+    kv: defineCapability("kv", {
+      get: async (_key: string) => null,
+    }),
   },
 })
 
@@ -45,8 +44,8 @@ const decision = await resolveCapabilityPolicy("require-approval", {
 })
 ```
 
-## Entry points
+## Used by
 
-- `@vite-hub/runtime`: runtime context helpers, capability helpers, policy resolution, approval errors, trace types, and lease types.
+Feature packages use Runtime Capability handles instead of passing every provider client through every API. Agent Capabilities consume these handles when they expose KV, Blob, DB, sandbox, shell, or workspace behavior.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

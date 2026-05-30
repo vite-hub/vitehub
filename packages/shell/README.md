@@ -6,7 +6,7 @@
   <img alt="Shell" src="https://img.shields.io/badge/Shell-controlled%20runtime-18181b?style=flat-square">
 </p>
 
-`@vite-hub/shell` owns Shell Runtime behavior, Shell Sessions, Command Analysis, Shell Boundaries, Shell Observations, and Execution Provider adapters. Use it when an agent-facing system needs structured command execution without making terminal emulation the public contract.
+`@vite-hub/shell` gives agents and workspace tools structured command execution with explicit boundaries.
 
 ## Install
 
@@ -17,6 +17,7 @@ pnpm add @vite-hub/shell
 ## Minimal API
 
 ```ts
+// server/utils/shell.ts
 import { analyzeShellCommand, createShellRuntime } from "@vite-hub/shell"
 import type { ShellExecutionProvider } from "@vite-hub/shell"
 
@@ -46,11 +47,10 @@ const analysis = await analyzeShellCommand("echo ok")
 const result = analysis.ok ? await runtime.exec("echo ok") : undefined
 ```
 
-## Entry points
+## Used by
 
-- `@vite-hub/shell`: `createShellRuntime()`, `analyzeShellCommand()`, and Shell Runtime types.
-- `@vite-hub/shell/providers/just-bash`: built-in Just Bash Provider.
-- `@vite-hub/shell/providers/cloudflare`: Cloudflare-compatible shell provider adapter.
-- `@vite-hub/shell/workspace`: Workspace File System adapters and inspection helpers.
+`workspaceShell()` in [`@vite-hub/agent`](../agent/README.md) uses this package to expose scoped shell work to an agent. Workspace adapters live in `@vite-hub/shell/workspace`.
+
+Built on [just-bash](https://www.npmjs.com/package/just-bash) for the built-in shell provider and [sh-syntax](https://www.npmjs.com/package/sh-syntax) for command analysis.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

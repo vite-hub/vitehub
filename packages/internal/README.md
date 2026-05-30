@@ -6,28 +6,22 @@
   <img alt="Internal" src="https://img.shields.io/badge/Internal-shared%20helpers-525252?style=flat-square">
 </p>
 
-`@vite-hub/internal` contains shared implementation helpers for package builds, Definition discovery, Provider Output, feature bridges, runtime host plumbing, CLI contribution collection, and tests. It is private and is not an application API.
+`@vite-hub/internal` is a private workspace package for shared implementation code. Application code should not import it.
 
 ## Install
 
-Do not install this package directly. It is a workspace-only private package used by other ViteHub packages.
+Do not install this package directly. Other ViteHub packages depend on it inside the monorepo.
 
 ## Minimal API
 
-Application code should not import from `@vite-hub/internal`.
-
-Package code can use explicit internal subpaths when it needs shared implementation contracts:
-
 ```ts
+// packages/*/src/internal-use.ts
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalMerger } from "@vite-hub/internal/build/vite"
 ```
 
-## Entry points
+## Used by
 
-- `@vite-hub/internal/definition-catalog`: Definition discovery and Runtime Registry helpers.
-- `@vite-hub/internal/build/*`: shared build and Provider Output utilities.
-- `@vite-hub/internal/feature-bridge/*`: shared Vite/Nitro feature bridge internals.
-- `@vite-hub/internal/runtime/*`: runtime host context helpers.
+Packages use it for definition discovery, generated runtime registries, Provider Output, hosted runtime helpers, and Vite/Nitro feature bridges.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

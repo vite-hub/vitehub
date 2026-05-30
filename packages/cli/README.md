@@ -6,7 +6,7 @@
   <img alt="CLI" src="https://img.shields.io/badge/CLI-package%20workflows-18181b?style=flat-square">
 </p>
 
-`@vite-hub/cli` loads the local Vite config, collects package-contributed CLI Command Namespaces, and runs package-owned CLI Features. The first namespace is the Agent Package namespace for Agent Evals, exposed as `vitehub agent eval`.
+`@vite-hub/cli` loads the local Vite config, collects package-contributed commands, and runs them from `vitehub`.
 
 ## Install
 
@@ -22,6 +22,7 @@ pnpm vitehub agent eval
 ```
 
 ```ts
+// scripts/vitehub.ts
 import { runViteHubCli } from "@vite-hub/cli"
 
 const exitCode = await runViteHubCli({
@@ -30,9 +31,8 @@ const exitCode = await runViteHubCli({
 })
 ```
 
-## Entry points
+## Vite
 
-- `vitehub`: binary that discovers package-contributed namespaces from Vite plugins.
-- `@vite-hub/cli`: `runViteHubCli()` for programmatic execution and test harnesses.
+Commands come from Vite plugins, so package CLIs can stay package-owned. The first public namespace is `vitehub agent eval` from [`@vite-hub/agent`](../agent/README.md), backed by [Evalite](https://www.evalite.dev/).
 
 Learn more at [vitehub.dev](https://vitehub.dev).

@@ -6,7 +6,7 @@
   <img alt="Providers" src="https://img.shields.io/badge/Providers-GitHub%20%7C%20Vercel%20%7C%20Cloudflare-18181b?style=flat-square">
 </p>
 
-`@vite-hub/ci` normalizes deployment and build status across GitHub Actions, Vercel Deployments, and Cloudflare Workers Builds. Use it when ViteHub needs to list runs, inspect one run, fetch logs, or extract the likely failure from provider-specific output.
+`@vite-hub/ci` normalizes build and deployment status across CI providers.
 
 ## Install
 
@@ -17,10 +17,10 @@ pnpm add @vite-hub/ci
 ## Minimal API
 
 ```ts
+// scripts/check-ci.ts
 import { createCIProvider, extractLikelyCIError } from "@vite-hub/ci"
 
 const ci = createCIProvider("github")
-
 const runs = await ci.listRuns({
   token: process.env.GITHUB_TOKEN!,
   owner: "vite-hub",
@@ -39,12 +39,8 @@ const logs = await ci.getLogs({
 const likelyError = extractLikelyCIError(logs.lines, { maxLines: 20 })
 ```
 
-## Entry points
+## Providers
 
-- `@vite-hub/ci`: provider factory, common types, provider exports, errors, and log helpers.
-- `@vite-hub/ci/github`: GitHub Actions provider.
-- `@vite-hub/ci/vercel`: Vercel Deployments provider.
-- `@vite-hub/ci/cloudflare`: Cloudflare Workers Builds provider.
-- `@vite-hub/ci/logs`: CI log error extraction helpers.
+Provider adapters cover [GitHub Actions](https://docs.github.com/en/actions), [Vercel Deployments](https://vercel.com/docs/deployments/overview), and [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/).
 
 Learn more at [vitehub.dev](https://vitehub.dev).

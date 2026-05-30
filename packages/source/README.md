@@ -6,7 +6,7 @@
   <img alt="Sources" src="https://img.shields.io/badge/Source-typed%20retrieval-0f766e?style=flat-square">
 </p>
 
-`@vite-hub/source` owns Source Definitions, the Source Registry, Source Paths, and Source Loaders. Use it when you need typed retrieval from files, globs, markdown, GitHub, or custom data without also owning Workspace file-tree placement.
+`@vite-hub/source` loads files, globs, markdown, GitHub content, or custom data before something else places it in a workspace.
 
 ## Install
 
@@ -17,13 +17,8 @@ pnpm add @vite-hub/source
 ## Minimal API
 
 ```ts
-import {
-  defineSources,
-  glob,
-  markdown,
-  registerSources,
-  useSource,
-} from "@vite-hub/source"
+// server/utils/sources.ts
+import { defineSources, glob, markdown, registerSources, useSource } from "@vite-hub/source"
 
 registerSources(defineSources({
   docs: glob({ cwd: "docs", include: "**/*.md" }),
@@ -35,10 +30,10 @@ const keys = await docs.keys()
 const first = await docs.read(keys[0]!)
 ```
 
-## Entry points
+## Used by
 
-- `@vite-hub/source`: Source Definition helpers, Source Registry helpers, built-in Source Loaders, errors, and types.
-- `@vite-hub/source/sources`: built-in Source Loaders as a grouped subpath.
-- `@vite-hub/source/sources/*`: individual loader modules for custom, file, GitHub, glob, and markdown sources.
+[`@vite-hub/workspace`](../workspace/README.md) materializes Source output into workspace files. Use this package directly when you only need typed source loading and not a workspace file tree.
+
+Built on [tinyglobby](https://github.com/SuperchupuDev/tinyglobby), [picomatch](https://github.com/micromatch/picomatch), and [mrmime](https://github.com/lukeed/mrmime).
 
 Learn more at [vitehub.dev](https://vitehub.dev).
