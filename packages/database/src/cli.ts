@@ -28,7 +28,7 @@ type MaybePromise<T> = Promise<T> | T
 
 function writeGenerateUsage(context: ViteHubCliContext): void {
   context.stdout.write([
-    "Usage: vite-hub db generate [--name <name>] [--custom]",
+    "Usage: vitehub db generate [--name <name>] [--custom]",
     "",
     "Refreshes ViteHub database artifacts and generates Drizzle migrations.",
     "",
@@ -42,7 +42,7 @@ function writeGenerateUsage(context: ViteHubCliContext): void {
 
 function writeMigrateUsage(context: ViteHubCliContext): void {
   context.stdout.write([
-    "Usage: vite-hub db migrate",
+    "Usage: vitehub db migrate",
     "",
     "Refreshes ViteHub database artifacts and applies Drizzle migrations.",
     "",
