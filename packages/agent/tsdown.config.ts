@@ -3,7 +3,7 @@ import { defineConfig } from "tsdown"
 export default defineConfig({
   clean: true,
   deps: {
-    alwaysBundle: [/^@vitehub\/(devtools|internal)/],
+    alwaysBundle: [/^@vite-hub\/(devtools|internal)/],
     neverBundle: ["#vitehub/agent/registry", /^evalite/, /^vitest/],
     onlyBundle: false,
   },

@@ -35,8 +35,16 @@ function exportTarget(rawTarget: unknown) {
   }
 }
 
+function packagePublishName(packageName: PackageName) {
+  return packageName === "cli" ? "vite-hub" : `@vite-hub/${packageName}`
+}
+
+function packageShortName(packageName: string) {
+  return packageName === "vite-hub" ? "cli" : packageName.replace("@vite-hub/", "")
+}
+
 function hasExport(packageName: string, specifier: string) {
-  const shortName = packageName.replace("@vite-hub/", "") as PackageName
+  const shortName = packageShortName(packageName) as PackageName
   const manifest = readPackageManifest(shortName)
   const subpath = specifier.slice(packageName.length)
 
@@ -62,7 +70,7 @@ describe("package manifest contracts", () => {
     for (const packageName of packageNames) {
       const manifest = readPackageManifest(packageName)
 
-      expect(manifest.name).toBe(`@vite-hub/${packageName}`)
+      expect(manifest.name).toBe(packagePublishName(packageName))
       expect(manifest.description, `${packageName} should describe its package`).toEqual(expect.any(String))
       expect(manifest.license).toBe("Apache-2.0")
       expect(manifest.sideEffects).toBe(false)
@@ -128,11 +136,14 @@ describe("docs import contracts", () => {
     }
 
     expect(specifiers.size).toBeGreaterThan(0)
+    const scopedPackageNames = packageNames
+      .map(packagePublishName)
+      .filter(packageName => packageName.startsWith("@vite-hub/"))
 
     for (const specifier of specifiers) {
       const [scope, name] = specifier.split("/")
       const packageName = `${scope}/${name}`
-      expect(packageNames.map(item => `@vite-hub/${item}`), `Unexpected docs package import: ${specifier}`).toContain(packageName)
+      expect(scopedPackageNames, `Unexpected docs package import: ${specifier}`).toContain(packageName)
       expect(hasExport(packageName, specifier), `Missing docs export: ${specifier}`).toBe(true)
     }
   })

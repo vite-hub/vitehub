@@ -10,7 +10,7 @@ frameworks: [vite]
 ## Install
 
 ```bash
-pnpm add @vite-hub/cli @vite-hub/database drizzle-kit drizzle-orm h3 vite
+pnpm add vite-hub @vite-hub/database drizzle-kit drizzle-orm h3 vite
 ```
 
 ## Register
@@ -81,4 +81,4 @@ app.get('/api/notes', async () => {
 export default app
 ```
 
-`vitehub db generate` refreshes the generated Drizzle schema and Drizzle Kit config before migration commands run.
+`vite-hub db generate` refreshes the generated Drizzle schema and Drizzle Kit config before migration commands run.

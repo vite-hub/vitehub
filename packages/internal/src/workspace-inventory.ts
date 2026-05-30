@@ -17,6 +17,10 @@ function readPackageManifest(path: string): PackageManifest {
   return JSON.parse(readFileSync(path, "utf8")) as PackageManifest
 }
 
+function isViteHubPackageName(name: string | undefined): boolean {
+  return name === "vite-hub" || Boolean(name?.startsWith("@vite-hub/"))
+}
+
 export function listWorkspacePackageInfos(workspaceRoot: string): WorkspacePackageInfo[] {
   const packagesDir = resolve(workspaceRoot, "packages")
   if (!existsSync(packagesDir)) {
@@ -33,7 +37,7 @@ export function listWorkspacePackageInfos(workspaceRoot: string): WorkspacePacka
       }
 
       const manifest = readPackageManifest(manifestPath)
-      if (!manifest.name?.startsWith("@vite-hub/")) {
+      if (!isViteHubPackageName(manifest.name)) {
         return undefined
       }
 

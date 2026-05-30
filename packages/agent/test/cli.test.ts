@@ -120,7 +120,7 @@ describe("agent CLI", () => {
 
     expect(exitCode).toBe(0)
     expect(runner).not.toHaveBeenCalled()
-    expect(stdout.output()).toContain("Usage: vitehub agent eval")
+    expect(stdout.output()).toContain("Usage: vite-hub agent eval")
   })
 
   it("can disable agent eval CLI", async () => {

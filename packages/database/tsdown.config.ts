@@ -7,7 +7,7 @@ export default defineConfig({
     { from: "src/virtual-module.d.ts", rename: "virtual-module.d.ts", to: "dist" },
   ],
   deps: {
-    alwaysBundle: [/^@vitehub\/internal/],
+    alwaysBundle: [/^@vite-hub\/internal/],
     neverBundle: ["#vitehub/database/schema", "#vitehub/database/databases"],
   },
   dts: true,

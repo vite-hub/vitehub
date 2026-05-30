@@ -48,7 +48,7 @@ interface ParsedEvalArgs {
 
 function writeUsage(context: AgentCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent eval [path] [--watch] [--threshold <score>] [--output <path>] [--hide-table] [--no-cache]",
+    "Usage: vite-hub agent eval [path] [--watch] [--threshold <score>] [--output <path>] [--hide-table] [--no-cache]",
     "",
     "Runs discovered ViteHub Agent Evals with ViteHub defaults.",
     "",

@@ -6,7 +6,7 @@ import { listWorkspacePackageInfos, listWorkspacePackageNames } from "../src/wor
 const repoRoot = resolve(import.meta.dirname, "../../..")
 
 describe("workspace inventory", () => {
-  it("lists publishable @vitehub packages from the workspace", () => {
+  it("lists publishable ViteHub packages from the workspace", () => {
     expect(listWorkspacePackageNames(repoRoot)).toEqual([
       "agent",
       "blob",
@@ -25,6 +25,16 @@ describe("workspace inventory", () => {
       "workflow",
       "workspace",
     ])
+  })
+
+  it("maps the cli workspace to the unscoped npm package", () => {
+    expect(listWorkspacePackageInfos(repoRoot).find(entry => entry.name === "cli")).toEqual(
+      expect.objectContaining({
+        name: "cli",
+        packageName: "vite-hub",
+        private: false,
+      }),
+    )
   })
 
   it("can include private workspace packages when requested", () => {

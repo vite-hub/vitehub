@@ -451,7 +451,7 @@ describe("Nitro module", () => {
     const typesHook = nitro.hooks.hook.mock.calls.find(([name]) => name === "types:extend")?.[1]
     await typesHook?.({ tsConfig: { include: [] } })
 
-    const packageScopeDir = join(root, "node_modules/@vitehub")
+    const packageScopeDir = join(root, "node_modules/@vite-hub")
     await mkdir(packageScopeDir, { recursive: true })
     await symlink(join(import.meta.dirname, ".."), join(packageScopeDir, "env"), "dir")
 
