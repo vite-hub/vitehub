@@ -35,9 +35,6 @@ const state = ref<ChatDevtoolsStateResult>({
 })
 const messages = ref<ChatMessage[]>([])
 const defaultChatTitle = "ViteHub Chat"
-const displayedChatTitle = ref(defaultChatTitle)
-const titleAnimationActive = ref(false)
-const prefersReducedTitleMotion = ref(false)
 const loadingAssistantMessageId = "vitehub-devtools-loading-assistant"
 const chatMessages = computed(() => {
   const next = [...messages.value]
@@ -58,10 +55,6 @@ const sidebarWidth = ref(340)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 let stopSidebarResize: (() => void) | undefined
-let stopChatTitleWatch: (() => void) | undefined
-let stopReducedTitleMotionListener: (() => void) | undefined
-let titleAnimationRun = 0
-let titleAnimationTimer: ReturnType<typeof setTimeout> | undefined
 
 const disconnectedStatusMessage = "Connect through Vite DevTools to inspect a real chat runtime."
 const integrationTabs = [
@@ -118,54 +111,6 @@ function selectedChat(next = state.value) {
 
 function normalizeChatTitle(value: string | undefined) {
   return value?.replace(/\s+/g, " ").trim() || defaultChatTitle
-}
-
-function clearTitleAnimationTimer() {
-  if (titleAnimationTimer) {
-    clearTimeout(titleAnimationTimer)
-    titleAnimationTimer = undefined
-  }
-}
-
-function queueTitleAnimationStep(callback: () => void, delay: number) {
-  titleAnimationTimer = setTimeout(callback, delay)
-}
-
-function animateChatTitle(value: string) {
-  const target = normalizeChatTitle(value)
-  titleAnimationRun += 1
-  const run = titleAnimationRun
-  clearTitleAnimationTimer()
-
-  if (displayedChatTitle.value === target || prefersReducedTitleMotion.value) {
-    displayedChatTitle.value = target
-    titleAnimationActive.value = false
-    return
-  }
-
-  titleAnimationActive.value = true
-
-  const typeNext = (index: number) => {
-    if (run !== titleAnimationRun) return
-    if (index > target.length) {
-      titleAnimationActive.value = false
-      return
-    }
-    displayedChatTitle.value = target.slice(0, index)
-    queueTitleAnimationStep(() => typeNext(index + 1), 34)
-  }
-
-  const eraseNext = () => {
-    if (run !== titleAnimationRun) return
-    if (!displayedChatTitle.value) {
-      queueTitleAnimationStep(() => typeNext(1), 90)
-      return
-    }
-    displayedChatTitle.value = displayedChatTitle.value.slice(0, -1)
-    queueTitleAnimationStep(eraseNext, 20)
-  }
-
-  eraseNext()
 }
 
 function applyState(next: ChatDevtoolsStateResult) {
@@ -940,26 +885,11 @@ async function clear() {
 }
 
 onMounted(() => {
-  const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)")
-  prefersReducedTitleMotion.value = motionQuery.matches
-  const handleMotionPreference = (event: MediaQueryListEvent) => {
-    prefersReducedTitleMotion.value = event.matches
-    if (event.matches) {
-      animateChatTitle(chatTitleTarget.value)
-    }
-  }
-  motionQuery.addEventListener("change", handleMotionPreference)
-  stopReducedTitleMotionListener = () => motionQuery.removeEventListener("change", handleMotionPreference)
-  stopChatTitleWatch = watch(chatTitleTarget, animateChatTitle, { immediate: true })
   syncExpandedFiles(state.value.files || [])
   refresh()
 })
 onBeforeUnmount(() => {
   stopSidebarResize?.()
-  stopChatTitleWatch?.()
-  stopReducedTitleMotionListener?.()
-  titleAnimationRun += 1
-  clearTitleAnimationTimer()
 })
 </script>
 
@@ -973,14 +903,9 @@ onBeforeUnmount(() => {
           :aria-label="chatTitleTarget"
           :title="chatTitleTarget"
         >
-          <span class="min-w-0 truncate" aria-hidden="true">
-            {{ displayedChatTitle }}
+          <span class="min-w-0 truncate">
+            {{ chatTitleTarget }}
           </span>
-          <span
-            v-if="titleAnimationActive"
-            class="chat-title-caret ml-0.5 h-4 w-px shrink-0 bg-primary"
-            aria-hidden="true"
-          />
         </h1>
         <UButton
           icon="i-lucide-trash-2"
@@ -1322,25 +1247,4 @@ body,
   overflow: hidden;
 }
 
-.chat-title-caret {
-  animation: chat-title-caret-blink 1s steps(2, start) infinite;
-}
-
-@keyframes chat-title-caret-blink {
-  0%,
-  45% {
-    opacity: 1;
-  }
-
-  46%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chat-title-caret {
-    animation: none;
-  }
-}
 </style>
