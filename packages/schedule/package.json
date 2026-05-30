@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/schedule",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Schedule primitives and definition discovery for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

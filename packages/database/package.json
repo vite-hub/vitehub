@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/database",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Vite-first Drizzle database primitives for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

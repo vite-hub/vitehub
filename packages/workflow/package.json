@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/workflow",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Workflow primitives and Vite integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/devtools",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "ViteHub DevTools integration contract and hosted shell helpers.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

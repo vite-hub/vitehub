@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/queue",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Queue primitives and Vite/Nitro deployment integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

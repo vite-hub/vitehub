@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/env",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Safe build and runtime environment variables for Vite and Nitro.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/workspace",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Agent-oriented filesystem state and Vite/Nitro integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

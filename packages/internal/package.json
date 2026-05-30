@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/internal",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Private shared internals for @vite-hub/* packages. Not published.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

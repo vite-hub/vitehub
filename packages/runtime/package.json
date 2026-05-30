@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/runtime",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Shared runtime context, capability, policy, approval, and tracing primitives for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

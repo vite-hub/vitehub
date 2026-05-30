@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/kv",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Vite-first key-value storage primitives and Nitro/Nuxt integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

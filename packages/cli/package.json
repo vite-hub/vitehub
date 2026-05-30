@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/cli",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Command-line workflows for ViteHub projects.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",

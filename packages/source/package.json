@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/source",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Typed source retrieval primitives for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
