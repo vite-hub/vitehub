@@ -101,10 +101,18 @@ jobs:
               continue
             fi
 
+            package_name="$(node -p "require('./${package_json}').name")"
+            package_version="$(node -p "require('./${package_json}').version")"
             package_dir="${package_json%/package.json}"
+
+            if npm view "${package_name}@${package_version}" version --json >/dev/null 2>&1; then
+              echo "${package_name}@${package_version} is already published; skipping dry-run."
+              continue
+            fi
+
             (
               cd "$package_dir"
-              npm publish --dry-run --access public --tag "$NPM_TAG" --provenance
+              pnpm publish --dry-run --access public --tag "$NPM_TAG" --no-git-checks
             )
           done
 
@@ -132,7 +140,7 @@ jobs:
 
             (
               cd "$package_dir"
-              npm publish --access public --tag "$NPM_TAG" --provenance
+              pnpm publish --access public --tag "$NPM_TAG" --no-git-checks
             )
           done
 
