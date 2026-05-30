@@ -1,9 +1,11 @@
 ---
-title: Build a Source-Aware AI Chatbot with ViteHub
-description: Connect an agent to project docs, source files, and a support thread with one ViteHub definition.
-date: 2026-05-11
+title: Build an AI Agent in one file
+description: >-
+  Build a support Agent with model behavior, Capabilities, Workspace Sources,
+  DevTools, and an Agent Eval.
+date: 2026-05-28
 category: Article
-image: /images/tutorials/source-aware-chatbot.png
+image: /images/tutorials/agent-layers-flat.png
 authors:
   - name: onmax
     avatar:
@@ -12,211 +14,385 @@ authors:
 icon: i-lucide-message-circle-code
 ---
 
-Building a source-aware assistant should not require a separate system for context, tools, and message handling. ViteHub gives the agent a workspace, attaches explicit capabilities, and keeps the server code close to the app that owns the product behavior.
+The Agent Package is the second ViteHub layer.
 
-This guide starts with a small support chatbot, then connects the agent to project files so answers come from real source material instead of memory.
+The first layer gives you server primitives: KV, Blob, Queue, Workflow,
+Sandbox, Workspace, and the framework integrations that wire them to a host.
+The Agent layer composes those pieces into one model-backed server actor.
 
-## What you build
+The developer experience should feel closer to [Better Auth](https://better-auth.com/)
+than to a custom tool registry. You open one typed file, see the model, read the
+instructions, and inspect the Capabilities the Agent can use.
 
-The finished flow has four pieces:
-
-- A ViteHub installation in `vite.config.ts`.
-- An Agent Definition in `server/agents/support.ts`.
-- Workspace sources that mount docs and project files.
-- A server route that invokes the agent from a support message.
-
-The code stays intentionally small. The important part is the boundary: the workspace supplies context, capabilities expose controlled actions, and the agent decides when to use them.
-
-## Install the packages
-
-Install the agent package, the workspace primitive, and the model package you want to use.
+For this post, we will build a support Agent that answers from one Workspace
+Source, test it in DevTools, and turn the expected answer into an Agent Eval.
 
 ::code-tree-intersection{default}
-```bash [Terminal]
-pnpm add @vite-hub/agent @vite-hub/workspace @ai-sdk/gateway
+```ts [server/agents/support/config.ts]
+import { gateway } from '@ai-sdk/gateway'
+import { defineAgent } from '@vite-hub/agent'
+import { chat, workspaceShell } from '@vite-hub/agent/capabilities'
+import { source } from '@vite-hub/workspace'
+
+export default defineAgent({
+  model: gateway('openai/gpt-5.1-mini'),
+  instructions: 'Answer support questions from the workspace.',
+  capabilities: [
+    chat(),
+    workspaceShell(),
+  ],
+  workspace: {
+    sources: {
+      support: source.file('support.md'),
+    },
+  },
+})
 ```
 ::
 
-Register the integrations in `vite.config.ts`.
+That is the Agent file in three pieces:
+
+- **Agent**: the model, instructions, and runtime behavior.
+- **Capabilities**: the abilities you opt into, such as chat or workspace
+  access.
+- **Workspace**: the named Sources the agent can inspect when a Capability
+  exposes them.
+
+## Capabilities you can add
+
+The example starts with `chat()` and `workspaceShell()`. Every extra ability is
+another opt-in line in the Agent file.
+
+- `chat()` adds a chat entrypoint.
+- `workspaceShell()` reads or writes Workspace files.
+- `skills()` loads project instructions from `SKILL.md`.
+- `webSearch()` searches and reads the web.
+- `fetch()` wraps HTTP APIs as typed tools.
+- `mcp()` connects MCP server tools.
+- `sandbox()` runs approved commands in isolation.
+- `schedule()` declares cron work or schedule tools.
+- `inputCommands()` expands slash commands.
+- `transcribe()` converts audio to text.
+- `memory()` persists scoped Agent memory.
+- `kv()` reads or writes KV keys.
+- `blob()` reads or writes Blob objects.
+- `db()` queries or mutates a database.
+- `chatTitle()` generates conversation titles.
+- `chatSummary()` summarizes conversations.
+- `llmGate()` rejects unsafe or unwanted requests.
+- `llmRoute()` chooses the right path for a request.
+- `usageTelemetry()` records model usage and cost.
+
+## One file you can review
+
+The Agent file should make a review easy. If a pull request changes the model,
+the instructions, the Capabilities, or the Workspace Sources, that change should
+be visible in one place.
+
+That gives you a clean path from prototype to production: get chat working,
+ground the answer in Workspace Sources, inspect the live invocation in DevTools,
+then protect the behavior with an eval.
+
+## Prerequisites
+
+- Node 20.19+ or Node 22.12+.
+- `pnpm`
+- a model provider key for the AI SDK Gateway model you choose
+
+## Install the ViteHub pieces
+
+Install the packages used in this post:
+
+```bash [Terminal]
+pnpm add @vite-hub/agent @vite-hub/workspace
+pnpm add @vite-hub/devtools @ai-sdk/gateway ai
+pnpm add -D @vitejs/devtools
+```
+
+Register the integrations for your framework:
+
+**Vite**
 
 ::code-tree-intersection
 ```ts [vite.config.ts]
 import { hubAgent } from '@vite-hub/agent/vite'
+import { hubDevtools } from '@vite-hub/devtools'
 import { hubWorkspace } from '@vite-hub/workspace/vite'
+import { DevTools } from '@vitejs/devtools'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
-export default defineConfig({
+export default defineConfig(async () => ({
   plugins: [
+    ...(await DevTools()),
+    hubDevtools(),
     hubWorkspace(),
     hubAgent(),
+    nitro(),
+  ],
+}))
+```
+::
+
+**Nitro**
+
+::code-tree-intersection
+```ts [nitro.config.ts]
+import { defineNitroConfig } from 'nitro/config'
+
+export default defineNitroConfig({
+  modules: [
+    '@vite-hub/workspace/nitro',
+    '@vite-hub/agent/nitro',
   ],
 })
 ```
 ::
 
-ViteHub discovers agent files under `server/agents`. The workspace integration prepares file sources so the agent can inspect them through capabilities.
+**Vite**
 
-## Define the support agent
+The Vite plugins split the local wiring into small pieces:
 
-Create a support agent with short instructions and a model. This definition can run without workspace access, which makes it useful as the smallest possible baseline.
+- `DevTools()` adds the Vite DevTools shell.
+- `hubDevtools()` adds the ViteHub panel.
+- `hubWorkspace()` registers Workspace Sources.
+- `hubAgent()` discovers Agent Definitions and contributes Chat DevTools when the ViteHub panel is present.
+- `nitro()` gives the app a Nitro server runtime.
+
+**Nitro**
+
+The Nitro modules split the server wiring into small pieces:
+
+- `@vite-hub/workspace/nitro` registers Workspace Sources.
+- `@vite-hub/agent/nitro` discovers Agent Definitions.
+
+## Create the first Agent
+
+**Vite**
+
+Create `server/agents/support/config.ts` for this example. ViteHub can also
+discover plain Vite Agent files such as `src/support.agent.ts`, but this Agent
+owns Workspace Sources, so the folder form keeps the Agent and its source files
+together.
+
+**Nitro**
+
+Create `server/agents/support/config.ts`. In Nitro, the folder name gives the
+Agent its discovery name. Later, when this file declares `workspace`, the same
+file also becomes the Workspace Definition.
+
+Start with chat and a short instruction:
 
 ::code-tree-intersection
-```ts [server/agents/support.ts]
+```ts [server/agents/support/config.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
+import { chat } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
-  adapter: 'ai-sdk',
-  instructions: 'Answer support requests with short, concrete replies.',
+  capabilities: [
+    chat(),
+  ],
+  instructions: 'Answer support questions in a short, concrete style.',
   model: gateway('openai/gpt-5.1-mini'),
 })
 ```
 ::
 
-The file path names the agent. In this example, `server/agents/support.ts` registers the `support` agent.
+The model and instructions belong to the Agent. `chat()` adds the chat runtime.
+Every message from DevTools or an API route becomes an Agent Invocation against
+this definition.
 
-## Add project context
+This version can already answer a chat message, but it only has the model and
+the instructions. It does not know about your support policy yet.
 
-Models need source material before they can answer product questions safely. Add workspace sources for docs and package files, then describe how the agent should use each source.
+## Add Workspace context
+
+Models should not guess from memory when your own files contain the answer. Add
+a small support note next to the Agent:
 
 ::code-tree-intersection
-```ts [server/agents/support.ts]
+```md [server/agents/support/workspace/support.md]
+# Support notes
+
+Refunds are available within 30 days when the order has not shipped.
+```
+::
+
+The file lives beside the Agent. Because the folder has a `workspace/`
+directory, `source.file('support.md')` reads from that directory and exposes the
+file as `support.md` inside the Workspace.
+
+**Vite**
+
+If you want a standalone Workspace, Vite uses `src/support.workspace.ts`. Here,
+the Workspace stays in `server/agents/support/config.ts` because the support
+Agent is the only consumer.
+
+**Nitro**
+
+If you want a standalone Workspace, Nitro uses `server/workspaces/support.ts`.
+Here, `server/agents/support/config.ts` owns the Workspace so the support policy
+stays beside the Agent.
+
+ViteHub does not load sibling files by convention. Declare the file as a
+Workspace Source and attach the Workspace Shell Capability:
+
+::code-tree-intersection
+```ts [server/agents/support/config.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
-import { workspaceShell } from '@vite-hub/agent/capabilities'
+import { chat, workspaceShell } from '@vite-hub/agent/capabilities'
 import { source } from '@vite-hub/workspace'
 
 export default defineAgent({
-  adapter: 'ai-sdk',
   workspace: {
     sources: {
-      docs: source.glob({
-        cwd: '.',
-        include: ['README.md', 'docs/**/*.md'],
-        instructions: 'Use these docs for public product behavior.',
-      }),
-      packages: source.glob({
-        cwd: '.',
-        include: ['packages/*/src/**/*.ts'],
-        instructions: [
-          'Use package source files to verify implementation details.',
-          'Say when the workspace does not contain enough information.',
-        ],
-      }),
+      support: source.file('support.md'),
     },
   },
   capabilities: [
-    workspaceShell({ mode: 'read' }),
-  ],
-  instructions: [
-    'Answer support requests from the connected workspace.',
-    '{{ sources }}',
-    '{{ capabilities }}',
-  ].join('\n\n'),
-  model: gateway('openai/gpt-5.1-mini'),
-})
-```
-::
-
-Workspace sources describe what exists. Capabilities decide what the model can do with that context. In this case, `workspaceShell({ mode: 'read' })` gives the agent read-only inspection tools.
-
-## Invoke the agent from a route
-
-The app owns product entry points. A server route can accept a support message, call the agent, and return the response to any UI or event source.
-
-::code-tree-intersection
-```ts [server/api/support.post.ts]
-import { runAgent } from '@vite-hub/agent'
-import support from '../agents/support'
-
-export default defineEventHandler(async (event) => {
-  const body = await readBody<{ message: string }>(event)
-
-  return runAgent(support, { runtime: 'vite' }, {
-    prompt: body.message,
-    context: {
-      channel: 'support',
-    },
-  })
-})
-```
-::
-
-This keeps chat, ticket, or webhook adapters outside the Agent Definition. The agent receives a task and the context it needs; the route remains responsible for HTTP behavior.
-
-## Add a custom capability
-
-Capabilities are the extension point for product-specific actions. Add one when the agent needs an ability that belongs to your app, such as ticket lookup.
-
-::code-tree-intersection
-```ts [server/agents/capabilities/tickets.ts]
-import { defineCapability } from '@vite-hub/agent'
-import { searchTicketsByEmail } from '../../support/tickets'
-
-export function tickets() {
-  return defineCapability({
-    id: 'tickets',
-    instructions: {
-      tickets: 'Use ticket tools only to inspect support history.',
-    },
-    tools: {
-      async searchTickets(input: { email: string }) {
-        return searchTicketsByEmail(input.email)
+    chat({
+      history: {
+        source: 'thread',
+        maxMessages: 20,
       },
-    },
-  })
-}
-```
-::
-
-Attach the capability to the support agent and include the capability instruction block.
-
-::code-tree-intersection
-```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vite-hub/agent'
-import { workspaceShell } from '@vite-hub/agent/capabilities'
-import { tickets } from './capabilities/tickets'
-
-export default defineAgent({
-  adapter: 'ai-sdk',
+    }),
+    workspaceShell(),
+  ],
   instructions: [
-    'Answer support requests from the connected workspace.',
-    '{{ capabilities }}',
-    '{{ tickets }}',
-  ].join('\n\n'),
-  capabilities: [
-    workspaceShell({ mode: 'read' }),
-    tickets(),
+    'Answer from the workspace sources.',
+    'If the sources do not contain the answer, say so.',
   ],
   model: gateway('openai/gpt-5.1-mini'),
 })
 ```
 ::
 
-Custom capabilities should describe the product ability, not just expose a function. Keep policy, requirements, and model-facing instructions next to the tools they control.
+Two things happen here, and they stay separate. `workspace.sources` mounts
+`support.md` as source context. `workspaceShell()` exposes a read-only workspace
+tool so the model can inspect that context during the invocation.
 
-## Test the loop
+A Workspace does not automatically become model context just because it exists.
+You can add more Sources without changing the model loop, and you can choose
+which Capabilities expose which runtime abilities.
 
-Run the app and post a support message to the route.
+That boundary is useful when the Agent grows. You can mount more docs, changelog
+files, or GitHub-backed Sources without giving the model write access or changing
+the chat integration.
 
-::code-tree-intersection
+## Test the loop in DevTools
+
+**Vite**
+
+Run the app:
+
 ```bash [Terminal]
 pnpm dev
 ```
-::
 
-```bash [Terminal]
-curl -X POST http://localhost:5173/api/support \
-  -H 'content-type: application/json' \
-  -d '{"message":"Where is the KV helper documented?"}'
+Open Vite DevTools, choose **ViteHub**, then open **Chat**. Select the
+`support` Agent and ask:
+
+```txt
+What is our refund policy?
 ```
 
-The useful signal is not just the final answer. Inspect the run and confirm that the agent reads workspace files before it replies. If it answers without checking sources, tighten the instructions or capability policy.
+The Agent should stream a reply that mentions the 30-day refund window. The
+DevTools timeline also shows the workspace tool calls that happen before the
+answer.
+
+Use this view when the Agent gives a weak answer. If the timeline never reads
+`support.md`, the problem is source access. If it reads the file and still gives
+the wrong answer, the next place to tune is the instructions.
+
+**Nitro**
+
+Run the app:
+
+```bash [Terminal]
+pnpm dev
+```
+
+The Chat DevTools feature is registered through the Vite DevTools integration.
+For a Nitro-only app, keep the same Agent Definition and use an HTTP route or an
+Agent Eval for non-interactive verification.
+
+DevTools is the fast local inspection loop. Once the answer looks right, turn the
+expectation into an Agent Eval:
+
+::code-tree-intersection
+```ts [server/agents/support/eval.ts]
+import { defineEval, textContains } from '@vite-hub/agent/eval'
+import support from './config'
+
+export default defineEval({
+  agent: support,
+  scenarios: [
+    {
+      name: 'answers refund policy',
+      input: {
+        prompt: 'What is our refund policy?',
+      },
+      scorers: [
+        textContains('30 days'),
+      ],
+    },
+  ],
+})
+```
+::
+
+The eval points at the same Agent Definition, runs the same Agent Invocation
+path, and scores the text output. Use evals for behavior you want to protect,
+not for every prompt you try manually.
+
+## What to remember
+
+The support Agent is small, but it shows the core ViteHub split:
+
+- The Agent owns model behavior.
+- Capabilities define what it can do.
+- The Workspace supplies named source context.
+- DevTools explains a live invocation.
+- Agent Evals protect behavior that should stay stable.
+
+From here, you can add more Sources, attach more Capabilities, or move the same
+Agent toward a hosted runtime without changing the core definition.
 
 ## Next steps
 
-- Read [Agent definitions](/docs/agents/agent-definitions) for the full definition shape.
-- Read [Workspace context](/docs/agents/workspace-context) to choose source types.
-- Read [Custom capabilities](/docs/agents/capabilities/custom-capabilities) to expose app-specific actions.
-- Read [Server primitives](/docs/server-primitives) when the agent needs durable storage, queues, workflows, or sandbox execution.
+::u-page-grid{class="pb-2"}
+  :::u-page-card
+  ---
+  title: Agent
+  description: Customize model runs, routes, triggers, usage telemetry, and Agent Evals.
+  icon: i-lucide-bot
+  to: /docs/agents
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Workspace and Sources
+  description: Add file, glob, fetch, and GitHub Sources to the Workspace file tree.
+  icon: i-lucide-folder-git-2
+  to: /docs/server-primitives/workspace
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Agent Definitions
+  description: Declare model behavior, instructions, workspace context, and attached Capabilities.
+  icon: i-lucide-file-user
+  to: /docs/agents/agent-definitions
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Agent Evals
+  description: Run repeatable checks against Agent Definitions and compare behavior changes.
+  icon: i-lucide-clipboard-check
+  to: /docs/agents/evals
+  ---
+  :::
+::
