@@ -17,9 +17,39 @@ export default defineNuxtConfig({
     },
   },
   css: ["~/assets/main.css"],
+  icon: {
+    provider: "server",
+    fallbackToApi: false,
+    serverBundle: {
+      collections: ["lucide", "simple-icons", "vscode-icons"],
+    },
+    clientBundle: {
+      scan: true,
+      icons: [
+        "lucide:brain",
+        "lucide:chevron-down",
+        "lucide:chevron-right",
+        "lucide:hash",
+        "lucide:lightbulb",
+        "lucide:menu",
+        "lucide:moon",
+        "lucide:search",
+        "lucide:sun",
+        "lucide:terminal",
+        "lucide:text-align-start",
+        "simple-icons:cloudflare",
+        "simple-icons:vercel",
+        "vscode-icons:file-type-typescript",
+      ],
+    },
+  },
   devtools: {
     enabled: false,
   },
+  future: {
+    compatibilityVersion: 4,
+  },
+  compatibilityDate: "2026-05-30",
   nitro: {
     prerender: {
       crawlLinks: true,

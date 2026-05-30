@@ -2,21 +2,18 @@
 import { useAsyncData } from "#app/composables/asyncData";
 import { createError } from "#app/composables/error";
 import { definePageMeta } from "#app/composables/pages";
-import { computed } from "vue";
 import { useDocsPage } from "../../composables/useDocsPage";
-import { getDocsPage, getDocsSourcePath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { getDocsPageByPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { getDocsPageFallback } from "~~/modules/vitehub-docs/runtime/utils/docs-rendering";
 
 definePageMeta({
   layout: "docs",
 });
 
-const docsPage = getDocsPage("getting-started", "index");
-const sourcePath = computed(() => getDocsSourcePath("getting-started"));
+const docsPage = getDocsPageByPath("/docs");
 const { data: rawDoc } = await useAsyncData(
   "docs:index",
-  () => queryCollection("docs").path(sourcePath.value).first(),
-  { watch: [sourcePath] },
+  () => queryCollection("docs").path("/docs").first(),
 );
 
 if (!docsPage) {
@@ -24,7 +21,7 @@ if (!docsPage) {
 }
 
 const { page } = useDocsPage(
-  computed(() => "/docs"),
+  "/docs",
   rawDoc,
   getDocsPageFallback(docsPage),
 );
@@ -38,7 +35,7 @@ const { page } = useDocsPage(
       </template>
     </UPageHeader>
 
-    <UPageBody prose class="docs-content docs-root-content pb-0">
+    <UPageBody prose class="docs-content pb-0">
       <ContentRenderer :value="page" />
     </UPageBody>
 
@@ -51,95 +48,5 @@ const { page } = useDocsPage(
 <style scoped>
 .docs-content :deep(h1:first-of-type) {
   display: none;
-}
-
-.docs-root-content :deep(.fw-group) {
-  position: relative;
-  max-width: 48rem;
-  overflow: visible;
-  padding-block: 1rem;
-}
-
-.docs-root-content :deep(.fw-group::before),
-.docs-root-content :deep(.fw-group::after) {
-  content: "";
-  position: absolute;
-  right: 0;
-  width: 120px;
-  height: 1px;
-  background: color-mix(in oklab, var(--ui-border) 78%, transparent);
-}
-
-.docs-root-content :deep(.fw-group::before) {
-  top: 0;
-}
-
-.docs-root-content :deep(.fw-group::after) {
-  bottom: 0;
-}
-
-.docs-root-content :deep(.fw-group__tabs) {
-  position: static;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.45rem;
-  width: max-content;
-  margin: 0 0 1.25rem auto;
-}
-
-.docs-root-content :deep(.fw-group__tab) {
-  position: relative;
-  width: 2.1rem;
-  height: 2.1rem;
-  border: 0;
-  background: transparent;
-  opacity: 0.5;
-  filter: grayscale(1);
-  color: var(--ui-text-dimmed, var(--ui-text-muted, var(--ui-text)));
-}
-
-.docs-root-content :deep(.fw-group__tab:hover) {
-  opacity: 0.75;
-}
-
-.docs-root-content :deep(.fw-group__tab--active) {
-  border-color: transparent;
-  background: transparent;
-  opacity: 1;
-  filter: none;
-  color: var(--ui-text-highlighted, var(--ui-text));
-}
-
-.docs-root-content :deep(.fw-group__tab--active::after) {
-  content: "";
-  position: absolute;
-  right: -0.28rem;
-  top: 50%;
-  width: 0.34rem;
-  height: 0.34rem;
-  border-radius: 999px;
-  background: currentColor;
-  transform: translateY(-50%);
-}
-
-.docs-root-content :deep(.fw-group__tab-icons) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.docs-root-content :deep(.fw-group__tab-icon) {
-  width: 1.15rem;
-  height: 1.15rem;
-}
-
-@media (min-width: 1024px) {
-  .docs-root-content :deep(.fw-group__tabs) {
-    position: absolute;
-    top: 50%;
-    right: calc(-7.5rem - 1rem);
-    transform: translateY(-50%);
-    margin: 0;
-  }
 }
 </style>

@@ -1,21 +1,12 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { listFiles, parseScalar, titleCase } from "./artifacts/common";
 import { parsePackageExamples } from "./artifacts/examples";
-import { resolveFrameworkDocLink } from "./runtime/utils/docs-links";
-import { usageModes } from "./runtime/utils/fw-variants";
-import { defaultFramework, frameworks as frameworkIds, type Framework } from "./runtime/utils/frameworks";
 
 type DocsArtifactOptions = {
   docsRoot: string;
   repoRoot: string;
   outputDir: string;
-};
-
-type DocsContentSource = {
-  cwd: string;
-  include: string;
-  prefix: string;
 };
 
 function parseFrontmatter(source: string) {
@@ -57,91 +48,21 @@ function normalizePageId(relativeFile: string) {
   return withoutExtension;
 }
 
+function pagePath(sectionId: string, pageId: string) {
+  return pageId === "index"
+    ? `/docs/${sectionId}`
+    : `/docs/${sectionId}/${pageId}`;
+}
+
 function pageTitleFromMeta(pageId: string, meta: Record<string, unknown>) {
   return String(meta["navigation.title"] || meta.title || titleCase(pageId === "index" ? "overview" : pageId));
 }
 
-function getSupportedFrameworks(meta: Record<string, unknown>) {
-  const frameworks = Array.isArray(meta.frameworks)
-    ? meta.frameworks
-    : typeof meta.frameworks === "string"
-      ? meta.frameworks.split(",").map(item => item.trim()).filter(Boolean)
-      : null;
-
-  return frameworks && frameworks.length
-    ? frameworks.filter((framework): framework is Framework => frameworkIds.includes(framework as Framework))
-    : [...frameworkIds];
+function pageOrderFromMeta(meta: Record<string, unknown>) {
+  return typeof meta["navigation.order"] === "number" ? meta["navigation.order"] : Number.MAX_SAFE_INTEGER;
 }
 
-function fwBlockMatchesFramework(meta: string | undefined, framework: Framework) {
-  if (!meta) {
-    return false;
-  }
-
-  const id = meta.match(/\bid\s*=\s*["']([^"']*)/)?.[1] || meta;
-
-  return id
-    .split(/[\s,]+/)
-    .filter(Boolean)
-    .some(item => {
-      const token = item.replace(/^:/, "");
-      return token === framework || token.startsWith(`${framework}:`);
-    });
-}
-
-export function filterFwBlocksForFramework(source: string, framework: Framework) {
-  const lines = source.split("\n");
-  const output: string[] = [];
-
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]!;
-    const match = line.match(/^\s*::fw(?:\{([^}]*)\})?\s*$/);
-
-    if (!match) {
-      output.push(line);
-      continue;
-    }
-
-    const body: string[] = [];
-    let closed = false;
-
-    for (index++; index < lines.length; index++) {
-      if (/^\s*::\s*$/.test(lines[index]!)) {
-        closed = true;
-        break;
-      }
-
-      body.push(lines[index]!);
-    }
-
-    if (!closed) {
-      output.push(line, ...body);
-      break;
-    }
-
-    if (fwBlockMatchesFramework(match[1], framework)) {
-      output.push(...body);
-    }
-  }
-
-  return output.join("\n");
-}
-
-export function rewriteFrameworkDocLinks(source: string, framework: Framework, sectionId: string, relativeFile: string) {
-  return source
-    .replace(/(!?\[[^\]\n]+\]\()([^)]+)(\))/g, (match: string, prefix: string, target: string, suffix: string) => {
-      if (prefix.startsWith("![")) {
-        return match;
-      }
-
-      return `${prefix}${resolveFrameworkDocLink(framework, sectionId, relativeFile, target)}${suffix}`;
-    })
-    .replace(/^(\s*to:\s*)(["']?)([^'"\n]+)\2\s*$/gm, (_match: string, prefix: string, quote: string, target: string) => {
-      return `${prefix}${quote}${resolveFrameworkDocLink(framework, sectionId, relativeFile, target)}${quote}`;
-    });
-}
-
-function collectPages(rootDir: string) {
+function collectPages(rootDir: string, sectionId: string) {
   return listFiles(rootDir, ".md").map((absolutePath) => {
     const relativeFile = relative(rootDir, absolutePath).replace(/\\/g, "/");
     const source = readFileSync(absolutePath, "utf8");
@@ -149,23 +70,21 @@ function collectPages(rootDir: string) {
     const meta = parseFrontmatter(source);
 
     return {
-      relativeFile,
-      pageId,
-      source,
+      id: pageId,
+      path: pagePath(sectionId, pageId),
       title: pageTitleFromMeta(pageId, meta),
       sourceTitle: typeof meta.title === "string" ? meta.title : null,
       description: typeof meta.description === "string" ? meta.description : null,
       icon: typeof meta.icon === "string" ? meta.icon : null,
       group: typeof meta["navigation.group"] === "string" ? meta["navigation.group"] : null,
-      order: typeof meta["navigation.order"] === "number" ? meta["navigation.order"] : Number.MAX_SAFE_INTEGER,
-      frameworks: getSupportedFrameworks(meta),
+      order: pageOrderFromMeta(meta),
     };
   }).sort((left, right) => {
-    if (left.pageId === "index") {
+    if (left.id === "index") {
       return -1;
     }
 
-    if (right.pageId === "index") {
+    if (right.id === "index") {
       return 1;
     }
 
@@ -173,151 +92,73 @@ function collectPages(rootDir: string) {
       return left.order - right.order;
     }
 
-    return left.pageId.localeCompare(right.pageId);
+    return left.id.localeCompare(right.id);
   });
 }
 
-function serializeSectionPages(pages: ReturnType<typeof collectPages>) {
-  return pages.map(({ pageId, title, sourceTitle, description, icon, group, frameworks }) => ({
-    id: pageId,
-    title,
-    sourceTitle,
-    description,
-    icon,
-    group,
-    frameworks,
-  }));
-}
+function collectRootPage(localDocsRoot: string) {
+  const rootPath = resolve(localDocsRoot, "index.md");
+  if (!existsSync(rootPath)) {
+    return null;
+  }
 
-function createDocsSection(
-  sectionId: string,
-  pages: ReturnType<typeof collectPages>,
-  details: {
-    source: "local" | "package";
-    packageName: string | null;
-    order: number;
-    titleFallback: string;
-  },
-) {
-  const overview = pages.find(page => page.pageId === "index");
+  const meta = parseFrontmatter(readFileSync(rootPath, "utf8"));
   return {
-    id: sectionId,
-    title: overview?.sourceTitle || details.titleFallback,
-    description: overview?.description || null,
-    icon: overview?.icon || null,
-    source: details.source,
-    packageName: details.packageName,
-    order: details.order,
-    pages: serializeSectionPages(pages),
+    id: "index",
+    path: "/docs",
+    title: pageTitleFromMeta("index", meta),
+    sourceTitle: typeof meta.title === "string" ? meta.title : null,
+    description: typeof meta.description === "string" ? meta.description : null,
+    icon: typeof meta.icon === "string" ? meta.icon : null,
+    order: pageOrderFromMeta(meta),
   };
 }
 
-function getShowcaseDocsPath(packagesRoot: string, packageName: string) {
-  const showcasePath = resolve(packagesRoot, packageName, "examples", "showcase.json");
-  if (!existsSync(showcasePath)) {
-    return packageName;
-  }
+function createDocsSection(sectionId: string, rootDir: string, order: number) {
+  const pages = collectPages(rootDir, sectionId);
+  const overview = pages.find(page => page.id === "index");
 
-  const showcase = JSON.parse(readFileSync(showcasePath, "utf8")) as { docsPath?: unknown };
-  return typeof showcase.docsPath === "string" && showcase.docsPath ? showcase.docsPath : packageName;
+  return {
+    id: sectionId,
+    path: pagePath(sectionId, "index"),
+    title: overview?.sourceTitle || titleCase(sectionId),
+    description: overview?.description || null,
+    icon: overview?.icon || null,
+    order,
+    pages,
+  };
 }
 
-export function getDocsContentSources({ docsRoot, repoRoot }: Omit<DocsArtifactOptions, "outputDir">) {
-  const packagesRoot = resolve(repoRoot, "packages");
-  const localDocsRoot = resolve(docsRoot, "content", "docs");
-  const sources: DocsContentSource[] = [];
-
-  if (existsSync(localDocsRoot)) {
-    for (const entry of readdirSync(localDocsRoot, { withFileTypes: true })) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-
-      sources.push({
-        cwd: resolve(localDocsRoot, entry.name),
-        include: "**/*.md",
-        prefix: `/docs/${entry.name}`,
-      });
-    }
+function collectSections(localDocsRoot: string) {
+  if (!existsSync(localDocsRoot)) {
+    return [];
   }
 
-  for (const entry of readdirSync(packagesRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-
-    const docsDir = resolve(packagesRoot, entry.name, "docs");
-    if (!existsSync(docsDir)) {
-      continue;
-    }
-
-    sources.push({
-      cwd: docsDir,
-      include: "**/*.md",
-      prefix: `/docs/${getShowcaseDocsPath(packagesRoot, entry.name)}`,
+  return readdirSync(localDocsRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map((entry, index) => createDocsSection(entry.name, resolve(localDocsRoot, entry.name), index))
+    .filter(section => section.pages.length > 0)
+    .sort((left, right) => {
+      const leftOrder = left.pages.find(page => page.id === "index")?.order ?? left.order;
+      const rightOrder = right.pages.find(page => page.id === "index")?.order ?? right.order;
+      return leftOrder - rightOrder || left.title.localeCompare(right.title);
     });
-  }
-
-  return sources;
 }
 
 export function writeDocsArtifacts({ docsRoot, repoRoot, outputDir }: DocsArtifactOptions) {
-  const packagesRoot = resolve(repoRoot, "packages");
   const localDocsRoot = resolve(docsRoot, "content", "docs");
+  const packagesRoot = resolve(repoRoot, "packages");
+  const rootPage = collectRootPage(localDocsRoot);
+  const sections = collectSections(localDocsRoot);
   const examples = parsePackageExamples(packagesRoot);
-  const exampleByPackage = new Map(examples.map(example => [example.pkg, example]));
-
-  const sections = [
-    ...(existsSync(localDocsRoot)
-      ? readdirSync(localDocsRoot, { withFileTypes: true })
-        .filter(entry => entry.isDirectory())
-        .map((entry, index) => {
-          const sectionId = entry.name;
-          const pages = collectPages(resolve(localDocsRoot, sectionId));
-
-          return createDocsSection(sectionId, pages, {
-            source: "local",
-            packageName: null,
-            order: index,
-            titleFallback: titleCase(sectionId),
-          });
-        })
-      : []),
-    ...readdirSync(packagesRoot, { withFileTypes: true })
-      .filter(entry => entry.isDirectory())
-      .map(entry => entry.name)
-      .filter(packageName => existsSync(resolve(packagesRoot, packageName, "docs")))
-      .map((packageName) => {
-        const example = exampleByPackage.get(packageName);
-        const sectionId = example?.docsPath || packageName;
-        const pages = collectPages(resolve(packagesRoot, packageName, "docs"));
-
-        return createDocsSection(sectionId, pages, {
-          source: "package",
-          packageName,
-          order: example?.order ?? Number.MAX_SAFE_INTEGER,
-          titleFallback: example?.label || titleCase(sectionId),
-        });
-      })
-      .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title)),
-  ];
-
-  const packageSections = sections
-    .filter(s => s.source === "package")
-    .map(s => ({ id: s.id, title: s.title, icon: s.icon }));
 
   const manifest = {
-    frameworks: [...frameworkIds],
-    defaultFramework,
-    usageModes: [...usageModes],
-    defaultMode: "dev",
+    rootPage,
     sections,
-    packageSections,
     examples,
   };
 
   mkdirSync(outputDir, { recursive: true });
-  rmSync(resolve(outputDir, "docs-content"), { force: true, recursive: true });
 
   const manifestSource = `export const docsManifest = ${JSON.stringify(manifest, null, 2)};\n\nexport default docsManifest;\n`;
   const manifestPath = resolve(outputDir, "docs-manifest.mjs");

@@ -3,22 +3,12 @@ import { defineNuxtModule } from "nuxt/kit";
 import type { NitroConfig } from "nitropack/types";
 import { readDocsArtifactsManifest, writeDocsArtifacts } from "./artifacts";
 
-const frameworkIds = ["vite", "nitro", "nuxt"] as const;
-
 function collectPrerenderRoutes(manifest: NonNullable<ReturnType<typeof readDocsArtifactsManifest>>) {
-  const routes: string[] = [];
+  const routes: string[] = ["/docs"];
 
   for (const section of manifest.sections) {
     for (const page of section.pages) {
-      for (const framework of frameworkIds) {
-        if (!page.frameworks.includes(framework)) {
-          continue;
-        }
-
-        routes.push(page.id === "index"
-          ? `/docs/${framework}/${section.id}`
-          : `/docs/${framework}/${section.id}/${page.id}`);
-      }
+      routes.push(page.path);
     }
   }
 
@@ -41,26 +31,6 @@ function removeDocusCatchAllPage(pages: Array<{ path?: string, file?: string }>)
   }
 }
 
-function shouldRegenerateDocsArtifacts(path: string) {
-  const normalized = path.replace(/\\/g, "/");
-
-  if (normalized.startsWith("content/docs/") || normalized.includes("/content/docs/")) {
-    return true;
-  }
-
-  if (normalized.endsWith("/pnpm-workspace.yaml") || normalized === "pnpm-workspace.yaml") {
-    return true;
-  }
-
-  if (!normalized.startsWith("packages/") && !normalized.includes("/packages/")) {
-    return false;
-  }
-
-  return normalized.includes("/docs/")
-    || normalized.includes("/examples/")
-    || normalized.endsWith("/package.json");
-}
-
 export default defineNuxtModule({
   meta: {
     name: "vitehub-docs",
@@ -74,12 +44,12 @@ export default defineNuxtModule({
     nuxt.options.alias["#vitehub-docs-manifest"] = resolve(outputDir, "docs-manifest.mjs");
     extendNitroPrerenderRoutes(nuxt, collectPrerenderRoutes(manifest));
 
-    // Remove Docus catch-all page — ViteHub uses /docs/[framework]/[...slug] routing
+    // Remove Docus catch-all page; ViteHub owns the docs route shell.
     nuxt.hook("pages:extend", removeDocusCatchAllPage);
 
-    // Nuxt Content handles markdown HMR; these artifacts feed navigation and examples.
+    // Regenerate artifacts when showcase examples change (Content handles markdown HMR).
     nuxt.hook("builder:watch", async (_event, path) => {
-      if (!shouldRegenerateDocsArtifacts(path)) return;
+      if (!path.includes("/packages/") || !path.includes("/examples/")) return;
       writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
     });
   },

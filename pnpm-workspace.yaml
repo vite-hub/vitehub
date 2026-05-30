@@ -7,11 +7,15 @@ packages:
 catalog:
   '@cloudflare/sandbox': ^0.8.11
   '@comark/vue': ^0.3.1
-  '@iconify-json/lucide': ^1.2.105
+  '@iconify-json/lucide': ^1.2.111
+  '@iconify-json/simple-icons': ^1.2.84
+  '@iconify-json/vscode-icons': ^1.2.53
   '@libsql/client': ^0.15.15
-  '@nuxt/content': ^3.13.0
-  '@nuxt/kit': ^4.4.2
-  '@nuxt/schema': ^4.4.2
+  '@nuxt/content': ^3.14.0
+  '@nuxt/icon': ^2.2.2
+  '@nuxt/kit': ^4.4.6
+  '@nuxt/schema': ^4.4.6
+  '@nuxt/ui': ^4.8.1
   '@oku-ui/motion': ^0.4.3
   '@types/node': ^25.6.0
   '@upstash/redis': ^1.37.0
@@ -22,8 +26,8 @@ catalog:
   '@vercel/sandbox': ^1.10.0
   '@vitejs/devtools': ^0.2.0
   '@vitejs/devtools-kit': ^0.2.0
-  '@vueuse/core': ^14.2.1
-  '@vueuse/nuxt': ^14.2.1
+  '@vueuse/core': ^14.3.0
+  '@vueuse/nuxt': ^14.3.0
   async-retry: ^1.3.3
   better-sqlite3: ^12.9.0
   chat: ^4.27.0
@@ -31,7 +35,7 @@ catalog:
   comark: ^0.3.2
   consola: ^3.4.2
   defu: ^6.1.4
-  docus: ^5.9.0
+  docus: ^5.11.0
   drizzle-kit: ^0.31.10
   drizzle-orm: ^0.44.7
   esbuild: ^0.28.0
@@ -46,7 +50,7 @@ catalog:
   motion-v: ^2.2.1
   mrmime: ^2.0.1
   nitro: 3.0.260311-beta
-  nuxt: ^4.4.2
+  nuxt: ^4.4.6
   ofetch: ^1.5.1
   openworkflow: ^0.9.0
   oxlint: ^1.60.0
@@ -77,9 +81,9 @@ catalogs:
   build:
     typescript: ^6.0.2
   frontend:
-    docus: ^5.9.0
+    docus: ^5.11.0
     nitro: ^3.0.0
-    nuxt: ^4.4.2
+    nuxt: ^4.4.6
   h3v1:
     h3: ^1.15.11
   h3v2:

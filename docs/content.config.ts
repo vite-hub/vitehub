@@ -1,12 +1,12 @@
 import { resolve } from "node:path";
 import { defineCollection, defineContentConfig, z } from "@nuxt/content";
-import { getDocsContentSources, writeDocsArtifacts } from "./modules/vitehub-docs/artifacts";
+import { writeDocsArtifacts } from "./modules/vitehub-docs/artifacts";
 
 const docsRoot = import.meta.dirname;
 const repoRoot = resolve(docsRoot, "..");
 const outputDir = resolve(docsRoot, ".generated");
 
-const docsSchema = z.object({
+const pageSchema = z.object({
   authors: z.array(z.object({
     avatar: z.object({
       src: z.string(),
@@ -14,7 +14,10 @@ const docsSchema = z.object({
     name: z.string(),
     to: z.string().optional(),
   })).optional(),
+  category: z.string().optional(),
   date: z.string().optional(),
+  featured: z.boolean().optional(),
+  icon: z.string().optional(),
   image: z.string().optional(),
   links: z.array(z.object({
     label: z.string(),
@@ -26,14 +29,26 @@ const docsSchema = z.object({
 
 // Nuxt Content reads collections at config parse time, before the module setup runs.
 writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
-const docsSources = getDocsContentSources({ docsRoot, repoRoot });
 
 export default defineContentConfig({
   collections: {
     docs: defineCollection({
       type: "page",
-      source: docsSources,
-      schema: docsSchema,
+      source: {
+        cwd: resolve(import.meta.dirname, "content/docs"),
+        include: "**/*.{md,yml,yaml}",
+        prefix: "/docs",
+      },
+      schema: pageSchema,
+    }),
+    blog: defineCollection({
+      type: "page",
+      source: {
+        cwd: resolve(import.meta.dirname, "content/blog"),
+        include: "**/*.md",
+        prefix: "/blog",
+      },
+      schema: pageSchema,
     }),
   },
 });

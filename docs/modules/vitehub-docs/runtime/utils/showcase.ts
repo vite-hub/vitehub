@@ -1,6 +1,6 @@
 import { docsManifest, type DocsExample } from "./docs";
-import { defaultUsageMode, type UsageMode } from "./fw-variants";
 import { frameworks, type Framework } from "./frameworks";
+import { defaultUsageMode, type UsageMode } from "./showcase-modes";
 import {
   generateFrameworkConfig,
   getFrameworkConfigPath,

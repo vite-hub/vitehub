@@ -1,0 +1,91 @@
+---
+title: Workspace and Sources
+description: Build persistent file-tree state from source origins, snapshots, diffs, and sandbox sessions.
+navigation.title: Workspace
+navigation.order: 7
+icon: i-lucide-folder-git-2
+---
+
+Workspace is a persistent file tree. Sources populate that tree. Server code and agents can inspect or mutate it only through the access you configure.
+
+Use Workspace when the app needs files, project context, source ingestion, snapshots, diffs, or publishable changes. Use Blob when you only need object storage.
+
+## Define a workspace
+
+```ts [server/workspaces/docs.ts]
+import { defineWorkspace, source } from '@vite-hub/workspace'
+
+export default defineWorkspace({
+  sources: {
+    docs: source.glob({
+      cwd: '.',
+      include: ['README.md', 'docs/**/*.md'],
+    }),
+    handbook: source.github({
+      repo: 'acme/handbook',
+      ref: 'main',
+      root: 'support',
+      materialize: 'lazy',
+    }),
+  },
+  rules: {
+    '/**': { write: false },
+    '/drafts/**': { write: true, mediaType: 'text/markdown' },
+  },
+})
+```
+
+Source keys are named origins. A glob, file, fetch, or GitHub source is not automatically editable just because it appears in a Workspace.
+
+## Use a workspace from server code
+
+```ts [server/api/docs.get.ts]
+import { useWorkspace } from '@vite-hub/workspace'
+
+export default defineEventHandler(async () => {
+  const workspace = useWorkspace('docs')
+  return workspace.fs.glob('**/*.md')
+})
+```
+
+Request write access only at the call site that needs it.
+
+```ts
+const workspace = useWorkspace('docs', { mode: 'write' })
+await workspace.fs.writeFile('drafts/summary.md', '# Summary\n')
+```
+
+## Rules
+
+Workspace rules are path-scoped write policy.
+
+```ts
+rules: {
+  '/**': { write: false },
+  '/drafts/**': { write: true, maxBytes: '1mb' },
+  '/generated/**': { write: true },
+}
+```
+
+Rules are enforced before writes reach the store. They are also the boundary that agent-facing Workspace Capabilities must respect.
+
+## Sandbox sessions
+
+When files need to be executed, pair Workspace with Sandbox.
+
+```ts
+const session = await useWorkspace('docs', { mode: 'write' }).startSession()
+
+await session.exec('pnpm', ['test'])
+const changes = await session.diff()
+await session.commit({ message: 'Apply generated docs update' })
+await session.close()
+```
+
+Workspace owns the file tree and diff. Sandbox owns isolated command execution.
+
+## Agent context
+
+Workspace is central to agents, but it is not automatically model-facing. To let an agent inspect files, attach a Workspace Capability such as `workspaceShell()`.
+
+Read [Workspace context for agents](/docs/agents/workspace-context) for the agent-specific model.

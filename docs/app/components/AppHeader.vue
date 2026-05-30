@@ -1,13 +1,16 @@
 <script setup lang="ts">
 const route = useRoute();
 const primaryLinks = [
+  { label: "Server primitives", to: "/docs/server-primitives" },
+  { label: "Agents", to: "/docs/agents" },
+  { label: "Blog entries", to: "/blog" },
+];
+const mobileLinks = [
   { label: "Home", to: "/" },
-  { label: "Docs", to: "/docs" },
-  { label: "Blog", to: "/blogs/vite", match: "/blogs" },
+  ...primaryLinks,
 ];
 
-function isActiveLink(link: typeof primaryLinks[number]) {
-  if (link.match) return route.path.includes(link.match);
+function isActiveLink(link: typeof mobileLinks[number]) {
   const { to } = link;
   if (to === "/") return route.path === "/";
   return route.path === to || route.path.startsWith(`${to}/`);
@@ -36,7 +39,6 @@ function isActiveLink(link: typeof primaryLinks[number]) {
           variant="ghost"
           size="sm"
         />
-        <PackageSelector />
       </nav>
 
       <template #right>
@@ -60,7 +62,7 @@ function isActiveLink(link: typeof primaryLinks[number]) {
       <template #body>
         <nav class="grid gap-1">
           <UButton
-            v-for="link in primaryLinks"
+            v-for="link in mobileLinks"
             :key="link.to"
             :to="link.to"
             :label="link.label"

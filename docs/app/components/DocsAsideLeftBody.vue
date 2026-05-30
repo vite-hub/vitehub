@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { useDocsNavigation } from "../composables/useDocsNavigation";
-import { useFrameworkPreference } from "../composables/useFrameworkPreference";
+const { sidebarNavigation } = useSubNavigation();
 
-const { sidebarNavigation } = useDocsNavigation();
-const { current } = useFrameworkPreference();
+const contentNavVariants = useUIConfig("contentNavigation");
 </script>
 
 <template>
   <UContentNavigation
-    :key="current"
-    highlight
+    :highlight="contentNavVariants.highlight ?? true"
+    :highlight-color="contentNavVariants.highlightColor"
+    :variant="contentNavVariants.variant ?? 'link'"
+    :color="contentNavVariants.color"
     :navigation="sidebarNavigation"
   />
 </template>
