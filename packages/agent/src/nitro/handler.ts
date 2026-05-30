@@ -656,6 +656,26 @@ async function createAgentChatBot(agent: AgentInput<NitroAgentRuntimeContext>, c
   return { bot, options }
 }
 
+async function runChatWebhook(
+  event: H3Event,
+  context: NitroAgentRuntimeContext,
+  webhook: (request: Request, options?: { waitUntil?: (task: Promise<unknown>) => void }) => Promise<Response>,
+): Promise<Response> {
+  const pending: Promise<unknown>[] = []
+  const response = await webhook(context.request!, {
+    waitUntil: (task) => {
+      pending.push(task)
+      event.waitUntil(task)
+    },
+  })
+
+  if (context.cloudflare?.env && pending.length > 0) {
+    await Promise.all(pending)
+  }
+
+  return response
+}
+
 async function readAgentBody(request: Request): Promise<AgentRequestBody> {
   const body = await request.clone().json().catch(() => undefined)
   return typeof body === "object" && body !== null ? body as AgentRequestBody : {}
@@ -915,6 +935,6 @@ export function defineAgentChatWebhookRegistryHandler(
       })
     }
     validateChatWebhookSecret(chatOptions, platform, context.request!)
-    return await webhook(context.request!, { waitUntil: task => event.waitUntil(task) })
+    return await runChatWebhook(event, context, webhook)
   })
 }

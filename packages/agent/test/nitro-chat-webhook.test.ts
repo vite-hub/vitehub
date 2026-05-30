@@ -244,6 +244,92 @@ describe("agent Nitro chat webhooks", () => {
     expect(output.edits).toEqual(["agent answer"])
   })
 
+  it("awaits Cloudflare chat webhook waitUntil tasks before returning the response", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    let chatInstance: ChatInstance | undefined
+    let releaseTask: () => void = () => {}
+    let taskStarted: () => void = () => {}
+    const release = new Promise<void>((resolve) => {
+      releaseTask = resolve
+    })
+    const started = new Promise<void>((resolve) => {
+      taskStarted = resolve
+    })
+    const adapter = {
+      ...createWebhookAdapter(output),
+      handleWebhook: vi.fn(async (_request: Request, options?: { waitUntil?: (task: Promise<unknown>) => void }) => {
+        const task = (async () => {
+          taskStarted()
+          await release
+          await (chatInstance as ChatInstance & { handleIncomingMessage: (adapter: Adapter, threadId: string, message: unknown) => Promise<void> }).handleIncomingMessage(adapter as unknown as Adapter, "teams:dm:maxi", {
+            attachments: [],
+            author: { fullName: "Maxi", isBot: false, isMe: false, userId: "maxi", userName: "Maxi" },
+            formatted: { children: [], type: "root" },
+            id: "message-1",
+            metadata: { dateSent: new Date("2026-05-28T10:00:00.000Z"), edited: false },
+            raw: {},
+            text: "hello from Teams",
+            threadId: "teams:dm:maxi",
+          })
+        })()
+        options?.waitUntil?.(task)
+        return new Response("ok")
+      }),
+      initialize: vi.fn(async (instance: ChatInstance) => {
+        chatInstance = instance
+      }),
+    } as unknown as Adapter
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({
+          adapters: {
+            teams: () => adapter,
+          },
+          fallbackStreamingPlaceholderText: "Working...",
+          state: () => createMemoryState(),
+        })],
+        run() {
+          return "agent answer"
+        },
+      }),
+    })
+    let settled = false
+    const waitUntil = vi.fn()
+    const responsePromise = Promise.resolve(handler({
+      context: {
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      env: {},
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
+        body: JSON.stringify({ text: "hello from Teams" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil,
+    } as never) as Response).then((response) => {
+      settled = true
+      return response
+    })
+
+    await started
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+
+    releaseTask()
+    const response = await responsePromise
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("ok")
+    expect(output.posts).toEqual(["Working..."])
+    expect(output.edits).toEqual(["agent answer"])
+  })
+
   it("exposes Cloudflare env to configured chat state resolvers", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
