@@ -38,6 +38,7 @@ export default defineNuxtConfig({
         "lucide:terminal",
         "lucide:text-align-start",
         "simple-icons:cloudflare",
+        "simple-icons:discord",
         "simple-icons:vercel",
         "vscode-icons:file-type-typescript",
       ],

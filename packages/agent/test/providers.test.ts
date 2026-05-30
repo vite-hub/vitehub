@@ -134,7 +134,7 @@ describe("Cloudflare helpers", () => {
 describe("Nitro helpers", () => {
   it("runs custom run agents without resolving a model first", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentHandler } = await import("../src/nitro.ts")
+    const { defineAgentHandler } = await import("../src/nitro/handler.ts")
     const run = vi.fn(() => ({ raw: { routed: true }, text: "ok" }))
     const handler = defineAgentHandler(defineAgent({ run }) as never)
     const event = {
@@ -155,7 +155,7 @@ describe("Nitro helpers", () => {
 
   it("does not resolve custom run agents for resolved lifecycle hooks", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentHandler } = await import("../src/nitro.ts")
+    const { defineAgentHandler } = await import("../src/nitro/handler.ts")
     const run = vi.fn(() => ({ raw: { routed: true }, text: "ok" }))
     const resolved = vi.fn()
     const handler = defineAgentHandler(defineAgent({ run }) as never, {
@@ -180,7 +180,7 @@ describe("Nitro helpers", () => {
 
   it("keeps context.request readable for custom run agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentHandler } = await import("../src/nitro.ts")
+    const { defineAgentHandler } = await import("../src/nitro/handler.ts")
     const run = vi.fn(async ({ request }) => ({
       text: (await request!.json()).prompt,
     }))
@@ -202,7 +202,7 @@ describe("Nitro helpers", () => {
 
   it("throws declared HTTP errors with the declared status", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentHandler } = await import("../src/nitro.ts")
+    const { defineAgentHandler } = await import("../src/nitro/handler.ts")
     const error = new Error("Rejected")
     ;(error as { statusCode?: number }).statusCode = 403
     const handler = defineAgentHandler(defineAgent({ run: () => { throw error } }) as never)

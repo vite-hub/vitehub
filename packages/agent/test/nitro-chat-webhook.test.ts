@@ -177,6 +177,7 @@ describe("agent Nitro chat webhooks", () => {
 
     const chatWebhookRouteFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "chat-webhook-handler.ts")
     await expect(readFile(chatWebhookRouteFile, "utf8")).resolves.toContain("defineAgentChatWebhookRegistryHandler(agentRegistry)")
+    await expect(readFile(chatWebhookRouteFile, "utf8")).resolves.toContain("@vite-hub/agent/nitro/handler")
     expect(nitro.options.handlers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         handler: chatWebhookRouteFile,
@@ -193,7 +194,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("resolves inline chat adapter maps at request time and dispatches to chat.message", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const seen: string[] = []
     const onDirectMessage = vi.fn()
@@ -246,7 +247,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("awaits Cloudflare chat webhook waitUntil tasks before returning the response", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     let chatInstance: ChatInstance | undefined
     let releaseTask: () => void = () => {}
@@ -332,7 +333,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("exposes Cloudflare env to configured chat state resolvers", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const seen: unknown[] = []
     const adapter = createWebhookAdapter(output)
@@ -379,7 +380,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("only answers group chat messages that mention the bot", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const seen: string[] = []
     const adapter = createWebhookAdapter(output)
@@ -452,7 +453,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("validates configured chat webhook secrets before invoking the adapter", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const adapter = createWebhookAdapter(output)
     const handleWebhook = (adapter as unknown as { handleWebhook: ReturnType<typeof vi.fn> }).handleWebhook
@@ -519,7 +520,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("deletes chat placeholders when streamed results have no text", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], events: string[], posts: unknown[] } = { edits: [], events: [], posts: [] }
     const adapter = createWebhookAdapter(output)
     const handler = defineAgentChatWebhookRegistryHandler({
@@ -563,7 +564,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("drops empty chat history messages before dispatching to the agent", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const seen: string[][] = []
     const adapter = createWebhookAdapter(output)
@@ -632,7 +633,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("uses process-local chat state when state is not configured", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const seen: string[] = []
     const adapter = createWebhookAdapter(output)
@@ -677,7 +678,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("memoizes configured chat state factories per agent definition", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const adapter = createWebhookAdapter(output)
     const threadIds: string[] = []
@@ -738,7 +739,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("passes configured thread history size as the adapter fetch limit", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
     const adapter = createWebhookAdapter(output)
     const fetchMessages = (adapter as unknown as { fetchMessages: ReturnType<typeof vi.fn> }).fetchMessages
@@ -780,7 +781,7 @@ describe("agent Nitro chat webhooks", () => {
 
   it("passes chat audio attachments to transcribe()", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro/handler.ts")
     const output: { edits: unknown[], events: string[], posts: unknown[] } = { edits: [], events: [], posts: [] }
     const seenText: string[] = []
     const execute = vi.fn(async () => {

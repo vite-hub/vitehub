@@ -16,8 +16,8 @@ const entries = computed(() => {
 });
 
 useSeoMeta({
-  title: "Blog entries",
-  ogTitle: "Blog entries · ViteHub",
+  title: "Blog",
+  ogTitle: "Blog · ViteHub",
   description: "Guides and implementation notes for building with ViteHub server primitives and agents.",
 });
 
@@ -36,7 +36,7 @@ function formatDate(value?: string) {
   <UContainer>
     <UPage :ui="{ center: 'max-w-5xl mx-auto' }">
       <UPageHeader
-        title="Blog entries"
+        title="Blog"
         description="Guides and notes for composing ViteHub primitives, workspaces, and agents in real applications."
       />
 

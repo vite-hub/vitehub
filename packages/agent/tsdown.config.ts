@@ -21,6 +21,7 @@ export default defineConfig({
     "src/cli.ts",
     "src/eval.ts",
     "src/nitro.ts",
+    "src/nitro/handler.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/chat-devtools-handler.ts",
     "src/runtime/nitro-runtime-config.ts",

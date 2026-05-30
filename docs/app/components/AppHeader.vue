@@ -3,7 +3,7 @@ const route = useRoute();
 const primaryLinks = [
   { label: "Server primitives", to: "/docs/server-primitives" },
   { label: "Agents", to: "/docs/agents" },
-  { label: "Blog entries", to: "/blog" },
+  { label: "Blog", to: "/blog" },
 ];
 const mobileLinks = [
   { label: "Home", to: "/" },

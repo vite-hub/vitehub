@@ -104,6 +104,7 @@ describe("agent Nitro runtime files", () => {
     await expect(readFile(routeFile, "utf8")).resolves.toContain("./nitro-registry.ts")
     expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/capabilities"]).toContain("/packages/agent/src/capabilities.ts")
     expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/eval"]).toContain("/packages/agent/src/eval.ts")
+    expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/nitro/handler"]).toContain("/packages/agent/src/nitro/handler.ts")
     expect(hooks).toHaveLength(2)
   })
 })
