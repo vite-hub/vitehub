@@ -136,14 +136,14 @@ describe("agent message protocol", () => {
       scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
       target: "support",
     }, {
-      run: { platform: "cloudflare", runId: "host-run" },
+      run: { origin: "cloudflare", runId: "host-run" },
       runtime: "nitro",
       runtimeConfig: { region: "iad" },
       waitUntil,
     })).resolves.toBe("ok")
 
     expect(seen).toEqual([{
-      run: { platform: "cloudflare", runId: "srun_schedule_2026-05-23T09:00:00.000Z" },
+      run: { origin: "cloudflare", runId: "srun_schedule_2026-05-23T09:00:00.000Z" },
       runtime: "nitro",
       waitUntil,
     }])

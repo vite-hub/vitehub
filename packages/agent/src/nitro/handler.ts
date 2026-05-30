@@ -715,7 +715,7 @@ function createRunMetadata(platform: string, thread: Thread, channel: Channel | 
   return {
     channelId: entityId(channel) || thread.channelId,
     messageId: entityId(message),
-    platform,
+    origin: platform,
     runId: globalThis.crypto?.randomUUID?.() || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
     threadId: entityId(thread) || thread.id,
   }
@@ -922,7 +922,7 @@ function createChatRouteRunMetadata(body: AgentChatRouteBody, agentName: string 
   return {
     channelId: firstString(run.channelId, session?.id ? `http:${session.id}` : undefined, agentName ? `http:${agentName}` : undefined),
     messageId: firstString(run.messageId, body.messageId, message?.id),
-    platform: firstString(run.platform, "http"),
+    origin: firstString(run.origin, "http"),
     runId: firstString(run.runId) || randomRunId(),
     threadId: firstString(run.threadId, session?.id, body.id, agentName),
   }

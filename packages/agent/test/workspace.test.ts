@@ -564,7 +564,7 @@ describe("defineAgent workspace option", () => {
     await agent.run!({
       ...(context() as Record<string, unknown>),
       run: {
-        platform: "telegram",
+        origin: "telegram",
         runId: "run_123",
         threadId: "thread_1",
       },

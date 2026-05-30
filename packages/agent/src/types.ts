@@ -85,7 +85,7 @@ export interface AgentScheduleInvocationInput {
 export interface AgentRunMetadata {
   channelId?: string
   messageId?: string
-  platform?: string
+  origin?: string
   runId: string
   threadId?: string
 }

@@ -172,7 +172,7 @@ function createRunMetadata(session: ChatDevtoolsSession, userMessageId: string):
   return {
     channelId: `devtools:${session.name}`,
     messageId: userMessageId,
-    platform: "devtools",
+    origin: "devtools",
     runId: globalThis.crypto?.randomUUID?.() || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
     threadId: `devtools:${session.name}:thread`,
   }

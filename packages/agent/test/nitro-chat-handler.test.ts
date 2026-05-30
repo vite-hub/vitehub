@@ -81,7 +81,7 @@ describe("agent Nitro chat routes", () => {
       messages: ["hello from Nuxt UI"],
       run: expect.objectContaining({
         messageId: "user-1",
-        platform: "http",
+        origin: "http",
         threadId: "support-session",
       }),
     }])

@@ -48,6 +48,10 @@ _Avoid_: Benchmark, unit test, arena
 Runtime state created while an Agent Invocation is being processed.
 _Avoid_: Chat state, workflow state
 
+**Agent Run Origin**:
+Host-provided metadata naming where an Agent Invocation came from, such as `http`, `devtools`, or a Chat Platform Adapter name.
+_Avoid_: Platform, Agent Trigger, runtime
+
 **Chat History**:
 Ordered conversational messages for one chat interaction with an Agent.
 _Avoid_: Agent Memory, Agent Run State
@@ -117,6 +121,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - Tools are contributed by Capabilities, not by top-level Agent Definition fields.
 - Workspace Tools are derived from an Agent's Colocated Workspace Definition.
 - An **Agent Invocation** can create or update **Agent Run State**.
+- An **Agent Run Origin** is observability metadata for an **Agent Invocation**; it is not the **Agent Trigger** that prepared the invocation.
 - **Chat History** is conversation-scoped and is not **Agent Memory**.
 - A **Chat Session** is part of Chat History behavior and is not **Agent Memory**.
 - The Chat Capability resolves the active **Chat Session** before applying the **Chat History Window**.
@@ -172,6 +177,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - Callback runtime config was considered an Agent app configuration surface - resolved: app-owned Runtime Env belongs to Server Env, not Agent callback context.
 - Server-side chat integration was described as a chat adapter or client integration - resolved: use **Agent Trigger** for server-side behavior that starts Agent Invocations.
 - ChatSDK adapters were considered Agent Triggers - resolved: a Chat Platform Adapter receives platform webhook events, and generated Chat Webhook wiring bridges those events into the Chat Capability's Agent Trigger.
+- Agent run metadata used `platform` for both chat adapters and generic invocation sources - resolved: use **Agent Run Origin** for run metadata and reserve platform language for **Chat Platform Adapters**.
 - Agent Triggers were considered chat-only because chat is the first major use case - resolved: Chat can provide the first official Capability-owned trigger, but Agent Triggers remain general and do not require message-shaped input.
 - Chat helper APIs were considered the primary exposure path - resolved: Capability-owned trigger registration is the primary server-side path, with helpers only as optional callers or ergonomics around registered triggers.
 - Client-provided flags were considered Capability configuration - resolved: triggers may pass host or client intent with the Agent Invocation, while Capabilities remain server-configured Agent behavior and the exact input field name is not fixed yet.
