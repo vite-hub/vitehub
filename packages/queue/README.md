@@ -31,6 +31,7 @@ export default defineQueue<{ email: string }>(async (job) => {
 ```ts
 // server/api/signup.post.ts
 import { runQueue } from "@vite-hub/queue"
+import { defineEventHandler, readBody } from "h3"
 
 export default defineEventHandler(async (event) => {
   return runQueue("welcome-email", await readBody<{ email: string }>(event))

@@ -15,6 +15,8 @@ import type {
 import type { StreamEvent } from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
+const agentTriggerContextKey = "agent.trigger"
+
 type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -98,6 +100,23 @@ export interface ResolvedAgentTriggerInvocation<
   trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, unknown, CALL_OPTIONS>
 }
 
+function withAgentTriggerContext<CALL_OPTIONS>(
+  input: AgentRunInput<CALL_OPTIONS>,
+  trigger: Pick<ResolvedAgentTriggerDefinition, "capabilityId" | "id" | "name">,
+): AgentRunInput<CALL_OPTIONS> {
+  return {
+    ...input,
+    context: {
+      ...input.context,
+      [agentTriggerContextKey]: {
+        capabilityId: trigger.capabilityId,
+        id: trigger.id,
+        name: trigger.name,
+      },
+    },
+  }
+}
+
 export type RunAgentTriggerExecutor<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -134,7 +153,7 @@ export async function resolveAgentTriggerInvocation<
   }
   const invocation = await trigger.invoke(input)
   return {
-    input: invocation.input,
+    input: withAgentTriggerContext(invocation.input, trigger),
     metadata: invocation.metadata,
     run: invocation.run,
     trigger: trigger as never,

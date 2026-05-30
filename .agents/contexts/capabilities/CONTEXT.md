@@ -24,6 +24,14 @@ _Avoid_: Chat helper, DevTools bridge, raw server route, server-only bucket
 A primitive, workspace mode, or workspace path that a Capability needs before it can be applied to an Agent.
 _Avoid_: Capability dependency, plugin dependency
 
+**Prompt Template**:
+A Capability-owned text template that renders model-facing prompt text from named Prompt Template Variables.
+_Avoid_: Dynamic prompt, hardcoded prompt, prompt callback
+
+**Prompt Template Variable**:
+A named value available when rendering a Prompt Template.
+_Avoid_: Placeholder, interpolation value, prompt arg
+
 **Storage Capability Tool Surface**:
 The two-tool read/edit shape used by official storage Capabilities to expose scoped storage operations to a model.
 _Avoid_: Primitive method proxy, storage method fanout
@@ -174,6 +182,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - A **Capability Trigger Contribution** is composed from `defineAgent({ capabilities })`, not registered through a separate helper.
 - A **Capability Trigger Contribution** belongs directly to the Capability shape unless a broader grouping earns its name later.
 - A **Capability Trigger Contribution** maps product event input into Agent Invocation input and run metadata; Agent execution remains owned by the Agent Package.
+- A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
 - A **Pre-Invocation Decision** is an internal primitive used by Capabilities before the main Agent Invocation.
@@ -254,6 +263,9 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 >
 > **Dev:** "Should `/clear` be an Input Command?"
 > **Domain expert:** "No. `/clear` is a **Host Command** because it changes chat or session state instead of Agent run input."
+>
+> **Dev:** "Can I add any request field to a Prompt Template?"
+> **Domain expert:** "No. Use only the Prompt Template Variables exposed by that Capability, or provide a callback when the prompt needs custom runtime data."
 >
 > **Dev:** "Should Chat DevTools wire its own chat send helper?"
 > **Domain expert:** "No. The **Chat Capability** should provide a **Capability Trigger Contribution**, and DevTools should consume the resolved Agent Trigger."

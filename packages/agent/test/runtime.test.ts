@@ -627,6 +627,107 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("generates chat titles with the default template and agent model", async () => {
+    const generateText = vi.fn(async () => ({ text: '"Generated invoice title"' }))
+    vi.doMock("ai", () => ({ generateText }))
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const finish = vi.fn()
+      const agent = defineAgent({
+        capabilities: [chatTitle()],
+        hooks: {
+          "agent:finish": finish,
+        },
+        model: "agent-title-model" as never,
+        run: () => ({ text: "ok" }),
+      })
+
+      await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+        messages: [createMessage({ role: "user", text: "Need help with invoices" })],
+      })
+
+      expect(generateText).toHaveBeenCalledWith({
+        model: "agent-title-model",
+        prompt: [
+          "Generate a short chat title from the user's first message.",
+          "Return only the title.",
+          "Use 2-5 words when possible.",
+          `Use "New Conversation" when the message is too vague.`,
+          "",
+          "User message:",
+          "Need help with invoices",
+        ].join("\n"),
+      })
+      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toEqual({ title: "Generated invoice title" })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("renders custom chat title templates and skips unmatched triggers", async () => {
+    const generateText = vi.fn(async () => ({ text: "Portal Forecast Help" }))
+    vi.doMock("ai", () => ({ generateText }))
+
+    try {
+      const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+      const finish = vi.fn()
+      const agent = defineAgent({
+        capabilities: [
+          chatTitle({
+            model: "title-model" as never,
+            template: "{{ trigger }} {{ area }}: {{ message }}",
+            trigger: "portal.message",
+            variables: {
+              area: "support",
+            },
+          }),
+          {
+            id: "portal",
+            triggers: {
+              message: {
+                invoke: (_context, input: { text: string }) => ({
+                  input: { messages: [createMessage({ role: "user", text: input.text })] },
+                }),
+              },
+            },
+          },
+          {
+            id: "teams",
+            triggers: {
+              message: {
+                invoke: (_context, input: { text: string }) => ({
+                  input: { messages: [createMessage({ role: "user", text: input.text })] },
+                }),
+              },
+            },
+          },
+        ],
+        hooks: {
+          "agent:finish": finish,
+        },
+        run: () => ({ text: "ok" }),
+      })
+      const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+      await runAgentTrigger(agent, runtime, "teams.message", { text: "Need help with forecast" })
+      expect(generateText).not.toHaveBeenCalled()
+      expect(finish.mock.calls[0]![0].extensions.get("chat-title")).toBeUndefined()
+
+      await runAgentTrigger(agent, runtime, "portal.message", { text: "Need help with forecast" })
+
+      expect(generateText).toHaveBeenCalledWith({
+        model: "title-model",
+        prompt: "portal.message support: Need help with forecast",
+      })
+      expect(finish.mock.calls[1]![0].extensions.get("chat-title")).toEqual({ title: "Portal Forecast Help" })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it("emits chat title data for adapter text streams", async () => {
     vi.doMock("ai", () => ({
       ToolLoopAgent: class {

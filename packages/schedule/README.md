@@ -35,6 +35,7 @@ export default defineSchedule({
 ```ts
 // server/api/schedules.post.ts
 import { schedules } from "@vite-hub/schedule/runtime"
+import { defineEventHandler } from "h3"
 
 export default defineEventHandler(() => {
   return schedules.create({

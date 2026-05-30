@@ -50,6 +50,7 @@ export default defineNitroConfig({
 ```ts
 // server/api/config.get.ts
 import { useServerEnv } from "#vitehub/env/server"
+import { defineEventHandler } from "h3"
 
 export default defineEventHandler((event) => {
   const env = useServerEnv(event)

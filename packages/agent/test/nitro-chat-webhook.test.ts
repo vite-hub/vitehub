@@ -181,7 +181,7 @@ describe("agent Nitro chat webhooks", () => {
       expect.objectContaining({
         handler: chatWebhookRouteFile,
         method: "POST",
-        route: "/api/agents/:agent/chat/:platform",
+        route: "/api/_vitehub/agents/:agent/chat/:platform",
       }),
     ]))
     expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([
@@ -225,7 +225,7 @@ describe("agent Nitro chat webhooks", () => {
           platform: "teams",
         },
       },
-      req: new Request("https://example.test/api/agents/support/chat/teams", {
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
         body: JSON.stringify({ text: "hello from Teams" }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -280,7 +280,7 @@ describe("agent Nitro chat webhooks", () => {
           platform: "teams",
         },
       },
-      req: new Request("https://example.test/api/agents/support/chat/teams", {
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
         body: JSON.stringify({ id: "message-1", text: "human follow-up", threadId }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -301,7 +301,7 @@ describe("agent Nitro chat webhooks", () => {
           platform: "teams",
         },
       },
-      req: new Request("https://example.test/api/agents/support/chat/teams", {
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
         body: JSON.stringify({ id: "message-2", isMention: true, text: "please help", threadId }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -350,7 +350,7 @@ describe("agent Nitro chat webhooks", () => {
           platform: "telegram",
         },
       },
-      req: new Request("https://example.test/api/agents/support/chat/telegram", {
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/telegram", {
         body: JSON.stringify({ text: "hello from Telegram" }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -367,7 +367,7 @@ describe("agent Nitro chat webhooks", () => {
           platform: "telegram",
         },
       },
-      req: new Request("https://example.test/api/agents/support/chat/telegram", {
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/telegram", {
         body: JSON.stringify({ text: "hello from Telegram" }),
         headers: {
           "content-type": "application/json",
@@ -413,7 +413,7 @@ describe("agent Nitro chat webhooks", () => {
           platform: "teams",
         },
       },
-      req: new Request("https://example.test/api/agents/support/chat/teams", {
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
         body: JSON.stringify({ text: "hello from Teams" }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -483,7 +483,7 @@ describe("agent Nitro chat webhooks", () => {
           platform: "teams",
         },
       },
-      req: new Request("https://example.test/api/agents/support/chat/teams", {
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
         body: JSON.stringify({ text: "hello from Teams" }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -528,7 +528,7 @@ describe("agent Nitro chat webhooks", () => {
           platform: "teams",
         },
       },
-      req: new Request("https://example.test/api/agents/support/chat/teams", {
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
         body: JSON.stringify({ text: "hello from Teams" }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -586,7 +586,7 @@ describe("agent Nitro chat webhooks", () => {
             platform: "teams",
           },
         },
-        req: new Request("https://example.test/api/agents/support/chat/teams", {
+        req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
           body: JSON.stringify({ text }),
           headers: { "content-type": "application/json" },
           method: "POST",
@@ -629,7 +629,7 @@ describe("agent Nitro chat webhooks", () => {
           platform: "teams",
         },
       },
-      req: new Request("https://example.test/api/agents/support/chat/teams", {
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
         body: JSON.stringify({ text: "hello from Teams" }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -682,7 +682,7 @@ describe("agent Nitro chat webhooks", () => {
           platform: "teams",
         },
       },
-      req: new Request("https://example.test/api/agents/support/chat/teams", {
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
         body: JSON.stringify({ audio: "fetch" }),
         headers: { "content-type": "application/json" },
         method: "POST",

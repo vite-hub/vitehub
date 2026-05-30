@@ -22,6 +22,7 @@ Add `@upstash/redis` when you use the Upstash driver.
 ```ts
 // server/api/settings.put.ts
 import { kv } from "@vite-hub/kv"
+import { defineEventHandler, readBody } from "h3"
 
 export default defineEventHandler(async (event) => {
   await kv.set("settings", await readBody(event))

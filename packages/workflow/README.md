@@ -35,6 +35,7 @@ export default defineWorkflow<{ email: string }>(async ({ id, payload, step }) =
 ```ts
 // server/api/welcome.post.ts
 import { getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
+import { defineEventHandler, readBody } from "h3"
 
 export default defineEventHandler(async (event) => {
   const run = await runWorkflow("welcome", await readBody<{ email: string }>(event))

@@ -22,6 +22,7 @@ Add the SDK required by the driver you configure.
 ```ts
 // server/api/files.post.ts
 import { blob } from "@vite-hub/blob"
+import { defineEventHandler, readBody } from "h3"
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ path: string, text: string }>(event)

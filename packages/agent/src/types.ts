@@ -561,7 +561,20 @@ export interface AgentChatSessionOptions {
   strategy?: "manual" | "idle-timeout" | "hybrid"
 }
 
+export interface AgentChatMessageHookArgs {
+  id?: string
+  metadata?: Record<string, unknown>
+  text: string
+}
+
 export interface AgentChatAgentHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
+  history: Message[]
+  message: AgentChatMessageHookArgs
+  run?: AgentRunMetadata
+  session?: {
+    action?: "continue" | "new" | "switch"
+    id?: string
+  }
   thread: { post: (message: unknown) => MaybePromise<unknown> }
 }
 

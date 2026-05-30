@@ -47,7 +47,7 @@ describe("agent Nitro chat routes", () => {
     app.use(defineAgentChatHandler(agent, { inferredName: "support" }))
     const webHandler = toWebHandler(app)
     const transport = new DefaultChatTransport<UIMessage>({
-      api: "https://example.test/api/chat",
+      api: "https://example.test/api/_vitehub/agents/support/chat",
       fetch: async (input, init) => await webHandler(new Request(input, init)),
     })
 
@@ -57,6 +57,7 @@ describe("agent Nitro chat routes", () => {
       messageId: undefined,
       messages: [{
         id: "user-1",
+        metadata: { selection: { label: "Availability", value: "82.4%" } },
         parts: [{ text: "hello from Nuxt UI", type: "text" }],
         role: "user",
       }],
@@ -70,7 +71,11 @@ describe("agent Nitro chat routes", () => {
     expect(messageText(messages.at(-1)!)).toBe("agent answer")
     expect(seen).toEqual([{
       chat: expect.objectContaining({
-        message: { id: "user-1", text: "hello from Nuxt UI" },
+        message: {
+          id: "user-1",
+          metadata: { selection: { label: "Availability", value: "82.4%" } },
+          text: "hello from Nuxt UI",
+        },
         session: { id: "support-session" },
       }),
       messages: ["hello from Nuxt UI"],
@@ -82,8 +87,7 @@ describe("agent Nitro chat routes", () => {
     }])
   })
 
-  it("can expose a single registered chat agent without a route param", async () => {
-    const { DefaultChatTransport, readUIMessageStream } = await import("ai")
+  it("requires an agent route param for registry chat handlers", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
     const agent = defineAgent({
@@ -95,28 +99,17 @@ describe("agent Nitro chat routes", () => {
       support: async () => agent,
     }))
     const webHandler = toWebHandler(app)
-    const transport = new DefaultChatTransport<UIMessage>({
-      api: "https://example.test/api/chat",
-      fetch: async (input, init) => await webHandler(new Request(input, init)),
-    })
+    const response = await webHandler(new Request("https://example.test/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "support-session",
+        messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
 
-    const stream = await transport.sendMessages({
-      abortSignal: undefined,
-      chatId: "support-session",
-      messageId: undefined,
-      messages: [{
-        id: "user-1",
-        parts: [{ text: "hello", type: "text" }],
-        role: "user",
-      }],
-      trigger: "submit-message",
-    })
-    const messages: UIMessage[] = []
-    for await (const message of readUIMessageStream({ stream })) {
-      messages.push(message)
-    }
-
-    expect(messageText(messages.at(-1)!)).toBe("registry answer")
+    expect(response.status).toBe(400)
+    expect(await response.text()).toContain("Missing agent route param: agent")
   })
 
   it("returns a bad request when the chat route receives no UI messages", async () => {
@@ -127,7 +120,7 @@ describe("agent Nitro chat routes", () => {
       capabilities: [chat({ app: true })],
       run: () => "agent answer",
     })))
-    const response = await toWebHandler(app)(new Request("https://example.test/api/chat", {
+    const response = await toWebHandler(app)(new Request("https://example.test/api/_vitehub/agents/support/chat", {
       body: JSON.stringify({ id: "support-session" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -145,7 +138,7 @@ describe("agent Nitro chat routes", () => {
       capabilities: [chat()],
       run: () => "agent answer",
     })))
-    const response = await toWebHandler(app)(new Request("https://example.test/api/chat", {
+    const response = await toWebHandler(app)(new Request("https://example.test/api/_vitehub/agents/support/chat", {
       body: JSON.stringify({
         id: "support-session",
         messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
@@ -191,14 +184,19 @@ describe("agent Nitro chat routes", () => {
 
     await module.setup(nitro as never)
 
-    const route = nitro.options.handlers.find(handler => handler.route === "/api/chat")
+    const route = nitro.options.handlers.find(handler => handler.route === "/api/_vitehub/agents/:agent/chat")
     expect(route).toMatchObject({ method: "POST" })
     await expect(readFile(route!.handler, "utf8")).resolves.toContain("defineAgentChatRegistryHandler(agentRegistry)")
     expect(nitro.options.handlers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         handler: route!.handler,
         method: "POST",
-        route: "/api/agents/:agent/chat",
+        route: "/api/_vitehub/agents/:agent/chat",
+      }),
+    ]))
+    expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        route: "/api/chat",
       }),
     ]))
   })
@@ -239,11 +237,7 @@ describe("agent Nitro chat routes", () => {
     expect(nitro.options.handlers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         method: "POST",
-        route: "/api/chat",
-      }),
-      expect.objectContaining({
-        method: "POST",
-        route: "/api/agents/:agent/chat",
+        route: "/api/_vitehub/agents/:agent/chat",
       }),
     ]))
     expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([

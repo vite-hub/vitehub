@@ -36,6 +36,7 @@ export default defineDatabase({
 ```ts
 // server/api/notes.get.ts
 import { db, schema } from "@vite-hub/database/drizzle"
+import { defineEventHandler } from "h3"
 
 export default defineEventHandler(() => {
   return db.select().from(schema.notes)

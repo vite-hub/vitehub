@@ -19,9 +19,8 @@ const AGENT_NITRO_IMPORTS_PRESET = {
   from: "@vite-hub/agent",
   imports: ["defineAgent"],
 }
-const AGENT_CHAT_WEBHOOK_ROUTE = "/api/agents/[agent]/chat/[platform]"
-const AGENT_CHAT_APP_ROUTE = "/api/chat"
-const AGENT_CHAT_APP_AGENT_ROUTE = "/api/agents/[agent]/chat"
+const AGENT_CHAT_WEBHOOK_ROUTE = "/api/_vitehub/agents/[agent]/chat/[platform]"
+const AGENT_CHAT_APP_AGENT_ROUTE = "/api/_vitehub/agents/[agent]/chat"
 const AGENT_CHAT_APP_ROUTE_FILE = "chat-app-handler.ts"
 const AGENT_CHAT_WEBHOOK_ROUTE_FILE = "chat-webhook-handler.ts"
 
@@ -227,7 +226,6 @@ function installChatWebhookRoute(nitro: Nitro, routeFile: string | undefined): v
 }
 
 function installChatAppRoutes(nitro: Nitro, routeFile: string | undefined): void {
-  installPostRoute(nitro, AGENT_CHAT_APP_ROUTE, routeFile)
   installPostRoute(nitro, AGENT_CHAT_APP_AGENT_ROUTE, routeFile)
 }
 

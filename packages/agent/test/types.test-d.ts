@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
-import { blob, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
+import { blob, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -68,6 +68,24 @@ describe("agent public types", () => {
           execute({ audio }) {
             expectTypeOf(audio.mediaType).toEqualTypeOf<string>()
             return "transcript"
+          },
+        }),
+        chatTitle({
+          model: () => ({}),
+          template({ fallback, maxLength, text, trigger }) {
+            expectTypeOf(fallback).toEqualTypeOf<string>()
+            expectTypeOf(maxLength).toEqualTypeOf<number>()
+            expectTypeOf(text).toEqualTypeOf<string>()
+            expectTypeOf(trigger).toEqualTypeOf<string | undefined>()
+            return text
+          },
+          trigger: "chat.message",
+          variables: {
+            suffix: ({ text }) => text,
+          },
+          when: ({ input }) => {
+            expectTypeOf(input.context).toEqualTypeOf<Record<string, unknown> | undefined>()
+            return true
           },
         }),
         webSearch({ mode: "tool", provider: "exa" }),

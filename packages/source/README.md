@@ -18,11 +18,12 @@ pnpm add @vite-hub/source
 
 ```ts
 // server/utils/sources.ts
-import { defineSources, glob, markdown, registerSources, useSource } from "@vite-hub/source"
+import { defineSources, file, github, glob, registerSources, useSource } from "@vite-hub/source"
 
 registerSources(defineSources({
-  docs: glob({ cwd: "docs", include: "**/*.md" }),
-  readme: markdown({ path: "README.md", workspacePath: "README.md" }),
+  docs: glob({ include: "docs/**/*.md" }),
+  readme: file("README.md"),
+  upstream: github({ repo: "vite-hub/vitehub" }),
 }))
 
 const docs = useSource("docs", { rootDir: process.cwd() })

@@ -2,7 +2,7 @@
 
 ViteHub automatically exposes platform chat webhook routes for discovered Agent Definitions that attach the Chat Capability. The application source of truth is the inline `chat({ adapters, state, ... })` Capability configuration on the Agent Definition. Application authors should not add a local `teams.post.ts` route or call a public webhook registration helper.
 
-The Agent Package generates a Chat Webhook Route such as `/api/agents/:agent/chat/:platform`. At request time, the Chat Webhook Handler resolves the discovered Agent, reads its Chat Capability options, resolves the Chat Adapter Callback, invokes the matching ChatSDK platform adapter webhook, and dispatches the event through the resolved `chat.message` Agent Trigger.
+The Agent Package generates a Chat Webhook Route such as `/api/_vitehub/agents/:agent/chat/:platform`. At request time, the Chat Webhook Handler resolves the discovered Agent, reads its Chat Capability options, resolves the Chat Adapter Callback, invokes the matching ChatSDK platform adapter webhook, and dispatches the event through the resolved `chat.message` Agent Trigger.
 
 ## Considered Options
 

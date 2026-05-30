@@ -102,6 +102,9 @@ export type {
   ChatTitleExecuteInput,
   ChatTitleExecuteResult,
   ChatTitleOptions,
+  ChatTitleTemplate,
+  ChatTitleTemplateInput,
+  ChatTitleTemplateVariable,
 } from "./chat-title.ts"
 export type {
   FetchCapabilityMethod,

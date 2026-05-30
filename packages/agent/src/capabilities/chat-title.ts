@@ -3,7 +3,10 @@ import { getMessageText } from "../messages.ts"
 
 import type {
   AgentCapabilityDefinition,
+  AgentCapabilityRuntimeContext,
+  AgentModelResolver,
   AgentRunInput,
+  AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
 import type {
@@ -22,14 +25,43 @@ export interface ChatTitleExecuteInput {
 
 export type ChatTitleExecuteResult = string | { title?: string }
 
-export interface ChatTitleOptions {
+export interface ChatTitleTemplateInput extends ChatTitleExecuteInput {
+  fallback: string
+  maxLength: number
+  trigger?: string
+}
+
+export type ChatTitleTemplate = string | ((input: ChatTitleTemplateInput) => MaybePromise<string>)
+export type ChatTitleTemplateVariable =
+  | boolean
+  | null
+  | number
+  | string
+  | undefined
+  | ((input: ChatTitleTemplateInput) => MaybePromise<boolean | null | number | string | undefined>)
+
+export interface ChatTitleOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   execute?: (input: ChatTitleExecuteInput) => MaybePromise<ChatTitleExecuteResult>
   fallback?: string
   id?: string
   instructions?: string
   maxLength?: number
-  model?: unknown
+  model?: AgentModelResolver<TRuntimeConfig>
+  template?: ChatTitleTemplate
+  trigger?: string | string[]
+  variables?: Record<string, ChatTitleTemplateVariable>
+  when?: (input: ChatTitleTemplateInput) => MaybePromise<boolean>
 }
+
+const defaultChatTitleTemplate = [
+  "Generate a short chat title from the user's first message.",
+  "Return only the title.",
+  "Use 2-5 words when possible.",
+  `Use "{{ fallback }}" when the message is too vague.`,
+  "",
+  "User message:",
+  "{{ message }}",
+].join("\n")
 
 function firstUserMessage(messages: Message[]): Message | undefined {
   return messages.find(message => message.role === "user")
@@ -55,27 +87,84 @@ function chatTitleData(title: string) {
   return { title, type: "chat-title" }
 }
 
-async function generateChatTitle(options: ChatTitleOptions, input: ChatTitleExecuteInput): Promise<string> {
+function shouldRunForTrigger(filter: ChatTitleOptions["trigger"], trigger: string | undefined): boolean {
+  if (!filter) return true
+  const allowed = Array.isArray(filter) ? filter : [filter]
+  return trigger !== undefined && allowed.includes(trigger)
+}
+
+function agentTriggerId(context: AgentCapabilityRuntimeContext): string | undefined {
+  const trigger = context.context.get<{ id?: unknown }>("agent.trigger")
+  return typeof trigger?.id === "string" ? trigger.id : undefined
+}
+
+async function resolveTemplateVariables(options: ChatTitleOptions, input: ChatTitleTemplateInput): Promise<Record<string, unknown>> {
+  const variables: Record<string, unknown> = {}
+  for (const [name, value] of Object.entries(options.variables || {})) {
+    variables[name] = typeof value === "function"
+      ? await (value as (input: ChatTitleTemplateInput) => MaybePromise<unknown>)(input)
+      : value
+  }
+  return {
+    ...variables,
+    fallback: input.fallback,
+    maxLength: input.maxLength,
+    message: input.text,
+    trigger: input.trigger,
+  }
+}
+
+async function renderChatTitleTemplate(options: ChatTitleOptions, input: ChatTitleTemplateInput): Promise<string> {
+  const template = options.template ?? defaultChatTitleTemplate
+  if (typeof template === "function") {
+    return await template(input)
+  }
+  const variables = await resolveTemplateVariables(options, input)
+  return template.replace(/\{\{\s*([a-zA-Z][\w.-]*)\s*\}\}/g, (match, name: string) => {
+    if (!Object.prototype.hasOwnProperty.call(variables, name)) return match
+    const value = variables[name]
+    return value === null || value === undefined ? "" : String(value)
+  })
+}
+
+async function resolveChatTitleModel(context: AgentCapabilityRuntimeContext, options: ChatTitleOptions): Promise<unknown | undefined> {
+  if (options.model) return await context.model.resolve(options.model)
+  try {
+    return await context.model.resolve()
+  }
+  catch (error) {
+    if (error instanceof Error && error.message.includes("requires a model option or an agent model")) {
+      return undefined
+    }
+    throw error
+  }
+}
+
+async function generateChatTitle(context: AgentCapabilityRuntimeContext, options: ChatTitleOptions, input: ChatTitleExecuteInput): Promise<string | undefined> {
   const fallback = options.fallback ?? "New Conversation"
   const maxLength = options.maxLength ?? 80
+  const templateInput = {
+    ...input,
+    fallback,
+    maxLength,
+    trigger: agentTriggerId(context),
+  }
+
+  if (!shouldRunForTrigger(options.trigger, templateInput.trigger)) return
+  if (options.when && !await options.when(templateInput)) return
 
   if (options.execute) {
     const result = await options.execute(input)
     return cleanGeneratedTitle(typeof result === "string" ? result : result.title, maxLength, fallback)
   }
 
-  if (options.model) {
+  const model = await resolveChatTitleModel(context, options)
+  if (model) {
     const { generateText } = await import("ai")
-    const result = await generateText({
-      model: options.model as never,
-      system: options.instructions ?? [
-        "Generate a short chat title from the user's first message.",
-        "Return only the title.",
-        "Use 2-5 words when possible.",
-        `Use "${fallback}" when the message is too vague.`,
-      ].join("\n"),
-      prompt: input.text,
-    })
+    const prompt = await renderChatTitleTemplate(options, templateInput)
+    const result = await generateText(options.instructions
+      ? { model: model as never, prompt: input.text, system: options.instructions }
+      : { model: model as never, prompt })
     return cleanGeneratedTitle(result.text, maxLength, fallback)
   }
 
@@ -199,7 +288,9 @@ function chatTitleUiMessageStreamOverride(toUIMessageStream: ToUIMessageStream |
     : {}
 }
 
-export function chatTitle(options: ChatTitleOptions = {}): AgentCapabilityDefinition {
+export function chatTitle<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+  options: ChatTitleOptions<TRuntimeConfig> = {},
+): AgentCapabilityDefinition<TRuntimeConfig> {
   return defineCapability({
     id: options.id || "chat-title",
     output(context) {
@@ -210,7 +301,7 @@ export function chatTitle(options: ChatTitleOptions = {}): AgentCapabilityDefini
       const text = getMessageText(message)
       let title: Promise<string | undefined> | undefined
       const getTitle = () => {
-        title ??= generateChatTitle(options, {
+        title ??= generateChatTitle(context, options as ChatTitleOptions, {
           input: context.input.get(),
           message,
           messages,

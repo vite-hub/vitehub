@@ -153,8 +153,8 @@ function uiMessagesToAgentMessages(messages: UIMessageLike[]): Message[] {
   })
 }
 
-function metadataRecord(message: UIMessageLike): Record<string, unknown> | undefined {
-  return typeof message.metadata === "object" && message.metadata !== null
+function metadataRecord(message: UIMessageLike | undefined): Record<string, unknown> | undefined {
+  return typeof message?.metadata === "object" && message.metadata !== null
     ? message.metadata as Record<string, unknown>
     : undefined
 }
@@ -235,10 +235,12 @@ function createChatTriggerHookArgs(
   session: AgentChatMessageTriggerInput["session"] | undefined,
 ): AgentChatAgentHookArgs {
   const message = messages.at(-1)
+  const metadata = metadataRecord(message)
   return {
     history: uiMessagesToAgentMessages(messages),
     message: {
       id: message?.id,
+      ...(metadata ? { metadata } : {}),
       text: message ? uiMessageText(message) : "",
     },
     run,

@@ -1045,13 +1045,10 @@ export function defineAgentRegistryHandler(
   })
 }
 
-function resolveChatRouteAgentName(agents: AgentRegistry, event: H3Event, options: AgentChatRegistryHandlerOptions): string | undefined {
+function resolveChatRouteAgentName(event: H3Event, options: AgentChatRegistryHandlerOptions): string | undefined {
   if (options.agent) return options.agent
   const agentParam = options.agentParam || "agent"
-  const agentName = getRouterParam(event, agentParam)
-  if (agentName) return agentName
-  const names = Object.keys(agents)
-  return names.length === 1 ? names[0] : undefined
+  return getRouterParam(event, agentParam)
 }
 
 export function defineAgentChatRegistryHandler(
@@ -1059,7 +1056,7 @@ export function defineAgentChatRegistryHandler(
   options: AgentChatRegistryHandlerOptions<NitroAgentRuntimeContext> = {},
 ): EventHandler {
   return defineEventHandler(async (event) => {
-    const agentName = resolveChatRouteAgentName(agents, event, options)
+    const agentName = resolveChatRouteAgentName(event, options)
     if (!agentName) {
       throw createError({
         statusCode: 400,

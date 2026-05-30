@@ -33,6 +33,7 @@ export default defineSandbox(async (payload: { notes?: string } = {}) => {
 ```ts
 // server/api/release-notes.post.ts
 import { runSandbox } from "@vite-hub/sandbox"
+import { defineEventHandler, readBody } from "h3"
 
 export default defineEventHandler(async (event) => {
   const result = await runSandbox("release-notes", await readBody(event))

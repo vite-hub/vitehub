@@ -15,9 +15,18 @@
 pnpm add @vite-hub/workspace
 ```
 
-Add `@vite-hub/sandbox` when you want sandbox-backed workspace sessions.
-
 ## Minimal API
+
+```text
+server/
+  workspaces/
+    docs/
+      README.md
+      config.ts
+  api/
+    docs.get.ts
+vite.config.ts
+```
 
 ```ts
 // server/workspaces/docs/config.ts
@@ -30,6 +39,10 @@ export default defineWorkspace({
   },
   sources: {
     readme: source.file("README.md"),
+    vitehubDocs: source.github({
+      repo: "vite-hub/vitehub",
+      root: "docs/content/docs",
+    }),
     guide: source.file({
       workspacePath: "guide.md",
       content: "# Guide\n",
@@ -41,6 +54,7 @@ export default defineWorkspace({
 ```ts
 // server/api/docs.get.ts
 import { useWorkspace } from "@vite-hub/workspace"
+import { defineEventHandler } from "h3"
 
 export default defineEventHandler(async () => {
   const workspace = useWorkspace("docs", { mode: "write" })
@@ -63,6 +77,10 @@ export default defineConfig({
   plugins: [hubWorkspace()],
 })
 ```
+
+## Sandbox sessions
+
+Need the workspace to run generated code instead of only reading and writing files? Pair it with [`@vite-hub/sandbox`](../sandbox/README.md) so sessions can execute inside an isolated provider runtime.
 
 ## Vite and Nitro
 

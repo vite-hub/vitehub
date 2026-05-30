@@ -33,6 +33,6 @@ const exitCode = await runViteHubCli({
 
 ## Vite
 
-Commands come from Vite plugins, so package CLIs can stay package-owned. The first public namespace is `vitehub agent eval` from [`@vite-hub/agent`](../agent/README.md), backed by [Evalite](https://www.evalite.dev/).
+Commands come from Vite plugins, so package CLIs can stay package-owned. The first public namespace is `vitehub agent eval` from [`@vite-hub/agent`](../agent/README.md), backed by [Evalite](https://v1.evalite.dev/).
 
 Learn more at [vitehub.dev](https://vitehub.dev).
