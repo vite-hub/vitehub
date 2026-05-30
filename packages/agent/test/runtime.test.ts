@@ -939,6 +939,28 @@ describe("agent message protocol", () => {
     expect(messages.at(-1)?.parts.map(part => part.type).sort()).toEqual(["data-chat-title", "text"])
   })
 
+  it("renders custom async event streams returned from runAgent", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chatTitle({ execute: () => "Run title" })],
+      run: () => (async function* () {
+        yield { text: "answer", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }) as AsyncIterable<unknown>
+    const events = []
+    for await (const event of result) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ data: { title: "Run title", type: "chat-title" }, type: "data" })
+    expect(events).toContainEqual({ text: "answer", type: "text-delta" })
+  })
+
   it("exposes chat title finish extension without registering command metadata", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

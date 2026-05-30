@@ -41,7 +41,13 @@
     "pathe": "catalog:"
   },
   "peerDependencies": {
+    "ai": "^6.0.0",
     "@vitejs/devtools-kit": ">=0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "ai": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@comark/vue": "catalog:",

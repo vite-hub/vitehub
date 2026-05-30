@@ -14,7 +14,7 @@ import {
   type ChatDevtoolsStreamEvent,
   type ChatDevtoolsTool,
   type ChatDevtoolsToolDefinition,
-} from "../../../../agent/src/chat/devtools-shared"
+} from "../../../src/chat-shared.js"
 import { resolveChatBridgeRoute } from "./bridge-route"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"

@@ -1,3 +1,5 @@
+import type { UIMessage } from "ai"
+
 export const chatDevtoolsFeatureId = "agent.chat" as const
 export const chatDevtoolsTitle = "Chat"
 export const chatDevtoolsBridgeRoute = "/__vitehub/agent/chat/devtools"
@@ -44,6 +46,13 @@ export interface ChatDevtoolsToolDefinition {
   status?: "available" | "disabled"
 }
 
+export interface ChatDevtoolsMetadata {
+  files?: ChatDevtoolsFileTreeItem[]
+  instructions?: string[]
+  title?: string
+  tools?: ChatDevtoolsToolDefinition[]
+}
+
 export interface ChatDevtoolsMessage {
   createdAt: string
   id: string
@@ -56,6 +65,8 @@ export interface ChatDevtoolsMessage {
 export interface ChatDevtoolsConversation {
   messages: ChatDevtoolsMessage[]
   name: string
+  title?: string
+  uiMessages?: UIMessage[]
 }
 
 export interface ChatDevtoolsStateResult {
@@ -63,7 +74,10 @@ export interface ChatDevtoolsStateResult {
   files?: ChatDevtoolsFileTreeItem[]
   instructions?: string[]
   selected: string
+  thinkingFallback?: string | null
+  title?: string
   tools?: ChatDevtoolsToolDefinition[]
+  uiMessages?: UIMessage[]
 }
 
 export interface ChatDevtoolsSendInput {
