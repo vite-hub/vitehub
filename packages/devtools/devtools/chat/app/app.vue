@@ -818,8 +818,9 @@ async function send() {
       return
     }
 
-    await readRpcStream(result.streamId, { ...(chat ? { chat } : {}), text })
-    shouldRefreshFinalState = true
+    if (await readRpcStream(result.streamId, { ...(chat ? { chat } : {}), text })) {
+      shouldRefreshFinalState = true
+    }
   }
   catch (cause) {
     const message = cause instanceof Error ? cause.message : "Chat DevTools send failed."

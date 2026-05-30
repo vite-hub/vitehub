@@ -44,6 +44,7 @@ function createSourceContext(name: string, context: Partial<SourceContext> = {})
   return {
     rootDir: context.rootDir || process.cwd(),
     source: context.source || name,
+    sourceRootDir: context.sourceRootDir,
     workspace: context.workspace,
   }
 }

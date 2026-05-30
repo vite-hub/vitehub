@@ -45,7 +45,7 @@
     "test": "pnpm --dir . build && vitest run"
   },
   "peerDependencies": {
-    "@vitehub/kv": "0.0.0",
+    "@vitehub/kv": "workspace:*",
     "nitro": "^3.0.0-0",
     "vite": "^8.0.0"
   },

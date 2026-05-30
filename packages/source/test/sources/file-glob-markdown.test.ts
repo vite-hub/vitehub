@@ -69,6 +69,23 @@ describe("@vitehub/source local file sources", () => {
     ])
   })
 
+  it("preserves sourceRootDir in useSource contexts", async () => {
+    const root = await createRoot()
+    const sourceRoot = join(root, "server", "agents", "docs", "workspace")
+    await mkdir(join(root, "docs"), { recursive: true })
+    await mkdir(join(sourceRoot, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "project.md"), "# Project\n")
+    await writeFile(join(sourceRoot, "docs", "workspace.md"), "# Workspace\n")
+
+    registerSources(defineSources({
+      docs: glob({ cwd: ".", include: "**/*.md" }),
+    }))
+
+    await expect(useSource("docs", { rootDir: root, sourceRootDir: sourceRoot }).keys()).resolves.toEqual([
+      "docs/workspace.md",
+    ])
+  })
+
   it("uses ignore, dot, prefix, and cwd boundary options for glob providers", async () => {
     const root = await createRoot()
     const outside = await createRoot()

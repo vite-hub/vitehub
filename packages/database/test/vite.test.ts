@@ -34,6 +34,11 @@ async function writeDefinition(rootDir: string, path: string, table = "notes", o
   return file
 }
 
+async function resolveCliContributor(plugin: ReturnType<typeof hubDb>) {
+  const cli = plugin.vitehub?.cli
+  return typeof cli === "function" ? await cli() : cli
+}
+
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -123,6 +128,28 @@ describe("hubDb", () => {
     await configResolved({ db: false, root: rootDir } as never)
 
     expect(plugin.api.getConfig()).toBeUndefined()
+  })
+
+  it("does not contribute the DB CLI namespace when top-level config disables the database plugin", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts")
+
+    const plugin = hubDb()
+    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+    await configResolved({ db: false, root: rootDir } as never)
+
+    await expect(resolveCliContributor(plugin)).resolves.toBeUndefined()
+  })
+
+  it("does not contribute the DB CLI namespace when resolved config disables database CLI", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts")
+
+    const plugin = hubDb()
+    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
+    await configResolved({ db: { cli: false }, root: rootDir } as never)
+
+    await expect(resolveCliContributor(plugin)).resolves.toBeUndefined()
   })
 
   it("exposes default schema and database registry through stable ViteHub import paths", async () => {

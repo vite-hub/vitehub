@@ -87,9 +87,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
 
+  function resolvedOptions() {
+    return resolved?.db ?? options
+  }
+
   async function refreshRuntimeConfig() {
     if (!resolved) return
-    runtimeConfig = resolveDBViteConfig(resolved.db ?? options, resolved.root)
+    runtimeConfig = resolveDBViteConfig(resolvedOptions(), resolved.root)
     if (runtimeConfig) {
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
     }
@@ -105,7 +109,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     vitehub: {
       cli: async () => {
         const { createDbCliContributor } = await import(/* @vite-ignore */ "./cli.js")
-        return createDbCliContributor(options === false ? false : options?.cli, refreshRuntimeConfig)
+        const db = resolvedOptions()
+        return createDbCliContributor(db === false ? false : db?.cli, refreshRuntimeConfig)
       },
     },
     async configResolved(config) {
