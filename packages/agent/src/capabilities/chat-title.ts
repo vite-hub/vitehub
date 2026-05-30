@@ -163,7 +163,7 @@ async function generateChatTitle(context: AgentCapabilityRuntimeContext, options
     const { generateText } = await import("ai")
     const prompt = await renderChatTitleTemplate(options, templateInput)
     const result = await generateText(options.instructions
-      ? { model: model as never, prompt: input.text, system: options.instructions }
+      ? { model: model as never, prompt, system: options.instructions }
       : { model: model as never, prompt })
     return cleanGeneratedTitle(result.text, maxLength, fallback)
   }

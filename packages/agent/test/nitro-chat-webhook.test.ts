@@ -244,6 +244,53 @@ describe("agent Nitro chat webhooks", () => {
     expect(output.edits).toEqual(["agent answer"])
   })
 
+  it("exposes Cloudflare env to configured chat state resolvers", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    const seen: unknown[] = []
+    const adapter = createWebhookAdapter(output)
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({
+          adapters: {
+            teams: () => adapter,
+          },
+          state: (context) => {
+            seen.push(context.cloudflare?.env?.CHAT_STATE)
+            return createMemoryState()
+          },
+        })],
+        run() {
+          return "agent answer"
+        },
+      }),
+    })
+
+    const response = await handler({
+      context: {
+        cloudflare: {
+          env: {
+            CHAT_STATE: "bound-state",
+          },
+        },
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
+        body: JSON.stringify({ text: "hello from Teams" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    expect(response.status).toBe(200)
+    expect(seen).toEqual(["bound-state"])
+  })
+
   it("only answers group chat messages that mention the bot", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")

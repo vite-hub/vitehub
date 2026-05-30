@@ -84,6 +84,15 @@ export interface AgentChatRegistryHandlerOptions<TRuntimeContext extends AgentRu
   agentParam?: string
 }
 
+interface CloudflareEnvCarrier {
+  context?: {
+    cloudflare?: { context?: unknown, env?: Record<string, unknown> }
+    _platform?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } }
+  }
+  env?: Record<string, unknown>
+  req?: { runtime?: { cloudflare?: { context?: unknown, env?: Record<string, unknown> } } }
+}
+
 const defaultChatStates = new WeakMap<AgentChatOptions, StateAdapter>()
 const configuredChatStates = new WeakMap<AgentChatOptions, StateAdapter>()
 
@@ -389,13 +398,27 @@ async function toUIMessageStreamResponse(value: unknown): Promise<Response> {
 
 function createRuntimeContext(event: H3Event): NitroAgentRuntimeContext {
   const runtimeConfig = getAgentRuntimeConfig(event) as NitroAgentRuntimeConfig
+  const cloudflare = getCloudflareRuntimeContext(event)
   return createAgentRuntimeContext({
+    ...(cloudflare ? { cloudflare } : {}),
     event,
     request: toFetchRequest(event),
     runtime: "nitro",
     runtimeConfig,
     waitUntil: task => event.waitUntil(task),
   }) as NitroAgentRuntimeContext
+}
+
+function getCloudflareRuntimeContext(event: H3Event): AgentRuntimeContext["cloudflare"] | undefined {
+  const target = event as CloudflareEnvCarrier
+  const platform = target.context?._platform?.cloudflare
+  const cloudflare = target.context?.cloudflare || platform || target.req?.runtime?.cloudflare
+  const env = target.env || cloudflare?.env
+  if (!env) return
+  return {
+    ...(cloudflare?.context ? { context: cloudflare.context } : {}),
+    env,
+  }
 }
 
 function createCallbackContext(context: NitroAgentRuntimeContext) {

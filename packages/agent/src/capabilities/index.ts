@@ -86,6 +86,7 @@ export type {
   AgentChatAgentHookArgs,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
+  AgentChatMessageHookArgs,
   AgentChatOptions,
   AgentChatSessionOptions,
   AgentChatStateContext,
