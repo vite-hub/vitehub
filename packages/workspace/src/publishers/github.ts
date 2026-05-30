@@ -1,7 +1,7 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { WorkspaceError } from "../core/errors.ts"
-import { contentToBytes, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentToBytes, normalizeWorkspacePath } from "../core/path.ts"
 
 import type {
   PublishContext,
@@ -22,11 +22,21 @@ export interface GitHubPublisherOptions {
 }
 
 interface GitHubPublisherFile extends WorkspaceFile {
+  bytes: Uint8Array
   fullPath: string
+  gitSha: string
 }
 
-interface GitHubPublishState {
-  files: string[]
+interface GitHubTreeEntry {
+  mode?: string
+  path: string
+  sha?: string | null
+  type: string
+}
+
+interface GitHubTreeResponse {
+  tree: GitHubTreeEntry[]
+  truncated?: boolean
 }
 
 function processEnv(...keys: string[]): string | undefined {
@@ -55,8 +65,28 @@ function joinGitPath(...parts: string[]) {
   return parts.join("/").replaceAll("\\", "/").split("/").filter(Boolean).join("/")
 }
 
+function workspacePathFromGitPath(path: string, root: string): string | undefined {
+  const normalized = joinGitPath(path)
+  const normalizedRoot = joinGitPath(root)
+  if (!normalizedRoot) return normalizeWorkspacePath(normalized)
+  if (!normalized.startsWith(`${normalizedRoot}/`)) return undefined
+  return normalizeWorkspacePath(normalized.slice(normalizedRoot.length + 1))
+}
+
 function isFileEntry(entry: WorkspaceEntry): entry is WorkspaceEntry & { type: "file" } {
   return entry.type === "file"
+}
+
+function toHex(bytes: Uint8Array): string {
+  return [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
+async function gitBlobSha(bytes: Uint8Array): Promise<string> {
+  const prefix = new TextEncoder().encode(`blob ${bytes.byteLength}\0`)
+  const input = new Uint8Array(prefix.byteLength + bytes.byteLength)
+  input.set(prefix)
+  input.set(bytes, prefix.byteLength)
+  return toHex(new Uint8Array(await globalThis.crypto.subtle.digest("SHA-1", input)))
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -103,10 +133,13 @@ async function readFiles(ctx: PublishContext, root: string): Promise<GitHubPubli
   return await Promise.all(entries.filter(isFileEntry).map(async (entry) => {
     const file = await ctx.store.readFile(entry.path)
     if (!file) throw new WorkspaceError(`[vitehub] Workspace file disappeared before GitHub publish: ${entry.path}.`)
+    const bytes = contentToBytes(file.content)
     return {
       ...file,
+      bytes,
       path: normalizeWorkspacePath(entry.path),
       fullPath: joinGitPath(root, entry.path),
+      gitSha: await gitBlobSha(bytes),
     }
   }))
 }
@@ -130,15 +163,21 @@ async function requestGitHubJson<T>(repo: string, token: string, path: string, i
   return await response.json() as T
 }
 
-function isGitHubPublishState(value: unknown): value is GitHubPublishState {
-  return !!value
-    && typeof value === "object"
-    && Array.isArray((value as GitHubPublishState).files)
-    && (value as GitHubPublishState).files.every(file => typeof file === "string")
+function findRemoteFiles(tree: GitHubTreeResponse, root: string): Map<string, GitHubTreeEntry> {
+  if (tree.truncated) {
+    throw new WorkspaceError("[vitehub] GitHub workspace publisher could not compare the remote tree because GitHub returned a truncated tree.")
+  }
+
+  const files = new Map<string, GitHubTreeEntry>()
+  for (const entry of tree.tree) {
+    if (entry.type !== "blob" || !entry.sha) continue
+    const path = workspacePathFromGitPath(entry.path, root)
+    if (path) files.set(path, entry)
+  }
+  return files
 }
 
 export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher {
-  let publishedState: GitHubPublishState | undefined
   return {
     name: "github",
     async publish(ctx) {
@@ -146,33 +185,34 @@ export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher
       const branch = resolveBranch(options)
       const root = resolveRoot(options, ctx.workspace.name)
       const token = requireOption("a token", resolveToken(options))
-      const metaKey = `workspace:publish:github:${await sha256({ branch, repository, root })}`
-      const storedValue = await ctx.store.getMeta?.(metaKey)
-      const storedState = isGitHubPublishState(storedValue) ? storedValue : undefined
-      const previousFiles = storedState?.files || publishedState?.files || []
       const files = await readFiles(ctx, root)
       const nextPaths = new Set(files.map(file => file.path))
-      const deletedEntries = previousFiles
-        .map(path => normalizeWorkspacePath(path))
-        .filter(path => !nextPaths.has(path))
-        .map(path => ({ path: joinGitPath(root, path), sha: null }))
-
-      if (!files.length && !deletedEntries.length) return
 
       const { owner, repo } = splitRepository(repository)
       const refPath = `/repos/${owner}/${repo}/git/ref/heads/${branch}`
       const refsPath = `/repos/${owner}/${repo}/git/refs/heads/${branch}`
       const ref = await requestGitHubJson<{ object: { sha: string } }>(repository, token, refPath)
       const current = await requestGitHubJson<{ tree: { sha: string } }>(repository, token, `/repos/${owner}/${repo}/git/commits/${ref.object.sha}`)
-      const blobs = await Promise.all(files.map(file => requestGitHubJson<{ sha: string }>(repository, token, `/repos/${owner}/${repo}/git/blobs`, {
-        body: JSON.stringify({ content: toBase64(contentToBytes(file.content)), encoding: "base64" }),
+      const remoteFiles = findRemoteFiles(
+        await requestGitHubJson<GitHubTreeResponse>(repository, token, `/repos/${owner}/${repo}/git/trees/${current.tree.sha}?recursive=1`),
+        root,
+      )
+      const changedFiles = files.filter(file => remoteFiles.get(file.path)?.sha !== file.gitSha)
+      const deletedEntries = [...remoteFiles]
+        .filter(([path]) => !nextPaths.has(path))
+        .map(([, entry]) => ({ mode: "100644", path: entry.path, sha: null, type: "blob" }))
+
+      if (!changedFiles.length && !deletedEntries.length) return
+
+      const blobs = await Promise.all(changedFiles.map(file => requestGitHubJson<{ sha: string }>(repository, token, `/repos/${owner}/${repo}/git/blobs`, {
+        body: JSON.stringify({ content: toBase64(file.bytes), encoding: "base64" }),
         method: "POST",
       })))
       const tree = await requestGitHubJson<{ sha: string }>(repository, token, `/repos/${owner}/${repo}/git/trees`, {
         body: JSON.stringify({
           base_tree: current.tree.sha,
           tree: [
-            ...files.map((file, index) => ({
+            ...changedFiles.map((file, index) => ({
               mode: "100644",
               path: file.fullPath,
               sha: blobs[index]!.sha,
@@ -195,9 +235,6 @@ export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher
         body: JSON.stringify({ sha: commit.sha }),
         method: "PATCH",
       })
-
-      publishedState = { files: files.map(file => file.path) }
-      await ctx.store.setMeta?.(metaKey, publishedState)
     },
   }
 }

@@ -1,9 +1,26 @@
+import { createHash } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkspace } from "../src/core/workspace.ts"
 import { github } from "../src/publish.ts"
 
 const requests: Array<{ body?: unknown, headers: Headers, method: string, path: string }> = []
+let refSha = "base-sha"
+let remoteTreeSha = "base-tree"
+let remoteTree: Array<{ path: string, sha: string, type: "blob" }> = []
+let commitIndex = 0
+let treeIndex = 0
+
+function gitBlobSha(bytes: Uint8Array): string {
+  return createHash("sha1")
+    .update(`blob ${bytes.byteLength}\0`)
+    .update(bytes)
+    .digest("hex")
+}
+
+function textSha(content: string): string {
+  return gitBlobSha(new TextEncoder().encode(content))
+}
 
 function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), {
@@ -14,19 +31,41 @@ function jsonResponse(value: unknown) {
 
 beforeEach(() => {
   requests.length = 0
-  let blobIndex = 0
+  refSha = "base-sha"
+  remoteTreeSha = "base-tree"
+  remoteTree = []
+  commitIndex = 0
+  treeIndex = 0
   vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(input instanceof Request ? input.url : String(input))
     const method = init.method || "GET"
-    const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined
+    const body = typeof init.body === "string" ? JSON.parse(init.body) as {
+      content?: string
+      sha?: string | null
+      tree?: Array<{ path: string, sha: string | null, type: "blob" }>
+    } : undefined
     requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname })
 
-    if (url.pathname === "/repos/onmax/repo/git/ref/heads/feature/audio") return jsonResponse({ object: { sha: "base-sha" } })
-    if (url.pathname === "/repos/onmax/repo/git/commits/base-sha") return jsonResponse({ tree: { sha: "base-tree" } })
-    if (url.pathname === "/repos/onmax/repo/git/blobs" && method === "POST") return jsonResponse({ sha: `blob-${++blobIndex}` })
-    if (url.pathname === "/repos/onmax/repo/git/trees" && method === "POST") return jsonResponse({ sha: "tree-sha" })
-    if (url.pathname === "/repos/onmax/repo/git/commits" && method === "POST") return jsonResponse({ sha: "commit-sha" })
-    if (url.pathname === "/repos/onmax/repo/git/refs/heads/feature/audio" && method === "PATCH") return jsonResponse({})
+    if (url.pathname === "/repos/onmax/repo/git/ref/heads/feature/audio") return jsonResponse({ object: { sha: refSha } })
+    if (url.pathname.startsWith("/repos/onmax/repo/git/commits/")) return jsonResponse({ tree: { sha: remoteTreeSha } })
+    if (url.pathname === "/repos/onmax/repo/git/trees/base-tree" && method === "GET") return jsonResponse({ tree: remoteTree })
+    if (url.pathname.startsWith("/repos/onmax/repo/git/trees/tree-sha-") && method === "GET") return jsonResponse({ tree: remoteTree })
+    if (url.pathname === "/repos/onmax/repo/git/blobs" && method === "POST" && body?.content) {
+      return jsonResponse({ sha: gitBlobSha(Buffer.from(body.content, "base64")) })
+    }
+    if (url.pathname === "/repos/onmax/repo/git/trees" && method === "POST") {
+      for (const entry of body?.tree || []) {
+        remoteTree = remoteTree.filter(item => item.path !== entry.path)
+        if (entry.sha) remoteTree.push({ path: entry.path, sha: entry.sha, type: "blob" })
+      }
+      remoteTreeSha = `tree-sha-${++treeIndex}`
+      return jsonResponse({ sha: remoteTreeSha })
+    }
+    if (url.pathname === "/repos/onmax/repo/git/commits" && method === "POST") return jsonResponse({ sha: `commit-sha-${++commitIndex}` })
+    if (url.pathname === "/repos/onmax/repo/git/refs/heads/feature/audio" && method === "PATCH") {
+      if (body?.sha) refSha = body.sha
+      return jsonResponse({})
+    }
 
     return new Response("not found", { status: 404 })
   }))
@@ -53,16 +92,17 @@ describe("GitHub workspace publisher", () => {
 
     await workspace.snapshot({ name: "chore: transcribe audio" })
 
+    const audioSha = textSha("hola")
     expect(requests.map(request => request.path)).toContain("/repos/onmax/repo/git/ref/heads/feature/audio")
     expect(requests.map(request => request.path)).not.toContain("/repos/onmax/repo/git/ref/heads/feature%2Faudio")
     expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
       base_tree: "base-tree",
-      tree: [{ mode: "100644", path: "workspace/root/inbox/audio.md", sha: "blob-1", type: "blob" }],
+      tree: [{ mode: "100644", path: "workspace/root/inbox/audio.md", sha: audioSha, type: "blob" }],
     })
     expect(requests.find(request => request.path.endsWith("/git/commits"))?.body).toMatchObject({
       message: "chore: transcribe audio",
       parents: ["base-sha"],
-      tree: "tree-sha",
+      tree: "tree-sha-1",
     })
     expect(requests.every(request => request.headers.get("user-agent") === "vitehub-workspace")).toBe(true)
   })
@@ -88,12 +128,55 @@ describe("GitHub workspace publisher", () => {
 
     expect(requests.map(request => request.path)).not.toContain("/repos/onmax/repo/git/blobs")
     expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
-      base_tree: "base-tree",
-      tree: [{ path: "workspace/root/inbox/audio.md", sha: null }],
+      base_tree: "tree-sha-1",
+      tree: [{ mode: "100644", path: "workspace/root/inbox/audio.md", sha: null, type: "blob" }],
     })
   })
 
-  it("skips empty snapshots with no previously published files", async () => {
+  it("publishes deletions from the remote tree without local publisher state", async () => {
+    remoteTree = [{ path: "workspace/root/inbox/audio.md", sha: textSha("hola"), type: "blob" }]
+
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: "feature/audio",
+        repo: "onmax/repo",
+        root: "workspace/root",
+        token: "token",
+      })],
+    })
+
+    await workspace.snapshot({ name: "delete remote audio" })
+
+    expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
+      base_tree: "base-tree",
+      tree: [{ mode: "100644", path: "workspace/root/inbox/audio.md", sha: null, type: "blob" }],
+    })
+  })
+
+  it("skips unchanged snapshots after comparing the remote tree", async () => {
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: "feature/audio",
+        repo: "onmax/repo",
+        root: "workspace/root",
+        token: "token",
+      })],
+    })
+
+    await workspace.writeFile("inbox/audio.md", "hola", { mediaType: "text/markdown" })
+    await workspace.snapshot({ name: "baseline" })
+    requests.length = 0
+
+    await workspace.snapshot({ name: "unchanged" })
+
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+  })
+
+  it("skips empty snapshots with no remote files", async () => {
     const workspace = createWorkspace({
       name: "docs",
       store: { provider: "memory" },
@@ -107,6 +190,6 @@ describe("GitHub workspace publisher", () => {
 
     await workspace.snapshot()
 
-    expect(requests).toEqual([])
+    expect(requests.filter(request => request.method !== "GET")).toEqual([])
   })
 })
