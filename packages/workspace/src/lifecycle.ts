@@ -3,7 +3,7 @@ import { normalizeWorkspacePath } from "./core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 
-import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceStore } from "./core/types.ts"
+import type { LoaderContext, WorkspaceDefinition, WorkspaceLoaderSource, WorkspaceSnapshot, WorkspaceStore } from "./core/types.ts"
 
 const buildSourcesMetaKey = "workspace:build-sources"
 
@@ -14,6 +14,17 @@ interface SyncedBuildSource {
 
 export function createWorkspaceStore(definition: WorkspaceDefinition): WorkspaceStore {
   return createWorkspaceStoreFromProvider(definition)
+}
+
+export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, store: WorkspaceStore, snapshot: WorkspaceSnapshot): Promise<void> {
+  for (const publisher of definition.publish || []) {
+    await publisher.publish({
+      workspace: definition,
+      store,
+      rootDir: definition.rootDir || process.cwd(),
+      snapshot,
+    })
+  }
 }
 
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore): Promise<void> {
@@ -40,14 +51,8 @@ export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, s
   for (const loader of loaders) {
     await loader.load(ctx)
   }
-  await store.snapshot({ name: "sync" })
-  for (const publisher of definition.publish || []) {
-    await publisher.publish({
-      workspace: definition,
-      store,
-      rootDir: definition.rootDir || process.cwd(),
-    })
-  }
+  const snapshot = await store.snapshot({ name: "sync" })
+  await publishWorkspaceSnapshot(definition, store, snapshot)
 }
 
 async function reconcileBuildSourceMounts(store: WorkspaceStore, currentSources: ResolvedWorkspaceSource[]): Promise<boolean> {

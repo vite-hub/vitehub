@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { normalizeWorkspaceOptions, resolveRuntimeGitHubWorkspaceStore, resolveRuntimeVercelBlobWorkspaceStore } from "../src/config.ts"
+import { normalizeWorkspaceOptions, resolveRuntimeVercelBlobWorkspaceStore } from "../src/config.ts"
 
 describe("workspace config", () => {
   it("leaves build assets enabled by default", () => {
@@ -173,45 +173,16 @@ describe("workspace config", () => {
     })
   })
 
-  it("masks explicit GitHub tokens in resolved config", () => {
-    const config = normalizeWorkspaceOptions({
+  it("rejects GitHub as a workspace store provider", () => {
+    expect(() => normalizeWorkspaceOptions({
       store: {
         provider: "github",
         repo: "acme/app",
         token: "secret-token",
-      },
+      } as never,
     }, {
       rootDir: "/repo",
-    })
-
-    expect(JSON.stringify(config)).not.toContain("secret-token")
-    expect(config && config.store).toMatchObject({
-      branch: "main",
-      provider: "github",
-      repo: "acme/app",
-      token: "********",
-    })
-  })
-
-  it("masks env-backed GitHub tokens in resolved config", () => {
-    const config = normalizeWorkspaceOptions({
-      store: {
-        provider: "github",
-      },
-    }, {
-      env: {
-        GITHUB_REPOSITORY: "acme/app",
-        GITHUB_TOKEN: "env-secret-token",
-      },
-      rootDir: "/repo",
-    })
-
-    expect(JSON.stringify(config)).not.toContain("env-secret-token")
-    expect(config && config.store).toMatchObject({
-      provider: "github",
-      repo: "acme/app",
-      token: "********",
-    })
+    })).toThrow("Unsupported workspace store provider: github")
   })
 
   it("rehydrates masked Vercel Blob tokens at runtime", () => {
@@ -225,15 +196,4 @@ describe("workspace config", () => {
     })
   })
 
-  it("rehydrates masked GitHub tokens at runtime", () => {
-    expect(resolveRuntimeGitHubWorkspaceStore({
-      provider: "github",
-      repo: "acme/app",
-      token: "********",
-    }, {
-      GITHUB_TOKEN: "runtime-token",
-    })).toMatchObject({
-      token: "runtime-token",
-    })
-  })
 })

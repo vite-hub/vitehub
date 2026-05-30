@@ -322,6 +322,7 @@ export interface PublishContext {
   workspace: WorkspaceDefinition
   store: WorkspaceStore
   rootDir: string
+  snapshot?: WorkspaceSnapshot
 }
 
 export interface WorkspacePublisher {
@@ -362,22 +363,10 @@ export interface VercelBlobWorkspaceStoreOptions {
   access?: "private" | "public"
 }
 
-export type GitHubWorkspaceStoreOption = string | (() => string | undefined)
-
-export interface GitHubWorkspaceStoreOptions {
-  provider: "github"
-  branch?: GitHubWorkspaceStoreOption
-  repo?: GitHubWorkspaceStoreOption
-  repository?: GitHubWorkspaceStoreOption
-  root?: GitHubWorkspaceStoreOption
-  token?: GitHubWorkspaceStoreOption
-}
-
 export type WorkspaceStoreOptions =
   | LocalWorkspaceStoreOptions
   | MemoryWorkspaceStoreOptions
   | CloudflareArtifactsWorkspaceStoreOptions
-  | GitHubWorkspaceStoreOptions
   | VercelBlobWorkspaceStoreOptions
   | WorkspaceStore
 

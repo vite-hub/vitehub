@@ -218,6 +218,29 @@ await session.close()
 
 On open, ViteHub syncs the readable workspace contents into the configured sandbox provider. Writes happen in the sandbox session. `diff()` compares sandbox filesystem changes against the workspace store, and `commit()` persists sandbox changes back to that store.
 
+## Publishing snapshots
+
+Workspace publishers run after `workspace.sync()` and `workspace.snapshot()`. Use them for side effects such as generated artifacts or GitHub commits, while the Workspace Store remains responsible for file-tree state:
+
+```ts [src/docs.workspace.ts]
+import { defineWorkspace } from '@vite-hub/workspace'
+import * as publish from '@vite-hub/workspace/publish'
+
+export default defineWorkspace({
+  store: { provider: 'memory' },
+  publish: [
+    publish.github({
+      repo: 'acme/docs',
+      branch: 'main',
+      root: 'proyectos/telegram',
+      token: () => process.env.GITHUB_TOKEN,
+    }),
+  ],
+})
+```
+
+`publish.github()` writes the current workspace snapshot to the configured repository path and uses the snapshot name as the commit message. It also supports `WORKSPACE_GITHUB_REPOSITORY`, `WORKSPACE_GITHUB_BRANCH`, `WORKSPACE_GITHUB_ROOT`, and `WORKSPACE_GITHUB_TOKEN` environment variables.
+
 ## Lazy materialization
 
 Sources default to `materialize: 'build'`, which syncs files into the workspace store during build or explicit workspace sync. This is separate from `workspace.assets`, which controls whether synced workspace files are also emitted into the read-only build asset registry.

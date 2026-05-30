@@ -1,5 +1,6 @@
 import { Chat } from "chat"
 import { createError, defineEventHandler, getRouterParam } from "h3"
+import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 
 import { chatWebhookRegistrations, getChatCapabilityOptions } from "../chat-trigger.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
@@ -285,13 +286,17 @@ async function toUIMessageStreamResponse(value: unknown): Promise<Response> {
 function createRuntimeContext(event: H3Event): NitroAgentRuntimeContext {
   const runtimeConfig = getAgentRuntimeConfig(event) as NitroAgentRuntimeConfig
   const cloudflare = getCloudflareRuntimeContext(event)
+  const waitUntil = createRuntimeWaitUntilController({
+    forward: task => event.waitUntil(task),
+  })
   return createAgentRuntimeContext({
     ...(cloudflare ? { cloudflare } : {}),
     event,
+    ...(cloudflare ? { flushWaitUntil: waitUntil.flushWaitUntil } : {}),
     request: toFetchRequest(event),
     runtime: "nitro",
     runtimeConfig,
-    waitUntil: task => event.waitUntil(task),
+    waitUntil: waitUntil.waitUntil,
   }) as NitroAgentRuntimeContext
 }
 
@@ -657,22 +662,13 @@ async function createAgentChatBot(agent: AgentInput<NitroAgentRuntimeContext>, c
 }
 
 async function runChatWebhook(
-  event: H3Event,
   context: NitroAgentRuntimeContext,
   webhook: (request: Request, options?: { waitUntil?: (task: Promise<unknown>) => void }) => Promise<Response>,
 ): Promise<Response> {
-  const pending: Promise<unknown>[] = []
   const response = await webhook(context.request!, {
-    waitUntil: (task) => {
-      pending.push(task)
-      event.waitUntil(task)
-    },
+    waitUntil: task => context.waitUntil(task),
   })
-
-  if (context.cloudflare?.env && pending.length > 0) {
-    await Promise.all(pending)
-  }
-
+  await context.flushWaitUntil?.()
   return response
 }
 
@@ -935,6 +931,6 @@ export function defineAgentChatWebhookRegistryHandler(
       })
     }
     validateChatWebhookSecret(chatOptions, platform, context.request!)
-    return await runChatWebhook(event, context, webhook)
+    return await runChatWebhook(context, webhook)
   })
 }

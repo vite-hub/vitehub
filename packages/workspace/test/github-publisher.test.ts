@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createGitHubWorkspaceStore } from "../src/storage/github.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
+import { github } from "../src/publish.ts"
 
-const requests: Array<{ body?: unknown, method: string, path: string }> = []
+const requests: Array<{ body?: unknown, headers: Headers, method: string, path: string }> = []
 
 function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), {
@@ -18,7 +19,7 @@ beforeEach(() => {
     const url = new URL(input instanceof Request ? input.url : String(input))
     const method = init.method || "GET"
     const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined
-    requests.push({ body, method, path: url.pathname })
+    requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname })
 
     if (url.pathname === "/repos/onmax/repo/git/ref/heads/feature/audio") return jsonResponse({ object: { sha: "base-sha" } })
     if (url.pathname === "/repos/onmax/repo/git/commits/base-sha") return jsonResponse({ tree: { sha: "base-tree" } })
@@ -35,25 +36,23 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe("GitHub workspace store", () => {
-  it("publishes pending workspace files as a GitHub commit snapshot", async () => {
-    const store = createGitHubWorkspaceStore({
-      branch: () => "feature/audio",
-      repo: () => "onmax/repo",
-      root: () => "workspace/root",
-      token: () => "token",
+describe("GitHub workspace publisher", () => {
+  it("publishes workspace snapshots as GitHub commits", async () => {
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: () => "feature/audio",
+        repo: () => "onmax/repo",
+        root: () => "workspace/root",
+        token: () => "token",
+      })],
     })
 
-    await store.writeFile("inbox/audio.md", { content: "hola", path: "inbox/audio.md", mediaType: "text/markdown" })
+    await workspace.writeFile("inbox/audio.md", "hola", { mediaType: "text/markdown" })
 
-    const snapshot = await store.snapshot({ name: "chore: transcribe audio" })
+    await workspace.snapshot({ name: "chore: transcribe audio" })
 
-    expect(snapshot).toMatchObject({
-      files: ["workspace/root/inbox/audio.md"],
-      id: "commit-sha",
-      sha: "commit-sha",
-      url: "https://github.com/onmax/repo/commit/commit-sha",
-    })
     expect(requests.map(request => request.path)).toContain("/repos/onmax/repo/git/ref/heads/feature/audio")
     expect(requests.map(request => request.path)).not.toContain("/repos/onmax/repo/git/ref/heads/feature%2Faudio")
     expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
@@ -65,46 +64,49 @@ describe("GitHub workspace store", () => {
       parents: ["base-sha"],
       tree: "tree-sha",
     })
-  })
-
-  it("requires at least one pending file before publishing a snapshot", async () => {
-    const store = createGitHubWorkspaceStore({
-      branch: "main",
-      repo: "onmax/repo",
-      root: "workspace/root",
-      token: "token",
-    })
-
-    await expect(store.snapshot()).rejects.toThrow("cannot publish an empty snapshot")
-    expect(requests).toEqual([])
+    expect(requests.every(request => request.headers.get("user-agent") === "vitehub-workspace")).toBe(true)
   })
 
   it("publishes delete-only snapshots after the last workspace file is removed", async () => {
-    const store = createGitHubWorkspaceStore({
-      branch: "feature/audio",
-      repo: "onmax/repo",
-      root: "workspace/root",
-      token: "token",
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: "feature/audio",
+        repo: "onmax/repo",
+        root: "workspace/root",
+        token: "token",
+      })],
     })
 
-    await store.writeFile("inbox/audio.md", { content: "hola", path: "inbox/audio.md", mediaType: "text/markdown" })
-    await store.snapshot({ name: "baseline" })
+    await workspace.writeFile("inbox/audio.md", "hola", { mediaType: "text/markdown" })
+    await workspace.snapshot({ name: "baseline" })
     requests.length = 0
 
-    await store.rm("inbox/audio.md")
-    const snapshot = await store.snapshot({ name: "delete audio" })
+    await workspace.rm("inbox/audio.md")
+    await workspace.snapshot({ name: "delete audio" })
 
-    expect(snapshot).toMatchObject({
-      entries: {},
-      files: [],
-      id: "commit-sha",
-      sha: "commit-sha",
-      url: "https://github.com/onmax/repo/commit/commit-sha",
-    })
     expect(requests.map(request => request.path)).not.toContain("/repos/onmax/repo/git/blobs")
     expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
       base_tree: "base-tree",
       tree: [{ path: "workspace/root/inbox/audio.md", sha: null }],
     })
+  })
+
+  it("skips empty snapshots with no previously published files", async () => {
+    const workspace = createWorkspace({
+      name: "docs",
+      store: { provider: "memory" },
+      publish: [github({
+        branch: "feature/audio",
+        repo: "onmax/repo",
+        root: "workspace/root",
+        token: "token",
+      })],
+    })
+
+    await workspace.snapshot()
+
+    expect(requests).toEqual([])
   })
 })

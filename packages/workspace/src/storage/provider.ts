@@ -6,14 +6,11 @@ import { readEnv, trimmed } from "@vite-hub/internal/env"
 import { WorkspaceError } from "../core/errors.ts"
 import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
 import { getWorkspaceHostedStoreLoader } from "../runtime/hosted-store-loader.ts"
-import { createGitHubWorkspaceStore, normalizeGitHubWorkspaceStoreOptions } from "./github.ts"
 import { createLocalWorkspaceStore } from "./local.ts"
 import { createMemoryWorkspaceStore } from "./memory.ts"
 
 import type {
   CloudflareArtifactsWorkspaceStoreOptions,
-  GitHubWorkspaceStoreOption,
-  GitHubWorkspaceStoreOptions,
   VercelBlobWorkspaceStoreOptions,
   WorkspaceDefinition,
   WorkspaceStore,
@@ -74,41 +71,6 @@ export function resolveVercelBlobWorkspaceStore(
   }
 }
 
-function resolveWorkspaceStoreOption(value: GitHubWorkspaceStoreOption | undefined): string | undefined {
-  return typeof value === "function" ? value() : value
-}
-
-export function resolveGitHubWorkspaceStore(
-  config: Partial<GitHubWorkspaceStoreOptions> = {},
-  env: Record<string, string | undefined> = process.env,
-): GitHubWorkspaceStoreOptions {
-  return {
-    branch: trimmed(resolveWorkspaceStoreOption(config.branch))
-      ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH")
-      ?? "main",
-    provider: "github",
-    repo: trimmed(resolveWorkspaceStoreOption(config.repository))
-      ?? trimmed(resolveWorkspaceStoreOption(config.repo))
-      ?? readEnv(env, "WORKSPACE_GITHUB_REPOSITORY", "VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "GITHUB_REPOSITORY"),
-    root: trimmed(resolveWorkspaceStoreOption(config.root))
-      ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT"),
-    token: MASKED_WORKSPACE_RUNTIME_VALUE,
-  }
-}
-
-export function resolveRuntimeGitHubWorkspaceStore(
-  config: GitHubWorkspaceStoreOptions,
-  env: Record<string, string | undefined>,
-): GitHubWorkspaceStoreOptions {
-  const token = resolveWorkspaceStoreOption(config.token)
-  return {
-    ...config,
-    token: isMaskedWorkspaceRuntimeValue(token)
-      ? readEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN")
-      : token,
-  }
-}
-
 export function hasVercelWorkspaceBlobEnv(env: Record<string, string | undefined>): boolean {
   return Boolean(readEnv(env, "BLOB_READ_WRITE_TOKEN"))
 }
@@ -125,10 +87,10 @@ export function normalizeWorkspaceStoreOptions(
   const hosting = input.hosting || ""
 
   if (store?.provider === "cloudflare-artifacts") return resolveCloudflareArtifactsStore(store, env)
-  if (store?.provider === "github") return input.runtime ? resolveRuntimeGitHubWorkspaceStore(store, env) : resolveGitHubWorkspaceStore(store, env)
   if (store?.provider === "memory") return store
   if (store?.provider === "vercel-blob") return resolveVercelBlobWorkspaceStore(store, env)
   if (store?.provider === "local" || store?.root) return defu(store, { provider: "local" as const }) as ResolvedWorkspaceStoreOptions
+  if (store && "provider" in store) throw new WorkspaceError(`[vitehub] Unsupported workspace store provider: ${String(store.provider)}.`)
 
   if (hosting.includes("cloudflare")) return { provider: "memory" as const }
   if (hasVercelWorkspaceBlobEnv(env)) return resolveVercelBlobWorkspaceStore({}, env)
@@ -151,9 +113,6 @@ export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition
   })
 
   if (store?.provider === "memory") return createMemoryWorkspaceStore()
-  if (store?.provider === "github") {
-    return createGitHubWorkspaceStore(normalizeGitHubWorkspaceStoreOptions(store, definition.name))
-  }
   if (store?.provider === "cloudflare-artifacts" || store?.provider === "vercel-blob") {
     const loader = getWorkspaceHostedStoreLoader()
     if (!loader) throw new WorkspaceError(`[vitehub] Hosted workspace store "${store.provider}" is not available in this runtime.`)
