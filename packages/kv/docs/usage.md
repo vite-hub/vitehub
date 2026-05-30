@@ -14,7 +14,7 @@ After the quickstart works, most KV code falls into four patterns: choose stable
 Use the canonical portable import from server/runtime code:
 
 ```ts
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 ```
 
 The handle is backed by Nitro storage. Nitro mounts the active driver at startup, and Nuxt uses that Nitro path under the hood.
@@ -38,7 +38,7 @@ const settings = await kv.get<{
 Route example:
 
 ```ts [server/api/settings.get.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
   const settings = await kv.get('settings')
@@ -168,7 +168,7 @@ Set `kv: false` when a Nuxt or Nitro app should install the package but not moun
 
 ```ts
 export default defineNuxtConfig({
-  modules: ['@vitehub/kv/nuxt'],
+  modules: ['@vite-hub/kv/nuxt'],
   kv: false,
 })
 ```

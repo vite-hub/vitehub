@@ -1,6 +1,6 @@
 import { defineEventHandler, getQuery } from "h3"
-import { useWorkspace } from "@vitehub/workspace"
-import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vitehub/workspace/internal/runtime/state"
+import { useWorkspace } from "@vite-hub/workspace"
+import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/internal/runtime/state"
 import { ensureDocsWorkspace } from "../../utils/workspace"
 
 export default defineEventHandler(async (event) => {

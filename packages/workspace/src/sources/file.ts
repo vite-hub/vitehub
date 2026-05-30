@@ -1,4 +1,4 @@
-import { file as createFileSource, type FileSourceOptions as SourcePackageFileSourceOptions } from "@vitehub/source"
+import { file as createFileSource, type FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source"
 
 import type { WorkspaceSource } from "../core/types.ts"
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createMessage } from "@vitehub/agent"
+import { createMessage } from "@vite-hub/agent"
 import { chat, chatTitle, schedule } from "../src/capabilities.ts"
 
 describe("agent message protocol", () => {
@@ -1124,7 +1124,7 @@ describe("agent message protocol", () => {
   it("registers the Chat DevTools feature metadata", async () => {
     const registerViteHubDevtoolsFeature = vi.fn()
     vi.resetModules()
-    vi.doMock("@vitehub/devtools", () => ({ registerViteHubDevtoolsFeature }))
+    vi.doMock("@vite-hub/devtools", () => ({ registerViteHubDevtoolsFeature }))
     const { chatDevToolsPanel } = await import("../src/chat/devtools.ts")
 
     chatDevToolsPanel().devtools!.setup({
@@ -1139,10 +1139,10 @@ describe("agent message protocol", () => {
     expect(registerViteHubDevtoolsFeature).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       bridge: "/__vitehub/agent/chat/devtools",
       id: "agent.chat",
-      packageName: "@vitehub/agent",
+      packageName: "@vite-hub/agent",
       title: "Chat",
     }))
-    vi.doUnmock("@vitehub/devtools")
+    vi.doUnmock("@vite-hub/devtools")
     vi.resetModules()
   })
 
@@ -1674,7 +1674,7 @@ describe("agent message protocol", () => {
   })
 
   it("maps approval-required stream errors to approval request events", async () => {
-    const { ApprovalRequiredError } = await import("@vitehub/runtime")
+    const { ApprovalRequiredError } = await import("@vite-hub/runtime")
     const { streamAgent } = await import("../src/index.ts")
     const agent = {
       generate: vi.fn(),

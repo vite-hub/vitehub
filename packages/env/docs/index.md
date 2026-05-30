@@ -7,13 +7,13 @@ icon: i-lucide-key-round
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/env` gives Vite and Nitro apps one place to declare environment variables, defaults, sources, and secret boundaries.
+`@vite-hub/env` gives Vite and Nitro apps one place to declare environment variables, defaults, sources, and secret boundaries.
 
 Use Env when configuration needs to be explicit and typed instead of scattered across `process.env`, `import.meta.env`, and provider dashboards.
 
 ::code-group
 ```ts [vite.config.ts]
-import { env, envVite } from '@vitehub/env/vite'
+import { env, envVite } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
@@ -36,7 +36,7 @@ export default defineConfig({
 ```
 
 ```ts [nitro.config.ts]
-import { env, envNitro } from '@vitehub/env/nitro'
+import { env, envNitro } from '@vite-hub/env/nitro'
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({

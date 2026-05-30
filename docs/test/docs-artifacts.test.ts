@@ -179,7 +179,7 @@ describe("writeDocsArtifacts", () => {
       ].join("\n"));
 
       writeJson(resolve(rootDir, "packages/demo/package.json"), {
-        name: "@vitehub/demo",
+        name: "@vite-hub/demo",
         version: "1.2.3",
       });
       writeJson(resolve(rootDir, "packages/demo/examples/showcase.json"), {
@@ -201,7 +201,7 @@ describe("writeDocsArtifacts", () => {
       writeJson(resolve(rootDir, "packages/demo/examples/vite/package.json"), {
         private: true,
         dependencies: {
-          "@vitehub/demo": "workspace:*",
+          "@vite-hub/demo": "workspace:*",
           vite: "catalog:",
         },
       });
@@ -211,7 +211,7 @@ describe("writeDocsArtifacts", () => {
       writeJson(resolve(rootDir, "packages/demo/examples/nitro/package.json"), {
         private: true,
         dependencies: {
-          "@vitehub/demo": "workspace:*",
+          "@vite-hub/demo": "workspace:*",
           nitro: "catalog:",
         },
       });
@@ -221,7 +221,7 @@ describe("writeDocsArtifacts", () => {
       writeJson(resolve(rootDir, "packages/demo/examples/nuxt/package.json"), {
         private: true,
         dependencies: {
-          "@vitehub/demo": "workspace:*",
+          "@vite-hub/demo": "workspace:*",
           nitro: "catalog:",
         },
       });
@@ -242,7 +242,7 @@ describe("writeDocsArtifacts", () => {
       expect(nitroPackage?.code).not.toContain("\"private\": true");
       expect(nitroPackage?.code).not.toContain("catalog:");
       expect(nitroPackage?.code).not.toContain("workspace:*");
-      expect(nitroPackage?.code).toContain("\"@vitehub/demo\": \"1.2.3\"");
+      expect(nitroPackage?.code).toContain("\"@vite-hub/demo\": \"1.2.3\"");
       expect(nitroPackage?.code).toContain("\"nitro\": \"3.0.0\"");
     } finally {
       rmSync(rootDir, { force: true, recursive: true });
@@ -288,7 +288,7 @@ describe("writeDocsArtifacts", () => {
       writeJson(resolve(rootDir, "packages/demo/examples/vite/package.json"), {
         private: true,
         dependencies: {
-          "@vitehub/demo": "workspace:*",
+          "@vite-hub/demo": "workspace:*",
           vite: "catalog:",
         },
       });
@@ -299,7 +299,7 @@ describe("writeDocsArtifacts", () => {
       writeJson(resolve(rootDir, "packages/demo/examples/nitro/package.json"), {
         private: true,
         dependencies: {
-          "@vitehub/demo": "workspace:*",
+          "@vite-hub/demo": "workspace:*",
           nitro: "catalog:",
         },
       });

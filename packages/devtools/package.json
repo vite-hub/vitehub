@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/devtools",
+  "name": "@vite-hub/devtools",
   "version": "0.0.0",
   "description": "ViteHub DevTools integration contract and hosted shell helpers.",
   "author": "onmax <maximogarciamtnez@gmail.com>",

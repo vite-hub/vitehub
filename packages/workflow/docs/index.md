@@ -7,13 +7,13 @@ icon: i-lucide-workflow
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/workflow` gives Vite and Nitro apps one way to define long-running work, start a named workflow from request code, and observe the run through Cloudflare Workflows or Vercel.
+`@vite-hub/workflow` gives Vite and Nitro apps one way to define long-running work, start a named workflow from request code, and observe the run through Cloudflare Workflows or Vercel.
 
 Use Workflow when background work has multiple steps, needs a stable run id, or should be visible after the request that started it has already returned.
 
 ::code-group
 ```ts [server/api/welcome.post.ts]
-import { runWorkflow } from '@vitehub/workflow'
+import { runWorkflow } from '@vite-hub/workflow'
 import type { WelcomePayload } from '../workflows/welcome'
 
 export default defineEventHandler(async (event) => {
@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/workflows/welcome.ts]
-import { defineWorkflow } from '@vitehub/workflow'
+import { defineWorkflow } from '@vite-hub/workflow'
 
 export type WelcomePayload = {
   email: string

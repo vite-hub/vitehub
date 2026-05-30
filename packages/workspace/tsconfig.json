@@ -20,31 +20,31 @@
       "vitehub-sandbox-provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],
-      "@vitehub/sandbox/runtime/provider-loader": [
+      "@vite-hub/sandbox/runtime/provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],
       "#vitehub-sandbox-registry": [
         "packages/sandbox/src/runtime/empty-registry.ts"
       ],
-      "@vitehub/internal/*": [
+      "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ],
-      "@vitehub/sandbox": [
+      "@vite-hub/sandbox": [
         "packages/sandbox/src/index.ts"
       ],
-      "@vitehub/sandbox/runtime/state": [
+      "@vite-hub/sandbox/runtime/state": [
         "packages/sandbox/src/runtime/state.ts"
       ],
-      "@vitehub/shell": [
+      "@vite-hub/shell": [
         "packages/shell/src/index.ts"
       ],
-      "@vitehub/shell/providers/just-bash": [
+      "@vite-hub/shell/providers/just-bash": [
         "packages/shell/src/providers/just-bash.ts"
       ],
-      "@vitehub/shell/workspace": [
+      "@vite-hub/shell/workspace": [
         "packages/shell/src/workspace/index.ts"
       ],
-      "@vitehub/source": [
+      "@vite-hub/source": [
         "packages/source/src/index.ts"
       ]
     },

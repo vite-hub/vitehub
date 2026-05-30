@@ -4,7 +4,7 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
-import type { WorkspaceName } from "@vitehub/workspace"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
 export interface McpClient {
   close: () => MaybePromise<void>

@@ -282,8 +282,8 @@ export function createRuntimeRegistryContents(registryFile: string, definitions:
   const needsWorkflowRuntime = definitions.some(definition => definition.steps?.length)
   const runtimeImport = needsWorkflowRuntime
     ? [
-        `import { createWorkflowSteps } from "@vitehub/workflow/runtime/execute"`,
-        `import { takeInlineWorkflowDefinitionForModule } from "@vitehub/workflow/runtime/state"`,
+        `import { createWorkflowSteps } from "@vite-hub/workflow/runtime/execute"`,
+        `import { takeInlineWorkflowDefinitionForModule } from "@vite-hub/workflow/runtime/state"`,
       ]
     : []
   const imports = definitions.map((definition) => {

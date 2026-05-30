@@ -27,7 +27,7 @@ function assignSandboxRuntimeConfig(runtimeConfig: Record<string, unknown>, conf
 }
 
 export const sandboxFeatureEngine = createFeatureEngine<SandboxPublicOptions, AgentSandboxConfig>({
-  name: '@vitehub/sandbox',
+  name: '@vite-hub/sandbox',
   feature: 'sandbox',
   configKey: 'sandbox',
   defaultOptions: () => ({}),

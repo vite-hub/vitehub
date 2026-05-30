@@ -6,7 +6,7 @@ import {
   discoverDefinitions,
   mergeDefinitions,
   normalizeSuffixDefinitionName,
-} from "@vitehub/internal/definition-catalog"
+} from "@vite-hub/internal/definition-catalog"
 
 import type { DiscoveredAgentDefinition } from "./types.ts"
 

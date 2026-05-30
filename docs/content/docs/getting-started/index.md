@@ -5,10 +5,10 @@ navigation.title: Getting started
 icon: i-lucide-rocket
 ---
 
-ViteHub currently ships [`@vitehub/kv`](../kv), [`@vitehub/database`](/docs/vite/database), [`@vitehub/blob`](/docs/vite/blob), and server-side queueing through [`@vitehub/queue`](/docs/vite/queue).
+ViteHub currently ships [`@vite-hub/kv`](../kv), [`@vite-hub/database`](/docs/vite/database), [`@vite-hub/blob`](/docs/vite/blob), and server-side queueing through [`@vite-hub/queue`](/docs/vite/queue).
 
 ::fw{vite nitro}
-`@vitehub/blob` and `@vitehub/queue` both support Vite and Nitro.
+`@vite-hub/blob` and `@vite-hub/queue` both support Vite and Nitro.
 ::
 
 This page gives you the first framework-specific setup step, then points you to the package docs where the full examples live.
@@ -18,7 +18,7 @@ This page gives you the first framework-specific setup step, then points you to 
 Install the package:
 
 ```bash
-pnpm add @vitehub/kv
+pnpm add @vite-hub/kv
 ```
 
 ::fw{id="vite:dev vite:build"}
@@ -27,7 +27,7 @@ Then register the Vite plugin:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubKv } from '@vitehub/kv/vite'
+import { hubKv } from '@vite-hub/kv/vite'
 
 export default defineConfig({
   plugins: [hubKv()],
@@ -46,7 +46,7 @@ Then register the Nitro module:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/kv/nitro'],
+  modules: ['@vite-hub/kv/nitro'],
 })
 ```
 
@@ -60,7 +60,7 @@ Then register the Nuxt module:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vitehub/kv/nuxt'],
+  modules: ['@vite-hub/kv/nuxt'],
 })
 ```
 

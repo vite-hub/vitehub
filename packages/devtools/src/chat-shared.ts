@@ -1,10 +1,10 @@
 export const chatDevtoolsFeatureId = "agent.chat" as const
 export const chatDevtoolsTitle = "Chat"
 export const chatDevtoolsBridgeRoute = "/__vitehub/agent/chat/devtools"
-export const chatDevtoolsGetStateRpc = "@vitehub/agent/chat:get-state"
-export const chatDevtoolsSendRpc = "@vitehub/agent/chat:send"
-export const chatDevtoolsClearRpc = "@vitehub/agent/chat:clear"
-export const chatDevtoolsStreamChannel = "@vitehub/agent/chat:stream"
+export const chatDevtoolsGetStateRpc = "@vite-hub/agent/chat:get-state"
+export const chatDevtoolsSendRpc = "@vite-hub/agent/chat:send"
+export const chatDevtoolsClearRpc = "@vite-hub/agent/chat:clear"
+export const chatDevtoolsStreamChannel = "@vite-hub/agent/chat:stream"
 export const chatDevtoolsAdapterName = "devtools"
 
 export type ChatDevtoolsMessageRole = "user" | "assistant"

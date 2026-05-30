@@ -27,7 +27,7 @@ describe("Nitro module", () => {
     expect(nitro.options.imports).toMatchObject({
       presets: [
         {
-          from: "@vitehub/workflow",
+          from: "@vite-hub/workflow",
           imports: ["defineWorkflow", "getWorkflowRun"],
         },
       ],

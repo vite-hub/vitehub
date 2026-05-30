@@ -13,12 +13,12 @@ async function createViteRoot() {
   await mkdir(join(rootDir, "src"), { recursive: true })
   await mkdir(join(rootDir, "workspaces"), { recursive: true })
   await writeFile(join(rootDir, "src/docs.workspace.ts"), [
-    `import { defineWorkspace } from "@vitehub/workspace"`,
+    `import { defineWorkspace } from "@vite-hub/workspace"`,
     `export default defineWorkspace({})`,
     ``,
   ].join("\n"))
   await writeFile(join(rootDir, "workspaces/ignored.ts"), [
-    `import { defineWorkspace } from "@vitehub/workspace"`,
+    `import { defineWorkspace } from "@vite-hub/workspace"`,
     `export default defineWorkspace({})`,
     ``,
   ].join("\n"))
@@ -76,10 +76,10 @@ describe("hubWorkspace", () => {
 
     await configResolved({ root } as never)
 
-    expect(plugin.nitro.name).toBe("@vitehub/workspace")
+    expect(plugin.nitro.name).toBe("@vite-hub/workspace")
     expect(process.env.VITEHUB_WORKSPACE_DEV).toBe("true")
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({
-      resolve: { noExternal: ["@vitehub/workspace"] },
+      resolve: { noExternal: ["@vite-hub/workspace"] },
     })
     await expect(readFile(join(root, "src", "vitehub-workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
 

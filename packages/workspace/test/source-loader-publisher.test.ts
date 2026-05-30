@@ -535,7 +535,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "README.md"), "# Root\n")
     await writeFile(join(directory, "README.md"), "# Directory\n")
     await writeFile(join(directory, "config.mjs"), [
-      "import { source } from '@vitehub/workspace'",
+      "import { source } from '@vite-hub/workspace'",
       "export default {",
       "  sourceRootDir: '',",
       "  sources: { docs: source.glob({ include: ['README.md'] }) },",
@@ -571,7 +571,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "AGENTS.md"), "# Root\n")
     await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
     await writeFile(join(directory, "config.mjs"), [
-      "import { source } from '@vitehub/workspace'",
+      "import { source } from '@vite-hub/workspace'",
       "export default {",
       "  sources: { instructions: source.file('AGENTS.md') },",
       "}",

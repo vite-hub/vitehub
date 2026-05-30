@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, ScheduleError, schedules, startScheduleRunner } from "../src/index.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
-import type { KVStorage } from "@vitehub/kv"
+import type { KVStorage } from "@vite-hub/kv"
 
 function createTestKVStore(): KVStorage {
   const data = new Map<string, unknown>()

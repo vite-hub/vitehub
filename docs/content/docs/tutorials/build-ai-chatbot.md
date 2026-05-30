@@ -32,9 +32,9 @@ Source, test it in DevTools, and turn the expected answer into an Agent Eval.
 ::code-tree-intersection{default}
 ```ts [server/agents/support/config.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vitehub/agent'
-import { chat, workspaceShell } from '@vitehub/agent/capabilities'
-import { source } from '@vitehub/workspace'
+import { defineAgent } from '@vite-hub/agent'
+import { chat, workspaceShell } from '@vite-hub/agent/capabilities'
+import { source } from '@vite-hub/workspace'
 
 export default defineAgent({
   model: gateway('openai/gpt-5.1-mini'),
@@ -106,8 +106,8 @@ then protect the behavior with an eval.
 Install the packages used in this post:
 
 ```bash [Terminal]
-pnpm add @vitehub/agent @vitehub/workspace
-pnpm add @vitehub/devtools @ai-sdk/gateway ai
+pnpm add @vite-hub/agent @vite-hub/workspace
+pnpm add @vite-hub/devtools @ai-sdk/gateway ai
 pnpm add -D @vitejs/devtools
 ```
 
@@ -116,9 +116,9 @@ Register the integrations for your framework:
 ::fw{id="vite:dev vite:build"}
 ::code-tree-intersection
 ```ts [vite.config.ts]
-import { hubAgent } from '@vitehub/agent/vite'
-import { hubDevtools } from '@vitehub/devtools'
-import { hubWorkspace } from '@vitehub/workspace/vite'
+import { hubAgent } from '@vite-hub/agent/vite'
+import { hubDevtools } from '@vite-hub/devtools'
+import { hubWorkspace } from '@vite-hub/workspace/vite'
 import { DevTools } from '@vitejs/devtools'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
@@ -143,8 +143,8 @@ import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
   modules: [
-    '@vitehub/workspace/nitro',
-    '@vitehub/agent/nitro',
+    '@vite-hub/workspace/nitro',
+    '@vite-hub/agent/nitro',
   ],
 })
 ```
@@ -164,8 +164,8 @@ The Vite plugins split the local wiring into small pieces:
 ::fw{id="nitro:dev nitro:build"}
 The Nitro modules split the server wiring into small pieces:
 
-- `@vitehub/workspace/nitro` registers Workspace Sources.
-- `@vitehub/agent/nitro` discovers Agent Definitions.
+- `@vite-hub/workspace/nitro` registers Workspace Sources.
+- `@vite-hub/agent/nitro` discovers Agent Definitions.
 ::
 
 ## Create the first Agent
@@ -188,8 +188,8 @@ Start with chat and a short instruction:
 ::code-tree-intersection
 ```ts [server/agents/support/config.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vitehub/agent'
-import { chat } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { chat } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [
@@ -243,9 +243,9 @@ Workspace Source and attach the Workspace Shell Capability:
 ::code-tree-intersection
 ```ts [server/agents/support/config.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vitehub/agent'
-import { chat, workspaceShell } from '@vitehub/agent/capabilities'
-import { source } from '@vitehub/workspace'
+import { defineAgent } from '@vite-hub/agent'
+import { chat, workspaceShell } from '@vite-hub/agent/capabilities'
+import { source } from '@vite-hub/workspace'
 
 export default defineAgent({
   workspace: {
@@ -325,7 +325,7 @@ expectation into an Agent Eval:
 
 ::code-tree-intersection
 ```ts [server/agents/support/eval.ts]
-import { defineEval, textContains } from '@vitehub/agent/eval'
+import { defineEval, textContains } from '@vite-hub/agent/eval'
 
 export default defineEval({
   scenarios: [

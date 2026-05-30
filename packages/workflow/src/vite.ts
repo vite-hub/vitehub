@@ -1,6 +1,6 @@
-import { getViteMode } from "@vitehub/internal/build/mode"
-import { shouldSkipViteProviderBuild } from "@vitehub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
+import { getViteMode } from "@vite-hub/internal/build/mode"
+import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
 import workflowNitroModule from "./nitro/module.ts"
@@ -18,7 +18,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
   let workflow: WorkflowModuleOptions | undefined = options
 
   return {
-    name: "@vitehub/workflow/vite",
+    name: "@vite-hub/workflow/vite",
     nitro: workflowNitroModule,
     config(config) {
       workflow = config.workflow ?? workflow

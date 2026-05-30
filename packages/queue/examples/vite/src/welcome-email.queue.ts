@@ -1,4 +1,4 @@
-import { defineQueue } from "@vitehub/queue"
+import { defineQueue } from "@vite-hub/queue"
 
 export type WelcomeEmailPayload = {
   email: string

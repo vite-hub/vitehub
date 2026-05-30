@@ -1,6 +1,6 @@
 # Chat as Agent Capability
 
-ViteHub chat behavior belongs to `@vitehub/agent` as a Chat Capability rather than as standalone `@vitehub/chat` and `@vitehub/messages` packages. The standalone packages will be removed instead of kept as compatibility wrappers so chat shares Agent capability validation, instructions, policy, devtools metadata, and package ownership language.
+ViteHub chat behavior belongs to `@vite-hub/agent` as a Chat Capability rather than as standalone `@vite-hub/chat` and `@vite-hub/messages` packages. The standalone packages will be removed instead of kept as compatibility wrappers so chat shares Agent capability validation, instructions, policy, devtools metadata, and package ownership language.
 
 ## Considered Options
 

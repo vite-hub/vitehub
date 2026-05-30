@@ -1,6 +1,6 @@
-import { getViteMode } from "@vitehub/internal/build/mode"
-import { shouldSkipViteProviderBuild } from "@vitehub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
+import { getViteMode } from "@vite-hub/internal/build/mode"
+import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
 import queueNitroModule from "./nitro/module.ts"
@@ -20,7 +20,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
   let queue: QueueModuleOptions | undefined = options
 
   return {
-    name: "@vitehub/queue/vite",
+    name: "@vite-hub/queue/vite",
     nitro: queueNitroModule,
     config(config) {
       queue = config.queue ?? queue

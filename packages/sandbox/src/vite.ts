@@ -1,6 +1,6 @@
 import type { Plugin } from 'vite'
 import type { NitroModule } from 'nitro/types'
-import { createNoExternalMerger, isServerEnvironment } from '@vitehub/internal/build/vite'
+import { createNoExternalMerger, isServerEnvironment } from '@vite-hub/internal/build/vite'
 
 import { createFeatureVitePlugin } from './internal/shared/vite'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
@@ -13,7 +13,7 @@ export type SandboxVitePlugin = Plugin & { nitro: NitroModule }
 const SANDBOX_PROVIDER_LOADER_ID = 'vitehub-sandbox-provider-loader'
 
 function sandboxProviderLoaderFallback() {
-  return resolveFeatureRuntimePath(import.meta.url, '@vitehub/sandbox', './runtime/provider-loader', 'runtime/provider-loader.js')
+  return resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox', './runtime/provider-loader', 'runtime/provider-loader.js')
 }
 
 function mergeProviderLoaderAlias(alias: unknown) {
@@ -53,7 +53,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   }) as SandboxVitePlugin
   const configHook = plugin.config
   const configEnvironment = plugin.configEnvironment
-  const mergeNoExternal = createNoExternalMerger('@vitehub/sandbox')
+  const mergeNoExternal = createNoExternalMerger('@vite-hub/sandbox')
   return {
     ...plugin,
     async config(config, env) {

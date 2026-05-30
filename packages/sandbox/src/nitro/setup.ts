@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 
-import { resolveRuntimeEntry as resolveEntry } from '@vitehub/internal/nitro'
+import { resolveRuntimeEntry as resolveEntry } from '@vite-hub/internal/nitro'
 
 import {
   configureCloudflareSandbox,
@@ -30,8 +30,8 @@ function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): strin
 export function createSandboxProviderLoaderAliases(nitro: Nitro, provider: 'cloudflare' | 'vercel' | undefined, deps: Record<string, string>) {
   const inferredProvider = provider ?? getSupportedHostingProvider(detectHosting(nitro), ['cloudflare', 'vercel'])
   const providerLoaderTarget = resolveSandboxProviderLoaderTarget(inferredProvider, deps)
-  const runtimeProviderLoaderPath = resolveRuntimeEntry('../runtime/provider-loader', '@vitehub/sandbox/runtime/provider-loader')
-  const keys = ['vitehub-sandbox-provider-loader', '@vitehub/sandbox/runtime/provider-loader', 'virtual:vitehub-sandbox-provider-loader', '#vitehub-sandbox-provider-loader']
+  const runtimeProviderLoaderPath = resolveRuntimeEntry('../runtime/provider-loader', '@vite-hub/sandbox/runtime/provider-loader')
+  const keys = ['vitehub-sandbox-provider-loader', '@vite-hub/sandbox/runtime/provider-loader', 'virtual:vitehub-sandbox-provider-loader', '#vitehub-sandbox-provider-loader']
 
   if (!providerLoaderTarget) {
     return {
@@ -53,9 +53,9 @@ export function addSandboxAliases(nitro: Nitro, aliases: Array<{ key: string, va
   for (const alias of aliases)
     nitro.options.alias[alias.key] = alias.value
 
-  nitro.options.alias['@vitehub/sandbox/runtime/state'] = resolveRuntimeEntry('../runtime/state', '@vitehub/sandbox/runtime/state')
-  nitro.options.alias['#vitehub-sandbox-registry'] = resolveRuntimeEntry('../runtime/empty-registry', '@vitehub/sandbox/runtime/empty-registry')
-  nitro.options.alias['@vitehub/sandbox'] = resolveRuntimeEntry('../index', '@vitehub/sandbox')
+  nitro.options.alias['@vite-hub/sandbox/runtime/state'] = resolveRuntimeEntry('../runtime/state', '@vite-hub/sandbox/runtime/state')
+  nitro.options.alias['#vitehub-sandbox-registry'] = resolveRuntimeEntry('../runtime/empty-registry', '@vite-hub/sandbox/runtime/empty-registry')
+  nitro.options.alias['@vite-hub/sandbox'] = resolveRuntimeEntry('../index', '@vite-hub/sandbox')
 }
 
 type SandboxProviderLoaderResolvePlugin = {

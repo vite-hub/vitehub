@@ -19,7 +19,7 @@ The modes are exclusive. If a project has any named database definition, every d
 ## Named Databases
 
 ```ts [server/databases/analytics/config.ts]
-import { defineDatabase } from '@vitehub/database'
+import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 const analyticsEvents = sqliteTable('analytics_events', {
@@ -37,7 +37,7 @@ export default defineDatabase({
 ```
 
 ```ts
-import { databases } from '@vitehub/database/drizzle'
+import { databases } from '@vite-hub/database/drizzle'
 
 await databases.analytics.db
   .insert(databases.analytics.schema.analyticsEvents)

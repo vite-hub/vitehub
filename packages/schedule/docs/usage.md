@@ -15,7 +15,7 @@ Default-export `defineSchedule({ cron, handler, allowRuntimeSchedules? })` from 
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/reports/daily.schedule.ts]
-import { defineSchedule } from '@vitehub/schedule'
+import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 9 * * *',
@@ -28,7 +28,7 @@ export default defineSchedule({
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/schedules/reports/daily.ts]
-import { defineSchedule } from '@vitehub/schedule'
+import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 9 * * *',
@@ -76,7 +76,7 @@ export default defineSchedule({
 The integration generates typed Runtime Schedule Targets from those opted-in definitions. Application code can import the generated type from the stable ViteHub import path:
 
 ```ts
-import { schedules } from '@vitehub/schedule'
+import { schedules } from '@vite-hub/schedule'
 import type { ScheduleTargetName } from '#vitehub/schedule/targets'
 
 const target = 'daily-digest' satisfies ScheduleTargetName
@@ -91,10 +91,10 @@ Runtime Schedule target names are not standalone definitions in v1. They come fr
 
 ## Manage Runtime Schedules
 
-Use `schedules` from `@vitehub/schedule` to manage recurring Runtime Schedule records:
+Use `schedules` from `@vite-hub/schedule` to manage recurring Runtime Schedule records:
 
 ```ts
-import { schedules } from '@vitehub/schedule'
+import { schedules } from '@vite-hub/schedule'
 
 const created = await schedules.create({
   cron: '0 9 * * *',
@@ -122,7 +122,7 @@ Runtime Schedule records are recurring cron records. `create()` does not create 
 Runtime Schedules do not execute automatically until a process starts the [Basic Self-Hosted Schedule Runner](./runner).
 
 ```ts
-import { startScheduleRunner } from '@vitehub/schedule'
+import { startScheduleRunner } from '@vite-hub/schedule'
 
 const runner = startScheduleRunner()
 
@@ -136,8 +136,8 @@ Read [Boundaries](./boundaries) before running more than one process against the
 Use inline Agent Schedules when the Agent Definition itself should be invoked on recurring cron entries:
 
 ```ts
-import { defineAgent } from '@vitehub/agent'
-import { schedule } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { schedule } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [
@@ -160,8 +160,8 @@ String entries get ids from the cron expression, such as `schedule-0-9`. Object 
 Use `schedule({ mode, policy })` when the model should read or manage scoped Runtime Schedules:
 
 ```ts
-import { defineAgent } from '@vitehub/agent'
-import { schedule } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { schedule } from '@vite-hub/agent/capabilities'
 import type { ScheduleTargetName } from '#vitehub/schedule/targets'
 
 export default defineAgent({

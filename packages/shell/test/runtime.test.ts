@@ -24,7 +24,7 @@ import type {
   WritableShellWorkspace,
 } from "../src/workspace/index.ts"
 
-// @ts-expect-error workspace contracts belong to @vitehub/shell/workspace.
+// @ts-expect-error workspace contracts belong to @vite-hub/shell/workspace.
 import type { ReadonlyShellWorkspace as RootReadonlyShellWorkspace } from "../src/index.ts"
 
 function createReadonlyRuntime(workspace: ReadonlyShellWorkspace) {
@@ -37,21 +37,21 @@ function createReadonlyRuntime(workspace: ReadonlyShellWorkspace) {
   })
 }
 
-describe("@vitehub/shell just-bash runtime", () => {
+describe("@vite-hub/shell just-bash runtime", () => {
   it("exposes stable public package subpaths", async () => {
-    await expect(import("@vitehub/shell")).resolves.toMatchObject({
+    await expect(import("@vite-hub/shell")).resolves.toMatchObject({
       analyzeShellCommand: expect.any(Function),
       createShellRuntime: expect.any(Function),
     })
-    await expect(import("@vitehub/shell/workspace")).resolves.toMatchObject({
+    await expect(import("@vite-hub/shell/workspace")).resolves.toMatchObject({
       cleanWorkspaceShellPath: expect.any(Function),
       createReadonlyWorkspaceFs: expect.any(Function),
       runWorkspaceInspectionCommand: expect.any(Function),
     })
-    await expect(import("@vitehub/shell/providers/just-bash")).resolves.toMatchObject({
+    await expect(import("@vite-hub/shell/providers/just-bash")).resolves.toMatchObject({
       createJustBashProvider: expect.any(Function),
     })
-    await expect(import("@vitehub/shell/providers/cloudflare")).resolves.toMatchObject({
+    await expect(import("@vite-hub/shell/providers/cloudflare")).resolves.toMatchObject({
       createCloudflareShellProvider: expect.any(Function),
     })
   })
@@ -288,7 +288,7 @@ describe("@vitehub/shell just-bash runtime", () => {
   })
 })
 
-describe("@vitehub/shell cloudflare runtime", () => {
+describe("@vite-hub/shell cloudflare runtime", () => {
   it("delegates to the cloudflare sandbox client", async () => {
     const sandbox = {
       exec: vi.fn(async (_command: string, _args?: string[], options?: Record<string, unknown>) => {
@@ -351,7 +351,7 @@ describe("@vitehub/shell cloudflare runtime", () => {
   })
 })
 
-describe("@vitehub/shell analyzer", () => {
+describe("@vite-hub/shell analyzer", () => {
   it("parses shell commands with sh-syntax and returns conservative metadata", async () => {
     await expect(analyzeShellCommand("FOO=bar echo $(pwd) | tr a-z A-Z > out")).resolves.toMatchObject({
       commands: ["echo", "tr"],

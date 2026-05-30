@@ -1,4 +1,4 @@
-import { createVercelHostedServer } from "@vitehub/internal/runtime/vercel-hosted"
+import { createVercelHostedServer } from "@vite-hub/internal/runtime/vercel-hosted"
 
 import type { BlobApp } from "./_app.ts"
 import { setBlobRuntimeConfig } from "./state.ts"

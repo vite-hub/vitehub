@@ -5,7 +5,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@vitehub/database": "workspace:*",
+    "@vite-hub/database": "workspace:*",
     "drizzle-orm": "catalog:",
     "h3": "catalog:",
     "vite": "catalog:"

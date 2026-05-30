@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/source",
+  "name": "@vite-hub/source",
   "version": "0.0.0",
   "description": "Typed source retrieval primitives for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -39,7 +39,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/source build && vitest run"
+    "test": "pnpm --filter @vite-hub/source build && vitest run"
   },
   "dependencies": {
     "mrmime": "catalog:",

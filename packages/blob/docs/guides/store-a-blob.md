@@ -25,7 +25,7 @@ Every write route follows the same shape:
 ::fw{id="vite:dev vite:build"}
 ```ts [src/server.ts]
 import { H3, readBody } from 'h3'
-import { blob } from '@vitehub/blob'
+import { blob } from '@vite-hub/blob'
 
 const app = new H3()
 
@@ -46,7 +46,7 @@ export default app
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/api/notes.put.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { blob } from '@vitehub/blob'
+import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ pathname?: string, text?: string }>(event)
@@ -66,7 +66,7 @@ Use `readFormData()` for multipart uploads and validate the `Blob` before writin
 
 ```ts
 import { createError, defineEventHandler, readFormData } from 'h3'
-import { blob, ensureBlob } from '@vitehub/blob'
+import { blob, ensureBlob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const form = await readFormData(event)

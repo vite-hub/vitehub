@@ -19,7 +19,7 @@ vi.mock("ai", () => ({
   },
 }))
 
-vi.mock("@vitehub/workspace", () => ({
+vi.mock("@vite-hub/workspace", () => ({
   useWorkspace: vi.fn(() => ({
     fs: { list, readFile },
     tools: {
@@ -28,7 +28,7 @@ vi.mock("@vitehub/workspace", () => ({
   })),
 }))
 
-vi.mock("@vitehub/workspace/test", () => ({
+vi.mock("@vite-hub/workspace/test", () => ({
   registerWorkspace: vi.fn(),
 }))
 
@@ -79,7 +79,7 @@ describe("agent test runner", () => {
   })
 
   it("applies workspace defaults and collects workspace tool steps", async () => {
-    const { registerWorkspace } = await import("@vitehub/workspace/test")
+    const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const execute = vi.fn(async () => "workspace result")
     inspectTools.mockReturnValueOnce({
       shell: { execute },

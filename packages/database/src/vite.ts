@@ -1,6 +1,6 @@
-import { getViteMode } from "@vitehub/internal/build/mode"
-import { shouldSkipViteProviderBuild } from "@vitehub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
+import { getViteMode } from "@vite-hub/internal/build/mode"
+import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
 import { resolveDBViteConfig } from "./config.ts"
@@ -12,7 +12,7 @@ import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
 export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
-export const DB_VITE_PLUGIN_NAME = "@vitehub/database/vite"
+export const DB_VITE_PLUGIN_NAME = "@vite-hub/database/vite"
 
 const RESOLVED_DB_VIRTUAL_SCHEMA_ID = `\0${DB_VIRTUAL_SCHEMA_ID}`
 const RESOLVED_DB_VIRTUAL_DATABASES_ID = `\0${DB_VIRTUAL_DATABASES_ID}`

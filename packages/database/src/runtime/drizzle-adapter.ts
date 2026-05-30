@@ -1,4 +1,4 @@
-import { getActiveCloudflareBinding } from "@vitehub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 

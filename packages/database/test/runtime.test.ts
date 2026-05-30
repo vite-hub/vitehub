@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { sql } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
-import { setActiveCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import { setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 const defaultSchema = {
   notes: sqliteTable("notes", {
@@ -121,7 +121,7 @@ describe("drizzle runtime", () => {
 
     expect(db).toBe(databases.default.db)
     expect(databases.default.schema).toEqual({})
-    expect(() => databases.default.db.run).toThrow("[vitehub] `@vitehub/database/drizzle` requires `hubDb()` and `db !== false`.")
+    expect(() => databases.default.db.run).toThrow("[vitehub] `@vite-hub/database/drizzle` requires `hubDb()` and `db !== false`.")
   })
 
   it("keeps db as the default database alias and serves named schemas independently", async () => {

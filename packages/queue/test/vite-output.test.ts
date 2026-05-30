@@ -49,7 +49,7 @@ async function writeQueueNitroConfig(rootDir: string) {
     `import { defineNitroConfig } from "nitro/config"`,
     "",
     "export default defineNitroConfig({",
-    `  modules: ["@vitehub/queue/nitro", "@vitehub/kv/nitro"],`,
+    `  modules: ["@vite-hub/queue/nitro", "@vite-hub/kv/nitro"],`,
     "  kv: {},",
     "  queue: {},",
     `  serverDir: "./server",`,

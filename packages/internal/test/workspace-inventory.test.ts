@@ -31,7 +31,7 @@ describe("workspace inventory", () => {
     expect(listWorkspacePackageInfos(repoRoot).find(entry => entry.name === "internal")).toEqual(
       expect.objectContaining({
         name: "internal",
-        packageName: "@vitehub/internal",
+        packageName: "@vite-hub/internal",
         private: true,
       }),
     )

@@ -16,7 +16,7 @@ Use `runWorkflow()` when the route should wait until the provider accepts the wo
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/welcome.workflow.ts]
-import { defineWorkflow } from '@vitehub/workflow'
+import { defineWorkflow } from '@vite-hub/workflow'
 
 export type WelcomePayload = {
   email: string
@@ -36,7 +36,7 @@ export default defineWorkflow<WelcomePayload>(async ({ id, payload, provider }) 
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/workflows/welcome.ts]
-import { defineWorkflow } from '@vitehub/workflow'
+import { defineWorkflow } from '@vite-hub/workflow'
 
 export type WelcomePayload = {
   email: string
@@ -96,7 +96,7 @@ const run = await welcomeWorkflow.run({ email: 'ava@example.com', marker: 'signu
 ::fw{id="vite:dev vite:build"}
 ```ts [src/server.ts]
 import { H3, readBody } from 'h3'
-import { runWorkflow } from '@vitehub/workflow'
+import { runWorkflow } from '@vite-hub/workflow'
 import type { WelcomePayload } from './welcome.workflow'
 
 const app = new H3()
@@ -114,7 +114,7 @@ export default app
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/api/welcome.post.ts]
-import { runWorkflow } from '@vitehub/workflow'
+import { runWorkflow } from '@vite-hub/workflow'
 import type { WelcomePayload } from '../workflows/welcome'
 
 export default defineEventHandler(async (event) => {

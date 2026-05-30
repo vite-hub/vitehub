@@ -1,9 +1,9 @@
-import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } from "@vitehub/shell/workspace"
+import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } from "@vite-hub/shell/workspace"
 
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
-import type { ShellObservation, ShellSessionPolicy } from "@vitehub/shell"
+import type { ShellObservation, ShellSessionPolicy } from "@vite-hub/shell"
 import type { JSONSchema7, Schema, Tool, ToolSet } from "ai"
 
 export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"

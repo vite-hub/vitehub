@@ -3,8 +3,8 @@ import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { createImportPath } from "@vitehub/internal/build/paths"
-import { resolveRuntimeEntry } from "@vitehub/internal/nitro"
+import { createImportPath } from "@vite-hub/internal/build/paths"
+import { resolveRuntimeEntry } from "@vite-hub/internal/nitro"
 import { createJiti } from "jiti"
 
 import { syncWorkspaceDefinition } from "../lifecycle.ts"
@@ -46,7 +46,7 @@ async function importWorkspaceConfig(path: string): Promise<{ default?: Workspac
 }
 
 function runtimeAssetsModulePath() {
-  return resolveRuntimeEntry("../runtime/assets", "@vitehub/workspace/internal/runtime/assets", import.meta.url)
+  return resolveRuntimeEntry("../runtime/assets", "@vite-hub/workspace/internal/runtime/assets", import.meta.url)
 }
 
 export async function collectWorkspaceStoreAssetBundle(name: string, store: WorkspaceStore): Promise<WorkspaceAssetBundle> {

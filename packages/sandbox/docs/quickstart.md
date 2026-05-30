@@ -14,10 +14,10 @@ The provider is the only part that changes between Cloudflare and Vercel. The sa
 ::code-collapse
 
 ```txt [Prompt]
-Set up @vitehub/sandbox in this app.
+Set up @vite-hub/sandbox in this app.
 
-- Install @vitehub/sandbox and one provider SDK
-- Register hubSandbox() for Vite or @vitehub/sandbox/nitro for Nitro
+- Install @vite-hub/sandbox and one provider SDK
+- Register hubSandbox() for Vite or @vite-hub/sandbox/nitro for Nitro
 - Configure sandbox.provider as cloudflare or vercel
 - Define release-notes as a discovered sandbox
 - Call runSandbox('release-notes', payload) from a route
@@ -33,7 +33,7 @@ Docs: /docs/vite/sandbox/quickstart or /docs/nitro/sandbox/quickstart
 ### Install Sandbox
 
 ```bash
-pnpm add @vitehub/sandbox
+pnpm add @vite-hub/sandbox
 ```
 
 Install the provider SDK for the platform that will execute the sandbox:
@@ -57,7 +57,7 @@ Register the Vite plugin and choose the provider:
   :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
-    import { hubSandbox } from '@vitehub/sandbox/vite'
+    import { hubSandbox } from '@vite-hub/sandbox/vite'
 
     export default defineConfig({
       plugins: [hubSandbox()],
@@ -71,7 +71,7 @@ Register the Vite plugin and choose the provider:
   :::tabs-item{label="Vercel" icon="i-simple-icons-vercel" class="p-4"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
-    import { hubSandbox } from '@vitehub/sandbox/vite'
+    import { hubSandbox } from '@vite-hub/sandbox/vite'
 
     export default defineConfig({
       plugins: [hubSandbox()],
@@ -93,7 +93,7 @@ Register the Nitro module and choose the provider:
     import { defineNitroConfig } from 'nitro/config'
 
     export default defineNitroConfig({
-      modules: ['@vitehub/sandbox/nitro'],
+      modules: ['@vite-hub/sandbox/nitro'],
       sandbox: {
         provider: 'cloudflare',
       },
@@ -106,7 +106,7 @@ Register the Nitro module and choose the provider:
     import { defineNitroConfig } from 'nitro/config'
 
     export default defineNitroConfig({
-      modules: ['@vitehub/sandbox/nitro'],
+      modules: ['@vite-hub/sandbox/nitro'],
       sandbox: {
         provider: 'vercel',
       },
@@ -122,7 +122,7 @@ Register the Nitro module and choose the provider:
 Create a discovered Vite sandbox file:
 
 ```ts [src/release-notes.sandbox.ts]
-import { defineSandbox } from '@vitehub/sandbox'
+import { defineSandbox } from '@vite-hub/sandbox'
 
 export type ReleaseNotesPayload = {
   notes?: string
@@ -151,7 +151,7 @@ export default defineSandbox(async (payload: ReleaseNotesPayload = {}): Promise<
 Create a discovered Nitro sandbox file:
 
 ```ts [server/sandboxes/release-notes.ts]
-import { defineSandbox } from '@vitehub/sandbox'
+import { defineSandbox } from '@vite-hub/sandbox'
 
 export type ReleaseNotesPayload = {
   notes?: string
@@ -183,7 +183,7 @@ Add a Vite server entry that reads the request body and executes the named sandb
 
 ```ts [src/server.ts]
 import { createError, H3 } from 'h3'
-import { readRequestPayload, runSandbox } from '@vitehub/sandbox'
+import { readRequestPayload, runSandbox } from '@vite-hub/sandbox'
 import type { ReleaseNotesPayload } from './release-notes.sandbox'
 
 const app = new H3()
@@ -207,7 +207,7 @@ export default app
 Add a Nitro route that reads the request body and executes the named sandbox:
 
 ```ts [server/api/release-notes.post.ts]
-import { readRequestPayload, runSandbox } from '@vitehub/sandbox'
+import { readRequestPayload, runSandbox } from '@vite-hub/sandbox'
 import type { ReleaseNotesPayload } from '../sandboxes/release-notes'
 
 export default defineEventHandler(async (event) => {

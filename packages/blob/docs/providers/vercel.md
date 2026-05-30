@@ -1,6 +1,6 @@
 ---
 title: Vercel Blob
-description: Configure @vitehub/blob to store objects through Vercel Blob.
+description: Configure @vite-hub/blob to store objects through Vercel Blob.
 navigation.title: Vercel
 navigation.group: Providers
 navigation.order: 20
@@ -17,7 +17,7 @@ Vercel needs a `BLOB_READ_WRITE_TOKEN` available at runtime.
 ## Install Blob
 
 ```bash
-pnpm add @vitehub/blob files-sdk
+pnpm add @vite-hub/blob files-sdk
 ```
 
 ## Add the Runtime Token
@@ -37,7 +37,7 @@ Register the Vite plugin and set `blob.driver` to `vercel-blob`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubBlob } from '@vitehub/blob/vite'
+import { hubBlob } from '@vite-hub/blob/vite'
 
 export default defineConfig({
   plugins: [hubBlob()],
@@ -56,7 +56,7 @@ Register the Nitro module and set `blob.driver` to `vercel-blob`:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/blob/nitro'],
+  modules: ['@vite-hub/blob/nitro'],
   blob: {
     driver: 'vercel-blob',
     access: 'public',

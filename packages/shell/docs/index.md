@@ -7,19 +7,19 @@ icon: i-lucide-terminal
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/shell` turns controlled file and sandbox APIs into Shell Runtime sessions.
+`@vite-hub/shell` turns controlled file and sandbox APIs into Shell Runtime sessions.
 
 Use Shell when an agent, workflow, or server route needs real shell syntax without exposing an unrestricted host shell.
 
 ```ts
 import {
   createShellRuntime,
-} from '@vitehub/shell'
-import { createJustBashProvider } from '@vitehub/shell/providers/just-bash'
+} from '@vite-hub/shell'
+import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
 import {
   createReadonlyWorkspaceFs,
   workspaceMountPoint,
-} from '@vitehub/shell/workspace'
+} from '@vite-hub/shell/workspace'
 
 const runtime = createShellRuntime({
   provider: createJustBashProvider({

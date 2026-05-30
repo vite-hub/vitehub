@@ -11,17 +11,17 @@ Use this page when you need exact names and option fields. For a guided setup, s
 
 ## Imports
 
-Shared helpers import from `@vitehub/env`:
+Shared helpers import from `@vite-hub/env`:
 
 ```ts
-import { env, parseSchema } from '@vitehub/env'
+import { env, parseSchema } from '@vite-hub/env'
 ```
 
 ::fw{id="vite:dev vite:build"}
-Vite config imports from `@vitehub/env/vite`:
+Vite config imports from `@vite-hub/env/vite`:
 
 ```ts
-import { env, envVite } from '@vitehub/env/vite'
+import { env, envVite } from '@vite-hub/env/vite'
 ```
 ::
 
@@ -29,7 +29,7 @@ import { env, envVite } from '@vitehub/env/vite'
 Nitro config registers the module function:
 
 ```ts
-import { env, envNitro } from '@vitehub/env/nitro'
+import { env, envNitro } from '@vite-hub/env/nitro'
 
 export default defineNitroConfig({
   modules: [envNitro()],

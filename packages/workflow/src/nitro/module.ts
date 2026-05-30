@@ -1,9 +1,9 @@
 import { appendFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
-import { createImportPath } from "@vitehub/internal/build/paths"
-import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeRuntimeRegistryFiles } from "@vitehub/internal/definition-catalog"
-import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { createImportPath } from "@vite-hub/internal/build/paths"
+import { applyNitroRuntimeAliases, createNitroRuntimeFilePath, hookNitroRuntimeRegistryRefresh, writeRuntimeRegistryFiles } from "@vite-hub/internal/definition-catalog"
+import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vite-hub/internal/nitro"
 
 import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
 
@@ -12,8 +12,8 @@ import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions } from "../types.ts"
 
-const WORKFLOW_NITRO_IMPORTS_PRESET = { from: "@vitehub/workflow", imports: ["defineWorkflow", "getWorkflowRun"] }
-const WORKFLOW_VITE_PLUGIN_NAME = "@vitehub/workflow/vite"
+const WORKFLOW_NITRO_IMPORTS_PRESET = { from: "@vite-hub/workflow", imports: ["defineWorkflow", "getWorkflowRun"] }
+const WORKFLOW_VITE_PLUGIN_NAME = "@vite-hub/workflow/vite"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
   return resolveEntry(srcRelative, packageSubpath, import.meta.url)
@@ -44,9 +44,9 @@ function createNitroWorkflowPluginContents(file: string, registryFile: string) {
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
     "import { useRuntimeConfig } from \"nitro/runtime-config\"",
     "",
-    "import { runCloudflareWorkflow } from \"@vitehub/workflow/runtime/cloudflare-runner\"",
-    "import { startOpenWorkflowWorker } from \"@vitehub/workflow/runtime/openworkflow-worker\"",
-    "import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from \"@vitehub/workflow/runtime/state\"",
+    "import { runCloudflareWorkflow } from \"@vite-hub/workflow/runtime/cloudflare-runner\"",
+    "import { startOpenWorkflowWorker } from \"@vite-hub/workflow/runtime/openworkflow-worker\"",
+    "import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from \"@vite-hub/workflow/runtime/state\"",
     "",
     `import workflowRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
@@ -150,9 +150,9 @@ async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFile
 }
 
 const workflowNitroModule: NitroModule = {
-  name: "@vitehub/workflow",
+  name: "@vite-hub/workflow",
   async setup(nitro) {
-    await assertNoVitePluginInNitro(nitro, WORKFLOW_VITE_PLUGIN_NAME, "@vitehub/workflow/nitro")
+    await assertNoVitePluginInNitro(nitro, WORKFLOW_VITE_PLUGIN_NAME, "@vite-hub/workflow/nitro")
 
     const resolved = normalizeWorkflowOptions(nitro.options.workflow, { hosting: nitro.options.preset })
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
@@ -160,12 +160,12 @@ const workflowNitroModule: NitroModule = {
     runtimeConfig.workflow = resolved || false
 
     nitro.options.alias ||= {}
-    nitro.options.alias["@vitehub/workflow"] = resolveRuntimeEntry("../index", "@vitehub/workflow")
-    nitro.options.alias["@vitehub/workflow/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vitehub/workflow/runtime/state")
-    nitro.options.alias["@vitehub/workflow/runtime/execute"] = resolveRuntimeEntry("../runtime/execute", "@vitehub/workflow/runtime/execute")
-    nitro.options.alias["@vitehub/workflow/runtime/cloudflare-runner"] = resolveRuntimeEntry("../runtime/cloudflare-runner", "@vitehub/workflow/runtime/cloudflare-runner")
-    nitro.options.alias["@vitehub/workflow/runtime/openworkflow"] = resolveRuntimeEntry("../runtime/openworkflow", "@vitehub/workflow/runtime/openworkflow")
-    nitro.options.alias["@vitehub/workflow/runtime/openworkflow-worker"] = resolveRuntimeEntry("../runtime/openworkflow-worker", "@vitehub/workflow/runtime/openworkflow-worker")
+    nitro.options.alias["@vite-hub/workflow"] = resolveRuntimeEntry("../index", "@vite-hub/workflow")
+    nitro.options.alias["@vite-hub/workflow/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vite-hub/workflow/runtime/state")
+    nitro.options.alias["@vite-hub/workflow/runtime/execute"] = resolveRuntimeEntry("../runtime/execute", "@vite-hub/workflow/runtime/execute")
+    nitro.options.alias["@vite-hub/workflow/runtime/cloudflare-runner"] = resolveRuntimeEntry("../runtime/cloudflare-runner", "@vite-hub/workflow/runtime/cloudflare-runner")
+    nitro.options.alias["@vite-hub/workflow/runtime/openworkflow"] = resolveRuntimeEntry("../runtime/openworkflow", "@vite-hub/workflow/runtime/openworkflow")
+    nitro.options.alias["@vite-hub/workflow/runtime/openworkflow-worker"] = resolveRuntimeEntry("../runtime/openworkflow-worker", "@vite-hub/workflow/runtime/openworkflow-worker")
 
     let runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro)
     applyNitroRuntimeAliases(nitro, { "#vitehub/workflow/registry": runtimeFiles.registryFile })

@@ -1,7 +1,7 @@
 import { H3, readBody } from "h3"
 import { desc, sql } from "drizzle-orm"
 
-import { databases } from "@vitehub/database/drizzle"
+import { databases } from "@vite-hub/database/drizzle"
 
 const app = new H3()
 

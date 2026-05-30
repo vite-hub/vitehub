@@ -1,6 +1,6 @@
 # AI SDK-Only Model Execution
 
-ViteHub will remove the public Agent `adapter` selector and make AI SDK the only model execution path for now. The TanStack AI adapter and `@vitehub/agent/tanstack-ai` surface are removed because maintaining multiple model adapters is forcing ViteHub to invent and preserve adapter-neutral message and stream abstractions before the product has proven that cost is worthwhile.
+ViteHub will remove the public Agent `adapter` selector and make AI SDK the only model execution path for now. The TanStack AI adapter and `@vite-hub/agent/tanstack-ai` surface are removed because maintaining multiple model adapters is forcing ViteHub to invent and preserve adapter-neutral message and stream abstractions before the product has proven that cost is worthwhile.
 
 ## Considered Options
 

@@ -8,8 +8,8 @@ import {
   discoverDefinitions,
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
-} from "@vitehub/internal/definition-catalog"
-import { findIdentifierCalls, findMatching, splitTopLevel } from "@vitehub/internal/source-scanner"
+} from "@vite-hub/internal/definition-catalog"
+import { findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
 
 import { createRuntimeEnvConfigValue, resolveConfigValue } from "./config-value.ts"
 

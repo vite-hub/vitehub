@@ -7,13 +7,13 @@ icon: i-lucide-database-zap
 frameworks: [vite, nitro, nuxt]
 ---
 
-`@vitehub/kv` gives Vite, Nitro, and Nuxt apps one `kv` handle for application state that fits a key-value shape.
+`@vite-hub/kv` gives Vite, Nitro, and Nuxt apps one `kv` handle for application state that fits a key-value shape.
 
 Use KV when route code needs to read or write small JSON-serializable values without carrying provider-specific SDK calls through the app. The provider choice stays in config. Runtime code keeps the same `kv.get()`, `kv.set()`, and `kv.del()` calls.
 
 ::code-group
 ```ts [server/api/settings.put.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
   await kv.set('settings', {
@@ -26,7 +26,7 @@ export default defineEventHandler(async () => {
 ```
 
 ```ts [server/api/settings.get.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
   return {
@@ -89,10 +89,10 @@ KV puts the provider behind the Nitro storage mount:
 
 The same shape works across supported frameworks:
 
-1. Install `@vitehub/kv`.
-2. Register `hubKv()`, `@vitehub/kv/nitro`, or `@vitehub/kv/nuxt`.
+1. Install `@vite-hub/kv`.
+2. Register `hubKv()`, `@vite-hub/kv/nitro`, or `@vite-hub/kv/nuxt`.
 3. Choose a driver or let ViteHub resolve one.
-4. Import `kv` from `@vitehub/kv` in server/runtime code.
+4. Import `kv` from `@vite-hub/kv` in server/runtime code.
 5. Read and write values with `get`, `set`, `has`, `del`, `keys`, and `clear`.
 
 ::callout{icon="i-lucide-info" color="info"}
@@ -122,11 +122,11 @@ Use this path when Vite owns the app setup. Runtime access to `kv` still depends
 ::
 
 ::fw{id="nitro:dev nitro:build"}
-Nitro registers `@vitehub/kv/nitro`, writes resolved config to runtime config, mounts storage at `kv`, and aliases `@vitehub/kv` to the runtime implementation.
+Nitro registers `@vite-hub/kv/nitro`, writes resolved config to runtime config, mounts storage at `kv`, and aliases `@vite-hub/kv` to the runtime implementation.
 ::
 
 ::fw{id="nuxt:dev nuxt:build"}
-Nuxt registers `@vitehub/kv/nuxt`, which installs the Nitro module and forwards top-level `kv` config to Nitro.
+Nuxt registers `@vite-hub/kv/nuxt`, which installs the Nitro module and forwards top-level `kv` config to Nitro.
 ::
 
 ## Supported Providers

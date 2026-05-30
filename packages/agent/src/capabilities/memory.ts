@@ -8,7 +8,7 @@ import type {
   AgentToolSet,
   MaybePromise,
 } from "../types.ts"
-import type { WritableWorkspaceFacade } from "@vitehub/workspace"
+import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
 
 export interface MemoryCapabilityInstructionsOption {
   instructions?: string | false

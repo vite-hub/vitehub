@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/blob",
+  "name": "@vite-hub/blob",
   "version": "0.0.0",
   "description": "Vite-first blob storage primitives and deployment integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -66,7 +66,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/blob build && pnpm --filter @vitehub/kv build && pnpm --filter @vitehub/queue build && vitest run",
+    "test": "pnpm --filter @vite-hub/blob build && pnpm --filter @vite-hub/kv build && pnpm --filter @vite-hub/queue build && vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {
@@ -94,7 +94,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "@vitehub/internal": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "files-sdk": "catalog:",
     "nitro": "catalog:",
     "ofetch": "catalog:",

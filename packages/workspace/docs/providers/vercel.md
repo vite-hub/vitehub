@@ -1,6 +1,6 @@
 ---
 title: Vercel Workspace Compatibility
-description: How @vitehub/workspace maps to Vercel Blob and Vercel Sandbox.
+description: How @vite-hub/workspace maps to Vercel Blob and Vercel Sandbox.
 navigation.title: Vercel
 navigation.group: Providers
 navigation.order: 20
@@ -8,7 +8,7 @@ icon: i-simple-icons-vercel
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/workspace` defaults to an in-memory store on Vercel unless Blob is configured. Vercel does not provide a Miniflare-style local artifact environment, so the automatic hosted default stays ephemeral.
+`@vite-hub/workspace` defaults to an in-memory store on Vercel unless Blob is configured. Vercel does not provide a Miniflare-style local artifact environment, so the automatic hosted default stays ephemeral.
 
 | Vercel primitive | Intended role |
 | --- | --- |
@@ -33,8 +33,8 @@ Configure Vercel Sandbox once at app level:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubSandbox } from '@vitehub/sandbox/vite'
-import { hubWorkspace } from '@vitehub/workspace/vite'
+import { hubSandbox } from '@vite-hub/sandbox/vite'
+import { hubWorkspace } from '@vite-hub/workspace/vite'
 
 export default defineConfig({
   plugins: [hubSandbox(), hubWorkspace()],
@@ -62,7 +62,7 @@ export default defineWorkspace({
 ```
 
 ```ts
-import { useWorkspace } from '@vitehub/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
 
 const session = await useWorkspace('docs', { mode: "write" }).startSession()
 

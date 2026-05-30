@@ -18,14 +18,14 @@ import type {
   WriteFileOptions,
 } from "../core/types.ts"
 
-type SandboxClient = Awaited<ReturnType<typeof import("@vitehub/sandbox").createSandboxWithConfig>>
+type SandboxClient = Awaited<ReturnType<typeof import("@vite-hub/sandbox").createSandboxWithConfig>>
 type SandboxFileEntry = { path: string, size?: number, type: "file" | "directory" }
-type SandboxPackage = typeof import("@vitehub/sandbox")
-type SandboxRuntimeStateModule = typeof import("@vitehub/sandbox/runtime/state")
+type SandboxPackage = typeof import("@vite-hub/sandbox")
+type SandboxRuntimeStateModule = typeof import("@vite-hub/sandbox/runtime/state")
 
 const sandboxCwd = "/workspace"
-const sandboxPackageSpecifier = "@vitehub/sandbox"
-const sandboxRuntimeStateSpecifier = "@vitehub/sandbox/runtime/state"
+const sandboxPackageSpecifier = "@vite-hub/sandbox"
+const sandboxRuntimeStateSpecifier = "@vite-hub/sandbox/runtime/state"
 
 function normalizeSearchRoot(path: string) {
   const normalized = posix.normalize(path.replace(/\\/g, "/"))
@@ -149,7 +149,7 @@ export async function createSandboxWorkspaceSession(
   workspace: Workspace,
 ): Promise<WorkspaceSession> {
   const sandboxPackage = await import(/* @vite-ignore */ sandboxPackageSpecifier).catch((error) => {
-    throw new WorkspaceError(`[vitehub] Sandbox workspace runtime requires @vitehub/sandbox. ${error instanceof Error ? error.message : String(error)}`)
+    throw new WorkspaceError(`[vitehub] Sandbox workspace runtime requires @vite-hub/sandbox. ${error instanceof Error ? error.message : String(error)}`)
   }) as SandboxPackage
   const sandboxConfig = (await import(/* @vite-ignore */ sandboxRuntimeStateSpecifier) as SandboxRuntimeStateModule).getSandboxRuntimeConfig()
 

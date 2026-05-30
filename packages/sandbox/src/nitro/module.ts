@@ -1,6 +1,6 @@
 import { readPackageJSON } from 'pkg-types'
 
-import { hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from '@vitehub/internal/definition-discovery'
+import { hookNitroRuntimeRegistryRefresh, writeFileIfChanged } from '@vite-hub/internal/definition-discovery'
 
 import { createSandboxProviderLoaderContents } from '../feature'
 import { hasInstalledDependency } from '../internal/shared/dependency'
@@ -23,7 +23,7 @@ async function readWorkspaceDeps(rootDir: string) {
 }
 
 const sandboxNitroModule: NitroModule = {
-  name: '@vitehub/sandbox',
+  name: '@vite-hub/sandbox',
   async setup(nitro) {
     const normalized = normalizeSandboxPublicOptions((nitro.options as typeof nitro.options & { sandbox?: false | AgentSandboxConfig }).sandbox ?? {})
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig) as NitroRuntimeConfig & Record<string, unknown>
@@ -66,7 +66,7 @@ const sandboxNitroModule: NitroModule = {
     if (provider?.provider === 'cloudflare' && !hasInstalledDependency(deps, '@cloudflare/sandbox', { paths: [nitro.options.rootDir] }))
       nitro.logger.warn('Install `@cloudflare/sandbox` for Cloudflare sandbox presets.')
 
-    nitro.logger.info(`@vitehub/sandbox enabled with ${runtimeFiles.definitions.length} sandbox definition${runtimeFiles.definitions.length === 1 ? '' : 's'}`)
+    nitro.logger.info(`@vite-hub/sandbox enabled with ${runtimeFiles.definitions.length} sandbox definition${runtimeFiles.definitions.length === 1 ? '' : 's'}`)
   },
 }
 

@@ -25,7 +25,7 @@ Every status route follows the same shape:
 ::fw{id="vite:dev vite:build"}
 ```ts [src/server.ts]
 import { createError, H3 } from 'h3'
-import { getWorkflowRun } from '@vitehub/workflow'
+import { getWorkflowRun } from '@vite-hub/workflow'
 
 const app = new H3()
 
@@ -47,7 +47,7 @@ export default app
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/api/workflow/[id].get.ts]
-import { getWorkflowRun } from '@vitehub/workflow'
+import { getWorkflowRun } from '@vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')

@@ -22,8 +22,8 @@ Cause: the command is not included in the `commands` exposed by the `just-bash` 
 Fix: add only the command you intend to expose.
 
 ```ts
-import { createShellRuntime } from '@vitehub/shell'
-import { createJustBashProvider } from '@vitehub/shell/providers/just-bash'
+import { createShellRuntime } from '@vite-hub/shell'
+import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
 
 createShellRuntime({
   provider: createJustBashProvider({

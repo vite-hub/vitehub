@@ -99,7 +99,7 @@ describe("hubDevtools", () => {
       bridge: "/__vitehub/test/devtools",
       icon: "i-lucide-message-square",
       id: "test.feature",
-      packageName: "@vitehub/test",
+      packageName: "@vite-hub/test",
       title: "Test",
     }
 
@@ -120,7 +120,7 @@ describe("hubDevtools", () => {
       bridge: "/__vitehub/test/devtools",
       icon: "i-lucide-message-square",
       id: "test.feature",
-      packageName: "@vitehub/test",
+      packageName: "@vite-hub/test",
       title: "Test",
     }
 
@@ -139,7 +139,7 @@ describe("hubDevtools", () => {
       bridge: "/__vitehub/test/devtools",
       icon: "i-lucide-message-square",
       id: "test.feature",
-      packageName: "@vitehub/test",
+      packageName: "@vite-hub/test",
       title: "Test",
     }
 
@@ -153,7 +153,7 @@ describe("hubDevtools", () => {
     const feature = {
       bridge: "/__vitehub/test/devtools",
       id: "test.feature",
-      packageName: "@vitehub/test",
+      packageName: "@vite-hub/test",
       title: "Test",
     }
 
@@ -173,7 +173,7 @@ describe("hubDevtools", () => {
     registerViteHubDevtoolsFeature(ctx as never, {
       bridge: "/__vitehub/test/devtools",
       id: "test.feature",
-      packageName: "@vitehub/test",
+      packageName: "@vite-hub/test",
       title: "Test",
     })
     await Promise.resolve()

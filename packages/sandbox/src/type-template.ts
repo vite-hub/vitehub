@@ -3,13 +3,13 @@ import { createNitroConfigTypeAugmentation } from './internal/shared/nitro-confi
 
 export function createSandboxTypeTemplateContents(definitions: ScannedDefinition[]) {
   return [
-    createNitroConfigTypeAugmentation('sandbox', '@vitehub/sandbox', 'AgentSandboxConfig'),
+    createNitroConfigTypeAugmentation('sandbox', '@vite-hub/sandbox', 'AgentSandboxConfig'),
     `declare module '#vitehub-sandbox-registry' {`,
     `  export interface SandboxDefinitionModules {`,
     ...definitions.map(definition => `    ${JSON.stringify(definition.name)}: typeof import(${JSON.stringify(definition.handler)}),`),
     `  }`,
     `  const sandboxRegistry: {`,
-    ...definitions.map(definition => `    ${JSON.stringify(definition.name)}: () => Promise<{ default?: { bundle: import('@vitehub/sandbox').SandboxDefinitionBundle, options?: import('@vitehub/sandbox').SandboxDefinitionOptions } }>,`),
+    ...definitions.map(definition => `    ${JSON.stringify(definition.name)}: () => Promise<{ default?: { bundle: import('@vite-hub/sandbox').SandboxDefinitionBundle, options?: import('@vite-hub/sandbox').SandboxDefinitionOptions } }>,`),
     `  }`,
     `  export default sandboxRegistry`,
     `}`,

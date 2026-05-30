@@ -10,7 +10,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe("@vitehub/source GitHub source", () => {
+describe("@vite-hub/source GitHub source", () => {
   it("lists GitHub files under the configured root with relative keys", async () => {
     stubGitHubSource({
       "dbt/dbt_project.yml": "name: app\n",

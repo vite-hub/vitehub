@@ -1,6 +1,6 @@
 ---
 title: Cloudflare KV
-description: Configure @vitehub/kv for Cloudflare Workers and Pages using Cloudflare KV bindings.
+description: Configure @vite-hub/kv for Cloudflare Workers and Pages using Cloudflare KV bindings.
 navigation.title: Cloudflare
 navigation.group: Providers
 navigation.order: 10
@@ -21,7 +21,7 @@ Register the Vite plugin and set `kv.driver` to `cloudflare-kv-binding`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubKv } from '@vitehub/kv/vite'
+import { hubKv } from '@vite-hub/kv/vite'
 
 export default defineConfig({
   plugins: [hubKv()],
@@ -41,7 +41,7 @@ Register the Nitro module and set `kv.driver` to `cloudflare-kv-binding`:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/kv/nitro'],
+  modules: ['@vite-hub/kv/nitro'],
   kv: {
     driver: 'cloudflare-kv-binding',
     binding: 'KV',
@@ -56,7 +56,7 @@ Register the Nuxt module and set `kv.driver` to `cloudflare-kv-binding`:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vitehub/kv/nuxt'],
+  modules: ['@vite-hub/kv/nuxt'],
   kv: {
     driver: 'cloudflare-kv-binding',
     binding: 'KV',
@@ -115,7 +115,7 @@ When hosting resolves to Cloudflare and no explicit driver is set, ViteHub selec
 
 ```ts
 export default defineNitroConfig({
-  modules: ['@vitehub/kv/nitro'],
+  modules: ['@vite-hub/kv/nitro'],
 })
 ```
 

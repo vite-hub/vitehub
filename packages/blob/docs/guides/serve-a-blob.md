@@ -19,7 +19,7 @@ Validate the requested pathname before passing it to Blob.
 ::fw{id="vite:dev vite:build"}
 ```ts [src/server.ts]
 import { createError, getQuery, H3 } from 'h3'
-import { blob } from '@vitehub/blob'
+import { blob } from '@vite-hub/blob'
 
 const app = new H3()
 
@@ -40,7 +40,7 @@ export default app
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/api/files.get.ts]
 import { createError, defineEventHandler, getQuery } from 'h3'
-import { blob } from '@vitehub/blob'
+import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const pathname = getQuery(event).pathname

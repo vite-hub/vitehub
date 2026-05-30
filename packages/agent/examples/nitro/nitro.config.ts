@@ -1,3 +1,3 @@
 export default defineNitroConfig({
-  modules: ["@vitehub/agent/nitro"],
+  modules: ["@vite-hub/agent/nitro"],
 })

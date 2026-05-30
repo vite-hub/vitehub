@@ -1,8 +1,8 @@
 import { resolve } from "node:path"
 
-import { createImportPath } from "@vitehub/internal/build/paths"
-import { writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry } from "@vitehub/internal/nitro"
+import { createImportPath } from "@vite-hub/internal/build/paths"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { assertNoVitePluginInNitro, mergeNitroImportsPreset, resolveRuntimeEntry } from "@vite-hub/internal/nitro"
 
 import { formatDiagnostics } from "../core/diagnostics.ts"
 import { env } from "../core/declarations.ts"
@@ -18,7 +18,7 @@ export interface EnvNitroIntegrationOptions extends EnvIntegrationOptions {
   env?: EnvNitroConfigOptions
 }
 
-const ENV_VITE_PLUGIN_NAME = "@vitehub/env/vite"
+const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
 const ENV_NITRO_IMPORTS_PRESET = { from: "#vitehub/env/server", imports: ["useServerEnv"] }
 
 function resolveEntry(srcRelative: string, packageSubpath: string): string {
@@ -33,7 +33,7 @@ function createPluginContents(file: string, registryFile: string): string {
   return [
     `import registry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import { useRuntimeConfig } from "nitro/runtime-config"`,
-    `import { applyRuntimeEnvToRuntimeConfig, setEnvRegistry } from ${JSON.stringify(createImportPath(file, resolveEntry("../runtime/server", "@vitehub/env/runtime/server")))}`,
+    `import { applyRuntimeEnvToRuntimeConfig, setEnvRegistry } from ${JSON.stringify(createImportPath(file, resolveEntry("../runtime/server", "@vite-hub/env/runtime/server")))}`,
     "",
     "export default function vitehubEnvPlugin(nitroApp) {",
     "  setEnvRegistry(registry)",
@@ -90,10 +90,10 @@ function createNitroServerTypes(registry: EnvRuntimeRegistry): string {
 function createNitroRuntimeServerTypes(registry: EnvRuntimeRegistry): string {
   const fields = createTypeFields(registry, 4, "RuntimeSecretEnv")
   return [
-    "import type { SecretEnv as RuntimeSecretEnv } from \"@vitehub/env/runtime/server\"",
-    "import \"@vitehub/env/runtime/server\"",
+    "import type { SecretEnv as RuntimeSecretEnv } from \"@vite-hub/env/runtime/server\"",
+    "import \"@vite-hub/env/runtime/server\"",
     "",
-    "declare module \"@vitehub/env/runtime/server\" {",
+    "declare module \"@vite-hub/env/runtime/server\" {",
     "  export interface ServerEnv {",
     ...fields,
     "  }",
@@ -105,8 +105,8 @@ function createNitroRuntimeServerTypes(registry: EnvRuntimeRegistry): string {
 function createNitroIntegrationTypes(registry: EnvRuntimeRegistry): string {
   const fields = createTypeFields(registry, 4)
   return [
-    "import type { EnvNitroConfigOptions } from \"@vitehub/env\"",
-    "import type { SecretEnv } from \"@vitehub/env/runtime/server\"",
+    "import type { EnvNitroConfigOptions } from \"@vite-hub/env\"",
+    "import type { SecretEnv } from \"@vite-hub/env/runtime/server\"",
     "import \"nitro/types\"",
     "import \"nitro/vite\"",
     "",
@@ -173,10 +173,10 @@ function resolveLiteralTypeName(value: unknown): string {
 
 export function envNitro(options: EnvNitroIntegrationOptions = {}): NitroModule {
   return {
-    name: "@vitehub/env",
+    name: "@vite-hub/env",
     async setup(nitroInput) {
       const nitro = nitroInput as Nitro
-      await assertNoVitePluginInNitro(nitro, ENV_VITE_PLUGIN_NAME, "@vitehub/env/nitro")
+      await assertNoVitePluginInNitro(nitro, ENV_VITE_PLUGIN_NAME, "@vite-hub/env/nitro")
 
       const config = options.env ?? (nitro.options as typeof nitro.options & EnvNitroUserConfig).env
       validateEnvConfigShape(config, "nitro")
@@ -196,9 +196,9 @@ export function envNitro(options: EnvNitroIntegrationOptions = {}): NitroModule 
       await writeFileIfChanged(pluginFile, createPluginContents(pluginFile, registryFile))
 
       nitro.options.alias ||= {}
-      nitro.options.alias["@vitehub/env/runtime/server"] = resolveEntry("../runtime/server", "@vitehub/env/runtime/server")
-      nitro.options.alias["@vitehub/env"] = resolveEntry("../index", "@vitehub/env")
-      nitro.options.alias["#vitehub/env/server"] = resolveEntry("../runtime/server", "@vitehub/env/runtime/server")
+      nitro.options.alias["@vite-hub/env/runtime/server"] = resolveEntry("../runtime/server", "@vite-hub/env/runtime/server")
+      nitro.options.alias["@vite-hub/env"] = resolveEntry("../index", "@vite-hub/env")
+      nitro.options.alias["#vitehub/env/server"] = resolveEntry("../runtime/server", "@vite-hub/env/runtime/server")
       nitro.options.alias["#vitehub/env/registry"] = registryFile
 
       nitro.options.plugins ||= []

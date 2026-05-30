@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createMessage } from "@vitehub/agent"
+import { createMessage } from "@vite-hub/agent"
 
 const runtime = () => ({
   memo: vi.fn(),

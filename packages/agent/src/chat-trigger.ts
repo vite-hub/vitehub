@@ -15,7 +15,7 @@ import type {
   AgentWebhookRegistrationDefinition,
 } from "./types.ts"
 import type { AudioData, Message, MessagePart } from "./messages.ts"
-import type { WorkspaceName } from "@vitehub/workspace"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
 type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = {
   chat: AgentChatOptions<TRuntimeConfig>

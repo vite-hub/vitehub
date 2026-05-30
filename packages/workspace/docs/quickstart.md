@@ -11,7 +11,7 @@ Install and register the integration:
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubWorkspace } from '@vitehub/workspace/vite'
+import { hubWorkspace } from '@vite-hub/workspace/vite'
 
 export default defineConfig({
   plugins: [hubWorkspace()],
@@ -25,7 +25,7 @@ export default defineConfig({
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/workspace/nitro'],
+  modules: ['@vite-hub/workspace/nitro'],
 })
 ```
 ::
@@ -33,7 +33,7 @@ export default defineNitroConfig({
 Create `src/docs.workspace.ts` for Vite or `server/workspaces/docs.ts` for Nitro:
 
 ```ts
-import { defineWorkspace, source } from '@vitehub/workspace'
+import { defineWorkspace, source } from '@vite-hub/workspace'
 
 export default defineWorkspace({
   store: {
@@ -49,7 +49,7 @@ export default defineWorkspace({
 Use it from a server route:
 
 ```ts
-import { useWorkspace } from '@vitehub/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
 
 const workspace = useWorkspace('docs', { mode: "write" })
 

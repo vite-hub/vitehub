@@ -32,7 +32,7 @@ async function writeDatabaseDefinition(rootDir: string, name: string, options: {
   const table = options.table ?? `${name}Items`
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
-    "import { defineDatabase } from '@vitehub/database'",
+    "import { defineDatabase } from '@vite-hub/database'",
     "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     `const ${table} = sqliteTable('${name}_items', { title: text('title') })`,
     "export default defineDatabase({",
@@ -51,7 +51,7 @@ async function createDbBuildProject(prefix: string) {
   await symlink(nodeModules, join(rootDir, "node_modules"), "dir")
   await writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n")
   await writeFile(join(rootDir, "src/server.ts"), [
-    "import { databases } from '@vitehub/database/drizzle'",
+    "import { databases } from '@vite-hub/database/drizzle'",
     "export default {",
     "  fetch: () => new Response(Object.keys(databases).join(',')),",
     "}",
@@ -60,7 +60,7 @@ async function createDbBuildProject(prefix: string) {
   await writeFile(join(rootDir, "vite.config.ts"), [
     "import { resolve } from 'node:path'",
     "import { defineConfig } from 'vite'",
-    "import { hubDb } from '@vitehub/database/vite'",
+    "import { hubDb } from '@vite-hub/database/vite'",
     "export default defineConfig({",
     "  appType: 'custom',",
     "  build: {",

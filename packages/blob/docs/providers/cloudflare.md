@@ -1,6 +1,6 @@
 ---
 title: Cloudflare R2
-description: Configure @vitehub/blob to store objects through Cloudflare R2 bindings.
+description: Configure @vite-hub/blob to store objects through Cloudflare R2 bindings.
 navigation.title: Cloudflare
 navigation.group: Providers
 navigation.order: 10
@@ -27,7 +27,7 @@ Register the Vite plugin and set `blob.driver` to `cloudflare-r2`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubBlob } from '@vitehub/blob/vite'
+import { hubBlob } from '@vite-hub/blob/vite'
 
 export default defineConfig({
   plugins: [hubBlob()],
@@ -47,7 +47,7 @@ Register the Nitro module and set `blob.driver` to `cloudflare-r2`:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/blob/nitro'],
+  modules: ['@vite-hub/blob/nitro'],
   blob: {
     driver: 'cloudflare-r2',
     binding: 'BLOB',

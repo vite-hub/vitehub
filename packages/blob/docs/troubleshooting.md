@@ -29,7 +29,7 @@ export default defineConfig({
 ::fw{id="nitro:dev nitro:build"}
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
-  modules: ['@vitehub/blob/nitro'],
+  modules: ['@vite-hub/blob/nitro'],
   blob: {
     driver: 'fs',
   },

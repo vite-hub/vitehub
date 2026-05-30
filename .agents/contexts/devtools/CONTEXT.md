@@ -66,7 +66,7 @@ _Avoid_: Dummy bot, fake chat, mock page
 
 ## Example Dialogue
 
-> **Dev:** "Should `@vitehub/agent` ship its own chat DevTools app?"
+> **Dev:** "Should `@vite-hub/agent` ship its own chat DevTools app?"
 > **Domain expert:** "No. Chat is a **DevTools Feature** inside the **ViteHub DevTools Client**. The Agent Package owns the feature and bridge, not a separate client shell."
 >
 > **Dev:** "Should installing a package require a second DevTools plugin to see its feature?"
@@ -78,7 +78,7 @@ _Avoid_: Dummy bot, fake chat, mock page
 > **Dev:** "Should Chat register the ViteHub DevTools shell?"
 > **Domain expert:** "No. The **ViteHub DevTools Integration** registers the shell. Chat registers a **DevTools Feature** and **DevTools Bridge**."
 >
-> **Dev:** "Should `@vitehub/devtools` know how Chat History is serialized?"
+> **Dev:** "Should `@vite-hub/devtools` know how Chat History is serialized?"
 > **Domain expert:** "No. Chat serialization belongs to the Agent Package's **Package DevTools Integration**; the DevTools Package owns the shell and discovery protocol."
 >
 > **Dev:** "Should an app fail if Chat DevTools is enabled but `hubDevtools()` is missing?"

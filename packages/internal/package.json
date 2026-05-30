@@ -1,7 +1,7 @@
 {
-  "name": "@vitehub/internal",
+  "name": "@vite-hub/internal",
   "version": "0.0.0",
-  "description": "Private shared internals for @vitehub/* packages. Not published.",
+  "description": "Private shared internals for @vite-hub/* packages. Not published.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "private": true,
@@ -43,11 +43,11 @@
   "scripts": {
     "build": "tsdown --tsconfig tsconfig.json",
     "prepare": "pnpm build",
-    "test": "pnpm --filter @vitehub/runtime build && pnpm build && vitest run",
+    "test": "pnpm --filter @vite-hub/runtime build && pnpm build && vitest run",
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
-    "@vitehub/runtime": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
     "esbuild": "^0.27.7",
     "exsolve": "catalog:",
     "h3": "catalog:",

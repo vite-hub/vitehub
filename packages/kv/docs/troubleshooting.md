@@ -18,7 +18,7 @@ Use this page by symptom. Each section gives the likely cause, the fix, and a qu
 ::fw{id="nitro:dev nitro:build"}
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
-  modules: ['@vitehub/kv/nitro'],
+  modules: ['@vite-hub/kv/nitro'],
 })
 ```
 ::
@@ -26,7 +26,7 @@ export default defineNitroConfig({
 ::fw{id="nuxt:dev nuxt:build"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vitehub/kv/nuxt'],
+  modules: ['@vite-hub/kv/nuxt'],
 })
 ```
 ::
@@ -125,7 +125,7 @@ kv: {
 ```json [tsconfig.json]
 {
   "compilerOptions": {
-    "types": ["@vitehub/kv/virtual"]
+    "types": ["@vite-hub/kv/virtual"]
   }
 }
 ```

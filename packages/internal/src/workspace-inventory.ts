@@ -33,7 +33,7 @@ export function listWorkspacePackageInfos(workspaceRoot: string): WorkspacePacka
       }
 
       const manifest = readPackageManifest(manifestPath)
-      if (!manifest.name?.startsWith("@vitehub/")) {
+      if (!manifest.name?.startsWith("@vite-hub/")) {
         return undefined
       }
 

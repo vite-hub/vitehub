@@ -1,6 +1,6 @@
 import { H3, readBody } from "h3"
 
-import { schedules } from "@vitehub/schedule/runtime"
+import { schedules } from "@vite-hub/schedule/runtime"
 
 const app = new H3()
 

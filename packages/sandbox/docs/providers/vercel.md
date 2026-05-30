@@ -1,6 +1,6 @@
 ---
 title: Vercel Sandbox
-description: Configure @vitehub/sandbox to execute definitions through Vercel Sandbox.
+description: Configure @vite-hub/sandbox to execute definitions through Vercel Sandbox.
 navigation.title: Vercel
 navigation.group: Providers
 navigation.order: 20
@@ -27,7 +27,7 @@ Register the Vite plugin and set `sandbox.provider` to `vercel`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubSandbox } from '@vitehub/sandbox/vite'
+import { hubSandbox } from '@vite-hub/sandbox/vite'
 
 export default defineConfig({
   plugins: [hubSandbox()],
@@ -45,7 +45,7 @@ Register the Nitro module and set `sandbox.provider` to `vercel`:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/sandbox/nitro'],
+  modules: ['@vite-hub/sandbox/nitro'],
   sandbox: {
     provider: 'vercel',
   },

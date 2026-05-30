@@ -27,7 +27,7 @@ describe("Nitro module", () => {
     expect(nitro.options.imports).toMatchObject({
       presets: [
         {
-          from: "@vitehub/queue",
+          from: "@vite-hub/queue",
           imports: ["defineQueue", "getQueue"],
         },
       ],

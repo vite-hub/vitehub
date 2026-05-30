@@ -8,14 +8,14 @@ import type {
   RuntimeCapabilityHandle,
   RuntimeHostContext,
   RuntimeWaitUntil,
-} from "@vitehub/runtime"
+} from "@vite-hub/runtime"
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
   WorkspaceDefinition,
   WorkspaceDefinitionInput,
   WorkspaceName,
-} from "@vitehub/workspace"
+} from "@vite-hub/workspace"
 
 export type {
   MaybePromise,

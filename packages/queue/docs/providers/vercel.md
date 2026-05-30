@@ -1,6 +1,6 @@
 ---
 title: Vercel Queue
-description: Configure @vitehub/queue to publish to Vercel Queue topics and process hosted callback functions.
+description: Configure @vite-hub/queue to publish to Vercel Queue topics and process hosted callback functions.
 navigation.title: Vercel
 navigation.group: Providers
 navigation.order: 20
@@ -27,7 +27,7 @@ Register the Vite plugin and set `queue.provider` to `vercel`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubQueue } from '@vitehub/queue/vite'
+import { hubQueue } from '@vite-hub/queue/vite'
 
 export default defineConfig({
   plugins: [hubQueue()],
@@ -46,7 +46,7 @@ Register the Nitro module and set `queue.provider` to `vercel`:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/queue/nitro'],
+  modules: ['@vite-hub/queue/nitro'],
   queue: {
     provider: 'vercel',
     region: 'fra1',
@@ -82,7 +82,7 @@ For `welcome-email`:
 Use `getVercelQueueTopicName()` when another integration needs the exact topic:
 
 ```ts
-import { getVercelQueueTopicName } from '@vitehub/queue'
+import { getVercelQueueTopicName } from '@vite-hub/queue'
 
 console.log(getVercelQueueTopicName('welcome-email'))
 ```
@@ -101,7 +101,7 @@ The generated callback:
 You can also wire the callback manually when needed:
 
 ```ts
-import { handleHostedVercelQueueCallback } from '@vitehub/queue'
+import { handleHostedVercelQueueCallback } from '@vite-hub/queue'
 import definition from '../../queues/welcome-email'
 
 export default defineEventHandler((event) => {
@@ -114,7 +114,7 @@ export default defineEventHandler((event) => {
 Use `callbackOptions` on the queue definition:
 
 ```ts
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export default defineQueue<{ email: string }>(async (job) => {
   console.log(job.payload.email)

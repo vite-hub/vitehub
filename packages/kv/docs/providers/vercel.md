@@ -1,6 +1,6 @@
 ---
 title: Vercel KV
-description: Configure @vitehub/kv for Vercel using the Upstash-backed driver.
+description: Configure @vite-hub/kv for Vercel using the Upstash-backed driver.
 navigation.title: Vercel
 navigation.group: Providers
 navigation.order: 20
@@ -21,7 +21,7 @@ Register the Vite plugin and set `kv.driver` to `upstash`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubKv } from '@vitehub/kv/vite'
+import { hubKv } from '@vite-hub/kv/vite'
 
 export default defineConfig({
   plugins: [hubKv()],
@@ -39,7 +39,7 @@ Register the Nitro module and set `kv.driver` to `upstash`:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/kv/nitro'],
+  modules: ['@vite-hub/kv/nitro'],
   kv: {
     driver: 'upstash',
   },
@@ -52,7 +52,7 @@ Register the Nuxt module and set `kv.driver` to `upstash`:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vitehub/kv/nuxt'],
+  modules: ['@vite-hub/kv/nuxt'],
   kv: {
     driver: 'upstash',
   },
@@ -75,7 +75,7 @@ When hosting resolves to Vercel and no explicit driver is set, ViteHub selects `
 
 ```ts
 export default defineNitroConfig({
-  modules: ['@vitehub/kv/nitro'],
+  modules: ['@vite-hub/kv/nitro'],
 })
 ```
 

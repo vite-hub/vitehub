@@ -163,8 +163,8 @@ describe("agent Nitro chat routes", () => {
     const buildDir = ".nitro"
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), [
-      "import { defineAgent } from '@vitehub/agent'",
-      "import { chat } from '@vitehub/agent/capabilities'",
+      "import { defineAgent } from '@vite-hub/agent'",
+      "import { chat } from '@vite-hub/agent/capabilities'",
       "export default defineAgent({",
       "  capabilities: [chat({ app: true })],",
       "  run: () => 'ok',",
@@ -208,8 +208,8 @@ describe("agent Nitro chat routes", () => {
     const buildDir = ".nitro"
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), [
-      "import { defineAgent } from '@vitehub/agent'",
-      "import { chat } from '@vitehub/agent/capabilities'",
+      "import { defineAgent } from '@vite-hub/agent'",
+      "import { chat } from '@vite-hub/agent/capabilities'",
       "export default defineAgent({",
       "  capabilities: [chat({ app: { route: '/api/support-chat' } })],",
       "  run: () => 'ok',",

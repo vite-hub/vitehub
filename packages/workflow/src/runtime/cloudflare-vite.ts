@@ -1,4 +1,4 @@
-import { createCloudflareHostedWorker } from "@vitehub/internal/runtime/cloudflare-hosted"
+import { createCloudflareHostedWorker } from "@vite-hub/internal/runtime/cloudflare-hosted"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 

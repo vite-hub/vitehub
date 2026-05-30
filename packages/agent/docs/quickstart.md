@@ -14,14 +14,14 @@ This guide creates one discovered agent.
 ### Install Agent
 
 ```bash
-pnpm add @vitehub/agent @ai-sdk/gateway ai
+pnpm add @vite-hub/agent @ai-sdk/gateway ai
 ```
 
 ### Register the integration
 
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
-import { hubAgent } from '@vitehub/agent/vite'
+import { hubAgent } from '@vite-hub/agent/vite'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
@@ -37,7 +37,7 @@ export default defineConfig({
 ::fw{id="nitro:dev nitro:build"}
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
-  modules: ['@vitehub/agent/nitro'],
+  modules: ['@vite-hub/agent/nitro'],
 })
 ```
 ::
@@ -46,7 +46,7 @@ export default defineNitroConfig({
 
 ::fw{id="vite:dev vite:build"}
 ```ts [server/agents/triager.ts]
-import { defineAgent, type AgentToolDefinition } from '@vitehub/agent'
+import { defineAgent, type AgentToolDefinition } from '@vite-hub/agent'
 import { gateway } from '@ai-sdk/gateway'
 
 const classifyTicket: AgentToolDefinition<{ message: string }, { queue: string; priority: string }> = {
@@ -72,7 +72,7 @@ export default defineAgent({
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/agents/triager.ts]
-import { defineAgent, type AgentToolDefinition } from '@vitehub/agent'
+import { defineAgent, type AgentToolDefinition } from '@vite-hub/agent'
 import { gateway } from '@ai-sdk/gateway'
 
 const classifyTicket: AgentToolDefinition<{ message: string }, { queue: string; priority: string }> = {
@@ -102,8 +102,8 @@ Attach the Chat Capability to the discovered Agent. DevTools and host routes con
 
 ```ts [server/agents/triager.ts]
 import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vitehub/agent'
-import { chat } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { chat } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [chat({ concurrency: 'queue', history: { source: 'thread', maxMessages: 20 } })],

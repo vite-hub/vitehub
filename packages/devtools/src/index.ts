@@ -22,12 +22,12 @@ export interface HubDevtoolsOptions {
   url?: string
 }
 
-export const viteHubDevtoolsPanelId = "@vitehub/devtools"
+export const viteHubDevtoolsPanelId = "@vite-hub/devtools"
 export const viteHubDevtoolsTitle = "ViteHub"
 export const viteHubDevtoolsDefaultUrl = "/__vitehub/devtools/"
 export const viteHubDevtoolsHostedUrl = "https://devtools.vitehub.dev/"
 const viteHubDevtoolsUrlEnv = "VITEHUB_DEVTOOLS_URL"
-export const viteHubDevtoolsGetFeaturesRpc = "@vitehub/devtools:get-features"
+export const viteHubDevtoolsGetFeaturesRpc = "@vite-hub/devtools:get-features"
 
 const devtoolsShellPublicDirectory = fileURLToPath(new URL("../devtools/chat/.output/public", import.meta.url))
 const devtoolsShellRoute = viteHubDevtoolsDefaultUrl
@@ -60,7 +60,7 @@ interface ViteHubDevtoolsRegistry {
   registeredShell: boolean
 }
 
-const registryKey = Symbol.for("@vitehub/devtools:registry")
+const registryKey = Symbol.for("@vite-hub/devtools:registry")
 
 function getRegistry(ctx: ViteDevToolsNodeContext): ViteHubDevtoolsRegistry {
   return (ctx as ViteDevToolsNodeContext & { [registryKey]?: ViteHubDevtoolsRegistry })[registryKey] ??= {
@@ -148,7 +148,7 @@ function registerDevtoolsShellMiddleware(server: ViteDevServer): void {
     catch (error) {
       if ((error as { code?: string }).code === "ENOENT") {
         response.statusCode = 404
-        response.end("ViteHub DevTools shell has not been built. Run `pnpm --filter @vitehub/devtools build:chat`.")
+        response.end("ViteHub DevTools shell has not been built. Run `pnpm --filter @vite-hub/devtools build:chat`.")
         return
       }
 
@@ -193,7 +193,7 @@ function warnIfDevtoolsShellMissing(ctx: ViteDevToolsNodeContext, feature: ViteH
     registry.missingShellWarnings.add(feature.id)
     ctx.messages.add({
       level: "warn",
-      message: `${feature.title} DevTools feature is enabled, but the ViteHub DevTools Integration is not installed. Add hubDevtools() from @vitehub/devtools to your Vite plugins.`,
+      message: `${feature.title} DevTools feature is enabled, but the ViteHub DevTools Integration is not installed. Add hubDevtools() from @vite-hub/devtools to your Vite plugins.`,
     })
   })
 }
@@ -233,7 +233,7 @@ export function listViteHubDevtoolsFeatures(ctx: ViteDevToolsNodeContext): ViteH
 
 export function hubDevtools(options: HubDevtoolsOptions = {}): Plugin {
   return {
-    name: "@vitehub/devtools/vite",
+    name: "@vite-hub/devtools/vite",
     configureServer(server) {
       if (options.enabled === false) {
         return

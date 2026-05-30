@@ -1,6 +1,6 @@
 # Sandbox Package
 
-Sandbox Package names ownership boundaries for `@vitehub/sandbox`.
+Sandbox Package names ownership boundaries for `@vite-hub/sandbox`.
 
 ## Language
 

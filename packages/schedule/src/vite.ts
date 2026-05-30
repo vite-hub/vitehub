@@ -1,9 +1,9 @@
 import { normalize, resolve } from "node:path"
 
-import { shouldSkipViteProviderBuild } from "@vitehub/internal/build/deployment-output"
-import { getViteMode } from "@vitehub/internal/build/mode"
-import { createRuntimeRegistryContents } from "@vitehub/internal/definition-catalog"
-import { createNoExternalMerger, isServerEnvironment } from "@vitehub/internal/build/vite"
+import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { getViteMode } from "@vite-hub/internal/build/mode"
+import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
+import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { generateProviderOutputs, schedulePackageName } from "./internal/provider-output.ts"
@@ -12,7 +12,7 @@ import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-mo
 
 import type { Plugin, ResolvedConfig } from "vite"
 
-const SCHEDULE_VITE_PLUGIN_NAME = "@vitehub/schedule/vite"
+const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
 const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`

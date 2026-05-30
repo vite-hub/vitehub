@@ -11,7 +11,7 @@ Use this page when you need exact names, signatures, and option fields. For a gu
 
 ## Imports
 
-Most application code imports from `@vitehub/queue`:
+Most application code imports from `@vite-hub/queue`:
 
 ```ts
 import {
@@ -19,16 +19,16 @@ import {
   deferQueue,
   getQueue,
   runQueue,
-} from '@vitehub/queue'
+} from '@vite-hub/queue'
 ```
 
 In Nitro, the module auto-imports `defineQueue` for discovered queue definitions and `getQueue` for read-oriented server code. Invocation helpers such as `runQueue` and `deferQueue` stay explicit imports because they enqueue work.
 
 ::fw{id="vite:dev vite:build"}
-Vite config imports the plugin from `@vitehub/queue/vite`:
+Vite config imports the plugin from `@vite-hub/queue/vite`:
 
 ```ts
-import { hubQueue } from '@vitehub/queue/vite'
+import { hubQueue } from '@vite-hub/queue/vite'
 ```
 
 `hubQueue(options?)` accepts the same integration options as `vite.config.queue`. When both are present, `vite.config.queue` takes precedence.
@@ -39,7 +39,7 @@ Nitro config registers the module by name:
 
 ```ts
 export default defineNitroConfig({
-  modules: ['@vitehub/queue/nitro'],
+  modules: ['@vite-hub/queue/nitro'],
 })
 ```
 ::
@@ -51,7 +51,7 @@ export default defineNitroConfig({
 Default-export `defineQueue()` from every discovered queue definition.
 
 ```ts
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export default defineQueue<{ email: string }>(async (job) => {
   console.log(job.id, job.attempts, job.payload.email)
@@ -92,7 +92,7 @@ The handler receives:
 Enqueue one job immediately and wait for the provider send call.
 
 ```ts
-import { runQueue } from '@vitehub/queue'
+import { runQueue } from '@vite-hub/queue'
 
 const result = await runQueue('welcome-email', {
   email: 'ava@example.com',
@@ -115,7 +115,7 @@ type QueueSendResult = {
 Schedule the enqueue call against the current request context and return `void`.
 
 ```ts
-import { deferQueue } from '@vitehub/queue'
+import { deferQueue } from '@vite-hub/queue'
 
 deferQueue('welcome-email', {
   email: 'ava@example.com',
@@ -129,7 +129,7 @@ deferQueue('welcome-email', {
 Resolve the active provider client for one discovered queue.
 
 ```ts
-import { getQueue } from '@vitehub/queue'
+import { getQueue } from '@vite-hub/queue'
 
 const queue = await getQueue('welcome-email')
 await queue.send({ email: 'ava@example.com' })
@@ -140,7 +140,7 @@ await queue.send({ email: 'ava@example.com' })
 Create a message id with the default `queue` prefix or a custom prefix.
 
 ```ts
-import { createQueueMessageId } from '@vitehub/queue'
+import { createQueueMessageId } from '@vite-hub/queue'
 
 const id = createQueueMessageId('welcome')
 ```

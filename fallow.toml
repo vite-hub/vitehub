@@ -109,11 +109,11 @@ ignoreDependencies = [
 ]
 
 publicPackages = [
-  "@vitehub/agent",
-  "@vitehub/sandbox",
-  "@vitehub/schedule",
-  "@vitehub/shell",
-  "@vitehub/workspace",
+  "@vite-hub/agent",
+  "@vite-hub/sandbox",
+  "@vite-hub/schedule",
+  "@vite-hub/shell",
+  "@vite-hub/workspace",
 ]
 
 [[overrides]]

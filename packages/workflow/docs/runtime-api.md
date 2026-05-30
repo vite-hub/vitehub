@@ -1,13 +1,13 @@
 ---
 title: Workflow runtime API
-description: Runtime functions, helper exports, options, and normalized run types exported by @vitehub/workflow.
+description: Runtime functions, helper exports, options, and normalized run types exported by @vite-hub/workflow.
 navigation.title: Runtime API
 navigation.order: 4
 icon: i-lucide-braces
 frameworks: [vite, nitro]
 ---
 
-Runtime code imports from `@vitehub/workflow`:
+Runtime code imports from `@vite-hub/workflow`:
 
 ```ts
 import {
@@ -19,22 +19,22 @@ import {
   readValidatedPayload,
   runWorkflow,
   validatePayload,
-} from '@vitehub/workflow'
+} from '@vite-hub/workflow'
 ```
 
 In Nitro, the module auto-imports `defineWorkflow` for discovered workflow definitions and `getWorkflowRun` for read-oriented server code. Invocation helpers such as `runWorkflow`, `deferWorkflow`, and `createWorkflow` stay explicit imports because they start or construct workflow behavior.
 
-Vite config imports the plugin from `@vitehub/workflow/vite`:
+Vite config imports the plugin from `@vite-hub/workflow/vite`:
 
 ```ts
-import { hubWorkflow } from '@vitehub/workflow/vite'
+import { hubWorkflow } from '@vite-hub/workflow/vite'
 ```
 
 Nitro config imports the module by name:
 
 ```ts
 export default defineNitroConfig({
-  modules: ['@vitehub/workflow/nitro'],
+  modules: ['@vite-hub/workflow/nitro'],
 })
 ```
 
@@ -201,7 +201,7 @@ Docker deployments can start a worker process from the generated registry:
 
 ```ts
 import workflowRegistry from '#vitehub/workflow/registry'
-import { startOpenWorkflowWorker } from '@vitehub/workflow/runtime/openworkflow-worker'
+import { startOpenWorkflowWorker } from '@vite-hub/workflow/runtime/openworkflow-worker'
 
 await startOpenWorkflowWorker({
   config: {
@@ -212,7 +212,7 @@ await startOpenWorkflowWorker({
 })
 ```
 
-When called inside a Nitro runtime that uses `@vitehub/workflow/nitro`, the helper can use the installed runtime workflow config and registry. Separate Docker worker entrypoints should pass `{ config, registry, concurrency }` explicitly.
+When called inside a Nitro runtime that uses `@vite-hub/workflow/nitro`, the helper can use the installed runtime workflow config and registry. Separate Docker worker entrypoints should pass `{ config, registry, concurrency }` explicitly.
 
 ## Helper exports
 
@@ -224,5 +224,5 @@ import {
   getCloudflareWorkflowClassName,
   getCloudflareWorkflowName,
   getVercelWorkflowName,
-} from '@vitehub/workflow'
+} from '@vite-hub/workflow'
 ```

@@ -1,1 +1,1 @@
-export * from "@vitehub/runtime"
+export * from "@vite-hub/runtime"

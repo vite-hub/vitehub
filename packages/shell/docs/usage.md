@@ -14,8 +14,8 @@ Use this page after the [Quickstart](./quickstart).
 Pass the commands that `just-bash` should expose in the workspace-backed runtime.
 
 ```ts
-import { createShellRuntime } from '@vitehub/shell'
-import { createJustBashProvider } from '@vitehub/shell/providers/just-bash'
+import { createShellRuntime } from '@vite-hub/shell'
+import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
 
 const runtime = createShellRuntime({
   provider: createJustBashProvider({
@@ -30,7 +30,7 @@ The runtime accepts real shell syntax. Pipes, redirects, chaining, command subst
 ## Use read-only files
 
 ```ts
-import { createReadonlyWorkspaceFs } from '@vitehub/shell/workspace'
+import { createReadonlyWorkspaceFs } from '@vite-hub/shell/workspace'
 
 const fs = createReadonlyWorkspaceFs(workspace)
 ```
@@ -40,7 +40,7 @@ Use read-only filesystems for inspection surfaces.
 ## Use writable files
 
 ```ts
-import { createWritableWorkspaceFs } from '@vitehub/shell/workspace'
+import { createWritableWorkspaceFs } from '@vite-hub/shell/workspace'
 
 const fs = createWritableWorkspaceFs(workspace)
 ```
@@ -52,7 +52,7 @@ Writable filesystems require the workspace to implement `writeFile`, `mkdir`, an
 Use `analyzeShellCommand()` when you need advisory metadata before execution.
 
 ```ts
-import { analyzeShellCommand } from '@vitehub/shell'
+import { analyzeShellCommand } from '@vite-hub/shell'
 
 const analysis = await analyzeShellCommand('rg TODO docs | head -n 20')
 ```
@@ -66,7 +66,7 @@ import {
   createReadonlyWorkspaceFs,
   runWorkspaceInspectionCommand,
   workspaceMountPoint,
-} from '@vitehub/shell/workspace'
+} from '@vite-hub/shell/workspace'
 
 const result = await runWorkspaceInspectionCommand(workspace, 'rg TODO docs | head -n 20', {
   commands: ['rg', 'head'],
@@ -84,7 +84,7 @@ Use path helpers before reading or mutating workspace paths from input.
 import {
   cleanWorkspaceMutationPath,
   cleanWorkspaceShellPath,
-} from '@vitehub/shell/workspace'
+} from '@vite-hub/shell/workspace'
 
 const readPath = cleanWorkspaceShellPath('/workspace/docs/README.md')
 const writePath = cleanWorkspaceMutationPath('generated/summary.md')
@@ -97,8 +97,8 @@ const writePath = cleanWorkspaceMutationPath('generated/summary.md')
 Use `cloudflare-shell` when a Cloudflare sandbox-compatible client owns execution.
 
 ```ts
-import { createShellRuntime } from '@vitehub/shell'
-import { createCloudflareShellProvider } from '@vitehub/shell/providers/cloudflare'
+import { createShellRuntime } from '@vite-hub/shell'
+import { createCloudflareShellProvider } from '@vite-hub/shell/providers/cloudflare'
 
 const runtime = createShellRuntime({
   provider: createCloudflareShellProvider({ sandbox }),

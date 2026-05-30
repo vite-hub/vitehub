@@ -19,15 +19,15 @@ import {
   type ShellRuntime,
   type ShellSession,
   type ShellSessionPolicy,
-} from '@vitehub/shell'
-import { createCloudflareShellProvider } from '@vitehub/shell/providers/cloudflare'
-import { createJustBashProvider } from '@vitehub/shell/providers/just-bash'
+} from '@vite-hub/shell'
+import { createCloudflareShellProvider } from '@vite-hub/shell/providers/cloudflare'
+import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
 import {
   createReadonlyWorkspaceFs,
   createWritableWorkspaceFs,
   runWorkspaceInspectionCommand,
   workspaceMountPoint,
-} from '@vitehub/shell/workspace'
+} from '@vite-hub/shell/workspace'
 ```
 
 ## Create a runtime

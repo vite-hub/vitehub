@@ -1,6 +1,6 @@
 ---
 title: Cloudflare Sandbox
-description: Configure @vitehub/sandbox to execute definitions through Cloudflare Sandbox.
+description: Configure @vite-hub/sandbox to execute definitions through Cloudflare Sandbox.
 navigation.title: Cloudflare
 navigation.group: Providers
 navigation.order: 10
@@ -27,7 +27,7 @@ Register the Vite plugin and set `sandbox.provider` to `cloudflare`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubSandbox } from '@vitehub/sandbox/vite'
+import { hubSandbox } from '@vite-hub/sandbox/vite'
 
 export default defineConfig({
   plugins: [hubSandbox()],
@@ -45,7 +45,7 @@ Register the Nitro module and set `sandbox.provider` to `cloudflare`:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/sandbox/nitro'],
+  modules: ['@vite-hub/sandbox/nitro'],
   sandbox: {
     provider: 'cloudflare',
   },
@@ -74,7 +74,7 @@ export default defineConfig({
 ::fw{id="nitro:dev nitro:build"}
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
-  modules: ['@vitehub/sandbox/nitro'],
+  modules: ['@vite-hub/sandbox/nitro'],
   sandbox: {
     provider: 'cloudflare',
     binding: 'MY_SANDBOX',

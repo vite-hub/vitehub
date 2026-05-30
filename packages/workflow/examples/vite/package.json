@@ -5,7 +5,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@vitehub/workflow": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
     "h3": "catalog:",
     "vite": "catalog:"
   }

@@ -12,7 +12,7 @@ After the quickstart works, most Blob code falls into six patterns: write a body
 ## Import the Runtime Handle
 
 ```ts
-import { blob, ensureBlob } from '@vitehub/blob'
+import { blob, ensureBlob } from '@vite-hub/blob'
 ```
 
 Use this import from server-side code. Provider setup belongs in Vite or Nitro config.
@@ -114,7 +114,7 @@ const bytes = file ? await file.arrayBuffer() : null
 
 ```ts
 import { createError, defineEventHandler, getQuery } from 'h3'
-import { blob } from '@vitehub/blob'
+import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const pathname = getQuery(event).pathname

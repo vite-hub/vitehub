@@ -1,6 +1,6 @@
 import { defineEventHandler, readBody } from "h3"
 
-import { blob } from "@vitehub/blob"
+import { blob } from "@vite-hub/blob"
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ pathname?: string, value?: string }>(event)

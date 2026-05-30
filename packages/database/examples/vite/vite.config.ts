@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 import { defineConfig } from "vite"
 
-import { hubDb } from "@vitehub/database/vite"
+import { hubDb } from "@vite-hub/database/vite"
 
 export default defineConfig({
   appType: "custom",

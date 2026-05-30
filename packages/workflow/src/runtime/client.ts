@@ -1,4 +1,4 @@
-import { randomId } from "@vitehub/internal/runtime/random"
+import { randomId } from "@vite-hub/internal/runtime/random"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { WorkflowError } from "../errors.ts"

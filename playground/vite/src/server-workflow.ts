@@ -1,7 +1,7 @@
 import { H3, readValidatedBody } from "h3"
 import * as v from "valibot"
 
-import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vitehub/workflow"
+import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
 
 const app = new H3()
 const workflowName = "welcome"

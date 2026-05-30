@@ -23,8 +23,8 @@ The runtime shape is still a shared `kv` handle. The main changes are the packag
 | NuxtHub | ViteHub |
 | --- | --- |
 | `hub.kv` | top-level `kv` |
-| `@nuxthub/kv` | `@vitehub/kv` |
-| NuxtHub module setup | `modules: ['@vitehub/kv/nuxt']` |
+| `@nuxthub/kv` | `@vite-hub/kv` |
+| NuxtHub module setup | `modules: ['@vite-hub/kv/nuxt']` |
 | NuxtHub KV SDK docs | [ViteHub KV usage](./usage) |
 
 ## Update Nuxt Config
@@ -46,7 +46,7 @@ After:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vitehub/kv/nuxt'],
+  modules: ['@vite-hub/kv/nuxt'],
   kv: {
     driver: 'cloudflare-kv-binding',
     binding: 'KV',
@@ -68,7 +68,7 @@ import { kv } from '@nuxthub/kv'
 After:
 
 ```ts [server/api/settings.get.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 ```
 
 ## Verify One Route
@@ -76,7 +76,7 @@ import { kv } from '@vitehub/kv'
 Add or keep a simple read route:
 
 ```ts [server/api/settings.get.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
   return {
@@ -93,9 +93,9 @@ curl http://localhost:3000/api/settings
 
 ## Migration Checklist
 
-- Install `@vitehub/kv`.
-- Register `@vitehub/kv/nuxt`.
+- Install `@vite-hub/kv`.
+- Register `@vite-hub/kv/nuxt`.
 - Move config from `hub.kv` to top-level `kv`.
-- Replace `@nuxthub/kv` imports with `@vitehub/kv`.
+- Replace `@nuxthub/kv` imports with `@vite-hub/kv`.
 - Confirm Cloudflare `binding` and `namespaceId` values.
 - Use [Troubleshooting](./troubleshooting) if the runtime mount or provider credentials fail.

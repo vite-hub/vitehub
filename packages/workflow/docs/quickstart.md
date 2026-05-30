@@ -14,10 +14,10 @@ The provider is the only part that changes between Cloudflare and Vercel. The wo
 ::code-collapse
 
 ```txt [Prompt]
-Set up @vitehub/workflow in this app.
+Set up @vite-hub/workflow in this app.
 
-- Install @vitehub/workflow
-- Register hubWorkflow() for Vite or @vitehub/workflow/nitro for Nitro
+- Install @vite-hub/workflow
+- Register hubWorkflow() for Vite or @vite-hub/workflow/nitro for Nitro
 - Configure workflow.provider only when the hosting provider cannot be inferred
 - Define welcome as a discovered workflow
 - Call runWorkflow('welcome', payload) from a route
@@ -33,7 +33,7 @@ Docs: /docs/vite/workflow/quickstart or /docs/nitro/workflow/quickstart
 ### Install Workflow
 
 ```bash
-pnpm add @vitehub/workflow
+pnpm add @vite-hub/workflow
 ```
 
 Cloudflare uses runtime Workflow bindings. Vercel uses generated ViteHub runtime output for the same public API.
@@ -47,7 +47,7 @@ Register the Vite plugin. Cloudflare and Vercel hosting are detected automatical
   :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
-    import { hubWorkflow } from '@vitehub/workflow/vite'
+    import { hubWorkflow } from '@vite-hub/workflow/vite'
 
     export default defineConfig({
       plugins: [hubWorkflow()],
@@ -58,7 +58,7 @@ Register the Vite plugin. Cloudflare and Vercel hosting are detected automatical
   :::tabs-item{label="Vercel" icon="i-simple-icons-vercel" class="p-4"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
-    import { hubWorkflow } from '@vitehub/workflow/vite'
+    import { hubWorkflow } from '@vite-hub/workflow/vite'
 
     export default defineConfig({
       plugins: [hubWorkflow()],
@@ -80,7 +80,7 @@ Register the Nitro module. Cloudflare and Vercel hosting are detected automatica
     import { defineNitroConfig } from 'nitro/config'
 
     export default defineNitroConfig({
-      modules: ['@vitehub/workflow/nitro'],
+      modules: ['@vite-hub/workflow/nitro'],
     })
     ```
   :::
@@ -90,7 +90,7 @@ Register the Nitro module. Cloudflare and Vercel hosting are detected automatica
     import { defineNitroConfig } from 'nitro/config'
 
     export default defineNitroConfig({
-      modules: ['@vitehub/workflow/nitro'],
+      modules: ['@vite-hub/workflow/nitro'],
       workflow: {
         provider: 'vercel',
       },
@@ -106,7 +106,7 @@ Register the Nitro module. Cloudflare and Vercel hosting are detected automatica
 Create a discovered Vite workflow file:
 
 ```ts [src/welcome.workflow.ts]
-import { defineWorkflow } from '@vitehub/workflow'
+import { defineWorkflow } from '@vite-hub/workflow'
 
 export type WelcomePayload = {
   email: string
@@ -128,7 +128,7 @@ export default defineWorkflow<WelcomePayload>(async ({ id, payload, provider }) 
 Create a discovered Nitro workflow file:
 
 ```ts [server/workflows/welcome.ts]
-import { defineWorkflow } from '@vitehub/workflow'
+import { defineWorkflow } from '@vite-hub/workflow'
 
 export type WelcomePayload = {
   email: string
@@ -153,7 +153,7 @@ Add a Vite server entry that reads the request body and starts the named workflo
 
 ```ts [src/server.ts]
 import { H3, readBody } from 'h3'
-import { runWorkflow } from '@vitehub/workflow'
+import { runWorkflow } from '@vite-hub/workflow'
 import type { WelcomePayload } from './welcome.workflow'
 
 const app = new H3()
@@ -173,7 +173,7 @@ export default app
 Add a Nitro route that reads the request body and starts the named workflow:
 
 ```ts [server/api/welcome.post.ts]
-import { runWorkflow } from '@vitehub/workflow'
+import { runWorkflow } from '@vite-hub/workflow'
 import type { WelcomePayload } from '../workflows/welcome'
 
 export default defineEventHandler(async (event) => {

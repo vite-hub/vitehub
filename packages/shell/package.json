@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/shell",
+  "name": "@vite-hub/shell",
   "version": "0.0.0",
   "description": "Unified shell runtimes for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -35,7 +35,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/shell build && vitest run"
+    "test": "pnpm --filter @vite-hub/shell build && vitest run"
   },
   "dependencies": {
     "just-bash": "^2.14.4",

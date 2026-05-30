@@ -14,14 +14,14 @@ This guide creates one discovered Schedule Definition.
 ### Install Schedule
 
 ```bash
-pnpm add @vitehub/schedule
+pnpm add @vite-hub/schedule
 ```
 
 ### Register the integration
 
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
-import { hubSchedule } from '@vitehub/schedule/vite'
+import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
@@ -35,7 +35,7 @@ export default defineConfig({
 ::fw{id="nitro:dev nitro:build"}
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
-  modules: ['@vitehub/schedule/nitro'],
+  modules: ['@vite-hub/schedule/nitro'],
 })
 ```
 ::
@@ -44,7 +44,7 @@ export default defineNitroConfig({
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/daily-report.schedule.ts]
-import { defineSchedule } from '@vitehub/schedule'
+import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 9 * * *',
@@ -57,7 +57,7 @@ export default defineSchedule({
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/schedules/daily-report.ts]
-import { defineSchedule } from '@vitehub/schedule'
+import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 9 * * *',

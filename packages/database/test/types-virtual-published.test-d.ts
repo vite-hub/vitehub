@@ -1,4 +1,4 @@
-import "@vitehub/database/virtual"
+import "@vite-hub/database/virtual"
 import schema from "#vitehub/database/schema"
 
 import { describe, expectTypeOf, it } from "vitest"

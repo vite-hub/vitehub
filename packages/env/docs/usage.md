@@ -67,7 +67,7 @@ Do not combine `optional` and `required`. `env()` rejects declarations that set 
 Use `env.source()` when the env var name should not be inferred from the config path.
 
 ```ts
-import { env } from '@vitehub/env/nitro'
+import { env } from '@vite-hub/env/nitro'
 
 env: {
   optionalApiBase: env({
@@ -80,7 +80,7 @@ env: {
 Use build-only sources for values that can be resolved during Vite config:
 
 ```ts
-import { env } from '@vitehub/env/vite'
+import { env } from '@vite-hub/env/vite'
 
 env: {
   define: {

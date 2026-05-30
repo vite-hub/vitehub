@@ -1,5 +1,5 @@
-import { resolveAppFetch } from "@vitehub/internal/runtime/app"
-import { createCloudflareRuntimeEvent, setActiveCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import { resolveAppFetch } from "@vite-hub/internal/runtime/app"
+import { createCloudflareRuntimeEvent, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { H3, toWebHandler } from "h3"
 
 type AppHandler = (request: Request, context?: Record<string, unknown>) => Response | Promise<Response>

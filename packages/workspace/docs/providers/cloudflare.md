@@ -1,6 +1,6 @@
 ---
 title: Cloudflare Workspace Compatibility
-description: How @vitehub/workspace maps to Cloudflare storage and execution primitives.
+description: How @vite-hub/workspace maps to Cloudflare storage and execution primitives.
 navigation.title: Cloudflare
 navigation.group: Providers
 navigation.order: 10
@@ -8,7 +8,7 @@ icon: i-simple-icons-cloudflare
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/workspace` supports Cloudflare Artifacts as the hosted v1 workspace store and Cloudflare Sandbox as the executable workspace runtime. Cloudflare support keeps storage and execution roles separate:
+`@vite-hub/workspace` supports Cloudflare Artifacts as the hosted v1 workspace store and Cloudflare Sandbox as the executable workspace runtime. Cloudflare support keeps storage and execution roles separate:
 
 | Cloudflare primitive | Intended role |
 | --- | --- |
@@ -22,7 +22,7 @@ Cloudflare Artifacts stores versioned file trees behind a Git-compatible interfa
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/sandbox/nitro', '@vitehub/workspace/nitro'],
+  modules: ['@vite-hub/sandbox/nitro', '@vite-hub/workspace/nitro'],
   sandbox: {
     provider: 'cloudflare',
     binding: 'SANDBOX',
@@ -36,7 +36,7 @@ The default Cloudflare store uses binding `WORKSPACE_ARTIFACTS`, namespace `vite
 Use `runtime: 'sandbox'` on the workspace definition to make `workspace.startSession()` materialize that workspace into Cloudflare Sandbox at runtime:
 
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace } from '@vitehub/workspace'
+import { defineWorkspace } from '@vite-hub/workspace'
 
 export default defineWorkspace({
   store: { provider: 'cloudflare-artifacts' },
@@ -48,7 +48,7 @@ export default defineWorkspace({
 ```
 
 ```ts
-import { useWorkspace } from '@vitehub/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
 
 const session = await useWorkspace('docs', { mode: "write" }).startSession()
 
@@ -64,7 +64,7 @@ Cloudflare-specific capabilities such as `runCode`, `exposePort`, `mountBucket`,
 The public API remains source-oriented:
 
 ```ts
-import { source } from '@vitehub/workspace'
+import { source } from '@vite-hub/workspace'
 
 source.github({
   repo: 'acme/app',

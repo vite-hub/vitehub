@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef } from "vue"
 
-const chatDevtoolsClearRpc = "@vitehub/agent/chat:clear"
-const chatDevtoolsGetStateRpc = "@vitehub/agent/chat:get-state"
-const chatDevtoolsSendRpc = "@vitehub/agent/chat:send"
+const chatDevtoolsClearRpc = "@vite-hub/agent/chat:clear"
+const chatDevtoolsGetStateRpc = "@vite-hub/agent/chat:get-state"
+const chatDevtoolsSendRpc = "@vite-hub/agent/chat:send"
 
 type ChatDevtoolsMessage = {
   createdAt: string

@@ -11,17 +11,17 @@ Use this page when you need exact names, signatures, and option fields. For a gu
 
 ## Imports
 
-Runtime code imports the `kv` handle from `@vitehub/kv`:
+Runtime code imports the `kv` handle from `@vite-hub/kv`:
 
 ```ts
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 ```
 
 ::fw{id="vite:dev vite:build"}
-Vite config imports the plugin from `@vitehub/kv/vite`:
+Vite config imports the plugin from `@vite-hub/kv/vite`:
 
 ```ts
-import { hubKv } from '@vitehub/kv/vite'
+import { hubKv } from '@vite-hub/kv/vite'
 ```
 ::
 
@@ -30,7 +30,7 @@ Nitro config registers the module by name:
 
 ```ts
 export default defineNitroConfig({
-  modules: ['@vitehub/kv/nitro'],
+  modules: ['@vite-hub/kv/nitro'],
 })
 ```
 ::
@@ -40,7 +40,7 @@ Nuxt config registers the Nuxt module by name:
 
 ```ts
 export default defineNuxtConfig({
-  modules: ['@vitehub/kv/nuxt'],
+  modules: ['@vite-hub/kv/nuxt'],
 })
 ```
 ::
@@ -203,7 +203,7 @@ Non-object config throws:
 ### `hubKv(options?)`
 
 ```ts
-import { hubKv } from '@vitehub/kv/vite'
+import { hubKv } from '@vite-hub/kv/vite'
 
 export default defineConfig({
   plugins: [hubKv({ driver: 'fs-lite' })],
@@ -232,7 +232,7 @@ If TypeScript cannot find the generated config surface, add the package's ambien
 ```json [tsconfig.json]
 {
   "compilerOptions": {
-    "types": ["@vitehub/kv/virtual"]
+    "types": ["@vite-hub/kv/virtual"]
   }
 }
 ```
@@ -244,7 +244,7 @@ The Nitro module:
 - resolves KV config from `nitro.options.kv`
 - writes resolved config to `runtimeConfig.kv`
 - mounts the active driver as Nitro storage at `kv`
-- aliases `@vitehub/kv` to the runtime package entry
+- aliases `@vite-hub/kv` to the runtime package entry
 - adds the runtime plugin that remounts lazy Upstash config
 - adds Cloudflare Wrangler KV namespace config when `namespaceId` is available
 
@@ -253,7 +253,7 @@ The Nitro module:
 The Nuxt module:
 
 - reads top-level `kv` config
-- installs `@vitehub/kv/nitro`
+- installs `@vite-hub/kv/nitro`
 - forwards `kv` config to Nitro
 - does nothing when top-level `kv` is `false`
 

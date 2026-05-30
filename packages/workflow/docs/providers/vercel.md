@@ -1,6 +1,6 @@
 ---
 title: Vercel
-description: Configure @vitehub/workflow for Vercel builds while keeping the same workflow runtime API.
+description: Configure @vite-hub/workflow for Vercel builds while keeping the same workflow runtime API.
 navigation.title: Vercel
 navigation.group: Providers
 navigation.order: 1
@@ -14,7 +14,7 @@ Vercel is the default provider when hosting is not Cloudflare. Set it explicitly
   :::tabs-item{label="Vite" icon="i-simple-icons-vite" class="p-4"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
-    import { hubWorkflow } from '@vitehub/workflow/vite'
+    import { hubWorkflow } from '@vite-hub/workflow/vite'
 
     export default defineConfig({
       plugins: [hubWorkflow()],
@@ -30,7 +30,7 @@ Vercel is the default provider when hosting is not Cloudflare. Set it explicitly
     import { defineNitroConfig } from 'nitro/config'
 
     export default defineNitroConfig({
-      modules: ['@vitehub/workflow/nitro'],
+      modules: ['@vite-hub/workflow/nitro'],
       workflow: {
         provider: 'vercel',
       },

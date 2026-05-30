@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/cli",
+  "name": "@vite-hub/cli",
   "version": "0.0.0",
   "description": "Command-line workflows for ViteHub projects.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -35,7 +35,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/internal build && pnpm --filter @vitehub/agent build && pnpm --dir . build && vitest run"
+    "test": "pnpm --filter @vite-hub/internal build && pnpm --filter @vite-hub/agent build && pnpm --dir . build && vitest run"
   },
   "dependencies": {
     "pathe": "catalog:"
@@ -45,7 +45,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "@vitehub/agent": "workspace:*",
+    "@vite-hub/agent": "workspace:*",
     "tsdown": "^0.21.8",
     "typescript": "catalog:",
     "vite": "catalog:",

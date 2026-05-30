@@ -9,9 +9,9 @@ ViteHub keeps common runtime contracts below the feature packages.
 
 | Package | Responsibility |
 | --- | --- |
-| `@vitehub/runtime` | Execution context, capabilities, policy, approvals, tracing, leases |
-| `@vitehub/agent` | Model loop orchestration, chat behavior, tools, step policy, run and stream calls |
-| `@vitehub/workflow` | Durable orchestration, checkpoints, retries, deferred work |
-| `@vitehub/sandbox` | Isolated execution sessions, files, shell, snapshots |
+| `@vite-hub/runtime` | Execution context, capabilities, policy, approvals, tracing, leases |
+| `@vite-hub/agent` | Model loop orchestration, chat behavior, tools, step policy, run and stream calls |
+| `@vite-hub/workflow` | Durable orchestration, checkpoints, retries, deferred work |
+| `@vite-hub/sandbox` | Isolated execution sessions, files, shell, snapshots |
 
 Agent may consume a sandbox capability, but sandbox owns sandbox lifecycle. Chat may call an agent, but agent owns model execution. Workflow may run from chat or agent entrypoints, but workflow owns durability and resume semantics.

@@ -22,7 +22,7 @@ Every route follows the same shape:
 ::fw{id="vite:dev vite:build"}
 ```ts [src/server.ts]
 import { createError, H3 } from 'h3'
-import { readRequestPayload, runSandbox } from '@vitehub/sandbox'
+import { readRequestPayload, runSandbox } from '@vite-hub/sandbox'
 import type { ReleaseNotesPayload } from './release-notes.sandbox'
 
 const app = new H3()
@@ -44,7 +44,7 @@ export default app
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/api/release-notes.post.ts]
-import { readRequestPayload, runSandbox } from '@vitehub/sandbox'
+import { readRequestPayload, runSandbox } from '@vite-hub/sandbox'
 import type { ReleaseNotesPayload } from '../sandboxes/release-notes'
 
 export default defineEventHandler(async (event) => {

@@ -14,10 +14,10 @@ Files are written under `.data/blob`. The route code stays the same when you lat
 ::code-collapse
 
 ```txt [Prompt]
-Set up @vitehub/blob in this app.
+Set up @vite-hub/blob in this app.
 
-- Install @vitehub/blob
-- Register hubBlob() for Vite or @vitehub/blob/nitro for Nitro
+- Install @vite-hub/blob
+- Register hubBlob() for Vite or @vite-hub/blob/nitro for Nitro
 - Configure blob.driver as fs with base .data/blob
 - Add a PUT route that writes notes/example.txt with blob.put()
 - Add a GET route that returns blob.list({ limit: 10 })
@@ -33,7 +33,7 @@ Docs: /docs/vite/blob/quickstart or /docs/nitro/blob/quickstart
 ### Install Blob
 
 ```bash
-pnpm add @vitehub/blob
+pnpm add @vite-hub/blob
 ```
 
 ### Register the Integration
@@ -43,7 +43,7 @@ Register the Vite plugin and choose the local filesystem driver:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubBlob } from '@vitehub/blob/vite'
+import { hubBlob } from '@vite-hub/blob/vite'
 
 export default defineConfig({
   plugins: [hubBlob()],
@@ -62,7 +62,7 @@ Register the Nitro module and choose the local filesystem driver:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/blob/nitro'],
+  modules: ['@vite-hub/blob/nitro'],
   blob: {
     driver: 'fs',
     base: '.data/blob',
@@ -78,7 +78,7 @@ Add a Vite server entry with a write route and a list route:
 
 ```ts [src/server.ts]
 import { H3, readBody } from 'h3'
-import { blob } from '@vitehub/blob'
+import { blob } from '@vite-hub/blob'
 
 const app = new H3()
 
@@ -105,7 +105,7 @@ Add a Nitro route that writes one blob:
 
 ```ts [server/api/blob.put.ts]
 import { defineEventHandler, readBody } from 'h3'
-import { blob } from '@vitehub/blob'
+import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ pathname?: string, value?: string }>(event)
@@ -122,7 +122,7 @@ Add a second route that lists stored blobs:
 
 ```ts [server/api/blob.get.ts]
 import { defineEventHandler } from 'h3'
-import { blob } from '@vitehub/blob'
+import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async () => {
   return await blob.list({ limit: 10 })

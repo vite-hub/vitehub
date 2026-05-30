@@ -1,4 +1,4 @@
-import { resolveRuntimeValue } from "@vitehub/runtime"
+import { resolveRuntimeValue } from "@vite-hub/runtime"
 
 import { workspaceOverrideSymbol } from "./access-runtime.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
@@ -28,7 +28,7 @@ import type {
 } from "./types.ts"
 import type { WorkspaceOverrideRuntime } from "./access-runtime.ts"
 import type { Message } from "./messages.ts"
-import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from "@vitehub/workspace"
+import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
 
 type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
 

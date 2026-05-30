@@ -1,15 +1,15 @@
 import { addServerImports, defineNuxtModule } from "@nuxt/kit"
-import { assertNoNitroModule, assertNoVitePlugin, hasNitroModule } from "@vitehub/internal/nitro"
+import { assertNoNitroModule, assertNoVitePlugin, hasNitroModule } from "@vite-hub/internal/nitro"
 import { envNitro } from "../nitro/module.ts"
 import type { NitroConfig, NitroModuleInput } from "nitro/types"
 import type { NuxtModule } from "@nuxt/schema"
 
 import type { EnvIntegrationOptions, EnvNitroConfigOptions } from "../types.ts"
 
-const NITRO_MODULE_ID = "@vitehub/env/nitro"
-const NITRO_MODULE_NAME = "@vitehub/env"
-const NUXT_MODULE_ID = "@vitehub/env/nuxt"
-const VITE_PLUGIN_NAME = "@vitehub/env/vite"
+const NITRO_MODULE_ID = "@vite-hub/env/nitro"
+const NITRO_MODULE_NAME = "@vite-hub/env"
+const NUXT_MODULE_ID = "@vite-hub/env/nuxt"
+const VITE_PLUGIN_NAME = "@vite-hub/env/vite"
 
 type EnvNitroConfig = NitroConfig & {
   env?: EnvNitroConfigOptions

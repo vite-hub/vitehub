@@ -20,7 +20,7 @@ import {
   createAgentTestRunner,
   type AgentTestRunResult,
 } from "./test.ts"
-import type { WorkspaceName } from "@vitehub/workspace"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
 export interface AgentScore {
   metadata?: unknown

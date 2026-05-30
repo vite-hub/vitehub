@@ -14,10 +14,10 @@ The provider is the only part that changes between Cloudflare and Vercel. The qu
 ::code-collapse
 
 ```txt [Prompt]
-Set up @vitehub/queue in this app.
+Set up @vite-hub/queue in this app.
 
-- Install @vitehub/queue and @vercel/queue when using the Vercel provider
-- Register hubQueue() for Vite or @vitehub/queue/nitro for Nitro
+- Install @vite-hub/queue and @vercel/queue when using the Vercel provider
+- Register hubQueue() for Vite or @vite-hub/queue/nitro for Nitro
 - Configure queue.provider as cloudflare or vercel
 - Define welcome-email as a discovered queue
 - Call runQueue('welcome-email', payload) from a route
@@ -33,7 +33,7 @@ Docs: /docs/vite/queue/quickstart or /docs/nitro/queue/quickstart
 ### Install Queue
 
 ```bash
-pnpm add @vitehub/queue
+pnpm add @vite-hub/queue
 ```
 
 Install the Vercel SDK when Vercel will publish or process the queue:
@@ -53,7 +53,7 @@ Register the Vite plugin and choose the provider:
   :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
-    import { hubQueue } from '@vitehub/queue/vite'
+    import { hubQueue } from '@vite-hub/queue/vite'
 
     export default defineConfig({
       plugins: [hubQueue()],
@@ -67,7 +67,7 @@ Register the Vite plugin and choose the provider:
   :::tabs-item{label="Vercel" icon="i-simple-icons-vercel" class="p-4"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
-    import { hubQueue } from '@vitehub/queue/vite'
+    import { hubQueue } from '@vite-hub/queue/vite'
 
     export default defineConfig({
       plugins: [hubQueue()],
@@ -90,7 +90,7 @@ Register the Nitro module and choose the provider:
     import { defineNitroConfig } from 'nitro/config'
 
     export default defineNitroConfig({
-      modules: ['@vitehub/queue/nitro'],
+      modules: ['@vite-hub/queue/nitro'],
       queue: {
         provider: 'cloudflare',
       },
@@ -103,7 +103,7 @@ Register the Nitro module and choose the provider:
     import { defineNitroConfig } from 'nitro/config'
 
     export default defineNitroConfig({
-      modules: ['@vitehub/queue/nitro'],
+      modules: ['@vite-hub/queue/nitro'],
       queue: {
         provider: 'vercel',
         region: 'fra1',
@@ -120,7 +120,7 @@ Register the Nitro module and choose the provider:
 Create a discovered Vite queue file:
 
 ```ts [src/welcome-email.queue.ts]
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export type WelcomeEmailPayload = {
   email: string
@@ -137,7 +137,7 @@ export default defineQueue<WelcomeEmailPayload>(async (job) => {
 Create a discovered Nitro queue file:
 
 ```ts [server/queues/welcome-email.ts]
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export type WelcomeEmailPayload = {
   email: string
@@ -157,7 +157,7 @@ Add a Vite server entry that reads the request body and enqueues the named queue
 
 ```ts [src/server.ts]
 import { H3, readBody } from 'h3'
-import { runQueue } from '@vitehub/queue'
+import { runQueue } from '@vite-hub/queue'
 import type { WelcomeEmailPayload } from './welcome-email.queue'
 
 const app = new H3()
@@ -177,7 +177,7 @@ export default app
 Add a Nitro route that reads the request body and enqueues the named queue:
 
 ```ts [server/api/welcome.post.ts]
-import { runQueue } from '@vitehub/queue'
+import { runQueue } from '@vite-hub/queue'
 import type { WelcomeEmailPayload } from '../queues/welcome-email'
 
 export default defineEventHandler(async (event) => {

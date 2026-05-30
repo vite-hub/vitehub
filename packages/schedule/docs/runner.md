@@ -17,7 +17,7 @@ First define a runtime-eligible target.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/reports/daily.schedule.ts]
-import { defineSchedule } from '@vitehub/schedule'
+import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   allowRuntimeSchedules: true,
@@ -31,7 +31,7 @@ export default defineSchedule({
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/schedules/reports/daily.ts]
-import { defineSchedule } from '@vitehub/schedule'
+import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   allowRuntimeSchedules: true,
@@ -46,7 +46,7 @@ export default defineSchedule({
 Then create a Runtime Schedule that targets that definition.
 
 ```ts
-import { schedules } from '@vitehub/schedule'
+import { schedules } from '@vite-hub/schedule'
 
 await schedules.create({
   cron: '0 9 * * *',
@@ -60,7 +60,7 @@ await schedules.create({
 Start the runner once from the process that should own dispatch.
 
 ```ts [server.ts]
-import { startScheduleRunner } from '@vitehub/schedule'
+import { startScheduleRunner } from '@vite-hub/schedule'
 
 const runner = startScheduleRunner({
   concurrency: 1,
@@ -80,7 +80,7 @@ process.once('SIGTERM', () => runner.stop())
 For Nitro, start the runner from one server plugin and stop it during shutdown.
 
 ```ts [server/plugins/schedule-runner.ts]
-import { startScheduleRunner } from '@vitehub/schedule'
+import { startScheduleRunner } from '@vite-hub/schedule'
 
 export default defineNitroPlugin((nitroApp) => {
   const runner = startScheduleRunner({
@@ -104,7 +104,7 @@ Any long-lived server entry can start the runner before listening for requests.
 
 ```ts [app-server.ts]
 import { createServer } from 'node:http'
-import { startScheduleRunner } from '@vitehub/schedule'
+import { startScheduleRunner } from '@vite-hub/schedule'
 
 const runner = startScheduleRunner()
 

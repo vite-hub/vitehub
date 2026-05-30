@@ -3,7 +3,7 @@ import { getMessageText } from "./messages.ts"
 import {
   ApprovalRequiredError,
   resolveRuntimeContext,
-} from "@vitehub/runtime"
+} from "@vite-hub/runtime"
 import { getChatCapabilityOptions } from "./chat-trigger.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 
@@ -81,7 +81,7 @@ import type {
   WorkspaceDefinition,
   WorkspaceEntry,
   WorkspaceName,
-} from "@vitehub/workspace"
+} from "@vite-hub/workspace"
 
 export type {
   AgentAdapter,
@@ -788,7 +788,7 @@ export async function resolveAgentDevtoolsMetadata<
     return createAgentDevtoolsMetadata(definition)
   }
 
-  const { useWorkspace } = await import("@vitehub/workspace")
+  const { useWorkspace } = await import("@vite-hub/workspace")
   const workspace = useWorkspace(workspaceName)
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
   return {
@@ -1138,8 +1138,8 @@ async function createAgentInvocationContext<
     : undefined
   const workspace = workspaceName
     ? workspaceMode === "write"
-      ? (await import("@vitehub/workspace")).useWorkspace(workspaceName, { mode: "write" })
-      : (await import("@vitehub/workspace")).useWorkspace(workspaceName)
+      ? (await import("@vite-hub/workspace")).useWorkspace(workspaceName, { mode: "write" })
+      : (await import("@vite-hub/workspace")).useWorkspace(workspaceName)
     : undefined
   const capabilityOptions = workspaceOptions && workspace
     ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
@@ -1230,7 +1230,7 @@ async function commitWorkspaceChanges<
   if (!context.workspaceDefinition || !isWritableWorkspaceFacade(context.workspace)) return
 
   const diff = await context.workspace.diff()
-  const { resolveWorkspaceAutoCommit } = await import("@vitehub/workspace")
+  const { resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
   const commit = resolveWorkspaceAutoCommit(context.workspaceDefinition, diff)
   if (!commit) return
   await context.workspace.snapshot({ name: commit.message })

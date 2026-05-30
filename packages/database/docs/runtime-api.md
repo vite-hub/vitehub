@@ -1,6 +1,6 @@
 ---
 title: DB runtime API
-description: Runtime imports and definition configuration for @vitehub/database.
+description: Runtime imports and definition configuration for @vite-hub/database.
 navigation.title: Runtime API
 navigation.order: 3
 icon: i-lucide-code
@@ -34,7 +34,7 @@ defineDatabase({
 ## Imports
 
 ```ts
-import { db, schema, databases } from '@vitehub/database/drizzle'
+import { db, schema, databases } from '@vite-hub/database/drizzle'
 ```
 
 - `db` and `schema` alias the default database.

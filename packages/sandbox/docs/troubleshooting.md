@@ -29,7 +29,7 @@ export default defineConfig({
 ::fw{id="nitro:dev nitro:build"}
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
-  modules: ['@vitehub/sandbox/nitro'],
+  modules: ['@vite-hub/sandbox/nitro'],
   sandbox: {
     provider: 'cloudflare',
   },

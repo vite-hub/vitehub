@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/env-nitro-example",
+  "name": "@vite-hub/env-nitro-example",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,7 +7,7 @@
     "dev": "nitro dev"
   },
   "dependencies": {
-    "@vitehub/env": "workspace:*",
+    "@vite-hub/env": "workspace:*",
     "nitro": "catalog:"
   },
   "devDependencies": {

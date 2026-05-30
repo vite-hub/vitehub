@@ -9,8 +9,8 @@ A runtime coordination concept for starting work at a future time or recurring c
 _Avoid_: Cron as the umbrella term, Agent Capability, background task
 
 **Schedule Package**:
-The `@vitehub/schedule` package that owns Schedule definitions, runtime helpers, and Schedule Capability integration.
-_Avoid_: `@vitehub/scheduling`, cron package
+The `@vite-hub/schedule` package that owns Schedule definitions, runtime helpers, and Schedule Capability integration.
+_Avoid_: `@vite-hub/scheduling`, cron package
 
 **Schedule Definition**:
 A portable declaration that describes when work should start and what target should run.
@@ -127,7 +127,7 @@ _Avoid_: Per-user timezone, local server time
 ## Relationships
 
 - A **Schedule Definition** can be a **Cron Schedule**.
-- `@vitehub/schedule` is the **Schedule Package**.
+- `@vite-hub/schedule` is the **Schedule Package**.
 - The **Schedule Package** owns Schedule primitive behavior and the Schedule Capability helper, while the Agent Package owns Agent capability composition.
 - A **Cron Schedule** can be source-declared as a **Static Schedule Definition** or created as a **Runtime Schedule**.
 - The first **Schedule Time Base** is UTC.

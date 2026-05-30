@@ -1,4 +1,4 @@
-import { isPlainObject } from "@vitehub/internal/object"
+import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { DatabaseDefinition, DatabaseDefinitionOptions } from "./types.ts"
 

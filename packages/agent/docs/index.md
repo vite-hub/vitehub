@@ -7,13 +7,13 @@ icon: i-lucide-bot
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/agent` defines server-side agents. An agent owns model instructions, model-facing capabilities, and the run or stream call that produces a response. It consumes `@vitehub/runtime` capabilities when it needs host resources.
+`@vite-hub/agent` defines server-side agents. An agent owns model instructions, model-facing capabilities, and the run or stream call that produces a response. It consumes `@vite-hub/runtime` capabilities when it needs host resources.
 
 Use Agent when a server feature needs a model loop with ViteHub message input.
 
 ```ts [server/agents/triager.ts]
-import { defineAgent, type AgentToolDefinition } from '@vitehub/agent'
-import { getMessageText } from '@vitehub/agent'
+import { defineAgent, type AgentToolDefinition } from '@vite-hub/agent'
+import { getMessageText } from '@vite-hub/agent'
 
 const classifyTicket: AgentToolDefinition<{ message: string }, { queue: string; priority: string }> = {
   name: 'classifyTicket',
@@ -57,7 +57,7 @@ export default defineAgent({
   icon: i-lucide-messages-square
   title: Message input
   ---
-  Accept `@vitehub/agent` input and convert it to model calls inside Agent.
+  Accept `@vite-hub/agent` input and convert it to model calls inside Agent.
   :::
 
   :::card
@@ -75,11 +75,11 @@ Agent does not own chat webhooks, Chat SDK adapters, workflow runs, runtime capa
 
 | Need | Use |
 | --- | --- |
-| Receive chat messages through an Agent Trigger | `@vitehub/agent` with `chat()` |
-| Store or replay conversation state | `@vitehub/agent` |
-| Resolve shared capabilities, approvals, and trace context | `@vitehub/runtime` |
-| Coordinate durable work | `@vitehub/workflow` |
-| Execute isolated code | `@vitehub/sandbox` |
+| Receive chat messages through an Agent Trigger | `@vite-hub/agent` with `chat()` |
+| Store or replay conversation state | `@vite-hub/agent` |
+| Resolve shared capabilities, approvals, and trace context | `@vite-hub/runtime` |
+| Coordinate durable work | `@vite-hub/workflow` |
+| Execute isolated code | `@vite-hub/sandbox` |
 
 ## Start here
 

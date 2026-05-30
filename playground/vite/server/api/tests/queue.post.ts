@@ -1,5 +1,5 @@
 import { defineEventHandler, readValidatedBody } from "h3"
-import { kv } from "@vitehub/kv"
+import { kv } from "@vite-hub/kv"
 import * as v from "valibot"
 
 const markerBody = v.object({

@@ -4,7 +4,7 @@ import {
   discoverDefinitions,
   resolveDefinitionScanRoots,
   normalizeSuffixDefinitionName,
-} from "@vitehub/internal/definition-catalog"
+} from "@vite-hub/internal/definition-catalog"
 
 import type { DiscoveredQueueDefinition } from "./types.ts"
 

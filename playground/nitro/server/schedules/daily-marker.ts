@@ -1,5 +1,5 @@
-import { defineSchedule } from "@vitehub/schedule"
-import { kv } from "@vitehub/kv"
+import { defineSchedule } from "@vite-hub/schedule"
+import { kv } from "@vite-hub/kv"
 
 export const scheduleMarkerKey = "schedule-e2e:nitro:daily-marker"
 

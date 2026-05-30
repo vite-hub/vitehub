@@ -1,6 +1,6 @@
 # Database Package
 
-Database Package names ownership boundaries for `@vitehub/database`.
+Database Package names ownership boundaries for `@vite-hub/database`.
 
 ## Language
 

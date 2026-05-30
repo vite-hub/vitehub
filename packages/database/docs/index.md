@@ -7,7 +7,7 @@ icon: i-lucide-database
 frameworks: [vite]
 ---
 
-`@vitehub/database` discovers database definitions, generates Drizzle Kit artifacts, and exposes a small runtime surface for Vite server code.
+`@vite-hub/database` discovers database definitions, generates Drizzle Kit artifacts, and exposes a small runtime surface for Vite server code.
 
 Register `hubDb()` in Vite, then define databases in files:
 
@@ -19,7 +19,7 @@ Register `hubDb()` in Vite, then define databases in files:
 Use either one default database or all named databases. Do not mix the default definition with named definitions.
 
 ```ts [server/databases/config.ts]
-import { defineDatabase } from '@vitehub/database'
+import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 const notes = sqliteTable('notes', {
@@ -34,7 +34,7 @@ export default defineDatabase({
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubDb } from '@vitehub/database/vite'
+import { hubDb } from '@vite-hub/database/vite'
 
 export default defineConfig({
   plugins: [hubDb()],
@@ -48,13 +48,13 @@ Run `vitehub db generate` to refresh `.vitehub/database/schema/*.ts` and `.viteh
 Default database definitions expose `db` and `schema` aliases:
 
 ```ts
-import { db, schema } from '@vitehub/database/drizzle'
+import { db, schema } from '@vite-hub/database/drizzle'
 ```
 
 Named definitions use the registry:
 
 ```ts
-import { databases } from '@vitehub/database/drizzle'
+import { databases } from '@vite-hub/database/drizzle'
 
 await databases.analytics.db
   .insert(databases.analytics.schema.analyticsEvents)

@@ -5,10 +5,10 @@
     "rootDir": "..",
     "baseUrl": "../..",
     "paths": {
-      "@vitehub/internal/feature-bridge": [
+      "@vite-hub/internal/feature-bridge": [
         "packages/internal/src/feature-bridge/feature-engine.ts"
       ],
-      "@vitehub/internal/*": [
+      "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ]
     }

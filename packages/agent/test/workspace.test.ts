@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { WritableWorkspaceFacade } from "@vitehub/workspace"
+import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
 
 const readFile = vi.fn()
 const writeFile = vi.fn()
@@ -48,7 +48,7 @@ vi.mock("ai", () => ({
   },
 }))
 
-vi.mock("@vitehub/workspace", () => ({
+vi.mock("@vite-hub/workspace", () => ({
   resolveWorkspaceAutoCommit,
   useWorkspace,
 }))
@@ -138,7 +138,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("creates a workspace and agent definition without resolving workspace until run", async () => {
-    const { useWorkspace } = await import("@vitehub/workspace")
+    const { useWorkspace } = await import("@vite-hub/workspace")
     const { defineAgent } = await import("../src/index.ts")
 
     const agent = defineAgent({

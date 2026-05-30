@@ -12,7 +12,7 @@ import {
   getCapability,
   hasCapability,
   resolveRuntimeValue,
-} from '@vitehub/runtime'
+} from '@vite-hub/runtime'
 ```
 
 ## Context

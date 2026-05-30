@@ -70,7 +70,7 @@ function scheduleRunAttemptBase(prefix: string): string {
 }
 
 async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
-  const module = await import("@vitehub/kv")
+  const module = await import("@vite-hub/kv")
   return module.kv
 }
 

@@ -10,7 +10,7 @@ frameworks: [vite]
 ## Install
 
 ```bash
-pnpm add @vitehub/cli @vitehub/database drizzle-kit drizzle-orm h3 vite
+pnpm add @vite-hub/cli @vite-hub/database drizzle-kit drizzle-orm h3 vite
 ```
 
 ## Register
@@ -18,7 +18,7 @@ pnpm add @vitehub/cli @vitehub/database drizzle-kit drizzle-orm h3 vite
 ```ts [vite.config.ts]
 import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
-import { hubDb } from '@vitehub/database/vite'
+import { hubDb } from '@vite-hub/database/vite'
 
 export default defineConfig({
   appType: 'custom',
@@ -34,7 +34,7 @@ export default defineConfig({
 ## Define
 
 ```ts [server/databases/config.ts]
-import { defineDatabase } from '@vitehub/database'
+import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 const notes = sqliteTable('notes', {
@@ -52,7 +52,7 @@ export default defineDatabase({
 ```ts [src/server.ts]
 import { H3, readBody } from 'h3'
 import { desc, sql } from 'drizzle-orm'
-import { db, schema } from '@vitehub/database/drizzle'
+import { db, schema } from '@vite-hub/database/drizzle'
 
 const app = new H3()
 

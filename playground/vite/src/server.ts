@@ -1,8 +1,8 @@
 import { H3, getRequestURL, readValidatedBody } from "h3"
 import * as v from "valibot"
 
-import { kv } from "@vitehub/kv"
-import { deferQueue, runQueue } from "@vitehub/queue"
+import { kv } from "@vite-hub/kv"
+import { deferQueue, runQueue } from "@vite-hub/queue"
 import { resolveTrustedMarkerCallbackUrl, runInBackground } from "../../_shared/queue-test"
 import { scheduleMarkerKey } from "./schedule-marker"
 

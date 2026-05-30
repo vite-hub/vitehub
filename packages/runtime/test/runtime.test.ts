@@ -15,7 +15,7 @@ import {
   type RunLifecycleHooks,
 } from "../src/index.ts"
 
-describe("@vitehub/runtime", () => {
+describe("@vite-hub/runtime", () => {
   it("registers, finds, and resolves capability handles", () => {
     const db = defineCapability("db", { query: vi.fn() }, { name: "primary" })
     const context = createExecutionContext({

@@ -1,7 +1,7 @@
-import { defineAgent } from "@vitehub/agent"
-import { chat, transcribe } from "@vitehub/agent/capabilities"
+import { defineAgent } from "@vite-hub/agent"
+import { chat, transcribe } from "@vite-hub/agent/capabilities"
 
-import type { AgentAdapter, AgentAdapterResult, AgentAdapterRunContext, MaybePromise, StreamEvent } from "@vitehub/agent"
+import type { AgentAdapter, AgentAdapterResult, AgentAdapterRunContext, MaybePromise, StreamEvent } from "@vite-hub/agent"
 
 interface MockAgentToolStep {
   delay?: number

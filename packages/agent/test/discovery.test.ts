@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { listViteHubDevtoolsFeatures } from "@vitehub/devtools"
+import { listViteHubDevtoolsFeatures } from "@vite-hub/devtools"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
 
 async function createTempRoot(prefix: string) {
@@ -102,8 +102,8 @@ describe("agent Nitro runtime files", () => {
 
     await expect(readFile(registryFile, "utf8")).resolves.toContain("server/agents/docs/config.ts")
     await expect(readFile(routeFile, "utf8")).resolves.toContain("./nitro-registry.ts")
-    expect((nitro.options.alias as Record<string, string>)["@vitehub/agent/capabilities"]).toContain("/packages/agent/src/capabilities.ts")
-    expect((nitro.options.alias as Record<string, string>)["@vitehub/agent/eval"]).toContain("/packages/agent/src/eval.ts")
+    expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/capabilities"]).toContain("/packages/agent/src/capabilities.ts")
+    expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/eval"]).toContain("/packages/agent/src/eval.ts")
     expect(hooks).toHaveLength(2)
   })
 })
@@ -113,16 +113,16 @@ describe("agent chat capability discovery", () => {
     const root = await createTempRoot("vitehub-agent-chat-identity-")
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), [
-      "import { defineAgent } from '@vitehub/agent'",
-      "import { chat } from '@vitehub/agent/capabilities'",
+      "import { defineAgent } from '@vite-hub/agent'",
+      "import { chat } from '@vite-hub/agent/capabilities'",
       "export default defineAgent({",
       "  name: 'renamed-support',",
       "  capabilities: [chat({ concurrency: 'queue', events: ['directMessage'] })],",
       "})",
     ].join("\n"), "utf8")
     await writeFile(join(root, "server", "agents", "docs", "config.ts"), [
-      "import { defineAgent } from '@vitehub/agent'",
-      "import { chat } from '@vitehub/agent/capabilities'",
+      "import { defineAgent } from '@vite-hub/agent'",
+      "import { chat } from '@vite-hub/agent/capabilities'",
       "export default defineAgent({",
       "  name: 'renamed-docs',",
       "  workspace: {},",
@@ -130,8 +130,8 @@ describe("agent chat capability discovery", () => {
       "})",
     ].join("\n"), "utf8")
     await writeFile(join(root, "server", "agent.ts"), [
-      "import { defineAgent } from '@vitehub/agent'",
-      "import { chat } from '@vitehub/agent/capabilities'",
+      "import { defineAgent } from '@vite-hub/agent'",
+      "import { chat } from '@vite-hub/agent/capabilities'",
       "export const legacy = defineAgent({ capabilities: [chat({ concurrency: 'queue', events: ['directMessage'] })] })",
     ].join("\n"), "utf8")
 
@@ -220,7 +220,7 @@ describe("agent chat capability discovery", () => {
         bridge: "/__vitehub/agent/chat/devtools",
         icon: "ph:chat-circle-duotone",
         id: "agent.chat",
-        packageName: "@vitehub/agent",
+        packageName: "@vite-hub/agent",
         title: "Chat",
       },
     ])

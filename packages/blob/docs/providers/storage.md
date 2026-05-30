@@ -1,6 +1,6 @@
 ---
 title: Storage Providers
-description: Configure @vitehub/blob with first-class storage drivers.
+description: Configure @vite-hub/blob with first-class storage drivers.
 navigation.title: Storage Providers
 navigation.group: Providers
 navigation.order: 30
@@ -13,7 +13,7 @@ ViteHub exposes provider names directly through `blob.driver`. Users configure V
 Non-first-class providers are powered by `files-sdk`. Install it when using the drivers on this page:
 
 ```bash
-pnpm add @vitehub/blob files-sdk
+pnpm add @vite-hub/blob files-sdk
 ```
 
 ViteHub generates provider-specific runtime imports so only the selected driver is reachable from the deployment bundle. Installing `files-sdk` may still install dependencies for providers you are not using.

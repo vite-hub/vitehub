@@ -15,7 +15,7 @@ Export payload types from the queue definition when producer code needs them.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/welcome-email.queue.ts]
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export type WelcomeEmailPayload = {
   email: string
@@ -30,7 +30,7 @@ export default defineQueue<WelcomeEmailPayload>(async (job) => {
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/queues/welcome-email.ts]
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export type WelcomeEmailPayload = {
   email: string
@@ -131,7 +131,7 @@ Unsupported provider options throw `QueueError`. Cloudflare rejects `idempotency
 Use `deferQueue()` when the route should return immediately and enqueue dispatch can run through the current runtime context:
 
 ```ts
-import { deferQueue } from '@vitehub/queue'
+import { deferQueue } from '@vite-hub/queue'
 
 export default defineEventHandler(() => {
   deferQueue('welcome-email', {
@@ -160,7 +160,7 @@ export default defineQueue<WelcomeEmailPayload>(async (job) => {
 Use `getQueue()` when you need the concrete provider client instead of a plain send call:
 
 ```ts
-import { getQueue } from '@vitehub/queue'
+import { getQueue } from '@vite-hub/queue'
 
 const queue = await getQueue('welcome-email')
 

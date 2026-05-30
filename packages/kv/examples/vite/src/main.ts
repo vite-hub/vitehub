@@ -1,5 +1,5 @@
 import { H3, serve } from "h3"
-import { kv } from "@vitehub/kv"
+import { kv } from "@vite-hub/kv"
 
 const app = new H3()
   .get("/", async () => await kv.get("settings"))

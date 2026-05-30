@@ -1,6 +1,6 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { createWorkspaceTools } from "@vitehub/workspace"
+import { createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
   AgentCapabilityDefinition,
@@ -17,7 +17,7 @@ import type {
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
-} from "@vitehub/workspace"
+} from "@vite-hub/workspace"
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 
 export type AccessRoleName = "viewer" | "admin" | (string & {})

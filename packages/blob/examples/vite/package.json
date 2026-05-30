@@ -6,7 +6,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@vitehub/blob": "workspace:*",
+    "@vite-hub/blob": "workspace:*",
     "h3": "catalog:",
     "vite": "catalog:"
   }

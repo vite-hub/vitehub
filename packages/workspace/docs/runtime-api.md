@@ -6,18 +6,18 @@ navigation.order: 2
 frameworks: [vite, nitro]
 ---
 
-Most application code imports from `@vitehub/workspace`:
+Most application code imports from `@vite-hub/workspace`:
 
 ```ts
-import { defineWorkspace, useWorkspace } from '@vitehub/workspace'
+import { defineWorkspace, useWorkspace } from '@vite-hub/workspace'
 ```
 
 ## Integration API
 
-Vite config imports the plugin from `@vitehub/workspace/vite`:
+Vite config imports the plugin from `@vite-hub/workspace/vite`:
 
 ```ts
-import { hubWorkspace } from '@vitehub/workspace/vite'
+import { hubWorkspace } from '@vite-hub/workspace/vite'
 ```
 
 `hubWorkspace(options?)` accepts the same integration options as `vite.config.workspace`. When both are present, `vite.config.workspace` takes precedence.

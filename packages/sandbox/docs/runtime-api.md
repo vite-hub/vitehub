@@ -11,7 +11,7 @@ Use this page when you need exact names, signatures, and option fields. For a gu
 
 ## Imports
 
-Most application code imports from `@vitehub/sandbox`:
+Most application code imports from `@vite-hub/sandbox`:
 
 ```ts
 import {
@@ -19,14 +19,14 @@ import {
   readRequestPayload,
   readValidatedPayload,
   runSandbox,
-} from '@vitehub/sandbox'
+} from '@vite-hub/sandbox'
 ```
 
 ::fw{id="vite:dev vite:build"}
-Vite config imports the plugin from `@vitehub/sandbox/vite`:
+Vite config imports the plugin from `@vite-hub/sandbox/vite`:
 
 ```ts
-import { hubSandbox } from '@vitehub/sandbox/vite'
+import { hubSandbox } from '@vite-hub/sandbox/vite'
 ```
 
 `hubSandbox(options?)` accepts the same integration options as `vite.config.sandbox`. When both are present, `vite.config.sandbox` takes precedence.
@@ -37,7 +37,7 @@ Nitro config registers the module by name:
 
 ```ts
 export default defineNitroConfig({
-  modules: ['@vitehub/sandbox/nitro'],
+  modules: ['@vite-hub/sandbox/nitro'],
 })
 ```
 ::
@@ -49,7 +49,7 @@ export default defineNitroConfig({
 Default-export `defineSandbox()` from every discovered sandbox definition.
 
 ```ts
-import { defineSandbox } from '@vitehub/sandbox'
+import { defineSandbox } from '@vite-hub/sandbox'
 
 export default defineSandbox(async (payload?: { notes?: string }) => {
   return {
@@ -92,7 +92,7 @@ Definition options must be static JSON-serializable values. The build step extra
 Use `runSandbox()` to execute one named sandbox.
 
 ```ts
-import { runSandbox } from '@vitehub/sandbox'
+import { runSandbox } from '@vite-hub/sandbox'
 
 const result = await runSandbox('release-notes', {
   notes: '- Added weekly digest',
@@ -166,7 +166,7 @@ Useful fields include:
 Read a JSON request body once with a fallback value.
 
 ```ts
-import { readRequestPayload } from '@vitehub/sandbox'
+import { readRequestPayload } from '@vite-hub/sandbox'
 
 const payload = await readRequestPayload(event, { notes: '' })
 ```
@@ -180,7 +180,7 @@ Use it in H3 routes before calling `runSandbox()`.
 Validate an already-read value. The validator can be a Standard Schema compatible validator or a function.
 
 ```ts
-import { readRequestPayload, readValidatedPayload } from '@vitehub/sandbox'
+import { readRequestPayload, readValidatedPayload } from '@vite-hub/sandbox'
 
 const body = await readRequestPayload(event, { notes: '' })
 const payload = await readValidatedPayload(body, (value) => {

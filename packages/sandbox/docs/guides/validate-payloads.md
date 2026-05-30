@@ -13,7 +13,7 @@ Validate user input before it crosses the sandbox boundary. The route should pas
 ## Validate after reading the body
 
 ```ts
-import { readRequestPayload, readValidatedPayload } from '@vitehub/sandbox'
+import { readRequestPayload, readValidatedPayload } from '@vite-hub/sandbox'
 
 const body = await readRequestPayload(event, { notes: '' })
 const payload = await readValidatedPayload(body, (value) => {
@@ -71,7 +71,7 @@ const payload = await readValidatedPayload(body, validateReleaseNotes, {
 ::fw{id="vite:dev vite:build"}
 ```ts [src/server.ts]
 import { createError, H3 } from 'h3'
-import { readRequestPayload, readValidatedPayload, runSandbox } from '@vitehub/sandbox'
+import { readRequestPayload, readValidatedPayload, runSandbox } from '@vite-hub/sandbox'
 
 const app = new H3()
 
@@ -96,7 +96,7 @@ export default app
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/api/release-notes.post.ts]
-import { readRequestPayload, readValidatedPayload, runSandbox } from '@vitehub/sandbox'
+import { readRequestPayload, readValidatedPayload, runSandbox } from '@vite-hub/sandbox'
 
 export default defineEventHandler(async (event) => {
   const body = await readRequestPayload(event, { notes: '' })

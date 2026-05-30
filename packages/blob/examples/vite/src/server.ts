@@ -1,6 +1,6 @@
 import { H3, readBody } from "h3"
 
-import { blob } from "@vitehub/blob"
+import { blob } from "@vite-hub/blob"
 
 const app = new H3()
 

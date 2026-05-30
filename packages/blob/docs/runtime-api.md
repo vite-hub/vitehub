@@ -11,17 +11,17 @@ Use this page when you need exact names, signatures, and option fields. For a gu
 
 ## Imports
 
-Most application code imports from `@vitehub/blob`:
+Most application code imports from `@vite-hub/blob`:
 
 ```ts
-import { blob, ensureBlob } from '@vitehub/blob'
+import { blob, ensureBlob } from '@vite-hub/blob'
 ```
 
 ::fw{id="vite:dev vite:build"}
-Vite config imports the plugin from `@vitehub/blob/vite`:
+Vite config imports the plugin from `@vite-hub/blob/vite`:
 
 ```ts
-import { hubBlob } from '@vitehub/blob/vite'
+import { hubBlob } from '@vite-hub/blob/vite'
 ```
 ::
 
@@ -30,7 +30,7 @@ Nitro config registers the module by name:
 
 ```ts
 export default defineNitroConfig({
-  modules: ['@vitehub/blob/nitro'],
+  modules: ['@vite-hub/blob/nitro'],
 })
 ```
 ::

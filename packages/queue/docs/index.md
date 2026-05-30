@@ -7,13 +7,13 @@ icon: i-lucide-list-ordered
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/queue` gives Vite and Nitro apps one way to define background job handlers, enqueue work from request code, and deliver those jobs through Cloudflare Queues or Vercel Queue.
+`@vite-hub/queue` gives Vite and Nitro apps one way to define background job handlers, enqueue work from request code, and deliver those jobs through Cloudflare Queues or Vercel Queue.
 
 Use Queue when the request should return before the work finishes. The application keeps a small typed enqueue call. The provider handles delivery, retry behavior, and callback execution.
 
 ::code-group
 ```ts [server/api/welcome.post.ts]
-import { runQueue } from '@vitehub/queue'
+import { runQueue } from '@vite-hub/queue'
 import type { WelcomeEmailPayload } from '../queues/welcome-email'
 
 export default defineEventHandler(async (event) => {
@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/queues/welcome-email.ts]
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export type WelcomeEmailPayload = {
   email: string

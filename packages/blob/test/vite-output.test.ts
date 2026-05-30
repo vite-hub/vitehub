@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
-import { toSafeAppName } from "@vitehub/internal/build/user-entry"
+import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { generateProviderOutputs } from "../src/internal/vite-build.ts"
 

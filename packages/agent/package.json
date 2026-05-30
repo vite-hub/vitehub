@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/agent",
+  "name": "@vite-hub/agent",
   "version": "0.0.0",
   "description": "Agent DX layer and Vite/Nitro integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -58,13 +58,13 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/agent... build && vitest run"
+    "test": "pnpm --filter @vite-hub/agent... build && vitest run"
   },
   "dependencies": {
-    "@vitehub/runtime": "workspace:*",
-    "@vitehub/workflow": "workspace:*",
-    "@vitehub/workspace": "workspace:*",
-    "@vitehub/devtools": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
+    "@vite-hub/devtools": "workspace:*",
     "@vercel/functions": "catalog:",
     "@vitejs/devtools-kit": "catalog:",
     "chat": "catalog:",
@@ -103,7 +103,7 @@
   "devDependencies": {
     "@ai-sdk/mcp": "^1.0.36",
     "@types/node": "catalog:",
-    "@vitehub/internal": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "@vitejs/devtools-kit": "catalog:",
     "ai": "^6.0.172",
     "evalite": "catalog:",

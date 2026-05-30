@@ -47,9 +47,9 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      - run: pnpm --filter @vitehub/queue build
-      - run: pnpm --filter @vitehub/kv build
-      - run: pnpm --filter @vitehub/blob build
+      - run: pnpm --filter @vite-hub/queue build
+      - run: pnpm --filter @vite-hub/kv build
+      - run: pnpm --filter @vite-hub/blob build
 
       - name: Prepare Vercel project
         id: prepare_vercel

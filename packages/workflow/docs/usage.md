@@ -14,7 +14,7 @@ After the quickstart works, most Workflow code falls into four patterns: define 
 Use `createWorkflow(name, handler)` when explicit integration code constructs the workflow handle itself. Framework-discovered workflows should use files or folders; discovery does not scan `createWorkflow()` calls.
 
 ```ts
-import { createWorkflow } from '@vitehub/workflow'
+import { createWorkflow } from '@vite-hub/workflow'
 
 type WelcomePayload = {
   email: string
@@ -40,7 +40,7 @@ Use discovered workflow files or folders when the workflow should live outside t
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/welcome.workflow.ts]
-import { defineWorkflow } from '@vitehub/workflow'
+import { defineWorkflow } from '@vite-hub/workflow'
 
 export type WelcomePayload = {
   email: string
@@ -63,7 +63,7 @@ export default defineWorkflow<WelcomePayload, WelcomeResult>(async ({ payload })
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/workflows/welcome.ts]
-import { defineWorkflow } from '@vitehub/workflow'
+import { defineWorkflow } from '@vite-hub/workflow'
 
 export type WelcomePayload = {
   email: string
@@ -185,7 +185,7 @@ await welcomeWorkflow.run(payload)
 Use `deferWorkflow()` when the route should return immediately and start dispatch can run through the current runtime context:
 
 ```ts
-import { createWorkflow } from '@vitehub/workflow'
+import { createWorkflow } from '@vite-hub/workflow'
 
 const welcomeWorkflow = createWorkflow('welcome')
 
@@ -224,7 +224,7 @@ Provider support differs:
 Use `readValidatedPayload()` when a Web `Request` should be parsed and validated before starting the workflow:
 
 ```ts
-import { readValidatedPayload, runWorkflow } from '@vitehub/workflow'
+import { readValidatedPayload, runWorkflow } from '@vite-hub/workflow'
 import { z } from 'zod'
 
 const welcomePayload = z.object({

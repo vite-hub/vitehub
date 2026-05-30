@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises"
 
-import { createImportPath } from "@vitehub/internal/build/paths"
+import { createImportPath } from "@vite-hub/internal/build/paths"
 import { dirname } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"

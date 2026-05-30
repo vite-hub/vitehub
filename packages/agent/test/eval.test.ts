@@ -23,7 +23,7 @@ const registerWorkspace = vi.hoisted(() => vi.fn())
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown, warnings?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
 
-vi.mock("@vitehub/workspace", () => ({
+vi.mock("@vite-hub/workspace", () => ({
   useWorkspace: vi.fn(() => ({
     fs: { list, readFile },
     tools: {
@@ -32,7 +32,7 @@ vi.mock("@vitehub/workspace", () => ({
   })),
 }))
 
-vi.mock("@vitehub/workspace/test", () => ({
+vi.mock("@vite-hub/workspace/test", () => ({
   registerWorkspace,
 }))
 

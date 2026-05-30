@@ -1,4 +1,4 @@
-import { defineWorkflow } from "@vitehub/workflow"
+import { defineWorkflow } from "@vite-hub/workflow"
 
 export type WelcomePayload = {
   email: string

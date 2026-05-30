@@ -28,7 +28,7 @@ describe("agent Vite plugin", () => {
       : undefined
 
     expect(result).toMatchObject({
-      resolve: { noExternal: ["existing", "@vitehub/agent"] },
+      resolve: { noExternal: ["existing", "@vite-hub/agent"] },
     })
   })
 

@@ -14,7 +14,7 @@ This guide focuses on the route-side calls. It assumes KV is already registered.
 
 Every route follows the same shape:
 
-1. Import `kv` from `@vitehub/kv`.
+1. Import `kv` from `@vite-hub/kv`.
 2. Use a stable string key.
 3. Await the KV method.
 4. Return an application response.
@@ -22,7 +22,7 @@ Every route follows the same shape:
 ::fw{id="vite:dev vite:build"}
 ```ts [src/main.ts]
 import { H3, serve } from 'h3'
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 const app = new H3()
   .put('/api/settings', async () => {
@@ -43,7 +43,7 @@ serve(app)
 
 ::fw{id="nitro:dev nitro:build nuxt:dev nuxt:build"}
 ```ts [server/api/settings.put.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
   await kv.set('settings', { enabled: true })
@@ -52,7 +52,7 @@ export default defineEventHandler(async () => {
 ```
 
 ```ts [server/api/settings.get.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
   return { settings: await kv.get('settings') }
@@ -60,7 +60,7 @@ export default defineEventHandler(async () => {
 ```
 
 ```ts [server/api/settings.delete.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
   await kv.del('settings')

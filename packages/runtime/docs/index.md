@@ -7,12 +7,12 @@ icon: i-lucide-route
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/runtime` is the shared substrate below ViteHub primitives. It defines how packages pass host context, resolve capabilities, enforce policy, request approvals, attach traces, and coordinate leases.
+`@vite-hub/runtime` is the shared substrate below ViteHub primitives. It defines how packages pass host context, resolve capabilities, enforce policy, request approvals, attach traces, and coordinate leases.
 
 Use Runtime when you are building or connecting primitives that need a portable execution context.
 
 ```ts
-import { createExecutionContext, defineCapability, getCapability } from '@vitehub/runtime'
+import { createExecutionContext, defineCapability, getCapability } from '@vite-hub/runtime'
 
 const context = createExecutionContext({
   capabilities: {
@@ -45,10 +45,10 @@ Runtime does not own chat adapters, model loops, durable workflow execution, san
 
 | Need | Use |
 | --- | --- |
-| Model and tool-loop execution | `@vitehub/agent` |
-| Chat SDK webhooks, threads, and message state | `@vitehub/agent` |
-| Durable orchestration | `@vitehub/workflow` |
-| Isolated execution | `@vitehub/sandbox` |
+| Model and tool-loop execution | `@vite-hub/agent` |
+| Chat SDK webhooks, threads, and message state | `@vite-hub/agent` |
+| Durable orchestration | `@vite-hub/workflow` |
+| Isolated execution | `@vite-hub/sandbox` |
 
 ## Architecture
 

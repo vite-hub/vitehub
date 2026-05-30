@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 import { defineConfig } from "vite"
 
-import { hubSchedule } from "@vitehub/schedule/vite"
+import { hubSchedule } from "@vite-hub/schedule/vite"
 
 export default defineConfig({
   appType: "custom",

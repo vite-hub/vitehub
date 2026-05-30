@@ -16,7 +16,7 @@ Create one queue definition with the payload shape the producer will send.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/welcome-email.queue.ts]
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export type WelcomeEmailPayload = {
   email: string
@@ -31,7 +31,7 @@ export default defineQueue<WelcomeEmailPayload>(async (job) => {
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/queues/welcome-email.ts]
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export type WelcomeEmailPayload = {
   email: string
@@ -55,7 +55,7 @@ Every producer follows the same shape:
 ::fw{id="vite:dev vite:build"}
 ```ts [src/server.ts]
 import { H3, readBody } from 'h3'
-import { runQueue } from '@vitehub/queue'
+import { runQueue } from '@vite-hub/queue'
 import type { WelcomeEmailPayload } from './welcome-email.queue'
 
 const app = new H3()
@@ -73,7 +73,7 @@ export default app
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/api/welcome.post.ts]
-import { runQueue } from '@vitehub/queue'
+import { runQueue } from '@vite-hub/queue'
 import type { WelcomeEmailPayload } from '../queues/welcome-email'
 
 export default defineEventHandler(async (event) => {
@@ -107,7 +107,7 @@ Keep provider-specific fields out of shared helper code unless the helper is int
 Use `deferQueue()` when the route does not need the queued result:
 
 ```ts
-import { deferQueue } from '@vitehub/queue'
+import { deferQueue } from '@vite-hub/queue'
 
 export default defineEventHandler(() => {
   deferQueue('welcome-email', {

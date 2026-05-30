@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/database",
+  "name": "@vite-hub/database",
   "version": "0.0.0",
   "description": "Vite-first Drizzle database primitives for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -41,7 +41,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/database build && vitest run",
+    "test": "pnpm --filter @vite-hub/database build && vitest run",
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {
@@ -61,7 +61,7 @@
     }
   },
   "devDependencies": {
-    "@vitehub/internal": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:",
     "publint": "^0.3.15",
     "tsdown": "^0.21.8",

@@ -13,7 +13,7 @@ Validate payloads before calling `runWorkflow()` so workflow definitions can foc
 ## Use a parser function
 
 ```ts
-import { validatePayload } from '@vitehub/workflow'
+import { validatePayload } from '@vite-hub/workflow'
 
 const payload = await validatePayload(rawPayload, (value) => {
   if (!value || typeof value !== 'object') {
@@ -29,7 +29,7 @@ const payload = await validatePayload(rawPayload, (value) => {
 `validatePayload()` and `readValidatedPayload()` accept schema objects with `parse()` or `safeParse()`.
 
 ```ts
-import { validatePayload } from '@vitehub/workflow'
+import { validatePayload } from '@vite-hub/workflow'
 import { z } from 'zod'
 
 const welcomePayload = z.object({
@@ -49,7 +49,7 @@ Framework helpers are still a good fit when they already expose body parsing. Re
 ::fw{id="vite:dev vite:build"}
 ```ts [src/server.ts]
 import { H3, readBody } from 'h3'
-import { runWorkflow, validatePayload } from '@vitehub/workflow'
+import { runWorkflow, validatePayload } from '@vite-hub/workflow'
 import { z } from 'zod'
 
 const welcomePayload = z.object({
@@ -73,7 +73,7 @@ export default app
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/api/welcome.post.ts]
-import { runWorkflow, validatePayload } from '@vitehub/workflow'
+import { runWorkflow, validatePayload } from '@vite-hub/workflow'
 import { z } from 'zod'
 
 const welcomePayload = z.object({

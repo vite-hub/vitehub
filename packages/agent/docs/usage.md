@@ -22,7 +22,7 @@ server/agents/support/reviewer.ts
 Use a default export for one agent per file:
 
 ```ts [server/agents/triager.ts]
-import { defineAgent } from '@vitehub/agent'
+import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
   instructions: 'Triage support requests.',
@@ -44,7 +44,7 @@ server/agents/docs/eval.ts
 ```
 
 ```ts [server/agents/support.eval.ts]
-import { defineEval, doesNotLeakSource, textContains } from '@vitehub/agent/eval'
+import { defineEval, doesNotLeakSource, textContains } from '@vite-hub/agent/eval'
 
 export default defineEval({
   scenarios: [
@@ -109,7 +109,7 @@ V1 variants only change `name`, `model`, and replacement `instructions`. Capabil
 Configure Agent Eval runner defaults through the Agent integration:
 
 ```ts [vite.config.ts]
-import { hubAgent } from '@vitehub/agent/vite'
+import { hubAgent } from '@vite-hub/agent/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
@@ -133,7 +133,7 @@ Routes are disabled by default. Enable them when another server needs to call an
 
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
-import { hubAgent } from '@vitehub/agent/vite'
+import { hubAgent } from '@vite-hub/agent/vite'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
@@ -151,7 +151,7 @@ export default defineConfig({
 ::fw{id="nitro:dev nitro:build"}
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
-  modules: ['@vitehub/agent/nitro'],
+  modules: ['@vite-hub/agent/nitro'],
   agent: {
     route: true,
   },
@@ -166,8 +166,8 @@ Pass a route string when `/agents/[agent]` does not fit your app.
 Use `usageTelemetry()` when a finished agent result should include normalized model usage and an accounting record.
 
 ```ts [server/agents/triager.ts]
-import { defineAgent } from '@vitehub/agent'
-import { usageTelemetry, vercelAiGatewayPricing } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { usageTelemetry, vercelAiGatewayPricing } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [
@@ -218,8 +218,8 @@ export default defineAgent({
 Use `transcribe()` to attach the Official Transcription Capability when an agent should receive audio message parts as text before the model or custom `run` handler executes. The capability appends transcript text to the same ViteHub message, so downstream code can keep reading text parts.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vitehub/agent'
-import { transcribe } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { transcribe } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [
@@ -236,8 +236,8 @@ Pass an AI SDK transcription `model` to let ViteHub call `experimental_transcrib
 Use `getTranscriptionResults()` inside a custom `run` handler when you need the structured records produced by the capability. It reads ViteHub invocation results; it does not poll or fetch provider transcription jobs.
 
 ```ts [server/agents/support.ts]
-import { defineAgent, getMessageText } from '@vitehub/agent'
-import { getTranscriptionResults, transcribe } from '@vitehub/agent/capabilities'
+import { defineAgent, getMessageText } from '@vite-hub/agent'
+import { getTranscriptionResults, transcribe } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [
@@ -292,8 +292,8 @@ export default defineAgent({
 Use `run` when the default model call is not the right shape.
 
 ```ts [server/agents/support.ts]
-import { defineAgent, type AgentToolDefinition } from '@vitehub/agent'
-import { getMessageText } from '@vitehub/agent'
+import { defineAgent, type AgentToolDefinition } from '@vite-hub/agent'
+import { getMessageText } from '@vite-hub/agent'
 
 const classifyTicket: AgentToolDefinition<{ message: string }, { queue: string; priority: string }> = {
   name: 'classifyTicket',
@@ -337,8 +337,8 @@ export default defineAgent({
 Chat is an Agent Capability. Attach it to the discovered Agent; hosts and DevTools call its `chat.message` trigger through the Agent Trigger API.
 
 ```ts [server/agents/triager.ts]
-import { defineAgent } from '@vitehub/agent'
-import { chat } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { chat } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [chat({ concurrency: 'queue' })],
@@ -349,8 +349,8 @@ export default defineAgent({
 Use the capability options to customize history.
 
 ```ts [server/agents/triager.ts]
-import { defineAgent } from '@vitehub/agent'
-import { chat } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { chat } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [chat({ concurrency: 'queue', history: { source: 'thread', maxMessages: 20 } })],
@@ -365,9 +365,9 @@ Use `defineAgent()` with a `workspace` option from a colocated agent config when
 Add `workspaceShell()` when the model should inspect the mounted files:
 
 ```ts [server/agents/data-sources/config.ts]
-import { defineAgent } from '@vitehub/agent'
-import { workspaceShell } from '@vitehub/agent/capabilities'
-import { source } from '@vitehub/workspace'
+import { defineAgent } from '@vite-hub/agent'
+import { workspaceShell } from '@vite-hub/agent/capabilities'
+import { source } from '@vite-hub/workspace'
 
 export default defineAgent({
   workspace: {
@@ -420,8 +420,8 @@ export default defineAgent({
 Workspace sources do not imply model tools. Replace older workspace agents that relied on root or adapter-level tools with explicit capabilities:
 
 ```diff
- import { defineAgent } from '@vitehub/agent'
-+import { workspaceShell } from '@vitehub/agent/capabilities'
+ import { defineAgent } from '@vite-hub/agent'
++import { workspaceShell } from '@vite-hub/agent/capabilities'
 
  export default defineAgent({
    workspace: { sources },
@@ -439,8 +439,8 @@ Use `workspaceShell({ mode: 'write' })` only with `workspace.mode: 'write'`. Raw
 Use `fetch()` when the model should call declared read-oriented HTTP tools. It supports JSON and text resources in v1:
 
 ```ts [server/agents/status/config.ts]
-import { defineAgent } from '@vitehub/agent'
-import { fetch } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { fetch } from '@vite-hub/agent/capabilities'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineAgent({
@@ -475,8 +475,8 @@ The fetch Capability is query-only. Use it for stable read-style `GET`, `HEAD`, 
 Memory stores expose scoped records through model tools. Configure at least one explicit scope value so records do not bleed across tenants, projects, users, or agents.
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vitehub/agent'
-import { memory, workspaceJsonlMemoryStore } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { memory, workspaceJsonlMemoryStore } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   capabilities: [

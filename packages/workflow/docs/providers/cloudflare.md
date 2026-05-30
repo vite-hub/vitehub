@@ -1,6 +1,6 @@
 ---
 title: Cloudflare
-description: Configure @vitehub/workflow for Cloudflare Workflows, generated Wrangler bindings, and workflow entrypoint classes.
+description: Configure @vite-hub/workflow for Cloudflare Workflows, generated Wrangler bindings, and workflow entrypoint classes.
 navigation.title: Cloudflare
 navigation.group: Providers
 navigation.order: 0
@@ -14,7 +14,7 @@ Cloudflare hosting selects the Cloudflare provider automatically. Register the i
   :::tabs-item{label="Vite" icon="i-simple-icons-vite" class="p-4"}
     ```ts [vite.config.ts]
     import { defineConfig } from 'vite'
-    import { hubWorkflow } from '@vitehub/workflow/vite'
+    import { hubWorkflow } from '@vite-hub/workflow/vite'
 
     export default defineConfig({
       plugins: [hubWorkflow()],
@@ -27,7 +27,7 @@ Cloudflare hosting selects the Cloudflare provider automatically. Register the i
     import { defineNitroConfig } from 'nitro/config'
 
     export default defineNitroConfig({
-      modules: ['@vitehub/workflow/nitro'],
+      modules: ['@vite-hub/workflow/nitro'],
     })
     ```
   :::

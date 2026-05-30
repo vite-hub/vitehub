@@ -10,7 +10,7 @@ import type {
   AgentToolSet,
 } from "../types.ts"
 import type { McpCapabilityOptions, McpClient, McpClientConfig, McpServerConfig } from "../mcp/types.ts"
-import type { WorkspaceName } from "@vitehub/workspace"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
 function normalizeMcpToolName(serverName: string, toolName: string) {
   return `mcp_${serverName}_${toolName}`.replace(/[^a-zA-Z0-9_]/g, "_")

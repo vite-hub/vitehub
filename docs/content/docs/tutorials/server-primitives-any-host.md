@@ -30,9 +30,9 @@ read.
 Install the packages you want to try:
 
 ```bash [Terminal]
-pnpm add @vitehub/env @vitehub/kv @vitehub/blob
-pnpm add @vitehub/queue @vitehub/workflow @vitehub/schedule
-pnpm add @vitehub/sandbox @vitehub/workspace
+pnpm add @vite-hub/env @vite-hub/kv @vite-hub/blob
+pnpm add @vite-hub/queue @vite-hub/workflow @vite-hub/schedule
+pnpm add @vite-hub/sandbox @vite-hub/workspace
 ```
 
 ::fw{id="vite:dev vite:build"}
@@ -40,7 +40,7 @@ DB is currently documented for Vite. Add it when you want Drizzle database
 definitions:
 
 ```bash [Terminal]
-pnpm add @vitehub/database drizzle-orm
+pnpm add @vite-hub/database drizzle-orm
 ```
 ::
 
@@ -51,15 +51,15 @@ Start with config. This is where provider choices belong.
 ::fw{id="vite:dev vite:build"}
 ::code-tree-intersection{default}
 ```ts [vite.config.ts]
-import { hubBlob } from '@vitehub/blob/vite'
-import { hubDb } from '@vitehub/database/vite'
-import { env, envVite } from '@vitehub/env/vite'
-import { hubKv } from '@vitehub/kv/vite'
-import { hubQueue } from '@vitehub/queue/vite'
-import { hubSandbox } from '@vitehub/sandbox/vite'
-import { hubSchedule } from '@vitehub/schedule/vite'
-import { hubWorkflow } from '@vitehub/workflow/vite'
-import { hubWorkspace } from '@vitehub/workspace/vite'
+import { hubBlob } from '@vite-hub/blob/vite'
+import { hubDb } from '@vite-hub/database/vite'
+import { env, envVite } from '@vite-hub/env/vite'
+import { hubKv } from '@vite-hub/kv/vite'
+import { hubQueue } from '@vite-hub/queue/vite'
+import { hubSandbox } from '@vite-hub/sandbox/vite'
+import { hubSchedule } from '@vite-hub/schedule/vite'
+import { hubWorkflow } from '@vite-hub/workflow/vite'
+import { hubWorkspace } from '@vite-hub/workspace/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
@@ -94,19 +94,19 @@ export default defineConfig({
 ::fw{id="nitro:dev nitro:build"}
 ::code-tree-intersection{default}
 ```ts [nitro.config.ts]
-import { env, envNitro } from '@vitehub/env/nitro'
+import { env, envNitro } from '@vite-hub/env/nitro'
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
   modules: [
     envNitro(),
-    '@vitehub/kv/nitro',
-    '@vitehub/blob/nitro',
-    '@vitehub/queue/nitro',
-    '@vitehub/workflow/nitro',
-    '@vitehub/schedule/nitro',
-    '@vitehub/sandbox/nitro',
-    '@vitehub/workspace/nitro',
+    '@vite-hub/kv/nitro',
+    '@vite-hub/blob/nitro',
+    '@vite-hub/queue/nitro',
+    '@vite-hub/workflow/nitro',
+    '@vite-hub/schedule/nitro',
+    '@vite-hub/sandbox/nitro',
+    '@vite-hub/workspace/nitro',
   ],
   env: {
     auth: {
@@ -172,7 +172,7 @@ Use KV for settings, flags, cache entries, and small JSON-like records.
 
 ::code-tree-intersection
 ```ts [server/api/settings.put.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 import { defineEventHandler, readBody } from 'h3'
 
 export default defineEventHandler(async (event) => {
@@ -185,7 +185,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/settings.get.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 import { defineEventHandler } from 'h3'
 
 export default defineEventHandler(async () => {
@@ -205,7 +205,7 @@ Use Blob when the data is a file, an upload, a generated asset, or a stream.
 
 ::code-tree-intersection
 ```ts [server/api/notes.put.ts]
-import { blob } from '@vitehub/blob'
+import { blob } from '@vite-hub/blob'
 import { defineEventHandler, readBody } from 'h3'
 
 export default defineEventHandler(async (event) => {
@@ -218,7 +218,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/notes.get.ts]
-import { blob } from '@vitehub/blob'
+import { blob } from '@vite-hub/blob'
 import { defineEventHandler } from 'h3'
 
 export default defineEventHandler(async () => {
@@ -237,7 +237,7 @@ Use DB when the data has tables, relations, joins, or history.
 ::fw{id="vite:dev vite:build"}
 ::code-tree-intersection
 ```ts [server/databases/config.ts]
-import { defineDatabase } from '@vitehub/database'
+import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 const notes = sqliteTable('notes', {
@@ -251,7 +251,7 @@ export default defineDatabase({
 ```
 
 ```ts [server/api/notes.post.ts]
-import { db, schema } from '@vitehub/database/drizzle'
+import { db, schema } from '@vite-hub/database/drizzle'
 import { defineEventHandler, readBody } from 'h3'
 
 export default defineEventHandler(async (event) => {
@@ -278,7 +278,7 @@ Use Queue when the request should return before the work finishes.
 ::fw{id="vite:dev vite:build"}
 ::code-tree-intersection
 ```ts [src/welcome-email.queue.ts]
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export type WelcomeEmailPayload = {
   email: string
@@ -294,7 +294,7 @@ export default defineQueue<WelcomeEmailPayload>(async (job) => {
 ::fw{id="nitro:dev nitro:build"}
 ::code-tree-intersection
 ```ts [server/queues/welcome-email.ts]
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export type WelcomeEmailPayload = {
   email: string
@@ -309,7 +309,7 @@ export default defineQueue<WelcomeEmailPayload>(async (job) => {
 
 ::code-tree-intersection
 ```ts [server/api/signup.post.ts]
-import { runQueue } from '@vitehub/queue'
+import { runQueue } from '@vite-hub/queue'
 import { defineEventHandler, readBody } from 'h3'
 
 export default defineEventHandler(async (event) => {
@@ -332,7 +332,7 @@ want to inspect later.
 ::fw{id="vite:dev vite:build"}
 ::code-tree-intersection
 ```ts [src/welcome.workflow.ts]
-import { defineWorkflow } from '@vitehub/workflow'
+import { defineWorkflow } from '@vite-hub/workflow'
 
 export type WelcomePayload = {
   email: string
@@ -351,7 +351,7 @@ export default defineWorkflow<WelcomePayload>(async ({ id, payload }) => {
 ::fw{id="nitro:dev nitro:build"}
 ::code-tree-intersection
 ```ts [server/workflows/welcome.ts]
-import { defineWorkflow } from '@vitehub/workflow'
+import { defineWorkflow } from '@vite-hub/workflow'
 
 export type WelcomePayload = {
   email: string
@@ -369,7 +369,7 @@ export default defineWorkflow<WelcomePayload>(async ({ id, payload }) => {
 
 ::code-tree-intersection
 ```ts [server/api/welcome.post.ts]
-import { runWorkflow } from '@vitehub/workflow'
+import { runWorkflow } from '@vite-hub/workflow'
 import { defineEventHandler, readBody } from 'h3'
 
 export default defineEventHandler(async (event) => {
@@ -391,7 +391,7 @@ maintenance jobs.
 ::fw{id="vite:dev vite:build"}
 ::code-tree-intersection
 ```ts [src/daily-report.schedule.ts]
-import { defineSchedule } from '@vitehub/schedule'
+import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 9 * * *',
@@ -406,7 +406,7 @@ export default defineSchedule({
 ::fw{id="nitro:dev nitro:build"}
 ::code-tree-intersection
 ```ts [server/schedules/daily-report.ts]
-import { defineSchedule } from '@vitehub/schedule'
+import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 9 * * *',
@@ -429,7 +429,7 @@ for transforms, code execution, and agent tools that need a stronger boundary.
 ::fw{id="vite:dev vite:build"}
 ::code-tree-intersection
 ```ts [src/release-notes.sandbox.ts]
-import { defineSandbox } from '@vitehub/sandbox'
+import { defineSandbox } from '@vite-hub/sandbox'
 
 export default defineSandbox(async (payload: { notes?: string } = {}) => {
   const items = (payload.notes || '')
@@ -449,7 +449,7 @@ export default defineSandbox(async (payload: { notes?: string } = {}) => {
 ::fw{id="nitro:dev nitro:build"}
 ::code-tree-intersection
 ```ts [server/sandboxes/release-notes.ts]
-import { defineSandbox } from '@vitehub/sandbox'
+import { defineSandbox } from '@vite-hub/sandbox'
 
 export default defineSandbox(async (payload: { notes?: string } = {}) => {
   const items = (payload.notes || '')
@@ -468,7 +468,7 @@ export default defineSandbox(async (payload: { notes?: string } = {}) => {
 
 ::code-tree-intersection
 ```ts [server/api/release-notes.post.ts]
-import { runSandbox } from '@vitehub/sandbox'
+import { runSandbox } from '@vite-hub/sandbox'
 import { createError, defineEventHandler, readBody } from 'h3'
 
 export default defineEventHandler(async (event) => {
@@ -494,7 +494,7 @@ generated artifacts, or files an Agent can inspect.
 ::fw{id="vite:dev vite:build"}
 ::code-tree-intersection
 ```ts [src/docs.workspace.ts]
-import { defineWorkspace, source } from '@vitehub/workspace'
+import { defineWorkspace, source } from '@vite-hub/workspace'
 
 export default defineWorkspace({
   sources: {
@@ -508,7 +508,7 @@ export default defineWorkspace({
 ::fw{id="nitro:dev nitro:build"}
 ::code-tree-intersection
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace, source } from '@vitehub/workspace'
+import { defineWorkspace, source } from '@vite-hub/workspace'
 
 export default defineWorkspace({
   sources: {
@@ -521,7 +521,7 @@ export default defineWorkspace({
 
 ::code-tree-intersection
 ```ts [server/api/docs.get.ts]
-import { useWorkspace } from '@vitehub/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
 import { defineEventHandler } from 'h3'
 
 export default defineEventHandler(async () => {

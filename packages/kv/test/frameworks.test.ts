@@ -110,7 +110,7 @@ describe("hubKv", () => {
     const { hubKv } = await import("../src/vite.ts")
     const plugin = hubKv({ driver: "fs-lite", base: ".cache/kv" })
 
-    expect(plugin.nitro.name).toBe("@vitehub/kv")
+    expect(plugin.nitro.name).toBe("@vite-hub/kv")
     expect(plugin.api.getConfig()).toEqual({
       kv: {
         store: {
@@ -186,7 +186,7 @@ describe("Nitro module", () => {
         namespaceId: "kv-namespace",
       },
     })
-    expect(nitro.options.alias["@vitehub/kv"]).toContain("/packages/kv/src/index.ts")
+    expect(nitro.options.alias["@vite-hub/kv"]).toContain("/packages/kv/src/index.ts")
     expect(nitro.options.plugins).toHaveLength(1)
     expect(nitro.options.cloudflare).toMatchObject({
       wrangler: {
@@ -201,13 +201,13 @@ describe("Nitro module", () => {
   it("rejects direct Vite plugin configuration with the Nitro module", async () => {
     const nitro = createNitroStub({
       vite: {
-        plugins: [{ name: "@vitehub/kv/vite" }],
+        plugins: [{ name: "@vite-hub/kv/vite" }],
       },
     })
     const module = (await import("../src/nitro/module.ts")).default
 
     await expect(module.setup(nitro as never)).rejects.toThrow(
-      "[vitehub] Do not configure @vitehub/kv/vite when using @vitehub/kv/nitro.",
+      "[vitehub] Do not configure @vite-hub/kv/vite when using @vite-hub/kv/nitro.",
     )
   })
 
@@ -296,7 +296,7 @@ describe("Nuxt module", () => {
     await module(undefined, nuxt as never)
     await module(undefined, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vitehub/kv/nitro"])
+    expect(nuxt.options.nitro!.modules).toEqual(["@vite-hub/kv/nitro"])
     expect(nuxt.options.nitro!.imports).toBe(false)
     expect(nuxt.options.nitro!.kv).toEqual({
       driver: "upstash",
@@ -309,7 +309,7 @@ describe("Nuxt module", () => {
 
     await nuxt.runHook("nitro:config", nitroConfig)
 
-    expect(nitroConfig.modules).toEqual(["@vitehub/kv/nitro"])
+    expect(nitroConfig.modules).toEqual(["@vite-hub/kv/nitro"])
     expect(nitroConfig.kv).toEqual({
       driver: "upstash",
     })
@@ -322,12 +322,12 @@ describe("Nuxt module", () => {
     ) => Promise<void>
     const nuxt = createNuxtHarness({
       vite: {
-        plugins: [{ name: "@vitehub/kv/vite" }],
+        plugins: [{ name: "@vite-hub/kv/vite" }],
       },
     })
 
     await expect(module(undefined, nuxt as never)).rejects.toThrow(
-      "[vitehub] Do not configure @vitehub/kv/vite when using @vitehub/kv/nuxt.",
+      "[vitehub] Do not configure @vite-hub/kv/vite when using @vite-hub/kv/nuxt.",
     )
   })
 
@@ -338,12 +338,12 @@ describe("Nuxt module", () => {
     ) => Promise<void>
     const nuxt = createNuxtHarness({
       nitro: {
-        modules: ["@vitehub/kv/nitro"],
+        modules: ["@vite-hub/kv/nitro"],
       },
     })
 
     await expect(module(undefined, nuxt as never)).rejects.toThrow(
-      "[vitehub] Do not configure @vitehub/kv/nitro when using @vitehub/kv/nuxt.",
+      "[vitehub] Do not configure @vite-hub/kv/nitro when using @vite-hub/kv/nuxt.",
     )
   })
 
@@ -360,7 +360,7 @@ describe("Nuxt module", () => {
 
     await module(undefined, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vitehub/kv/nitro"])
+    expect(nuxt.options.nitro!.modules).toEqual(["@vite-hub/kv/nitro"])
     expect(nuxt.options.nitro!.kv).toBeUndefined()
 
     const nitroConfig: NitroHarnessOptions = {
@@ -369,7 +369,7 @@ describe("Nuxt module", () => {
 
     await nuxt.runHook("nitro:config", nitroConfig)
 
-    expect(nitroConfig.modules).toEqual(["@vitehub/kv/nitro"])
+    expect(nitroConfig.modules).toEqual(["@vite-hub/kv/nitro"])
     expect(nitroConfig.kv).toBeUndefined()
   })
 
@@ -386,7 +386,7 @@ describe("Nuxt module", () => {
 
     await module({ driver: "fs-lite", base: ".cache/kv" }, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vitehub/kv/nitro"])
+    expect(nuxt.options.nitro!.modules).toEqual(["@vite-hub/kv/nitro"])
     expect(nuxt.options.nitro!.kv).toEqual({
       base: ".cache/kv",
       driver: "fs-lite",

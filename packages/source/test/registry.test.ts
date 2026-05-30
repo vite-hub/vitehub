@@ -14,7 +14,7 @@ afterEach(() => {
   clearSources()
 })
 
-describe("@vitehub/source registry", () => {
+describe("@vite-hub/source registry", () => {
   it("registers sources and reads through useSource", async () => {
     registerSources(defineSources({
       docs: file({ content: "# Docs\n", workspacePath: "README.md" }),

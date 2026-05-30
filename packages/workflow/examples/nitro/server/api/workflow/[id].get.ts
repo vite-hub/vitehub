@@ -1,4 +1,4 @@
-import { getWorkflowRun } from "@vitehub/workflow"
+import { getWorkflowRun } from "@vite-hub/workflow"
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id")

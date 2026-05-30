@@ -1,4 +1,4 @@
-import { encodeNameHex } from "@vitehub/internal/integrations/hex"
+import { encodeNameHex } from "@vite-hub/internal/integrations/hex"
 
 import type { DiscoveredWorkflowDefinition } from "../types.ts"
 

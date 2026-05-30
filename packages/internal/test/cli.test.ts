@@ -6,7 +6,7 @@ describe("CLI primitives", () => {
   it("collects package-contributed command namespaces", async () => {
     const namespaces = await collectViteHubCliNamespaces([
       {
-        name: "@vitehub/agent/vite",
+        name: "@vite-hub/agent/vite",
         vitehub: {
           cli: {
             namespaces: [{

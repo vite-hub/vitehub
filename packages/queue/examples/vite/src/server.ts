@@ -1,6 +1,6 @@
 import { H3, readBody } from "h3"
 
-import { runQueue } from "@vitehub/queue"
+import { runQueue } from "@vite-hub/queue"
 import type { WelcomeEmailPayload } from "./welcome-email.queue"
 
 const app = new H3()

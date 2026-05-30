@@ -24,7 +24,7 @@ declare global {
   }
 }
 
-describe("@vitehub/source types", () => {
+describe("@vite-hub/source types", () => {
   it("types registered source names and keys", async () => {
     const staticSource = file({ content: "# Docs\n", workspacePath: "README.md" })
     expectTypeOf(source.file({ content: "# Docs\n", workspacePath: "README.md" })).toMatchTypeOf<Source<"README.md">>()

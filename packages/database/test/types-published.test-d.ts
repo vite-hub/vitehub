@@ -1,4 +1,4 @@
-import { db, databases, schema } from "@vitehub/database/drizzle"
+import { db, databases, schema } from "@vite-hub/database/drizzle"
 
 import { describe, expectTypeOf, it } from "vitest"
 

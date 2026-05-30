@@ -1,7 +1,7 @@
 import { defu } from "defu"
 import { resolve } from "node:path"
 
-import { readEnv, trimmed } from "@vitehub/internal/env"
+import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import { WorkspaceError } from "../core/errors.ts"
 import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"

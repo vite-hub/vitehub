@@ -1,6 +1,6 @@
 ---
 title: OpenWorkflow
-description: Configure @vitehub/workflow for Docker and Node deployments with OpenWorkflow and Postgres.
+description: Configure @vite-hub/workflow for Docker and Node deployments with OpenWorkflow and Postgres.
 navigation.title: OpenWorkflow
 navigation.group: Providers
 navigation.order: 2
@@ -20,7 +20,7 @@ Configure Workflow directly:
 
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
-  modules: ['@vitehub/workflow/nitro'],
+  modules: ['@vite-hub/workflow/nitro'],
   preset: 'node-server',
   workflow: {
     provider: 'openworkflow',
@@ -37,14 +37,14 @@ export default defineNitroConfig({
 ```
 
 ```ts [vite.config.ts]
-import { hubWorkflow } from '@vitehub/workflow/vite'
+import { hubWorkflow } from '@vite-hub/workflow/vite'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
     hubWorkflow(),
-    nitro({ modules: ['@vitehub/workflow/nitro'] }),
+    nitro({ modules: ['@vite-hub/workflow/nitro'] }),
   ],
 })
 ```
@@ -63,7 +63,7 @@ Create a small worker entry in the application that imports the generated workfl
 
 ```ts [worker.ts]
 import workflowRegistry from '#vitehub/workflow/registry'
-import { startOpenWorkflowWorker } from '@vitehub/workflow/runtime/openworkflow-worker'
+import { startOpenWorkflowWorker } from '@vite-hub/workflow/runtime/openworkflow-worker'
 
 await startOpenWorkflowWorker({
   config: {
@@ -114,10 +114,10 @@ services:
 
 OpenWorkflow runs migrations on connect by default. Set `postgres.runMigrations: false` when migrations are managed separately.
 
-Use `openWorkflowEnv()` from `@vitehub/env/nitro` if the app wants runtime env diagnostics for these variables:
+Use `openWorkflowEnv()` from `@vite-hub/env/nitro` if the app wants runtime env diagnostics for these variables:
 
 ```ts
-import { env, openWorkflowEnv } from '@vitehub/env/nitro'
+import { env, openWorkflowEnv } from '@vite-hub/env/nitro'
 
 env: {
   databaseUrl: env({ secret: true, source: env.source('DATABASE_URL') }),

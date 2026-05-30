@@ -52,13 +52,13 @@ async function writeWorkflowNitroConfig(rootDir: string, options: {
 } = {}) {
   const imports = options.env
     ? [
-        `import { env } from "@vitehub/env/nitro"`,
+        `import { env } from "@vite-hub/env/nitro"`,
         `import { defineNitroConfig } from "nitro/config"`,
       ]
     : [`import { defineNitroConfig } from "nitro/config"`]
   const modules = options.env
-    ? `["@vitehub/env/nitro", "@vitehub/workflow/nitro"]`
-    : `["@vitehub/workflow/nitro"]`
+    ? `["@vite-hub/env/nitro", "@vite-hub/workflow/nitro"]`
+    : `["@vite-hub/workflow/nitro"]`
   const workflow = options.omitWorkflowOptions
     ? []
     : [`  workflow: ${options.provider ? `{ provider: "${options.provider}" }` : "{}"},`]
@@ -160,7 +160,7 @@ describe("Vite workflow provider outputs", () => {
     })
   }, buildOutputTestTimeout)
 
-  it("applies @vitehub/env Runtime Env in Nitro Cloudflare workflows", async () => {
+  it("applies @vite-hub/env Runtime Env in Nitro Cloudflare workflows", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-env-")
     await writeWorkflowNitroConfig(rootDir, { env: true })
 

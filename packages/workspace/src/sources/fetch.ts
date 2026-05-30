@@ -1,4 +1,4 @@
-import { executeHttpRequest } from "@vitehub/internal/http-request"
+import { executeHttpRequest } from "@vite-hub/internal/http-request"
 import { posix } from "node:path"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"

@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/kv",
+  "name": "@vite-hub/kv",
   "version": "0.0.0",
   "description": "Vite-first key-value storage primitives and Nitro/Nuxt integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -67,7 +67,7 @@
   },
   "devDependencies": {
     "@nuxt/schema": "catalog:",
-    "@vitehub/internal": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "nitro": "catalog:",
     "ofetch": "catalog:",
     "publint": "^0.3.15",

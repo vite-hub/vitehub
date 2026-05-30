@@ -1,4 +1,4 @@
-import { getCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { useRuntimeConfig } from "nitro/runtime-config"
 
 import { SecretEnv } from "../secret.ts"

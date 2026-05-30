@@ -36,7 +36,7 @@ hubAgent({ route: true })
 ::fw{id="nitro:dev nitro:build"}
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
-  modules: ['@vitehub/agent/nitro'],
+  modules: ['@vite-hub/agent/nitro'],
   agent: { route: true },
 })
 ```
@@ -68,6 +68,6 @@ Fix: add `chat()` to `defineAgent({ capabilities })` so the Agent exposes `chat.
 
 ## Cloudflare native routing fails
 
-Cause: the app uses `@vitehub/agent/cloudflare` without Cloudflare's `agents` runtime package.
+Cause: the app uses `@vite-hub/agent/cloudflare` without Cloudflare's `agents` runtime package.
 
 Fix: install the Cloudflare package in the app that calls the native router.

@@ -1,4 +1,4 @@
-import { createCloudflareHostedWorker } from "@vitehub/internal/runtime/cloudflare-hosted"
+import { createCloudflareHostedWorker } from "@vite-hub/internal/runtime/cloudflare-hosted"
 
 import type { BlobApp } from "./_app.ts"
 import { clearActiveCloudflareEnv, runWithActiveCloudflareEnv, setBlobRuntimeConfig } from "./state.ts"

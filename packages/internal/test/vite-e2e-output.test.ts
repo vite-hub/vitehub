@@ -63,7 +63,7 @@ afterAll(async () => {
 
 beforeAll(async () => {
   for (const name of workspacePackages) {
-    await execFileAsync("pnpm", ["--filter", `@vitehub/${name}`, "build"], {
+    await execFileAsync("pnpm", ["--filter", `@vite-hub/${name}`, "build"], {
       cwd: repoRoot,
       env: process.env,
       maxBuffer: execMaxBuffer,

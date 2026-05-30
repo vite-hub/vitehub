@@ -1,6 +1,6 @@
 # Shell Package
 
-Shell Package names ownership boundaries for `@vitehub/shell`.
+Shell Package names ownership boundaries for `@vite-hub/shell`.
 
 ## Language
 

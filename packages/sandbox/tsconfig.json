@@ -14,13 +14,13 @@
       "vitehub-sandbox-provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],
-      "@vitehub/sandbox/runtime/provider-loader": [
+      "@vite-hub/sandbox/runtime/provider-loader": [
         "packages/sandbox/src/runtime/provider-loader.ts"
       ],
       "#vitehub-sandbox-registry": [
         "packages/sandbox/src/runtime/empty-registry.ts"
       ],
-      "@vitehub/internal/*": [
+      "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ]
     },

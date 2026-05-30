@@ -34,7 +34,7 @@ import type {
   MaybePromise,
 } from "./types.ts"
 import type { Message, MessagePart } from "./messages.ts"
-import type { WorkspaceName } from "@vitehub/workspace"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
 export interface AiSdkAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

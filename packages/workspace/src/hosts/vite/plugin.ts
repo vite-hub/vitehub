@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 
-import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vitehub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
 
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
@@ -13,7 +13,7 @@ import type { HmrContext, Plugin, ResolvedConfig, ViteDevServer } from "vite"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
 import type { WorkspaceModuleOptions } from "../../core/types.ts"
 
-const WORKSPACE_PACKAGE_NAME = "@vitehub/workspace"
+const WORKSPACE_PACKAGE_NAME = "@vite-hub/workspace"
 const WORKSPACES_ID = "#vitehub/workspaces"
 const WORKSPACE_PREFIX = "#vitehub/workspaces/"
 const WORKSPACE_ASSETS_REGISTRY_ID = "#vitehub-workspace-assets-registry"
@@ -66,7 +66,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   }
 
   return {
-    name: "@vitehub/workspace/vite",
+    name: "@vite-hub/workspace/vite",
     api: {
       getWorkspaces: () => manifest.workspaces,
     },

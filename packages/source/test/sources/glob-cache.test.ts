@@ -24,7 +24,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
-describe("@vitehub/source glob source cache", () => {
+describe("@vite-hub/source glob source cache", () => {
   it("reuses a prepared glob listing for item reads and metadata", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })

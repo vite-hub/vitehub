@@ -1,5 +1,5 @@
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
-import { createVercelHostedServer } from "@vitehub/internal/runtime/vercel-hosted"
+import { createVercelHostedServer } from "@vite-hub/internal/runtime/vercel-hosted"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 

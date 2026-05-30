@@ -84,7 +84,7 @@ describe("showcase examples", () => {
     expect(packageFile!.code).not.toContain("\"private\": true");
     expect(packageFile!.code).not.toContain("workspace:*");
     expect(packageFile!.code).not.toContain("catalog:");
-    expect(packageFile!.code).toContain("\"@vitehub/kv\": \"0.0.0\"");
+    expect(packageFile!.code).toContain("\"@vite-hub/kv\": \"0.0.0\"");
     expect(packageFile!.code).toContain("\"nitro\": \"3.0.260311-beta\"");
   });
 

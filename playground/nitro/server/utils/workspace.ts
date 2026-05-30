@@ -1,4 +1,4 @@
-import { registerWorkspace } from "@vitehub/workspace/test"
+import { registerWorkspace } from "@vite-hub/workspace/test"
 import docsWorkspace from "../workspaces/docs"
 
 let registered = false

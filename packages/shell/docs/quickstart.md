@@ -14,7 +14,7 @@ This guide creates a shell runtime that can inspect workspace files.
 ### Install Shell
 
 ```bash
-pnpm add @vitehub/shell
+pnpm add @vite-hub/shell
 ```
 
 ### Provide a workspace
@@ -47,12 +47,12 @@ const workspace = {
 ```ts
 import {
   createShellRuntime,
-} from '@vitehub/shell'
-import { createJustBashProvider } from '@vitehub/shell/providers/just-bash'
+} from '@vite-hub/shell'
+import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
 import {
   createReadonlyWorkspaceFs,
   workspaceMountPoint,
-} from '@vitehub/shell/workspace'
+} from '@vite-hub/shell/workspace'
 
 const runtime = createShellRuntime({
   provider: createJustBashProvider({

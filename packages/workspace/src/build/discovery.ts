@@ -8,11 +8,11 @@ import {
   discoverDefinitions,
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
-} from "@vitehub/internal/definition-catalog"
+} from "@vite-hub/internal/definition-catalog"
 
 import { workspaceConfigFileNames, workspaceConfigPattern, workspaceSuffixPattern } from "./workspace-config.ts"
 
-import type { DefinitionCatalogSource } from "@vitehub/internal/definition-catalog"
+import type { DefinitionCatalogSource } from "@vite-hub/internal/definition-catalog"
 
 export interface DiscoveredWorkspaceDefinition {
   handler: string

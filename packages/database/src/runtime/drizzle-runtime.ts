@@ -38,7 +38,7 @@ function createMissingDatabaseProxy<TSchema extends Record<string, unknown>>(nam
   return new Proxy({} as RuntimeDrizzleDatabase<TSchema>, {
     get() {
       throw new Error(name === "default"
-        ? "[vitehub] `@vitehub/database/drizzle` requires `hubDb()` and `db !== false`."
+        ? "[vitehub] `@vite-hub/database/drizzle` requires `hubDb()` and `db !== false`."
         : `[vitehub] Database "${name}" is not configured.`)
     },
   }) as RuntimeDrizzleDatabase<TSchema>

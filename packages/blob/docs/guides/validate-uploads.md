@@ -14,7 +14,7 @@ Validate user uploads before they cross the storage boundary. The route should p
 
 ```ts
 import { createError, defineEventHandler, readFormData } from 'h3'
-import { blob, ensureBlob } from '@vitehub/blob'
+import { blob, ensureBlob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const form = await readFormData(event)

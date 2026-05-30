@@ -14,10 +14,10 @@ The examples use the local `fs-lite` driver so you can verify the app before cho
 ::code-collapse
 
 ```txt [Prompt]
-Set up @vitehub/kv in this app.
+Set up @vite-hub/kv in this app.
 
-- Install @vitehub/kv
-- Register hubKv(), @vitehub/kv/nitro, or @vitehub/kv/nuxt
+- Install @vite-hub/kv
+- Register hubKv(), @vite-hub/kv/nitro, or @vite-hub/kv/nuxt
 - Configure kv.driver as fs-lite for local development
 - Add routes that call kv.set('settings', value) and kv.get('settings')
 - Return the stored value as JSON
@@ -32,7 +32,7 @@ Docs: /docs/vite/kv/quickstart, /docs/nitro/kv/quickstart, or /docs/nuxt/kv/quic
 ### Install KV
 
 ```bash
-pnpm add @vitehub/kv
+pnpm add @vite-hub/kv
 ```
 
 ### Register the integration
@@ -42,7 +42,7 @@ Register the Vite plugin and choose the local driver:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubKv } from '@vitehub/kv/vite'
+import { hubKv } from '@vite-hub/kv/vite'
 
 export default defineConfig({
   plugins: [hubKv()],
@@ -61,7 +61,7 @@ Register the Nitro module and choose the local driver:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/kv/nitro'],
+  modules: ['@vite-hub/kv/nitro'],
   kv: {
     driver: 'fs-lite',
     base: '.data/kv',
@@ -75,7 +75,7 @@ Register the Nuxt module and choose the local driver:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vitehub/kv/nuxt'],
+  modules: ['@vite-hub/kv/nuxt'],
   kv: {
     driver: 'fs-lite',
     base: '.data/kv',
@@ -91,7 +91,7 @@ Use the `kv` handle from server code that runs with the Nitro storage mount:
 
 ```ts [src/main.ts]
 import { H3, serve } from 'h3'
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 const app = new H3()
   .put('/api/settings', async () => {
@@ -110,7 +110,7 @@ serve(app)
 Add a route that writes the value:
 
 ```ts [server/api/settings.put.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
   await kv.set('settings', { enabled: true })
@@ -125,7 +125,7 @@ export default defineEventHandler(async () => {
 Add a route that reads it back:
 
 ```ts [server/api/settings.get.ts]
-import { kv } from '@vitehub/kv'
+import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
   return {

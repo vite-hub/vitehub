@@ -22,7 +22,7 @@ async function writeDefinition(rootDir: string, path: string, table = "notes", o
   const file = join(rootDir, path)
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, [
-    "import { defineDatabase } from '@vitehub/database'",
+    "import { defineDatabase } from '@vite-hub/database'",
     "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
     `const ${table} = sqliteTable('${table}', { title: text('title') })`,
     "export default defineDatabase({",
@@ -195,7 +195,7 @@ describe("hubDb", () => {
     }) => Promise<void>
 
     await writeFile(definition, [
-      "import { defineDatabase } from '@vitehub/database'",
+      "import { defineDatabase } from '@vite-hub/database'",
       "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
       "const tasks = sqliteTable('tasks', { title: text('title') })",
       "export default defineDatabase({ tables: { tasks } })",

@@ -1,4 +1,4 @@
-import { readRequestPayload, runSandbox } from "@vitehub/sandbox"
+import { readRequestPayload, runSandbox } from "@vite-hub/sandbox"
 import type { ReleaseNotesPayload } from "../sandboxes/release-notes"
 
 export default defineEventHandler(async (event) => {

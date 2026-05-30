@@ -1,5 +1,5 @@
-import { defineAgent } from "@vitehub/agent"
-import { chat } from "@vitehub/agent/capabilities"
+import { defineAgent } from "@vite-hub/agent"
+import { chat } from "@vite-hub/agent/capabilities"
 
 export default defineAgent({
   capabilities: [chat({ concurrency: "queue", history: { maxMessages: 12, source: "thread" } })],

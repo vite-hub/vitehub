@@ -1,4 +1,4 @@
-import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
+import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
 import type { AgentEvalOptions } from "../types.ts"
 

@@ -13,7 +13,7 @@ import {
   registerDefinition,
   resolveDefinitionScanRoots,
   sortDefinitions,
-} from "@vitehub/internal/definition-catalog"
+} from "@vite-hub/internal/definition-catalog"
 
 import type { DiscoveredWorkflowDefinition } from "./types.ts"
 

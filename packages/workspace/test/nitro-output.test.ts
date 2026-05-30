@@ -77,7 +77,7 @@ async function readGeneratedJavaScript(outputDir: string): Promise<string> {
 beforeAll(async () => {
   await cleanupPlayground()
   for (const name of playgroundNitroPackages) {
-    await execFileAsync("pnpm", ["--filter", `@vitehub/${name}`, "build"], {
+    await execFileAsync("pnpm", ["--filter", `@vite-hub/${name}`, "build"], {
       cwd: repoRoot,
       env: process.env,
       maxBuffer: 1024 * 1024 * 16,

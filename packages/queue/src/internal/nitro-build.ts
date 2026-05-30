@@ -3,8 +3,8 @@ import { relative, resolve } from "node:path"
 
 import { build as bundle } from "esbuild"
 
-import { computePackageDir, createImportPath, generatedDirSegments, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
-import { createNodeFunctionConfig } from "@vitehub/internal/build/vercel-config"
+import { computePackageDir, createImportPath, generatedDirSegments, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
+import { createNodeFunctionConfig } from "@vite-hub/internal/build/vercel-config"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { discoverQueueDefinitions } from "../discovery.ts"

@@ -7,14 +7,14 @@ icon: i-lucide-files
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/blob` gives Vite and Nitro apps one server-side Blob API for local files, Cloudflare R2, and Vercel Blob.
+`@vite-hub/blob` gives Vite and Nitro apps one server-side Blob API for local files, Cloudflare R2, and Vercel Blob.
 
 Use Blob when routes need to accept user files, write generated assets, list stored objects, or stream a stored file back through the application.
 
 ::code-group
 ```ts [server/api/avatar.put.ts]
 import { createError, defineEventHandler, readFormData } from 'h3'
-import { blob, ensureBlob } from '@vitehub/blob'
+import { blob, ensureBlob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const form = await readFormData(event)
@@ -98,8 +98,8 @@ Object storage APIs differ by platform. Blob keeps route code focused on pathnam
 
 The same shape works across supported runtimes:
 
-1. Install `@vitehub/blob`.
-2. Register `hubBlob()` for Vite or `@vitehub/blob/nitro` for Nitro.
+1. Install `@vite-hub/blob`.
+2. Register `hubBlob()` for Vite or `@vite-hub/blob/nitro` for Nitro.
 3. Choose a storage driver or let hosting inference pick one.
 4. Use `blob.put()`, `blob.list()`, `blob.get()`, `blob.head()`, `blob.del()`, and `blob.serve()` from server routes.
 5. Move provider-specific tokens, bindings, and bucket names into config or environment.

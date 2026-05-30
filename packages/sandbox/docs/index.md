@@ -7,13 +7,13 @@ icon: i-lucide-terminal-square
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/sandbox` gives Vite and Nitro apps one way to define isolated work, call it from your server code, and run it through Cloudflare or Vercel.
+`@vite-hub/sandbox` gives Vite and Nitro apps one way to define isolated work, call it from your server code, and run it through Cloudflare or Vercel.
 
 Use Sandbox when the code should not run inside the request handler that received the user request. The application keeps a small, typed call site. The provider handles the isolated runtime.
 
 ::code-group
 ```ts [server/api/release-notes.post.ts]
-import { readRequestPayload, runSandbox } from '@vitehub/sandbox'
+import { readRequestPayload, runSandbox } from '@vite-hub/sandbox'
 
 export default defineEventHandler(async (event) => {
   const payload = await readRequestPayload(event, { notes: '' })
@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/sandboxes/release-notes.ts]
-import { defineSandbox } from '@vitehub/sandbox'
+import { defineSandbox } from '@vite-hub/sandbox'
 
 export default defineSandbox(async (payload: { notes?: string } = {}) => {
   const items = (payload.notes || '')

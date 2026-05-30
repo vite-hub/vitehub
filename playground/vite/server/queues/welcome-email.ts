@@ -1,4 +1,4 @@
-import { defineQueue } from "@vitehub/queue"
+import { defineQueue } from "@vite-hub/queue"
 import { reportQueueMarker } from "../../../_shared/queue-test"
 
 export default defineQueue<{ callbackUrl?: string, email: string, marker?: string }>(async (job) => {

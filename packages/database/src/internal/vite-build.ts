@@ -1,17 +1,17 @@
 import { mkdir, writeFile } from "node:fs/promises"
 
-import { writeProviderDeploymentOutputs } from "@vitehub/internal/build/deployment-output"
-import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vitehub/internal/build/paths"
-import { resolveUserAppEntry } from "@vitehub/internal/build/user-entry"
+import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
+import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
 
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vitehub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
-export const dbPackageName = "@vitehub/database"
+export const dbPackageName = "@vite-hub/database"
 const productName = "database"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
@@ -237,7 +237,7 @@ function createCloudflareOutput({ artifacts, runtimeConfig }: ProviderWriteOptio
   return {
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
-      alias: { "@vitehub/database/drizzle": artifacts.runtimeModuleFiles.cloudflare },
+      alias: { "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.cloudflare },
       conditions: ["workerd", "worker", "browser", "default"],
       external: ["node:async_hooks"],
       format: "esm",
@@ -256,7 +256,7 @@ function createVercelOutput({ artifacts, runtimeConfig }: ProviderWriteOptions):
   return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
-      alias: { "@vitehub/database/drizzle": artifacts.runtimeModuleFiles.vercel },
+      alias: { "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.vercel },
       format: "esm",
       platform: "node",
     },

@@ -1,6 +1,6 @@
 # Workspace Package
 
-Workspace Package names ownership boundaries for `@vitehub/workspace`.
+Workspace Package names ownership boundaries for `@vite-hub/workspace`.
 
 ## Language
 

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
-import { createDefaultCloudflareOutputRoot } from "@vitehub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 import { generateProviderOutputs, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 
@@ -96,7 +96,7 @@ describe("schedule provider output", () => {
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/nitro.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
-    expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vitehub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vitehub/schedule/dist/runtime/static.js")
+    expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vite-hub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vite-hub/schedule/dist/runtime/static.js")
   })
 
   it("writes Cloudflare schedule output to an existing Wrangler main", async () => {

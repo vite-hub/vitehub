@@ -1,8 +1,8 @@
 import { resolve } from "node:path"
 
-import { createImportPath } from "@vitehub/internal/build/paths"
-import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vitehub/internal/definition-catalog"
-import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vitehub/internal/nitro"
+import { createImportPath } from "@vite-hub/internal/build/paths"
+import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@vite-hub/internal/nitro"
 
 import { normalizeAgentOptions } from "../config.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
@@ -16,7 +16,7 @@ export interface AgentNitroModule {
 }
 
 const AGENT_NITRO_IMPORTS_PRESET = {
-  from: "@vitehub/agent",
+  from: "@vite-hub/agent",
   imports: ["defineAgent"],
 }
 const AGENT_CHAT_WEBHOOK_ROUTE = "/api/agents/[agent]/chat/[platform]"
@@ -75,7 +75,7 @@ function resolveNitroAgentScanDirs(rootDir: string, scanDirs: string[] | undefin
 
 function createNitroAgentRegistryContents(file: string, definitions: DiscoveredAgentDefinition[]): string {
   return [
-    `import { resolveAgentDevtoolsMetadata, withWorkspaceAgentDefaults } from "@vitehub/agent"`,
+    `import { resolveAgentDevtoolsMetadata, withWorkspaceAgentDefaults } from "@vite-hub/agent"`,
     "",
     "const registry = {",
     ...definitions.map((definition) => {
@@ -99,7 +99,7 @@ function createNitroAgentRegistryContents(file: string, definitions: DiscoveredA
 function createNitroAgentRouteContents(file: string, registryFile: string): string {
   return [
     `import agentRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { defineAgentRegistryHandler } from "@vitehub/agent/nitro"`,
+    `import { defineAgentRegistryHandler } from "@vite-hub/agent/nitro"`,
     "",
     "export default defineAgentRegistryHandler(agentRegistry)",
     "",
@@ -109,7 +109,7 @@ function createNitroAgentRouteContents(file: string, registryFile: string): stri
 function createNitroAgentChatWebhookRouteContents(file: string, registryFile: string): string {
   return [
     `import agentRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { defineAgentChatWebhookRegistryHandler } from "@vitehub/agent/nitro"`,
+    `import { defineAgentChatWebhookRegistryHandler } from "@vite-hub/agent/nitro"`,
     "",
     "export default defineAgentChatWebhookRegistryHandler(agentRegistry)",
     "",
@@ -119,7 +119,7 @@ function createNitroAgentChatWebhookRouteContents(file: string, registryFile: st
 function createNitroAgentChatAppRouteContents(file: string, registryFile: string): string {
   return [
     `import agentRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { defineAgentChatRegistryHandler } from "@vitehub/agent/nitro"`,
+    `import { defineAgentChatRegistryHandler } from "@vite-hub/agent/nitro"`,
     "",
     "export default defineAgentChatRegistryHandler(agentRegistry)",
     "",
@@ -174,14 +174,14 @@ async function writeNitroAgentRuntimeFiles(nitro: Nitro, options: false | Resolv
 
 function installAliases(nitro: Nitro, registryFile: string | undefined): void {
   nitro.options.alias ||= {}
-  nitro.options.alias["@vitehub/agent"] = resolveRuntimeEntry("../index", "@vitehub/agent")
-  nitro.options.alias["@vitehub/agent/capabilities"] = resolveRuntimeEntry("../capabilities", "@vitehub/agent/capabilities")
-  nitro.options.alias["@vitehub/agent/cloudflare"] = resolveRuntimeEntry("../cloudflare", "@vitehub/agent/cloudflare")
-  nitro.options.alias["@vitehub/agent/eval"] = resolveRuntimeEntry("../eval", "@vitehub/agent/eval")
-  nitro.options.alias["@vitehub/agent/nitro"] = resolveRuntimeEntry("../nitro", "@vitehub/agent/nitro")
-  nitro.options.alias["@vitehub/agent/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vitehub/agent/runtime/nitro-runtime-config")
-  nitro.options.alias["@vitehub/agent/vercel"] = resolveRuntimeEntry("../vercel", "@vitehub/agent/vercel")
-  nitro.options.alias["#vitehub/agent/registry"] = registryFile || resolveRuntimeEntry("../runtime/empty-registry", "@vitehub/agent/runtime/empty-registry")
+  nitro.options.alias["@vite-hub/agent"] = resolveRuntimeEntry("../index", "@vite-hub/agent")
+  nitro.options.alias["@vite-hub/agent/capabilities"] = resolveRuntimeEntry("../capabilities", "@vite-hub/agent/capabilities")
+  nitro.options.alias["@vite-hub/agent/cloudflare"] = resolveRuntimeEntry("../cloudflare", "@vite-hub/agent/cloudflare")
+  nitro.options.alias["@vite-hub/agent/eval"] = resolveRuntimeEntry("../eval", "@vite-hub/agent/eval")
+  nitro.options.alias["@vite-hub/agent/nitro"] = resolveRuntimeEntry("../nitro", "@vite-hub/agent/nitro")
+  nitro.options.alias["@vite-hub/agent/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vite-hub/agent/runtime/nitro-runtime-config")
+  nitro.options.alias["@vite-hub/agent/vercel"] = resolveRuntimeEntry("../vercel", "@vite-hub/agent/vercel")
+  nitro.options.alias["#vitehub/agent/registry"] = registryFile || resolveRuntimeEntry("../runtime/empty-registry", "@vite-hub/agent/runtime/empty-registry")
 }
 
 function installExternals(nitro: Nitro): void {
@@ -190,7 +190,7 @@ function installExternals(nitro: Nitro): void {
   }
   options.externals ||= {}
   options.externals.inline ||= []
-  for (const dependency of ["@vitehub/agent", "ai", "chat"]) {
+  for (const dependency of ["@vite-hub/agent", "ai", "chat"]) {
     if (!options.externals.inline.includes(dependency)) {
       options.externals.inline.push(dependency)
     }
@@ -233,7 +233,7 @@ function installChatAppRoutes(nitro: Nitro, routeFile: string | undefined): void
 
 export function agentNitro(options?: false | AgentModuleOptions): AgentNitroModule {
   return {
-    name: "@vitehub/agent",
+    name: "@vite-hub/agent",
     async setup(nitroInput) {
       const nitro = nitroInput as Nitro
       const configured = options ?? (nitro.options as typeof nitro.options & { agent?: false | AgentModuleOptions }).agent
@@ -248,7 +248,7 @@ export function agentNitro(options?: false | AgentModuleOptions): AgentNitroModu
     if (!importsExplicitlyDisabled) {
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, AGENT_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
       nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports, {
-        from: "@vitehub/agent/nitro",
+        from: "@vite-hub/agent/nitro",
         imports: ["defineAgentChatHandler", "defineAgentChatRegistryHandler", "defineAgentChatWebhookRegistryHandler", "defineAgentHandler", "defineAgentRegistryHandler"],
       }) as typeof nitro.options.imports
     }

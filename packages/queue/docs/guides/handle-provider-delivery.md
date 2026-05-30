@@ -15,7 +15,7 @@ Queue producers send messages. Providers deliver those messages later. ViteHub c
 Every provider delivers the same `QueueJob` shape to your definition:
 
 ```ts
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export default defineQueue<{ email: string }>(async (job) => {
   console.log(job.id)
@@ -84,7 +84,7 @@ Most apps use the generated output. Use provider helpers only when wiring custom
 ::tabs{sync="provider"}
   :::tabs-item{label="Cloudflare" icon="i-simple-icons-cloudflare" class="p-4"}
     ```ts
-    import { createCloudflareQueueBatchHandler } from '@vitehub/queue'
+    import { createCloudflareQueueBatchHandler } from '@vite-hub/queue'
 
     export default createCloudflareQueueBatchHandler({
       concurrency: 4,
@@ -97,7 +97,7 @@ Most apps use the generated output. Use provider helpers only when wiring custom
 
   :::tabs-item{label="Vercel" icon="i-simple-icons-vercel" class="p-4"}
     ```ts
-    import { handleHostedVercelQueueCallback } from '@vitehub/queue'
+    import { handleHostedVercelQueueCallback } from '@vite-hub/queue'
     import definition from '../../queues/welcome-email'
 
     export default defineEventHandler((event) => {

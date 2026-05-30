@@ -7,14 +7,14 @@ icon: i-lucide-folder-git-2
 frameworks: [vite, nitro]
 ---
 
-`@vitehub/workspace` is a ViteHub primitive for persistent file-tree state. Sources populate a workspace, build-time assets expose immutable context, and sandbox providers run code against it when execution is needed.
+`@vite-hub/workspace` is a ViteHub primitive for persistent file-tree state. Sources populate a workspace, build-time assets expose immutable context, and sandbox providers run code against it when execution is needed.
 
-Workspace owns files, snapshots, diffs, source ingestion, and publishing. `@vitehub/sandbox` owns isolated execution.
+Workspace owns files, snapshots, diffs, source ingestion, and publishing. `@vite-hub/sandbox` owns isolated execution.
 
 ::fw{id="vite:dev vite:build"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubWorkspace } from '@vitehub/workspace/vite'
+import { hubWorkspace } from '@vite-hub/workspace/vite'
 
 export default defineConfig({
   plugins: [hubWorkspace()],
@@ -28,7 +28,7 @@ export default defineConfig({
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/workspace/nitro'],
+  modules: ['@vite-hub/workspace/nitro'],
 })
 ```
 ::
@@ -36,8 +36,8 @@ export default defineNitroConfig({
 Define a workspace:
 
 ```ts [src/docs.workspace.ts]
-import { defineWorkspace, source } from '@vitehub/workspace'
-import { source as workspaceSource } from '@vitehub/workspace'
+import { defineWorkspace, source } from '@vite-hub/workspace'
+import { source as workspaceSource } from '@vite-hub/workspace'
 
 export default defineWorkspace({
   sources: {
@@ -65,7 +65,7 @@ Directory workspaces and colocated agent workspaces do not ingest sibling files 
 Use `source.fetch()` for one API-backed Live Source item:
 
 ```ts [src/status.workspace.ts]
-import { defineWorkspace, source } from '@vitehub/workspace'
+import { defineWorkspace, source } from '@vite-hub/workspace'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineWorkspace({
@@ -92,7 +92,7 @@ Fetch Sources are Live Sources: reads fetch on demand and do not write the respo
 Workspace rules are path-scoped write policy, similar in shape to Nitro route rules:
 
 ```ts [src/docs.workspace.ts]
-import { defineWorkspace } from '@vitehub/workspace'
+import { defineWorkspace } from '@vite-hub/workspace'
 
 export default defineWorkspace({
   rules: {
@@ -109,7 +109,7 @@ Rules are enforced before writes reach the workspace store. Reusable workspace p
 Use it from server code:
 
 ```ts
-import { useWorkspace } from '@vitehub/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
 
 const assets = useWorkspace('docs')
 const workspace = useWorkspace('docs', { mode: "write" })
@@ -124,7 +124,7 @@ Build-time, read-only context is bundled into an asset registry during productio
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubWorkspace } from '@vitehub/workspace/vite'
+import { hubWorkspace } from '@vite-hub/workspace/vite'
 
 export default defineConfig({
   plugins: [hubWorkspace()],
@@ -137,7 +137,7 @@ export default defineConfig({
 Read bundled assets through the same workspace facade:
 
 ```ts
-import { useWorkspace } from '@vitehub/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
 
 const workspace = useWorkspace('docs')
 const readme = await workspace.fs.readFile('docs/README.md')
@@ -147,7 +147,7 @@ const files = await workspace.fs.list('', { recursive: true })
 For AI SDK agents, expose read-only workspace inspection tools explicitly:
 
 ```ts
-import { useWorkspace } from '@vitehub/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
 
 const tools = useWorkspace('docs').tools.inspect()
 ```
@@ -157,7 +157,7 @@ The `shell` tool is a restricted workspace shell for inspection. It operates ove
 Read, list, and search commands are enabled by default in the inspection preset. Use explicit presets when choosing what a model can access:
 
 ```ts
-import { useWorkspace } from '@vitehub/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
 
 const readOnlyTools = useWorkspace('docs').tools.inspect()
 const noTools = useWorkspace('docs').tools.none()
@@ -177,7 +177,7 @@ Applications that use `AGENTS.md` as the model instruction source should load it
 Set `runtime: 'sandbox'` when a workspace needs commands, package managers, compilers, or provider-managed filesystem execution:
 
 ```ts [src/docs.workspace.ts]
-import { defineWorkspace } from '@vitehub/workspace'
+import { defineWorkspace } from '@vite-hub/workspace'
 
 export default defineWorkspace({
   store: { provider: 'memory' },
@@ -192,8 +192,8 @@ Sandbox provider selection belongs to app config, not `workspace.startSession()`
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubSandbox } from '@vitehub/sandbox/vite'
-import { hubWorkspace } from '@vitehub/workspace/vite'
+import { hubSandbox } from '@vite-hub/sandbox/vite'
+import { hubWorkspace } from '@vite-hub/workspace/vite'
 
 export default defineConfig({
   plugins: [hubSandbox(), hubWorkspace()],
@@ -206,7 +206,7 @@ export default defineConfig({
 ```
 
 ```ts
-import { useWorkspace } from '@vitehub/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
 
 const session = await useWorkspace('docs', { mode: "write" }).startSession()
 

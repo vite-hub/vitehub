@@ -14,7 +14,7 @@ Schedule definitions and Runtime Schedule APIs are provider-neutral. Provider-sp
 The same definition shape works across providers:
 
 ```ts
-import { defineSchedule } from '@vitehub/schedule'
+import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   allowRuntimeSchedules: true,
@@ -28,7 +28,7 @@ export default defineSchedule({
 The same Runtime Schedule client shape works in routes and server code:
 
 ```ts
-import { schedules } from '@vitehub/schedule'
+import { schedules } from '@vite-hub/schedule'
 
 await schedules.create({
   cron: '0 9 * * *',

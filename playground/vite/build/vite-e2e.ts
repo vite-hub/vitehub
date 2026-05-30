@@ -27,13 +27,13 @@ import { configureCloudflareArtifacts } from "../../../packages/workspace/src/in
 import { normalizeWorkflowOptions } from "../../../packages/workflow/src/config.ts"
 import { discoverWorkflowDefinitions } from "../../../packages/workflow/src/discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../../../packages/workflow/src/integrations/cloudflare.ts"
-import { defaultCloudflareCompatibilityDate } from "@vitehub/internal/build/cloudflare"
-import { copyClientOutput, hasStaticIndex } from "@vitehub/internal/build/client-output"
-import { bundleEsmEntry } from "@vitehub/internal/build/esbuild"
-import { createImportPath, ensureGeneratedDir } from "@vitehub/internal/build/paths"
-import { toSafeAppName } from "@vitehub/internal/build/user-entry"
-import { createNodeFunctionConfig, createVercelConfigJson } from "@vitehub/internal/build/vercel-config"
-import { createRuntimeRegistryContents } from "@vitehub/internal/definition-discovery"
+import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
+import { copyClientOutput, hasStaticIndex } from "@vite-hub/internal/build/client-output"
+import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
+import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
+import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
+import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-discovery"
 
 import type { ResolvedBlobModuleOptions } from "../../../packages/blob/src/types.ts"
 import type { ResolvedDBViteConfig } from "../../../packages/database/src/types.ts"
@@ -219,7 +219,7 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
 function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOptions | undefined) {
   if (!config) {
     return [
-      "const disabled = async () => { throw new Error('[vitehub] `@vitehub/kv` runtime is disabled.') }",
+      "const disabled = async () => { throw new Error('[vitehub] `@vite-hub/kv` runtime is disabled.') }",
       "export const kv = {",
       "  clear: disabled,",
       "  del: disabled,",
@@ -415,57 +415,57 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   if (options.db) {
     const dbRuntimeFile = resolve(generatedDir, "database-runtime.mjs")
-    alias["@vitehub/database/drizzle"] = dbRuntimeFile
+    alias["@vite-hub/database/drizzle"] = dbRuntimeFile
     runtimeWrites.push(writeFile(dbRuntimeFile, renderDbRuntimeModule(dbRuntimeFile, options.db), "utf8"))
   }
 
   if (typeof options.blob !== "undefined") {
     const blobRuntimeFile = resolve(generatedDir, "blob-runtime.mjs")
-    alias["@vitehub/blob"] = blobRuntimeFile
+    alias["@vite-hub/blob"] = blobRuntimeFile
     runtimeWrites.push(writeFile(blobRuntimeFile, renderBlobRuntimeModule(blobRuntimeFile, options.blob), "utf8"))
   }
 
   if (typeof options.kv !== "undefined") {
     const kvRuntimeFile = resolve(generatedDir, "kv-runtime.mjs")
-    alias["@vitehub/kv"] = kvRuntimeFile
+    alias["@vite-hub/kv"] = kvRuntimeFile
     runtimeWrites.push(writeFile(kvRuntimeFile, renderKvRuntimeModule(kvRuntimeFile, options.kv), "utf8"))
   }
 
   if (typeof options.queue !== "undefined") {
     const queueRuntimeFile = resolve(generatedDir, "queue-runtime.mjs")
-    alias["@vitehub/queue"] = queueRuntimeFile
+    alias["@vite-hub/queue"] = queueRuntimeFile
     runtimeWrites.push(writeFile(queueRuntimeFile, renderQueueRuntimeModule(queueRuntimeFile), "utf8"))
   }
 
   if (typeof options.schedule !== "undefined") {
     const scheduleRuntimeFile = resolve(generatedDir, "schedule-runtime.mjs")
-    alias["@vitehub/schedule"] = scheduleRuntimeFile
+    alias["@vite-hub/schedule"] = scheduleRuntimeFile
     runtimeWrites.push(writeFile(scheduleRuntimeFile, renderScheduleRuntimeModule(scheduleRuntimeFile), "utf8"))
   }
 
   if (typeof options.sandbox !== "undefined") {
     const sandboxRuntimeFile = resolve(generatedDir, "sandbox-runtime.mjs")
-    alias["@vitehub/sandbox/runtime/state"] = resolve(sandboxPackageDir, "src/runtime/state.ts")
-    alias["@vitehub/sandbox"] = sandboxRuntimeFile
+    alias["@vite-hub/sandbox/runtime/state"] = resolve(sandboxPackageDir, "src/runtime/state.ts")
+    alias["@vite-hub/sandbox"] = sandboxRuntimeFile
     runtimeWrites.push(writeFile(sandboxRuntimeFile, renderSandboxRuntimeModule(sandboxRuntimeFile), "utf8"))
   }
 
   if (typeof options.workflow !== "undefined") {
     const workflowRuntimeFile = resolve(generatedDir, "workflow-runtime.mjs")
-    alias["@vitehub/workflow"] = workflowRuntimeFile
+    alias["@vite-hub/workflow"] = workflowRuntimeFile
     runtimeWrites.push(writeFile(workflowRuntimeFile, renderWorkflowRuntimeModule(workflowRuntimeFile), "utf8"))
   }
 
   if (typeof options.workspace !== "undefined") {
     const workspaceRuntimeFile = resolve(generatedDir, "workspace-runtime.mjs")
     const workspaceShellRuntimeFile = resolve(generatedDir, "workspace-shell-runtime.mjs")
-    alias["@vitehub/workspace/internal/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
-    alias["@vitehub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
-    alias["@vitehub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
-    alias["@vitehub/workspace/test"] = resolve(workspacePackageDir, "src/test.ts")
-    alias["@vitehub/workspace"] = workspaceRuntimeFile
-    alias["@vitehub/shell/workspace"] = workspaceShellRuntimeFile
-    alias["@vitehub/shell"] = workspaceShellRuntimeFile
+    alias["@vite-hub/workspace/internal/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
+    alias["@vite-hub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
+    alias["@vite-hub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
+    alias["@vite-hub/workspace/test"] = resolve(workspacePackageDir, "src/test.ts")
+    alias["@vite-hub/workspace"] = workspaceRuntimeFile
+    alias["@vite-hub/shell/workspace"] = workspaceShellRuntimeFile
+    alias["@vite-hub/shell"] = workspaceShellRuntimeFile
     alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
     for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
@@ -508,7 +508,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     alias["#vitehub-sandbox-registry"] = sandboxRegistryFile
     for (const key of [
       "vitehub-sandbox-provider-loader",
-      "@vitehub/sandbox/runtime/provider-loader",
+      "@vite-hub/sandbox/runtime/provider-loader",
       "virtual:vitehub-sandbox-provider-loader",
       "#vitehub-sandbox-provider-loader",
     ]) {

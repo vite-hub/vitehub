@@ -1,4 +1,4 @@
-import { getActiveCloudflareBinding } from "@vitehub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { WorkspaceError } from "../../core/errors.ts"
 import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"

@@ -1,6 +1,6 @@
 # Official Capabilities Use Capabilities Entry
 
-Official Agent Capability factories and Capability-owned helpers are public through `@vitehub/agent/capabilities`, not through the root `@vitehub/agent` entry. The root Agent Package entry stays focused on Agent Definition, invocation, message, and generic composition primitives such as `defineAgent()`, `runAgent()`, `streamAgent()`, message helpers, and `defineCapability()`.
+Official Agent Capability factories and Capability-owned helpers are public through `@vite-hub/agent/capabilities`, not through the root `@vite-hub/agent` entry. The root Agent Package entry stays focused on Agent Definition, invocation, message, and generic composition primitives such as `defineAgent()`, `runAgent()`, `streamAgent()`, message helpers, and `defineCapability()`.
 
 ## Considered Options
 
@@ -13,8 +13,8 @@ Official Agent Capability factories and Capability-owned helpers are public thro
 Agent files import root primitives and official Capabilities separately:
 
 ```ts
-import { defineAgent } from '@vitehub/agent'
-import { chat, transcribe, workspaceShell } from '@vitehub/agent/capabilities'
+import { defineAgent } from '@vite-hub/agent'
+import { chat, transcribe, workspaceShell } from '@vite-hub/agent/capabilities'
 ```
 
-Capability companion helpers, such as `getTranscriptionResults()` and usage pricing helpers, stay beside their Capability factories on `@vitehub/agent/capabilities`. This is a breaking public API cleanup; the library is still in active development, so no compatibility root re-exports are kept.
+Capability companion helpers, such as `getTranscriptionResults()` and usage pricing helpers, stay beside their Capability factories on `@vite-hub/agent/capabilities`. This is a breaking public API cleanup; the library is still in active development, so no compatibility root re-exports are kept.

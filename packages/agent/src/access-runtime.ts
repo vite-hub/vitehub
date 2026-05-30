@@ -1,4 +1,4 @@
-import type { ReadonlyWorkspaceFacade, WorkspaceName } from "@vitehub/workspace"
+import type { ReadonlyWorkspaceFacade, WorkspaceName } from "@vite-hub/workspace"
 
 export const workspaceOverrideSymbol: unique symbol = Symbol("vitehub.agent.workspaceOverride")
 

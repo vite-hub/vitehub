@@ -15,9 +15,9 @@ This guide shows the two Env paths:
 ::code-collapse
 
 ```txt [Prompt]
-Set up @vitehub/env in this app.
+Set up @vite-hub/env in this app.
 
-- Install @vitehub/env
+- Install @vite-hub/env
 - Register envVite() or envNitro()
 - Declare a public build value
 - Declare a server-only Runtime Env secret
@@ -33,7 +33,7 @@ Docs: /docs/vite/env/quickstart or /docs/nitro/env/quickstart
 ### Install Env
 
 ```bash
-pnpm add @vitehub/env
+pnpm add @vite-hub/env
 ```
 
 ### Register the integration
@@ -42,7 +42,7 @@ pnpm add @vitehub/env
 Register `envVite()` and declare a public build value:
 
 ```ts [vite.config.ts]
-import { env, envVite } from '@vitehub/env/vite'
+import { env, envVite } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
@@ -63,7 +63,7 @@ export default defineConfig({
 Register the Nitro module and declare a server-only secret:
 
 ```ts [nitro.config.ts]
-import { env, envNitro } from '@vitehub/env/nitro'
+import { env, envNitro } from '@vite-hub/env/nitro'
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({

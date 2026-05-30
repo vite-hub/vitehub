@@ -11,15 +11,15 @@ describe("module resolve", () => {
   it("returns false instead of throwing when process is unavailable", () => {
     vi.stubGlobal("process", undefined)
 
-    expect(canResolveModule("@vitehub/does-not-exist")).toBe(false)
+    expect(canResolveModule("@vite-hub/does-not-exist")).toBe(false)
   })
 
   it("returns a missing-module result instead of throwing when process is unavailable", () => {
     vi.stubGlobal("process", undefined)
 
-    expect(tryResolveModule("@vitehub/does-not-exist")).toEqual({
+    expect(tryResolveModule("@vite-hub/does-not-exist")).toEqual({
       ok: false,
-      error: 'Unable to resolve module "@vitehub/does-not-exist" without explicit resolution paths',
+      error: 'Unable to resolve module "@vite-hub/does-not-exist" without explicit resolution paths',
     })
   })
 })

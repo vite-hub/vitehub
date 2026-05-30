@@ -54,14 +54,14 @@ export function resolveSandboxProviderLoaderTarget(
 }
 
 function createSandboxProviderLoaderAliases(defaultProviderName: keyof typeof sandboxClientExportByProvider | undefined): Array<{ key: string, value?: string, artifactKey?: string }> {
-  const keys = ['vitehub-sandbox-provider-loader', '@vitehub/sandbox/runtime/provider-loader', 'virtual:vitehub-sandbox-provider-loader', '#vitehub-sandbox-provider-loader']
+  const keys = ['vitehub-sandbox-provider-loader', '@vite-hub/sandbox/runtime/provider-loader', 'virtual:vitehub-sandbox-provider-loader', '#vitehub-sandbox-provider-loader']
 
   if (defaultProviderName)
     return keys.map(key => ({ key, artifactKey: 'sandbox-provider-loader' }))
 
   const providerLoaderPath = resolveFeatureRuntimePath(
     import.meta.url,
-    '@vitehub/sandbox',
+    '@vite-hub/sandbox',
     './runtime/provider-loader',
     'runtime/provider-loader.js',
   )
@@ -70,15 +70,15 @@ function createSandboxProviderLoaderAliases(defaultProviderName: keyof typeof sa
 
 export function createSandboxManifest(aliasPath: string, nitroPlugin: string, typeTemplate: string): FeatureManifest {
   return {
-    alias: '@vitehub/sandbox',
+    alias: '@vite-hub/sandbox',
     aliasPath,
     nitroPlugin,
     imports: [
-      { name: 'defineSandbox', from: '@vitehub/sandbox', meta: { description: 'Define a named sandbox resource.' } },
-      { name: 'readValidatedPayload', as: 'readValidatedSandboxPayload', from: '@vitehub/sandbox', meta: { description: 'Validate sandbox payload input before execution.' } },
-      { name: 'runSandbox', from: '@vitehub/sandbox', meta: { description: 'Run a named sandbox definition.' } },
-      { name: 'SandboxDefinition', as: 'SandboxDefinition', from: '@vitehub/sandbox', type: true },
-      { name: 'SandboxRunResult', as: 'SandboxRunResult', from: '@vitehub/sandbox', type: true },
+      { name: 'defineSandbox', from: '@vite-hub/sandbox', meta: { description: 'Define a named sandbox resource.' } },
+      { name: 'readValidatedPayload', as: 'readValidatedSandboxPayload', from: '@vite-hub/sandbox', meta: { description: 'Validate sandbox payload input before execution.' } },
+      { name: 'runSandbox', from: '@vite-hub/sandbox', meta: { description: 'Run a named sandbox definition.' } },
+      { name: 'SandboxDefinition', as: 'SandboxDefinition', from: '@vite-hub/sandbox', type: true },
+      { name: 'SandboxRunResult', as: 'SandboxRunResult', from: '@vite-hub/sandbox', type: true },
     ],
     typeTemplate: {
       filename: 'runtime/sandbox.d.ts',
@@ -132,13 +132,13 @@ export function createSandboxProviderLoaderContents(
 ) {
   const providerLoaderPath = resolveFeatureRuntimePath(
     import.meta.url,
-    '@vitehub/sandbox',
+    '@vite-hub/sandbox',
     `./runtime/providers/${provider}`,
     `runtime/providers/${provider}.js`,
   )
   const clientProviderPath = resolveFeatureRuntimePath(
     import.meta.url,
-    '@vitehub/sandbox',
+    '@vite-hub/sandbox',
     `./sandbox/providers/${provider}`,
     `sandbox/providers/${provider}.js`,
   )

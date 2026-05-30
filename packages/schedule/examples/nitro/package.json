@@ -7,7 +7,7 @@
     "preview": "nitro preview"
   },
   "dependencies": {
-    "@vitehub/schedule": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
     "nitro": "catalog:"
   }
 }

@@ -50,7 +50,7 @@ describe('feature bridge state', () => {
   it('preserves explicit false config in Nitro runtime config', async () => {
     const setupNitro = vi.fn()
     const engine = createFeatureEngine<false | { enabled: boolean }, { enabled: boolean }, false | { enabled: boolean }>({
-      name: '@vitehub/test-feature',
+      name: '@vite-hub/test-feature',
       feature: 'testFeature',
       configKey: 'testFeature',
       normalizeOptions(options) {

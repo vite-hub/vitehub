@@ -30,7 +30,7 @@ export async function createSandboxClient(provider: SandboxProviderOptions): Pro
   }
 
   const { createSandboxClient } = await import('vitehub-sandbox-provider-loader').catch(() => {
-    return dynamicImport<ProviderLoaderModule>('@vitehub/sandbox/runtime/provider-loader')
+    return dynamicImport<ProviderLoaderModule>('@vite-hub/sandbox/runtime/provider-loader')
   }).then(module => module.loadSandboxRuntimeProvider(provider.provider))
   return await createSandboxClient(provider)
 }

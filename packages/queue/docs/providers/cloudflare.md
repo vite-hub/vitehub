@@ -1,6 +1,6 @@
 ---
 title: Cloudflare Queue
-description: Configure @vitehub/queue to publish through Cloudflare Queues and process Worker queue batches.
+description: Configure @vite-hub/queue to publish through Cloudflare Queues and process Worker queue batches.
 navigation.title: Cloudflare
 navigation.group: Providers
 navigation.order: 10
@@ -21,7 +21,7 @@ Register the Vite plugin and set `queue.provider` to `cloudflare`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { hubQueue } from '@vitehub/queue/vite'
+import { hubQueue } from '@vite-hub/queue/vite'
 
 export default defineConfig({
   plugins: [hubQueue()],
@@ -39,7 +39,7 @@ Register the Nitro module and set `queue.provider` to `cloudflare`:
 import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
-  modules: ['@vitehub/queue/nitro'],
+  modules: ['@vite-hub/queue/nitro'],
   queue: {
     provider: 'cloudflare',
   },
@@ -65,7 +65,7 @@ Use these helpers when another config file needs the exact values:
 import {
   getCloudflareQueueBindingName,
   getCloudflareQueueName,
-} from '@vitehub/queue'
+} from '@vite-hub/queue'
 
 console.log(getCloudflareQueueName('welcome-email'))
 console.log(getCloudflareQueueBindingName('welcome-email'))
@@ -90,7 +90,7 @@ export default defineConfig({
 ::fw{id="nitro:dev nitro:build"}
 ```ts [nitro.config.ts]
 export default defineNitroConfig({
-  modules: ['@vitehub/queue/nitro'],
+  modules: ['@vite-hub/queue/nitro'],
   queue: {
     provider: 'cloudflare',
     binding: 'WELCOME_EMAIL_QUEUE',
@@ -106,7 +106,7 @@ export default defineNitroConfig({
 Cloudflare delivers batches of messages. Queue turns each message into a `QueueJob` and calls the discovered handler.
 
 ```ts [server/queues/welcome-email.ts]
-import { defineQueue } from '@vitehub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export default defineQueue<{ email: string }>(async (job) => {
   console.log(job.id, job.payload.email)

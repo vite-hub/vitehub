@@ -36,7 +36,7 @@ function exportTarget(rawTarget: unknown) {
 }
 
 function hasExport(packageName: string, specifier: string) {
-  const shortName = packageName.replace("@vitehub/", "") as PackageName
+  const shortName = packageName.replace("@vite-hub/", "") as PackageName
   const manifest = readPackageManifest(shortName)
   const subpath = specifier.slice(packageName.length)
 
@@ -62,7 +62,7 @@ describe("package manifest contracts", () => {
     for (const packageName of packageNames) {
       const manifest = readPackageManifest(packageName)
 
-      expect(manifest.name).toBe(`@vitehub/${packageName}`)
+      expect(manifest.name).toBe(`@vite-hub/${packageName}`)
       expect(manifest.description, `${packageName} should describe its package`).toEqual(expect.any(String))
       expect(manifest.license).toBe("Apache-2.0")
       expect(manifest.sideEffects).toBe(false)
@@ -100,7 +100,7 @@ describe("package manifest contracts", () => {
     const manifest = readPackageManifest("blob")
 
     for (const name of ["files-sdk"]) {
-      expect(manifest.dependencies?.[name], `${name} should not be installed with @vitehub/blob by default`).toBeUndefined()
+      expect(manifest.dependencies?.[name], `${name} should not be installed with @vite-hub/blob by default`).toBeUndefined()
       expect(manifest.peerDependencies?.[name], `${name} should be declared as an opt-in blob peer`).toEqual(expect.any(String))
       expect(manifest.peerDependenciesMeta?.[name]?.optional, `${name} should be an optional blob peer`).toBe(true)
       expect(manifest.devDependencies?.[name], `${name} should remain available for blob development and tests`).toEqual(expect.any(String))
@@ -109,13 +109,13 @@ describe("package manifest contracts", () => {
 })
 
 describe("docs import contracts", () => {
-  it("only references existing @vitehub package exports in source docs", () => {
+  it("only references existing @vite-hub package exports in source docs", () => {
     const markdownFiles = [
       ...walkFiles(join(repoRoot, "docs", "content"), { extensions: new Set(["md"]) }),
       ...packageNames.flatMap(packageName => walkFiles(join(packageDir(packageName), "docs"), { extensions: new Set(["md"]) })),
     ]
     const specifiers = new Set<string>()
-    const importPattern = /from\s+['"](@vitehub\/[^'"]+)['"]|import\s+['"](@vitehub\/[^'"]+)['"]/g
+    const importPattern = /from\s+['"](@vite-hub\/[^'"]+)['"]|import\s+['"](@vite-hub\/[^'"]+)['"]/g
 
     for (const file of markdownFiles) {
       const source = readFileSync(file, "utf8")
@@ -132,7 +132,7 @@ describe("docs import contracts", () => {
     for (const specifier of specifiers) {
       const [scope, name] = specifier.split("/")
       const packageName = `${scope}/${name}`
-      expect(packageNames.map(item => `@vitehub/${item}`), `Unexpected docs package import: ${specifier}`).toContain(packageName)
+      expect(packageNames.map(item => `@vite-hub/${item}`), `Unexpected docs package import: ${specifier}`).toContain(packageName)
       expect(hasExport(packageName, specifier), `Missing docs export: ${specifier}`).toBe(true)
     }
   })

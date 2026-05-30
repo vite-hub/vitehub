@@ -26,7 +26,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
-describe("@vitehub/source local file sources", () => {
+describe("@vite-hub/source local file sources", () => {
   it("loads file, markdown, and glob providers", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })

@@ -1,4 +1,4 @@
-import { registerViteHubDevtoolsFeature } from "@vitehub/devtools"
+import { registerViteHubDevtoolsFeature } from "@vite-hub/devtools"
 import { defineRpcFunction } from "@vitejs/devtools-kit"
 import { Message, parseMarkdown, toPlainText } from "chat"
 
@@ -154,7 +154,7 @@ interface ChatDevtoolsFullStreamToolPart {
 }
 
 const chatDevtoolsToolStatusType = "vitehub.chat.devtools.tool"
-export const chatDevtoolsPanelPluginName = "@vitehub/agent/chat/devtools-panel"
+export const chatDevtoolsPanelPluginName = "@vite-hub/agent/chat/devtools-panel"
 const defaultOutputPreviewLength = 4_000
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -775,7 +775,7 @@ async function writeChatDevtoolsStream(
 
 export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlugin {
   const nitroModule: NitroModule = {
-    name: "@vitehub/agent/chat/devtools",
+    name: "@vite-hub/agent/chat/devtools",
     setup(nitro) {
       if (options.devtools === false || !nitro.options.dev) {
         return
@@ -794,7 +794,7 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
   }
 
   return {
-    name: "@vitehub/agent/chat/devtools",
+    name: "@vite-hub/agent/chat/devtools",
     nitro: nitroModule,
     devtools: chatDevToolsPanel(options).devtools,
   }
@@ -817,7 +817,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
           bridge: chatDevtoolsBridgeRoute,
           icon: "ph:chat-circle-duotone",
           id: chatDevtoolsFeatureId,
-          packageName: "@vitehub/agent",
+          packageName: "@vite-hub/agent",
           title: chatDevtoolsTitle,
         })
 

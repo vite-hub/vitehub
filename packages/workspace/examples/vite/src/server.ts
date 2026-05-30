@@ -1,5 +1,5 @@
 import { H3 } from "h3"
-import { useWorkspace } from "@vitehub/workspace"
+import { useWorkspace } from "@vite-hub/workspace"
 
 const app = new H3()
 

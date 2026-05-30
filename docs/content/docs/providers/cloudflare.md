@@ -12,7 +12,7 @@ Use this page to find package-specific Cloudflare guidance in ViteHub.
 
 ### KV
 
-`@vitehub/kv` supports a Cloudflare KV path through `cloudflare-kv-binding`.
+`@vite-hub/kv` supports a Cloudflare KV path through `cloudflare-kv-binding`.
 
 - Setup overview: [KV overview](../kv)
 - Provider details: [KV on Cloudflare](../kv/providers/cloudflare)
@@ -20,28 +20,28 @@ Use this page to find package-specific Cloudflare guidance in ViteHub.
 ::fw{id="vite:dev vite:build"}
 ### DB
 
-`@vitehub/database` supports Cloudflare D1 bindings on Vite through a default database plus optional named databases.
+`@vite-hub/database` supports Cloudflare D1 bindings on Vite through a default database plus optional named databases.
 
 - Setup overview: [Database overview](/docs/vite/database)
 - Provider details: [Database on Cloudflare](/docs/vite/database/providers/cloudflare)
 
 ### Blob
 
-`@vitehub/blob` supports a Cloudflare path on Vite and Nitro through the `cloudflare-r2` driver.
+`@vite-hub/blob` supports a Cloudflare path on Vite and Nitro through the `cloudflare-r2` driver.
 
 - Setup overview: [Blob overview](/docs/vite/blob)
 - Provider details: [Blob on Cloudflare](/docs/vite/blob/providers/cloudflare)
 
 ### Queue
 
-`@vitehub/queue` supports a Cloudflare path on Vite and Nitro through `queue.provider = 'cloudflare'`.
+`@vite-hub/queue` supports a Cloudflare path on Vite and Nitro through `queue.provider = 'cloudflare'`.
 
 - Setup overview: [Queue overview](/docs/vite/queue)
 - Provider details: [Queue on Cloudflare](/docs/vite/queue/providers/cloudflare)
 
 ### Schedule
 
-`@vitehub/schedule` supports Cloudflare Provider Output on Vite and Nitro when the Vite Integration or Nitro Integration discovers Static Schedule Definitions.
+`@vite-hub/schedule` supports Cloudflare Provider Output on Vite and Nitro when the Vite Integration or Nitro Integration discovers Static Schedule Definitions.
 
 - Setup overview: [Schedule overview](/docs/vite/schedule)
 - Provider details: ViteHub writes worker cron triggers to `wrangler.json`; Cloudflare scheduled events wake the deployed worker and run matching Schedule Definitions.
@@ -50,21 +50,21 @@ Use this page to find package-specific Cloudflare guidance in ViteHub.
 ::fw{id="nitro:dev nitro:build"}
 ### Blob
 
-`@vitehub/blob` supports a Cloudflare path on Vite and Nitro through the `cloudflare-r2` driver.
+`@vite-hub/blob` supports a Cloudflare path on Vite and Nitro through the `cloudflare-r2` driver.
 
 - Setup overview: [Blob overview](/docs/nitro/blob)
 - Provider details: [Blob on Cloudflare](/docs/nitro/blob/providers/cloudflare)
 
 ### Queue
 
-`@vitehub/queue` supports a Cloudflare path on Vite and Nitro through `queue.provider = 'cloudflare'`.
+`@vite-hub/queue` supports a Cloudflare path on Vite and Nitro through `queue.provider = 'cloudflare'`.
 
 - Setup overview: [Queue overview](/docs/nitro/queue)
 - Provider details: [Queue on Cloudflare](/docs/nitro/queue/providers/cloudflare)
 
 ### Schedule
 
-`@vitehub/schedule` supports Cloudflare Provider Output on Vite and Nitro when the Vite Integration or Nitro Integration discovers Static Schedule Definitions.
+`@vite-hub/schedule` supports Cloudflare Provider Output on Vite and Nitro when the Vite Integration or Nitro Integration discovers Static Schedule Definitions.
 
 - Setup overview: [Schedule overview](/docs/nitro/schedule)
 - Provider details: ViteHub writes worker cron triggers to `wrangler.json`; Cloudflare scheduled events wake the deployed worker and run matching Schedule Definitions.

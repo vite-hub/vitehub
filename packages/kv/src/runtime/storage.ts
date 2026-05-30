@@ -1,5 +1,5 @@
-import { readEnv } from "@vitehub/internal/env"
-import { getActiveCloudflareEnv } from "@vitehub/internal/runtime/cloudflare-env"
+import { readEnv } from "@vite-hub/internal/env"
+import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeKVOptions } from "../config.ts"
 import type { KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"

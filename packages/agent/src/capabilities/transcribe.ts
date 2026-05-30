@@ -9,7 +9,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type { AudioPart, Message } from "../messages.ts"
-import type { WritableWorkspaceFacade, WorkspaceContent, WorkspaceName } from "@vitehub/workspace"
+import type { WritableWorkspaceFacade, WorkspaceContent, WorkspaceName } from "@vite-hub/workspace"
 
 type AiSdkTranscribe = typeof import("ai")["experimental_transcribe"]
 type AiSdkTranscribeOptions = Omit<Parameters<AiSdkTranscribe>[0], "abortSignal" | "audio">

@@ -13,7 +13,7 @@ import type {
   ResolvedAgentTriggerDefinition,
 } from "./types.ts"
 import type { StreamEvent } from "./messages.ts"
-import type { WorkspaceName } from "@vitehub/workspace"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
 type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

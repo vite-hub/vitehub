@@ -1,4 +1,4 @@
-import { env, envVite } from '@vitehub/env/vite'
+import { env, envVite } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({

@@ -1,6 +1,6 @@
 # Chat Adapter Packages Stay Explicit
 
-ViteHub should keep concrete Chat Platform Adapter and chat state backend packages as explicit optional integrations by default. Application code may import adapter factories from upstream packages such as `@chat-adapter/teams` and `@chat-adapter/state-pg`; ViteHub should not generate or broad-re-export every `@chat-adapter/*` package from `@vitehub/agent`.
+ViteHub should keep concrete Chat Platform Adapter and chat state backend packages as explicit optional integrations by default. Application code may import adapter factories from upstream packages such as `@chat-adapter/teams` and `@chat-adapter/state-pg`; ViteHub should not generate or broad-re-export every `@chat-adapter/*` package from `@vite-hub/agent`.
 
 The Agent Package owns the Chat Capability, Chat Webhook Route, Chat Webhook Handler, and adapter contract boundary. It does not automatically own every platform adapter implementation or its transitive platform SDK dependencies.
 
@@ -20,9 +20,9 @@ Ecosystem findings:
 
 ## Considered Options
 
-- Bundling Teams, Telegram, Postgres state, and similar packages into `@vitehub/agent` was rejected because optional platform SDKs would become core install weight and version pressure for users who do not use those platforms.
+- Bundling Teams, Telegram, Postgres state, and similar packages into `@vite-hub/agent` was rejected because optional platform SDKs would become core install weight and version pressure for users who do not use those platforms.
 - Generating ViteHub exports for all upstream `@chat-adapter/*` packages was rejected because it mirrors another ecosystem's package topology as ViteHub public API without ViteHub owning those implementations.
-- Root-exporting adapter factories from `@vitehub/agent` was rejected because optional integrations would blur the root Agent Package boundary and conflict with the decision that official Capabilities live under `@vitehub/agent/capabilities`.
+- Root-exporting adapter factories from `@vite-hub/agent` was rejected because optional integrations would blur the root Agent Package boundary and conflict with the decision that official Capabilities live under `@vite-hub/agent/capabilities`.
 - Narrow ViteHub facade subpaths remain allowed for first-party-supported adapters, but only when ViteHub owns a real compatibility shim, stable public import path, and clear missing-package diagnostics.
 
 ## Consequences
@@ -34,6 +34,6 @@ import { createPostgresState } from '@chat-adapter/state-pg'
 import { createTeamsAdapter } from '@chat-adapter/teams'
 ```
 
-If ViteHub later promotes an adapter to first-party support, prefer a narrow subpath such as `@vitehub/agent/chat/teams` or `@vitehub/agent/chat/state-pg` over a broad adapter barrel. That subpath should still treat the underlying adapter or runtime driver as optional/user-installed unless ViteHub intentionally accepts the dependency as core.
+If ViteHub later promotes an adapter to first-party support, prefer a narrow subpath such as `@vite-hub/agent/chat/teams` or `@vite-hub/agent/chat/state-pg` over a broad adapter barrel. That subpath should still treat the underlying adapter or runtime driver as optional/user-installed unless ViteHub intentionally accepts the dependency as core.
 
 Documentation should make the dependency boundary explicit: the Chat Capability owns how adapters are consumed and wired into Agent Triggers; adapter packages own platform-specific construction, SDK dependencies, and release cadence.

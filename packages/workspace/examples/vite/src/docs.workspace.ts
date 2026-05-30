@@ -1,4 +1,4 @@
-import { defineWorkspace, source } from "@vitehub/workspace"
+import { defineWorkspace, source } from "@vite-hub/workspace"
 
 export default defineWorkspace({
   store: {

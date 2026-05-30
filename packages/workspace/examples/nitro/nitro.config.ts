@@ -1,5 +1,5 @@
 import { defineNitroConfig } from "nitro/config"
 
 export default defineNitroConfig({
-  modules: ["@vitehub/workspace/nitro"],
+  modules: ["@vite-hub/workspace/nitro"],
 })

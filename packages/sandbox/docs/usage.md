@@ -15,7 +15,7 @@ Export payload and result types from the sandbox definition when route code need
 
 ::fw{id="vite:dev vite:build"}
 ```ts [src/release-notes.sandbox.ts]
-import { defineSandbox } from '@vitehub/sandbox'
+import { defineSandbox } from '@vite-hub/sandbox'
 
 export type ReleaseNotesPayload = {
   notes?: string
@@ -35,7 +35,7 @@ export default defineSandbox(async (payload: ReleaseNotesPayload = {}): Promise<
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts [server/sandboxes/release-notes.ts]
-import { defineSandbox } from '@vitehub/sandbox'
+import { defineSandbox } from '@vite-hub/sandbox'
 
 export type ReleaseNotesPayload = {
   notes?: string

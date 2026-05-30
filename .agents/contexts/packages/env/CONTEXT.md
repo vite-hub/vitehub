@@ -1,6 +1,6 @@
 # Env Package
 
-Env Package names ownership boundaries for `@vitehub/env`.
+Env Package names ownership boundaries for `@vite-hub/env`.
 
 ## Language
 
@@ -91,5 +91,5 @@ _Avoid_: Leak prevention, DLP, log scanning
 - Secret Env compatibility with strings was considered - resolved: **Secret Env** is not assignable to its underlying value until a **Secret Unseal**.
 - Response scanning was considered a hard guarantee - resolved: **Outbound Secret Redaction** is best-effort and must not be described as general leak prevention.
 - Runtime Env and runtime config were considered interchangeable - resolved: **Runtime Env** is the Env Package concept; runtime config is integration-specific language.
-- Agent Runtime Config was considered a hand-authored mirror of Env declarations - resolved: use the **Generated Server Env Type** as the source of truth when `@vitehub/env` is present.
+- Agent Runtime Config was considered a hand-authored mirror of Env declarations - resolved: use the **Generated Server Env Type** as the source of truth when `@vite-hub/env` is present.
 - Agent and Chat callback runtime config was considered an app-facing Server Env access path - resolved: use **Server Env** through `useServerEnv()` for app-owned Runtime Env.

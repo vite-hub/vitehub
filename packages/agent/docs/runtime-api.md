@@ -18,7 +18,7 @@ import {
   getAgent,
   runAgent,
   streamAgent,
-} from '@vitehub/agent'
+} from '@vite-hub/agent'
 import {
   blob,
   chat,
@@ -32,7 +32,7 @@ import {
   usageTelemetry,
   vercelAiGatewayPricing,
   workspaceShell,
-} from '@vitehub/agent/capabilities'
+} from '@vite-hub/agent/capabilities'
 import {
   callsTool,
   defineEval,
@@ -40,21 +40,21 @@ import {
   doesNotLeakSource,
   staysUnderTokenBudget,
   textContains,
-} from '@vitehub/agent/eval'
+} from '@vite-hub/agent/eval'
 ```
 
-In Nitro, the module auto-imports `defineAgent` for discovered agent definitions. Official Capability factories such as `chat()` and `workspaceShell()` stay explicit imports from `@vitehub/agent/capabilities`.
+In Nitro, the module auto-imports `defineAgent` for discovered agent definitions. Official Capability factories such as `chat()` and `workspaceShell()` stay explicit imports from `@vite-hub/agent/capabilities`.
 
 ::fw{id="vite:dev vite:build"}
 ```ts
-import { hubAgent } from '@vitehub/agent/vite'
+import { hubAgent } from '@vite-hub/agent/vite'
 ```
 ::
 
 ::fw{id="nitro:dev nitro:build"}
 ```ts
 export default defineNitroConfig({
-  modules: ['@vitehub/agent/nitro'],
+  modules: ['@vite-hub/agent/nitro'],
 })
 ```
 ::
@@ -186,7 +186,7 @@ interface AgentRunInput {
 }
 ```
 
-`Message` comes from `@vitehub/agent` and is re-exported by `@vitehub/agent`.
+`Message` comes from `@vite-hub/agent` and is re-exported by `@vite-hub/agent`.
 
 ## Agent usage telemetry
 
@@ -228,7 +228,7 @@ usageTelemetry({
 
 ## Agent evaluations
 
-Agent evaluations use the Agent Definition's Runtime Config type. `@vitehub/agent/eval` does not depend on `@vitehub/env`; ViteHub Env is one optional producer of values passed through `runtimeConfig`.
+Agent evaluations use the Agent Definition's Runtime Config type. `@vite-hub/agent/eval` does not depend on `@vite-hub/env`; ViteHub Env is one optional producer of values passed through `runtimeConfig`.
 
 ```ts
 defineEval({

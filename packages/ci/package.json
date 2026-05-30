@@ -1,5 +1,5 @@
 {
-  "name": "@vitehub/ci",
+  "name": "@vite-hub/ci",
   "version": "0.0.0",
   "description": "Provider-agnostic CI and deployment status/log primitives for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -38,7 +38,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vitehub/ci build && vitest run"
+    "test": "pnpm --filter @vite-hub/ci build && vitest run"
   },
   "dependencies": {
     "ofetch": "catalog:",

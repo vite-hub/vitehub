@@ -191,7 +191,7 @@ importers:
       '@nuxt/content':
         specifier: 'catalog:'
         version: 3.13.0(@libsql/client@0.15.15)(@valibot/to-json-schema@1.7.0(valibot@1.4.0(typescript@6.0.2)))(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(magicast@0.5.2)(valibot@1.4.0(typescript@6.0.2))
-      '@vitehub/agent':
+      '@vite-hub/agent':
         specifier: workspace:*
         version: link:../packages/agent
       '@vitejs/devtools-kit':
@@ -225,16 +225,16 @@ importers:
       '@vercel/functions':
         specifier: 'catalog:'
         version: 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38)
-      '@vitehub/devtools':
+      '@vite-hub/devtools':
         specifier: workspace:*
         version: link:../devtools
-      '@vitehub/runtime':
+      '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@vitehub/workflow':
+      '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../workflow
-      '@vitehub/workspace':
+      '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
       '@vitejs/devtools-kit':
@@ -262,7 +262,7 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
       ai:
@@ -292,7 +292,7 @@ importers:
 
   packages/agent/examples/nitro:
     dependencies:
-      '@vitehub/agent':
+      '@vite-hub/agent':
         specifier: workspace:*
         version: link:../..
       nitro:
@@ -301,7 +301,7 @@ importers:
 
   packages/agent/examples/vite:
     dependencies:
-      '@vitehub/agent':
+      '@vite-hub/agent':
         specifier: workspace:*
         version: link:../..
       h3:
@@ -332,7 +332,7 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
       files-sdk:
@@ -365,7 +365,7 @@ importers:
 
   packages/blob/examples/nitro:
     dependencies:
-      '@vitehub/blob':
+      '@vite-hub/blob':
         specifier: workspace:*
         version: link:../..
       nitro:
@@ -374,7 +374,7 @@ importers:
 
   packages/blob/examples/vite:
     dependencies:
-      '@vitehub/blob':
+      '@vite-hub/blob':
         specifier: workspace:*
         version: link:../..
       h3:
@@ -415,7 +415,7 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
-      '@vitehub/agent':
+      '@vite-hub/agent':
         specifier: workspace:*
         version: link:../agent
       tsdown:
@@ -449,7 +449,7 @@ importers:
         specifier: 'catalog:'
         version: 2.0.3
     devDependencies:
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
       drizzle-orm:
@@ -476,7 +476,7 @@ importers:
 
   packages/database/examples/vite:
     dependencies:
-      '@vitehub/database':
+      '@vite-hub/database':
         specifier: workspace:*
         version: link:../..
       drizzle-orm:
@@ -544,7 +544,7 @@ importers:
       '@nuxt/schema':
         specifier: 'catalog:'
         version: 4.4.2
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
       nitro:
@@ -571,7 +571,7 @@ importers:
 
   packages/env/examples/nitro:
     dependencies:
-      '@vitehub/env':
+      '@vite-hub/env':
         specifier: workspace:*
         version: link:../..
       nitro:
@@ -584,7 +584,7 @@ importers:
 
   packages/env/examples/vite:
     dependencies:
-      '@vitehub/env':
+      '@vite-hub/env':
         specifier: workspace:*
         version: link:../..
       vite:
@@ -597,7 +597,7 @@ importers:
 
   packages/internal:
     dependencies:
-      '@vitehub/runtime':
+      '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
       esbuild:
@@ -650,7 +650,7 @@ importers:
       '@nuxt/schema':
         specifier: 'catalog:'
         version: 4.4.2
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
       nitro:
@@ -680,7 +680,7 @@ importers:
 
   packages/kv/examples/nitro:
     dependencies:
-      '@vitehub/kv':
+      '@vite-hub/kv':
         specifier: workspace:*
         version: link:../..
       nitro:
@@ -689,7 +689,7 @@ importers:
 
   packages/kv/examples/nuxt:
     dependencies:
-      '@vitehub/kv':
+      '@vite-hub/kv':
         specifier: workspace:*
         version: link:../..
       nuxt:
@@ -698,7 +698,7 @@ importers:
 
   packages/kv/examples/vite:
     dependencies:
-      '@vitehub/kv':
+      '@vite-hub/kv':
         specifier: workspace:*
         version: link:../..
       h3:
@@ -735,7 +735,7 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
       nitro:
@@ -759,7 +759,7 @@ importers:
 
   packages/queue/examples/nitro:
     dependencies:
-      '@vitehub/queue':
+      '@vite-hub/queue':
         specifier: workspace:*
         version: link:../..
       nitro:
@@ -768,7 +768,7 @@ importers:
 
   packages/queue/examples/vite:
     dependencies:
-      '@vitehub/queue':
+      '@vite-hub/queue':
         specifier: workspace:*
         version: link:../..
       h3:
@@ -844,7 +844,7 @@ importers:
       '@vercel/sandbox':
         specifier: 'catalog:'
         version: 1.10.0
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
       nitro:
@@ -877,7 +877,7 @@ importers:
       '@vercel/sandbox':
         specifier: ^1.10.0
         version: 1.10.0
-      '@vitehub/sandbox':
+      '@vite-hub/sandbox':
         specifier: workspace:*
         version: link:../..
       nitro:
@@ -892,7 +892,7 @@ importers:
       '@vercel/sandbox':
         specifier: ^1.10.0
         version: 1.10.0
-      '@vitehub/sandbox':
+      '@vite-hub/sandbox':
         specifier: workspace:*
         version: link:../..
       h3:
@@ -914,10 +914,10 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      '@vitehub/kv':
+      '@vite-hub/kv':
         specifier: workspace:*
         version: link:../kv
       nitro:
@@ -941,7 +941,7 @@ importers:
 
   packages/schedule/examples/nitro:
     dependencies:
-      '@vitehub/schedule':
+      '@vite-hub/schedule':
         specifier: workspace:*
         version: link:../..
       nitro:
@@ -950,7 +950,7 @@ importers:
 
   packages/schedule/examples/vite:
     dependencies:
-      '@vitehub/schedule':
+      '@vite-hub/schedule':
         specifier: workspace:*
         version: link:../..
       h3:
@@ -1049,7 +1049,7 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.0
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
       nitro:
@@ -1082,7 +1082,7 @@ importers:
 
   packages/workflow/examples/nitro:
     dependencies:
-      '@vitehub/workflow':
+      '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../..
       nitro:
@@ -1091,7 +1091,7 @@ importers:
 
   packages/workflow/examples/vite:
     dependencies:
-      '@vitehub/workflow':
+      '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../..
       h3:
@@ -1103,10 +1103,10 @@ importers:
 
   packages/workspace:
     dependencies:
-      '@vitehub/shell':
+      '@vite-hub/shell':
         specifier: workspace:*
         version: link:../shell
-      '@vitehub/source':
+      '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
       defu:
@@ -1131,10 +1131,10 @@ importers:
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      '@vitehub/sandbox':
+      '@vite-hub/sandbox':
         specifier: workspace:*
         version: link:../sandbox
       ai:
@@ -1170,7 +1170,7 @@ importers:
 
   packages/workspace/examples/nitro:
     dependencies:
-      '@vitehub/workspace':
+      '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../..
       h3:
@@ -1182,7 +1182,7 @@ importers:
 
   packages/workspace/examples/vite:
     dependencies:
-      '@vitehub/workspace':
+      '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../..
       h3:
@@ -1206,31 +1206,31 @@ importers:
       '@vercel/sandbox':
         specifier: 'catalog:'
         version: 1.10.0
-      '@vitehub/agent':
+      '@vite-hub/agent':
         specifier: workspace:*
         version: link:../../packages/agent
-      '@vitehub/blob':
+      '@vite-hub/blob':
         specifier: workspace:*
         version: link:../../packages/blob
-      '@vitehub/env':
+      '@vite-hub/env':
         specifier: workspace:*
         version: link:../../packages/env
-      '@vitehub/kv':
+      '@vite-hub/kv':
         specifier: workspace:*
         version: link:../../packages/kv
-      '@vitehub/queue':
+      '@vite-hub/queue':
         specifier: workspace:*
         version: link:../../packages/queue
-      '@vitehub/sandbox':
+      '@vite-hub/sandbox':
         specifier: workspace:*
         version: link:../../packages/sandbox
-      '@vitehub/schedule':
+      '@vite-hub/schedule':
         specifier: workspace:*
         version: link:../../packages/schedule
-      '@vitehub/workflow':
+      '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../../packages/workflow
-      '@vitehub/workspace':
+      '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../../packages/workspace
       async-retry:
@@ -1266,40 +1266,40 @@ importers:
       '@vercel/sandbox':
         specifier: 'catalog:'
         version: 1.10.0
-      '@vitehub/agent':
+      '@vite-hub/agent':
         specifier: workspace:*
         version: link:../../packages/agent
-      '@vitehub/blob':
+      '@vite-hub/blob':
         specifier: workspace:*
         version: link:../../packages/blob
-      '@vitehub/database':
+      '@vite-hub/database':
         specifier: workspace:*
         version: link:../../packages/database
-      '@vitehub/devtools':
+      '@vite-hub/devtools':
         specifier: workspace:*
         version: link:../../packages/devtools
-      '@vitehub/env':
+      '@vite-hub/env':
         specifier: workspace:*
         version: link:../../packages/env
-      '@vitehub/internal':
+      '@vite-hub/internal':
         specifier: workspace:*
         version: link:../../packages/internal
-      '@vitehub/kv':
+      '@vite-hub/kv':
         specifier: workspace:*
         version: link:../../packages/kv
-      '@vitehub/queue':
+      '@vite-hub/queue':
         specifier: workspace:*
         version: link:../../packages/queue
-      '@vitehub/sandbox':
+      '@vite-hub/sandbox':
         specifier: workspace:*
         version: link:../../packages/sandbox
-      '@vitehub/schedule':
+      '@vite-hub/schedule':
         specifier: workspace:*
         version: link:../../packages/schedule
-      '@vitehub/workflow':
+      '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../../packages/workflow
-      '@vitehub/workspace':
+      '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../../packages/workspace
       '@vitejs/devtools':

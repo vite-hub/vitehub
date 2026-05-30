@@ -1,6 +1,6 @@
 # Runtime Package
 
-Runtime Package names ownership boundaries for `@vitehub/runtime`.
+Runtime Package names ownership boundaries for `@vite-hub/runtime`.
 
 ## Language
 

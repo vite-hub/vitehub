@@ -1,6 +1,6 @@
 import { H3, readBody } from "h3"
-import { createMessage } from "@vitehub/agent"
-import { runAgent } from "@vitehub/agent"
+import { createMessage } from "@vite-hub/agent"
+import { runAgent } from "@vite-hub/agent"
 import supportAgent from "./support.agent"
 
 const app = new H3()

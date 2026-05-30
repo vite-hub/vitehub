@@ -1,5 +1,5 @@
-import { createMessage } from "@vitehub/agent"
-import { runAgent } from "@vitehub/agent"
+import { createMessage } from "@vite-hub/agent"
+import { runAgent } from "@vite-hub/agent"
 import supportAgent from "../agents/support"
 
 export default defineEventHandler(async (event) => {

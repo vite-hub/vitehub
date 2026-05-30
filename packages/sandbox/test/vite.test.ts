@@ -16,7 +16,7 @@ async function createViteRoot() {
   }, null, 2))
   await mkdir(join(rootDir, "src/tools"), { recursive: true })
   await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
-    `import { defineSandbox } from "@vitehub/sandbox"`,
+    `import { defineSandbox } from "@vite-hub/sandbox"`,
     ``,
     `export default defineSandbox(async () => ({ ok: true }))`,
     ``,
@@ -50,7 +50,7 @@ describe("hubSandbox", () => {
     const resolvedId = await resolveId("#vitehub/sandbox")
     const code = await load(resolvedId as string)
 
-    expect(plugin.nitro?.name).toBe("@vitehub/sandbox")
+    expect(plugin.nitro?.name).toBe("@vite-hub/sandbox")
     expect(code).toContain('"feature": "sandbox"')
     expect(code).toContain('"provider": "vercel"')
     expect(configResult).toEqual({
@@ -121,7 +121,7 @@ describe("hubSandbox", () => {
         alias: {
           "vitehub-sandbox-provider-loader": expect.stringContaining("runtime/provider-loader"),
         },
-        noExternal: ["@vitehub/sandbox"],
+        noExternal: ["@vite-hub/sandbox"],
       },
     })
     expect(configEnvironment("client", { consumer: "client" })).toBeUndefined()
@@ -196,7 +196,7 @@ describe("hubSandbox", () => {
 
     expect(hookCalls[0]?.name).toBe("rollup:before")
     expect(config.plugins?.[0]?.resolveId?.("vitehub-sandbox-provider-loader")).toBe("/tmp/provider-loader.mjs")
-    expect(config.plugins?.[0]?.resolveId?.("@vitehub/sandbox")).toBeUndefined()
+    expect(config.plugins?.[0]?.resolveId?.("@vite-hub/sandbox")).toBeUndefined()
   })
 
   it("passes explicit Cloudflare sandbox container names to Nitro targets", async () => {

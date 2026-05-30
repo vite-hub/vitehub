@@ -68,7 +68,7 @@ describe("Vite plugin", () => {
     expect(types).toContain("usePublicEnv(): PublicEnv")
     expect(types).not.toContain("buildConfig")
     expect(types).not.toContain("useSafeBuildConfig")
-    expect(types).not.toContain("virtual:@vitehub/env/build")
+    expect(types).not.toContain("virtual:@vite-hub/env/build")
 
     const loadHook = plugin.load as (id: string) => string | undefined
     const loaded = loadHook("\0#vitehub/env/public")

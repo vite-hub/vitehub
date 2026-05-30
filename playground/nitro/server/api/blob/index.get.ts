@@ -1,6 +1,6 @@
 import { defineEventHandler, getQuery } from "h3"
 
-import { blob } from "@vitehub/blob"
+import { blob } from "@vite-hub/blob"
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)

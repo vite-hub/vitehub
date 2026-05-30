@@ -27,7 +27,7 @@ describe("types", () => {
           source: env.source("TOKEN"),
         }),
       },
-      modules: ["@vitehub/env/nitro"],
+      modules: ["@vite-hub/env/nitro"],
     })).toMatchTypeOf<Plugin[]>()
   })
 })

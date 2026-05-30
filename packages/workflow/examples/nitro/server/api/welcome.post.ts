@@ -1,4 +1,4 @@
-import { runWorkflow } from "@vitehub/workflow"
+import { runWorkflow } from "@vite-hub/workflow"
 import type { WelcomePayload } from "../workflows/welcome"
 
 export default defineEventHandler(async (event) => {

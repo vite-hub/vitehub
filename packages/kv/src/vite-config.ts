@@ -1,10 +1,10 @@
 import { normalizeKVOptions } from "./config.ts"
-import { readEnv, trimmed } from "@vitehub/internal/env"
+import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import type { KVResolutionInput } from "./config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
 
-export const KV_VITE_PLUGIN_NAME = "@vitehub/kv/vite"
+export const KV_VITE_PLUGIN_NAME = "@vite-hub/kv/vite"
 export const KV_VIRTUAL_CONFIG_ID = "#vitehub/kv/config"
 
 export interface KVViteRuntimeConfig {
