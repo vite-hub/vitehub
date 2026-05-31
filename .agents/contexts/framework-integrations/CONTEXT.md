@@ -56,6 +56,14 @@ _Avoid_: User options, provider output
 An Integration Option that chooses the provider used for generated output, bindings, imports, or deployment behavior.
 _Avoid_: Invocation option, runtime helper option
 
+**Build-Time Diagnostic**:
+A framework integration error emitted before deployment when ViteHub can prove configuration, discovery, provider selection, or provider output is invalid.
+_Avoid_: Runtime guard, warning, linter rule
+
+**Runtime Diagnostic**:
+A runtime error emitted when ViteHub can only prove the invalid state from runtime facts such as request input, deployed bindings, or provider environment.
+_Avoid_: Build validation, deploy check, generic exception
+
 **Runtime Helper**:
 A runtime API used by application code to call, inspect, or use a configured ViteHub primitive.
 _Avoid_: Composable, Vite plugin, Nitro module
@@ -94,6 +102,8 @@ _Avoid_: Virtual module path, generated file path, framework import path
 - First-class discovered definition files use a **Discovered Definition Export**.
 - A direct default-exported **Definition Boundary Helper** is the only source shape eligible for Build-Extracted Definition Options.
 - **Provider Selection** belongs in Integration Options when it changes generated output, bindings, imports, or deployment behavior.
+- Prefer a **Build-Time Diagnostic** whenever Integration Options, Definition Options, discovered Definitions, hosting detection, or Provider Output make an invalid state knowable before deployment.
+- Use a **Runtime Diagnostic** only for invalid states that depend on runtime-only facts.
 - Options should live as late as possible unless static analysis, type generation, provider binding, generated files, or deployment output require earlier placement.
 - A **Stable ViteHub Import Path** can resolve to a Runtime Registry, Provider Output, virtual module, or generated file.
 - Application code should import generated or integration-backed ViteHub surfaces through **Stable ViteHub Import Paths** unless an ADR makes another import path public.

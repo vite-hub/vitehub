@@ -52,6 +52,14 @@ _Avoid_: Chat state, workflow state
 Host-provided metadata naming where an Agent Invocation came from, such as `http`, `devtools`, or a Chat Platform Adapter name.
 _Avoid_: Platform, Agent Trigger, runtime
 
+**Agent State Provider**:
+A configured backend for Agent-owned runtime state that must survive beyond one request, such as Chat History and invocation coordination.
+_Avoid_: Chat adapter state, Workflow Provider, Queue Provider, app database
+
+**Agent State Primitive**:
+A small runtime-facing Agent State Provider operation, such as value storage, list append, compare-and-set, or Lease acquisition.
+_Avoid_: Chat History API, app storage method, provider message
+
 **Chat History**:
 Ordered conversational messages for one chat interaction with an Agent.
 _Avoid_: Agent Memory, Agent Run State
@@ -82,7 +90,7 @@ _Avoid_: Public lock API, Capability
 
 **Development State Provider**:
 An in-memory or local provider used only for single-process Agent development.
-_Avoid_: Production state provider, durable coordination
+_Avoid_: Durable Agent State Provider, production coordination
 
 **Agent Usage**:
 Normalized model usage information produced by an Agent Invocation, including token counts and provider-reported usage details.
@@ -122,11 +130,16 @@ _Avoid_: Fake agent, dummy model, test bot
 - Workspace Tools are derived from an Agent's Colocated Workspace Definition.
 - An **Agent Invocation** can create or update **Agent Run State**.
 - An **Agent Run Origin** is observability metadata for an **Agent Invocation**; it is not the **Agent Trigger** that prepared the invocation.
+- An **Agent State Provider** stores Agent-owned runtime state across requests.
+- An **Agent State Provider** is runtime-facing and does not expose model-facing tools or arbitrary app data storage.
+- An **Agent State Provider** exposes **Agent State Primitives** rather than product-shaped stores such as `chatHistory`, `invocationRuns`, or `dedupe`.
+- Agent Package and Capability behavior build named state services on top of **Agent State Primitives**.
+- Agent State Provider selection should fail at build time when hosted production requires durable state and no durable provider can be inferred or configured.
 - **Chat History** is conversation-scoped and is not **Agent Memory**.
 - A **Chat Session** is part of Chat History behavior and is not **Agent Memory**.
 - The Chat Capability resolves the active **Chat Session** before applying the **Chat History Window**.
 - A **Chat History Window** is configured by the Agent Definition when the application wants bounded Chat History.
-- The Chat Capability can require state for **Chat History** through the Agent State Provider.
+- The Chat Capability can require state for **Chat History** through an **Agent State Provider**.
 - The Chat Capability can produce **Chat Identity** before later Capabilities resolve.
 - **Chat Identity** is available through Agent Invocation Context Values and is not model-facing by default.
 - Chat History is explicit application behavior and is not enabled by default.
@@ -134,8 +147,8 @@ _Avoid_: Fake agent, dummy model, test bot
 - **Agent Invocation Context Values** do not grant Capabilities dynamically.
 - **Agent Invocation Context Value** ids must be unique per Agent so every invocation has one writer per context value.
 - **Agent Memory** can outlive one conversation.
-- A **Concurrent Invocation Guard** protects **Agent Run State**.
-- A **Development State Provider** is not acceptable for hosted production runtimes.
+- A **Concurrent Invocation Guard** protects **Agent Run State** through a Runtime Package **Lease**, not a public lock API.
+- A **Development State Provider** is not acceptable where hosted production needs durable Chat History or a **Concurrent Invocation Guard**.
 - **Agent Usage** belongs to one **Agent Invocation**.
 - **Agent Usage Telemetry** observes **Agent Usage Records**.
 - **Agent Usage Telemetry** can expose an **Agent Usage Record** as an **Agent Invocation Extension**.
