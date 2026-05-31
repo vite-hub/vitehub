@@ -28,7 +28,6 @@
     "./ai-sdk": "./dist/ai-sdk.js",
     "./capabilities": "./dist/capabilities.js",
     "./capability-runtime": "./dist/capability-runtime.js",
-    "./chat/telegram": "./dist/chat/telegram.js",
     "./cli": "./dist/cli.js",
     "./cloudflare": "./dist/cloudflare.js",
     "./cloudflare/state": "./dist/cloudflare/state.js",
@@ -73,7 +72,6 @@
     "hookable": "catalog:unjs"
   },
   "peerDependencies": {
-    "@chat-adapter/telegram": "^4.27.0",
     "@ai-sdk/mcp": "catalog:ai",
     "@vite-hub/workflow": "workspace:*",
     "agents": "catalog:ai",
@@ -83,9 +81,6 @@
     "vite": "catalog:vite8-plus-compat"
   },
   "peerDependenciesMeta": {
-    "@chat-adapter/telegram": {
-      "optional": true
-    },
     "@ai-sdk/mcp": {
       "optional": true
     },
@@ -110,7 +105,6 @@
   },
   "devDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
-    "@chat-adapter/telegram": "catalog:chat",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workflow": "workspace:*",

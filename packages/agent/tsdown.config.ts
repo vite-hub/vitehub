@@ -12,7 +12,6 @@ export default defineConfig({
     "src/ai-sdk.ts",
     "src/capabilities.ts",
     "src/capability-runtime.ts",
-    "src/chat/telegram.ts",
     "src/index.ts",
     "src/memory.ts",
     "src/messages.ts",
