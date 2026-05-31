@@ -65,6 +65,21 @@ describe("agent transcription", () => {
     })).resolves.toEqual(new Uint8Array([1, 2]))
   })
 
+  it("resolves lazy audio bytes with size limits", async () => {
+    await expect(audioBytes({
+      fetchData: () => new Uint8Array([1, 2, 3]),
+      mediaType: "audio/ogg",
+      size: 3,
+      type: "audio",
+    }, { maxBytes: 3 })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+
+    await expect(audioBytes({
+      fetchData: () => new Uint8Array([1, 2, 3, 4]),
+      mediaType: "audio/ogg",
+      type: "audio",
+    }, { maxBytes: 3 })).rejects.toThrow("exceeds maxBytes")
+  })
+
   it("accepts audio message parts", () => {
     expect(createMessage({
       parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
@@ -72,6 +87,14 @@ describe("agent transcription", () => {
     }).parts).toEqual([
       { data: "AAAA", mediaType: "audio/wav", type: "audio" },
     ])
+
+    expect(createMessage({
+      parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "audio/ogg", type: "audio" }],
+      role: "user",
+    }).parts[0]).toMatchObject({
+      mediaType: "audio/ogg",
+      type: "audio",
+    })
   })
 
   it("rejects invalid audio message parts", () => {
@@ -83,7 +106,7 @@ describe("agent transcription", () => {
     expect(() => createMessage({
       parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio", url: "https://example.com/audio.wav" }],
       role: "user",
-    })).toThrow("exactly one of data or url")
+    })).toThrow("exactly one of data, fetchData, or url")
   })
 
   it("transcribes audio input with custom execution before agent execution", async () => {

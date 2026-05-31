@@ -927,8 +927,11 @@ describe("agent Nitro chat webhooks", () => {
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
     const output: { edits: unknown[], events: string[], posts: unknown[] } = { edits: [], events: [], posts: [] }
     const seenText: string[] = []
-    const execute = vi.fn(async () => {
+    const execute = vi.fn(async ({ audio }) => {
       expect(output.posts).toEqual(["Working..."])
+      expect(audio.data).toBeUndefined()
+      expect(audio.fetchData).toBeTypeOf("function")
+      await expect(audio.fetchData?.()).resolves.toEqual(Buffer.from("AAAA"))
       return "audio transcript"
     })
     const adapter = createWebhookAdapter(output)
@@ -970,8 +973,9 @@ describe("agent Nitro chat webhooks", () => {
     expect(response.status).toBe(200)
     expect(execute).toHaveBeenCalledWith({
       audio: expect.objectContaining({
-        data: Buffer.from("AAAA"),
+        fetchData: expect.any(Function),
         mediaType: "audio/ogg",
+        name: "voice.ogg",
         type: "audio",
       }),
     })
@@ -979,5 +983,54 @@ describe("agent Nitro chat webhooks", () => {
     expect(output.events).toEqual(["post", "fetchData", "edit"])
     expect(seenText).toEqual(["audio transcript"])
     expect(output.edits).toEqual(["archived"])
+  })
+
+  it("clears chat dedupe state when agent processing fails", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    const state = createMemoryState()
+    const adapter = createWebhookAdapter(output)
+    let runs = 0
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [
+          chat({
+            adapters: () => ({ teams: adapter }),
+            fallbackStreamingPlaceholderText: "Working...",
+            state: () => state,
+          }),
+        ],
+        run() {
+          runs += 1
+          if (runs === 1) throw new Error("first run failed")
+          return "agent answer"
+        },
+      }),
+    })
+
+    const event = () => ({
+      context: {
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
+        body: JSON.stringify({ id: "message-retry", text: "hello from Teams" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    }) as never
+
+    await expect(handler(event())).rejects.toThrow("first run failed")
+    await expect(state.get("_vitehub_support_chat:dedupe:teams:message-retry")).resolves.toBeNull()
+
+    const response = await handler(event()) as Response
+
+    expect(response.status).toBe(200)
+    expect(runs).toBe(2)
+    expect(output.edits).toEqual(["agent answer"])
   })
 })

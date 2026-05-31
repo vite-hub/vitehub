@@ -416,18 +416,22 @@ function attachmentMediaType(attachment: Attachment): string {
   return attachment.mimeType?.startsWith("audio/") ? attachment.mimeType : "audio/ogg"
 }
 
-async function attachmentData(attachment: Attachment): Promise<unknown> {
-  if (attachment.data) return attachment.data
-  if (attachment.fetchData) return await attachment.fetchData()
-}
-
-async function audioAttachmentPart(attachment: Attachment, index: number): Promise<Record<string, unknown> | undefined> {
+function audioAttachmentPart(attachment: Attachment, index: number): Record<string, unknown> | undefined {
   if (attachment.type !== "audio") return
   const mediaType = attachmentMediaType(attachment)
   const id = attachment.name || `audio-${index + 1}`
-  const data = await attachmentData(attachment)
-  if (data) return { data, id, mediaType, type: "audio" }
-  if (attachment.url) return { id, mediaType, type: "audio", url: attachment.url }
+  const base = {
+    ...(attachment.fetchMetadata ? { fetchMetadata: attachment.fetchMetadata } : {}),
+    ...(attachment.name ? { name: attachment.name } : {}),
+    ...(typeof attachment.size === "number" ? { size: attachment.size } : {}),
+    id,
+    mediaType,
+    type: "audio",
+  }
+  const data = attachment.data
+  if (data) return { ...base, data }
+  if (attachment.fetchData) return { ...base, fetchData: () => attachment.fetchData!() }
+  if (attachment.url) return { ...base, url: attachment.url }
 }
 
 async function toUIMessage(message: ChatMessage, index: number): Promise<AgentChatMessageTriggerInput["messages"][number] | undefined> {
@@ -601,6 +605,27 @@ async function handleChatMessage(
   await postAgentResult(thread, result, placeholder)
 }
 
+function chatDedupeKey(adapter: Adapter, message: ChatMessage): string | undefined {
+  const messageId = entityId(message)
+  return messageId ? `dedupe:${adapter.name}:${messageId}` : undefined
+}
+
+async function runChatMessageWithDedupeRecovery(
+  state: StateAdapter,
+  adapter: Adapter,
+  message: ChatMessage,
+  handler: () => Promise<void>,
+): Promise<void> {
+  try {
+    await handler()
+  }
+  catch (error) {
+    const dedupeKey = chatDedupeKey(adapter, message)
+    if (dedupeKey) await state.delete(dedupeKey).catch(() => undefined)
+    throw error
+  }
+}
+
 async function runDirectMessageHook(
   options: AgentChatOptions,
   platform: string,
@@ -634,7 +659,8 @@ async function createAgentChatBot(agent: AgentInput<NitroAgentRuntimeContext>, c
   }
 
   const adapters = await resolveChatAdapters(options, context)
-  if (!adapters[platform]) {
+  const adapter = adapters[platform]
+  if (!adapter) {
     throw createError({
       statusCode: 404,
       statusMessage: `Agent "${agentName}" does not define a "${platform}" chat adapter.`,
@@ -644,19 +670,25 @@ async function createAgentChatBot(agent: AgentInput<NitroAgentRuntimeContext>, c
   const state = await resolveChatState(options, context, agentName)
   const bot = new Chat(createChatSdkOptions(options, adapters, state, agentName))
   bot.onDirectMessage(async (thread, message, channel) => {
-    await runDirectMessageHook(options, platform, thread, message, channel)
-    await handleChatMessage(agent, context, platform, options, thread, message, channel)
+    await runChatMessageWithDedupeRecovery(state, adapter, message, async () => {
+      await runDirectMessageHook(options, platform, thread, message, channel)
+      await handleChatMessage(agent, context, platform, options, thread, message, channel)
+    })
   })
   bot.onNewMention(async (thread, message) => {
-    await handleChatMessage(agent, context, platform, options, thread, message, thread.channel)
+    await runChatMessageWithDedupeRecovery(state, adapter, message, async () => {
+      await handleChatMessage(agent, context, platform, options, thread, message, thread.channel)
+    })
   })
   bot.onSubscribedMessage(async (thread, message) => {
-    if (!thread.isDM) {
-      await thread.unsubscribe().catch(() => undefined)
-      if (!message.isMention) return
-    }
+    await runChatMessageWithDedupeRecovery(state, adapter, message, async () => {
+      if (!thread.isDM) {
+        await thread.unsubscribe().catch(() => undefined)
+        if (!message.isMention) return
+      }
 
-    await handleChatMessage(agent, context, platform, options, thread, message, thread.channel)
+      await handleChatMessage(agent, context, platform, options, thread, message, thread.channel)
+    })
   })
   return { bot, options }
 }

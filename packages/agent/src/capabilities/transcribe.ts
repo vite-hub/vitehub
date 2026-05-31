@@ -8,13 +8,14 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
-import type { AudioPart, Message } from "../messages.ts"
+import type { AudioData, AudioPart, Message } from "../messages.ts"
 import type { WritableWorkspaceFacade, WorkspaceContent, WorkspaceName } from "@vite-hub/workspace"
 
 type AiSdkTranscribe = typeof import("ai")["experimental_transcribe"]
 type AiSdkTranscribeOptions = Omit<Parameters<AiSdkTranscribe>[0], "abortSignal" | "audio">
 type AiSdkTranscriptionResult = Awaited<ReturnType<AiSdkTranscribe>>
 type TranscribeArtifactValue<T, TInput> = T | ((input: TInput) => MaybePromise<T>)
+const DEFAULT_TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024
 
 export interface TranscribeExecuteInput {
   audio: AudioPart
@@ -63,11 +64,13 @@ type StaticTranscribeOptions =
     artifacts?: TranscribeArtifactsOptions
     execute?: never
     instructions?: AgentCapabilityDefinition["instructions"]
+    maxBytes?: number
   })
   | {
     artifacts?: TranscribeArtifactsOptions
     execute: (input: TranscribeExecuteInput) => MaybePromise<TranscribeExecuteResult>
     instructions?: AgentCapabilityDefinition["instructions"]
+    maxBytes?: number
     model?: never
   }
 
@@ -80,11 +83,42 @@ function isAudioPart(part: unknown): part is AudioPart {
     && typeof (part as { mediaType?: unknown }).mediaType === "string"
 }
 
-async function toAiSdkAudio(audio: AudioPart): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
-  if (audio.url) return new URL(audio.url)
-  if (audio.data instanceof Blob) return await audio.data.arrayBuffer()
+function normalizeMaxBytes(maxBytes: number | undefined): number {
+  if (maxBytes === undefined) return DEFAULT_TRANSCRIBE_MAX_BYTES
+  if (!Number.isFinite(maxBytes) || maxBytes <= 0) {
+    throw new TypeError("[vitehub] transcribe({ maxBytes }) must be a positive finite number.")
+  }
+  return maxBytes
+}
+
+function assertWithinMaxBytes(byteLength: number | undefined, maxBytes: number, source: string): void {
+  if (typeof byteLength === "number" && byteLength > maxBytes) {
+    throw new Error(`[vitehub] transcribe() ${source} is ${byteLength} bytes, which exceeds maxBytes (${maxBytes}).`)
+  }
+}
+
+async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<AudioData | undefined> {
+  assertWithinMaxBytes(audio.size, maxBytes, "audio")
+  if (audio.data instanceof Blob) assertWithinMaxBytes(audio.data.size, maxBytes, "audio data")
+  else if (audio.data instanceof ArrayBuffer) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
+  else if (ArrayBuffer.isView(audio.data)) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
   if (audio.data) return audio.data
-  throw new TypeError("[vitehub] transcribe() requires audio data or url.")
+  if (!audio.fetchData) return
+
+  const data = await audio.fetchData()
+  if (data instanceof Blob) assertWithinMaxBytes(data.size, maxBytes, "downloaded audio")
+  else if (data instanceof ArrayBuffer) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
+  else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
+  else if (typeof data === "string") assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
+  return data
+}
+
+async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
+  const data = await resolveAudioData(audio, maxBytes)
+  if (data instanceof Blob) return await data.arrayBuffer()
+  if (data) return data
+  if (audio.url) return new URL(audio.url)
+  throw new TypeError("[vitehub] transcribe() requires audio data, fetchData, or url.")
 }
 
 function normalizeAudioMediaType(mediaType = ""): string {
@@ -118,17 +152,54 @@ function bytesFromAudioString(value: string): Uint8Array {
   return new TextEncoder().encode(value)
 }
 
-export async function audioBytes(audio: AudioPart): Promise<Uint8Array> {
-  if (audio.data instanceof Blob) return new Uint8Array(await audio.data.arrayBuffer())
-  if (audio.data instanceof ArrayBuffer) return new Uint8Array(audio.data)
-  if (ArrayBuffer.isView(audio.data)) return new Uint8Array(audio.data.buffer, audio.data.byteOffset, audio.data.byteLength)
-  if (typeof audio.data === "string") return bytesFromAudioString(audio.data)
+async function responseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+  const contentLength = Number(response.headers.get("content-length"))
+  if (Number.isFinite(contentLength)) assertWithinMaxBytes(contentLength, maxBytes, "downloaded audio")
+
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    assertWithinMaxBytes(bytes.byteLength, maxBytes, "downloaded audio")
+    return bytes
+  }
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let byteLength = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
+    byteLength += chunk.byteLength
+    assertWithinMaxBytes(byteLength, maxBytes, "downloaded audio")
+    chunks.push(chunk)
+  }
+
+  const bytes = new Uint8Array(byteLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
+export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number }): Promise<Uint8Array> {
+  const maxBytes = normalizeMaxBytes(options?.maxBytes)
+  const data = await resolveAudioData(audio, maxBytes)
+  if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer())
+  if (data instanceof ArrayBuffer) return new Uint8Array(data)
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+  if (typeof data === "string") {
+    const bytes = bytesFromAudioString(data)
+    assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
+    return bytes
+  }
   if (audio.url) {
     const response = await fetch(audio.url)
     if (!response.ok) throw new Error(`[vitehub] Failed to download audio: ${response.status} ${response.statusText}.`)
-    return new Uint8Array(await response.arrayBuffer())
+    return await responseBytes(response, maxBytes)
   }
-  throw new TypeError("[vitehub] transcribe() requires audio data or url.")
+  throw new TypeError("[vitehub] transcribe() requires audio data, fetchData, or url.")
 }
 
 function transcriptText(result: TranscribeExecuteResult): string {
@@ -147,13 +218,16 @@ async function runTranscription(options: StaticTranscribeOptions, audio: AudioPa
   const {
     artifacts: _artifacts,
     instructions: _instructions,
+    maxBytes: maxBytesOption,
     ...transcribeOptions
   } = options
-  const { experimental_transcribe } = await import("ai")
+  const maxBytes = normalizeMaxBytes(maxBytesOption)
+  const { createDownload, experimental_transcribe } = await import("ai")
   const result = await experimental_transcribe({
     ...transcribeOptions,
     abortSignal,
-    audio: await toAiSdkAudio(audio),
+    audio: await toAiSdkAudio(audio, maxBytes),
+    download: transcribeOptions.download ?? createDownload({ maxBytes }),
   })
   return result.text
 }

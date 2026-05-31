@@ -34,6 +34,7 @@ export {
   skills,
 } from "./skills.ts"
 export {
+  audioBytes,
   getTranscriptionResults,
   transcribe,
 } from "./transcribe.ts"
