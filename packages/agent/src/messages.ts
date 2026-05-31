@@ -20,8 +20,12 @@ export type AudioData = ArrayBuffer | Blob | string | Uint8Array
 
 export interface AudioPart {
   data?: AudioData
+  fetchData?: () => Promise<AudioData> | AudioData
+  fetchMetadata?: Record<string, string>
   id?: string
   mediaType: string
+  name?: string
+  size?: number
   type: "audio"
   url?: string
 }
@@ -277,7 +281,7 @@ export function validateMessage(message: Message): void {
 
   const openToolCalls = new Map<string, ToolCallPart | ApprovalRequestPart>()
   for (const [index, part] of message.parts.entries()) {
-    assertSerializable(part, `message.parts[${index}]`)
+    if (part.type !== "audio") assertSerializable(part, `message.parts[${index}]`)
     switch (part.type) {
       case "text":
         if (typeof part.text !== "string") throw new TypeError("[vitehub:messages] text part requires text.")
@@ -311,13 +315,16 @@ export function validateMessage(message: Message): void {
         if (!("data" in part)) throw new TypeError("[vitehub:messages] data part requires data.")
         break
       case "audio": {
+        const { fetchData: _fetchData, ...serializablePart } = part
+        assertSerializable(serializablePart, `message.parts[${index}]`)
         if (typeof part.mediaType !== "string" || !part.mediaType.startsWith("audio/")) {
           throw new TypeError("[vitehub:messages] audio part requires an audio/* mediaType.")
         }
         const hasData = hasAudioData(part.data)
+        const hasFetchData = typeof part.fetchData === "function"
         const hasUrl = typeof part.url === "string" && part.url.length > 0
-        if (hasData === hasUrl) {
-          throw new TypeError("[vitehub:messages] audio part requires exactly one of data or url.")
+        if ([hasData, hasFetchData, hasUrl].filter(Boolean).length !== 1) {
+          throw new TypeError("[vitehub:messages] audio part requires exactly one of data, fetchData, or url.")
         }
         if (part.id !== undefined) assertString(part.id, "audio.id")
         break
@@ -398,7 +405,14 @@ export async function collectStreamEvents(stream: AsyncIterable<StreamEvent>): P
 }
 
 export function serializeMessages(messages: Message[]): string {
-  for (const message of messages) validateMessage(message)
+  for (const [messageIndex, message] of messages.entries()) {
+    validateMessage(message)
+    for (const [partIndex, part] of message.parts.entries()) {
+      if (part.type === "audio" && typeof part.fetchData === "function") {
+        throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize message[${messageIndex}].parts[${partIndex}].fetchData. Provide audio data or a URL before serializing.`)
+      }
+    }
+  }
   return JSON.stringify({ messages, version: 1 } satisfies SerializedMessages)
 }
 

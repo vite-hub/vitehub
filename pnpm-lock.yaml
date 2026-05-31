@@ -345,9 +345,6 @@ importers:
       chat:
         specifier: catalog:chat
         version: 4.27.0
-      chat-state-cloudflare-do:
-        specifier: catalog:chat
-        version: 0.2.0(chat@4.27.0)
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))

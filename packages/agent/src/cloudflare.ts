@@ -3,6 +3,12 @@ import type { AgentInput, AgentRequestBody, AgentRuntimeContext, CloudflareExpor
 import { runAgent, streamAgent } from "./index.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
+export { createCloudflareAgentState, ViteHubAgentStateAdapter } from "./state/providers/cloudflare.ts"
+export type {
+  CloudflareAgentStateOptions,
+  ViteHubAgentStateDurableObjectNamespace,
+  ViteHubAgentStateDurableObjectStub,
+} from "./state/providers/cloudflare.ts"
 
 type RouteAgentRequest = (request: Request, env: Record<string, unknown>, options?: Record<string, unknown>) => Promise<Response | undefined> | Response | undefined
 

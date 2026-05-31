@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { getTranscriptionResults, transcribe } from "../src/capabilities.ts"
 import { audioBytes, audioExtensionFor } from "../src/capabilities/transcribe.ts"
-import { createMessage, defineAgent, runAgent } from "../src/index.ts"
+import { createMessage, defineAgent, runAgent, serializeMessages } from "../src/index.ts"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -65,6 +65,53 @@ describe("agent transcription", () => {
     })).resolves.toEqual(new Uint8Array([1, 2]))
   })
 
+  it("resolves lazy audio bytes with size limits", async () => {
+    await expect(audioBytes({
+      fetchData: () => new Uint8Array([1, 2, 3]),
+      mediaType: "audio/ogg",
+      size: 3,
+      type: "audio",
+    }, { maxBytes: 3 })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+
+    await expect(audioBytes({
+      fetchData: () => new Uint8Array([1, 2, 3, 4]),
+      mediaType: "audio/ogg",
+      type: "audio",
+    }, { maxBytes: 3 })).rejects.toThrow("exceeds maxBytes")
+  })
+
+  it("reuses lazy audio bytes between transcription and audio artifacts", async () => {
+    const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const capability = transcribe({
+      execute: async ({ audio }) => {
+        await expect(audioBytes(audio, { maxBytes: 3 })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+        return "hola mundo"
+      },
+      artifacts: {
+        audio: {},
+        transcript: false,
+      },
+      maxBytes: 3,
+    })
+    const context = createTranscriptionCapabilityContext([
+      createMessage({
+        createdAt: "2026-05-28T10:50:04.000Z",
+        id: "msg_1",
+        parts: [{ fetchData, mediaType: "audio/opus", size: 3, type: "audio" }],
+        role: "user",
+      }),
+    ])
+
+    await capability.input?.(context.context as never)
+
+    expect(fetchData).toHaveBeenCalledOnce()
+    expect(context.writeFile).toHaveBeenCalledWith(
+      "audio/2026-05-28/2026-05-28T10-50-04Z-telegram-4.ogg",
+      new Uint8Array([1, 2, 3]),
+      { mediaType: "audio/opus" },
+    )
+  })
+
   it("accepts audio message parts", () => {
     expect(createMessage({
       parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
@@ -72,6 +119,23 @@ describe("agent transcription", () => {
     }).parts).toEqual([
       { data: "AAAA", mediaType: "audio/wav", type: "audio" },
     ])
+
+    expect(createMessage({
+      parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "audio/ogg", type: "audio" }],
+      role: "user",
+    }).parts[0]).toMatchObject({
+      mediaType: "audio/ogg",
+      type: "audio",
+    })
+  })
+
+  it("rejects serializing lazy audio message parts", () => {
+    const message = createMessage({
+      parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "audio/ogg", type: "audio" }],
+      role: "user",
+    })
+
+    expect(() => serializeMessages([message])).toThrow("cannot serialize")
   })
 
   it("rejects invalid audio message parts", () => {
@@ -83,7 +147,7 @@ describe("agent transcription", () => {
     expect(() => createMessage({
       parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio", url: "https://example.com/audio.wav" }],
       role: "user",
-    })).toThrow("exactly one of data or url")
+    })).toThrow("exactly one of data, fetchData, or url")
   })
 
   it("transcribes audio input with custom execution before agent execution", async () => {

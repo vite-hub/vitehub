@@ -6,6 +6,7 @@ import { mergeNitroImportsPreset, resolveRuntimeEntry as resolveEntry } from "@v
 
 import { normalizeAgentOptions } from "../config.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
+import { appendCloudflareAgentStateClassExport, installCloudflareAgentStateProvider, isCloudflarePreset } from "../state/providers/cloudflare-nitro.ts"
 
 import type { Nitro, NitroRuntimeConfig } from "nitro/types"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "../types.ts"
@@ -176,6 +177,7 @@ function installAliases(nitro: Nitro, registryFile: string | undefined): void {
   nitro.options.alias["@vite-hub/agent"] = resolveRuntimeEntry("../index", "@vite-hub/agent")
   nitro.options.alias["@vite-hub/agent/capabilities"] = resolveRuntimeEntry("../capabilities", "@vite-hub/agent/capabilities")
   nitro.options.alias["@vite-hub/agent/cloudflare"] = resolveRuntimeEntry("../cloudflare", "@vite-hub/agent/cloudflare")
+  nitro.options.alias["@vite-hub/agent/cloudflare/state"] = resolveRuntimeEntry("../cloudflare/state", "@vite-hub/agent/cloudflare/state")
   nitro.options.alias["@vite-hub/agent/eval"] = resolveRuntimeEntry("../eval", "@vite-hub/agent/eval")
   nitro.options.alias["@vite-hub/agent/nitro"] = resolveRuntimeEntry("../nitro", "@vite-hub/agent/nitro")
   nitro.options.alias["@vite-hub/agent/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vite-hub/agent/runtime/nitro-runtime-config")
@@ -229,6 +231,27 @@ function installChatAppRoutes(nitro: Nitro, routeFile: string | undefined): void
   installPostRoute(nitro, AGENT_CHAT_APP_AGENT_ROUTE, routeFile)
 }
 
+function setAgentRuntimeConfig(runtimeConfig: NitroRuntimeConfig, options: false | ResolvedAgentModuleOptions, cloudflareStateInstalled: boolean): void {
+  if (!options) {
+    runtimeConfig.agent = false
+    return
+  }
+  let stateProvider = options.providers.state.provider
+  if (stateProvider === "auto") {
+    stateProvider = cloudflareStateInstalled ? "cloudflare" : "memory"
+  }
+  runtimeConfig.agent = {
+    ...options,
+    providers: {
+      ...options.providers,
+      state: {
+        ...options.providers.state,
+        provider: stateProvider,
+      },
+    },
+  }
+}
+
 export function agentNitro(options?: false | AgentModuleOptions): AgentNitroModule {
   return {
     name: "@vite-hub/agent",
@@ -236,47 +259,60 @@ export function agentNitro(options?: false | AgentModuleOptions): AgentNitroModu
       const nitro = nitroInput as Nitro
       const configured = options ?? (nitro.options as typeof nitro.options & { agent?: false | AgentModuleOptions }).agent
       const resolved = normalizeAgentOptions(configured)
-    const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
-    if (nitro.options.preset) runtimeConfig.hosting ||= nitro.options.preset
-    runtimeConfig.agent = resolved || false
+      const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
+      if (nitro.options.preset) runtimeConfig.hosting ||= nitro.options.preset
 
-    installExternals(nitro)
+      installExternals(nitro)
 
-    const importsExplicitlyDisabled = nitro.options._config?.imports === false || (resolved && !resolved.imports)
-    if (!importsExplicitlyDisabled) {
-      nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, AGENT_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
-      nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports, {
-        from: "@vite-hub/agent/nitro",
-        imports: ["defineAgentChatHandler", "defineAgentChatRegistryHandler", "defineAgentChatWebhookRegistryHandler", "defineAgentHandler", "defineAgentRegistryHandler"],
-      }) as typeof nitro.options.imports
-    }
+      const importsExplicitlyDisabled = nitro.options._config?.imports === false || (resolved && !resolved.imports)
+      if (!importsExplicitlyDisabled) {
+        nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports === false ? {} : nitro.options.imports, AGENT_NITRO_IMPORTS_PRESET) as typeof nitro.options.imports
+        nitro.options.imports = mergeNitroImportsPreset(nitro.options.imports, {
+          from: "@vite-hub/agent/nitro",
+          imports: ["defineAgentChatHandler", "defineAgentChatRegistryHandler", "defineAgentChatWebhookRegistryHandler", "defineAgentHandler", "defineAgentRegistryHandler"],
+        }) as typeof nitro.options.imports
+      }
 
-    let runtimeFiles = await writeNitroAgentRuntimeFiles(nitro, resolved)
-    installAliases(nitro, runtimeFiles.registryFile)
-    if (resolved) {
-      installRoute(nitro, resolved, runtimeFiles.routeFile)
-      installChatAppRoutes(nitro, runtimeFiles.chatAppRouteFile)
-      installChatWebhookRoute(nitro, runtimeFiles.chatWebhookRouteFile)
-    }
-
-    nitro.hooks.hook("build:before", async () => {
-      runtimeFiles = await writeNitroAgentRuntimeFiles(nitro, resolved)
+      let runtimeFiles = await writeNitroAgentRuntimeFiles(nitro, resolved)
       installAliases(nitro, runtimeFiles.registryFile)
+      let shouldExportCloudflareAgentStateDO = installCloudflareAgentStateProvider(nitro, resolved)
+      setAgentRuntimeConfig(runtimeConfig, resolved, shouldExportCloudflareAgentStateDO)
       if (resolved) {
         installRoute(nitro, resolved, runtimeFiles.routeFile)
         installChatAppRoutes(nitro, runtimeFiles.chatAppRouteFile)
         installChatWebhookRoute(nitro, runtimeFiles.chatWebhookRouteFile)
       }
-    })
-    nitro.hooks.hook("dev:reload", async () => {
-      runtimeFiles = await writeNitroAgentRuntimeFiles(nitro, resolved)
-      installAliases(nitro, runtimeFiles.registryFile)
-      if (resolved) {
-        installRoute(nitro, resolved, runtimeFiles.routeFile)
-        installChatAppRoutes(nitro, runtimeFiles.chatAppRouteFile)
-        installChatWebhookRoute(nitro, runtimeFiles.chatWebhookRouteFile)
-      }
-    })
+
+      nitro.hooks.hook("build:before", async () => {
+        runtimeFiles = await writeNitroAgentRuntimeFiles(nitro, resolved)
+        installAliases(nitro, runtimeFiles.registryFile)
+        const installedCloudflareAgentStateDO = installCloudflareAgentStateProvider(nitro, resolved)
+        shouldExportCloudflareAgentStateDO = installedCloudflareAgentStateDO || shouldExportCloudflareAgentStateDO
+        setAgentRuntimeConfig(runtimeConfig, resolved, installedCloudflareAgentStateDO)
+        if (resolved) {
+          installRoute(nitro, resolved, runtimeFiles.routeFile)
+          installChatAppRoutes(nitro, runtimeFiles.chatAppRouteFile)
+          installChatWebhookRoute(nitro, runtimeFiles.chatWebhookRouteFile)
+        }
+      })
+      nitro.hooks.hook("dev:reload", async () => {
+        runtimeFiles = await writeNitroAgentRuntimeFiles(nitro, resolved)
+        installAliases(nitro, runtimeFiles.registryFile)
+        const installedCloudflareAgentStateDO = installCloudflareAgentStateProvider(nitro, resolved)
+        shouldExportCloudflareAgentStateDO = installedCloudflareAgentStateDO || shouldExportCloudflareAgentStateDO
+        setAgentRuntimeConfig(runtimeConfig, resolved, installedCloudflareAgentStateDO)
+        if (resolved) {
+          installRoute(nitro, resolved, runtimeFiles.routeFile)
+          installChatAppRoutes(nitro, runtimeFiles.chatAppRouteFile)
+          installChatWebhookRoute(nitro, runtimeFiles.chatWebhookRouteFile)
+        }
+      })
+      nitro.hooks.hook("compiled", async (currentNitro) => {
+        if (!shouldExportCloudflareAgentStateDO || !isCloudflarePreset(currentNitro)) {
+          return
+        }
+        await appendCloudflareAgentStateClassExport(currentNitro)
+      })
     },
   }
 }

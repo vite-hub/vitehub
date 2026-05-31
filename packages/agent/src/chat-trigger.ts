@@ -92,11 +92,22 @@ function uiAudioPartToAgentPart(part: Record<string, unknown>): MessagePart[] {
   if (!mediaType) return []
 
   const id = firstString(part.id)
+  const base = {
+    ...(id ? { id } : {}),
+    ...(typeof part.name === "string" ? { name: part.name } : {}),
+    ...(typeof part.size === "number" && Number.isFinite(part.size) ? { size: part.size } : {}),
+    ...(typeof part.fetchMetadata === "object" && part.fetchMetadata !== null ? { fetchMetadata: part.fetchMetadata as Record<string, string> } : {}),
+    mediaType,
+    type: "audio" as const,
+  }
+  if (typeof part.fetchData === "function") {
+    return [{ ...base, fetchData: part.fetchData as () => AudioData | Promise<AudioData> }]
+  }
   if (typeof part.url === "string" && part.url) {
-    return [{ ...(id ? { id } : {}), mediaType, type: "audio", url: part.url }]
+    return [{ ...base, url: part.url }]
   }
   if (isAudioData(part.data)) {
-    return [{ ...(id ? { id } : {}), data: part.data, mediaType, type: "audio" }]
+    return [{ ...base, data: part.data }]
   }
   return []
 }

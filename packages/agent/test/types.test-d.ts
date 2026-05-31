@@ -244,7 +244,6 @@ describe("agent public types", () => {
     type _RootInputCommands = RootAgentExports["inputCommands"]
 
     type CapabilityExports = typeof import("../src/capabilities.ts")
-    // @ts-expect-error transcription byte conversion is internal, not public capabilities API
     type _PublicAudioBytes = CapabilityExports["audioBytes"]
     // @ts-expect-error transcription extension inference is internal, not public capabilities API
     type _PublicAudioExtensionFor = CapabilityExports["audioExtensionFor"]
