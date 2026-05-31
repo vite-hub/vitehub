@@ -176,6 +176,7 @@ function installAliases(nitro: Nitro, registryFile: string | undefined): void {
   nitro.options.alias ||= {}
   nitro.options.alias["@vite-hub/agent"] = resolveRuntimeEntry("../index", "@vite-hub/agent")
   nitro.options.alias["@vite-hub/agent/capabilities"] = resolveRuntimeEntry("../capabilities", "@vite-hub/agent/capabilities")
+  nitro.options.alias["@vite-hub/agent/chat/telegram"] = resolveRuntimeEntry("../chat/telegram", "@vite-hub/agent/chat/telegram")
   nitro.options.alias["@vite-hub/agent/cloudflare"] = resolveRuntimeEntry("../cloudflare", "@vite-hub/agent/cloudflare")
   nitro.options.alias["@vite-hub/agent/cloudflare/state"] = resolveRuntimeEntry("../cloudflare/state", "@vite-hub/agent/cloudflare/state")
   nitro.options.alias["@vite-hub/agent/eval"] = resolveRuntimeEntry("../eval", "@vite-hub/agent/eval")
