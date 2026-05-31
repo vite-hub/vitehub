@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "@vite-hub/env": "workspace:*",
-    "vite": "catalog:"
+    "vite": "catalog:vite"
   },
   "devDependencies": {
-    "typescript": "catalog:"
+    "typescript": "catalog:tooling"
   }
 }

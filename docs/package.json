@@ -18,21 +18,21 @@
     "preview": "nuxi preview"
   },
   "dependencies": {
-    "@nuxt/content": "catalog:",
-    "@nuxt/ui": "catalog:",
-    "@vueuse/core": "catalog:",
+    "@nuxt/content": "catalog:nuxt",
+    "@nuxt/ui": "catalog:nuxt",
+    "@vueuse/core": "catalog:ui",
     "@vite-hub/agent": "workspace:*",
-    "@vitejs/devtools-kit": "catalog:",
-    "docus": "catalog:",
-    "h3": "catalog:h3v1",
-    "nuxt": "catalog:",
-    "shiki": "catalog:"
+    "@vitejs/devtools-kit": "catalog:vite",
+    "docus": "catalog:nuxt",
+    "h3": "catalog:h3-v1-compat",
+    "nuxt": "catalog:nuxt",
+    "shiki": "catalog:ui"
   },
   "devDependencies": {
-    "@iconify-json/lucide": "catalog:",
-    "@iconify-json/simple-icons": "catalog:",
-    "@iconify-json/vscode-icons": "catalog:",
-    "vitest": "catalog:",
-    "vue-tsc": "catalog:"
+    "@iconify-json/lucide": "catalog:ui",
+    "@iconify-json/simple-icons": "catalog:ui",
+    "@iconify-json/vscode-icons": "catalog:ui",
+    "vitest": "catalog:tooling",
+    "vue-tsc": "catalog:tooling"
   }
 }

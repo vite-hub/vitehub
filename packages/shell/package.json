@@ -38,14 +38,14 @@
     "test": "pnpm --filter @vite-hub/shell build && vitest run"
   },
   "dependencies": {
-    "just-bash": "^2.14.4",
-    "sh-syntax": "catalog:"
+    "just-bash": "catalog:shell",
+    "sh-syntax": "catalog:shell"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
-    "publint": "^0.3.15",
-    "tsdown": "^0.21.8",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "@types/node": "catalog:tooling",
+    "publint": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vitest": "catalog:tooling"
   }
 }

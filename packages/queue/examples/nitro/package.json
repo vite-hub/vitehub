@@ -8,6 +8,6 @@
   },
   "dependencies": {
     "@vite-hub/queue": "workspace:*",
-    "nitro": "catalog:"
+    "nitro": "catalog:unjs"
   }
 }

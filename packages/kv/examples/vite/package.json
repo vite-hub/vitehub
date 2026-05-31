@@ -3,7 +3,7 @@
   "type": "module",
   "dependencies": {
     "@vite-hub/kv": "workspace:*",
-    "h3": "catalog:",
-    "vite": "catalog:"
+    "h3": "catalog:unjs",
+    "vite": "catalog:vite"
   }
 }

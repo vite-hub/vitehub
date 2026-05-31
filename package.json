@@ -23,10 +23,10 @@
     "docs:build": "pnpm --dir docs build"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
-    "fallow": "2.41.0",
-    "oxlint": "catalog:",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "@types/node": "catalog:tooling",
+    "fallow": "catalog:tooling",
+    "oxlint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vitest": "catalog:tooling"
   }
 }

@@ -38,17 +38,17 @@
     "test": "pnpm --filter @vite-hub/internal build && pnpm --filter @vite-hub/agent build && pnpm --dir . build && vitest run"
   },
   "dependencies": {
-    "pathe": "catalog:"
+    "pathe": "catalog:unjs"
   },
   "peerDependencies": {
-    "vite": ">=8.0.0"
+    "vite": "catalog:vite8-plus-compat"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
+    "@types/node": "catalog:tooling",
     "@vite-hub/agent": "workspace:*",
-    "tsdown": "^0.21.8",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vitest": "catalog:"
+    "tsdown": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vitest": "catalog:tooling"
   }
 }

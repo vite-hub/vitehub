@@ -72,11 +72,11 @@
     "test": "pnpm --filter @vite-hub/env build && vitest run"
   },
   "dependencies": {
-    "@nuxt/kit": "catalog:"
+    "@nuxt/kit": "catalog:nuxt"
   },
   "peerDependencies": {
-    "nitro": "^3.0.0-0",
-    "vite": ">=6.0.0"
+    "nitro": "catalog:nitro-compat",
+    "vite": "catalog:vite6-compat"
   },
   "peerDependenciesMeta": {
     "nitro": {
@@ -87,14 +87,14 @@
     }
   },
   "devDependencies": {
-    "@nuxt/schema": "catalog:",
+    "@nuxt/schema": "catalog:nuxt",
     "@vite-hub/internal": "workspace:*",
-    "nitro": "catalog:",
-    "publint": "^0.3.15",
-    "tsdown": "^0.21.8",
-    "tsx": "catalog:",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vitest": "catalog:"
+    "nitro": "catalog:unjs",
+    "publint": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "tsx": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vitest": "catalog:tooling"
   }
 }

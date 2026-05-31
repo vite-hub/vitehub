@@ -5,10 +5,10 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@cloudflare/sandbox": "^0.8.11",
-    "@vercel/sandbox": "^1.10.0",
+    "@cloudflare/sandbox": "catalog:sandbox",
+    "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/sandbox": "workspace:*",
-    "h3": "catalog:",
-    "vite": "catalog:"
+    "h3": "catalog:unjs",
+    "vite": "catalog:vite"
   }
 }

@@ -7,6 +7,6 @@
   },
   "dependencies": {
     "@vite-hub/blob": "workspace:*",
-    "nitro": "catalog:"
+    "nitro": "catalog:unjs"
   }
 }
