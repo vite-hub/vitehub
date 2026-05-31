@@ -271,6 +271,70 @@ describe("agent Nitro chat webhooks", () => {
     await expect(module.setup(nitro as never)).rejects.toThrow("CHAT_STATE to be bound to ViteHubAgentStateDO")
   })
 
+  it("falls back to memory state when auto cannot install the Cloudflare Agent State Provider", async () => {
+    const root = await createTempRoot("vitehub-agent-cloudflare-state-auto-conflict-")
+    const buildDir = ".nitro"
+    const outputServerDir = join(root, ".output", "server")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await mkdir(outputServerDir, { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default defineAgent({ capabilities: [chat({ adapters: {} })], run: () => 'ok' })", "utf8")
+    await writeFile(join(outputServerDir, "index.mjs"), "export default {}\n", "utf8")
+
+    const module = (await import("../src/nitro/module.ts")).default
+    const hooks = { hook: vi.fn() }
+    const nitro = {
+      hooks,
+      options: {
+        agent: {},
+        alias: {},
+        buildDir,
+        cloudflare: {
+          wrangler: {
+            durable_objects: {
+              bindings: [{ class_name: "ChatStateDO", name: "CHAT_STATE", script_name: "legacy-chat-state" }],
+            },
+          },
+        },
+        handlers: [],
+        imports: {},
+        output: { serverDir: outputServerDir },
+        preset: "cloudflare-module",
+        rootDir: root,
+        runtimeConfig: {},
+        scanDirs: [join(root, "server")],
+      },
+    }
+
+    await module.setup(nitro as never)
+
+    const runtimeConfig = nitro.options.runtimeConfig as { agent: { providers: { state: { provider: string } } } }
+    expect(runtimeConfig.agent.providers.state.provider).toBe("memory")
+    const compiledHook = hooks.hook.mock.calls.find(([name]) => name === "compiled")?.[1]
+    expect(compiledHook).toBeTypeOf("function")
+    await compiledHook(nitro)
+    await expect(readFile(join(outputServerDir, "index.mjs"), "utf8")).resolves.not.toContain("ViteHubAgentStateDO")
+
+    const { resolveChatState } = await import("../src/nitro/chat-state.ts")
+    const namespace = {
+      get: vi.fn(() => {
+        throw new Error("unexpected durable object namespace access")
+      }),
+      idFromName: vi.fn(() => "legacy-id"),
+    }
+    const state = await resolveChatState(
+      { adapters: {} },
+      {
+        cloudflare: { env: { CHAT_STATE: namespace } },
+        runtime: "nitro",
+        runtimeConfig,
+      } as never,
+      "support",
+    )
+    await state.set("thread", "ok")
+    await expect(state.get("thread")).resolves.toBe("ok")
+    expect(namespace.idFromName).not.toHaveBeenCalled()
+  })
+
   it("resolves inline chat adapter maps at request time and dispatches to chat.message", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
