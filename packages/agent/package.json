@@ -63,25 +63,28 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vite-hub/devtools": "workspace:*",
-    "@vercel/functions": "catalog:",
-    "@vitejs/devtools-kit": "catalog:",
-    "chat": "catalog:",
-    "h3": "catalog:",
-    "hookable": "^6.1.1"
+    "@vercel/functions": "catalog:vercel",
+    "@vitejs/devtools-kit": "catalog:vite",
+    "chat": "catalog:chat",
+    "h3": "catalog:unjs",
+    "hookable": "catalog:unjs"
   },
   "peerDependencies": {
-    "@ai-sdk/mcp": "^1.0.36",
-    "agents": "^0.12.3",
-    "ai": "^6.0.0",
-    "evalite": "1.0.0-beta.16",
-    "nitro": "^3.0.0-0",
-    "vite": ">=8.0.0"
+    "@ai-sdk/mcp": "catalog:ai",
+    "@vite-hub/workflow": "workspace:*",
+    "agents": "catalog:ai",
+    "ai": "catalog:ai-compat",
+    "evalite": "catalog:ai",
+    "nitro": "catalog:nitro-compat",
+    "vite": "catalog:vite8-plus-compat"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/mcp": {
+      "optional": true
+    },
+    "@vite-hub/workflow": {
       "optional": true
     },
     "agents": {
@@ -101,17 +104,18 @@
     }
   },
   "devDependencies": {
-    "@ai-sdk/mcp": "^1.0.36",
-    "@types/node": "catalog:",
+    "@ai-sdk/mcp": "catalog:ai",
+    "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "@vitejs/devtools-kit": "catalog:",
-    "ai": "^6.0.172",
-    "evalite": "catalog:",
-    "nitro": "catalog:",
-    "publint": "^0.3.15",
-    "tsdown": "^0.21.8",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vitest": "catalog:"
+    "@vite-hub/workflow": "workspace:*",
+    "@vitejs/devtools-kit": "catalog:vite",
+    "ai": "catalog:ai",
+    "evalite": "catalog:ai",
+    "nitro": "catalog:unjs",
+    "publint": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vitest": "catalog:tooling"
   }
 }

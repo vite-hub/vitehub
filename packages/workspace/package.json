@@ -63,21 +63,24 @@
   "dependencies": {
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
-    "defu": "^6.1.4",
-    "exsolve": "^1.0.8",
-    "files-sdk": "catalog:",
-    "isomorphic-git": "^1.37.6",
-    "jiti": "^2.6.1",
-    "minimatch": "^10.1.1"
+    "defu": "catalog:unjs",
+    "exsolve": "catalog:unjs",
+    "isomorphic-git": "catalog:workspace",
+    "jiti": "catalog:unjs",
+    "minimatch": "catalog:workspace"
   },
   "peerDependencies": {
     "@vite-hub/sandbox": "workspace:*",
-    "ai": "^6.0.0",
-    "nitro": "^3.0.0-0",
-    "vite": ">=8.0.0"
+    "ai": "catalog:ai-compat",
+    "files-sdk": "catalog:storage",
+    "nitro": "catalog:nitro-compat",
+    "vite": "catalog:vite8-plus-compat"
   },
   "peerDependenciesMeta": {
     "@vite-hub/sandbox": {
+      "optional": true
+    },
+    "files-sdk": {
       "optional": true
     },
     "nitro": {
@@ -88,18 +91,19 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
-    "ai": "^6.0.172",
-    "nitro": "3.0.260311-beta",
-    "ocache": "^0.1.4",
-    "ofetch": "^1.5.1",
-    "publint": "^0.3.15",
-    "tsdown": "^0.21.8",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2",
-    "vite": "^8.0.8",
-    "vitest": "^4.1.4"
+    "ai": "catalog:ai",
+    "files-sdk": "catalog:storage",
+    "nitro": "catalog:unjs",
+    "ocache": "catalog:unjs",
+    "ofetch": "catalog:unjs",
+    "publint": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "tsx": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vitest": "catalog:tooling"
   }
 }

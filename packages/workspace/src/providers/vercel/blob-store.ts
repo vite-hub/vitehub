@@ -43,8 +43,8 @@ function contentType(path: string, fallback?: string) {
 
 async function createVercelFiles(options: VercelBlobWorkspaceStoreOptions) {
   const [{ Files }, { vercelBlob }] = await Promise.all([
-    import("files-sdk"),
-    import("files-sdk/vercel-blob"),
+    import("files-sdk").catch(error => handleFilesSdkImportError(error)),
+    import("files-sdk/vercel-blob").catch(error => handleFilesSdkImportError(error)),
   ])
   return new Files({
     adapter: vercelBlob({
@@ -54,6 +54,21 @@ async function createVercelFiles(options: VercelBlobWorkspaceStoreOptions) {
       token: options.token,
     }),
   })
+}
+
+function handleFilesSdkImportError(error: unknown): never {
+  if (isMissingFilesSdkError(error)) {
+    throw new WorkspaceError(`[vitehub] Install files-sdk to use the Vercel Blob Workspace Store: pnpm add files-sdk`, { cause: error })
+  }
+  throw error
+}
+
+function isMissingFilesSdkError(error: unknown) {
+  if (!(error instanceof Error)) return false
+  const code = (error as { code?: unknown }).code
+  if (code !== "ERR_MODULE_NOT_FOUND" && code !== "MODULE_NOT_FOUND") return false
+  return error.message.includes("Cannot find package 'files-sdk'")
+    || error.message.includes("Cannot find module 'files-sdk'")
 }
 
 class VercelBlobWorkspaceStore implements WorkspaceStore {

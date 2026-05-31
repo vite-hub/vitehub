@@ -8,9 +8,9 @@
   },
   "dependencies": {
     "@vite-hub/env": "workspace:*",
-    "nitro": "catalog:"
+    "nitro": "catalog:unjs"
   },
   "devDependencies": {
-    "typescript": "catalog:"
+    "typescript": "catalog:tooling"
   }
 }

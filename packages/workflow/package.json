@@ -51,18 +51,18 @@
     "test:e2e": "node ./test/e2e-live.mjs"
   },
   "dependencies": {
-    "@vercel/functions": "catalog:",
-    "defu": "catalog:",
-    "esbuild": "catalog:",
-    "h3": "catalog:",
-    "pathe": "catalog:"
+    "@vercel/functions": "catalog:vercel",
+    "defu": "catalog:unjs",
+    "esbuild": "catalog:tooling",
+    "h3": "catalog:unjs",
+    "pathe": "catalog:unjs"
   },
   "peerDependencies": {
-    "nitro": "^3.0.0-0",
-    "openworkflow": "^0.9.0",
-    "postgres": "^3.4.9",
-    "vite": "^8.0.0",
-    "workflow": "^4.2.4"
+    "nitro": "catalog:nitro-compat",
+    "openworkflow": "catalog:workflow",
+    "postgres": "catalog:database",
+    "vite": "catalog:vite8-compat",
+    "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
     "nitro": {
@@ -82,16 +82,16 @@
     }
   },
   "devDependencies": {
-    "@types/node": "catalog:",
+    "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "nitro": "catalog:",
-    "ofetch": "catalog:",
-    "openworkflow": "catalog:",
-    "publint": "^0.3.15",
-    "tsdown": "^0.21.8",
-    "tsx": "catalog:",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vitest": "catalog:"
+    "nitro": "catalog:unjs",
+    "ofetch": "catalog:unjs",
+    "openworkflow": "catalog:workflow",
+    "publint": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "tsx": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vitest": "catalog:tooling"
   }
 }

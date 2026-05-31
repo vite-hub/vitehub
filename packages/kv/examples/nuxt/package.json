@@ -2,6 +2,6 @@
   "private": true,
   "dependencies": {
     "@vite-hub/kv": "workspace:*",
-    "nuxt": "catalog:"
+    "nuxt": "catalog:nuxt"
   }
 }
