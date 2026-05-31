@@ -77,11 +77,11 @@ describe("agent Nitro runtime files", () => {
     await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
 
     const module = (await import("../src/nitro/module.ts")).default
-    const hooks: Array<() => Promise<void> | void> = []
+    const hooks: Array<{ handler: () => Promise<void> | void, name: string }> = []
     const nitro = {
       hooks: {
-        hook(_name: string, handler: () => Promise<void> | void) {
-          hooks.push(handler)
+        hook(name: string, handler: () => Promise<void> | void) {
+          hooks.push({ handler, name })
         },
       },
       options: {
@@ -104,7 +104,7 @@ describe("agent Nitro runtime files", () => {
     await expect(readFile(routeFile, "utf8")).resolves.toContain("./nitro-registry.ts")
     expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/capabilities"]).toContain("/packages/agent/src/capabilities.ts")
     expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/eval"]).toContain("/packages/agent/src/eval.ts")
-    expect(hooks).toHaveLength(2)
+    expect(hooks.map(hook => hook.name)).toEqual(["build:before", "dev:reload", "compiled"])
   })
 })
 

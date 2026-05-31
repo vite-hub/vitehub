@@ -1,14 +1,17 @@
 import { resolveChatRuntimeValue } from "./chat-options.ts"
+import { createCloudflareAgentState } from "../state/providers/cloudflare.ts"
 
 import type { Lock, QueueEntry, StateAdapter } from "chat"
-import type { AgentChatOptions } from "../types.ts"
+import type { AgentChatOptions, ResolvedAgentModuleOptions } from "../types.ts"
 import type { NitroChatRuntimeContext } from "./chat-options.ts"
+import type { ViteHubAgentStateDurableObjectNamespace } from "../state/providers/cloudflare.ts"
 
 type MemoryValue = { expiresAt?: number, value: unknown }
 type MemoryList = { expiresAt?: number, values: unknown[] }
 
 const defaultChatStates = new WeakMap<AgentChatOptions, StateAdapter>()
 const configuredChatStates = new WeakMap<AgentChatOptions, StateAdapter>()
+const cloudflareChatStates = new WeakMap<AgentChatOptions, WeakMap<object, StateAdapter>>()
 
 function memoryExpiresAt(ttlMs: number | undefined): number | undefined {
   return typeof ttlMs === "number" && ttlMs > 0 ? Date.now() + ttlMs : undefined
@@ -120,6 +123,35 @@ function getDefaultChatState(options: AgentChatOptions): StateAdapter {
   return state
 }
 
+function getConfiguredStateProvider(context: NitroChatRuntimeContext): string {
+  const agentConfig = (context.runtimeConfig as { agent?: false | ResolvedAgentModuleOptions }).agent
+  return agentConfig && agentConfig.providers.state.provider || "auto"
+}
+
+function isCloudflareAgentStateProvider(provider: string): boolean {
+  return provider === "auto" || provider === "cloudflare" || provider === "cloudflare-agents"
+}
+
+function isCloudflareAgentStateNamespace(value: unknown): value is ViteHubAgentStateDurableObjectNamespace & object {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as ViteHubAgentStateDurableObjectNamespace).get === "function"
+    && typeof (value as ViteHubAgentStateDurableObjectNamespace).idFromName === "function"
+}
+
+function getCloudflareChatState(options: AgentChatOptions, namespace: ViteHubAgentStateDurableObjectNamespace & object): StateAdapter {
+  let states = cloudflareChatStates.get(options)
+  if (!states) {
+    states = new WeakMap()
+    cloudflareChatStates.set(options, states)
+  }
+  const existing = states.get(namespace)
+  if (existing) return existing
+  const state = createCloudflareAgentState({ namespace })
+  states.set(namespace, state)
+  return state
+}
+
 function createChatStateKeyPrefix(agentName: string): string {
   const normalized = agentName
     .trim()
@@ -202,6 +234,7 @@ export async function resolveChatState(
   context: NitroChatRuntimeContext,
   agentName: string,
 ): Promise<StateAdapter> {
+  const stateKeyPrefix = createChatStateKeyPrefix(agentName)
   if (options.state) {
     const existing = configuredChatStates.get(options)
     if (existing) return existing
@@ -209,12 +242,32 @@ export async function resolveChatState(
       ...context,
       chat: {
         agentName,
-        stateKeyPrefix: createChatStateKeyPrefix(agentName),
+        stateKeyPrefix,
       },
     } as NitroChatRuntimeContext & { chat: { agentName: string, stateKeyPrefix: string } }
     const state = namespaceChatState(await resolveChatRuntimeValue<StateAdapter>(options.state, stateContext), stateContext.chat.stateKeyPrefix)
     configuredChatStates.set(options, state)
     return state
+  }
+
+  const provider = getConfiguredStateProvider(context)
+  if (provider === "memory") {
+    return getDefaultChatState(options)
+  }
+  if (!isCloudflareAgentStateProvider(provider)) {
+    throw new Error(`[vitehub] Unsupported Agent State Provider "${provider}". Configure chat({ state }) or use providers.state.provider: "auto", "cloudflare", or "memory".`)
+  }
+
+  if (context.cloudflare?.env) {
+    const namespace = context.cloudflare.env.CHAT_STATE
+    if (!isCloudflareAgentStateNamespace(namespace)) {
+      throw new Error("[vitehub] Cloudflare chat handling requires the CHAT_STATE Durable Object binding. Use @vite-hub/agent/nitro with providers.state.provider: \"auto\" or configure chat({ state }).")
+    }
+    return namespaceChatState(getCloudflareChatState(options, namespace), stateKeyPrefix)
+  }
+
+  if (provider !== "auto") {
+    throw new Error(`[vitehub] Agent State Provider "${provider}" requires Cloudflare runtime bindings.`)
   }
   return getDefaultChatState(options)
 }

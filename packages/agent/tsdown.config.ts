@@ -4,7 +4,7 @@ export default defineConfig({
   clean: true,
   deps: {
     alwaysBundle: [/^@vite-hub\/(devtools|internal)/],
-    neverBundle: ["#vitehub/agent/registry", /^evalite/, /^vitest/],
+    neverBundle: ["#vitehub/agent/registry", "cloudflare:workers", /^evalite/, /^vitest/],
     onlyBundle: false,
   },
   dts: true,
@@ -21,6 +21,7 @@ export default defineConfig({
     "src/cli.ts",
     "src/eval.ts",
     "src/nitro.ts",
+    "src/cloudflare/state.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/chat-devtools-handler.ts",
     "src/runtime/nitro-runtime-config.ts",

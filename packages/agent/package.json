@@ -30,6 +30,7 @@
     "./capability-runtime": "./dist/capability-runtime.js",
     "./cli": "./dist/cli.js",
     "./cloudflare": "./dist/cloudflare.js",
+    "./cloudflare/state": "./dist/cloudflare/state.js",
     "./eval": "./dist/eval.js",
     "./mcp": "./dist/mcp.js",
     "./mcp/stdio": "./dist/mcp/stdio.js",
@@ -68,7 +69,6 @@
     "@vercel/functions": "catalog:",
     "@vitejs/devtools-kit": "catalog:",
     "chat": "catalog:",
-    "chat-state-cloudflare-do": "^0.2.0",
     "h3": "catalog:",
     "hookable": "^6.1.1"
   },

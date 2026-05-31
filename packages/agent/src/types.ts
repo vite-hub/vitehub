@@ -449,7 +449,7 @@ export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRunti
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
 export interface AgentStateProviderOptions {
-  provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
+  provider?: "auto" | "cloudflare" | "cloudflare-agents" | "memory" | (string & {})
 }
 
 export interface AgentSchedulerProviderOptions {
