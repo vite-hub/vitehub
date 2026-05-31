@@ -63,6 +63,7 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
 
   cacheDelete(key: string): void {
     this.sql.exec("DELETE FROM cache WHERE key = ?", key)
+    this.sql.exec("DELETE FROM lists WHERE key = ?", key)
   }
 
   cacheGet(key: string): string | null {

@@ -102,6 +102,8 @@ describe("Cloudflare Agent State Provider", () => {
     await state.appendToList("history", "one")
     await state.appendToList("history", "two", { maxLength: 1 })
     await expect(state.getList("history")).resolves.toEqual(["two"])
+    await state.delete("history")
+    await expect(state.getList("history")).resolves.toEqual([])
 
     const entry: QueueEntry = {
       enqueuedAt: Date.now(),

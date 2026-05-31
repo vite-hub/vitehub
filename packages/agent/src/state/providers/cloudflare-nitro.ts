@@ -132,6 +132,7 @@ export class ${AGENT_STATE_CLASS_NAME} extends ViteHubAgentStateDurableObject {
 
   cacheDelete(key) {
     this.sql.exec("DELETE FROM cache WHERE key = ?", key)
+    this.sql.exec("DELETE FROM lists WHERE key = ?", key)
   }
 
   cacheGet(key) {
