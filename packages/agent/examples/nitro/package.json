@@ -6,6 +6,6 @@
   },
   "dependencies": {
     "@vite-hub/agent": "workspace:*",
-    "nitro": "catalog:"
+    "nitro": "catalog:unjs"
   }
 }

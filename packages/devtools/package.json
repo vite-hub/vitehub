@@ -38,11 +38,11 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
-    "pathe": "catalog:"
+    "pathe": "catalog:unjs"
   },
   "peerDependencies": {
-    "ai": "^6.0.0",
-    "@vitejs/devtools-kit": ">=0.2.0"
+    "ai": "catalog:ai-compat",
+    "@vitejs/devtools-kit": "catalog:devtools-compat"
   },
   "peerDependenciesMeta": {
     "ai": {
@@ -50,18 +50,18 @@
     }
   },
   "devDependencies": {
-    "@comark/vue": "catalog:",
-    "@iconify-json/lucide": "catalog:",
-    "@nuxt/ui": "^4.6.1",
-    "@types/node": "catalog:",
-    "@vitejs/devtools-kit": "catalog:",
-    "ai": "^6.0.172",
-    "nuxt": "catalog:",
-    "tailwindcss": "^4.1.18",
-    "tsdown": "^0.21.8",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vitest": "catalog:",
-    "vue-tsc": "catalog:"
+    "@comark/vue": "catalog:ui",
+    "@iconify-json/lucide": "catalog:ui",
+    "@nuxt/ui": "catalog:nuxt",
+    "@types/node": "catalog:tooling",
+    "@vitejs/devtools-kit": "catalog:vite",
+    "ai": "catalog:ai",
+    "nuxt": "catalog:nuxt",
+    "tailwindcss": "catalog:ui",
+    "tsdown": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vitest": "catalog:tooling",
+    "vue-tsc": "catalog:tooling"
   }
 }

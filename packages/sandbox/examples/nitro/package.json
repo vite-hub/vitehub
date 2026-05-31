@@ -7,9 +7,9 @@
     "preview": "nitro preview"
   },
   "dependencies": {
-    "@cloudflare/sandbox": "^0.8.11",
-    "@vercel/sandbox": "^1.10.0",
+    "@cloudflare/sandbox": "catalog:sandbox",
+    "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/sandbox": "workspace:*",
-    "nitro": "catalog:"
+    "nitro": "catalog:unjs"
   }
 }

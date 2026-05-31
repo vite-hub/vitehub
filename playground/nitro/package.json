@@ -7,10 +7,10 @@
     "dev": "nitro dev"
   },
   "dependencies": {
-    "@cloudflare/sandbox": "catalog:",
-    "@vercel/blob": "catalog:",
-    "@vercel/queue": "catalog:",
-    "@vercel/sandbox": "catalog:",
+    "@cloudflare/sandbox": "catalog:sandbox",
+    "@vercel/blob": "catalog:storage",
+    "@vercel/queue": "catalog:vercel",
+    "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/env": "workspace:*",
@@ -20,11 +20,11 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "async-retry": "catalog:",
-    "chat": "catalog:",
-    "chat-state-cloudflare-do": "catalog:",
-    "h3": "catalog:",
-    "nitro": "catalog:",
-    "valibot": "catalog:"
+    "async-retry": "catalog:runtime",
+    "chat": "catalog:chat",
+    "chat-state-cloudflare-do": "catalog:chat",
+    "h3": "catalog:unjs",
+    "nitro": "catalog:unjs",
+    "valibot": "catalog:runtime"
   }
 }
