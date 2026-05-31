@@ -233,9 +233,7 @@ export class ${AGENT_STATE_CLASS_NAME} extends ViteHubAgentStateDurableObject {
     const expiresAt = ttlMs ? Date.now() + ttlMs : null
     this.ctx.storage.transactionSync(() => {
       this.sql.exec("INSERT INTO lists (key, value, expires_at) VALUES (?, ?, ?)", key, value, expiresAt)
-      if (expiresAt !== null) {
-        this.sql.exec("UPDATE lists SET expires_at = ? WHERE key = ?", expiresAt, key)
-      }
+      this.sql.exec("UPDATE lists SET expires_at = ? WHERE key = ?", expiresAt, key)
       if (maxLength != null && maxLength > 0) {
         this.sql.exec(
           \`DELETE FROM lists WHERE key = ? AND id NOT IN (

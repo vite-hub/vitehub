@@ -235,6 +235,7 @@ describe("agent Nitro chat webhooks", () => {
     const output = await readFile(join(outputServerDir, "index.mjs"), "utf8")
     expect(output).toContain("export class ViteHubAgentStateDO")
     expect(output).toContain("DELETE FROM lists WHERE key = ?")
+    expect(output).toContain("UPDATE lists SET expires_at = ? WHERE key = ?")
   })
 
   it("rejects conflicting explicit Cloudflare Agent State Provider bindings at build time", async () => {

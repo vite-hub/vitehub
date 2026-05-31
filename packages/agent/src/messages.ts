@@ -405,7 +405,14 @@ export async function collectStreamEvents(stream: AsyncIterable<StreamEvent>): P
 }
 
 export function serializeMessages(messages: Message[]): string {
-  for (const message of messages) validateMessage(message)
+  for (const [messageIndex, message] of messages.entries()) {
+    validateMessage(message)
+    for (const [partIndex, part] of message.parts.entries()) {
+      if (part.type === "audio" && typeof part.fetchData === "function") {
+        throw new TypeError(`[vitehub:messages] serializeMessages() cannot serialize message[${messageIndex}].parts[${partIndex}].fetchData. Provide audio data or a URL before serializing.`)
+      }
+    }
+  }
   return JSON.stringify({ messages, version: 1 } satisfies SerializedMessages)
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { getTranscriptionResults, transcribe } from "../src/capabilities.ts"
 import { audioBytes, audioExtensionFor } from "../src/capabilities/transcribe.ts"
-import { createMessage, defineAgent, runAgent } from "../src/index.ts"
+import { createMessage, defineAgent, runAgent, serializeMessages } from "../src/index.ts"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -127,6 +127,15 @@ describe("agent transcription", () => {
       mediaType: "audio/ogg",
       type: "audio",
     })
+  })
+
+  it("rejects serializing lazy audio message parts", () => {
+    const message = createMessage({
+      parts: [{ fetchData: () => new Uint8Array([1]), mediaType: "audio/ogg", type: "audio" }],
+      role: "user",
+    })
+
+    expect(() => serializeMessages([message])).toThrow("cannot serialize")
   })
 
   it("rejects invalid audio message parts", () => {
