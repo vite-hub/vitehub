@@ -4,7 +4,7 @@ export default defineConfig({
   clean: true,
   deps: {
     alwaysBundle: [/^@vite-hub\/(devtools|internal)/],
-    neverBundle: ["#vitehub/agent/registry", "cloudflare:workers", /^evalite/, /^vitest/],
+    neverBundle: ["#vitehub/agent/registry", "cloudflare:workers", /^@chat-adapter\/telegram$/, /^evalite/, /^vitest/],
     onlyBundle: false,
   },
   dts: true,
@@ -12,6 +12,7 @@ export default defineConfig({
     "src/ai-sdk.ts",
     "src/capabilities.ts",
     "src/capability-runtime.ts",
+    "src/chat/telegram.ts",
     "src/index.ts",
     "src/memory.ts",
     "src/messages.ts",

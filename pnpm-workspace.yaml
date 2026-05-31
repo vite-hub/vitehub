@@ -16,6 +16,7 @@ catalogs:
   ai-compat:
     ai: ^6.0.0
   chat:
+    '@chat-adapter/telegram': 4.27.0
     chat: ^4.27.0
     chat-state-cloudflare-do: ^0.2.0
   database:

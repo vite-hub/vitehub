@@ -16,6 +16,7 @@ type AiSdkTranscribeOptions = Omit<Parameters<AiSdkTranscribe>[0], "abortSignal"
 type AiSdkTranscriptionResult = Awaited<ReturnType<AiSdkTranscribe>>
 type TranscribeArtifactValue<T, TInput> = T | ((input: TInput) => MaybePromise<T>)
 const DEFAULT_TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024
+const resolvedAudioData = new WeakMap<AudioPart, Promise<AudioData>>()
 
 export interface TranscribeExecuteInput {
   audio: AudioPart
@@ -105,7 +106,15 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
   if (audio.data) return audio.data
   if (!audio.fetchData) return
 
-  const data = await audio.fetchData()
+  let cached = resolvedAudioData.get(audio)
+  if (!cached) {
+    cached = Promise.resolve(audio.fetchData()).catch((error) => {
+      resolvedAudioData.delete(audio)
+      throw error
+    })
+    resolvedAudioData.set(audio, cached)
+  }
+  const data = await cached
   if (data instanceof Blob) assertWithinMaxBytes(data.size, maxBytes, "downloaded audio")
   else if (data instanceof ArrayBuffer) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
   else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
@@ -352,6 +361,7 @@ async function writeTranscriptionArtifacts(
   transcript: string,
   audioIndex: number,
   audioCount: number,
+  maxBytes: number,
 ): Promise<TranscriptionResult> {
   let input = createBaseTranscriptionResult(context, message, audio, transcript, audioIndex, audioCount)
   if (!artifacts) {
@@ -384,7 +394,7 @@ async function writeTranscriptionArtifacts(
     )
     input = { ...input, audioPath }
     const mediaType = audioOptions.mediaType ? await resolveArtifactValue(audioOptions.mediaType, input) : audio.mediaType
-    await context.workspace.fs.writeFile(audioPath as never, await audioBytes(audio), { mediaType })
+    await context.workspace.fs.writeFile(audioPath as never, await audioBytes(audio, { maxBytes }), { mediaType })
   }
 
   if (transcriptOptions && transcriptPath) {
@@ -449,6 +459,7 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
         }
 
         const resolved = await getResolvedOptions()
+        const maxBytes = normalizeMaxBytes(resolved.maxBytes)
         validateTranscriptionArtifactsWorkspace(context as AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>, resolved.artifacts)
         const transcripts = await Promise.all(
           audioParts.map(part => runTranscription(resolved, part, context.input.get().abortSignal)),
@@ -462,6 +473,7 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
             transcripts[index] || "",
             index,
             audioParts.length,
+            maxBytes,
           )),
         )
         results.push(...messageResults)

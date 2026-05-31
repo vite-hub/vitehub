@@ -80,6 +80,38 @@ describe("agent transcription", () => {
     }, { maxBytes: 3 })).rejects.toThrow("exceeds maxBytes")
   })
 
+  it("reuses lazy audio bytes between transcription and audio artifacts", async () => {
+    const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const capability = transcribe({
+      execute: async ({ audio }) => {
+        await expect(audioBytes(audio, { maxBytes: 3 })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+        return "hola mundo"
+      },
+      artifacts: {
+        audio: {},
+        transcript: false,
+      },
+      maxBytes: 3,
+    })
+    const context = createTranscriptionCapabilityContext([
+      createMessage({
+        createdAt: "2026-05-28T10:50:04.000Z",
+        id: "msg_1",
+        parts: [{ fetchData, mediaType: "audio/opus", size: 3, type: "audio" }],
+        role: "user",
+      }),
+    ])
+
+    await capability.input?.(context.context as never)
+
+    expect(fetchData).toHaveBeenCalledOnce()
+    expect(context.writeFile).toHaveBeenCalledWith(
+      "audio/2026-05-28/2026-05-28T10-50-04Z-telegram-4.ogg",
+      new Uint8Array([1, 2, 3]),
+      { mediaType: "audio/opus" },
+    )
+  })
+
   it("accepts audio message parts", () => {
     expect(createMessage({
       parts: [{ data: "AAAA", mediaType: "audio/wav", type: "audio" }],
