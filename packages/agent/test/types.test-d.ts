@@ -243,9 +243,13 @@ describe("agent public types", () => {
     type RootAgentExports = typeof import("../src/index.ts")
     // @ts-expect-error official capability factories are not root Agent Package exports
     type _RootInputCommands = RootAgentExports["inputCommands"]
+    // @ts-expect-error Capability Type Contracts are not a public custom-Capability extension point
+    type _RootAgentCapabilityTypeContract = RootAgentExports["AgentCapabilityTypeContract"]
 
     type CapabilityExports = typeof import("../src/capabilities.ts")
     type _PublicAudioBytes = CapabilityExports["audioBytes"]
+    // @ts-expect-error Access Capability Type Contract is internal to access() inference
+    type _PublicAccessCapabilityTypeContract = CapabilityExports["AccessCapabilityTypeContract"]
     // @ts-expect-error transcription extension inference is internal, not public capabilities API
     type _PublicAudioExtensionFor = CapabilityExports["audioExtensionFor"]
     // @ts-expect-error transcription context storage key is internal, not public capabilities API

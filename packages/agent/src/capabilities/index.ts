@@ -72,7 +72,6 @@ export type {
   AccessCapabilityStandardSchemaResultFailure,
   AccessCapabilityStandardSchemaResultSuccess,
   AccessCapabilityStandardSchemaV1,
-  AccessCapabilityTypeContract,
   AccessChatInputSchemaOptions,
   AccessChatMessageInputSchemaOptions,
   AccessInputContextFromSchemas,

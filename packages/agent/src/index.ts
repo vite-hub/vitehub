@@ -104,7 +104,6 @@ export type {
   AgentCapabilityMode,
   AgentCapabilityPhase,
   AgentCapabilityRuntimeContext,
-  AgentCapabilityTypeContract,
   AgentChatAgentHookArgs,
   AgentChatAppExposure,
   AgentChatAppOptions,
@@ -205,6 +204,9 @@ type WorkspaceSourceNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
     ? Extract<keyof NonNullable<TSources>, string>
     : string
+type InvalidWorkspaceSourceGrant<TSourceName> = {
+  readonly __vitehubInvalidWorkspaceSourceGrant: TSourceName
+}
 type ValidateCapabilityWorkspaceSources<
   TSourceName,
   TWorkspace,
@@ -217,7 +219,7 @@ type ValidateCapabilityWorkspaceSources<
       ? TCapability
       : Exclude<TSourceName, WorkspaceSourceNames<TWorkspace>> extends never
         ? TCapability
-        : never
+        : TCapability & InvalidWorkspaceSourceGrant<Exclude<TSourceName, WorkspaceSourceNames<TWorkspace>>>
     : TCapability
 type ValidateAgentCapability<TCapability, TWorkspace> =
   TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
