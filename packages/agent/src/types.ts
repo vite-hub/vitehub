@@ -331,10 +331,17 @@ export interface AgentCapabilityRuntimeContext<
   }
 }
 
+export interface AgentCapabilityTypeContract {
+  inputContext?: object
+  workspaceSources?: string
+}
+
 export interface AgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
+  TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
 > {
+  readonly __vitehubTypeContract?: TTypeContract
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>

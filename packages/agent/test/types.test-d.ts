@@ -8,7 +8,7 @@ import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentInvocationContextStore, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { source } from "@vite-hub/workspace"
-import type { AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
+import type { AccessCapabilityStandardSchemaV1, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -299,6 +299,74 @@ describe("agent public types", () => {
       },
     }
     expectTypeOf(invalidAccess).toMatchTypeOf<AccessWorkspaceOptionsFor<typeof workspace>>()
+  })
+
+  it("types inline access source grants and chat input schemas from defineAgent", () => {
+    const metadataSchema = {
+      "~standard": {
+        validate: (input: unknown) => ({ value: input as { quiver?: { customer?: string } } }),
+      },
+    } satisfies AccessCapabilityStandardSchemaV1<{ quiver?: { customer?: string } }>
+    const userSchema = {
+      "~standard": {
+        validate: (input: unknown) => ({ value: input as { email?: string } }),
+      },
+    } satisfies AccessCapabilityStandardSchemaV1<{ email?: string }>
+
+    defineAgent({
+      capabilities: [
+        access({
+          input: {
+            chat: {
+              message: { metadata: metadataSchema },
+              user: userSchema,
+            },
+          },
+          workspace: {
+            resolve({ input }) {
+              const chat = input.get().context?.chat
+              expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
+              expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
+              return "customer"
+            },
+            scopes: {
+              customer: {
+                grants: [
+                  { source: "forecastingEngine" },
+                  { sources: ["docs"] },
+                ],
+              },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+      workspace: {
+        sources: {
+          docs: source.file("AGENTS.md"),
+          forecastingEngine: source.github({ repo: "acme/forecasting-engine" }),
+        },
+      },
+    })
+
+    // @ts-expect-error inline access source grants are checked against defineAgent({ workspace.sources })
+    defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            scopes: {
+              customer: { source: "missing" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+      workspace: {
+        sources: {
+          docs: source.file("AGENTS.md"),
+        },
+      },
+    })
   })
 
   it("accepts agent eval definitions", () => {

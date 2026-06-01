@@ -7,6 +7,7 @@ import type {
   AgentCallbackContext,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
+  AgentCapabilityTypeContract,
   AgentCapabilityHookName,
   AgentCapabilityHooks,
   AgentCapabilityMode,
@@ -95,9 +96,10 @@ function assertTriggerName(name: unknown, capabilityId: string): asserts name is
 export function defineCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
+  TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
 >(
-  capability: AgentCapabilityDefinition<TRuntimeConfig, Name>,
-): AgentCapabilityDefinition<TRuntimeConfig, Name> {
+  capability: AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>,
+): AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract> {
   if (!capability || typeof capability !== "object") {
     throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
   }

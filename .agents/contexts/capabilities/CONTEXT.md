@@ -12,6 +12,10 @@ _Avoid_: Plugin, integration, extension
 The object shape, returned by a factory or written inline, that declares a Capability's id, instructions, tools, metadata, mode, and requirements.
 _Avoid_: Raw tool, config mutator
 
+**Capability Type Contract**:
+A type-only contract a Capability declares against Agent Definition inputs it consumes.
+_Avoid_: Generic helper, runtime preparation, ambient app type
+
 **Capability Lifecycle**:
 The ordered process that validates requirements, applies capability contributions, and exposes resulting instructions, tools, policy, and metadata to the Agent.
 _Avoid_: Random hook, raw setup
@@ -178,11 +182,14 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
 - Official Capability factories and Capability-owned helper functions are imported from `@vite-hub/agent/capabilities`, not from the root `@vite-hub/agent` Agent Package entry.
 - Official helpers should map to product abilities rather than implementation mechanisms.
+- A **Capability Definition** may carry a **Capability Type Contract** when it consumes typed Agent Definition inputs such as Source keys or schema-validated invocation context.
+- A **Capability Type Contract** checks developer configuration at Agent Definition time; it does not grant runtime authority.
 - A **Capability Definition** may provide a **Capability Trigger Contribution** when the ability needs to start Agent Invocations from a product event.
 - A **Capability Trigger Contribution** is composed from `defineAgent({ capabilities })`, not registered through a separate helper.
 - A **Capability Trigger Contribution** belongs directly to the Capability shape unless a broader grouping earns its name later.
 - A **Capability Trigger Contribution** maps product event input into Agent Invocation input and run metadata; Agent execution remains owned by the Agent Package.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
+- Standard Schema validation is the preferred runtime boundary for app-owned invocation metadata that an official **Capability** consumes.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
 - A **Pre-Invocation Decision** is an internal primitive used by Capabilities before the main Agent Invocation.
@@ -275,6 +282,9 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 >
 > **Dev:** "Can an LLM route decision attach `workspaceShell()` for this one request?"
 > **Domain expert:** "No. **Capabilities** are static and validated early. A route can influence instructions or other conditional contributions, but it cannot grant a new Capability."
+>
+> **Dev:** "Can `access()` read Source keys and chat metadata from the Agent Definition without app helper types?"
+> **Domain expert:** "Yes, when the Capability declares a **Capability Type Contract**. The type contract checks the Agent Definition shape, while runtime trust still comes from explicit resolvers and validation."
 
 ## Flagged Ambiguities
 
@@ -319,6 +329,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Multiple route or gate decisions writing the same context key were considered for priority or merging - resolved: **Pre-Invocation Decision** ids are unique per Agent, with duplicate ids failing early.
 - Dynamic Capability activation through route decisions was considered - resolved: Pre-Invocation Decisions can influence conditional contributions but must not attach, remove, or grant **Capabilities** at runtime.
 - A generic `decisionPolicy()` helper and request-refinement Capability were considered - resolved: defer them until **LLM Route Capability**, **LLM Gate Capability**, and Chat Sessions prove the internal primitive.
+- Typed capability preparation was considered as a runtime lifecycle phase - resolved: use **Capability Type Contract** for type-only Agent Definition checks and keep runtime validation inside the **Capability Lifecycle**.
 - Input Command display metadata was considered capability-level - resolved: Capability id owns identity, while command descriptions are the user-facing metadata hosts may render.
 - Requiring users to attach one Capability per internal mechanism was considered - resolved: users attach one Capability per product ability, and official Capabilities can own their natural Input Command surface when that command is part of the expected user experience.
 - Storage Capability options were described as access levels in an older PR - resolved: official primitive Capabilities use `mode` for read/write exposure, while `access` is older proposal language.

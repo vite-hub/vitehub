@@ -1,14 +1,17 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
+import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
+  AgentCapabilityTypeContract,
   AgentRunInput,
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
+import type { AgentChatRunContext } from "../chat-trigger.ts"
 import type {
   ListOptions,
   ReadonlyWorkspaceFacade,
@@ -23,6 +26,86 @@ import type {
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 
 export type AccessRoleName = "viewer" | "admin" | (string & {})
+
+export interface AccessCapabilityStandardSchemaResultSuccess<T = unknown> {
+  issues?: undefined
+  value: T
+}
+
+export interface AccessCapabilityStandardSchemaResultFailure {
+  issues: readonly unknown[]
+}
+
+export interface AccessCapabilityStandardSchemaV1<T = unknown> {
+  "~standard": {
+    validate: (input: unknown) => AccessCapabilityStandardSchemaResultSuccess<T> | AccessCapabilityStandardSchemaResultFailure | Promise<AccessCapabilityStandardSchemaResultSuccess<T> | AccessCapabilityStandardSchemaResultFailure>
+  }
+}
+
+type AccessObjectSchema = AccessCapabilityStandardSchemaV1<Record<string, unknown>>
+
+export interface AccessChatMessageInputSchemaOptions<TMessageMetadataSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined> {
+  metadata?: TMessageMetadataSchema
+}
+
+export interface AccessChatInputSchemaOptions<
+  TMessageMetadataSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
+  TUserSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
+> {
+  message?: AccessChatMessageInputSchemaOptions<TMessageMetadataSchema>
+  user?: TUserSchema
+}
+
+export interface AccessInputSchemaOptions<
+  TMessageMetadataSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
+  TUserSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
+> {
+  chat?: AccessChatInputSchemaOptions<TMessageMetadataSchema, TUserSchema>
+}
+
+type AccessSchemaObjectOutput<TSchema> =
+  TSchema extends AccessCapabilityStandardSchemaV1<infer TOutput>
+    ? TOutput extends Record<string, unknown> ? TOutput : Record<string, unknown>
+    : Record<string, unknown>
+
+export type AccessInputContextFromSchemas<TInputSchemas> =
+  TInputSchemas extends { chat?: infer TChat }
+    ? AgentChatRunContext<
+        TChat extends { message?: { metadata?: infer TMessageMetadataSchema } }
+          ? AccessSchemaObjectOutput<TMessageMetadataSchema>
+          : Record<string, unknown>,
+        TChat extends { user?: infer TUserSchema }
+          ? AccessSchemaObjectOutput<TUserSchema>
+          : Record<string, unknown>
+      >
+    : Record<string, unknown>
+
+export type AccessCapabilityTypeContract<
+  TSourceName extends string = string,
+  TInputContext extends object = Record<string, unknown>,
+> = AgentCapabilityTypeContract & {
+  inputContext: TInputContext
+  workspaceSources: TSourceName
+}
+
+type AccessGrantSourceName<TGrant> =
+  (TGrant extends { source?: infer TSource }
+    ? TSource
+    : never)
+  | (TGrant extends { sources?: readonly (infer TSource)[] }
+    ? TSource
+    : never)
+
+type AccessScopeDefinitionSourceName<TDefinition> =
+  AccessGrantSourceName<TDefinition>
+  | (TDefinition extends { grants?: readonly (infer TGrant)[] }
+    ? AccessGrantSourceName<TGrant>
+    : never)
+
+export type AccessWorkspaceScopeSourceName<TWorkspace> =
+  TWorkspace extends { scopes: infer TScopes }
+    ? Extract<{ [Scope in keyof TScopes]: AccessScopeDefinitionSourceName<TScopes[Scope]> }[keyof TScopes], string>
+    : string
 
 export interface AccessWorkspaceScopeGrant<TSourceName extends string = string> {
   path?: string
@@ -83,7 +166,9 @@ export interface AccessCapabilityOptions<
   Name extends WorkspaceName = WorkspaceName,
   TSourceName extends string = string,
   TInputContext extends object = Record<string, unknown>,
+  TInputSchemas extends AccessInputSchemaOptions | undefined = undefined,
 > {
+  input?: TInputSchemas
   workspace: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>
 }
 
@@ -121,9 +206,16 @@ function setWorkspaceOverride<
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-  TSourceName extends string = string,
   TInputContext extends object = Record<string, unknown>,
->(options: AccessCapabilityOptions<TRuntimeConfig, Name, TSourceName, TInputContext>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
+  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext>,
+>(options: { input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
+export function access<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  const TInputSchemas extends AccessInputSchemaOptions = AccessInputSchemaOptions,
+  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, AccessInputContextFromSchemas<TInputSchemas>> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, AccessInputContextFromSchemas<TInputSchemas>>,
+>(options: { input: TInputSchemas, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessInputContextFromSchemas<TInputSchemas>>>
+export function access(options: AccessCapabilityOptions): AgentCapabilityDefinition {
   if (!options || typeof options !== "object" || !options.workspace) {
     throw new TypeError("[vitehub] access() requires workspace options.")
   }
@@ -138,6 +230,8 @@ export function access<
       if ("diff" in context.workspace) {
         throw new Error("[vitehub] access({ workspace }) is read-only in the first version and requires workspace.mode: \"read\".")
       }
+      const input = await applyAccessInputSchemas(options.input, context.input.get())
+      if (input !== context.input.get()) context.input.set(input)
       const scope = await resolveWorkspaceScope(options.workspace, context)
       const scopedWorkspace = scope.all
         ? context.workspace
@@ -150,6 +244,54 @@ export function access<
       setWorkspaceOverride(context, scopedWorkspace)
     },
   })
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+async function applyAccessInputSchemas(
+  schemas: AccessInputSchemaOptions | undefined,
+  input: AgentRunInput,
+): Promise<AgentRunInput> {
+  const chatSchemas = schemas?.chat
+  if (!chatSchemas) return input
+
+  const inputContext = isRecord(input.context) ? input.context : undefined
+  const chat = isRecord(inputContext?.chat) ? inputContext.chat : undefined
+  if (!chat) return input
+
+  let nextChat = chat
+  const message = isRecord(chat.message) ? chat.message : undefined
+  const metadataSchema = chatSchemas.message?.metadata
+  if (metadataSchema && message && message.metadata !== undefined) {
+    const metadata = await parseStandardSchema(metadataSchema, message.metadata, "chat.message.metadata")
+    nextChat = {
+      ...nextChat,
+      message: {
+        ...message,
+        metadata,
+      },
+    }
+  }
+
+  const userSchema = chatSchemas.user
+  if (userSchema && chat.user !== undefined) {
+    const user = await parseStandardSchema(userSchema, chat.user, "chat.user")
+    nextChat = {
+      ...nextChat,
+      user,
+    }
+  }
+
+  if (nextChat === chat) return input
+  return {
+    ...input,
+    context: {
+      ...(inputContext || {}),
+      chat: nextChat,
+    },
+  }
 }
 
 async function resolveWorkspaceScope<

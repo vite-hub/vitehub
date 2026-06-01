@@ -69,6 +69,14 @@ export {
 
 export type {
   AccessCapabilityOptions,
+  AccessCapabilityStandardSchemaResultFailure,
+  AccessCapabilityStandardSchemaResultSuccess,
+  AccessCapabilityStandardSchemaV1,
+  AccessCapabilityTypeContract,
+  AccessChatInputSchemaOptions,
+  AccessChatMessageInputSchemaOptions,
+  AccessInputContextFromSchemas,
+  AccessInputSchemaOptions,
   AccessRoleName,
   AccessWorkspaceOptions,
   AccessWorkspaceOptionsFor,

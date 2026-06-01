@@ -139,6 +139,97 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
   })
 
+  it("validates chat input schemas before resolving Workspace Scope", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const metadataSchema = {
+      "~standard": {
+        validate(input: unknown) {
+          const metadata = typeof input === "object" && input !== null ? input as Record<string, unknown> : {}
+          const customer = typeof metadata.customer === "string" ? metadata.customer : undefined
+          return { value: { quiver: { customer } } }
+        },
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          input: {
+            chat: {
+              message: { metadata: metadataSchema },
+            },
+          },
+          workspace: {
+            resolve: ({ input }) => input.get().context?.chat?.message?.metadata?.quiver?.customer,
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, {
+      context: {
+        chat: {
+          message: {
+            metadata: { customer: "acme" },
+          },
+        },
+      },
+      prompt: "check",
+    }, createWorkspace())
+
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
+    expect(resolved.input.context).toMatchObject({
+      chat: {
+        message: {
+          metadata: {
+            quiver: { customer: "acme" },
+          },
+        },
+      },
+    })
+  })
+
+  it("fails closed when chat input schema validation fails", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          input: {
+            chat: {
+              message: {
+                metadata: {
+                  "~standard": {
+                    validate: () => ({ issues: ["missing customer"] }),
+                  },
+                },
+              },
+            },
+          },
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, {
+      context: {
+        chat: {
+          message: {
+            metadata: {},
+          },
+        },
+      },
+      prompt: "check",
+    }, createWorkspace())).rejects.toThrow("Invalid chat.message.metadata")
+  })
+
   it("falls back to default scope when an explicit resolver returns no scope", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")

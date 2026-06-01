@@ -45,6 +45,7 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityInput,
   AgentCapabilityMode,
+  AgentCapabilityTypeContract,
   AgentDefinition,
   AgentFinishEvent,
   AgentChatOptions,
@@ -103,6 +104,7 @@ export type {
   AgentCapabilityMode,
   AgentCapabilityPhase,
   AgentCapabilityRuntimeContext,
+  AgentCapabilityTypeContract,
   AgentChatAgentHookArgs,
   AgentChatAppExposure,
   AgentChatAppOptions,
@@ -199,6 +201,40 @@ const defaultWorkspaceName = "workspace"
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
+type WorkspaceSourceNames<TWorkspace> =
+  TWorkspace extends { sources: infer TSources }
+    ? Extract<keyof NonNullable<TSources>, string>
+    : string
+type ValidateCapabilityWorkspaceSources<
+  TSourceName,
+  TWorkspace,
+  TCapability,
+> =
+  [TSourceName] extends [never]
+    ? TCapability
+    : TSourceName extends string
+    ? string extends TSourceName
+      ? TCapability
+      : Exclude<TSourceName, WorkspaceSourceNames<TWorkspace>> extends never
+        ? TCapability
+        : never
+    : TCapability
+type ValidateAgentCapability<TCapability, TWorkspace> =
+  TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
+    ? TTypeContract extends AgentCapabilityTypeContract
+      ? ValidateCapabilityWorkspaceSources<TTypeContract["workspaceSources"], TWorkspace, TCapability>
+      : TCapability
+    : TCapability
+type ValidateAgentCapabilities<TCapabilities, TWorkspace> =
+  TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
+    ? { [Index in keyof TCapabilities]: ValidateAgentCapability<TCapabilities[Index], TWorkspace> }
+    : TCapabilities extends readonly (infer TCapability)[]
+      ? ValidateAgentCapability<TCapability, TWorkspace>[]
+      : TCapabilities
+type ValidateWorkspaceAgentOptions<TOptions> =
+  TOptions extends { capabilities?: infer TCapabilities, workspace: infer TWorkspace }
+    ? { capabilities?: ValidateAgentCapabilities<TCapabilities, TWorkspace> }
+    : unknown
 type BaseAgentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown> =
   (context: AgentRuntimeContext<TRuntimeConfig>) => Promise<AgentAdapter<CALL_OPTIONS>>
 type AgentDefinitionWithBaseResolve<
@@ -512,8 +548,9 @@ export interface DefineAgent {
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
+    const TOptions extends WorkspaceAgentOptions<TRuntimeConfig, Name> = WorkspaceAgentOptions<TRuntimeConfig, Name>,
   >(
-    options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+    options: TOptions & ValidateWorkspaceAgentOptions<TOptions>,
   ): WorkspaceAgentDefinition<TRuntimeConfig, Name>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
