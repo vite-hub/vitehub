@@ -169,6 +169,33 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
   })
 
+  it("uses registered Workspace Scopes when inline scope markers are empty", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: () => ({
+              all: false,
+              grants: [],
+              scope: "acme",
+              source: undefined,
+              sources: [],
+            }),
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
+    await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
+  })
+
   it("can resolve an inline all-scopes Workspace Scope definition for admin roles", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
@@ -348,6 +375,128 @@ describe("access capability", () => {
       },
       prompt: "check",
     }, createWorkspace())).rejects.toThrow("Invalid chat.user")
+  })
+
+  it("fails closed when configured chat input schemas receive no chat context", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          input: {
+            chat: {
+              message: {
+                metadata: {
+                  "~standard": {
+                    validate(input: unknown) {
+                      return typeof input === "object" && input !== null
+                        ? { value: input as Record<string, unknown> }
+                        : { issues: ["missing metadata"] }
+                    },
+                  },
+                },
+              },
+            },
+          },
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())).rejects.toThrow("Invalid chat.message.metadata")
+  })
+
+  it("gates Chat App Route metadata schemas by chat run origin", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, chat } = await import("../src/capabilities.ts")
+
+    const supportChat = chat({
+      adapters: { teams: {} as never },
+      app: "portal",
+    })
+    const metadataSchema = {
+      "~standard": {
+        validate(input: unknown) {
+          const metadata = typeof input === "object" && input !== null ? input as Record<string, unknown> : {}
+          return typeof metadata.customer === "string"
+            ? { value: { quiver: { customer: metadata.customer } } }
+            : { issues: ["missing customer"] }
+        },
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          input: {
+            chat: {
+              capability: supportChat,
+              message: { metadata: metadataSchema },
+            },
+          },
+          workspace: {
+            resolve({ input }) {
+              const chat = input.get().context?.chat
+              if (chat?.run?.origin !== "portal") {
+                return { all: true, role: "admin", scope: "support" }
+              }
+              const metadata = chat.message?.metadata as { quiver?: { customer?: string } } | undefined
+              return metadata?.quiver?.customer
+            },
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+        supportChat,
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, {
+      context: {
+        chat: {
+          message: {
+            metadata: { source: "chat" },
+          },
+          run: { origin: "teams", runId: "run-1" },
+        },
+      },
+      prompt: "check",
+    }, createWorkspace())
+
+    await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          input: {
+            chat: {
+              capability: supportChat,
+              message: { metadata: metadataSchema },
+            },
+          },
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+        supportChat,
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, {
+      context: {
+        chat: {
+          message: {
+            metadata: { source: "portal" },
+          },
+          run: { origin: "portal", runId: "run-2" },
+        },
+      },
+      prompt: "check",
+    }, createWorkspace())).rejects.toThrow("Invalid chat.message.metadata")
   })
 
   it("fails closed when configured chat run origins do not match", async () => {

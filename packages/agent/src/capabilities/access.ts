@@ -7,6 +7,8 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
   AgentCapabilityTypeContract,
+  AgentChatAppExposure,
+  AgentChatOptions,
   AgentRunInput,
   AgentRuntimeConfig,
   MaybePromise,
@@ -294,13 +296,12 @@ async function applyAccessInputSchemas(
   if (!chatSchemas) return input
 
   const inputContext = isRecord(input.context) ? input.context : undefined
-  const chat = isRecord(inputContext?.chat) ? inputContext.chat : undefined
-  if (!chat) return input
+  const chat = isRecord(inputContext?.chat) ? inputContext.chat : {}
 
   let nextChat = chat
   const message = isRecord(chat.message) ? chat.message : undefined
   const metadataSchema = chatSchemas.message?.metadata
-  if (metadataSchema) {
+  if (metadataSchema && shouldValidateChatMessageMetadata(chatSchemas, chat)) {
     const metadata = await parseStandardSchema(metadataSchema, message?.metadata, "chat.message.metadata")
     nextChat = {
       ...nextChat,
@@ -337,6 +338,31 @@ async function applyAccessInputSchemas(
       chat: nextChat,
     },
   }
+}
+
+function chatCapabilityOptions(value: unknown): AgentChatOptions | undefined {
+  const metadata = isRecord(value) ? value.metadata : undefined
+  return isRecord(metadata) && metadata.kind === "chat" && isRecord(metadata.chat)
+    ? metadata.chat as AgentChatOptions
+    : undefined
+}
+
+function chatAppOrigin(app: AgentChatAppExposure | undefined): string | undefined {
+  if (!app) return
+  if (typeof app === "string") return app
+  if (app === true) return "http"
+  return typeof app.origin === "string" && app.origin ? app.origin : "http"
+}
+
+function shouldValidateChatMessageMetadata(
+  schemas: AccessChatInputSchemaOptions,
+  chat: Record<string, unknown>,
+): boolean {
+  const appOrigin = chatAppOrigin(chatCapabilityOptions(schemas.capability)?.app)
+  if (!appOrigin) return true
+  const run = isRecord(chat.run) ? chat.run : undefined
+  const origin = run?.origin
+  return typeof origin !== "string" || origin === appOrigin
 }
 
 async function resolveWorkspaceScope<
@@ -390,13 +416,26 @@ async function resolveSelection<
   return options.defaultScope
 }
 
+function hasNonEmptyString(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0
+}
+
+function hasNonEmptyStringList(value: unknown): boolean {
+  return Array.isArray(value) && value.some(hasNonEmptyString)
+}
+
+function hasNonEmptyScopeGrant(value: unknown): boolean {
+  return isRecord(value)
+    && (hasNonEmptyString(value.path)
+      || hasNonEmptyStringList(value.paths)
+      || hasNonEmptyString(value.source)
+      || hasNonEmptyStringList(value.sources))
+}
+
 function hasInlineScopeDefinition(value: Record<string, unknown>): boolean {
-  return "all" in value
-    || "grants" in value
-    || "path" in value
-    || "paths" in value
-    || "source" in value
-    || "sources" in value
+  return value.all === true
+    || (Array.isArray(value.grants) && value.grants.some(hasNonEmptyScopeGrant))
+    || hasNonEmptyScopeGrant(value)
 }
 
 function normalizeSelection<TSourceName extends string>(value: unknown): NormalizedWorkspaceScopeSelection<TSourceName> | undefined {
