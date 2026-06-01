@@ -53,8 +53,8 @@ export interface AgentChatMessageTriggerInput {
 }
 
 export interface AgentChatRunContext<
-  TMessageMetadata extends Record<string, unknown> = Record<string, unknown>,
-  TUser extends Record<string, unknown> = Record<string, unknown>,
+  TMessageMetadata extends object = Record<string, unknown>,
+  TUser extends object = Record<string, unknown>,
 > {
   chat?: {
     message?: Omit<AgentChatAgentHookArgs["message"], "metadata"> & { metadata?: TMessageMetadata }

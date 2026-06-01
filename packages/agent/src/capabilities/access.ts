@@ -42,7 +42,7 @@ export interface AccessCapabilityStandardSchemaV1<T = unknown> {
   }
 }
 
-type AccessObjectSchema = AccessCapabilityStandardSchemaV1<Record<string, unknown>>
+type AccessObjectSchema = AccessCapabilityStandardSchemaV1<object>
 
 export interface AccessChatMessageInputSchemaOptions<TMessageMetadataSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined> {
   metadata?: TMessageMetadataSchema
@@ -65,7 +65,7 @@ export interface AccessInputSchemaOptions<
 
 type AccessSchemaObjectOutput<TSchema> =
   TSchema extends AccessCapabilityStandardSchemaV1<infer TOutput>
-    ? TOutput extends Record<string, unknown> ? TOutput : Record<string, unknown>
+    ? TOutput extends object ? TOutput : Record<string, unknown>
     : Record<string, unknown>
 
 export type AccessInputContextFromSchemas<TInputSchemas> =

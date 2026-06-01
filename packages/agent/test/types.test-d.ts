@@ -302,16 +302,24 @@ describe("agent public types", () => {
   })
 
   it("types inline access source grants and chat input schemas from defineAgent", () => {
+    interface SupportMessageMetadata {
+      quiver?: {
+        customer?: string
+      }
+    }
+    interface SupportChatUser {
+      email?: string
+    }
     const metadataSchema = {
       "~standard": {
-        validate: (input: unknown) => ({ value: input as { quiver?: { customer?: string } } }),
+        validate: (input: unknown) => ({ value: input as SupportMessageMetadata }),
       },
-    } satisfies AccessCapabilityStandardSchemaV1<{ quiver?: { customer?: string } }>
+    } satisfies AccessCapabilityStandardSchemaV1<SupportMessageMetadata>
     const userSchema = {
       "~standard": {
-        validate: (input: unknown) => ({ value: input as { email?: string } }),
+        validate: (input: unknown) => ({ value: input as SupportChatUser }),
       },
-    } satisfies AccessCapabilityStandardSchemaV1<{ email?: string }>
+    } satisfies AccessCapabilityStandardSchemaV1<SupportChatUser>
 
     defineAgent({
       capabilities: [
