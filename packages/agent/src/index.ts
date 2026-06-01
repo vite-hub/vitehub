@@ -188,6 +188,10 @@ export type {
   ToolInvocationState,
 } from "./messages.ts"
 
+export type {
+  AgentChatRunContext,
+} from "./chat-trigger.ts"
+
 const syntheticWorkspaceRun = Symbol("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol("vitehub.baseAgentModel")

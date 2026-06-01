@@ -71,14 +71,18 @@ export type {
   AccessCapabilityOptions,
   AccessRoleName,
   AccessWorkspaceOptions,
+  AccessWorkspaceOptionsFor,
+  AccessWorkspaceResolverContext,
   AccessWorkspaceScopeDefinition,
   AccessWorkspaceScopeGrant,
   AccessWorkspaceScopeResolver,
   AccessWorkspaceScopeSelection,
   AccessWorkspaceScopeSelectionInput,
+  AccessWorkspaceSourceName,
 } from "./access.ts"
 export type {
   AgentChatMessageTriggerInput,
+  AgentChatRunContext,
 } from "../chat-trigger.ts"
 export type {
   AgentChatAdapterResolver,

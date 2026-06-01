@@ -52,6 +52,18 @@ export interface AgentChatMessageTriggerInput {
   user?: Record<string, unknown>
 }
 
+export interface AgentChatRunContext<
+  TMessageMetadata extends Record<string, unknown> = Record<string, unknown>,
+  TUser extends Record<string, unknown> = Record<string, unknown>,
+> {
+  chat?: {
+    message?: Omit<AgentChatAgentHookArgs["message"], "metadata"> & { metadata?: TMessageMetadata }
+    run?: AgentRunMetadata
+    session?: AgentChatMessageTriggerInput["session"]
+    user?: TUser
+  }
+}
+
 function uiMessageText(message: UIMessageLike): string {
   const parts = Array.isArray(message.parts) ? message.parts : []
   return parts

@@ -5,6 +5,7 @@ import { createWorkspaceTools } from "@vite-hub/workspace"
 import type {
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
+  AgentRunInput,
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
@@ -17,25 +18,26 @@ import type {
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceSource,
 } from "@vite-hub/workspace"
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 
 export type AccessRoleName = "viewer" | "admin" | (string & {})
 
-export interface AccessWorkspaceScopeGrant {
+export interface AccessWorkspaceScopeGrant<TSourceName extends string = string> {
   path?: string
   paths?: string[]
-  source?: string
-  sources?: string[]
+  source?: TSourceName
+  sources?: TSourceName[]
 }
 
-export interface AccessWorkspaceScopeDefinition {
+export interface AccessWorkspaceScopeDefinition<TSourceName extends string = string> {
   all?: boolean
-  grants?: AccessWorkspaceScopeGrant[]
+  grants?: AccessWorkspaceScopeGrant<TSourceName>[]
   path?: string
   paths?: string[]
-  source?: string
-  sources?: string[]
+  source?: TSourceName
+  sources?: TSourceName[]
 }
 
 export interface AccessWorkspaceScopeSelection {
@@ -47,28 +49,53 @@ export type AccessWorkspaceScopeSelectionInput =
   | string
   | AccessWorkspaceScopeSelection
 
+export type AccessWorkspaceResolverContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TInputContext extends object = Record<string, unknown>,
+> = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "input"> & {
+  input: Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>["input"], "get"> & {
+    get: () => AgentRunInput<unknown, TInputContext>
+  }
+}
+
 export type AccessWorkspaceScopeResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
+  TInputContext extends object = Record<string, unknown>,
 > = (
-  context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
+  context: AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext>,
 ) => MaybePromise<AccessWorkspaceScopeSelectionInput | undefined>
 
 export interface AccessWorkspaceOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
+  TSourceName extends string = string,
+  TInputContext extends object = Record<string, unknown>,
 > {
   defaultScope?: string
-  resolve?: AccessWorkspaceScopeSelectionInput | AccessWorkspaceScopeResolver<TRuntimeConfig, Name>
-  scopes: Record<string, AccessWorkspaceScopeDefinition>
+  resolve?: AccessWorkspaceScopeSelectionInput | AccessWorkspaceScopeResolver<TRuntimeConfig, Name, TInputContext>
+  scopes: Record<string, AccessWorkspaceScopeDefinition<TSourceName>>
 }
 
 export interface AccessCapabilityOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
+  TSourceName extends string = string,
+  TInputContext extends object = Record<string, unknown>,
 > {
-  workspace: AccessWorkspaceOptions<TRuntimeConfig, Name>
+  workspace: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>
 }
+
+export type AccessWorkspaceSourceName<TWorkspace extends { sources?: Record<string, WorkspaceSource> }> =
+  Extract<keyof NonNullable<TWorkspace["sources"]>, string>
+
+export type AccessWorkspaceOptionsFor<
+  TWorkspace extends { sources?: Record<string, WorkspaceSource> },
+  TInputContext extends object = Record<string, unknown>,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = AccessWorkspaceOptions<TRuntimeConfig, Name, AccessWorkspaceSourceName<TWorkspace>, TInputContext>
 
 interface ResolvedWorkspaceScope {
   all: boolean
@@ -94,7 +121,9 @@ function setWorkspaceOverride<
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
->(options: AccessCapabilityOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
+  TSourceName extends string = string,
+  TInputContext extends object = Record<string, unknown>,
+>(options: AccessCapabilityOptions<TRuntimeConfig, Name, TSourceName, TInputContext>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
   if (!options || typeof options !== "object" || !options.workspace) {
     throw new TypeError("[vitehub] access() requires workspace options.")
   }
@@ -126,8 +155,10 @@ export function access<
 async function resolveWorkspaceScope<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
+  TSourceName extends string,
+  TInputContext extends object,
 >(
-  options: AccessWorkspaceOptions<TRuntimeConfig, Name>,
+  options: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
 ): Promise<ResolvedWorkspaceScope> {
   const selection = normalizeSelection(await resolveSelection(options, context))
@@ -157,13 +188,15 @@ async function resolveWorkspaceScope<
 async function resolveSelection<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
+  TSourceName extends string,
+  TInputContext extends object,
 >(
-  options: AccessWorkspaceOptions<TRuntimeConfig, Name>,
+  options: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
 ): Promise<AccessWorkspaceScopeSelectionInput | undefined> {
   if (options.resolve !== undefined) {
     const resolved = typeof options.resolve === "function"
-      ? await options.resolve(context)
+      ? await options.resolve(context as AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext>)
       : options.resolve
     return normalizeSelection(resolved) || options.defaultScope
   }

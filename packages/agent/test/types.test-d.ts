@@ -1,13 +1,14 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
-import { blob, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
+import { access, blob, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentInvocationContextStore, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
-import type { FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
+import { source } from "@vite-hub/workspace"
+import type { AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -249,6 +250,55 @@ describe("agent public types", () => {
     type _PublicAudioExtensionFor = CapabilityExports["audioExtensionFor"]
     // @ts-expect-error transcription context storage key is internal, not public capabilities API
     type _PublicTranscriptionContextKey = CapabilityExports["TRANSCRIPTION_RESULTS_CONTEXT_KEY"]
+  })
+
+  it("types access workspace source grants and chat run context", () => {
+    const workspace = {
+      sources: {
+        docs: source.file("AGENTS.md"),
+        forecastingEngine: source.github({ repo: "acme/forecasting-engine" }),
+      },
+    }
+    type ChatContext = AgentChatRunContext<
+      { quiver?: { customer?: string } },
+      { email?: string }
+    >
+    const workspaceAccess: AccessWorkspaceOptionsFor<typeof workspace, ChatContext> = {
+      defaultScope: "customer",
+      resolve({ input }) {
+        const chat = input.get().context?.chat
+        expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
+        expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
+        return chat?.user?.email?.endsWith("@quiver.dk")
+          ? { role: "admin", scope: "quiver" }
+          : "customer"
+      },
+      scopes: {
+        customer: {
+          grants: [
+            { path: "AGENTS.md" },
+            { source: "forecastingEngine" },
+            { sources: ["docs"] },
+          ],
+        },
+        quiver: { all: true },
+      },
+    }
+    access({ workspace: workspaceAccess })
+
+    const invalidAccess: AccessWorkspaceOptionsFor<typeof workspace> = {
+      scopes: {
+        customer: {
+          grants: [
+            // @ts-expect-error source grants are limited to the workspace source map
+            { source: "missing" },
+          ],
+          // @ts-expect-error source grants are limited to the workspace source map
+          sources: ["missing"],
+        },
+      },
+    }
+    expectTypeOf(invalidAccess).toMatchTypeOf<AccessWorkspaceOptionsFor<typeof workspace>>()
   })
 
   it("accepts agent eval definitions", () => {

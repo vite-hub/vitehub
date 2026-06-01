@@ -64,9 +64,12 @@ export interface AgentInvocationContextStore {
   toJSON: () => Record<string, unknown>
 }
 
-export interface AgentRunInput<CALL_OPTIONS = unknown> {
+export interface AgentRunInput<
+  CALL_OPTIONS = unknown,
+  TContext extends object = Record<string, unknown>,
+> {
   abortSignal?: AbortSignal
-  context?: Record<string, unknown>
+  context?: TContext
   messages?: Message[]
   options?: CALL_OPTIONS
   prompt?: string | Message[]
