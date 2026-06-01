@@ -124,6 +124,6 @@ export default defineAgent({
 
 The scope resolver sees the parsed schema output. In this example, portal chat requests must include a customer in message metadata, while non-portal chat surfaces can use the explicit all-scopes Workspace Scope. The resolver returns inline Workspace Scope definitions, so the app does not need to pre-register one scope per customer.
 
-The Chat App Route origin is configured in `chat({ app })` so the access decision does not trust a browser-controlled payload. Passing the Chat Capability to `access({ input.chat.capability })` lets the resolver infer `chat.run.origin` from the Chat App Route origin and Chat Platform Adapter names.
+The Chat App Route origin is configured in `chat({ app })` so the access decision does not trust a browser-controlled payload. A request body may repeat the same `run.origin`, but it cannot override the configured app origin; mismatches are rejected as bad requests so app-level proxies fail closed when their contract drifts. Passing the Chat Capability to `access({ input.chat.capability })` lets the resolver infer `chat.run.origin` from the Chat App Route origin and Chat Platform Adapter names.
 
 Order matters. Access should run before Workspace-reading Capabilities so the scope is applied before tools are exposed.

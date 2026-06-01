@@ -130,7 +130,37 @@ describe("agent Nitro chat routes", () => {
     expect(await response.text()).toContain("Agent chat route requires messages.")
   })
 
-  it("uses the configured Chat App Route origin instead of request body origin", async () => {
+  it("accepts a request body origin that matches the configured Chat App Route origin", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatHandler } = await import("../src/nitro.ts")
+    let seenRun: unknown
+    const app = createApp()
+    app.use(defineAgentChatHandler(defineAgent({
+      capabilities: [chat({ app: "portal" })],
+      run(context) {
+        seenRun = context.run
+        return "agent answer"
+      },
+    })))
+    const response = await toWebHandler(app)(new Request("https://example.test/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "support-session",
+        messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+        run: { origin: "portal" },
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(200)
+    expect(seenRun).toEqual(expect.objectContaining({
+      messageId: "user-1",
+      origin: "portal",
+      threadId: "support-session",
+    }))
+  })
+
+  it("rejects a request body origin that differs from the configured Chat App Route origin", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatHandler } = await import("../src/nitro.ts")
     let seenRun: unknown
@@ -152,12 +182,9 @@ describe("agent Nitro chat routes", () => {
       method: "POST",
     }))
 
-    expect(response.status).toBe(200)
-    expect(seenRun).toEqual(expect.objectContaining({
-      messageId: "user-1",
-      origin: "portal",
-      threadId: "support-session",
-    }))
+    expect(response.status).toBe(400)
+    expect(await response.text()).toContain("does not match configured origin")
+    expect(seenRun).toBeUndefined()
   })
 
   it("does not expose agents without Chat App Exposure through chat route handlers", async () => {

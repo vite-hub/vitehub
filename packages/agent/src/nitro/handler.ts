@@ -68,7 +68,7 @@ export interface AgentChatRouteBody {
   id?: string
   messageId?: string
   messages?: AgentChatMessageTriggerInput["messages"]
-  run?: Omit<Partial<AgentRunMetadata>, "origin">
+  run?: Partial<AgentRunMetadata>
   session?: AgentChatMessageTriggerInput["session"] | string
   timeout?: number
   user?: Record<string, unknown>
@@ -760,10 +760,19 @@ function createChatRouteRunMetadata(
   const session = normalizeChatRouteSession(body)
   const message = body.messages?.at(-1)
   const run = typeof body.run === "object" && body.run !== null ? body.run : {}
+  const origin = firstString(app.origin, "http")!
+  const requestedOrigin = firstString(run.origin)
+  if (requestedOrigin && requestedOrigin !== origin) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `Chat App Route run.origin ${JSON.stringify(requestedOrigin)} does not match configured origin ${JSON.stringify(origin)}. Configure chat({ app }) with that origin or remove run.origin from the request.`,
+    })
+  }
+
   return {
     channelId: firstString(run.channelId, session?.id ? `http:${session.id}` : undefined, agentName ? `http:${agentName}` : undefined),
     messageId: firstString(run.messageId, body.messageId, message?.id),
-    origin: firstString(app.origin, "http"),
+    origin,
     runId: firstString(run.runId) || randomRunId(),
     threadId: firstString(run.threadId, session?.id, body.id, agentName),
   }
