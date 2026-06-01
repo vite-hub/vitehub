@@ -33,4 +33,26 @@ describe("Nitro module", () => {
       ],
     })
   })
+
+  it("marks OpenWorkflow provider dependencies for Nitro tracing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-nitro-openworkflow-"))
+    const nitro = {
+      hooks: { hook: vi.fn() },
+      options: {
+        alias: {},
+        buildDir: join(root, ".nitro"),
+        imports: undefined as { presets?: Array<{ from: string, imports: string[] }> } | undefined,
+        output: { serverDir: join(root, ".output/server") },
+        plugins: [],
+        rootDir: root,
+        scanDirs: [],
+        traceDeps: undefined as string[] | undefined,
+        workflow: { provider: "openworkflow", postgres: { url: "postgres://example" } },
+      },
+    }
+
+    await workflowNitroModule.setup(nitro as never)
+
+    expect(nitro.options.traceDeps).toEqual(expect.arrayContaining(["openworkflow", "postgres"]))
+  })
 })
