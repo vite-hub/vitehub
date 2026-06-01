@@ -139,6 +139,54 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
   })
 
+  it("can resolve an inline Workspace Scope definition", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: ({ input }) => {
+              const context = input.get().context as { customer?: unknown } | undefined
+              const customer = typeof context?.customer === "string"
+                ? context.customer
+                : "public"
+              return {
+                grants: [
+                  { path: "AGENTS.md" },
+                  { path: `customers/${customer}` },
+                ],
+                scope: customer,
+              }
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { context: { customer: "acme" }, prompt: "check" }, createWorkspace())
+
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
+    await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
+  })
+
+  it("can resolve an inline all-scopes Workspace Scope definition for admin roles", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: { all: true, role: "admin", scope: "support" },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
+    await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
+  })
+
   it("validates chat input schemas before resolving Workspace Scope", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
@@ -228,6 +276,108 @@ describe("access capability", () => {
       },
       prompt: "check",
     }, createWorkspace())).rejects.toThrow("Invalid chat.message.metadata")
+  })
+
+  it("fails closed when configured chat input schema fields are missing", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const requiredObjectSchema = (label: string) => ({
+      "~standard": {
+        validate(input: unknown) {
+          return typeof input === "object" && input !== null
+            ? { value: input as Record<string, unknown> }
+            : { issues: [`missing ${label}`] }
+        },
+      },
+    })
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          input: {
+            chat: {
+              message: { metadata: requiredObjectSchema("metadata") },
+              user: requiredObjectSchema("user"),
+            },
+          },
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, {
+      context: {
+        chat: {
+          message: {
+            text: "check",
+          },
+        },
+      },
+      prompt: "check",
+    }, createWorkspace())).rejects.toThrow("Invalid chat.message.metadata")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          input: {
+            chat: {
+              message: { metadata: requiredObjectSchema("metadata") },
+              user: requiredObjectSchema("user"),
+            },
+          },
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, {
+      context: {
+        chat: {
+          message: {
+            metadata: {},
+            text: "check",
+          },
+        },
+      },
+      prompt: "check",
+    }, createWorkspace())).rejects.toThrow("Invalid chat.user")
+  })
+
+  it("fails closed when configured chat run origins do not match", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          input: {
+            chat: {
+              run: { origin: ["portal", "teams"] },
+            },
+          },
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, {
+      context: {
+        chat: {
+          run: { origin: "http", runId: "run-1" },
+        },
+      },
+      prompt: "check",
+    }, createWorkspace())).rejects.toThrow("Invalid chat.run.origin")
   })
 
   it("falls back to default scope when an explicit resolver returns no scope", async () => {

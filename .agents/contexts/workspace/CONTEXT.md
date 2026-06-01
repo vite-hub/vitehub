@@ -148,6 +148,7 @@ _Avoid_: Open workspace, sandbox, mount
 - A Source-key **Workspace Scope Grant** fails closed for unknown Sources and root-mounted Sources; root-mounted Sources require explicit path grants.
 - A **Workspace Scope Resolver** selects the Workspace Scope before Workspace Tools or Workspace-backed instructions are exposed.
 - A **Workspace Scope Resolver** can read trusted host, auth, and invocation context, but it does not use model output as authority.
+- A **Workspace Scope Resolver** can select a static named Workspace Scope or return an inline Workspace Scope definition for invocation-specific grants.
 - Workspace Scope is read-only in the first version.
 - Scoped Workspace Scope does not expose source materialization in the first version.
 - An out-of-scope Workspace path is a **Scope-Masked Miss** to the model.
@@ -187,6 +188,7 @@ _Avoid_: Open workspace, sandbox, mount
 - Workspace Scope write grants were considered for the first version - resolved: keep Workspace Scope read-only until read isolation is proven.
 - `workspaceScope()` was considered as the Capability helper name - resolved: keep **Workspace Scope** as Workspace language and use `access()` for the broader Capability.
 - Ambient `workspaceScope` invocation context was considered as authority - resolved: require an explicit **Workspace Scope Resolver** or **Default Workspace Scope**.
+- Static pre-registration for every customer scope was considered necessary - resolved: use inline Workspace Scope definitions from the **Workspace Scope Resolver** when grants are derived from trusted invocation context.
 - Source materialization under scoped access was considered for the first version - resolved: disable materialization for scoped V1 to avoid source metadata leakage.
 - Build-time Workspace assets were considered a second user-facing read surface - resolved: users read one **Workspace File Tree** while asset provenance remains internal by default.
 - `open()` was considered as the Workspace execution-session method - resolved: use `startSession()` because it names the **Workspace Session** lifecycle.

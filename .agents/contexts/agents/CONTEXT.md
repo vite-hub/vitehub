@@ -128,6 +128,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - A **Chat History Window** is configured by the Agent Definition when the application wants bounded Chat History.
 - The Chat Capability can require state for **Chat History** through the Agent State Provider.
 - The Chat Capability can produce **Chat Identity** before later Capabilities resolve.
+- The default **Chat Identity** for Chat Platform Adapter messages is platform-scoped as `adapter:userId`; applications can override it when they own a stronger cross-platform identity.
 - **Chat Identity** is available through Agent Invocation Context Values and is not model-facing by default.
 - Chat History is explicit application behavior and is not enabled by default.
 - **Agent Invocation Context Values** can be produced by Pre-Invocation Decisions and read by later Agent or Capability callbacks.

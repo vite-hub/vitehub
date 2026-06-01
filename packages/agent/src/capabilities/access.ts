@@ -11,7 +11,7 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
-import type { AgentChatRunContext } from "../chat-trigger.ts"
+import type { AgentChatCapabilityOrigin, AgentChatRunContext } from "../chat-trigger.ts"
 import type {
   ListOptions,
   ReadonlyWorkspaceFacade,
@@ -48,25 +48,42 @@ export interface AccessChatMessageInputSchemaOptions<TMessageMetadataSchema exte
   metadata?: TMessageMetadataSchema
 }
 
+export interface AccessChatRunInputOptions<TOrigin extends string = string> {
+  origin?: readonly TOrigin[]
+}
+
 export interface AccessChatInputSchemaOptions<
   TMessageMetadataSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
   TUserSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
+  TOrigin extends string = string,
+  TChatCapability = unknown,
 > {
+  capability?: TChatCapability
   message?: AccessChatMessageInputSchemaOptions<TMessageMetadataSchema>
+  run?: AccessChatRunInputOptions<TOrigin>
   user?: TUserSchema
 }
 
 export interface AccessInputSchemaOptions<
   TMessageMetadataSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
   TUserSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
+  TOrigin extends string = string,
+  TChatCapability = unknown,
 > {
-  chat?: AccessChatInputSchemaOptions<TMessageMetadataSchema, TUserSchema>
+  chat?: AccessChatInputSchemaOptions<TMessageMetadataSchema, TUserSchema, TOrigin, TChatCapability>
 }
 
 type AccessSchemaObjectOutput<TSchema> =
   TSchema extends AccessCapabilityStandardSchemaV1<infer TOutput>
     ? TOutput extends object ? TOutput : Record<string, unknown>
     : Record<string, unknown>
+
+type AccessChatRunOrigin<TChat> =
+  TChat extends { run?: { origin?: readonly (infer TOrigin)[] } }
+    ? Extract<TOrigin, string>
+    : TChat extends { capability?: infer TChatCapability }
+      ? AgentChatCapabilityOrigin<TChatCapability>
+    : string
 
 export type AccessInputContextFromSchemas<TInputSchemas> =
   TInputSchemas extends { chat?: infer TChat }
@@ -76,7 +93,8 @@ export type AccessInputContextFromSchemas<TInputSchemas> =
           : Record<string, unknown>,
         TChat extends { user?: infer TUserSchema }
           ? AccessSchemaObjectOutput<TUserSchema>
-          : Record<string, unknown>
+          : Record<string, unknown>,
+        AccessChatRunOrigin<TChat>
       >
     : Record<string, unknown>
 
@@ -102,10 +120,21 @@ type AccessScopeDefinitionSourceName<TDefinition> =
     ? AccessGrantSourceName<TGrant>
     : never)
 
+type AccessResolvedScopeSelection<TResolve> =
+  TResolve extends (...args: any[]) => infer TResult
+    ? Awaited<TResult>
+    : TResolve
+
 export type AccessWorkspaceScopeSourceName<TWorkspace> =
-  TWorkspace extends { scopes: infer TScopes }
-    ? Extract<{ [Scope in keyof TScopes]: AccessScopeDefinitionSourceName<TScopes[Scope]> }[keyof TScopes], string>
-    : string
+  Extract<
+    (TWorkspace extends { scopes?: infer TScopes }
+      ? { [Scope in keyof NonNullable<TScopes>]: AccessScopeDefinitionSourceName<NonNullable<TScopes>[Scope]> }[keyof NonNullable<TScopes>]
+      : never)
+    | (TWorkspace extends { resolve?: infer TResolve }
+      ? AccessScopeDefinitionSourceName<AccessResolvedScopeSelection<NonNullable<TResolve>>>
+      : never),
+    string
+  >
 
 export interface AccessWorkspaceScopeGrant<TSourceName extends string = string> {
   path?: string
@@ -123,14 +152,14 @@ export interface AccessWorkspaceScopeDefinition<TSourceName extends string = str
   sources?: readonly TSourceName[]
 }
 
-export interface AccessWorkspaceScopeSelection {
+export interface AccessWorkspaceScopeSelection<TSourceName extends string = string> extends AccessWorkspaceScopeDefinition<TSourceName> {
   role?: AccessRoleName
   scope: string
 }
 
-export type AccessWorkspaceScopeSelectionInput =
+export type AccessWorkspaceScopeSelectionInput<TSourceName extends string = string> =
   | string
-  | AccessWorkspaceScopeSelection
+  | AccessWorkspaceScopeSelection<TSourceName>
 
 export type AccessWorkspaceResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -146,9 +175,10 @@ export type AccessWorkspaceScopeResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
+  TSourceName extends string = string,
 > = (
   context: AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext>,
-) => MaybePromise<AccessWorkspaceScopeSelectionInput | undefined>
+) => MaybePromise<AccessWorkspaceScopeSelectionInput<TSourceName> | undefined>
 
 export interface AccessWorkspaceOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -157,8 +187,8 @@ export interface AccessWorkspaceOptions<
   TInputContext extends object = Record<string, unknown>,
 > {
   defaultScope?: string
-  resolve?: AccessWorkspaceScopeSelectionInput | AccessWorkspaceScopeResolver<TRuntimeConfig, Name, TInputContext>
-  scopes: Record<string, AccessWorkspaceScopeDefinition<TSourceName>>
+  resolve?: AccessWorkspaceScopeSelectionInput<TSourceName> | AccessWorkspaceScopeResolver<TRuntimeConfig, Name, TInputContext, TSourceName>
+  scopes?: Record<string, AccessWorkspaceScopeDefinition<TSourceName>>
 }
 
 export interface AccessCapabilityOptions<
@@ -186,6 +216,12 @@ interface ResolvedWorkspaceScope {
   all: boolean
   paths: string[]
   role: AccessRoleName
+  scope: string
+}
+
+interface NormalizedWorkspaceScopeSelection<TSourceName extends string = string> {
+  definition?: AccessWorkspaceScopeDefinition<TSourceName>
+  role?: AccessRoleName
   scope: string
 }
 
@@ -264,23 +300,32 @@ async function applyAccessInputSchemas(
   let nextChat = chat
   const message = isRecord(chat.message) ? chat.message : undefined
   const metadataSchema = chatSchemas.message?.metadata
-  if (metadataSchema && message && message.metadata !== undefined) {
-    const metadata = await parseStandardSchema(metadataSchema, message.metadata, "chat.message.metadata")
+  if (metadataSchema) {
+    const metadata = await parseStandardSchema(metadataSchema, message?.metadata, "chat.message.metadata")
     nextChat = {
       ...nextChat,
       message: {
-        ...message,
+        ...(message || {}),
         metadata,
       },
     }
   }
 
   const userSchema = chatSchemas.user
-  if (userSchema && chat.user !== undefined) {
+  if (userSchema) {
     const user = await parseStandardSchema(userSchema, chat.user, "chat.user")
     nextChat = {
       ...nextChat,
       user,
+    }
+  }
+
+  const origins = chatSchemas.run?.origin
+  if (origins) {
+    const run = isRecord(chat.run) ? chat.run : undefined
+    const origin = run?.origin
+    if (typeof origin !== "string" || !origins.includes(origin)) {
+      throw new Error(`[vitehub] Invalid chat.run.origin: expected one of ${origins.map(value => JSON.stringify(value)).join(", ")}.`)
     }
   }
 
@@ -308,9 +353,9 @@ async function resolveWorkspaceScope<
     throw new Error("[vitehub] access({ workspace }) could not resolve a Workspace Scope. Configure defaultScope or resolve().")
   }
 
-  const definition = options.scopes[selection.scope]
+  const definition = selection.definition || options.scopes?.[selection.scope]
   if (!definition) {
-    throw new Error(`[vitehub] access({ workspace }) resolved unknown Workspace Scope "${selection.scope}".`)
+    throw new Error(`[vitehub] access({ workspace }) resolved unknown Workspace Scope "${selection.scope}". Configure scopes.${selection.scope} or return an inline scope definition.`)
   }
 
   const role = selection.role || "viewer"
@@ -335,22 +380,34 @@ async function resolveSelection<
 >(
   options: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-): Promise<AccessWorkspaceScopeSelectionInput | undefined> {
+): Promise<AccessWorkspaceScopeSelectionInput<TSourceName> | undefined> {
   if (options.resolve !== undefined) {
     const resolved = typeof options.resolve === "function"
       ? await options.resolve(context as AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext>)
       : options.resolve
-    return normalizeSelection(resolved) || options.defaultScope
+    return normalizeSelection(resolved) ? resolved : options.defaultScope
   }
   return options.defaultScope
 }
 
-function normalizeSelection(value: unknown): AccessWorkspaceScopeSelection | undefined {
+function hasInlineScopeDefinition(value: Record<string, unknown>): boolean {
+  return "all" in value
+    || "grants" in value
+    || "path" in value
+    || "paths" in value
+    || "source" in value
+    || "sources" in value
+}
+
+function normalizeSelection<TSourceName extends string>(value: unknown): NormalizedWorkspaceScopeSelection<TSourceName> | undefined {
   if (typeof value === "string" && value.trim()) return { scope: value }
   if (!value || typeof value !== "object") return undefined
   const candidate = value as { role?: unknown, scope?: unknown }
   if (typeof candidate.scope !== "string" || !candidate.scope.trim()) return undefined
   return {
+    ...(hasInlineScopeDefinition(value as Record<string, unknown>)
+      ? { definition: value as AccessWorkspaceScopeDefinition<TSourceName> }
+      : {}),
     ...(typeof candidate.role === "string" && candidate.role.trim() ? { role: candidate.role } : {}),
     scope: candidate.scope,
   }

@@ -74,6 +74,7 @@ export type {
   AccessCapabilityStandardSchemaV1,
   AccessChatInputSchemaOptions,
   AccessChatMessageInputSchemaOptions,
+  AccessChatRunInputOptions,
   AccessInputContextFromSchemas,
   AccessInputSchemaOptions,
   AccessRoleName,
@@ -88,7 +89,9 @@ export type {
   AccessWorkspaceSourceName,
 } from "./access.ts"
 export type {
+  AgentChatCapabilityOrigin,
   AgentChatMessageTriggerInput,
+  AgentChatOptionsOrigin,
   AgentChatRunContext,
 } from "../chat-trigger.ts"
 export type {
@@ -98,6 +101,7 @@ export type {
   AgentChatAgentHookArgs,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
+  AgentChatIdentityResolver,
   AgentChatMessageHookArgs,
   AgentChatOptions,
   AgentChatSessionOptions,

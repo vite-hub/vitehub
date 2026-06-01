@@ -12,12 +12,13 @@ import { resolveChatState } from "./chat-state.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { getAgentRuntimeConfig } from "../runtime/nitro-runtime-config.ts"
 
-import type { Adapter, Attachment, ChatConfig, Channel, Message as ChatMessage, SentMessage, StateAdapter, Thread } from "chat"
+import type { Adapter, Attachment, ChatConfig, Channel, IdentityContext, IdentityResolver, Message as ChatMessage, SentMessage, StateAdapter, Thread } from "chat"
 import type { EventHandler, H3Event } from "h3"
 import type { NitroRuntimeConfig } from "nitro/types"
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type {
   AgentCapabilityDefinition,
+  AgentChatAppOptions,
   AgentChatOptions,
   AgentHandlerOptions,
   AgentInput,
@@ -43,7 +44,7 @@ type AgentRegistryModule = { default?: AgentInput<NitroAgentRuntimeContext> } | 
 type AgentRegistry = Record<string, () => Promise<AgentRegistryModule>>
 type WorkspaceAgentOptions = { capabilities?: AgentCapabilityDefinition[] }
 type WorkspaceAgentDefinition = { __vitehubWorkspaceAgentOptions?: WorkspaceAgentOptions }
-type ChatConfigRecord = Omit<ChatConfig<Record<string, Adapter>>, "adapters" | "fallbackStreamingPlaceholderText" | "state" | "userName">
+type ChatConfigRecord = Omit<ChatConfig<Record<string, Adapter>>, "adapters" | "fallbackStreamingPlaceholderText" | "identity" | "state" | "transcripts" | "userName">
 
 type RequestInitWithDuplex = RequestInit & { duplex?: "half" }
 type RequestHeaders = NonNullable<RequestInit["headers"]>
@@ -67,7 +68,7 @@ export interface AgentChatRouteBody {
   id?: string
   messageId?: string
   messages?: AgentChatMessageTriggerInput["messages"]
-  run?: Partial<AgentRunMetadata>
+  run?: Omit<Partial<AgentRunMetadata>, "origin">
   session?: AgentChatMessageTriggerInput["session"] | string
   timeout?: number
   user?: Record<string, unknown>
@@ -325,6 +326,13 @@ async function resolveChatAdapters(options: AgentChatOptions, context: NitroAgen
   return adapters
 }
 
+function defaultChatIdentity({ adapter, author }: IdentityContext): string | null {
+  if (author.isMe || author.isBot === true) return null
+  const adapterName = adapter.trim()
+  const userId = author.userId.trim()
+  return adapterName && userId && userId !== "unknown" ? `${adapterName}:${userId}` : null
+}
+
 function createChatSdkOptions(options: AgentChatOptions, adapters: Record<string, Adapter>, state: StateAdapter, agentName: string): ChatConfig<Record<string, Adapter>> {
   const {
     adapters: _adapters,
@@ -333,19 +341,24 @@ function createChatSdkOptions(options: AgentChatOptions, adapters: Record<string
     execution: _execution,
     fallbackStreamingPlaceholderText: _fallbackStreamingPlaceholderText,
     hooks: _hooks,
+    identity,
     lifecycleHooks: _lifecycleHooks,
     state: _state,
+    transcripts,
     userName,
     webhooks: _webhooks,
     workflow: _workflow,
     ...chatOptions
-  } = options as AgentChatOptions & { userName?: string }
+  } = options
+  const resolvedIdentity: IdentityResolver | undefined = identity || (transcripts ? defaultChatIdentity : undefined)
 
   return {
     ...(chatOptions as ChatConfigRecord),
     adapters,
     fallbackStreamingPlaceholderText: null,
+    ...(resolvedIdentity ? { identity: resolvedIdentity } : {}),
     state,
+    ...(transcripts ? { transcripts } : {}),
     userName: typeof userName === "string" && userName ? userName : agentName,
   }
 }
@@ -586,6 +599,7 @@ async function handleChatMessage(
     timeout: 90_000,
     user: {
       id: message.author?.userId,
+      ...(typeof message.userKey === "string" && message.userKey ? { key: message.userKey } : {}),
       name: message.author?.userName,
     },
   }
@@ -732,20 +746,34 @@ function normalizeChatRouteSession(body: AgentChatRouteBody): AgentChatMessageTr
   return body.id ? { id: body.id } : undefined
 }
 
-function createChatRouteRunMetadata(body: AgentChatRouteBody, agentName: string | undefined): AgentRunMetadata {
+function normalizeChatAppOptions(app: AgentChatOptions["app"]): AgentChatAppOptions | undefined {
+  if (!app) return
+  if (typeof app === "string") return { origin: app }
+  return app === true ? {} : app
+}
+
+function createChatRouteRunMetadata(
+  body: AgentChatRouteBody,
+  agentName: string | undefined,
+  app: AgentChatAppOptions,
+): AgentRunMetadata {
   const session = normalizeChatRouteSession(body)
   const message = body.messages?.at(-1)
   const run = typeof body.run === "object" && body.run !== null ? body.run : {}
   return {
     channelId: firstString(run.channelId, session?.id ? `http:${session.id}` : undefined, agentName ? `http:${agentName}` : undefined),
     messageId: firstString(run.messageId, body.messageId, message?.id),
-    origin: firstString(run.origin, "http"),
+    origin: firstString(app.origin, "http"),
     runId: firstString(run.runId) || randomRunId(),
     threadId: firstString(run.threadId, session?.id, body.id, agentName),
   }
 }
 
-function createChatRouteTriggerInput(body: AgentChatRouteBody, agentName: string | undefined): AgentChatMessageTriggerInput {
+function createChatRouteTriggerInput(
+  body: AgentChatRouteBody,
+  agentName: string | undefined,
+  app: AgentChatAppOptions,
+): AgentChatMessageTriggerInput {
   if (!Array.isArray(body.messages) || !body.messages.length) {
     throw createError({
       statusCode: 400,
@@ -755,7 +783,7 @@ function createChatRouteTriggerInput(body: AgentChatRouteBody, agentName: string
 
   const user = typeof body.user === "object" && body.user !== null ? body.user : undefined
   const timeout = typeof body.timeout === "number" ? body.timeout : 90_000
-  const run = createChatRouteRunMetadata(body, agentName)
+  const run = createChatRouteRunMetadata(body, agentName, app)
   return {
     history: body.history,
     messages: body.messages,
@@ -766,7 +794,7 @@ function createChatRouteTriggerInput(body: AgentChatRouteBody, agentName: string
   }
 }
 
-function requireChatAppExposure(agent: AgentInput<NitroAgentRuntimeContext>, agentName?: string): void {
+function requireChatAppExposure(agent: AgentInput<NitroAgentRuntimeContext>, agentName?: string): AgentChatAppOptions {
   const options = getChatCapabilityOptions(agentCapabilityOptions(agent))
   if (!options) {
     throw createError({
@@ -780,6 +808,7 @@ function requireChatAppExposure(agent: AgentInput<NitroAgentRuntimeContext>, age
       statusMessage: `Agent "${agentName || "default"}" does not expose a Chat App Route.`,
     })
   }
+  return normalizeChatAppOptions(options.app) || {}
 }
 
 export function defineAgentHandler(
@@ -836,8 +865,8 @@ export function defineAgentChatHandler(
         await hooks.resolved({ ...context, agent: resolved })
       }
 
-      requireChatAppExposure(agent, options.inferredName)
-      const triggerInput = createChatRouteTriggerInput(body, options.inferredName)
+      const appOptions = requireChatAppExposure(agent, options.inferredName)
+      const triggerInput = createChatRouteTriggerInput(body, options.inferredName, appOptions)
       const result = await streamAgentTrigger(agent, { ...context, run: triggerInput.run } as never, "chat.message", triggerInput, {
         output: "ui-message-stream",
       })

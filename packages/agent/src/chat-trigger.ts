@@ -3,6 +3,7 @@ import { createMessage } from "./messages.ts"
 
 import type {
   AgentCapabilityDefinition,
+  AgentCapabilityTypeContract,
   AgentChatAgentHookArgs,
   AgentChatAdapterResolver,
   AgentChatOptions,
@@ -21,6 +22,45 @@ type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
   chat: AgentChatOptions<TRuntimeConfig>
   kind: "chat"
 }
+
+type ResolvedMaybeResolvable<T> =
+  T extends (...args: any[]) => infer TResult
+    ? Awaited<TResult>
+    : T extends { resolve: (...args: any[]) => infer TResult }
+      ? Awaited<TResult>
+      : T
+
+type AgentChatAppOrigin<TApp> =
+  TApp extends string
+    ? TApp
+    : TApp extends true
+      ? "http"
+      : TApp extends { origin?: infer TOrigin }
+        ? Extract<TOrigin, string>
+        : never
+
+type AgentChatAdapterOrigin<TAdapters> =
+  Extract<keyof NonNullable<ResolvedMaybeResolvable<TAdapters>>, string>
+
+type AgentChatKnownOrigin<TOptions> =
+  (TOptions extends { app?: infer TApp } ? AgentChatAppOrigin<TApp> : never)
+  | (TOptions extends { adapters?: infer TAdapters } ? AgentChatAdapterOrigin<TAdapters> : never)
+
+export type AgentChatOptionsOrigin<TOptions> =
+  [AgentChatKnownOrigin<TOptions>] extends [never]
+    ? string
+    : AgentChatKnownOrigin<TOptions>
+
+type ChatCapabilityTypeContract<TOrigin extends string = string> = AgentCapabilityTypeContract & {
+  chatOrigins: TOrigin
+}
+
+export type AgentChatCapabilityOrigin<TCapability> =
+  TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
+    ? TTypeContract extends { chatOrigins: infer TOrigin }
+      ? Extract<TOrigin, string>
+      : string
+    : string
 
 const CHAT_WEBHOOK_DEFAULTS = {
   telegram: {
@@ -55,10 +95,11 @@ export interface AgentChatMessageTriggerInput {
 export interface AgentChatRunContext<
   TMessageMetadata extends object = Record<string, unknown>,
   TUser extends object = Record<string, unknown>,
+  TOrigin extends string = string,
 > {
   chat?: {
     message?: Omit<AgentChatAgentHookArgs["message"], "metadata"> & { metadata?: TMessageMetadata }
-    run?: AgentRunMetadata
+    run?: AgentRunMetadata<TOrigin>
     session?: AgentChatMessageTriggerInput["session"]
     user?: TUser
   }
@@ -386,9 +427,12 @@ export function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConf
     ?.metadata?.chat as AgentChatOptions<TRuntimeConfig> | undefined
 }
 
-export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChatOptions<TRuntimeConfig> = {},
-): AgentCapabilityDefinition<TRuntimeConfig> {
+export function chat<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  const TOptions extends AgentChatOptions<TRuntimeConfig> = AgentChatOptions<TRuntimeConfig>,
+>(
+  options: TOptions = {} as TOptions,
+): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<AgentChatOptionsOrigin<TOptions>>> {
   return defineCapability({
     id: "chat",
     metadata: {
